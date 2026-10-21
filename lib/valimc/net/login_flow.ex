@@ -130,7 +130,7 @@ defmodule Valimc.Net.LoginFlow do
   end
 
   def start_player_login(state, name, profile \\ nil) do
-    mode = GameMode.new(Valimc.config(:default_game_mode))
+    mode = GameMode.new(Valimc.World.Settings.get(:default_game_mode))
 
     player = %{
       pid: self(),
@@ -143,7 +143,7 @@ defmodule Valimc.Net.LoginFlow do
       y: Valimc.World.Spawn.pose().y,
       z: Valimc.World.Spawn.pose().z,
       yaw: Valimc.World.Spawn.yaw(),
-      pitch: 0.0,
+      pitch: Valimc.World.Spawn.pitch(),
       game_mode: mode,
       abilities: GameMode.abilities(mode, false),
       input: %PlayerInput{},
@@ -159,7 +159,7 @@ defmodule Valimc.Net.LoginFlow do
       equipment: %{},
       health: %PlayerHealth{},
       last_death: nil,
-      dimension: :overworld,
+      dimension: Valimc.World.Spawn.dimension(),
       death_dimension: :overworld,
       portal_cooldown: 0,
       seen_credits: false,

@@ -37,10 +37,10 @@ defmodule Valimc.ServerConnectionTest do
   end
 
   test "an idle player is disconnected after the idle timeout" do
-    on_exit(fn -> Valimc.Admin.Lists.set_idle_timeout(0) end)
+    on_exit(fn -> Valimc.World.Settings.put(idle_timeout: 0) end)
     {client, pid} = join()
     client = command(client, "setidletimeout 5", "commands.setidletimeout.success")
-    assert Valimc.Admin.Lists.idle_timeout() == 5
+    assert Valimc.World.Settings.get(:idle_timeout) == 5
     :sys.replace_state(pid, &%{&1 | last_action: &1.last_action - 6 * 60_000})
     send(pid, :keepalive)
     {body, _client} = Client.await(client, :play, "disconnect")

@@ -42,7 +42,7 @@ defmodule Valimc.AdminConnectionTest do
   # Leaves the shared lists as other suites expect them.
   defp restore(operators) do
     Application.put_env(:valimc, :operators, operators)
-    Lists.set_white_list(false)
+    Valimc.World.Settings.put(white_list: false)
   end
 
   test "a banned profile cannot join until pardoned" do

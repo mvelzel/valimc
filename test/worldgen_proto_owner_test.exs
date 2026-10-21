@@ -9,7 +9,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope}
-  alias Valimc.World.{Generator, Spawn}
+  alias Valimc.World.Generator
   alias Valimc.Worldgen.Proto
 
   @seed 20_261_020
@@ -24,14 +24,8 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     base = Path.join(System.tmp_dir!(), "valimc-proto-#{nonce}")
     File.mkdir_p!(base)
 
-    File.write!(
-      Spawn.path(base),
-      JSON.encode!(%{
-        "spawn" => [0, 100, 0],
-        "yaw" => 0.0,
-        "generator" => %{"type" => "vanilla", "seed" => @seed, "features" => true}
-      })
-    )
+    :ok =
+      Valimc.World.Spec.write(base, %{"type" => "vanilla", "seed" => @seed, "features" => true})
 
     keys = TestScope.neighborhood(key, 3)
     TestScope.isolate(keys, world_path: base)

@@ -1,8 +1,9 @@
 defmodule Valimc.World.Generator do
   @moduledoc """
-  A world's terrain generator (VMC-024d), recorded in its `world.json`: flat
-  terrain for worlds without a generator entry (and imports), or vanilla's
-  overworld terrain for a seed (`"generator": {"type": "vanilla", "seed": …}`).
+  A world's terrain generator (VMC-024d), recorded once in its `world.json`
+  and read once (`Valimc.World.Spec`): ValiMC's flat profile, imports, or
+  vanilla's overworld terrain for a seed (`"generator": {"type": "vanilla",
+  "seed": …}`).
 
   New worlds take the configured generator (`:generator`, `VALIMC_GENERATOR`,
   flat by default) and seed (`:seed`, `VALIMC_SEED`, random otherwise). A new
@@ -32,7 +33,7 @@ defmodule Valimc.World.Generator do
   """
   alias Valimc.{Native, Worldgen}
   alias Valimc.Protocol.Data
-  alias Valimc.World.{GenSettings, Spawn}
+  alias Valimc.World.{GenSettings, Settings, Spec}
 
   @settings "minecraft:overworld"
   @biome_source "minecraft:overworld"
@@ -41,14 +42,14 @@ defmodule Valimc.World.Generator do
   @batches 4
 
   @doc """
-  Create the configured world's metadata when it has none and remember its
-  generator; call at start, before `Spawn.load!/0`.
+  Create the configured world's metadata when it has none, then load its spec
+  (`Spec.load!/0`, fatal when it does not read); call at start.
   """
   def init! do
     base = Valimc.config(:world_path)
 
     with base when is_binary(base) <- base,
-         false <- File.exists?(Spawn.path(base)),
+         false <- File.exists?(Spec.path(base)),
          :vanilla <- Valimc.config(:generator) do
       seed = Valimc.config(:seed) || random_seed()
 
@@ -62,65 +63,15 @@ defmodule Valimc.World.Generator do
       end
     end
 
-    generator = of(base)
-    # The packs' facts once: region loads and proto owners read them per region.
-    :persistent_term.put({__MODULE__, :facts}, {base, Valimc.World.Datapacks.facts(base)})
-
-    with {:vanilla, _} <- generator,
-         {:error, reason} <- spec(base),
-         do: raise("Cannot generate the world at #{base}: #{inspect(reason)}")
-
-    :persistent_term.put({__MODULE__, :world}, generator)
-    :persistent_term.put({__MODULE__, :settings}, recorded(base))
+    Spec.load!()
   end
 
-  @doc "The configured world's generator (`init!/0`)."
-  def current, do: :persistent_term.get({__MODULE__, :world}, :flat)
+  @doc "The configured world's overworld spawn information (`Spec.client_info/2`)."
+  def client_info, do: Spec.client_info(Spec.current(), :overworld)
 
   @doc """
-  The configured world's recorded generation settings (`init!/0`): a vanilla
-  world's or an imported one's, nil for ValiMC's flat profile.
-  """
-  def current_settings, do: :persistent_term.get({__MODULE__, :settings}, nil)
-
-  @doc """
-  What the client learns about the configured world in its spawn information
-  (`client_info/2`).
-  """
-  def client_info, do: client_info(current(), current_settings())
-
-  @doc "The spawn information of the configured world's `dimension` (VMC-026b)."
-  def dimension_info(:overworld), do: client_info()
-  def dimension_info(_dimension), do: {hashed(seed(current(), current_settings())), false}
-
-  # The world's seed for the Nether and the End.
-  defp seed(_generator, %{"seed" => seed}) when is_integer(seed), do: seed
-  defp seed({:vanilla, seed}, _settings), do: seed
-  defp seed(:flat, _settings), do: Valimc.config(:seed) || 0
-
-  @doc """
-  What the client learns about a generator in its spawn information: the hashed
-  seed (`BiomeManager.obfuscateSeed`: the first eight bytes of the SHA-256 of
-  the seed, both little-endian) and whether the overworld is flat. ValiMC's flat
-  profile has no seed (0); an imported world has its settings' seed.
-  """
-  def client_info(generator, settings \\ nil)
-
-  def client_info(:flat, nil), do: {0, true}
-
-  def client_info({:vanilla, seed}, nil), do: {hashed(seed), false}
-
-  def client_info(_generator, %{"seed" => seed} = settings),
-    do: {hashed(seed), GenSettings.overworld(settings)["type"] == "minecraft:flat"}
-
-  defp hashed(seed) do
-    <<hashed::little-signed-64, _::binary>> = :crypto.hash(:sha256, <<seed::little-signed-64>>)
-    hashed
-  end
-
-  @doc """
-  Write `world.json` for a new vanilla world at `base` with `seed` and vanilla's
-  world spawn (VMC-027d). Decorated unless `features: false` (terrain only, as
+  Write `world.json` for a new vanilla world at `base` with `seed`, and its
+  `settings.json` with vanilla's world spawn (VMC-027d). Decorated unless `features: false` (terrain only, as
   worlds generated before VMC-025d); a decorated world's spawn search reads the
   full chunks its regions' first transactions make.
   """
@@ -145,9 +96,11 @@ defmodule Valimc.World.Generator do
           height: spawn_height(spec)
         )
 
-      File.mkdir_p!(base)
       generator = %{"type" => "vanilla", "seed" => seed, "settings" => settings}
-      write_metadata(base, {x, y, z}, generator, features)
+      generator = if features, do: Map.put(generator, "features", true), else: generator
+      spawn = %{dimension: :overworld, position: {x, y, z}, yaw: 0.0, pitch: 0.0}
+
+      with :ok <- Settings.write(base, %{spawn: spawn}), do: Spec.write(base, generator)
     end
   end
 
@@ -168,55 +121,12 @@ defmodule Valimc.World.Generator do
   @noise_settings ~w(minecraft:overworld minecraft:large_biomes minecraft:amplified)
 
   @doc """
-  What generation needs for the world at `base` (VMC-028b): `:flat` for
-  ValiMC's flat profile and imports, else `{:ok, spec}` (`spec_of/1`) or why
-  ValiMC cannot generate it.
+  The Nether's or the End's generator as the world's `recorded` settings name
+  it (VMC-028a's `dimensions.<id>.generator`), else its dimension type's
+  defaults: `{:ok, noise_settings, biome_source}` with a multi-noise preset, the
+  End's or a fixed biome as the native worldgen names it.
   """
-  def spec(base) do
-    case of(base) do
-      :flat ->
-        :flat
-
-      {:vanilla, seed} ->
-        with {:ok, facts} <- facts(base),
-             do: spec_of(recorded(base) || GenSettings.legacy({:vanilla, seed}), facts)
-    end
-  end
-
-  # Whether a world with these recorded settings generates structures
-  # (VMC-025f5).
-  defp structures?(nil), do: false
-  defp structures?(settings), do: Map.get(settings, "generate_structures", true)
-
-  @doc """
-  What generation of `dimension` needs for the world at `base`: the
-  overworld's `spec/1`; the Nether's and the End's noise generation of the
-  world's seed with the dimension's settings and biome source (VMC-026b).
-  """
-  def spec(base, :overworld), do: spec(base)
-
-  def spec(base, dimension) do
-    recorded = recorded(base)
-
-    with {:ok, facts} <- facts(base),
-         {:ok, settings, source} <- dimension_generator(recorded, dimension) do
-      {:ok,
-       %{
-         kind: :noise,
-         seed: seed(of(base), recorded),
-         noise_settings: settings,
-         biome_source: source,
-         facts: facts,
-         structures: structures?(recorded)
-       }}
-    end
-  end
-
-  # The dimension's generator as the world records it (VMC-028a's settings,
-  # `dimensions.<id>.generator`), else its dimension type's defaults: noise
-  # settings by name, and a multi-noise preset, the End's or a fixed biome as
-  # the native worldgen names them.
-  defp dimension_generator(recorded, dimension) do
+  def dimension_generator(recorded, dimension) do
     id = Valimc.Dimension.name(dimension)
     %{noise_settings: settings, biome_source: source} = Valimc.Dimension.facts(dimension)
 
@@ -245,15 +155,6 @@ defmodule Valimc.World.Generator do
 
       other ->
         {:error, {:unsupported_generator, id, other}}
-    end
-  end
-
-  # The configured world's pack facts as `init!/0` found them; any other
-  # world's (tests, tools) read now.
-  defp facts(base) do
-    case :persistent_term.get({__MODULE__, :facts}, nil) do
-      {^base, facts} -> facts
-      _ -> Valimc.World.Datapacks.facts(base)
     end
   end
 
@@ -330,17 +231,6 @@ defmodule Valimc.World.Generator do
      }}
   end
 
-  defp write_metadata(base, {x, y, z}, generator, features) do
-    File.write(
-      Spawn.path(base),
-      JSON.encode!(%{
-        "spawn" => [x, y, z],
-        "yaw" => 0.0,
-        "generator" => if(features, do: Map.put(generator, "features", true), else: generator)
-      })
-    )
-  end
-
   # Full chunk images as region `key`'s transaction makes them when it is the
   # first one finalized: the 10 × 10 around it decorated Z outer, X inner over
   # terrain, memoized per region for one search. A player whose view starts
@@ -388,107 +278,6 @@ defmodule Valimc.World.Generator do
 
         {chunk, Map.fetch!(images, chunk)}
       end)
-    end
-  end
-
-  @doc """
-  Whether `dimension` of the world at `base` decorates its generated chunks:
-  the Nether and the End do unless the world's overworld is noise terrain
-  generated before decoration (VMC-026b).
-  """
-  def decorated?(base, :overworld), do: decorated?(base)
-  def decorated?(nil, _dimension), do: false
-
-  def decorated?(base, _dimension) do
-    case spec(base) do
-      {:ok, %{kind: :noise}} -> decorated?(base)
-      _ -> true
-    end
-  end
-
-  @doc "Whether the world at `base` decorates its generated chunks (VMC-025d)."
-  def decorated?(nil), do: false
-
-  def decorated?(base) do
-    with {:ok, text} <- File.read(Spawn.path(base)),
-         {:ok, %{"generator" => %{"type" => "vanilla", "features" => true}}} <- JSON.decode(text),
-         do: true,
-         else: (_ -> false)
-  end
-
-  @doc """
-  The generation settings `world.json` records for the world at `base`: its
-  own, those of an older vanilla world (the normal preset), or nil (ValiMC's
-  flat profile; an import whose settings ValiMC could not read).
-  """
-  def recorded(nil), do: nil
-
-  def recorded(base) do
-    with {:ok, text} <- File.read(Spawn.path(base)),
-         {:ok, %{"generator" => %{"type" => type} = generator}} <- JSON.decode(text) do
-      case {type, generator} do
-        {_, %{"settings" => %{} = settings}} ->
-          settings
-
-        {"vanilla", %{"seed" => seed}} when is_integer(seed) ->
-          GenSettings.legacy({:vanilla, seed})
-
-        _ ->
-          nil
-      end
-    else
-      _ -> nil
-    end
-  end
-
-  @doc """
-  Record an imported world's generation settings in its `world.json`: those of
-  `world_gen_settings.dat` (`root`, nil without one), or why ValiMC cannot read
-  them. Imported worlds keep flat terrain outside their imported chunks.
-  """
-  def record_import(base, root) do
-    generator =
-      case root && GenSettings.from_nbt(root) do
-        nil ->
-          nil
-
-        {:ok, %{"seed" => seed} = settings} ->
-          %{"type" => "imported", "seed" => seed, "settings" => settings}
-
-        {:error, reason} ->
-          %{"type" => "imported", "unreadable" => inspect(reason)}
-      end
-
-    with {:ok, text} <- File.read(Spawn.path(base)),
-         {:ok, meta} <- JSON.decode(text) do
-      meta = if generator, do: Map.put(meta, "generator", generator), else: meta
-      File.write(Spawn.path(base), JSON.encode!(meta))
-    end
-  end
-
-  @doc """
-  The settings to export for the world at `base`: recorded ones, else those
-  of ValiMC's flat profile.
-  """
-  def settings(base), do: recorded(base) || GenSettings.legacy(:flat)
-
-  @doc """
-  Whether `dimension` of the world at `base` generates its chunks: a vanilla
-  world's every dimension; any world's Nether and End (VMC-026b).
-  """
-  def generates?(base, :overworld), do: of(base) != :flat
-  def generates?(_base, _dimension), do: true
-
-  @doc "The generator of the world at `base`: `:flat` or `{:vanilla, seed}`."
-  def of(nil), do: :flat
-
-  def of(base) do
-    with {:ok, text} <- File.read(Spawn.path(base)),
-         {:ok, %{"generator" => %{"type" => "vanilla", "seed" => seed}}} when is_integer(seed) <-
-           JSON.decode(text) do
-      {:vanilla, seed}
-    else
-      _ -> :flat
     end
   end
 

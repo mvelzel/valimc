@@ -120,7 +120,7 @@ defmodule Valimc.Commands.Place do
   end
 
   defp place!(source, spec, pos, failed, random \\ nil, invalid \\ nil, id \\ nil) do
-    {state, biome_source} = generator!(elem(spec, 0))
+    {state, biome_source} = generator!(source.dimension, elem(spec, 0))
 
     case Native.worldgen_place_plan(state, biome_source, spec, pos) do
       {:ok, {"invalid", _, _}} ->
@@ -155,8 +155,9 @@ defmodule Valimc.Commands.Place do
     end
   end
 
-  defp generator!(kind) do
-    case Valimc.World.Generator.spec(Valimc.config(:world_path)) do
+  # The executing dimension's generation (VMC-077a).
+  defp generator!(dimension, kind) do
+    case Valimc.World.Spec.generation(Valimc.World.Spec.current(), dimension) do
       {:ok, %{kind: :noise} = spec} ->
         {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
         {state, spec.biome_source}

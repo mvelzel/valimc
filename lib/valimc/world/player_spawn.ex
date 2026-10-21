@@ -31,21 +31,29 @@ defmodule Valimc.World.PlayerSpawn do
   @deadline_ms 10_000
 
   @doc """
-  The spawn position `%{x, y, z, yaw, pitch}` for a player in `mode` (the
-  bottom centre of the found block, facing the world spawn's yaw).
+  The spawn position `%{dimension, x, y, z, yaw, pitch}` for a player in
+  `mode`: in the world spawn's dimension, the bottom centre of the found block,
+  facing the world spawn's rotation.
   """
-  def find(mode \\ Valimc.config(:default_game_mode)) do
+  def find(mode \\ Valimc.World.Settings.get(:default_game_mode)) do
     deadline = System.monotonic_time(:millisecond) + @deadline_ms
+    dimension = Spawn.dimension()
 
     {x, y, z} =
       try do
-        suggestion = suggestion(deadline)
-        search(suggestion, mode, deadline)
+        Valimc.Dimension.within(dimension, fn -> search(suggestion(deadline), mode, deadline) end)
       catch
         :deadline -> Spawn.position()
       end
 
-    %{x: x + 0.5, y: y * 1.0, z: z + 0.5, yaw: Spawn.yaw(), pitch: 0.0}
+    %{
+      dimension: dimension,
+      x: x + 0.5,
+      y: y * 1.0,
+      z: z + 0.5,
+      yaw: Spawn.yaw(),
+      pitch: Spawn.pitch()
+    }
   end
 
   @doc "The search around `suggestion` for a player in `mode`."

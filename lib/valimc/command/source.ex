@@ -6,7 +6,7 @@ defmodule Valimc.Command.Source do
   """
   alias Valimc.Command.{Text, Coordinates, Selector, Error}
 
-  defstruct [:level, :state, :player, :name, :position, :rotation, kind: :player]
+  defstruct [:level, :state, :player, :name, :position, :rotation, :dimension, kind: :player]
 
   def player(state) do
     player = Map.put(state.player, :pid, self())
@@ -17,13 +17,15 @@ defmodule Valimc.Command.Source do
       player: player,
       name: player.name,
       position: {player.x, player.y, player.z},
-      rotation: {player.yaw, player.pitch}
+      rotation: {player.yaw, player.pitch},
+      dimension: Map.get(player, :dimension, :overworld)
     }
   end
 
   @doc """
   The server console (VMC-010f), vanilla's `MinecraftServer.createCommandSourceStack`:
-  permission level 4, named Server, at the world spawn, with no player.
+  permission level 4, named Server, at the world spawn in its dimension
+  (`findRespawnDimension`), with no player.
   """
   def console, do: server_source("Server", :console)
 
@@ -39,7 +41,8 @@ defmodule Valimc.Command.Source do
       name: name,
       kind: kind,
       position: {floor(x) * 1.0, floor(y) * 1.0, floor(z) * 1.0},
-      rotation: {0.0, 0.0}
+      rotation: {0.0, 0.0},
+      dimension: Valimc.World.Spawn.dimension()
     }
   end
 
@@ -51,7 +54,13 @@ defmodule Valimc.Command.Source do
 
   @doc "A source for parsing only (the parse oracle), at a permission level."
   def parse_only(level),
-    do: %__MODULE__{level: level, name: "", position: {0.0, 0.0, 0.0}, rotation: {0.0, 0.0}}
+    do: %__MODULE__{
+      level: level,
+      name: "",
+      position: {0.0, 0.0, 0.0},
+      rotation: {0.0, 0.0},
+      dimension: :overworld
+    }
 
   def display_name(%__MODULE__{player: nil, name: name}), do: Text.literal(name)
   def display_name(%__MODULE__{player: player}), do: Text.player_name(player.name, player.uuid)

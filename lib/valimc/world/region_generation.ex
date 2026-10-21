@@ -20,7 +20,7 @@ defmodule Valimc.World.RegionGeneration do
   """
   require Logger
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData}
+  alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData, Spec}
   alias Valimc.World.{ScheduledTicks, Store}
   alias Valimc.Worldgen.{FullChunk, Pool, Proto}
 
@@ -49,24 +49,19 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc "The generation state of region `key` whose log holds column `images`."
   def new(key, images) do
-    base = Valimc.config(:world_path, key)
+    world = Spec.fetch(Valimc.config(:world_path, key))
     dimension = Valimc.Dimension.current()
 
-    if Generator.generates?(base, dimension) do
+    if generation = Spec.generation(world, dimension) do
       absent = for chunk <- Proto.chunks_of(key), not Map.has_key?(images, chunk), do: chunk
 
-      mode = if Generator.decorated?(base, dimension), do: :decorated, else: :terrain
+      mode = if Spec.decorated?(world, dimension), do: :decorated, else: :terrain
 
       spec =
-        case {mode, absent} do
-          {:terrain, [_ | _]} ->
-            case Generator.spec(base, dimension) do
-              {:ok, spec} -> spec
-              {:error, reason} -> exit({:generation_unavailable, reason})
-            end
-
-          _ ->
-            nil
+        case {mode, absent, generation} do
+          {:terrain, [_ | _], {:ok, spec}} -> spec
+          {:terrain, [_ | _], {:error, reason}} -> exit({:generation_unavailable, reason})
+          _ -> nil
         end
 
       %__MODULE__{

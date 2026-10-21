@@ -24,12 +24,15 @@ defmodule Valimc.Commands.Locate do
     unless members, do: Error.fail!("commands.locate.structure.invalid", [printable])
 
     # A world created without structures finds none (`generate-structures`).
-    if match?(%{"generate_structures" => false}, Valimc.World.Generator.current_settings()),
+    world = Valimc.World.Spec.current()
+
+    unless Valimc.World.Spec.structures?(world),
       do: Error.fail!("commands.locate.structure.not_found", [printable])
 
-    # The world's own generation (VMC-028: presets, a single biome, data packs).
+    # The executing dimension's own generation (VMC-028: presets, a single
+    # biome, data packs; VMC-077a: the source's dimension).
     {state, biome_source} =
-      case Valimc.World.Generator.spec(Valimc.config(:world_path)) do
+      case Valimc.World.Spec.generation(world, source.dimension) do
         {:ok, %{kind: :noise} = spec} ->
           {:ok, state} =
             Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)

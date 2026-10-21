@@ -33,10 +33,10 @@ defmodule Valimc.Anvil.Export do
     Containers,
     CookingOrbs,
     GenSettings,
-    Generator,
     ItemLedger,
     Schema,
-    Spawn,
+    Settings,
+    Spec,
     Store
   }
 
@@ -283,7 +283,7 @@ defmodule Valimc.Anvil.Export do
       target = Path.join(destination, Path.relative_to(path, kept))
       File.mkdir_p!(Path.dirname(target))
 
-      case RegionWriter.durable_write(target, File.read!(path)) do
+      case Valimc.DurableFile.write(target, File.read!(path)) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
@@ -299,10 +299,11 @@ defmodule Valimc.Anvil.Export do
     if File.exists?(Path.join([source, "vanilla", path])) do
       :ok
     else
-      with {:ok, root} <- GenSettings.to_nbt(Generator.settings(source)) do
+      with {:ok, spec} <- Spec.load(source),
+           {:ok, root} <- GenSettings.to_nbt(Spec.settings(spec)) do
         File.mkdir_p!(Path.dirname(Path.join(destination, path)))
 
-        RegionWriter.durable_write(
+        Valimc.DurableFile.write(
           Path.join(destination, path),
           NBT.write_compressed(root, :gzip)
         )
@@ -317,17 +318,10 @@ defmodule Valimc.Anvil.Export do
          {:ok, {:compound, %{"Data" => {:compound, data}} = root}} <-
            NBT.read_compressed(bytes, :gzip) do
       spawn =
-        case File.read(Spawn.path(source)) do
-          {:ok, text} ->
-            %{"spawn" => [x, y, z], "yaw" => yaw} = JSON.decode!(text)
-
+        case Settings.read(source) do
+          {:ok, %{spawn: spawn}} ->
             {:compound, fields} = Map.get(data, "spawn", {:compound, %{}})
-
-            {:compound,
-             Map.merge(fields, %{
-               "pos" => {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>},
-               "yaw" => {:float, <<yaw * 1.0::float-32>>}
-             })}
+            {:compound, Map.merge(fields, spawn_fields(spawn))}
 
           _ ->
             data["spawn"]
@@ -335,7 +329,7 @@ defmodule Valimc.Anvil.Export do
 
       data = if spawn, do: Map.put(data, "spawn", spawn), else: data
       level = NBT.write_compressed({:compound, Map.put(root, "Data", {:compound, data})}, :gzip)
-      RegionWriter.durable_write(Path.join(destination, "level.dat"), level)
+      Valimc.DurableFile.write(Path.join(destination, "level.dat"), level)
     else
       {:error, :enoent} -> new_level(source, destination)
       {:error, _} = error -> error
@@ -346,15 +340,15 @@ defmodule Valimc.Anvil.Export do
   # `PrimaryLevelData` of a new world as a dedicated server saves it, with the
   # world's spawn and default game mode; vanilla fills what it omits.
   defp new_level(source, destination) do
-    {:ok, %{"spawn" => [x, y, z], "yaw" => yaw}} =
-      source |> Spawn.path() |> File.read!() |> JSON.decode()
+    {:ok, saved} = Settings.read(source)
+    %{spawn: spawn, default_game_mode: mode} = Map.merge(Settings.defaults(), saved)
 
     version = Schema.data_version()
 
     game_type =
       Enum.find_index(
         ~w(survival creative adventure spectator)a,
-        &(&1 == Valimc.config(:default_game_mode))
+        &(&1 == mode)
       )
 
     data = %{
@@ -378,18 +372,21 @@ defmodule Valimc.Anvil.Export do
       "DataPacks" =>
         {:compound,
          %{"Enabled" => {:list, {:string, ["vanilla"]}}, "Disabled" => {:list, {:end, []}}}},
-      "spawn" =>
-        {:compound,
-         %{
-           "dimension" => {:string, "minecraft:overworld"},
-           "pos" => {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>},
-           "yaw" => {:float, <<yaw * 1.0::float-32>>},
-           "pitch" => {:float, <<0.0::float-32>>}
-         }}
+      "spawn" => {:compound, spawn_fields(spawn)}
     }
 
     level = NBT.write_compressed({:compound, %{"Data" => {:compound, data}}}, :gzip)
-    RegionWriter.durable_write(Path.join(destination, "level.dat"), level)
+    Valimc.DurableFile.write(Path.join(destination, "level.dat"), level)
+  end
+
+  # `RespawnData`'s fields as `level.dat` keeps them.
+  defp spawn_fields(%{dimension: dimension, position: {x, y, z}, yaw: yaw, pitch: pitch}) do
+    %{
+      "dimension" => {:string, Valimc.Dimension.name(dimension)},
+      "pos" => {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>},
+      "yaw" => {:float, <<yaw::float-32>>},
+      "pitch" => {:float, <<pitch::float-32>>}
+    }
   end
 
   @doc "Command-line entry: prints the report; exits non-zero on failure."

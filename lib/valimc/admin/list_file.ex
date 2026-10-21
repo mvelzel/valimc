@@ -20,21 +20,13 @@ defmodule Valimc.Admin.ListFile do
     end
   end
 
-  @doc "Writes entries (lists of `{key, value}` in field order) pretty-printed."
-  def write(path, entries) do
-    File.mkdir_p!(Path.dirname(path))
-    temporary = path <> ".tmp"
-    File.write!(temporary, pretty(entries))
-    File.rename!(temporary, path)
-  end
+  @doc "Writes entries (lists of `{key, value}` in field order) pretty-printed: `:ok` or `{:error, _}`."
+  def write(path, entries), do: Valimc.DurableFile.write(path, pretty(entries))
 
   @doc "Writes entries on one line, as vanilla's name cache does."
   def write_compact(path, entries) do
-    File.mkdir_p!(Path.dirname(path))
-    temporary = path <> ".tmp"
     body = Enum.map_join(entries, ",", &object(&1, ","))
-    File.write!(temporary, "[" <> body <> "]")
-    File.rename!(temporary, path)
+    Valimc.DurableFile.write(path, "[" <> body <> "]")
   end
 
   def pretty([]), do: "[]"

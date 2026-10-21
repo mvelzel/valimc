@@ -6,7 +6,12 @@ defmodule Valimc.GenSettingsTest do
   """
   use ExUnit.Case, async: true
   alias Valimc.NBT
-  alias Valimc.World.{GenSettings, Generator, Spawn}
+  alias Valimc.World.{GenSettings, Generator, Settings, Spec}
+
+  defp hashed(seed) do
+    <<hashed::little-signed-64, _::binary>> = :crypto.hash(:sha256, <<seed::little-signed-64>>)
+    hashed
+  end
 
   setup do
     dir = Path.join(System.tmp_dir!(), "valimc-settings-#{System.unique_integer([:positive])}")
@@ -16,11 +21,9 @@ defmodule Valimc.GenSettingsTest do
 
   test "worlds record their settings; older and flat worlds get theirs", ctx do
     :ok = Generator.create(ctx.dir, 20_261_020, features: false, structures: false)
-    recorded = Generator.recorded(ctx.dir)
-    assert recorded == GenSettings.create("minecraft:normal", nil, 20_261_020, false)
-
-    assert Generator.client_info(Generator.of(ctx.dir), nil) ==
-             Generator.client_info({:vanilla, 20_261_020})
+    spec = Spec.fetch(ctx.dir)
+    assert spec.settings == GenSettings.create("minecraft:normal", nil, 20_261_020, false)
+    assert Spec.client_info(spec, :overworld) == {hashed(20_261_020), false}
 
     # Presets ValiMC does not generate yet are refused.
     other = Path.join(ctx.dir, "other")
@@ -31,19 +34,13 @@ defmodule Valimc.GenSettingsTest do
     older = Path.join(ctx.dir, "older")
     File.mkdir_p!(older)
 
-    File.write!(
-      Spawn.path(older),
-      JSON.encode!(%{"spawn" => [0, 70, 0], "generator" => %{"type" => "vanilla", "seed" => 5}})
-    )
+    :ok = Spec.write(older, %{"type" => "vanilla", "seed" => 5})
+    assert Spec.fetch(older).settings == GenSettings.create("minecraft:normal", nil, 5, true)
 
-    assert Generator.recorded(older) == GenSettings.create("minecraft:normal", nil, 5, true)
-
-    flat = Path.join(ctx.dir, "flat")
-    :ok = File.mkdir_p(flat)
-    :ok = Spawn.write(flat, {0, 64, 0}, 0.0)
-    assert Generator.recorded(flat) == nil
-    assert GenSettings.overworld(Generator.settings(flat))["type"] == "minecraft:flat"
-    assert Generator.client_info(:flat, nil) == {0, true}
+    flat = Spec.fetch(Path.join(ctx.dir, "flat"))
+    assert flat.settings == nil
+    assert GenSettings.overworld(Spec.settings(flat))["type"] == "minecraft:flat"
+    assert Spec.client_info(flat, :overworld) == {0, true}
   end
 
   test "an import records the world's settings; an export writes them", ctx do
@@ -59,7 +56,13 @@ defmodule Valimc.GenSettingsTest do
            {:compound,
             %{
               "DataVersion" => version,
-              "spawn" => {:compound, %{"pos" => {:int_array, <<1::32, 70::32, 2::32>>}}}
+              "spawn" =>
+                {:compound,
+                 %{
+                   "dimension" => {:string, "minecraft:the_nether"},
+                   "pos" => {:int_array, <<1::32, 70::32, 2::32>>},
+                   "pitch" => {:float, <<15.0::float-32>>}
+                 }}
             }}
        }}
 
@@ -74,13 +77,16 @@ defmodule Valimc.GenSettingsTest do
 
     imported = Path.join(ctx.dir, "imported")
     {:ok, _} = Valimc.Anvil.Import.run(source, imported)
-    {:ok, meta} = imported |> Spawn.path() |> File.read!() |> JSON.decode()
+    {:ok, meta} = imported |> Spec.path() |> File.read!() |> JSON.decode()
     assert meta["generator"] == %{"type" => "imported", "seed" => 777, "settings" => settings}
     # Imports keep flat terrain outside their chunks, but clients get the seed.
-    assert Generator.of(imported) == :flat
+    spec = Spec.fetch(imported)
+    assert Spec.generation(spec, :overworld) == nil
+    assert Spec.client_info(spec, :overworld) == {hashed(777), false}
 
-    assert Generator.client_info(:flat, Generator.recorded(imported)) ==
-             Generator.client_info({:vanilla, 777})
+    assert Settings.read(imported) ==
+             {:ok,
+              %{spawn: %{dimension: :the_nether, position: {1, 70, 2}, yaw: 0.0, pitch: 15.0}}}
 
     # A world never imported exports a level.dat at its spawn and its settings.
     created = Path.join(ctx.dir, "created")
@@ -94,15 +100,18 @@ defmodule Valimc.GenSettingsTest do
       |> File.read!()
       |> NBT.read_compressed(:gzip)
 
-    assert GenSettings.from_nbt(written) == {:ok, Generator.recorded(created)}
+    assert GenSettings.from_nbt(written) == {:ok, Spec.fetch(created).settings}
 
     {:ok, {:compound, %{"Data" => {:compound, data}}}} =
       exported |> Path.join("level.dat") |> File.read!() |> NBT.read_compressed(:gzip)
 
-    {:ok, %{"spawn" => [x, y, z]}} = created |> Spawn.path() |> File.read!() |> JSON.decode()
+    {:ok, %{spawn: %{position: {x, y, z}}}} = Settings.read(created)
 
-    assert {:compound, %{"pos" => {:int_array, <<^x::signed-32, ^y::signed-32, ^z::signed-32>>}}} =
-             data["spawn"]
+    assert {:compound,
+            %{
+              "dimension" => {:string, "minecraft:overworld"},
+              "pos" => {:int_array, <<^x::signed-32, ^y::signed-32, ^z::signed-32>>}
+            }} = data["spawn"]
 
     assert data["DataVersion"] == version
   end

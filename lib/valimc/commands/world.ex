@@ -473,7 +473,12 @@ defmodule Valimc.Commands.World do
           {0.0, 0.0}
       end
 
-    Valimc.World.Spawn.set(position, yaw)
+    # Vanilla's `RespawnData.of(level.dimension(), pos, yaw, pitch)`.
+    case Valimc.World.Spawn.set(source.dimension, position, yaw, pitch) do
+      {:error, reason} -> Error.refuse!("The world spawn could not be saved (#{inspect(reason)})")
+      _saved_or_unchanged -> :ok
+    end
+
     {x, y, z} = position
 
     Feedback.success(
@@ -484,7 +489,7 @@ defmodule Valimc.Commands.World do
         z,
         {:float, yaw},
         {:float, pitch},
-        "minecraft:overworld"
+        Valimc.Dimension.name(source.dimension)
       ])
     )
 
@@ -494,9 +499,8 @@ defmodule Valimc.Commands.World do
   @doc "`/seed`: the world seed, copyable on click."
   def seed(_arguments, source) do
     seed =
-      case {Valimc.World.Generator.current(), Valimc.World.Generator.current_settings()} do
-        {{:vanilla, seed}, _} -> seed
-        {_, %{"seed" => seed}} -> seed
+      case Valimc.World.Spec.current() do
+        %{settings: %{"seed" => seed}} -> seed
         _ -> nil
       end
 
@@ -533,7 +537,7 @@ defmodule Valimc.Commands.World do
 
   @doc "`/locate biome <biome>` in a flat world, whose only biome is plains."
   def locate_biome(%{"biome" => biome}, source) do
-    unless Valimc.World.Generator.current() == :flat,
+    unless Valimc.World.Spec.generation(Valimc.World.Spec.current(), source.dimension) == nil,
       do:
         Error.throw!(%Error{
           message: Text.literal("Locating biomes in generated worlds is not supported yet")

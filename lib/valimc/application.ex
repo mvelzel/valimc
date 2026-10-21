@@ -5,15 +5,16 @@ defmodule Valimc.Application do
   one domain stops at that domain's supervisor and only a domain's restart
   restarts the domains after it.
 
-  1. Infrastructure: the settings, clock, tick rate, stopwatch and admin owners
-     and the worker pools; independent of each other (`one_for_one`).
+  1. Infrastructure: the world settings, tick rate, clock, stopwatch and admin
+     owners and the worker pools; independent of each other (`one_for_one`).
   2. Storage: the player logs and the per-session and per-region stores.
   3. World: region and proto registries, the directory, region and proto owners.
   4. Players: admission and its tables, login workers and connections.
   5. Network: the listener, the console and RCON (`one_for_one`; a listener
      restart touches no connection).
 
-  Tables nobody owns as state (metrics counters, the terrain board, the
+  The world's generation (`Valimc.World.Spec`) is read before any process
+  starts; a world that does not read stops the start. Tables nobody owns as state (metrics counters, the terrain board, the
   autosave flag) are created here, owned by the application for its whole life,
   instead of by a process that only holds them.
   """
@@ -28,7 +29,6 @@ defmodule Valimc.Application do
     Valimc.World.Blocks.init!()
     Valimc.World.Light.init!()
     Valimc.World.Generator.init!()
-    Valimc.World.Spawn.load!()
     Valimc.LoginKeys.init!()
     Valimc.Metrics.init!()
     Valimc.World.Saving.init!()
@@ -40,6 +40,7 @@ defmodule Valimc.Application do
     schedulers = max(System.schedulers_online(), 1)
 
     infrastructure = [
+      Valimc.World.Settings,
       Valimc.World.TickRate,
       {Valimc.World.Clock, []},
       {Valimc.World.Stopwatches, []},

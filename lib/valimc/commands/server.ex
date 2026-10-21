@@ -64,9 +64,10 @@ defmodule Valimc.Commands.Server do
     :exit, _ -> :error
   end
 
-  @doc "`/setidletimeout <minutes>` (VMC-010c), saved with the admin settings."
+  @doc "`/setidletimeout <minutes>` (VMC-010c), saved with the world settings."
   def setidletimeout(%{"minutes" => minutes}, source) do
-    Valimc.Admin.Lists.set_idle_timeout(minutes)
+    with {:error, reason} <- Valimc.World.Settings.put(idle_timeout: minutes),
+         do: Error.refuse!("The idle timeout could not be saved (#{inspect(reason)})")
 
     message =
       if minutes > 0,

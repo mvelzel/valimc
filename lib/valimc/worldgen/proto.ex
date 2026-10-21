@@ -58,7 +58,7 @@ defmodule Valimc.Worldgen.Proto do
   alias Valimc.Native
   alias Valimc.Txn.{Delivery, Permits, Receipts}
   alias Valimc.Worldgen.{Pool, ProtoLog, TerrainBoard}
-  alias Valimc.World.Generator
+  alias Valimc.World.{Generator, Spec}
 
   defstruct [
     :key,
@@ -246,7 +246,7 @@ defmodule Valimc.Worldgen.Proto do
     dimension = Valimc.Dimension.current()
     base = Valimc.Dimension.storage(world, dimension)
 
-    case Generator.spec(world, dimension) do
+    case Spec.generation(Spec.fetch(world), dimension) do
       {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
 

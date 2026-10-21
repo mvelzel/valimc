@@ -667,7 +667,7 @@ defmodule Valimc.Session.Messages do
         now = System.monotonic_time(:millisecond)
         timeout = Valimc.config(:keepalive_timeout_ms)
 
-        idle = Valimc.Admin.Lists.idle_timeout()
+        idle = Valimc.World.Settings.get(:idle_timeout)
 
         case state.keepalive do
           {_, sent} when now - sent > timeout ->

@@ -9,7 +9,7 @@ defmodule Valimc.GameModeConnectionTest do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-mode-#{nonce}")
     old = Valimc.config(:world_path)
-    old_mode = Valimc.config(:default_game_mode)
+    old_mode = Valimc.World.Settings.get(:default_game_mode)
     Application.put_env(:valimc, :world_path, base)
     name = "Mode" <> Integer.to_string(nonce)
     uuid = Valimc.Connection.offline_uuid(name)
@@ -36,7 +36,7 @@ defmodule Valimc.GameModeConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
-      Application.put_env(:valimc, :default_game_mode, old_mode)
+      Valimc.World.Settings.put(default_game_mode: old_mode)
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
       Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
@@ -100,7 +100,7 @@ defmodule Valimc.GameModeConnectionTest do
     for mode <- [:survival, :creative, :adventure, :spectator] do
       saved_mode = %GameMode{current: mode, previous: :adventure}
       seed(ctx, saved_mode)
-      Application.put_env(:valimc, :default_game_mode, :survival)
+      Valimc.World.Settings.put(default_game_mode: :survival)
       client = login(ctx)
       s = state(ctx)
       assert s.player.game_mode == saved_mode
@@ -118,7 +118,7 @@ defmodule Valimc.GameModeConnectionTest do
       assert s.inventory.infinite_materials == (mode == :creative)
       assert client.inventory.items == Inventory.contents(ctx.inventory)
       close(ctx, client)
-      Application.put_env(:valimc, :default_game_mode, :creative)
+      Valimc.World.Settings.put(default_game_mode: :creative)
       second = login(ctx)
       assert state(ctx).player.game_mode == saved_mode
       assert second.inventory.items == client.inventory.items

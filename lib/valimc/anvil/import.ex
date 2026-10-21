@@ -40,8 +40,10 @@ defmodule Valimc.Anvil.Import do
     Containers,
     CookingOrbs,
     DataFix,
+    GenSettings,
     ItemLedger,
-    Spawn,
+    Settings,
+    Spec,
     Store
   }
 
@@ -81,9 +83,8 @@ defmodule Valimc.Anvil.Import do
 
       case for({key, {:error, reason}, _} <- written, do: {key, reason}) do
         [] ->
-          {position, yaw} = spawn
-          :ok = Spawn.write(destination, position, yaw)
-          :ok = Valimc.World.Generator.record_import(destination, read_settings(source))
+          :ok = Settings.write(destination, %{spawn: spawn})
+          :ok = Spec.write(destination, imported_generator(read_settings(source)))
           :ok = keep_world_data(source, Path.join(destination, "vanilla"))
 
           {:ok,
@@ -102,7 +103,7 @@ defmodule Valimc.Anvil.Import do
                ),
              errors: converted |> Enum.flat_map(& &1.errors) |> Enum.take(@max_errors),
              error_count: Enum.sum(Enum.map(converted, &length(&1.errors))),
-             spawn: position,
+             spawn: spawn.position,
              milliseconds: System.monotonic_time(:millisecond) - started
            }}
 
@@ -128,16 +129,43 @@ defmodule Valimc.Anvil.Import do
          {:compound, %{"Data" => {:compound, data}}} <- level,
          {:compound, spawn} <- data["spawn"],
          {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>} <- spawn["pos"] do
-      yaw =
-        case spawn["yaw"] do
-          {:float, <<yaw::float-32>>} -> yaw
-          _ -> 0.0
-        end
+      angle = fn
+        {:float, <<angle::float-32>>} -> angle
+        _ -> 0.0
+      end
 
-      {:ok, {{x, y, z}, yaw}}
+      dimension =
+        with {:string, name} <- spawn["dimension"],
+             {:ok, dimension} <- Valimc.Dimension.parse(name),
+             do: dimension,
+             else: (_ -> :overworld)
+
+      {:ok,
+       %{
+         dimension: dimension,
+         position: {x, y, z},
+         yaw: angle.(spawn["yaw"]),
+         pitch: angle.(spawn["pitch"])
+       }}
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_level_dat}
+    end
+  end
+
+  # The imported world's generator (VMC-028a): the settings of its
+  # `world_gen_settings.dat` (`root`; nil without one, ValiMC's flat profile),
+  # or why ValiMC cannot read them. Imports keep flat terrain outside their
+  # imported chunks.
+  defp imported_generator(nil), do: %{"type" => "flat"}
+
+  defp imported_generator(root) do
+    case GenSettings.from_nbt(root) do
+      {:ok, %{"seed" => seed} = settings} ->
+        %{"type" => "imported", "seed" => seed, "settings" => settings}
+
+      {:error, reason} ->
+        %{"type" => "imported", "unreadable" => inspect(reason)}
     end
   end
 

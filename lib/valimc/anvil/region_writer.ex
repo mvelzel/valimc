@@ -10,10 +10,9 @@ defmodule Valimc.Anvil.RegionWriter do
   file, with a one-byte payload carrying the compression plus 128, as vanilla
   writes it.
 
-  Writes are crash-safe: every file is written to a temporary name, synced and
-  renamed into place, external chunks before the region file that points at
-  them, then the directory is synced (`Native.fsync_dir/1`). A crash leaves
-  either the old file or the complete new one.
+  Writes are crash-safe (`Valimc.DurableFile`), external chunks before the
+  region file that points at them. A crash leaves either the old file or the
+  complete new one.
   """
   @sector 4096
   @zlib 2
@@ -39,7 +38,7 @@ defmodule Valimc.Anvil.RegionWriter do
       Enum.reduce(slots, {[], %{}, 2}, fn {index, {cx, cz}, data}, {body, header, next} ->
         payload =
           if byte_size(data) + 5 > 255 * @sector do
-            :ok = durable_write(Path.join(dir, "c.#{cx}.#{cz}.mcc"), data)
+            :ok = Valimc.DurableFile.write(Path.join(dir, "c.#{cx}.#{cz}.mcc"), data)
             <<1::32, @zlib + @external>>
           else
             <<byte_size(data) + 1::32, @zlib, data::binary>>
@@ -65,22 +64,6 @@ defmodule Valimc.Anvil.RegionWriter do
 
     path = Path.join(dir, "r.#{rx}.#{rz}.mca")
 
-    with :ok <- durable_write(path, [offsets, times, Enum.reverse(body)]),
-         {:ok, :ok} <- Valimc.Native.fsync_dir(dir) do
-      :ok
-    end
-  end
-
-  @doc "Write `data` to `path` crash-safely: temporary file, sync, rename."
-  def durable_write(path, data) do
-    temporary = path <> ".tmp"
-
-    with {:ok, file} <- :file.open(temporary, [:write, :raw, :binary]),
-         :ok <- :file.write(file, data),
-         :ok <- :file.sync(file),
-         :ok <- :file.close(file),
-         :ok <- File.rename(temporary, path) do
-      :ok
-    end
+    Valimc.DurableFile.write(path, [offsets, times, Enum.reverse(body)])
   end
 end

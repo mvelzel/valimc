@@ -103,33 +103,29 @@ defmodule Valimc.DimensionTest do
   end
 
   test "the Nether's and the End's generators follow the world's recorded settings" do
-    alias Valimc.World.{GenSettings, Generator}
+    alias Valimc.World.{GenSettings, Spec}
     base = Path.join(System.tmp_dir!(), "valimc-dimgen-#{System.unique_integer([:positive])}")
     File.mkdir_p!(base)
     on_exit(fn -> File.rm_rf!(base) end)
 
     record = fn settings ->
-      File.write!(
-        Valimc.World.Spawn.path(base),
-        JSON.encode!(%{
-          "spawn" => [0, 64, 0],
-          "generator" => %{"type" => "vanilla", "seed" => 5, "settings" => settings}
-        })
-      )
+      :ok = Spec.write(base, %{"type" => "vanilla", "seed" => 5, "settings" => settings})
     end
+
+    generation = &Spec.generation(Spec.fetch(base), &1)
 
     # A world without recorded settings (ValiMC's flat profile) takes the defaults.
     assert {:ok, %{noise_settings: "minecraft:nether", biome_source: "minecraft:nether"}} =
-             Generator.spec(base, :the_nether)
+             generation.(:the_nether)
 
     settings = GenSettings.create("minecraft:normal", nil, 5, true)
     record.(settings)
 
     assert {:ok, %{seed: 5, noise_settings: "minecraft:nether", biome_source: "minecraft:nether"}} =
-             Generator.spec(base, :the_nether)
+             generation.(:the_nether)
 
     assert {:ok, %{noise_settings: "minecraft:end", biome_source: "minecraft:the_end"}} =
-             Generator.spec(base, :the_end)
+             generation.(:the_end)
 
     deltas = %{"type" => "minecraft:fixed", "biome" => "minecraft:basalt_deltas"}
 
@@ -142,7 +138,7 @@ defmodule Valimc.DimensionTest do
     )
 
     assert {:ok, %{biome_source: "fixed:minecraft:basalt_deltas"}} =
-             Generator.spec(base, :the_nether)
+             generation.(:the_nether)
 
     checkerboard = %{"type" => "minecraft:checkerboard", "biomes" => ["minecraft:plains"]}
 
@@ -155,6 +151,6 @@ defmodule Valimc.DimensionTest do
     )
 
     assert {:error, {:unsupported_biome_source, "minecraft:the_end", _}} =
-             Generator.spec(base, :the_end)
+             generation.(:the_end)
   end
 end

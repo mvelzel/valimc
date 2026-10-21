@@ -18,7 +18,7 @@ defmodule Valimc.Admin.Login do
           ban
         )
 
-      Lists.white_list?() and not Valimc.Permissions.operator?(player) and
+      Valimc.World.Settings.get(:white_list) and not Valimc.Permissions.operator?(player) and
           not Lists.whitelisted?(uuid) ->
         Text.translatable("multiplayer.disconnect.not_whitelisted")
 

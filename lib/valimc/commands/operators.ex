@@ -5,6 +5,7 @@ defmodule Valimc.Commands.Operators do
   over `Valimc.Admin.Lists`.
   """
   alias Valimc.Admin.{Lists, Login}
+  alias Valimc.World.Settings
   alias Valimc.Command.{Error, Feedback, Source, Text}
   alias Valimc.Protocol.{Packets, Wire}
 
@@ -40,13 +41,14 @@ defmodule Valimc.Commands.Operators do
 
   # `kickUnlistedPlayers`: only with `enforce-whitelist`; operators are not exempt.
   defp kick_unlisted do
-    if Lists.enforce_whitelist?() and Lists.white_list?() do
+    if Valimc.config(:enforce_whitelist) == true and Settings.get(:white_list) do
       for player <- Valimc.Players.all(),
           not Lists.whitelisted?(player.uuid),
           do: disconnect(player, Text.translatable("multiplayer.disconnect.not_whitelisted"))
     end
   end
 
+  defp changed!(_source, {:error, reason}, _key, _message), do: unsaved!(reason)
   defp changed!(_source, [], key, _message), do: Error.fail!(key)
 
   defp changed!(source, changed, _key, message) do
@@ -143,7 +145,13 @@ defmodule Valimc.Commands.Operators do
       end
 
     entry = Lists.ban_entry(source.name, reason(arguments, source))
-    if Lists.ban_ip(ip, entry) == :already, do: Error.fail!("commands.banip.failed")
+
+    case Lists.ban_ip(ip, entry) do
+      :already -> Error.fail!("commands.banip.failed")
+      {:error, reason} -> unsaved!(reason)
+      :ok -> :ok
+    end
+
     players = Enum.filter(Valimc.Players.all(), &(&1[:address] == ip))
 
     Feedback.success(
@@ -169,7 +177,13 @@ defmodule Valimc.Commands.Operators do
 
   def pardon_ip(%{"target" => target}, source) do
     unless ip_literal?(target), do: Error.fail!("commands.pardonip.invalid")
-    if Lists.pardon_ip(target) == :not_banned, do: Error.fail!("commands.pardonip.failed")
+
+    case Lists.pardon_ip(target) do
+      :not_banned -> Error.fail!("commands.pardonip.failed")
+      {:error, reason} -> unsaved!(reason)
+      :ok -> :ok
+    end
+
     Feedback.success(source, Text.translatable("commands.pardonip.success", [target]))
     {1, source.state}
   end
@@ -204,17 +218,28 @@ defmodule Valimc.Commands.Operators do
   # ---- whitelist ----
 
   def whitelist_on(_arguments, source) do
-    if Lists.set_white_list(true) == :unchanged, do: Error.fail!("commands.whitelist.alreadyOn")
+    switch!(true, "commands.whitelist.alreadyOn")
     Feedback.success(source, Text.translatable("commands.whitelist.enabled"))
     kick_unlisted()
     {1, source.state}
   end
 
   def whitelist_off(_arguments, source) do
-    if Lists.set_white_list(false) == :unchanged, do: Error.fail!("commands.whitelist.alreadyOff")
+    switch!(false, "commands.whitelist.alreadyOff")
     Feedback.success(source, Text.translatable("commands.whitelist.disabled"))
     {1, source.state}
   end
+
+  defp switch!(on, already) do
+    case Settings.put(white_list: on) do
+      :ok -> :ok
+      :unchanged -> Error.fail!(already)
+      {:error, reason} -> unsaved!(reason)
+    end
+  end
+
+  # The list file could not be written; nothing changed.
+  defp unsaved!(reason), do: Error.refuse!("The change could not be saved (#{inspect(reason)})")
 
   def whitelist_list(_arguments, source) do
     names = Lists.entries(:whitelist) |> Map.values() |> Enum.sort()

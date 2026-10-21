@@ -9,7 +9,7 @@ defmodule Valimc.DecoratedWorldTest do
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, ScheduledTicks, Spawn, Store}
+  alias Valimc.World.{BlockSnapshot, Directory, Generator, ScheduledTicks, Store}
   alias Valimc.Worldgen.{FullChunk, Proto}
 
   @seed 20_261_020
@@ -23,14 +23,8 @@ defmodule Valimc.DecoratedWorldTest do
     base = Path.join(System.tmp_dir!(), "valimc-decorated-#{nonce}")
     File.mkdir_p!(base)
 
-    File.write!(
-      Spawn.path(base),
-      JSON.encode!(%{
-        "spawn" => [0, 100, 0],
-        "yaw" => 0.0,
-        "generator" => %{"type" => "vanilla", "seed" => @seed, "features" => true}
-      })
-    )
+    :ok =
+      Valimc.World.Spec.write(base, %{"type" => "vanilla", "seed" => @seed, "features" => true})
 
     keys = TestScope.neighborhood(@key, 3)
     TestScope.isolate(keys, world_path: base, region_ticks: :manual)

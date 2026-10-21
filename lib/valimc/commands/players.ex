@@ -82,7 +82,8 @@ defmodule Valimc.Commands.Players do
 
   @doc "`/defaultgamemode <gamemode>`: new players' mode (no `force-gamemode`)."
   def default_gamemode(%{"gamemode" => mode}, source) do
-    Application.put_env(:valimc, :default_game_mode, mode)
+    with {:error, reason} <- Valimc.World.Settings.put(default_game_mode: mode),
+         do: Error.refuse!("The default game mode could not be saved (#{inspect(reason)})")
 
     Feedback.success(
       source,

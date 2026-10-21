@@ -169,7 +169,7 @@ defmodule Valimc.Protocol.Packets do
   defp spawn_info(player, last_death) do
     dimension = Map.get(player, :dimension, :overworld)
     facts = Valimc.Dimension.facts(dimension)
-    {hashed_seed, flat?} = Valimc.World.Generator.dimension_info(dimension)
+    {hashed_seed, flat?} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), dimension)
     overworld = dimension == :overworld
 
     [
@@ -215,9 +215,9 @@ defmodule Valimc.Protocol.Packets do
 
   def spawn_position do
     packet("set_default_spawn_position", [
-      Wire.string("minecraft:overworld"),
+      Wire.string(Valimc.Dimension.name(Valimc.World.Spawn.dimension())),
       Wire.position(Valimc.World.Spawn.position()),
-      <<Valimc.World.Spawn.yaw()::float-32, 0.0::float-32>>
+      <<Valimc.World.Spawn.yaw()::float-32, Valimc.World.Spawn.pitch()::float-32>>
     ])
   end
 

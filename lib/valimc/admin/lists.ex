@@ -7,9 +7,12 @@ defmodule Valimc.Admin.Lists do
   (`Valimc.Admin.ListFile`) when a command changes them; the name cache is
   written at most once a second. Logins and permission checks read the
   published ETS rows without calling the owner: `{:op, uuid}`,
-  `{:white, uuid}`, `{:ban, uuid}`, `{:ip_ban, ip}` and the `:white_list` and
-  `:enforce_whitelist` switches. Each change updates only the rows it touches,
-  so a reader never sees a list half replaced.
+  `{:white, uuid}`, `{:ban, uuid}` and `{:ip_ban, ip}`. A change writes its
+  file first (`Valimc.DurableFile`) and then updates only the rows it touches,
+  so a reader never sees a list half replaced nor a row the disk does not
+  hold; a failed write leaves the lists as they were. The switches
+  (`white-list`, `player-idle-timeout`) are world settings
+  (`Valimc.World.Settings`).
 
   Names in `VALIMC_OPERATORS` are added to `ops.json` at startup; in online mode
   a name not yet in the name cache becomes an operator at its first login.
@@ -43,17 +46,6 @@ defmodule Valimc.Admin.Lists do
   end
 
   def whitelisted?(uuid), do: lookup({:white, uuid}) != nil
-  def white_list?, do: match?({_, true}, lookup(:white_list))
-
-  @doc "The player idle timeout in minutes (vanilla's `player-idle-timeout`); 0 is off."
-  def idle_timeout do
-    case lookup(:idle_timeout) do
-      {_, minutes} -> minutes
-      nil -> 0
-    end
-  end
-
-  def enforce_whitelist?, do: match?({_, true}, lookup(:enforce_whitelist))
 
   @doc "An active (unexpired) ban for a UUID or IP, or nil."
   def ban(uuid), do: active(lookup({:ban, uuid}))
@@ -89,8 +81,6 @@ defmodule Valimc.Admin.Lists do
   def pardon_ip(ip), do: GenServer.call(__MODULE__, {:pardon_ip, ip})
   def whitelist_add(profiles), do: GenServer.call(__MODULE__, {:whitelist_add, profiles})
   def whitelist_remove(profiles), do: GenServer.call(__MODULE__, {:whitelist_remove, profiles})
-  def set_white_list(on), do: GenServer.call(__MODULE__, {:white_list, on})
-  def set_idle_timeout(minutes), do: GenServer.call(__MODULE__, {:idle_timeout, minutes})
   def reload_whitelist, do: GenServer.call(__MODULE__, :reload_whitelist)
 
   @doc "`{kind, entries}` snapshots for listing and suggestions."
@@ -119,8 +109,7 @@ defmodule Valimc.Admin.Lists do
       ip_bans: %{},
       cache: %{},
       pending_ops: MapSet.new(),
-      cache_timer: nil,
-      settings: settings(dir)
+      cache_timer: nil
     }
 
     state =
@@ -131,58 +120,9 @@ defmodule Valimc.Admin.Lists do
       |> load(:whitelist)
       |> load_cache()
 
-    for kind <- [:bans, :ip_bans, :ops], do: save(state, kind)
-    if dir && not File.exists?(file(dir, :whitelist)), do: save(state, :whitelist)
-
-    :ets.insert(@table, [
-      {:idle_timeout, state.settings.idle_timeout},
-      {:white_list, state.settings.white_list},
-      {:enforce_whitelist, state.settings.enforce_whitelist}
-    ])
-
+    for kind <- [:bans, :ip_bans, :ops], do: :ok = save(state, kind)
+    if dir && not File.exists?(file(dir, :whitelist)), do: :ok = save(state, :whitelist)
     {:ok, seed_operators(state)}
-  end
-
-  # The switches are ValiMC settings (vanilla keeps them in `server.properties`);
-  # `/whitelist on|off` saves its choice in `admin-settings.json`.
-  defp settings(dir) do
-    saved =
-      with dir when is_binary(dir) <- dir,
-           {:ok, text} <- File.read(Path.join(dir, "admin-settings.json")),
-           {:ok, map} when is_map(map) <- JSON.decode(text) do
-        map
-      else
-        _ -> %{}
-      end
-
-    idle =
-      case saved["player-idle-timeout"] do
-        minutes when is_integer(minutes) and minutes >= 0 -> minutes
-        _ -> Valimc.config(:player_idle_timeout)
-      end
-
-    %{
-      white_list: Map.get(saved, "white-list", Valimc.config(:white_list) == true),
-      enforce_whitelist: Valimc.config(:enforce_whitelist) == true,
-      idle_timeout: idle
-    }
-  end
-
-  defp save_settings(%{dir: nil}), do: :ok
-
-  defp save_settings(state) do
-    File.mkdir_p!(state.dir)
-    path = Path.join(state.dir, "admin-settings.json")
-
-    File.write!(
-      path <> ".tmp",
-      JSON.encode!(%{
-        "white-list" => state.settings.white_list,
-        "player-idle-timeout" => state.settings.idle_timeout
-      })
-    )
-
-    File.rename!(path <> ".tmp", path)
   end
 
   defp seed_operators(state) do
@@ -191,9 +131,12 @@ defmodule Valimc.Admin.Lists do
         Enum.reduce(names, state, fn name, state ->
           case profile_for(state, name, false) do
             {:ok, profile, state} ->
-              if Map.has_key?(state.ops, profile.uuid),
-                do: state,
-                else: elem(put_ops(state, [profile], Valimc.config(:operator_level)), 1)
+              with false <- Map.has_key?(state.ops, profile.uuid),
+                   {:ok, _, state} <- put_ops(state, [profile], Valimc.config(:operator_level)) do
+                state
+              else
+                _ -> state
+              end
 
             :unknown ->
               %{state | pending_ops: MapSet.put(state.pending_ops, String.downcase(name))}
@@ -214,18 +157,16 @@ defmodule Valimc.Admin.Lists do
   end
 
   def handle_call({:add_ops, profiles, level}, _from, state) do
-    {changed, state} =
-      put_ops(state, Enum.reject(profiles, &Map.has_key?(state.ops, &1.uuid)), level)
-
-    {:reply, changed, state}
+    case put_ops(state, Enum.reject(profiles, &Map.has_key?(state.ops, &1.uuid)), level) do
+      {:ok, changed, state} -> {:reply, changed, state}
+      error -> {:reply, error, state}
+    end
   end
 
   def handle_call({:remove_ops, profiles}, _from, state) do
     changed = Enum.filter(profiles, &Map.has_key?(state.ops, &1.uuid))
-    for profile <- changed, do: :ets.delete(@table, {:op, profile.uuid})
-    state = %{state | ops: Map.drop(state.ops, Enum.map(changed, & &1.uuid))}
-    if changed != [], do: save(state, :ops)
-    {:reply, changed, state}
+    next = %{state | ops: Map.drop(state.ops, Enum.map(changed, & &1.uuid))}
+    commit(state, next, :ops, changed, fn -> delete_rows(changed, :op) end)
   end
 
   def handle_call({:ban, profiles, entry}, _from, state) do
@@ -234,24 +175,15 @@ defmodule Valimc.Admin.Lists do
       |> Enum.reject(&(Map.has_key?(state.bans, &1.uuid) and ban(&1.uuid) != nil))
       |> Enum.uniq_by(& &1.uuid)
 
-    bans =
-      Enum.reduce(changed, state.bans, fn profile, bans ->
-        entry = Map.new([{"name", profile.name} | entry])
-        :ets.insert(@table, {{:ban, profile.uuid}, entry})
-        Map.put(bans, profile.uuid, entry)
-      end)
-
-    state = %{state | bans: bans}
-    if changed != [], do: save(state, :bans)
-    {:reply, changed, state}
+    entries = Map.new(changed, &{&1.uuid, Map.new([{"name", &1.name} | entry])})
+    next = %{state | bans: Map.merge(state.bans, entries)}
+    commit(state, next, :bans, changed, fn -> publish(:bans, entries) end)
   end
 
   def handle_call({:pardon, profiles}, _from, state) do
     changed = profiles |> Enum.filter(&(ban(&1.uuid) != nil)) |> Enum.uniq_by(& &1.uuid)
-    for profile <- changed, do: :ets.delete(@table, {:ban, profile.uuid})
-    state = %{state | bans: Map.drop(state.bans, Enum.map(changed, & &1.uuid))}
-    if changed != [], do: save(state, :bans)
-    {:reply, changed, state}
+    next = %{state | bans: Map.drop(state.bans, Enum.map(changed, & &1.uuid))}
+    commit(state, next, :bans, changed, fn -> delete_rows(changed, :ban) end)
   end
 
   def handle_call({:ban_ip, ip, entry}, _from, state) do
@@ -259,10 +191,8 @@ defmodule Valimc.Admin.Lists do
       {:reply, :already, state}
     else
       entry = Map.new(entry)
-      :ets.insert(@table, {{:ip_ban, ip}, entry})
-      state = %{state | ip_bans: Map.put(state.ip_bans, ip, entry)}
-      save(state, :ip_bans)
-      {:reply, :ok, state}
+      next = %{state | ip_bans: Map.put(state.ip_bans, ip, entry)}
+      commit(state, next, :ip_bans, :ok, fn -> publish(:ip_bans, %{ip => entry}) end)
     end
   end
 
@@ -270,10 +200,8 @@ defmodule Valimc.Admin.Lists do
     if ip_ban(ip) == nil do
       {:reply, :not_banned, state}
     else
-      :ets.delete(@table, {:ip_ban, ip})
-      state = %{state | ip_bans: Map.delete(state.ip_bans, ip)}
-      save(state, :ip_bans)
-      {:reply, :ok, state}
+      next = %{state | ip_bans: Map.delete(state.ip_bans, ip)}
+      commit(state, next, :ip_bans, :ok, fn -> :ets.delete(@table, {:ip_ban, ip}) end)
     end
   end
 
@@ -281,42 +209,17 @@ defmodule Valimc.Admin.Lists do
     changed =
       profiles |> Enum.reject(&Map.has_key?(state.whitelist, &1.uuid)) |> Enum.uniq_by(& &1.uuid)
 
-    for profile <- changed, do: :ets.insert(@table, {{:white, profile.uuid}, profile.name})
-
-    state = %{
-      state
-      | whitelist: Map.merge(state.whitelist, Map.new(changed, &{&1.uuid, &1.name}))
-    }
-
-    if changed != [], do: save(state, :whitelist)
-    {:reply, changed, state}
+    names = Map.new(changed, &{&1.uuid, &1.name})
+    next = %{state | whitelist: Map.merge(state.whitelist, names)}
+    commit(state, next, :whitelist, changed, fn -> publish(:whitelist, names) end)
   end
 
   def handle_call({:whitelist_remove, profiles}, _from, state) do
     changed =
       profiles |> Enum.filter(&Map.has_key?(state.whitelist, &1.uuid)) |> Enum.uniq_by(& &1.uuid)
 
-    for profile <- changed, do: :ets.delete(@table, {:white, profile.uuid})
-    state = %{state | whitelist: Map.drop(state.whitelist, Enum.map(changed, & &1.uuid))}
-    if changed != [], do: save(state, :whitelist)
-    {:reply, changed, state}
-  end
-
-  def handle_call({:white_list, on}, _from, %{settings: %{white_list: on}} = state),
-    do: {:reply, :unchanged, state}
-
-  def handle_call({:white_list, on}, _from, state) do
-    state = put_in(state.settings.white_list, on)
-    :ets.insert(@table, {:white_list, on})
-    save_settings(state)
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:idle_timeout, minutes}, _from, state) do
-    state = put_in(state.settings.idle_timeout, minutes)
-    :ets.insert(@table, {:idle_timeout, minutes})
-    save_settings(state)
-    {:reply, :ok, state}
+    next = %{state | whitelist: Map.drop(state.whitelist, Enum.map(changed, & &1.uuid))}
+    commit(state, next, :whitelist, changed, fn -> delete_rows(changed, :white) end)
   end
 
   # A missing or unreadable file leaves the list unchanged, as in vanilla.
@@ -339,11 +242,12 @@ defmodule Valimc.Admin.Lists do
     key = String.downcase(name)
 
     state =
-      if MapSet.member?(state.pending_ops, key) and not Map.has_key?(state.ops, uuid) do
-        {_, state} = put_ops(state, [%{uuid: uuid, name: name}], Valimc.config(:operator_level))
+      with true <- MapSet.member?(state.pending_ops, key) and not Map.has_key?(state.ops, uuid),
+           {:ok, _, state} <-
+             put_ops(state, [%{uuid: uuid, name: name}], Valimc.config(:operator_level)) do
         %{state | pending_ops: MapSet.delete(state.pending_ops, key)}
       else
-        state
+        _ -> state
       end
 
     {:noreply, state}
@@ -427,17 +331,32 @@ defmodule Valimc.Admin.Lists do
 
   defp put_ops(state, profiles, level) do
     profiles = Enum.uniq_by(profiles, & &1.uuid)
+    ops = Map.new(profiles, &{&1.uuid, %{name: &1.name, level: level, bypass: false}})
+    next = %{state | ops: Map.merge(state.ops, ops)}
 
-    ops =
-      Enum.reduce(profiles, state.ops, fn profile, ops ->
-        :ets.insert(@table, {{:op, profile.uuid}, profile.name, level, false})
-        Map.put(ops, profile.uuid, %{name: profile.name, level: level, bypass: false})
-      end)
-
-    state = %{state | ops: ops}
-    if profiles != [], do: save(state, :ops)
-    {profiles, state}
+    case commit(state, next, :ops, profiles, fn -> publish(:ops, ops) end) do
+      {:reply, ^profiles, next} -> {:ok, profiles, next}
+      {:reply, error, _state} -> error
+    end
   end
+
+  # A change of `kind`'s list: its file is written first, then `publish`
+  # updates the rows and `reply` answers; a failed write changes nothing.
+  defp commit(state, _next, _kind, [] = reply, _publish), do: {:reply, reply, state}
+
+  defp commit(state, next, kind, reply, publish) do
+    case save(next, kind) do
+      :ok ->
+        publish.()
+        {:reply, reply, next}
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  defp delete_rows(profiles, tag),
+    do: for(%{uuid: uuid} <- profiles, do: :ets.delete(@table, {tag, uuid}))
 
   # ---- files ----
 
@@ -548,9 +467,9 @@ defmodule Valimc.Admin.Lists do
 
   defp save(%{dir: nil}, _kind), do: :ok
 
-  defp save(state, kind) do
-    ListFile.write(file(state.dir, kind), Enum.map(Map.fetch!(state, kind), &encode(kind, &1)))
-  end
+  defp save(state, kind),
+    do:
+      ListFile.write(file(state.dir, kind), Enum.map(Map.fetch!(state, kind), &encode(kind, &1)))
 
   defp encode(:ops, {uuid, op}),
     do: [

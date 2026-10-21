@@ -32,16 +32,17 @@ defmodule Valimc.PlayerLife do
 
   @doc """
   The respawned player at `spawn` (`Valimc.World.PlayerSpawn.find/1`), in the
-  overworld: respawn points elsewhere (beds, anchors) arrive with VMC-040.
+  world spawn's dimension: respawn points elsewhere (beds, anchors) arrive with
+  VMC-040.
   """
-  def respawn(player, spawn \\ Valimc.World.Spawn.pose()) do
+  def respawn(player, spawn) do
     %{
       player
       | x: spawn.x,
         y: spawn.y,
         z: spawn.z,
         yaw: spawn.yaw,
-        pitch: 0.0,
+        pitch: spawn.pitch,
         health: %PlayerHealth{maximum: player.health.maximum, value: player.health.maximum},
         abilities: GameMode.abilities(player.game_mode, false),
         input: %PlayerInput{},
@@ -56,7 +57,7 @@ defmodule Valimc.PlayerLife do
     |> Map.put(:food, %Valimc.PlayerFood{})
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})
-    |> Map.put(:dimension, :overworld)
+    |> Map.put(:dimension, spawn.dimension)
   end
 
   def die(player) do

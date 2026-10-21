@@ -107,12 +107,14 @@ defmodule Valimc.Portal.EndPortal do
   # MOTION_BLOCKING_NO_LEAVES surface (`adjustSpawnLocation`), with the
   # spawn's rotation added (`DELTA ∪ ROTATION`).
   defp world_spawn(entry) do
-    Valimc.Dimension.within(:overworld, fn ->
+    dimension = Valimc.World.Spawn.dimension()
+
+    Valimc.Dimension.within(dimension, fn ->
       spawn = Valimc.World.Spawn.pose()
       {sx, sz} = {floor(spawn.x), floor(spawn.z)}
       top = Access.heights(:motion_blocking_no_leaves).(sx, sz)
       position = {sx + 0.5, top * 1.0, sz + 0.5}
-      {:ok, arrival(entry, position, spawn.yaw, spawn.pitch, Motion.portal(), :overworld)}
+      {:ok, arrival(entry, position, spawn.yaw, spawn.pitch, Motion.portal(), dimension)}
     end)
   end
 
@@ -157,17 +159,17 @@ defmodule Valimc.Portal.EndPortal do
         do: {position, block}
   end
 
-  @doc "The overworld's spawn, as a respawn without a bed or anchor finds it (VMC-040)."
+  @doc "The world spawn, as a respawn without a bed or anchor finds it (VMC-040)."
   def respawn_target do
-    spawn = Valimc.Dimension.within(:overworld, &Valimc.World.PlayerSpawn.find/0)
+    spawn = Valimc.World.PlayerSpawn.find()
 
     %{
-      dimension: :overworld,
+      dimension: spawn.dimension,
       x: spawn.x,
       y: spawn.y,
       z: spawn.z,
       yaw: spawn.yaw,
-      pitch: 0.0,
+      pitch: spawn.pitch,
       velocity: {0.0, 0.0, 0.0},
       portal: true
     }

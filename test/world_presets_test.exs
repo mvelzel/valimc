@@ -55,11 +55,11 @@ defmodule Valimc.WorldPresetsTest do
       ~s({"layers":[{"block":"bedrock","height":1},{"block":"clay","height":2},{"block":"moss_block","height":1}],"biome":"minecraft:swamp"})
 
     :ok = Generator.create(ctx.base, 77, level_type: "minecraft:flat", generator_settings: flat)
-    assert Generator.client_info(Generator.of(ctx.base), Generator.recorded(ctx.base)) |> elem(1)
-    refute Generator.decorated?(ctx.base)
-    {:ok, meta} = ctx.base |> World.Spawn.path() |> File.read!() |> JSON.decode()
+    spec = World.Spec.fetch(ctx.base)
+    assert World.Spec.client_info(spec, :overworld) |> elem(1)
+    refute World.Spec.decorated?(spec, :overworld)
     # The spawn search finds the moss surface: one above the fourth layer.
-    assert meta["spawn"] == [0, -60, 0]
+    assert {:ok, %{spawn: %{position: {0, -60, 0}}}} = World.Settings.read(ctx.base)
 
     TestScope.isolate(key, world_path: ctx.base, region_ticks: :manual)
 
