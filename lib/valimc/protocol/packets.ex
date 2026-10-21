@@ -158,7 +158,7 @@ defmodule Valimc.Protocol.Packets do
     do: packet("respawn", [spawn_info(player, last_death), <<0>>])
 
   defp spawn_info(player, last_death) do
-    {hashed_seed, flat?} = Valimc.World.Generator.client_info(Valimc.World.Generator.current())
+    {hashed_seed, flat?} = Valimc.World.Generator.client_info()
 
     [
       Wire.varint(Data.registry_id("minecraft:dimension_type", "minecraft:overworld")),

@@ -46,10 +46,10 @@ resumes on these foundations alongside M2.
 | [VMC-072](tickets/VMC-072.md) | Container loot tables rolled on open, as vanilla does, for generated and imported chests | Planned |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
+| [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets, worldgen from data packs, older worlds | In progress |
 
-Next: structure placement (VMC-025f), live dimensions and portals (VMC-026b),
-then generation configuration (VMC-028). Generation and tick time stay matched
-against vanilla and Pumpkin on the same seed, at least in Pumpkin's range.
+Next: structure placement (VMC-025f), live dimensions (VMC-026b), generation configuration
+(VMC-028); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
 
 ## M3 onward
 

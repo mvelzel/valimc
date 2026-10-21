@@ -21,6 +21,12 @@ config :valimc,
   # world.json.
   generator: :flat,
   seed: nil,
+  # A new vanilla world's generation settings (VMC-028a), as `server.properties`
+  # gives them: `level-type` (a world preset), `generator-settings` (flat
+  # settings JSON) and `generate-structures`.
+  level_type: "minecraft:normal",
+  generator_settings: nil,
+  generate_structures: true,
   player_save_interval_ms: 30_000,
   motd: "ValiMC · Elixir/OTP · 26.3 development server",
   max_packet_bytes: 2_097_152,

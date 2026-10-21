@@ -483,8 +483,15 @@ defmodule Valimc.Commands.World do
 
   @doc "`/seed`: the world seed, copyable on click."
   def seed(_arguments, source) do
-    case Valimc.World.Generator.current() do
-      {:vanilla, seed} ->
+    seed =
+      case {Valimc.World.Generator.current(), Valimc.World.Generator.current_settings()} do
+        {{:vanilla, seed}, _} -> seed
+        {_, %{"seed" => seed}} -> seed
+        _ -> nil
+      end
+
+    case seed do
+      seed when is_integer(seed) ->
         text = Integer.to_string(seed)
 
         copy =

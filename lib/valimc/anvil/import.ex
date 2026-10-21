@@ -18,7 +18,9 @@ defmodule Valimc.Anvil.Import do
   (VMC-021e4, 256 awards per region); every other entity is preserved per chunk
   for export. Every other vanilla file except chunk storage (`level.dat`,
   world and dimension data such as world generation settings, game rules,
-  weather and world border) is kept under `vanilla/` for export. Stored light
+  weather and world border) is kept under `vanilla/` for export; the world's
+  generation settings are also recorded in `world.json` (VMC-028a), so clients
+  get its hashed seed and `/seed` its seed. Stored light
   (VMC-021e5, `Valimc.Anvil.Light`) lights imported chunks as vanilla does; POI
   and the other dimensions are not imported.
 
@@ -79,6 +81,7 @@ defmodule Valimc.Anvil.Import do
         [] ->
           {position, yaw} = spawn
           :ok = Spawn.write(destination, position, yaw)
+          :ok = Valimc.World.Generator.record_import(destination, read_settings(source))
           :ok = keep_world_data(source, Path.join(destination, "vanilla"))
 
           {:ok,
@@ -133,6 +136,17 @@ defmodule Valimc.Anvil.Import do
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_level_dat}
+    end
+  end
+
+  # `world_gen_settings.dat`'s root (VMC-028a), nil when the world has none or
+  # it does not read.
+  defp read_settings(source) do
+    with {:ok, bytes} <- File.read(Path.join(source, "data/minecraft/world_gen_settings.dat")),
+         {:ok, root} <- NBT.read_compressed(bytes, :gzip) do
+      root
+    else
+      _ -> nil
     end
   end
 

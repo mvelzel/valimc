@@ -153,6 +153,14 @@ STAGES = [
         ('java', 'StructureOracle', 'starts', '@starts.json'),
         ('check', 'check_structures.exs', '@starts.json'),
     ]),
+    ('world_settings', [
+        ('java', 'WorldSettingsOracle', 'facts', '@world_presets.json'),
+        ('same', '@world_presets.json', 'priv/worldgen/world_presets.json'),
+        ('java', 'WorldSettingsOracle', 'cases', '@world_settings.json'),
+        ('check', 'check_world_settings.exs', '@world_settings.json'),
+        ('check', 'export_world_settings.exs', '@exported'),
+        ('java', 'WorldSettingsOracle', 'verify', '@exported', '@server'),
+    ]),
     ('worldgen_live', [
         ('java', 'DecorationOracle', '@live.json', '*', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),

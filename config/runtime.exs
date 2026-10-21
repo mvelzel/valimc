@@ -67,6 +67,21 @@ case System.get_env("VALIMC_GENERATOR") do
   _ -> raise "VALIMC_GENERATOR must be flat or vanilla"
 end
 
+if level_type = System.get_env("VALIMC_LEVEL_TYPE") do
+  config :valimc, level_type: level_type
+end
+
+if generator_settings = System.get_env("VALIMC_GENERATOR_SETTINGS") do
+  config :valimc, generator_settings: generator_settings
+end
+
+case System.get_env("VALIMC_GENERATE_STRUCTURES") do
+  nil -> :ok
+  "true" -> config :valimc, generate_structures: true
+  "false" -> config :valimc, generate_structures: false
+  _ -> raise "VALIMC_GENERATE_STRUCTURES must be true or false"
+end
+
 if seed = System.get_env("VALIMC_SEED") do
   case Integer.parse(seed) do
     {value, ""} when value >= -9_223_372_036_854_775_808 and value <= 9_223_372_036_854_775_807 ->

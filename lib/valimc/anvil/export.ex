@@ -13,8 +13,9 @@ defmodule Valimc.Anvil.Export do
 
   The vanilla world data an import kept (`vanilla/`: `level.dat`, world
   generation settings, game rules...) is written back, `level.dat` with the
-  world's current spawn; a world that was never imported gets none, and vanilla
-  creates it. Region files are written crash-safely (`RegionWriter`), one
+  world's current spawn. A world that was never imported gets a new `level.dat`
+  at its spawn and its generation settings (`world_gen_settings.dat`,
+  VMC-028a), so vanilla generates the same world around it. Region files are written crash-safely (`RegionWriter`), one
   bounded task per vanilla region.
 
   Run with the server stopped, into a new or empty directory:
@@ -31,6 +32,8 @@ defmodule Valimc.Anvil.Export do
     Blocks,
     Containers,
     CookingOrbs,
+    GenSettings,
+    Generator,
     ItemLedger,
     Schema,
     Spawn,
@@ -44,7 +47,8 @@ defmodule Valimc.Anvil.Export do
     started = System.monotonic_time(:millisecond)
 
     with :ok <- empty(destination),
-         {:ok, keys} <- region_keys(source) do
+         {:ok, keys} <- region_keys(source),
+         :ok <- File.mkdir_p(destination) do
       size = Valimc.config(:region_size)
 
       written =
@@ -61,7 +65,8 @@ defmodule Valimc.Anvil.Export do
       case for({region, {:error, reason}} <- written, do: {region, reason}) do
         [] ->
           with :ok <- write_world_data(source, destination),
-               :ok <- write_level(source, destination) do
+               :ok <- write_level(source, destination),
+               :ok <- write_settings(source, destination) do
             {:ok,
              %{
                regions: length(written),
@@ -285,7 +290,28 @@ defmodule Valimc.Anvil.Export do
     end)
   end
 
-  # The kept level.dat with the world's current spawn.
+  # Generation settings (VMC-028a): an import's kept file is already written;
+  # any other world gets its recorded settings (ValiMC's flat profile's when it
+  # records none), so vanilla goes on generating the same world.
+  defp write_settings(source, destination) do
+    path = "data/minecraft/world_gen_settings.dat"
+
+    if File.exists?(Path.join([source, "vanilla", path])) do
+      :ok
+    else
+      with {:ok, root} <- GenSettings.to_nbt(Generator.settings(source)) do
+        File.mkdir_p!(Path.dirname(Path.join(destination, path)))
+
+        RegionWriter.durable_write(
+          Path.join(destination, path),
+          NBT.write_compressed(root, :gzip)
+        )
+      end
+    end
+  end
+
+  # The kept level.dat with the world's current spawn; a world never imported
+  # gets a new one, initialized at its spawn.
   defp write_level(source, destination) do
     with {:ok, bytes} <- File.read(Path.join([source, "vanilla", "level.dat"])),
          {:ok, {:compound, %{"Data" => {:compound, data}} = root}} <-
@@ -311,10 +337,59 @@ defmodule Valimc.Anvil.Export do
       level = NBT.write_compressed({:compound, Map.put(root, "Data", {:compound, data})}, :gzip)
       RegionWriter.durable_write(Path.join(destination, "level.dat"), level)
     else
-      {:error, :enoent} -> :ok
+      {:error, :enoent} -> new_level(source, destination)
       {:error, _} = error -> error
       _ -> {:error, :invalid_level_dat}
     end
+  end
+
+  # `PrimaryLevelData` of a new world as a dedicated server saves it, with the
+  # world's spawn and default game mode; vanilla fills what it omits.
+  defp new_level(source, destination) do
+    {:ok, %{"spawn" => [x, y, z], "yaw" => yaw}} =
+      source |> Spawn.path() |> File.read!() |> JSON.decode()
+
+    version = Schema.data_version()
+
+    game_type =
+      Enum.find_index(
+        ~w(survival creative adventure spectator)a,
+        &(&1 == Valimc.config(:default_game_mode))
+      )
+
+    data = %{
+      "DataVersion" => {:int, version},
+      "Version" =>
+        {:compound,
+         %{
+           "Id" => {:int, version},
+           "Name" => {:string, Valimc.Version.minecraft()},
+           "Series" => {:string, "main"},
+           "Snapshot" => {:byte, 0}
+         }},
+      "version" => {:int, 19_133},
+      "version_history" => {:list, {:int, [version]}},
+      "LevelName" => {:string, "world"},
+      "GameType" => {:int, game_type},
+      "initialized" => {:byte, 1},
+      "allowCommands" => {:byte, 0},
+      "WasModded" => {:byte, 0},
+      "ServerBrands" => {:list, {:string, ["ValiMC"]}},
+      "DataPacks" =>
+        {:compound,
+         %{"Enabled" => {:list, {:string, ["vanilla"]}}, "Disabled" => {:list, {:end, []}}}},
+      "spawn" =>
+        {:compound,
+         %{
+           "dimension" => {:string, "minecraft:overworld"},
+           "pos" => {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>},
+           "yaw" => {:float, <<yaw * 1.0::float-32>>},
+           "pitch" => {:float, <<0.0::float-32>>}
+         }}
+    }
+
+    level = NBT.write_compressed({:compound, %{"Data" => {:compound, data}}}, :gzip)
+    RegionWriter.durable_write(Path.join(destination, "level.dat"), level)
   end
 
   @doc "Command-line entry: prints the report; exits non-zero on failure."

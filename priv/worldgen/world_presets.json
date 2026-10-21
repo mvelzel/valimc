@@ -1,0 +1,303 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "presets": {
+    "minecraft:amplified": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:overworld",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:amplified",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    },
+    "minecraft:debug_all_block_states": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "type": "minecraft:debug"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    },
+    "minecraft:flat": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "settings": {
+              "structure_overrides": [
+                "minecraft:strongholds",
+                "minecraft:villages"
+              ],
+              "layers": [
+                {
+                  "height": 1,
+                  "block": "minecraft:bedrock"
+                },
+                {
+                  "height": 2,
+                  "block": "minecraft:dirt"
+                },
+                {
+                  "height": 1,
+                  "block": "minecraft:grass_block"
+                }
+              ],
+              "lakes": false,
+              "features": false,
+              "biome": "minecraft:plains"
+            },
+            "type": "minecraft:flat"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    },
+    "minecraft:flat_all_dimensions": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "settings": {
+              "layers": [
+                {
+                  "height": 1,
+                  "block": "minecraft:bedrock"
+                },
+                {
+                  "height": 67,
+                  "block": "minecraft:sandstone"
+                }
+              ],
+              "lakes": false,
+              "features": false,
+              "biome": "minecraft:desert"
+            },
+            "type": "minecraft:flat"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "settings": {
+              "layers": [
+                {
+                  "height": 1,
+                  "block": "minecraft:bedrock"
+                },
+                {
+                  "height": 3,
+                  "block": "minecraft:end_stone"
+                }
+              ],
+              "lakes": false,
+              "features": false,
+              "biome": "minecraft:the_end"
+            },
+            "type": "minecraft:flat"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "settings": {
+              "layers": [
+                {
+                  "height": 1,
+                  "block": "minecraft:bedrock"
+                },
+                {
+                  "height": 3,
+                  "block": "minecraft:basalt"
+                }
+              ],
+              "lakes": false,
+              "features": false,
+              "biome": "minecraft:basalt_deltas"
+            },
+            "type": "minecraft:flat"
+          }
+        }
+      }
+    },
+    "minecraft:large_biomes": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:overworld",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:large_biomes",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    },
+    "minecraft:normal": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:overworld",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:overworld",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    },
+    "minecraft:single_biome_surface": {
+      "dimensions": {
+        "minecraft:overworld": {
+          "type": "minecraft:overworld",
+          "generator": {
+            "biome_source": {
+              "biome": "minecraft:plains",
+              "type": "minecraft:fixed"
+            },
+            "settings": "minecraft:overworld",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_end": {
+          "type": "minecraft:the_end",
+          "generator": {
+            "biome_source": {
+              "type": "minecraft:the_end"
+            },
+            "settings": "minecraft:end",
+            "type": "minecraft:noise"
+          }
+        },
+        "minecraft:the_nether": {
+          "type": "minecraft:the_nether",
+          "generator": {
+            "biome_source": {
+              "preset": "minecraft:nether",
+              "type": "minecraft:multi_noise"
+            },
+            "settings": "minecraft:nether",
+            "type": "minecraft:noise"
+          }
+        }
+      }
+    }
+  }
+}
