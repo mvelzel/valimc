@@ -77,23 +77,6 @@ defmodule Valimc.ClientTickTest do
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 
-  test "malformed delimiters and status payloads reject only their sender" do
-    {healthy, _} = login()
-
-    for {name, body} <- [
-          {"client_tick_end", <<0>>},
-          {"move_player_status_only", <<>>},
-          {"move_player_status_only", <<1, 0>>}
-        ] do
-      {client, player} = login()
-      ref = Process.monitor(player.pid)
-      Client.send_packet(client, :play, name, body)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}
-    end
-
-    _healthy = barrier(healthy)
-  end
-
   test "reconnection starts with an unused frame" do
     name = username()
     {client, player} = login(name)

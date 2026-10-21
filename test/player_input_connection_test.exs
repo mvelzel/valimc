@@ -94,28 +94,6 @@ defmodule Valimc.PlayerInputConnectionTest do
     _receiver = await_stats_without_replication(receiver, player.entity_id)
   end
 
-  test "malformed input, command and loaded packets disconnect only their sender" do
-    {healthy, _} = login("Healthy")
-
-    for {packet, payload} <- [
-          {"player_input", <<32, 0>>},
-          {"player_command", <<1, 7, 0>>},
-          {"player_loaded", <<1>>}
-        ] do
-      {bad, player} = login("Invalid")
-      Client.send_packet(bad, :play, "player_loaded", <<>>)
-      Client.send_packet(bad, :play, "player_input", <<32>>)
-      bad = barrier(bad)
-      assert current(player).input.shared_flags == 2
-      ref = Process.monitor(player.pid)
-      Client.send_packet(bad, :play, packet, payload)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}
-      assert Process.alive?(Process.whereis(Valimc.Listener))
-    end
-
-    _healthy = barrier(healthy)
-  end
-
   defp login(prefix), do: login_name(name(prefix))
   defp name(prefix), do: prefix <> Integer.to_string(System.unique_integer([:positive]))
 

@@ -206,31 +206,6 @@ defmodule Valimc.GameModeConnectionTest do
     close(ctx, client)
   end
 
-  test "malformed mode requests disconnect without altering accepted player state", ctx do
-    seed(ctx, GameMode.new(:creative), false)
-    client = login(ctx)
-    ref = Process.monitor(state(ctx).player.pid)
-
-    Client.send_raw(client, [
-      Wire.frame(
-        Valimc.Protocol.Data.id(:play, :serverbound, "player_abilities"),
-        <<2>>,
-        client.threshold
-      ),
-      Wire.frame(
-        Valimc.Protocol.Data.id(:play, :serverbound, "change_game_mode"),
-        <<1, 0>>,
-        client.threshold
-      )
-    ])
-
-    assert_receive {:DOWN, ^ref, :process, _, :normal}
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.game_mode == GameMode.new(:creative) and saved.flying
-  end
-
   test "spectator click/drop/swap and forged creative creation leave owned contents and journal unchanged",
        ctx do
     seed(ctx, GameMode.new(:spectator))

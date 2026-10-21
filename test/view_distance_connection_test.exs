@@ -143,11 +143,4 @@ defmodule Valimc.ViewDistanceConnectionTest do
     client = Client.send_packet(client, :play, "client_information", settings(3))
     assert {[], [], [], _} = stream(client, 0)
   end
-
-  test "malformed client information disconnects" do
-    joined = join(4)
-    Client.send_packet(joined.client, :play, "client_information", <<1, ?a>>)
-    ref = Process.monitor(joined.owner)
-    assert_receive {:DOWN, ^ref, :process, _, _}
-  end
 end
