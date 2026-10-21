@@ -522,8 +522,7 @@ defmodule Valimc.Command.Selector do
   end
 
   # `Entity.isAlive` (commands audit E9: comparing the health struct with 0 was always true).
-  defp predicate?(:alive, %{health: %{value: value}}), do: value > 0
-  defp predicate?(:alive, _player), do: true
+  defp predicate?(:alive, player), do: Valimc.Command.Targets.alive?(player)
   defp predicate?({:name, name, inverted}, player), do: player.name == name != inverted
 
   defp predicate?({:gamemode, mode, inverted}, player),

@@ -32,6 +32,8 @@ defmodule Valimc.Commands.Preview do
       })
 
     # Dead players stay where they are.
-    if player.health.value > 0 and Remote.run!(player, {:teleport, pose}) == :ok, do: 1, else: 0
+    if Valimc.Command.Targets.alive?(player) and Remote.run!(player, {:teleport, pose}) == :ok,
+      do: 1,
+      else: 0
   end
 end

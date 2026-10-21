@@ -13,7 +13,9 @@ defmodule Valimc.Command.Targets do
   """
   alias Valimc.Command.{Error, Selector, Source}
 
-  @fields ~w(pid name uuid entity_id address dimension x y z yaw pitch health game_mode progression)a
+  @fields ~w(pid name uuid entity_id address dimension x y z yaw pitch game_mode progression)a
+  # A player's health: its `living` state (VMC-077k), or the loose `health` before it.
+  @health [:living, :health]
 
   @doc "Online players as projections."
   def online, do: projections(:all)
@@ -76,11 +78,22 @@ defmodule Valimc.Command.Targets do
   @doc "The online player with `uuid` as a projection, or nil."
   def by_uuid(uuid), do: Enum.find(projections(:all), &(&1.uuid == uuid))
 
+  @doc "Whether a projection or player is alive (`Entity.isAlive`)."
+  def alive?(%{living: %{health: %{value: value}}}), do: value > 0
+  def alive?(%{health: %{value: value}}), do: value > 0
+  def alive?(_player), do: true
+
   # Slim rows of ready players, in `pids` (`:all`: every one).
   defp projections(pids) do
     variables = Enum.with_index(@fields, &{&1, :"$#{&2 + 2}"})
-    pattern = {:"$1", Map.new([{:ready, true} | variables])}
-    rows = :ets.select(Valimc.Players, [{pattern, [], [Map.new(variables)]}])
+
+    specs =
+      for key <- @health do
+        variables = [{key, :"$99"} | variables]
+        {{:"$1", Map.new([{:ready, true} | variables])}, [], [Map.new(variables)]}
+      end
+
+    rows = :ets.select(Valimc.Players, specs)
     if pids == :all, do: rows, else: Enum.filter(rows, &MapSet.member?(pids, &1.pid))
   end
 
