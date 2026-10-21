@@ -38,20 +38,32 @@ defmodule Valimc.World.GenSettings do
   @booleans ~w(generate_structures bonus_chest lakes features)
   @generators ~w(minecraft:noise minecraft:flat minecraft:debug)
 
-  @doc "The world presets, by id."
-  def presets, do: @presets
+  @doc """
+  The world presets by id: vanilla's, or those of a world's data packs (its
+  facts directory's `world_presets.json`, VMC-028c).
+  """
+  def presets(dir \\ nil)
+  def presets(nil), do: @presets
+
+  def presets(dir) do
+    case File.read(Path.join(dir, "world_presets.json")) do
+      {:ok, text} -> JSON.decode!(text)["presets"]
+      _ -> @presets
+    end
+  end
 
   @doc """
   Settings for a new world: `level_type` (a preset id), `generator_settings`
   (`server.properties` JSON, used by the flat preset), `seed` and whether
   structures generate.
   """
-  def create(level_type, generator_settings, seed, structures)
+  def create(level_type, generator_settings, seed, structures, presets \\ @presets)
       when is_integer(seed) and is_boolean(structures) do
-    preset = Map.get(@presets, level_type || @normal, @presets[@normal])
+    level_type = preset_id(level_type)
+    preset = Map.get(presets, level_type, presets[@normal])
 
     dimensions =
-      case {Map.has_key?(@presets, level_type) and level_type == @flat, flat(generator_settings)} do
+      case {Map.has_key?(presets, level_type) and level_type == @flat, flat(generator_settings)} do
         {true, {:ok, settings}} ->
           put_in(preset["dimensions"]["minecraft:overworld"]["generator"], %{
             "type" => @flat,
@@ -68,6 +80,15 @@ defmodule Valimc.World.GenSettings do
       "bonus_chest" => false,
       "dimensions" => dimensions
     }
+  end
+
+  # `level-type` as a server reads it: lower case, an identifier in the
+  # `minecraft` namespace unless it names one (`Identifier.tryParse`).
+  defp preset_id(nil), do: @normal
+
+  defp preset_id(level_type) do
+    id = String.downcase(level_type)
+    if String.contains?(id, ":"), do: id, else: "minecraft:" <> id
   end
 
   @doc "The overworld's generator."

@@ -186,7 +186,7 @@ defmodule Valimc.Worldgen.Proto do
       {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
         {:ok, log, durable, incarnation} = ProtoLog.open(dir)
-        {:ok, worldgen} = Generator.worldgen(spec.seed, spec.noise_settings)
+        {:ok, worldgen} = Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
 
         state = %{
           empty

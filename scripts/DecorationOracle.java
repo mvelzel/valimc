@@ -101,6 +101,8 @@ public class DecorationOracle {
   static net.minecraft.resources.ResourceKey<NoiseGeneratorSettings> SETTINGS;
   static net.minecraft.resources.ResourceKey<net.minecraft.world.level.dimension.DimensionType> TYPE;
   static net.minecraft.core.RegistryAccess REGISTRIES;
+  static List<Path> PACKS = List.of();
+  static boolean LIVE_ONE = false;
   /** The entities features added to each proto chunk: type, position, yaw. */
   static final Map<ProtoChunk, List<String>> ENTITIES = Collections.synchronizedMap(new IdentityHashMap<>());
 
@@ -171,17 +173,22 @@ public class DecorationOracle {
     }
     var factory = ChunkOracle.factory();
     boolean bench = false, live = false;
+    // Data packs after `--packs` load after vanilla's (VMC-028c).
+    PACKS = WorldgenFactsOracle.packs(args);
+    args = WorldgenFactsOracle.withoutPacks(args);
     selectDimension("overworld");
     for (int i = 2; i < args.length; i++) {
       if (args[i].equals("bench")) bench = true;
       else if (args[i].equals("live")) live = true;
+      // `live pack`: one sequence, for a run with data packs.
+      else if (args[i].equals("pack")) LIVE_ONE = true;
       else selectDimension(args[i]);
     }
     // Fluid tags, as a server binds them (survival and water checks read them).
     SupportOracle.bindFluidTags();
     net.minecraft.core.RegistryAccess registries;
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
-        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
+        WorldgenFactsOracle.packResources(PACKS))) {
       MiningToolOracle.initialize();
       // As a server loads them (`WorldLoader`): the static registries' tags from the pack first,
       // so that tag holder sets in worldgen entries (random blocks of a tag) have contents.
@@ -443,13 +450,14 @@ public class DecorationOracle {
       List<Map<Integer, PlacedFeature>> included, JsonArray includedJson) throws Exception {
     // World presets (VMC-028b): noise settings, and a fixed biome or the overworld preset.
     record Case(long seed, List<ChunkPos> regions, String noise, String fixed) {}
-    var cases = List.of(
+    List<Case> cases = List.of(
         new Case(20261020L, List.of(new ChunkPos(0, 0), new ChunkPos(1, 0), new ChunkPos(1, 1)), "overworld", null),
         new Case(-8172645723L, List.of(new ChunkPos(-3, 7), new ChunkPos(-4, 7)), "overworld", null),
         new Case(20261020L, List.of(new ChunkPos(25000, -18000)), "overworld", null),
         new Case(20261020L, List.of(new ChunkPos(2, -3), new ChunkPos(3, -3)), "large_biomes", null),
         new Case(12345L, List.of(new ChunkPos(0, 0)), "amplified", null),
         new Case(20261020L, List.of(new ChunkPos(-5, 4)), "overworld", "plains"));
+    if (LIVE_ONE) cases = cases.subList(0, 1);
     var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
     createFluidPicker.setAccessible(true);
     var rows = new JsonArray();
@@ -1001,7 +1009,7 @@ public class DecorationOracle {
         f.setAccessible(true);
         var unsafe = (sun.misc.Unsafe) f.get(null);
         var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
-            List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()));
+            WorldgenFactsOracle.packResources(PACKS));
         var managerClass = net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager.class;
         var manager = unsafe.allocateInstance(managerClass);
         var templates = new net.minecraft.world.level.levelgen.structure.templatesystem.loader.ResourceManagerTemplateSource(

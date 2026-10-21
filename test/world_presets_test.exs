@@ -37,7 +37,8 @@ defmodule Valimc.WorldPresetsTest do
       settings = GenSettings.create(level_type, nil, 3, true)
 
       assert Generator.spec_of(settings) ==
-               {:ok, %{kind: :noise, seed: 3, noise_settings: noise, biome_source: source}}
+               {:ok,
+                %{kind: :noise, seed: 3, noise_settings: noise, biome_source: source, facts: nil}}
     end
 
     # Debug worlds and flat worlds with features or lakes are not generated yet.

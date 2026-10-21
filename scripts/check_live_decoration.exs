@@ -5,7 +5,9 @@
 # entity of each final chunk must equal vanilla's, and each block entity's NBT
 # as the region stores it (`Valimc.Worldgen.FullChunk`) must equal vanilla's
 # full chunk save.
-[facts_path] = System.argv()
+# With a world (VMC-028c), every case's world takes its data packs and their
+# extracted worldgen facts.
+[facts_path | pack_world] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 alias Valimc.Native
 alias Valimc.Worldgen.{FullChunk, Proto}
@@ -37,6 +39,10 @@ root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:posit
       seed = String.to_integer(seed)
       base = Path.join(root, "case-#{index}")
       File.mkdir_p!(base)
+
+      for world <- pack_world,
+          part <- ["datapacks", "worldgen"],
+          do: File.cp_r!(Path.join(world, part), Path.join(base, part))
 
       # The world preset of the case's noise settings and biome source (VMC-028b).
       level_type =

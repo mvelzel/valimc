@@ -29,21 +29,10 @@ import net.minecraft.world.level.levelgen.presets.WorldPreset;
  */
 public class WorldSettingsOracle {
   public static void main(String[] args) throws Exception {
-    var base = MiningToolOracle.initialize();
-    net.minecraft.core.RegistryAccess registries;
-    try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(
-        net.minecraft.server.packs.PackType.SERVER_DATA,
-        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
-      var layered = net.minecraft.server.RegistryLayer.createRegistryAccess();
-      var pending = net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
-          layered.getLayer(net.minecraft.server.RegistryLayer.STATIC));
-      var context = net.minecraft.tags.TagLoader.buildUpdatedLookups(
-          layered.getAccessForLoading(net.minecraft.server.RegistryLayer.WORLD), pending);
-      registries = net.minecraft.resources.RegistryDataLoader.load(resources, context,
-          net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
-      pending.forEach(net.minecraft.core.Registry.PendingTags::apply);
-    }
-    if (base == null) throw new IllegalStateException("bootstrap");
+    // Registries as a server loads them: vanilla's pack, then `--packs` (VMC-028c).
+    var packs = WorldgenFactsOracle.packs(args);
+    args = WorldgenFactsOracle.withoutPacks(args);
+    var registries = WorldgenFactsOracle.loadRegistries(packs);
     var json = registries.createSerializationContext(JsonOps.INSTANCE);
     var nbt = registries.createSerializationContext(NbtOps.INSTANCE);
     var gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
@@ -87,6 +76,10 @@ public class WorldSettingsOracle {
         {"minecraft:debug_all_block_states", "", "1", "true"},
         // A level type that is not a preset falls back to the normal one, as a server does.
         {"minecraft:no_such_preset", "", "3", "true"},
+        // A level type without a namespace is a `minecraft` one; one that is not an
+        // identifier is the normal preset.
+        {"amplified", "", "5", "true"},
+        {"large biomes", "", "6", "true"},
         // Generator settings that are not flat settings keep the flat preset's own.
         {"minecraft:flat", "{\"layers\":5}", "4", "true"},
     };

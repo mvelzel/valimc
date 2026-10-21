@@ -4,7 +4,6 @@ import java.nio.file.*;
 import java.util.*;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
@@ -60,7 +59,18 @@ public class WorldgenFactsOracle {
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();
     Bootstrap.bootStrap();
-    var lookup = VanillaRegistries.createWorldLookup();
+    // The registries a server loads (VMC-028c): the vanilla data pack, then the
+    // packs named after `--packs` (data pack folders or zips), in order.
+    var packs = packs(args);
+    args = withoutPacks(args);
+    String tagsOut = null;
+    var tagsAt = Arrays.asList(args).indexOf("--tags");
+    if (tagsAt >= 0) {
+      tagsOut = args[tagsAt + 1];
+      args = Arrays.copyOf(args, tagsAt);
+    }
+    var registries = loadRegistries(packs);
+    net.minecraft.core.HolderLookup.Provider lookup = registries;
     var ops = lookup.createSerializationContext(JsonOps.INSTANCE);
 
     var noises = new TreeMap<String, JsonElement>();
@@ -80,6 +90,16 @@ public class WorldgenFactsOracle {
       for (var key : List.of("noise", "sea_level", "default_block", "default_fluid", "legacy_random_source",
           "noise_router", "aquifers", "material_rule", "spawn_target")) {
         if (full.has(key)) kept.add(key, full.get(key));
+      }
+      // A spawn target point maps functions to ranges: its order is a map's, so sort it.
+      if (kept.has("spawn_target")) {
+        var points = new JsonArray();
+        for (var point : kept.getAsJsonArray("spawn_target")) {
+          var sorted = new JsonObject();
+          new TreeMap<>(point.getAsJsonObject().asMap()).forEach(sorted::add);
+          points.add(sorted);
+        }
+        kept.add("spawn_target", points);
       }
       settings.put(holder.key().identifier().toString(), kept);
     });
@@ -169,6 +189,25 @@ public class WorldgenFactsOracle {
     });
     write(args[12], dimensions);
 
+    // A data pack's block and fluid tags (decoration reads them; vanilla's come from the
+    // protocol facts).
+    if (tagsOut != null) {
+      var tags = new JsonObject();
+      for (var key : List.of(Registries.BLOCK, Registries.FLUID)) {
+        var byTag = new TreeMap<String, JsonElement>();
+        var registry = registries.lookupOrThrow(key);
+        registry.listTags().forEach(named -> {
+          var ids = new JsonArray();
+          named.stream().forEach(holder -> ids.add(registry.getId(holder.value())));
+          byTag.put(named.key().location().toString(), ids);
+        });
+        var entry = new JsonObject();
+        byTag.forEach(entry::add);
+        tags.add(key.identifier().toString(), entry);
+      }
+      Files.writeString(Path.of(tagsOut), new GsonBuilder().setPrettyPrinting().create().toJson(tags) + "\n");
+    }
+
     var presets = new TreeMap<String, List<String>>();
     MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
       var rows = new ArrayList<String>();
@@ -197,6 +236,54 @@ public class WorldgenFactsOracle {
         + features.size() + " features, " + placed.size() + " placed features, " + providers.size()
         + " block state providers, feature order for " + order.size() + " biome sources, "
         + dimensions.size() + " dimensions");
+  }
+
+  /** The data pack folders after `--packs` (VMC-028c): they come last in a command line. */
+  static List<Path> packs(String[] args) {
+    var split = Arrays.asList(args).indexOf("--packs");
+    var packs = new ArrayList<Path>();
+    if (split >= 0) for (var pack : Arrays.asList(args).subList(split + 1, args.length)) packs.add(Path.of(pack));
+    return packs;
+  }
+
+  static String[] withoutPacks(String[] args) {
+    var split = Arrays.asList(args).indexOf("--packs");
+    return split >= 0 ? Arrays.copyOf(args, split) : args;
+  }
+
+  /** The server data of vanilla's pack, then `packs` (folders; zips are unpacked by the caller). */
+  static List<net.minecraft.server.packs.PackResources> packResources(List<Path> packs) {
+    var resources = new ArrayList<net.minecraft.server.packs.PackResources>();
+    resources.add(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources());
+    for (var pack : packs) {
+      var info = new net.minecraft.server.packs.PackLocationInfo(pack.getFileName().toString(),
+          net.minecraft.network.chat.Component.literal(pack.getFileName().toString()),
+          net.minecraft.server.packs.repository.PackSource.WORLD, Optional.empty());
+      if (!Files.isDirectory(pack)) throw new IllegalArgumentException("not a data pack folder: " + pack);
+      resources.add(new net.minecraft.server.packs.PathPackResources(info, pack));
+    }
+    return resources;
+  }
+
+  /**
+   * Worldgen registries as `WorldLoader` loads them: static registries' tags from the packs first,
+   * then the world registries from vanilla's pack and `packs`.
+   */
+  static net.minecraft.core.RegistryAccess loadRegistries(List<Path> packs) throws Exception {
+    MiningToolOracle.initialize();
+    try (var manager = new net.minecraft.server.packs.resources.MultiPackResourceManager(
+        net.minecraft.server.packs.PackType.SERVER_DATA, packResources(packs))) {
+      var layered = net.minecraft.server.RegistryLayer.createRegistryAccess();
+      var pending = net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(manager,
+          layered.getLayer(net.minecraft.server.RegistryLayer.STATIC));
+      var context = net.minecraft.tags.TagLoader.buildUpdatedLookups(
+          layered.getAccessForLoading(net.minecraft.server.RegistryLayer.WORLD), pending);
+      var registries = net.minecraft.resources.RegistryDataLoader.load(manager, context,
+          net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
+      pending.forEach(net.minecraft.core.Registry.PendingTags::apply);
+      // Codecs also read the static registries (blocks, fluids...).
+      return layered.replaceFrom(net.minecraft.server.RegistryLayer.WORLD, registries).compositeAccess();
+    }
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {

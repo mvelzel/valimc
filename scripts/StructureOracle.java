@@ -65,7 +65,12 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 public class StructureOracle {
   static final int MIN_Y = -64, HEIGHT = 384;
 
+  /** Data packs after vanilla's (`--packs`, VMC-028c). */
+  static List<Path> PACKS = List.of();
+
   public static void main(String[] args) throws Exception {
+    PACKS = WorldgenFactsOracle.packs(args);
+    args = WorldgenFactsOracle.withoutPacks(args);
     switch (args[0]) {
       case "facts" -> facts(Path.of(args[1]), Path.of(args[2]), Path.of(args[3]), Path.of(args[4]));
       case "starts" -> starts(Path.of(args[1]));
@@ -78,7 +83,7 @@ public class StructureOracle {
   static RegistryAccess serverRegistries() throws Exception {
     MiningToolOracle.initialize();
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
-        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
+        WorldgenFactsOracle.packResources(PACKS))) {
       var layered = net.minecraft.server.RegistryLayer.createRegistryAccess();
       var pending = net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
           layered.getLayer(net.minecraft.server.RegistryLayer.STATIC));
@@ -159,7 +164,7 @@ public class StructureOracle {
     int count = 0;
     var json = new TreeMap<String, JsonElement>();
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
-        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
+        WorldgenFactsOracle.packResources(PACKS))) {
       var converter = new net.minecraft.resources.FileToIdConverter("structure", ".nbt");
       var source = new net.minecraft.world.level.levelgen.structure.templatesystem.loader.ResourceManagerTemplateSource(
           net.minecraft.util.datafix.DataFixers.getDataFixer(), net.minecraft.core.registries.BuiltInRegistries.BLOCK, resources, converter);

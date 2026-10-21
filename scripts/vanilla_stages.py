@@ -172,6 +172,12 @@ STAGES = [
          'minecraft:desert_pyramid,minecraft:jungle_pyramid,minecraft:swamp_hut,minecraft:buried_treasure'),
         ('check', 'check_decoration.exs', '@placement.json'),
     ]),
+    ('worldgen_datapack', [
+        ('java', 'DatapackOracle', 'make', '@world/datapacks/sample'),
+        ('check', 'datapack_facts.exs', '@world'),
+        ('java', 'DecorationOracle', '@live.json', '*', 'live', 'pack', '--packs', '@world/datapacks/sample'),
+        ('app', 'check_live_decoration.exs', '@live.json', '@world'),
+    ]),
     ('worldgen_live', [
         ('java', 'DecorationOracle', '@live.json', '*', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),

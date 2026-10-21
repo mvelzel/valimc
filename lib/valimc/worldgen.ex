@@ -19,77 +19,90 @@ defmodule Valimc.Worldgen do
   @terracotta ~w(terracotta orange_terracotta yellow_terracotta brown_terracotta red_terracotta
                  white_terracotta light_gray_terracotta)
 
-  @doc "The native worldgen registry, parsed from the facts on first use."
+  # Facts a data pack can change (VMC-028c): a world with packs reads them from
+  # its facts directory (`Valimc.World.Datapacks`), the rest from `priv`.
+  @pack_facts @facts ++
+                ~w(templates processor_lists structures structure_sets template_pools
+                   structure_templates)
+
+  @doc """
+  The native worldgen registry of vanilla's facts (`priv/worldgen`), parsed on
+  first use; raises if they do not parse.
+  """
   def registry do
-    case :persistent_term.get({__MODULE__, :registry}, nil) do
+    {:ok, registry} = registry(nil)
+    registry
+  end
+
+  @doc """
+  The native registry of a facts directory (`nil`: vanilla's): the facts a data
+  pack can change come from `dir` (with its block and fluid tags,
+  `tags.json`), the others from `priv`. Parsed once per directory and VM;
+  `{:error, reason}` when ValiMC cannot generate them.
+  """
+  def registry(dir) do
+    key = {__MODULE__, :registry, dir}
+
+    case :persistent_term.get(key, nil) do
       nil ->
-        facts =
-          Map.new(@facts, fn name ->
-            json =
-              Application.app_dir(:valimc, "priv/worldgen/#{name}.json")
-              |> File.read!()
-              |> JSON.decode!()
-
-            {name, json}
-          end)
-
-        facts =
-          facts
-          |> Map.update!("noise_settings", fn settings ->
-            Map.new(settings, fn {id, entry} ->
-              {id,
-               entry
-               |> Map.update!("default_block", &state_id/1)
-               |> Map.update!("default_fluid", &state_id/1)}
-            end)
-          end)
-          |> Map.update!("material_rules", &Map.new(&1, fn {id, rule} -> {id, states(rule)} end))
-          |> Map.put("blocks", blocks())
-          |> Map.put(
-            "support",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/survival.json"))
-          )
-          |> Map.put(
-            "block_registry",
-            read_json!(Application.app_dir(:valimc, "priv/registry/blocks.json"))
-          )
-          |> Map.put("block_facts", block_facts())
-          |> Map.put(
-            "shapes",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/shapes.json"))
-          )
-          |> Map.put(
-            "templates",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/templates.json"))
-          )
-          |> Map.put(
-            "processor_lists",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/processor_lists.json"))
-          )
-          |> Map.put(
-            "structures",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/structures.json"))
-          )
-          |> Map.put(
-            "structure_sets",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/structure_sets.json"))
-          )
-          |> Map.put(
-            "template_pools",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/template_pools.json"))
-          )
-          |> Map.put(
-            "structure_templates",
-            read_json!(Application.app_dir(:valimc, "priv/worldgen/structure_templates.json"))
-          )
-
-        {:ok, registry} = Native.worldgen_registry(facts)
-        :persistent_term.put({__MODULE__, :registry}, registry)
-        registry
+        with {:ok, registry} <- parse(dir) do
+          :persistent_term.put(key, registry)
+          {:ok, registry}
+        end
 
       registry ->
-        registry
+        {:ok, registry}
     end
+  end
+
+  defp fact(dir, name) do
+    path =
+      if dir && name in @pack_facts,
+        do: Path.join(dir, "#{name}.json"),
+        else: Application.app_dir(:valimc, "priv/worldgen/#{name}.json")
+
+    read_json!(path)
+  end
+
+  defp parse(dir) do
+    facts = Map.new(@facts, &{&1, fact(dir, &1)})
+
+    tags =
+      case dir && File.read(Path.join(dir, "tags.json")) do
+        {:ok, text} -> JSON.decode!(text)
+        _ -> Data.tags()
+      end
+
+    facts =
+      facts
+      |> Map.update!("noise_settings", fn settings ->
+        Map.new(settings, fn {id, entry} ->
+          {id,
+           entry
+           |> Map.update!("default_block", &state_id/1)
+           |> Map.update!("default_fluid", &state_id/1)}
+        end)
+      end)
+      |> Map.update!("material_rules", &Map.new(&1, fn {id, rule} -> {id, states(rule)} end))
+      |> Map.put("blocks", blocks(tags))
+      |> Map.put("support", fact(nil, "survival"))
+      |> Map.put(
+        "block_registry",
+        read_json!(Application.app_dir(:valimc, "priv/registry/blocks.json"))
+      )
+      |> Map.put("block_facts", block_facts(tags))
+      |> Map.put("shapes", fact(nil, "shapes"))
+      |> Map.merge(
+        Map.new(
+          ~w(templates processor_lists structures structure_sets template_pools structure_templates),
+          &{&1, fact(dir, &1)}
+        )
+      )
+
+    Native.worldgen_registry(facts)
+  rescue
+    error in [File.Error, JSON.DecodeError, KeyError, MatchError, ArgumentError] ->
+      {:error, Exception.message(error)}
   end
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
@@ -98,7 +111,7 @@ defmodule Valimc.Worldgen do
   # fire can burn (VMC-026a), the fluid (vanilla's fluid registry ids: empty,
   # flowing water, water, flowing lava, lava), its amount with the falling flag
   # at bit 4, the heightmap predicates, and the block and fluid tags.
-  defp block_facts do
+  defp block_facts(tags) do
     flags = read_json!(Application.app_dir(:valimc, "priv/worldgen/blocks.json"))
     states = 0..(Blocks.state_count() - 1)
 
@@ -117,8 +130,6 @@ defmodule Valimc.Worldgen do
 
         {fluid_id, fluid.amount + if(fluid.falling, do: 16, else: 0)}
       end)
-
-    tags = Data.tags()
 
     %{
       "flags" => flags["flags"],
@@ -144,9 +155,13 @@ defmodule Valimc.Worldgen do
     |> Enum.sort()
   end
 
-  @doc "Worldgen state for `seed` and a noise settings entry."
-  def new(seed, settings \\ "minecraft:overworld"),
-    do: Native.worldgen_new(registry(), seed, settings)
+  @doc """
+  Worldgen state for `seed` and a noise settings entry, over vanilla's facts or
+  a facts directory's (`registry/1`).
+  """
+  def new(seed, settings \\ "minecraft:overworld", dir \\ nil) do
+    with {:ok, registry} <- registry(dir), do: Native.worldgen_new(registry, seed, settings)
+  end
 
   # Block states inside material rules become state ids.
   defp states(%{} = json) do
@@ -168,10 +183,10 @@ defmodule Valimc.Worldgen do
 
   # Per state: bit 0 air, 1 contains a fluid, 2 water, 3 uncarvable (block
   # tag), 4 grass block or mycelium, 5 dirt.
-  defp blocks do
+  defp blocks(tags) do
     air = MapSet.new(~w(air cave_air void_air), &Blocks.id/1)
     water = Blocks.id("water")
-    uncarvable = MapSet.new(Data.tags()["minecraft:block"]["minecraft:uncarvable"])
+    uncarvable = MapSet.new(tags["minecraft:block"]["minecraft:uncarvable"])
     grass = MapSet.new(~w(grass_block mycelium), &Blocks.id/1)
     dirt = Blocks.id("dirt")
 

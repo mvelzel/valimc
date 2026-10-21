@@ -33,7 +33,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.loader.Resour
  */
 public class StructureTemplateOracle {
   public static void main(String[] args) throws Exception {
-    var lookup = MiningToolOracle.initialize();
+    // The registries and templates a server loads: vanilla's pack, then `--packs` (VMC-028c).
+    var packs = WorldgenFactsOracle.packs(args);
+    args = WorldgenFactsOracle.withoutPacks(args);
+    net.minecraft.core.HolderLookup.Provider lookup = WorldgenFactsOracle.loadRegistries(packs);
     var ops = lookup.createSerializationContext(JsonOps.INSTANCE);
     var lists = new TreeMap<String, JsonElement>();
     lookup.lookupOrThrow(Registries.PROCESSOR_LIST).listElements().forEach(holder ->
@@ -45,8 +48,7 @@ public class StructureTemplateOracle {
         collect(Feature.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow(), ids));
 
     var templates = new JsonObject();
-    try (var resources = new MultiPackResourceManager(PackType.SERVER_DATA,
-        List.of(ServerPacksSource.createVanillaPackSource().fullResources()))) {
+    try (var resources = new MultiPackResourceManager(PackType.SERVER_DATA, WorldgenFactsOracle.packResources(packs))) {
       var source = new ResourceManagerTemplateSource(DataFixers.getDataFixer(), lookup.lookupOrThrow(Registries.BLOCK), resources,
           new net.minecraft.resources.FileToIdConverter("structure", ".nbt"));
       var palettesField = StructureTemplate.class.getDeclaredField("palettes");

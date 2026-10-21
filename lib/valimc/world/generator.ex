@@ -55,7 +55,15 @@ defmodule Valimc.World.Generator do
       end
     end
 
-    :persistent_term.put({__MODULE__, :world}, of(base))
+    generator = of(base)
+    # The packs' facts once: region loads and proto owners read them per region.
+    :persistent_term.put({__MODULE__, :facts}, {base, Valimc.World.Datapacks.facts(base)})
+
+    with {:vanilla, _} <- generator,
+         {:error, reason} <- spec(base),
+         do: raise("Cannot generate the world at #{base}: #{inspect(reason)}")
+
+    :persistent_term.put({__MODULE__, :world}, generator)
     :persistent_term.put({__MODULE__, :settings}, recorded(base))
   end
 
@@ -101,15 +109,16 @@ defmodule Valimc.World.Generator do
   full chunks its regions' first transactions make.
   """
   def create(base, seed, opts \\ []) when is_integer(seed) do
-    settings =
-      GenSettings.create(
-        Keyword.get(opts, :level_type),
-        Keyword.get(opts, :generator_settings),
-        seed,
-        Keyword.get(opts, :structures, true)
-      )
-
-    with {:ok, spec} <- spec_of(settings) do
+    with {:ok, facts} <- Valimc.World.Datapacks.facts(base),
+         settings =
+           GenSettings.create(
+             Keyword.get(opts, :level_type),
+             Keyword.get(opts, :generator_settings),
+             seed,
+             Keyword.get(opts, :structures, true),
+             GenSettings.presets(facts)
+           ),
+         {:ok, spec} <- spec_of(settings, facts) do
       # Flat worlds are not decorated (their features and lakes are off).
       features = Keyword.get(opts, :features, true) and spec.kind == :noise
       columns = if features, do: first_full_columns(spec), else: &columns/2
@@ -129,7 +138,7 @@ defmodule Valimc.World.Generator do
   # `ChunkGenerator.getOrigin`: a noise generator's spawn target, else chunk
   # (0, 0); `getSpawnHeight`: 64 for noise, the bottom plus the flat layers.
   defp spawn_chunk(%{kind: :noise} = spec) do
-    case spawn_origin(spec.seed, spec.noise_settings) do
+    case spawn_origin(spec.seed, spec.noise_settings, spec.facts) do
       {x, z} -> {Bitwise.bsr(x, 4), Bitwise.bsr(z, 4)}
       nil -> {0, 0}
     end
@@ -149,8 +158,21 @@ defmodule Valimc.World.Generator do
   """
   def spec(base) do
     case of(base) do
-      :flat -> :flat
-      {:vanilla, seed} -> spec_of(recorded(base) || GenSettings.legacy({:vanilla, seed}))
+      :flat ->
+        :flat
+
+      {:vanilla, seed} ->
+        with {:ok, facts} <- facts(base),
+             do: spec_of(recorded(base) || GenSettings.legacy({:vanilla, seed}), facts)
+    end
+  end
+
+  # The configured world's pack facts as `init!/0` found them; any other
+  # world's (tests, tools) read now.
+  defp facts(base) do
+    case :persistent_term.get({__MODULE__, :facts}, nil) do
+      {^base, facts} -> facts
+      _ -> Valimc.World.Datapacks.facts(base)
     end
   end
 
@@ -163,7 +185,7 @@ defmodule Valimc.World.Generator do
   seed, layers, height, biome}`: the states from the bottom up and the
   biome's protocol id). Anything else is `{:error, reason}`.
   """
-  def spec_of(%{"seed" => seed} = settings) do
+  def spec_of(%{"seed" => seed} = settings, facts \\ nil) do
     case GenSettings.overworld(settings) do
       %{"type" => "minecraft:noise", "settings" => noise, "biome_source" => source}
       when noise in @noise_settings ->
@@ -174,7 +196,8 @@ defmodule Valimc.World.Generator do
                kind: :noise,
                seed: seed,
                noise_settings: noise,
-               biome_source: "minecraft:overworld"
+               biome_source: "minecraft:overworld",
+               facts: facts
              }}
 
           %{"type" => "minecraft:fixed", "biome" => biome} ->
@@ -185,7 +208,8 @@ defmodule Valimc.World.Generator do
                    kind: :noise,
                    seed: seed,
                    noise_settings: noise,
-                   biome_source: "fixed:" <> biome
+                   biome_source: "fixed:" <> biome,
+                   facts: facts
                  }},
               else: {:error, {:unknown_biome, biome}}
 
@@ -239,7 +263,7 @@ defmodule Valimc.World.Generator do
   # terrain, memoized per region for one search. A player whose view starts
   # other regions first may race it.
   defp first_full_columns(%{kind: :noise} = spec) do
-    {:ok, state} = worldgen(spec.seed, spec.noise_settings)
+    {:ok, state} = worldgen(spec.seed, spec.noise_settings, spec.facts)
     source = spec.biome_source
     proto = Valimc.Worldgen.Proto
 
@@ -369,7 +393,13 @@ defmodule Valimc.World.Generator do
   def columns({:vanilla, seed}, chunks),
     do:
       columns(
-        %{kind: :noise, seed: seed, noise_settings: @settings, biome_source: @biome_source},
+        %{
+          kind: :noise,
+          seed: seed,
+          noise_settings: @settings,
+          biome_source: @biome_source,
+          facts: nil
+        },
         chunks
       )
 
@@ -394,14 +424,14 @@ defmodule Valimc.World.Generator do
   end
 
   @doc "The spawn target's origin column `{x, z}` of `seed`, or nil (VMC-027d)."
-  def spawn_origin(seed, noise_settings \\ @settings) do
-    {:ok, state} = worldgen(seed, noise_settings)
+  def spawn_origin(seed, noise_settings \\ @settings, facts \\ nil) do
+    {:ok, state} = worldgen(seed, noise_settings, facts)
     {:ok, origin} = Native.worldgen_spawn_origin(state)
     origin
   end
 
   defp generate(spec, chunks) do
-    {:ok, state} = worldgen(spec.seed, spec.noise_settings)
+    {:ok, state} = worldgen(spec.seed, spec.noise_settings, spec.facts)
 
     {:ok, generated} =
       Native.worldgen_columns(state, spec.biome_source, protocol_biomes(), chunks)
@@ -415,20 +445,21 @@ defmodule Valimc.World.Generator do
   states (VMC-025d1), so concurrent generations of the seed run in parallel and
   any of them gives the same chunks.
   """
-  def worldgen(seed, noise_settings \\ @settings) do
+  def worldgen(seed, noise_settings \\ @settings, facts \\ nil) do
     key =
-      if noise_settings == @settings,
+      if noise_settings == @settings and facts == nil,
         do: {__MODULE__, seed},
-        else: {__MODULE__, seed, noise_settings}
+        else: {__MODULE__, seed, noise_settings, facts}
 
     case :persistent_term.get(key, nil) do
       nil ->
         :global.trans({key, self()}, fn ->
           case :persistent_term.get(key, nil) do
             nil ->
-              {:ok, state} = Worldgen.new(seed, noise_settings)
-              :persistent_term.put(key, state)
-              {:ok, state}
+              with {:ok, state} <- Worldgen.new(seed, noise_settings, facts) do
+                :persistent_term.put(key, state)
+                {:ok, state}
+              end
 
             state ->
               {:ok, state}

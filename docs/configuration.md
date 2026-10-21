@@ -9,6 +9,9 @@
 | `VALIMC_WORLD` | Custom preview storage directory; default `world` |
 | `VALIMC_GENERATOR` | Terrain of a new world: `flat` (default) or `vanilla`; recorded in its `world.json` |
 | `VALIMC_SEED` | Seed of a new vanilla world (64-bit integer); random by default |
+| `VALIMC_LEVEL_TYPE` | World preset of a new vanilla world (`level-type`): `minecraft:normal` (default), `large_biomes`, `amplified`, `single_biome_surface` or `flat`; an unknown one is normal, debug worlds are refused |
+| `VALIMC_GENERATOR_SETTINGS` | A flat world's layers and biome (`generator-settings`, vanilla's flat settings JSON); flat worlds with features or lakes are refused |
+| `VALIMC_GENERATE_STRUCTURES` | `generate-structures` (`true` by default), recorded in the world's generation settings |
 | `VALIMC_VIEW_DISTANCE` | Server view distance (`view-distance`, 2..32, default 10): each client gets the distance it requests, at least 2 and at most this |
 | `VALIMC_SIMULATION_DISTANCE` | Simulation distance clients are told (`simulation-distance`, 2..32, default 10); regions still simulate every loaded chunk |
 | `VALIMC_RESPAWN_RADIUS` | The `respawn_radius` game rule: new players and bedless respawns appear within this many blocks of the world spawn; default 10 |
@@ -21,6 +24,13 @@
 | `VALIMC_ACCEPTS_TRANSFERS` | Whether players sent here by `/transfer` on another server may join (`false`) |
 | `VALIMC_PLAYER_IDLE_TIMEOUT` | Minutes without a player action before the player is disconnected; `0` (default) is off; `/setidletimeout` saves its own value in the world |
 | `VALIMC_CONSOLE` | Whether commands are read from standard input (`true` outside tests) |
+
+A new vanilla world records its generation settings in `world.json` as vanilla
+writes `world_gen_settings.dat`, and exports write that file. Data packs in the
+world's `datapacks` folder (folders or zips) change its worldgen once their
+facts are extracted: run `mix valimc.worldgen_packs WORLD` (needs the research
+toolchain) with the server stopped, after every pack change. A world whose
+packs have no facts, or add or remove biomes, is refused with the reason.
 
 Operators get their `ops.json` level (4, `operator_level`, for `/op`) and the
 commands of that level; other players get level 0. The world directory holds
