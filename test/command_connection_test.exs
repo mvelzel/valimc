@@ -149,16 +149,45 @@ defmodule Valimc.CommandConnectionTest do
     assert :ok = Valimc.World.Clock.configure({:advance_time, false})
     client = command(client, "time set 1234", "commands.time.set.absolute")
     assert Valimc.World.Clock.snapshot().clocks["minecraft:overworld"].total_ticks == 1234
+    client = await_overworld_ticks(client, 1234)
     client = command(client, "time set 1234", "commands.time.set.already_at_time")
     client = command(client, "time set noon", "commands.time.set.time_marker")
     assert Valimc.World.Clock.snapshot().clocks["minecraft:overworld"].total_ticks == 6000
+
+    # The rain level starts rising on the next tick.
     client = command(client, "weather rain 600", "commands.weather.set.rain")
-    level = if difficulty.level == 3, do: "easy", else: "hard"
+    client = await_rain(client)
+
+    {level, id} = if difficulty.level == 3, do: {"easy", 1}, else: {"hard", 3}
     client = command(client, "difficulty #{level}", "commands.difficulty.success")
+    {<<^id, _locked>>, client} = Client.await(client, :play, "change_difficulty")
     client = command(client, "difficulty #{level}", "commands.difficulty.failure")
+    # Only a singleplayer owner may change difficulty from the client.
+    Client.send_packet(client, :play, "change_difficulty", <<0>>)
+    Client.send_packet(client, :play, "lock_difficulty", <<1>>)
     value = not Valimc.World.Clock.snapshot().advance_time
     _client = command(client, "gamerule advance_time #{value}", "commands.gamerule.set")
     assert Valimc.World.Clock.snapshot().advance_time == value
+    assert %{level: ^id, locked: false} = Valimc.World.Clock.snapshot().difficulty
+  end
+
+  # Clock packets: game time, then each clock's ID, total ticks, partial tick and rate.
+  defp await_overworld_ticks(client, ticks) do
+    {<<_game_time::signed-64, body::binary>>, client} = Client.await(client, :play, "set_time")
+    {_count, body} = Wire.take_varint(body)
+    {0, body} = Wire.take_varint(body)
+
+    case Wire.take_varint(body) do
+      {^ticks, _} -> client
+      _ -> await_overworld_ticks(client, ticks)
+    end
+  end
+
+  defp await_rain(client) do
+    case Client.await(client, :play, "game_event") do
+      {<<7, level::float-32>>, client} when level > 0.0 -> client
+      {_, client} -> await_rain(client)
+    end
   end
 
   test "setblock and fill change blocks through their region owners" do

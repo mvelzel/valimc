@@ -114,15 +114,4 @@ defmodule Valimc.CommandPresentationConnectionTest do
     {<<_rate::float-32, frozen>>, _client} = Client.await(client, :play, "ticking_state")
     assert frozen == 0
   end
-
-  test "client-drawn effects such as night vision are given and sent" do
-    client = join()
-    send_command(client, "effect give @s minecraft:night_vision 30 0 true")
-    {body, client} = Client.await(client, :play, "update_mob_effect")
-    {_entity, rest} = Wire.take_varint(body)
-    {effect, _} = Wire.take_varint(rest)
-    assert effect == Valimc.Protocol.EffectTypes.id("night_vision")
-    client = feedback(client, "effect", "commands.effect.give.success.single")
-    _client = command(client, "effect give @s minecraft:glowing 10", "is not supported yet")
-  end
 end

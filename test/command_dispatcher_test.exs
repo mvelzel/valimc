@@ -5,7 +5,7 @@ defmodule Valimc.CommandDispatcherTest do
 
   defp parse(input, level \\ 4), do: Valimc.Commands.parse(input, Source.parse_only(level))
 
-  test "operators parse vanilla commands; others do not see restricted ones" do
+  test "operators parse vanilla commands; others neither parse nor see restricted ones" do
     assert {:ok, {Valimc.Commands.Players, :gamemode}, %{"gamemode" => :creative}, _} =
              parse("gamemode creative")
 
@@ -14,18 +14,6 @@ defmodule Valimc.CommandDispatcherTest do
              parse("gamemode creative", 0)
 
     assert {:ok, {Valimc.Commands.Chat, :help}, %{}, _} = parse("help", 0)
-  end
-
-  test "argument failures carry vanilla's cursor" do
-    assert {:error, %Error{cursor: 16, input: "gamemode creativ"} = error} =
-             parse("gamemode creativ")
-
-    assert [_message, context] = Error.feedback(error, "gamemode creativ")
-    assert inspect(context) =~ "command.context.here"
-    assert {:error, %Error{cursor: 0}} = parse("gamemode survival @e")
-  end
-
-  test "graphs differ by permission level and always carry ValiMC's literals" do
     refute Valimc.Commands.graph_payload(0) == Valimc.Commands.graph_payload(4)
     assert :binary.match(Valimc.Commands.graph_payload(0), "gamemode") == :nomatch
     assert :binary.match(Valimc.Commands.graph_payload(4), "gamemode") != :nomatch

@@ -1,7 +1,7 @@
 defmodule Valimc.CommandSnbtTest do
   use ExUnit.Case, async: true
-  # SNBT values; the commands oracle stage compares parse errors with vanilla.
-  alias Valimc.Command.{Error, ItemPredicate, Reader, Snbt}
+  # SNBT values and item predicates; the commands oracle stage compares parse errors.
+  alias Valimc.Command.{ItemPredicate, Reader, Snbt}
   alias Valimc.Protocol.ItemStack
 
   defp snbt(text), do: text |> Reader.new() |> Snbt.parse() |> elem(0)
@@ -30,15 +30,6 @@ defmodule Valimc.CommandSnbtTest do
     assert snbt("{a:1,a:2}") == {:compound, %{"a" => {:int, 2}}}
     assert snbt("bool(256)") == {:byte, 0}
     assert {:int_array, <<_::128>>} = snbt(~S|uuid("dd12be42-52a9-4a91-a8a1-11c01849e498")|)
-  end
-
-  test "errors carry vanilla's keys and cursors" do
-    assert {:error, %Error{cursor: 4} = error} = Error.catching(fn -> snbt("300b") end)
-    assert inspect(error.message) =~ "snbt.parser.number_parse_failure"
-    assert {:error, %Error{} = error} = Error.catching(fn -> snbt("{a:}") end)
-
-    assert inspect(error.message) =~ "argument.literal.incorrect" or
-             inspect(error.message) =~ "snbt.parser"
   end
 
   test "item predicates match items, tags, counts and components" do
