@@ -4,6 +4,9 @@ defmodule Valimc.Commands.Timers do
   alias Valimc.Text
   alias Valimc.World.Stopwatches
 
+  @doc "Stopwatch ids for `/stopwatch query|restart|remove`."
+  def suggest(["stopwatch" | _], _arguments, _source), do: {:resources, Stopwatches.ids()}
+
   @doc "`/stopwatch create|query|restart|remove <id>`."
   def stopwatch(%{literals: [mode]} = arguments, source) do
     case mode do

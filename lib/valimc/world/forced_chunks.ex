@@ -14,11 +14,14 @@ defmodule Valimc.World.ForcedChunks do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "Adds or removes chunks in one save; returns the chunks that changed."
-  def change(operation, chunks) when operation in [:add, :remove],
-    do: GenServer.call(__MODULE__, {operation, Dimension.current(), chunks}, 30_000)
+  def change(operation, chunks, dimension \\ Dimension.current())
+      when operation in [:add, :remove],
+      do: GenServer.call(__MODULE__, {operation, dimension, chunks}, 30_000)
 
-  def remove_all, do: GenServer.call(__MODULE__, {:remove_all, Dimension.current()})
-  def all, do: GenServer.call(__MODULE__, {:all, Dimension.current()})
+  def remove_all(dimension \\ Dimension.current()),
+    do: GenServer.call(__MODULE__, {:remove_all, dimension})
+
+  def all(dimension \\ Dimension.current()), do: GenServer.call(__MODULE__, {:all, dimension})
 
   @impl true
   def init(_opts) do

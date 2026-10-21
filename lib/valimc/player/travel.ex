@@ -187,7 +187,7 @@ defmodule Valimc.Player.Travel do
   defp post_effects(player) do
     case Map.get(player, :post_effects, []) do
       [] -> []
-      ids -> [Valimc.Commands.PostEffects.packet(ids)]
+      ids -> [Valimc.Player.PostEffects.packet(ids)]
     end
   end
 

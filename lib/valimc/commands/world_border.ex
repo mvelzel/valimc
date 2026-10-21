@@ -16,7 +16,7 @@ defmodule Valimc.Commands.WorldBorder do
   def worldborder(arguments, source) do
     case kind(arguments.literals) do
       :get ->
-        {component, result} = query(Clock.border())
+        {component, result} = query(Clock.border(Valimc.Dimension.name(source.dimension)))
         Feedback.success(source, component, false)
         result
 
@@ -35,7 +35,7 @@ defmodule Valimc.Commands.WorldBorder do
   defp change(kind, arguments, source) do
     operation = operation(kind, arguments, source.position)
 
-    case Clock.border_command(operation) do
+    case Clock.border_command(operation, Valimc.Dimension.name(source.dimension)) do
       {:ok, outcome} ->
         {component, result} = success(operation, outcome)
         Feedback.success(source, component)

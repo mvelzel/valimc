@@ -68,7 +68,12 @@ defmodule Valimc.Dimension do
     fn a -> within(dimension, fn -> fun.(a) end) end
   end
 
-  @doc "A key scoped by the caller's context (`scope/2`)."
+  @doc """
+  A key scoped by the caller's context (`scope/2`); an address
+  (`{dimension, key}`, `address?/1`) names its dimension itself, so a scoped
+  key of another dimension is never scoped again (VMC-077o).
+  """
+  def scope({dimension, {_, _} = key}) when dimension in @ids, do: scope(dimension, key)
   def scope(key), do: scope(current(), key)
 
   @doc "A routing key of `dimension`: the plain key in the overworld."

@@ -5,8 +5,9 @@ defmodule Valimc.Command.Suggestions do
   `ServerCommandSuggestionsProvider` and Brigadier's `getCompletionSuggestions`:
   parse the text, find the node before the cursor, ask each child and merge.
 
-  Literals and ValiMC's `ask_server` providers answer here; other argument types
-  suggest in the client, which merges them with this reply.
+  Literals answer here, and `ask_server` nodes ask the provider their command
+  registers (VMC-077o); other argument types suggest in the client, which
+  merges them with this reply.
   """
   alias Valimc.Command.{Dispatcher, Reader}
 
@@ -20,6 +21,7 @@ defmodule Valimc.Command.Suggestions do
     cursor = reader.size
     parse = Dispatcher.parse(Valimc.Commands.root(), command, source)
     {parent, start, context} = find(parse.context, cursor, Valimc.Commands.root())
+    context = Map.put(context, :source, source)
     start = min(start, cursor)
     remaining = Reader.slice(reader, start, cursor)
 
@@ -64,76 +66,25 @@ defmodule Valimc.Command.Suggestions do
       else: []
   end
 
-  defp child(%{suggestions: "minecraft:ask_server", path: path}, remaining, _context)
-       when path in [
-              ["op", "targets"],
-              ["deop", "targets"],
-              ["pardon", "targets"],
-              ["pardon-ip", "target"],
-              ["whitelist", "add", "targets"],
-              ["whitelist", "remove", "targets"]
-            ] do
+  # `ask_server` nodes: the command's own provider (`suggest/3` of its handler
+  # module, registered with `suggest: true` in `Valimc.Commands.registry/0`).
+  defp child(%{suggestions: "minecraft:ask_server", path: [name | _] = path}, remaining, context) do
+    arguments = Map.new(context.arguments, fn {key, {value, _range}} -> {key, value} end)
     contents = String.downcase(remaining)
-    Enum.filter(admin_names(path), &matches_sub_str?(contents, String.downcase(&1)))
-  end
 
-  # `PlaceCommand.SUGGEST_TEMPLATES`: `suggestResource` over every template.
-  defp child(
-         %{suggestions: "minecraft:ask_server", path: ["place", "template", "template"]},
-         remaining,
-         _context
-       ),
-       do: resources(Valimc.Commands.Place.template_ids(), String.downcase(remaining))
+    case Valimc.Commands.suggester(name) do
+      nil ->
+        []
 
-  defp child(%{suggestions: "minecraft:ask_server", path: path}, remaining, context) do
-    clock = clock(context)
-
-    ids =
-      case List.last(path) do
-        "timemarker" ->
-          for {id, %{"clock" => ^clock, "suggested" => true}} <-
-                Valimc.Command.Facts.time_markers(),
-              do: id
-
-        "timeline" ->
-          for {id, %{"clock" => ^clock}} <- Valimc.Command.Facts.timelines(), do: id
-
-        "id" ->
-          if hd(path) == "stopwatch", do: Valimc.World.Stopwatches.ids(), else: []
-
-        _ ->
-          []
-      end
-
-    resources(ids, String.downcase(remaining))
+      module ->
+        case module.suggest(path, arguments, context.source) do
+          {:names, names} -> Enum.filter(names, &matches_sub_str?(contents, String.downcase(&1)))
+          {:resources, ids} -> resources(ids, contents)
+        end
+    end
   end
 
   defp child(_node, _remaining, _context), do: []
-
-  # The dedicated server's providers for the admin commands (VMC-053f2).
-  defp admin_names(["op" | _]),
-    do: for(p <- Valimc.Players.all(), not Valimc.Permissions.operator?(p), do: p.name)
-
-  defp admin_names(["deop" | _]),
-    do: for({_, op} <- Valimc.Admin.Lists.entries(:ops), do: op.name)
-
-  defp admin_names(["pardon" | _]),
-    do: for({_, entry} <- Valimc.Admin.Lists.entries(:bans), do: entry["name"])
-
-  defp admin_names(["pardon-ip" | _]), do: Map.keys(Valimc.Admin.Lists.entries(:ip_bans))
-
-  defp admin_names(["whitelist", "add" | _]),
-    do: for(p <- Valimc.Players.all(), not Valimc.Admin.Lists.whitelisted?(p.uuid), do: p.name)
-
-  defp admin_names(["whitelist", "remove" | _]),
-    do: Map.values(Valimc.Admin.Lists.entries(:whitelist))
-
-  defp clock(context) do
-    case context.arguments do
-      %{"clock" => {clock, _}} -> clock
-      _ -> Valimc.Dimension.facts().default_clock || "minecraft:overworld"
-    end
-  end
 
   # `SharedSuggestionProvider.filterResources` with `matchesSubStr`.
   defp resources(ids, contents) do

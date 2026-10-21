@@ -5,7 +5,7 @@ defmodule Valimc.Commands.Players do
   classes. Each target applies its change in its own connection, all at once
   (`Valimc.Commands.Remote`); messages follow `CommandResponseTracker`.
   """
-  alias Valimc.Command.{Coordinates, Error, Feedback, GameRules, Names, Source}
+  alias Valimc.Command.{Coordinates, Error, Feedback, Names, Source, Targets}
   alias Valimc.Text
   alias Valimc.Commands.Remote
   alias Valimc.Player.CommandOps
@@ -48,7 +48,7 @@ defmodule Valimc.Commands.Players do
   def gamemode(%{"gamemode" => mode} = arguments, source) do
     targets =
       case arguments do
-        %{"target" => selector} -> Source.required_players(source, selector)
+        %{"target" => selector} -> Targets.required_players(source, selector)
         _ -> [Source.player!(source)]
       end
 
@@ -58,8 +58,9 @@ defmodule Valimc.Commands.Players do
       for {target, :changed} <-
             on_targets(targets, fn target ->
               notice =
-                if not Source.self?(source, target) and GameRules.get(:send_command_feedback),
-                  do: Text.encode(Text.translatable("gameMode.changed", [mode_name]))
+                if not Source.self?(source, target) and
+                     Valimc.GameRules.get(:send_command_feedback),
+                   do: Text.encode(Text.translatable("gameMode.changed", [mode_name]))
 
               {:game_mode, mode, notice}
             end) do
@@ -93,13 +94,13 @@ defmodule Valimc.Commands.Players do
   def teleport(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Source.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_entities(source, selector)
         _ -> [Source.player!(source)]
       end
 
     case arguments do
       %{"destination" => selector} ->
-        destination = Source.single_entity(source, selector)
+        destination = Targets.single_entity(source, selector)
 
         # Into the destination's dimension, as vanilla's `teleportTo` level (VMC-026b).
         pose = %{
@@ -179,7 +180,7 @@ defmodule Valimc.Commands.Players do
   defp facing(%{"facingLocation" => location}, source), do: Source.position(source, location)
 
   defp facing(%{"facingEntity" => selector} = arguments, source) do
-    entity = Source.single_entity(source, selector)
+    entity = Targets.single_entity(source, selector)
     eyes = Map.get(arguments, "facingAnchor", :feet) == :eyes
     {entity.x, entity.y + if(eyes, do: eye_height(entity), else: 0.0), entity.z}
   end
@@ -228,7 +229,7 @@ defmodule Valimc.Commands.Players do
     if count > limit,
       do: Error.fail!("commands.give.failed.toomanyitems", [limit, display])
 
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
     tracked = on_targets(targets, fn _ -> {:give, stack, count} end)
 
     respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
@@ -247,7 +248,7 @@ defmodule Valimc.Commands.Players do
   def clear(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Source.required_players(source, selector)
+        %{"targets" => selector} -> Targets.required_players(source, selector)
         _ -> [Source.player!(source)]
       end
 
@@ -297,7 +298,7 @@ defmodule Valimc.Commands.Players do
     amplifier = Map.get(arguments, "amplifier", 0)
     hide = Map.get(arguments, "hideParticles", false)
     {:ok, incoming} = CommandOps.rung(ticks, amplifier, hide)
-    targets = Source.required_entities(source, selector)
+    targets = Targets.required_entities(source, selector)
     tracked = on_targets(targets, fn _ -> {:effect, id, incoming} end)
     effect_name = Names.effect(effect)
     seconds = if ticks < 0, do: 0, else: div(ticks, 20)
@@ -326,7 +327,7 @@ defmodule Valimc.Commands.Players do
   defp effect_clear(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Source.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_entities(source, selector)
         _ -> [Source.player!(source)]
       end
 
@@ -398,7 +399,7 @@ defmodule Valimc.Commands.Players do
 
     case arguments do
       %{"target" => selector} when operation == :query ->
-        target = Source.single_player(source, selector)
+        target = Targets.single_player(source, selector)
         value = Remote.run!(target, {:experience, {:query, kind}})
         value = if is_integer(value), do: value, else: 0
 
@@ -411,7 +412,7 @@ defmodule Valimc.Commands.Players do
         value
 
       %{"target" => selector, "amount" => amount} ->
-        targets = Source.required_players(source, selector)
+        targets = Targets.required_players(source, selector)
 
         tracked = on_targets(targets, fn _ -> {:experience, {operation, amount, kind}} end)
 
@@ -450,7 +451,7 @@ defmodule Valimc.Commands.Players do
   def kill(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Source.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_entities(source, selector)
         _ -> [Source.player!(source)]
       end
 

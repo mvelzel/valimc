@@ -4,7 +4,7 @@ defmodule Valimc.Commands.Admin do
   `version`, `kick` and `stop`. Operator, ban and whitelist commands wait for
   VMC-010.
   """
-  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Command.{Error, Feedback, Source, Targets}
   alias Valimc.Text
 
   @doc "`/version`: ten system lines, as vanilla's `VersionCommand`."
@@ -49,7 +49,7 @@ defmodule Valimc.Commands.Admin do
 
   @doc "`/kick <targets> [<reason>]`."
   def kick(%{"targets" => selector} = arguments, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
 
     reason =
       case arguments do

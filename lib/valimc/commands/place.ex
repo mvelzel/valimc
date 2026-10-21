@@ -27,8 +27,11 @@ defmodule Valimc.Commands.Place do
   @external_resource @structures
   @structure_ids @structures |> File.read!() |> JSON.decode!() |> Map.keys() |> MapSet.new()
 
-  @doc "Template ids, for the `place template` suggestions."
-  def template_ids, do: @template_ids
+  @doc "`PlaceCommand.SUGGEST_TEMPLATES`: every template id."
+  def suggest(["place", "template", "template"], _arguments, _source),
+    do: {:resources, @template_ids}
+
+  def suggest(_path, _arguments, _source), do: {:resources, []}
 
   @doc "`/place feature|jigsaw|structure|template …`."
   def place(%{literals: [kind | _]} = arguments, source) do
@@ -119,14 +122,7 @@ defmodule Valimc.Commands.Place do
     {floor(x), floor(y), floor(z)}
   end
 
-  defp position(source, coordinates) do
-    {x, y, z} = Source.block_pos(source, coordinates)
-
-    unless Valimc.World.Chunk.valid_y?(y) and abs(x) < 30_000_000 and abs(z) < 30_000_000,
-      do: Error.fail!("argument.pos.outofworld")
-
-    {x, y, z}
-  end
+  defp position(source, coordinates), do: Source.block_in_world!(source, coordinates)
 
   defp place!(source, spec, pos, failed, random \\ nil, invalid \\ nil, id \\ nil) do
     {state, biome_source} = generator!(source.dimension, elem(spec, 0))
@@ -145,7 +141,7 @@ defmodule Valimc.Commands.Place do
       # refuses the placement.
       {:ok, {:chunks, _checked, area}} ->
         chunks = chunks(area)
-        {images, revisions} = images!(chunks)
+        {images, revisions} = images!(source, chunks)
         input = for {cx, cz} = c <- chunks, do: {cx, cz, Map.fetch!(images, c)}
         seed = random || :rand.uniform(1 <<< 62)
 
@@ -203,11 +199,11 @@ defmodule Valimc.Commands.Place do
   defp chunks({{x0, z0}, {x1, z1}}), do: for(z <- z0..z1, x <- x0..x1, do: {x, z})
 
   # Column images by chunk, read per region with the revision they were read at.
-  defp images!(chunks) do
+  defp images!(source, chunks) do
     chunks
     |> Enum.group_by(&Valimc.World.region_key/1)
     |> Enum.reduce({%{}, %{}}, fn {key, group}, {images, revisions} ->
-      with {:ok, owner} <- Valimc.World.owner(key),
+      with {:ok, owner} <- Source.owner(source, key),
            {:ok, %{images: read, revision: revision}} <-
              Valimc.World.Region.column_images(owner, group) do
         {Map.merge(images, read), Map.put(revisions, key, {owner, revision})}

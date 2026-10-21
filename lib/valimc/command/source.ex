@@ -1,16 +1,34 @@
 defmodule Valimc.Command.Source do
   @moduledoc """
-  A command source (VMC-053): vanilla's `CommandSourceStack` — its permission
-  level, position, rotation, dimension and display name, and the player (with
-  its connection's `pid`) for a player's command. A source is a plain value:
-  a command runs in its own process (VMC-077a), never in a connection.
+  A command source (VMC-053, VMC-077o), vanilla's `CommandSourceStack`, as a
+  plain value: permission level, the entity it runs as (a player's projection
+  with its connection's `pid`, or nil), dimension, position, rotation and
+  anchor, display name, the sink its feedback goes to and whether it is
+  silent. A command runs in its own process (VMC-077a) and reads everything
+  it needs from its source: no connection state, no `self()` identity and no
+  process-dictionary dimension.
+
+  Sinks: `{:player, pid}` (the player's connection, in order), `:log` (the
+  console's English lines) and `{:collect, pid, ref}` (RCON, whose client
+  collects `{ref, text}` messages after the command).
   """
-  alias Valimc.Command.{Coordinates, Selector, Error}
+  alias Valimc.Command.{Coordinates, Error}
   alias Valimc.Text
 
-  defstruct [:level, :player, :name, :position, :rotation, :dimension, kind: :player]
+  defstruct [
+    :level,
+    :player,
+    :name,
+    :position,
+    :rotation,
+    :dimension,
+    :sink,
+    anchor: :feet,
+    silent: false,
+    kind: :player
+  ]
 
-  @doc "The source of a command its connection's player runs (called in that connection)."
+  @doc "The source of a command its connection's player runs (built in that connection)."
   def player(state) do
     player = Map.put(state.player, :pid, self())
 
@@ -20,21 +38,25 @@ defmodule Valimc.Command.Source do
       name: player.name,
       position: {player.x, player.y, player.z},
       rotation: {player.yaw, player.pitch},
-      dimension: Map.get(player, :dimension, :overworld)
+      dimension: Map.get(player, :dimension, :overworld),
+      sink: {:player, self()}
     }
   end
 
   @doc """
   The server console (VMC-010f), vanilla's `MinecraftServer.createCommandSourceStack`:
   permission level 4, named Server, at the world spawn in its dimension
-  (`findRespawnDimension`), with no player.
+  (`findRespawnDimension`), with no player; its feedback is logged.
   """
-  def console, do: server_source("Server", :console)
+  def console, do: server_source("Server", :console, :log)
 
-  @doc "RCON (VMC-010g), vanilla's `RconConsoleSource`: as the console, named Rcon."
-  def rcon, do: server_source("Rcon", :rcon)
+  @doc """
+  RCON (VMC-010g), vanilla's `RconConsoleSource`: as the console, named Rcon;
+  its feedback is collected by the calling process (`collect/1`).
+  """
+  def rcon, do: server_source("Rcon", :rcon, {:collect, self(), make_ref()})
 
-  defp server_source(name, kind) do
+  defp server_source(name, kind, sink) do
     pose = Valimc.World.Spawn.pose()
     {x, y, z} = {pose.x, pose.y, pose.z}
 
@@ -42,10 +64,22 @@ defmodule Valimc.Command.Source do
       level: 4,
       name: name,
       kind: kind,
+      sink: sink,
       position: {floor(x) * 1.0, floor(y) * 1.0, floor(z) * 1.0},
       rotation: {0.0, 0.0},
       dimension: Valimc.World.Spawn.dimension()
     }
+  end
+
+  @doc "The texts a collecting source received, in order (RCON's reply)."
+  def collect(%__MODULE__{sink: {:collect, _pid, ref}}), do: collect(ref, [])
+
+  defp collect(ref, texts) do
+    receive do
+      {^ref, text} -> collect(ref, [texts, text])
+    after
+      0 -> IO.iodata_to_binary(texts)
+    end
   end
 
   def console?(%__MODULE__{kind: kind}), do: kind == :console
@@ -61,61 +95,36 @@ defmodule Valimc.Command.Source do
       name: "",
       position: {0.0, 0.0, 0.0},
       rotation: {0.0, 0.0},
-      dimension: :overworld
+      dimension: :overworld,
+      sink: :log
     }
 
   def display_name(%__MODULE__{player: nil, name: name}), do: Text.literal(name)
   def display_name(%__MODULE__{player: player}), do: Text.player_name(player.name, player.uuid)
   def display_name(%{name: name, uuid: uuid}), do: Text.player_name(name, uuid)
 
-  @doc "Online players, the source's own player first."
-  def online(%__MODULE__{player: nil}), do: Valimc.Players.all()
-
-  def online(%__MODULE__{player: player}),
-    do: [player | Enum.reject(Valimc.Players.all(), &(&1.pid == player.pid))]
-
-  @doc "Online players a selector picks, the source itself included (`findPlayers`)."
-  def players(%__MODULE__{} = source, selector),
-    do: Selector.find(selector, online(source), source.player, source.position)
-
-  @doc "`EntityArgument.getPlayers`: at least one player or `argument.entity.notfound.player`."
-  def required_players(source, selector) do
-    case players(source, selector) do
-      [] -> Error.fail!("argument.entity.notfound.player")
-      players -> players
-    end
-  end
-
-  @doc "`getEntities`: at least one entity (players are ValiMC's selectable entities)."
-  def required_entities(source, selector) do
-    case players(source, selector) do
-      [] -> Error.fail!("argument.entity.notfound.entity")
-      entities -> entities
-    end
-  end
-
-  @doc "`getPlayer`/`getEntity`: exactly one, with vanilla's not-found errors."
-  def single_player(source, selector) do
-    case players(source, selector) do
-      [player] -> player
-      [] -> Error.fail!("argument.entity.notfound.player")
-      _ -> Error.fail!("argument.player.toomany")
-    end
-  end
-
-  def single_entity(source, selector) do
-    case players(source, selector) do
-      [entity] -> entity
-      [] -> Error.fail!("argument.entity.notfound.entity")
-      _ -> Error.fail!("argument.entity.toomany")
-    end
-  end
-
   def position(%__MODULE__{} = source, coordinates),
     do: Coordinates.position(coordinates, source.position, source.rotation)
 
   def block_pos(%__MODULE__{} = source, coordinates),
     do: Coordinates.block(coordinates, source.position, source.rotation)
+
+  @doc """
+  A block position inside the world (`Level.isInWorldBounds`: the build height,
+  and within 30,000,000 blocks horizontally), else `argument.pos.outofworld`.
+  """
+  def block_in_world!(%__MODULE__{} = source, coordinates) do
+    {x, y, z} = block_pos(source, coordinates)
+
+    unless Valimc.World.Chunk.valid_y?(y) and x >= -30_000_000 and x < 30_000_000 and
+             z >= -30_000_000 and z < 30_000_000,
+           do: Error.fail!("argument.pos.outofworld")
+
+    {x, y, z}
+  end
+
+  @doc "The region owner of `key` in the source's dimension (`World.owner/1` of its address)."
+  def owner(%__MODULE__{dimension: dimension}, key), do: Valimc.World.owner({dimension, key})
 
   def self?(%__MODULE__{player: nil}, _target), do: false
   def self?(%__MODULE__{player: player}, target), do: target.pid == player.pid

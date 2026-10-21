@@ -17,7 +17,7 @@ defmodule Valimc.Player.Portals do
 
   Spectators touch no blocks (vanilla's `noPhysics`), so never travel.
   """
-  alias Valimc.Command.GameRules
+  alias Valimc.GameRules
   alias Valimc.Physics.PlayerPose
   alias Valimc.Player.Travel
   alias Valimc.Session.Jobs

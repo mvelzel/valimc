@@ -11,18 +11,18 @@ defmodule Valimc.Commands.Blocks do
   alias Valimc.World.ForcedChunks
 
   # The source's dimension, as forceload messages name it.
-  defp here, do: Valimc.Dimension.name(Valimc.Dimension.current())
+  defp here(source), do: Valimc.Dimension.name(source.dimension)
   @limit 32_768
 
   # ---- clone ----
 
   @doc "`/clone [from <dim>] <begin> <end> [to <dim>] <destination> [strict] [replace|masked|filtered <filter>] [force|move|normal]`."
   def clone(arguments, source) do
-    dimension!(arguments["sourceDimension"])
-    dimension!(arguments["targetDimension"])
-    from_a = loaded!(source, arguments["begin"])
-    from_b = loaded!(source, arguments["end"])
-    destination = loaded!(source, arguments["destination"])
+    dimension!(source, arguments["sourceDimension"])
+    dimension!(source, arguments["targetDimension"])
+    from_a = Source.block_in_world!(source, arguments["begin"])
+    from_b = Source.block_in_world!(source, arguments["end"])
+    destination = Source.block_in_world!(source, arguments["destination"])
     {min, max} = box(from_a, from_b)
     {dx, dy, dz} = sub(destination, min)
     {to_min, to_max} = {destination, add(max, {dx, dy, dz})}
@@ -40,7 +40,7 @@ defmodule Valimc.Commands.Blocks do
           x <- elem(min, 0)..elem(max, 0),
           do: {x, y, z}
 
-    states = observe(positions)
+    states = observe(source, positions)
 
     filter = filter(arguments)
 
@@ -67,7 +67,7 @@ defmodule Valimc.Commands.Blocks do
     cleared =
       if mode == :move, do: Map.new(entries, fn {position, _} -> {position, air} end), else: %{}
 
-    write(Map.merge(cleared, placed))
+    write(source, Map.merge(cleared, placed))
     Feedback.success(source, Text.translatable("commands.clone.success", [count]))
     count
   end
@@ -86,22 +86,12 @@ defmodule Valimc.Commands.Blocks do
   end
 
   # Cloning within the source's dimension (VMC-026b); across dimensions is unsupported.
-  defp dimension!(nil), do: :ok
+  defp dimension!(_source, nil), do: :ok
 
-  defp dimension!(id) do
-    if Valimc.Dimension.parse(id) == {:ok, Valimc.Dimension.current()},
+  defp dimension!(source, id) do
+    if Valimc.Dimension.parse(id) == {:ok, source.dimension},
       do: :ok,
       else: Error.fail!("argument.dimension.invalid", [id])
-  end
-
-  defp loaded!(source, coordinates) do
-    {x, y, z} = Source.block_pos(source, coordinates)
-
-    unless Valimc.World.Chunk.valid_y?(y) and x >= -30_000_000 and x < 30_000_000 and
-             z >= -30_000_000 and z < 30_000_000,
-           do: Error.fail!("argument.pos.outofworld")
-
-    {x, y, z}
   end
 
   defp box({ax, ay, az}, {bx, by, bz}),
@@ -119,11 +109,11 @@ defmodule Valimc.Commands.Blocks do
     Valimc.World.region_key(Valimc.World.chunk_key(x, z))
   end
 
-  defp observe(positions) do
+  defp observe(source, positions) do
     positions
     |> Enum.group_by(&region/1)
     |> Enum.reduce(%{}, fn {key, positions}, acc ->
-      {:ok, owner} = Valimc.World.owner(key)
+      {:ok, owner} = Source.owner(source, key)
 
       Enum.reduce(Enum.chunk_every(positions, 128), acc, fn batch, acc ->
         {:ok, view} = Valimc.World.Region.observe_blocks(owner, batch)
@@ -132,9 +122,9 @@ defmodule Valimc.Commands.Blocks do
     end)
   end
 
-  defp write(edits) do
+  defp write(source, edits) do
     for {key, edits} <- Enum.group_by(edits, fn {position, _} -> region(position) end) do
-      {:ok, owner} = Valimc.World.owner(key)
+      {:ok, owner} = Source.owner(source, key)
       {:ok, view} = Valimc.World.Region.observe_blocks(owner, [elem(hd(edits), 0)])
 
       Enum.reduce(Enum.chunk_every(edits, 4096), view.revision, fn batch, revision ->
@@ -152,8 +142,8 @@ defmodule Valimc.Commands.Blocks do
 
   @doc "`/fillbiome <from> <to> <biome> [replace <filter>]` (VMC-053j4)."
   def fillbiome(%{"from" => from, "to" => to, "biome" => biome} = arguments, source) do
-    {ax, ay, az} = loaded!(source, from)
-    {bx, by, bz} = loaded!(source, to)
+    {ax, ay, az} = Source.block_in_world!(source, from)
+    {bx, by, bz} = Source.block_in_world!(source, to)
     # `quantize`: down to the corner of the biome cell.
     q = fn v -> Bitwise.band(v, -4) end
     min = {q.(min(ax, bx)), q.(min(ay, by)), q.(min(az, bz))}
@@ -181,7 +171,7 @@ defmodule Valimc.Commands.Blocks do
       chunks
       |> Enum.group_by(&Valimc.World.region_key/1)
       |> Enum.reduce(0, fn {key, group}, count ->
-        with {:ok, owner} <- Valimc.World.owner(key),
+        with {:ok, owner} <- Source.owner(source, key),
              {:ok, changed} <-
                Valimc.World.Region.fill_biomes(owner, group, {min, max}, id.(biome), filter) do
           count + changed
@@ -236,7 +226,8 @@ defmodule Valimc.Commands.Blocks do
     count = (cx1 - cx0 + 1) * (cz1 - cz0 + 1)
     if count > 256, do: Error.fail!("commands.forceload.toobig", [256, {:long, count}])
 
-    changed = ForcedChunks.change(operation, for(x <- cx0..cx1, z <- cz0..cz1, do: {x, z}))
+    chunks = for(x <- cx0..cx1, z <- cz0..cz1, do: {x, z})
+    changed = ForcedChunks.change(operation, chunks, source.dimension)
 
     key = if operation == :add, do: "added", else: "removed"
 
@@ -247,7 +238,7 @@ defmodule Valimc.Commands.Blocks do
       [chunk] ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.#{key}.single", [chunk_text(chunk), here()])
+          Text.translatable("commands.forceload.#{key}.single", [chunk_text(chunk), here(source)])
         )
 
       many ->
@@ -255,7 +246,7 @@ defmodule Valimc.Commands.Blocks do
           source,
           Text.translatable("commands.forceload.#{key}.multiple", [
             length(many),
-            here(),
+            here(source),
             chunk_text({cx0, cz0}),
             chunk_text({cx1, cz1})
           ])
@@ -268,8 +259,8 @@ defmodule Valimc.Commands.Blocks do
   defp div_floor(block), do: Integer.floor_div(block, 16)
 
   defp forceload_remove_all(source) do
-    ForcedChunks.remove_all()
-    Feedback.success(source, Text.translatable("commands.forceload.removed.all", [here()]))
+    ForcedChunks.remove_all(source.dimension)
+    Feedback.success(source, Text.translatable("commands.forceload.removed.all", [here(source)]))
     0
   end
 
@@ -277,39 +268,46 @@ defmodule Valimc.Commands.Blocks do
     {x, z} = column(source, pos)
     chunk = {div_floor(x), div_floor(z)}
 
-    if chunk in ForcedChunks.all() do
+    if chunk in ForcedChunks.all(source.dimension) do
       Feedback.success(
         source,
-        Text.translatable("commands.forceload.query.success", [chunk_text(chunk), here()]),
+        Text.translatable("commands.forceload.query.success", [chunk_text(chunk), here(source)]),
         false
       )
 
       1
     else
-      Error.fail!("commands.forceload.query.failure", [chunk_text(chunk), here()])
+      Error.fail!("commands.forceload.query.failure", [chunk_text(chunk), here(source)])
     end
   end
 
   defp forceload_query(source) do
     # Sorted as the packed chunk long: z, then x as an unsigned 32-bit value.
-    chunks = Enum.sort_by(ForcedChunks.all(), fn {x, z} -> {z, Bitwise.band(x, 0xFFFFFFFF)} end)
+    chunks =
+      Enum.sort_by(ForcedChunks.all(source.dimension), fn {x, z} ->
+        {z, Bitwise.band(x, 0xFFFFFFFF)}
+      end)
+
     list = Enum.map_join(chunks, ", ", &chunk_text/1)
 
     case chunks do
       [] ->
-        Feedback.failure(source, Text.translatable("commands.forceload.added.none", [here()]))
+        Feedback.failure(
+          source,
+          Text.translatable("commands.forceload.added.none", [here(source)])
+        )
 
       [_] ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.list.single", [here(), list]),
+          Text.translatable("commands.forceload.list.single", [here(source), list]),
           false
         )
 
       many ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.list.multiple", [length(many), here(), list]),
+          Text.translatable("commands.forceload.list.multiple", [length(many), here(source), list]),
           false
         )
     end

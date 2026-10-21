@@ -354,7 +354,7 @@ defmodule Valimc.Player.Vitals do
 
     # Post effects (`/posteffect`) do not survive a respawn, as in vanilla.
     if Map.get(state.player, :post_effects, []) != [],
-      do: send_packets(state, [Valimc.Commands.PostEffects.packet([])])
+      do: send_packets(state, [Valimc.Player.PostEffects.packet([])])
 
     player = Map.put(player, :post_effects, [])
     # A death in another dimension respawns in the spawn's (VMC-026b, VMC-077a).

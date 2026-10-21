@@ -81,11 +81,11 @@ defmodule Valimc.WorldSettingsTest.Serial do
   alias Valimc.Command.Source
   alias Valimc.World.{Settings, Spawn}
 
-  # An RCON source in `dimension`: its output is the command's feedback text.
+  # An RCON source in `dimension`: its collected output is the command's feedback text.
   defp run(dimension, input) do
-    Process.put(:valimc_rcon_output, [])
-    Valimc.Commands.run(%{Source.rcon() | dimension: dimension}, input)
-    IO.iodata_to_binary(Process.delete(:valimc_rcon_output))
+    source = %{Source.rcon() | dimension: dimension}
+    Valimc.Commands.run(source, input)
+    Source.collect(source)
   end
 
   test "setworldspawn keeps the executing dimension and pitch; defaultgamemode persists" do

@@ -21,7 +21,9 @@ defmodule Valimc.Commands do
   @doc """
   The catalog (VMC-077o): one registration per top-level command, its handler
   `{module, function}` and, optionally, the executable vanilla paths below it
-  that ValiMC does not run yet (`except:`) or the only ones it runs (`only:`).
+  that ValiMC does not run yet (`except:`) or the only ones it runs (`only:`),
+  and `suggest: true` when its module answers its `ask_server` nodes
+  (`suggest(path, arguments, source)`: `{:names, names}` or `{:resources, ids}`).
   A handler gets the parsed arguments with the literals of the parsed path
   after the command's name (`:literals`, in order) and picks its mode from
   them. The table is data read at runtime, so this module depends on no
@@ -37,7 +39,7 @@ defmodule Valimc.Commands do
       "clear" => {C.Players, :clear},
       "clone" => {C.Blocks, :clone},
       "defaultgamemode" => {C.Players, :default_gamemode},
-      "deop" => {C.Operators, :deop},
+      "deop" => {C.Operators, :deop, suggest: true},
       "dialog" => {C.Effects, :dialog},
       "difficulty" => {C.World, :difficulty},
       "effect" => {C.Players, :effect},
@@ -60,11 +62,11 @@ defmodule Valimc.Commands do
       "locate" => {C.Locate, :locate, except: [~w(locate poi poi)]},
       "me" => {C.Chat, :me},
       "msg" => {C.Chat, :msg},
-      "op" => {C.Operators, :op},
-      "pardon" => {C.Operators, :pardon},
-      "pardon-ip" => {C.Operators, :pardon_ip},
+      "op" => {C.Operators, :op, suggest: true},
+      "pardon" => {C.Operators, :pardon, suggest: true},
+      "pardon-ip" => {C.Operators, :pardon_ip, suggest: true},
       "particle" => {C.Effects, :particle},
-      "place" => {C.Place, :place},
+      "place" => {C.Place, :place, suggest: true},
       "playsound" => {C.Effects, :playsound},
       "posteffect" => {C.PostEffects, :posteffect},
       "save-all" => {C.Server, :save_all},
@@ -77,16 +79,16 @@ defmodule Valimc.Commands do
       "setworldspawn" => {C.World, :setworldspawn},
       "stop" => {C.Admin, :stop},
       "stopsound" => {C.Effects, :stopsound},
-      "stopwatch" => {C.Timers, :stopwatch},
+      "stopwatch" => {C.Timers, :stopwatch, suggest: true},
       "teleport" => {C.Players, :teleport},
       "tellraw" => {C.Text, :tellraw},
       "tick" => {C.Timers, :tick},
-      "time" => {C.World, :time},
+      "time" => {C.World, :time, suggest: true},
       "title" => {C.Text, :title},
       "transfer" => {C.Operators, :transfer},
       "version" => {C.Admin, :version},
       "weather" => {C.World, :weather},
-      "whitelist" => {C.Operators, :whitelist},
+      "whitelist" => {C.Operators, :whitelist, suggest: true},
       "worldborder" => {C.WorldBorder, :worldborder},
       # ValiMC's own, beside vanilla's tree.
       "stats" => {C.Preview, :stats, own: true},
@@ -135,6 +137,14 @@ defmodule Valimc.Commands do
   @doc "The commands packet payload for a player at permission `level`."
   def graph_payload(level), do: Map.fetch!(elem(tables(), 1), level)
 
+  @doc "The handler module that suggests for `name`'s `ask_server` nodes, or nil."
+  def suggester(name) do
+    case registry()[name] do
+      {module, _function, options} -> if options[:suggest], do: module
+      _ -> nil
+    end
+  end
+
   @doc "The handler `{module, function}` of the top-level command `name`."
   def handler(name) do
     case Map.fetch!(registry(), name) do
@@ -169,12 +179,12 @@ defmodule Valimc.Commands do
   end
 
   @doc """
-  Runs `input` (without `/`) as `source` in the calling process, in the
-  source's dimension; parse errors and failures become feedback.
+  Runs `input` (without `/`) as `source` in the calling process; parse errors
+  and failures become feedback through the source's sink. Everything the
+  command touches is addressed from the source (its dimension included), not
+  from the calling process's context.
   """
   def run(%Source{} = source, input) do
-    Valimc.Dimension.put(source.dimension)
-
     case parse(input, source) do
       {:ok, {module, function}, arguments, _context} ->
         execute(source, module, function, arguments)
@@ -188,9 +198,9 @@ defmodule Valimc.Commands do
 
   @doc "Runs an RCON command (VMC-010g) and returns its output text."
   def execute_rcon(line) do
-    Process.put(:valimc_rcon_output, [])
-    run(Source.rcon(), String.replace_prefix(line, "/", ""))
-    IO.iodata_to_binary(Process.delete(:valimc_rcon_output) || [])
+    source = Source.rcon()
+    run(source, String.replace_prefix(line, "/", ""))
+    Source.collect(source)
   end
 
   @doc "Runs a console line as the server (VMC-010f); a leading `/` is optional."

@@ -3,7 +3,7 @@ defmodule Valimc.Commands.Text do
   Text and presentation commands (VMC-053i): `tellraw` and `title`, with text
   resolved per recipient (`Valimc.Command.ComponentResolver`).
   """
-  alias Valimc.Command.{ComponentResolver, Feedback, Source}
+  alias Valimc.Command.{ComponentResolver, Feedback, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
@@ -15,7 +15,7 @@ defmodule Valimc.Commands.Text do
 
   @doc "`/tellraw <targets> <message>`: system chat, no feedback."
   def tellraw(%{"targets" => selector, "message" => message}, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
 
     for target <- targets,
         do:
@@ -33,7 +33,7 @@ defmodule Valimc.Commands.Text do
 
   @doc "`/title <targets> clear|reset|title|subtitle|actionbar|times`."
   def title(%{"targets" => selector, literals: [form]} = arguments, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
 
     {key, packet_for} =
       case String.to_existing_atom(form) do
@@ -72,13 +72,7 @@ defmodule Valimc.Commands.Text do
 
     for target <- targets, do: deliver(target, [packet_for.(target)])
 
-    message =
-      case targets do
-        [one] -> Text.translatable(key <> ".single", [Source.display_name(one)])
-        _ -> Text.translatable(key <> ".multiple", [length(targets)])
-      end
-
-    Feedback.success(source, message)
+    Feedback.targets(source, targets, key)
     length(targets)
   end
 end

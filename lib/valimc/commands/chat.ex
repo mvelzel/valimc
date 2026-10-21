@@ -5,7 +5,7 @@ defmodule Valimc.Commands.Chat do
   bound to the command's chat type and the sender's display name.
   """
   require Logger
-  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source}
+  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Data, Packets, Wire}
 
@@ -123,7 +123,7 @@ defmodule Valimc.Commands.Chat do
 
   @doc "`/msg <targets> <message>`: whispers, echoed to the sender."
   def msg(%{"targets" => selector, "message" => message}, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
     content = resolve(source, message)
     sender = Source.display_name(source)
 
@@ -171,7 +171,7 @@ defmodule Valimc.Commands.Chat do
                                                                                       selector},
                                                                                      {acc,
                                                                                       read_to} ->
-          names = join_names(Source.players(source, selector))
+          names = join_names(Targets.players(source, selector))
 
           acc =
             if read_to < from,
@@ -216,7 +216,7 @@ defmodule Valimc.Commands.Chat do
   end
 
   defp list_players(source, format) do
-    players = Valimc.Players.all() |> Enum.sort_by(& &1.entity_id)
+    players = Valimc.Command.Targets.online() |> Enum.sort_by(& &1.entity_id)
 
     names =
       case players do

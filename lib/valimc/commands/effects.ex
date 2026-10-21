@@ -3,29 +3,13 @@ defmodule Valimc.Commands.Effects do
   Sound, particle and dialog commands (VMC-053i): `particle`, `playsound`,
   `stopsound` and `dialog`, sending vanilla's packets to the players concerned.
   """
-  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Command.{Error, Feedback, Source, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   @sources ~w(master music record weather block hostile neutral player ambient voice ui)
 
   defp deliver(%{pid: pid}, packet), do: Valimc.Connection.deliver(pid, {:packet, packet})
-
-  defp tracked(source, sent, key, id_arg) do
-    case sent do
-      [] ->
-        :ok
-
-      [one] ->
-        Feedback.success(
-          source,
-          Text.translatable(key <> ".single", [id_arg, Source.display_name(one)])
-        )
-
-      many ->
-        Feedback.success(source, Text.translatable(key <> ".multiple", [id_arg, length(many)]))
-    end
-  end
 
   # ---- particle ----
 
@@ -45,8 +29,8 @@ defmodule Valimc.Commands.Effects do
 
     viewers =
       case arguments do
-        %{"viewers" => selector} -> Source.required_players(source, selector)
-        _ -> Source.online(source)
+        %{"viewers" => selector} -> Targets.required_players(source, selector)
+        _ -> Targets.online(source)
       end
 
     packet =
@@ -92,7 +76,7 @@ defmodule Valimc.Commands.Effects do
 
     targets =
       case arguments do
-        %{"targets" => selector} -> Source.required_players(source, selector)
+        %{"targets" => selector} -> Targets.required_players(source, selector)
         _ -> [Source.player!(source)]
       end
 
@@ -129,7 +113,7 @@ defmodule Valimc.Commands.Effects do
       end)
 
     if sent == [], do: Error.fail!("commands.playsound.failed")
-    tracked(source, sent, "commands.playsound.success", id)
+    Feedback.targets(source, sent, "commands.playsound.success", [id])
     length(sent)
   end
 
@@ -146,7 +130,7 @@ defmodule Valimc.Commands.Effects do
 
   @doc "`/stopsound <targets> [* <sound> | <source> [<sound>]]`."
   def stopsound(%{"targets" => selector, literals: literals} = arguments, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
     category = Enum.find(literals, &(&1 in @sources))
     sound = arguments["sound"]
 
@@ -187,28 +171,19 @@ defmodule Valimc.Commands.Effects do
   def dialog(%{literals: ["clear"]} = arguments, source), do: dialog_clear(arguments, source)
 
   defp dialog_show(%{"targets" => selector, "dialog" => {_id, network_id}}, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
 
     for target <- targets,
         do: deliver(target, Packets.packet("show_dialog", Wire.varint(network_id + 1)))
 
-    dialog_feedback(source, targets, "commands.dialog.show")
+    Feedback.targets(source, targets, "commands.dialog.show")
+    length(targets)
   end
 
   defp dialog_clear(%{"targets" => selector}, source) do
-    targets = Source.required_players(source, selector)
+    targets = Targets.required_players(source, selector)
     for target <- targets, do: deliver(target, Packets.packet("clear_dialog", <<>>))
-    dialog_feedback(source, targets, "commands.dialog.clear")
-  end
-
-  defp dialog_feedback(source, targets, key) do
-    message =
-      case targets do
-        [one] -> Text.translatable(key <> ".single", [Source.display_name(one)])
-        _ -> Text.translatable(key <> ".multiple", [length(targets)])
-      end
-
-    Feedback.success(source, message)
+    Feedback.targets(source, targets, "commands.dialog.clear")
     length(targets)
   end
 end

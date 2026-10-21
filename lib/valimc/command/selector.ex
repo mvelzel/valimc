@@ -521,7 +521,9 @@ defmodule Valimc.Command.Selector do
     Range.matches_squared?(range, squared)
   end
 
-  defp predicate?(:alive, player), do: Map.get(player, :health, 20.0) > 0
+  # `Entity.isAlive` (commands audit E9: comparing the health struct with 0 was always true).
+  defp predicate?(:alive, %{health: %{value: value}}), do: value > 0
+  defp predicate?(:alive, _player), do: true
   defp predicate?({:name, name, inverted}, player), do: player.name == name != inverted
 
   defp predicate?({:gamemode, mode, inverted}, player),

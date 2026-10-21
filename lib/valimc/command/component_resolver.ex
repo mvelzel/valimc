@@ -7,7 +7,7 @@ defmodule Valimc.Command.ComponentResolver do
   over the resolved contents' style. NBT text needs entity and block data and is
   refused.
   """
-  alias Valimc.Command.{Error, Source}
+  alias Valimc.Command.{Error, Source, Targets}
   alias Valimc.Text
 
   @style ~w(color shadow_color bold italic underlined strikethrough obfuscated click_event hover_event insertion font)
@@ -61,7 +61,7 @@ defmodule Valimc.Command.ComponentResolver do
     {selector, _} =
       Valimc.Command.Selector.parse(Valimc.Command.Reader.new(text), source.level >= 2)
 
-    names = Enum.map(Source.players(source, selector), &Source.display_name/1)
+    names = Enum.map(Targets.players(source, selector), &Source.display_name/1)
 
     separator =
       case fields["separator"] do

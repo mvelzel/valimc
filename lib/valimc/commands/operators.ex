@@ -6,7 +6,7 @@ defmodule Valimc.Commands.Operators do
   """
   alias Valimc.Admin.{Lists, Login}
   alias Valimc.World.Settings
-  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Command.{Error, Feedback, Source, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
@@ -14,7 +14,7 @@ defmodule Valimc.Commands.Operators do
 
   @doc "`GameProfileArgument.getGameProfiles`: online players, or a resolved name."
   def profiles(source, {:selector, selector}),
-    do: source |> Source.required_players(selector) |> Enum.map(&Map.take(&1, [:uuid, :name]))
+    do: source |> Targets.required_players(selector) |> Enum.map(&Map.take(&1, [:uuid, :name]))
 
   def profiles(_source, {:name, name}) do
     case Lists.resolve(name) do
@@ -23,7 +23,7 @@ defmodule Valimc.Commands.Operators do
     end
   end
 
-  defp online(uuid), do: Enum.find(Valimc.Players.all(), &(&1.uuid == uuid))
+  defp online(uuid), do: Targets.by_uuid(uuid)
 
   defp disconnect(player, reason),
     do: Valimc.Connection.deliver(player.pid, {:kick, Text.encode(reason)})
@@ -41,7 +41,7 @@ defmodule Valimc.Commands.Operators do
   # `kickUnlistedPlayers`: only with `enforce-whitelist`; operators are not exempt.
   defp kick_unlisted do
     if Valimc.config(:enforce_whitelist) == true and Settings.get(:white_list) do
-      for player <- Valimc.Players.all(),
+      for player <- Valimc.Command.Targets.online(),
           not Lists.whitelisted?(player.uuid),
           do: disconnect(player, Text.translatable("multiplayer.disconnect.not_whitelisted"))
     end
@@ -54,6 +54,27 @@ defmodule Valimc.Commands.Operators do
     for profile <- changed, do: Feedback.success(source, message.(profile))
     length(changed)
   end
+
+  @doc "Names the dedicated server suggests (VMC-053f2): `op`, `deop`, `pardon`, `pardon-ip`, `whitelist add|remove`."
+  def suggest(["op" | _], _arguments, _source),
+    do: {:names, for(p <- Targets.online(), not Valimc.Permissions.operator?(p), do: p.name)}
+
+  def suggest(["deop" | _], _arguments, _source),
+    do: {:names, for({_, op} <- Lists.entries(:ops), do: op.name)}
+
+  def suggest(["pardon" | _], _arguments, _source),
+    do: {:names, for({_, entry} <- Lists.entries(:bans), do: entry["name"])}
+
+  def suggest(["pardon-ip" | _], _arguments, _source),
+    do: {:names, Map.keys(Lists.entries(:ip_bans))}
+
+  def suggest(["whitelist", "add" | _], _arguments, _source),
+    do: {:names, for(p <- Targets.online(), not Lists.whitelisted?(p.uuid), do: p.name)}
+
+  def suggest(["whitelist", "remove" | _], _arguments, _source),
+    do: {:names, Map.values(Lists.entries(:whitelist))}
+
+  def suggest(_path, _arguments, _source), do: {:names, []}
 
   # ---- op, deop ----
 
@@ -134,7 +155,7 @@ defmodule Valimc.Commands.Operators do
 
         player =
             Enum.find(
-              Valimc.Players.all(),
+              Valimc.Command.Targets.online(),
               &(String.downcase(&1.name) == String.downcase(target))
             ) ->
           player[:address] || Error.fail!("commands.banip.invalid")
@@ -151,7 +172,7 @@ defmodule Valimc.Commands.Operators do
       :ok -> :ok
     end
 
-    players = Enum.filter(Valimc.Players.all(), &(&1[:address] == ip))
+    players = Enum.filter(Valimc.Command.Targets.online(), &(&1.address == ip))
 
     Feedback.success(
       source,
@@ -309,7 +330,7 @@ defmodule Valimc.Commands.Operators do
 
     players =
       case arguments do
-        %{"players" => selector} -> Source.required_players(source, selector)
+        %{"players" => selector} -> Targets.required_players(source, selector)
         _ -> [Source.player!(source)]
       end
 

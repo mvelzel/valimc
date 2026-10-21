@@ -21,7 +21,7 @@ defmodule Valimc.Commands.Server do
   defp save(source, flush) do
     Feedback.success(source, Text.translatable("commands.save.saving"), false)
 
-    for player <- Valimc.Players.all(), do: send(player.pid, :save_player_now)
+    for player <- Valimc.Command.Targets.online(), do: send(player.pid, :save_player_now)
     regions = owners()
 
     saved =

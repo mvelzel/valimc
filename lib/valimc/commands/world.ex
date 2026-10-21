@@ -6,7 +6,7 @@ defmodule Valimc.Commands.World do
   and difficulty changes go through the environment owner (`World.Clock`);
   blocks go through region owners with fenced batches.
   """
-  alias Valimc.Command.{Error, Feedback, Names, Source, BlockInput}
+  alias Valimc.Command.{BlockInput, Error, Facts, Feedback, Names, Source}
   alias Valimc.Text
   alias Valimc.World.Clock
 
@@ -14,11 +14,11 @@ defmodule Valimc.Commands.World do
 
   # ---- time ----
 
-  defp clock_id(%{"clock" => clock}), do: clock
+  defp clock_id(%{"clock" => clock}, _source), do: clock
 
   # The source dimension's default clock; the Nether has none (VMC-026b).
-  defp clock_id(_) do
-    facts = Valimc.Dimension.facts()
+  defp clock_id(_, source) do
+    facts = Valimc.Dimension.facts(source.dimension)
     facts.default_clock || Error.fail!("commands.time.no_default_clock", [facts.type])
   end
 
@@ -54,9 +54,28 @@ defmodule Valimc.Commands.World do
     end
   end
 
+  @doc "`/time` markers (suggested ones) and timelines of the clock in use."
+  def suggest(path, arguments, source) do
+    clock =
+      arguments["clock"] || Valimc.Dimension.facts(source.dimension).default_clock ||
+        "minecraft:overworld"
+
+    case List.last(path) do
+      "timemarker" ->
+        {:resources,
+         for({id, %{"clock" => ^clock, "suggested" => true}} <- Facts.time_markers(), do: id)}
+
+      "timeline" ->
+        {:resources, for({id, %{"clock" => ^clock}} <- Facts.timelines(), do: id)}
+
+      _ ->
+        {:resources, []}
+    end
+  end
+
   # `/time set <time>`.
   defp time_set(%{"time" => time} = arguments, source) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
 
     if clock(id).total_ticks == time,
       do: Error.fail!("commands.time.set.already_at_time", [id, time])
@@ -68,9 +87,9 @@ defmodule Valimc.Commands.World do
 
   # `/time set <timemarker>`: forward to the marker's next occurrence.
   defp time_set_marker(%{"timemarker" => marker} = arguments, source) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
 
-    case Valimc.Command.Facts.time_markers()[marker] do
+    case Facts.time_markers()[marker] do
       %{"clock" => ^id, "ticks" => ticks} = facts ->
         total = clock(id).total_ticks
         period = facts["period"]
@@ -99,7 +118,7 @@ defmodule Valimc.Commands.World do
 
   # `/time add <time>`.
   defp time_add(%{"time" => time} = arguments, source) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
     total = max(clock(id).total_ticks + time, 0)
     configure!({id, :ticks, total})
 
@@ -112,7 +131,7 @@ defmodule Valimc.Commands.World do
   end
 
   defp pause(arguments, source, paused) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
 
     if clock(id).paused == paused,
       do:
@@ -136,7 +155,7 @@ defmodule Valimc.Commands.World do
 
   # `/time rate <rate>`.
   defp time_rate(%{"rate" => rate} = arguments, source) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
 
     if clock(id).rate == rate,
       do: Error.fail!("commands.time.rate.already_same", [id, {:float, rate}])
@@ -148,7 +167,7 @@ defmodule Valimc.Commands.World do
 
   # `/time query time`.
   defp time_query(arguments, source) do
-    id = clock_id(arguments)
+    id = clock_id(arguments, source)
     total = clock(id).total_ticks
 
     Feedback.success(
@@ -162,8 +181,8 @@ defmodule Valimc.Commands.World do
 
   # `/time query <timeline> [repetition]`.
   defp time_query_timeline(%{"timeline" => timeline} = arguments, source, repetition) do
-    id = clock_id(arguments)
-    facts = Valimc.Command.Facts.timelines()[timeline]
+    id = clock_id(arguments, source)
+    facts = Facts.timelines()[timeline]
 
     if facts["clock"] != id,
       do: Error.fail!("commands.time.wrong_timeline_for_clock", [timeline, id])
@@ -258,14 +277,7 @@ defmodule Valimc.Commands.World do
 
   # ---- game rules ----
 
-  # The rules ValiMC applies today, with their owner operations.
-  @rules %{
-    "advance_time" => {:advance_time, :advance_time},
-    "advance_weather" => {:advance_weather, :weather},
-    "natural_health_regeneration" => {:natural_regeneration, :natural_regeneration}
-  }
-
-  def live_rules, do: Map.keys(@rules)
+  def live_rules, do: Map.keys(Valimc.GameRules.stored())
 
   @doc "The `/gamerule` paths ValiMC runs: each live rule, short and namespaced, queried or set."
   def gamerule_paths do
@@ -305,7 +317,7 @@ defmodule Valimc.Commands.World do
     if rule_value(rule) == value,
       do: Error.fail!("commands.gamerule.not_set", [rule, to_string(value)])
 
-    {operation, _} = Map.fetch!(@rules, rule)
+    operation = Map.fetch!(Valimc.GameRules.stored(), rule)
     configure!({operation, value})
     Feedback.success(source, Text.translatable("commands.gamerule.set", [rule, to_string(value)]))
     if(value, do: 1, else: 0)
@@ -313,33 +325,23 @@ defmodule Valimc.Commands.World do
 
   # ---- blocks ----
 
-  defp loaded_block!(source, coordinates) do
-    {x, y, z} = Source.block_pos(source, coordinates)
-
-    unless Valimc.World.Chunk.valid_y?(y) and x >= -30_000_000 and x < 30_000_000 and
-             z >= -30_000_000 and z < 30_000_000,
-           do: Error.fail!("argument.pos.outofworld")
-
-    {x, y, z}
-  end
-
   @doc """
   `/setblock <pos> <block> [keep|replace|strict]`: one fenced batch at the
   sections it read (VMC-077a), read again when they changed in between.
   """
   def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
-    {x, y, z} = position = loaded_block!(source, pos)
+    {x, y, z} = position = Source.block_in_world!(source, pos)
     no_block_data!(block)
     mode = if arguments.literals == ["keep"], do: :keep, else: :replace
-    set_block!(position, state, mode, 3)
+    set_block!(source, position, state, mode, 3)
     Feedback.success(source, Text.translatable("commands.setblock.success", [x, y, z]))
     1
   end
 
-  defp set_block!({x, _, z} = position, state, mode, attempts) do
+  defp set_block!(source, {x, _, z} = position, state, mode, attempts) do
     key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
 
-    with {:ok, owner} <- Valimc.World.owner(key),
+    with {:ok, owner} <- Source.owner(source, key),
          {:ok, view} <- Valimc.World.Region.observe_blocks(owner, [position]) do
       current = view.blocks[position]
       if mode == :keep and not air?(current), do: Error.fail!("commands.setblock.failed")
@@ -350,7 +352,7 @@ defmodule Valimc.Commands.World do
           :ok
 
         {:error, :stale_revision} when attempts > 0 ->
-          set_block!(position, state, mode, attempts - 1)
+          set_block!(source, position, state, mode, attempts - 1)
 
         {:error, reason} ->
           unsupported!(reason)
@@ -380,8 +382,8 @@ defmodule Valimc.Commands.World do
         %{"from" => from, "to" => to, "block" => %BlockInput{state: state}} = arguments,
         source
       ) do
-    {x1, y1, z1} = loaded_block!(source, from)
-    {x2, y2, z2} = loaded_block!(source, to)
+    {x1, y1, z1} = Source.block_in_world!(source, from)
+    {x2, y2, z2} = Source.block_in_world!(source, to)
     {xa, xb} = Enum.min_max([x1, x2])
     {ya, yb} = Enum.min_max([y1, y2])
     {za, zb} = Enum.min_max([z1, z2])
@@ -421,7 +423,7 @@ defmodule Valimc.Commands.World do
         Valimc.World.region_key(Valimc.World.chunk_key(x, z))
       end)
       |> Enum.reduce(0, fn {key, edits}, count ->
-        count + fill_region(key, edits, mode, filter)
+        count + fill_region(source, key, edits, mode, filter)
       end)
 
     if count == 0, do: Error.fail!("commands.fill.failed")
@@ -429,8 +431,8 @@ defmodule Valimc.Commands.World do
     count
   end
 
-  defp fill_region(key, edits, mode, filter, attempts \\ 3) do
-    {:ok, owner} = Valimc.World.owner(key)
+  defp fill_region(source, key, edits, mode, filter, attempts \\ 3) do
+    {:ok, owner} = Source.owner(source, key)
     positions = Enum.map(edits, &elem(&1, 0))
 
     observed =
@@ -460,7 +462,7 @@ defmodule Valimc.Commands.World do
         count
 
       {:error, :stale_revision} when attempts > 0 ->
-        fill_region(key, edits, mode, filter, attempts - 1)
+        fill_region(source, key, edits, mode, filter, attempts - 1)
 
       {:error, reason} ->
         Error.throw!(%Error{message: Text.literal("Fill could not change the world (#{reason})")})
