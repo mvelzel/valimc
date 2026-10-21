@@ -32,22 +32,20 @@ matched apart from structures.
 proto owners: 1,296 terrain chunks, 1,156 decorated, 1,024 final, every proto
 log write durable; against Pumpkin generating the same area through its chunk
 stages with all threads, nothing written to disk). No quiet host was
-available, so ValiMC and Pumpkin ran back to back at load averages 30–70 on
-10 cores and only those pairs compare. ValiMC is outside Pumpkin's range:
-a median 49 final chunks per second against Pumpkin's 115 at load 42–70, and
-108 against 187 at load 30–40 (0.43–0.58 × Pumpkin); on one thread each, 44
-against 66. The stages themselves stay level on one thread under the same
-load (terrain through carvers 54.6 ms per chunk against Pumpkin's 51.2,
-decoration 6.4 against 6.4), so the gap is the live pipeline. A traced run
-(`bench/worldgen_live_trace.exs`) shows terrain filling all ten dirty
-schedulers for the first third of a pass; then the 16 finalize transactions
-commit one after another, with 0.4 decorations running on average where the
-regions' lock areas would allow four, because each transaction takes its
-nine owners' locks one at a time in key order and holds them while it waits
-for the next. Dirty schedulers are 58% busy over the pass, normal ones under
-1%, and log syncs sum to 1.5 s across all owners. Encoding adds 11–23% to
-terrain and decoration over encoded chunks takes 1.4–2.2 × the decoration
-alone; full chunks add about 5%.
+available, so ValiMC and Pumpkin ran back to back at load averages 22–70 on
+10 cores and only those pairs compare. With finalize transactions that never
+wait while holding locks and terrain ordered by transaction start across
+owners, ValiMC finalized a median 61 final chunks per second against
+Pumpkin's 82 at load 50–70 (0.74 × Pumpkin); before, with each transaction
+taking its owners' locks one at a time and holding them, they committed one
+after another and ValiMC managed 0.43–0.58 ×. The stages themselves stay
+level on one thread under the same load (terrain through carvers 54.6 ms per
+chunk against Pumpkin's 51.2, decoration 6.4 against 6.4). A traced run
+(`bench/worldgen_live_trace.exs`) shows the first region decorating after
+2.2 s of a 19 s pass and decorations beside terrain from then on, dirty
+schedulers 85% busy (58% before) and normal ones under 1%. What remains is
+CPU: encoding proto chunks makes terrain about 1.2 × and decoration about
+1.8 × Pumpkin's stages, and full chunks add about 5%.
 
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
