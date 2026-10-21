@@ -1,10 +1,8 @@
 defmodule Valimc.BlockBatchTest do
-  use ExUnit.Case, async: false
-  @moduletag :tcp
-  alias Valimc.Protocol.{Data, Wire}
+  use ExUnit.Case, async: true
+  alias Valimc.Protocol.Data
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Blocks, Region}
-  alias Valimc.TestClient, as: Client
 
   test "preparation bounds positions, registry states, count and one-region scope" do
     assert {:ok, batch} =
@@ -90,6 +88,65 @@ defmodule Valimc.BlockBatchTest do
     assert epoch == after_commit.items.epoch
   end
 
+  test "a blocked owner cannot serialize a different owner's batch" do
+    {slow, _} = first = region({404, 405})
+    second = region({406, 407})
+    :sys.suspend(slow)
+
+    try do
+      pending =
+        Task.async(fn -> Region.set_blocks(first, 0, %{{404 * 128, 64, 405 * 128} => 1}) end)
+
+      assert Task.yield(pending, 10) == nil
+      assert {:ok, 1} = Region.set_blocks(second, 0, %{{406 * 128, 64, 407 * 128} => 1})
+      :sys.resume(slow)
+      assert Task.await(pending, 60_000) == {:ok, 1}
+    after
+      :sys.resume(slow)
+    end
+  end
+
+  defp region(key) do
+    base =
+      Path.join(System.tmp_dir!(), "valimc-block-batch-#{System.unique_integer([:positive])}")
+
+    Valimc.TestScope.isolate(key, world_path: base)
+    {:ok, {pid, _} = owner} = World.owner(key)
+
+    on_exit(fn ->
+      Valimc.TestScope.kill(pid)
+      File.rm_rf(base)
+    end)
+
+    owner
+  end
+
+  defp mutation_state(pid) when is_pid(pid),
+    do: mutation_state(Valimc.TestConn.state(pid).resource)
+
+  defp mutation_state(state),
+    do:
+      state
+      |> Map.take([:cache, :versions, :revision, :dirty])
+      |> Map.put(:image, Blocks.image(state.blocks))
+
+  defp frame_name(frame) do
+    {:ok, id, _, <<>>} =
+      Valimc.Protocol.Wire.next_frame(frame, 2_097_152, Valimc.config(:compression_threshold))
+
+    Valimc.Protocol.Data.name(:play, :clientbound, id)
+  end
+end
+
+defmodule Valimc.BlockBatchTest.Connection do
+  # Logs in at the shared world spawn.
+  use ExUnit.Case, async: false
+  @moduletag :tcp
+  alias Valimc.Protocol.{Data, Wire}
+  alias Valimc.World
+  alias Valimc.World.{BlockBatch, Region}
+  alias Valimc.TestClient, as: Client
+
   test "compressed TCP sends only section frames for the recipient's loaded chunks" do
     name = "Batch" <> Integer.to_string(System.unique_integer([:positive]))
     {_, client} = Client.login(name)
@@ -120,39 +177,6 @@ defmodule Valimc.BlockBatchTest do
     assert length(received) == 2
   end
 
-  test "a blocked owner cannot serialize a different owner's batch" do
-    {slow, _} = first = region({404, 405})
-    second = region({406, 407})
-    :sys.suspend(slow)
-
-    try do
-      pending =
-        Task.async(fn -> Region.set_blocks(first, 0, %{{404 * 128, 64, 405 * 128} => 1}) end)
-
-      assert Task.yield(pending, 10) == nil
-      assert {:ok, 1} = Region.set_blocks(second, 0, %{{406 * 128, 64, 407 * 128} => 1})
-      :sys.resume(slow)
-      assert Task.await(pending, 60_000) == {:ok, 1}
-    after
-      :sys.resume(slow)
-    end
-  end
-
-  defp region(key) do
-    {:ok, {pid, _} = owner} = World.owner(key)
-    on_exit(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid) end)
-    owner
-  end
-
-  defp mutation_state(pid) when is_pid(pid),
-    do: mutation_state(Valimc.TestConn.state(pid).resource)
-
-  defp mutation_state(state),
-    do:
-      state
-      |> Map.take([:cache, :versions, :revision, :dirty])
-      |> Map.put(:image, Blocks.image(state.blocks))
-
   defp collect_updates(client, received) do
     {id, body, client} = Client.read(client)
 
@@ -161,12 +185,5 @@ defmodule Valimc.BlockBatchTest do
       "system_chat" -> {received, client}
       name -> collect_updates(Client.auto_reply(client, :play, name, body), received)
     end
-  end
-
-  defp frame_name(frame) do
-    {:ok, id, _, <<>>} =
-      Valimc.Protocol.Wire.next_frame(frame, 2_097_152, Valimc.config(:compression_threshold))
-
-    Valimc.Protocol.Data.name(:play, :clientbound, id)
   end
 end

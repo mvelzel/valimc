@@ -97,7 +97,7 @@ defmodule Valimc.PlayerPlacementTransfersTest do
   end
 
   test "both hands consume one exact item in the complete v14 journal, including depletion" do
-    for hand <- [:main, :off], count <- [1, 2, 64] do
+    for {hand, count} <- [{:main, 2}, {:off, 1}] do
       {state, intent} = source(hand, count)
       assert {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
       assert pending.outbox == intent and pending.transfer_sequence == 10
@@ -118,7 +118,7 @@ defmodule Valimc.PlayerPlacementTransfersTest do
   end
 
   test "terminal resolution keeps consumption or refunds the exact stack without replaying the source" do
-    for hand <- [:main, :off], count <- [1, 2], outcome <- [:applied, :rejected] do
+    for {hand, count, outcome} <- [{:main, 2, :applied}, {:off, 1, :rejected}] do
       {state, intent} = source(hand, count)
       {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
 

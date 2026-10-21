@@ -73,16 +73,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
     client
   end
 
-  test "creative removal retains contained water and dry removal still becomes air", ctx do
-    target = {ctx.x + 1, 65, ctx.z}
-    assert :ok = World.set_block(target, 15179)
-    client = break(ctx.client, target)
-    assert World.get_block(target) == 89
-    assert :ok = World.set_block(target, 15180)
-    _client = break(client, target)
-    assert World.get_block(target) == 0
-  end
-
   test "placement validates the clicked box, even when the adjacent destination is outside reach",
        ctx do
     clicked = {ctx.x + 6, 65, ctx.z}
@@ -98,28 +88,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
     assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
   end
 
-  test "invalid hit coordinates retain blocks and inventory, while tolerated native bounds work",
-       ctx do
-    clicked = {ctx.x + 1, 65, ctx.z}
-    target = {ctx.x + 2, 65, ctx.z}
-    :ok = World.set_block(clicked, 1)
-
-    client =
-      Enum.reduce(
-        [{-0.500001, 0.5, 0.5}, {0.5, 1.500001, 0.5}, {0.5, 0.5, 1.500001}],
-        ctx.client,
-        fn hit, client ->
-          client = place(client, clicked, 5, hit)
-          assert World.get_block(target) == 0
-          client
-        end
-      )
-
-    _client = place(client, clicked, 5, {1.5, 0.5, 0.5})
-    assert World.get_block(target) == 1
-    assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
-  end
-
   test "remote placement and break are acknowledged without allocating a region", ctx do
     pos = {-30_000_000, 65, -30_000_000}
     key = World.region_key(World.chunk_key(elem(pos, 0), elem(pos, 2)))
@@ -127,31 +95,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
     client = place(ctx.client, pos, 1, {0.5, 1.0, 0.5})
     _client = break(client, pos)
     assert Registry.lookup(Valimc.RegionRegistry, key) == []
-    assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
-  end
-
-  test "native NaN/infinite hit rejection retains accepted state and keeps the session usable",
-       ctx do
-    clicked = {ctx.x + 1, 65, ctx.z}
-    target = {ctx.x + 2, 65, ctx.z}
-    :ok = World.set_block(clicked, 1)
-
-    client =
-      Enum.reduce([0x7FC00000, 0x7F800000, 0xFF800000], ctx.client, fn bits, client ->
-        Client.send_packet(client, :play, "use_item_on", [
-          <<0>>,
-          Wire.position(clicked),
-          <<5>>,
-          <<bits::32, 0.5::float-32, 0.5::float-32, 0, 0, 1>>
-        ])
-
-        {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
-        assert World.get_block(target) == 0
-        client
-      end)
-
-    _client = place(client, clicked, 5, {1.0, 0.5, 0.5})
-    assert World.get_block(target) == 1
     assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
   end
 end

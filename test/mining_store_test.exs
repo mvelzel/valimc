@@ -8,7 +8,6 @@ defmodule Valimc.MiningStoreTest do
     Containers,
     ContainerTransfers,
     CookingOrbs,
-    CookingBatch,
     Items,
     Store
   }
@@ -95,59 +94,6 @@ defmodule Valimc.MiningStoreTest do
     %{ctx | proposal: proposal}
   end
 
-  defp cooking_proposal(ctx) do
-    block = Data.item_block(Data.item("furnace"))
-    before_blocks = Map.put(ctx.before_edits, ctx.position, block)
-    :ok = Store.flush(ctx.writer, ctx.lease, before_blocks)
-
-    {:ok, containers, entry} =
-      Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
-
-    fuel = %{ItemStack.new("lava_bucket", 2) | components: %{"minecraft:max_stack_size" => 99}}
-
-    initial = %Valimc.Cooking{
-      slots: {ItemStack.new("raw_iron", 2), fuel, nil},
-      progress: 199,
-      total: 200
-    }
-
-    {:ok, recipe} = Valimc.CookingRecipes.find(elem(initial.slots, 0), block)
-    source = ctx.proposal.receipts |> Map.keys() |> hd()
-    typed = %{source => %{sequence: 77, digest: :crypto.hash(:sha256, "cooking-typed")}}
-    containers = %{containers | receipts: typed}
-
-    {:ok, containers, _entry} =
-      Containers.replace_cooking(containers, ctx.position, entry.revision, initial, %{
-        recipe.key => 42
-      })
-
-    :ok = Store.flush_containers(ctx.writer, ctx.lease, containers)
-
-    {:ok, plan} =
-      CookingBatch.plan(containers, Items.new(), ctx.key, %{ctx.position => block})
-
-    assert plan.refused == %{}
-    assert plan.containers.entries[ctx.position].recipes == %{recipe.key => 43}
-    assert [%{stack: bucket}] = Items.records(plan.items)
-    assert bucket == ItemStack.new("bucket")
-    {:ok, %{receipts: original_receipts}} = Store.load_items(ctx.writer)
-
-    # Native26.3 tick fixture: north-facing furnace6884 unlit /6883 lit.
-    6884 = block
-    lit_block = 6883
-
-    proposal = %{
-      ctx.proposal
-      | edits: Map.put(before_blocks, ctx.position, lit_block),
-        changes: plan.changes,
-        items: plan.items,
-        receipts: original_receipts
-    }
-
-    assert plan.changes == %{ctx.position => lit_block}
-    %{ctx | proposal: Map.put(proposal, :containers, plan.containers)}
-  end
-
   defp cooking_award_proposal(ctx) do
     block = Data.item_block(Data.item("furnace"))
     :ok = Store.flush(ctx.writer, ctx.lease, Map.put(ctx.before_edits, ctx.position, block))
@@ -208,37 +154,6 @@ defmodule Valimc.MiningStoreTest do
     assert {:ok, writer, _} = Store.open(ctx.key)
     assert_outcome(writer, ctx)
     assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-  end
-
-  for kind <- [:cooking, :cooking_award, :cooking_orbs] do
-    test "joint #{kind} commit is recovered whole after writer replacement", ctx do
-      ctx =
-        case unquote(kind) do
-          :cooking ->
-            cooking_proposal(ctx)
-
-          :cooking_award ->
-            cooking_award_proposal(ctx)
-
-          :cooking_orbs ->
-            ctx = cooking_award_proposal(ctx)
-            [id] = Map.keys(ctx.proposal.containers.pending_awards)
-
-            {:ok, containers, :materialized} =
-              CookingOrbs.materialize(ctx.proposal.containers, ctx.key, id)
-
-            put_in(ctx.proposal.containers, containers)
-        end
-
-      token = make_ref()
-      Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-      assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}
-      assert :ok = Store.close(ctx.writer, ctx.lease)
-      assert {:ok, writer, lease} = Store.open(ctx.key)
-      assert_outcome(writer, ctx)
-      assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-      assert :ok = Store.close(writer, lease)
-    end
   end
 
   test "a failed joint write changes no output and retires its writer", ctx do

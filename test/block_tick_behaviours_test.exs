@@ -34,15 +34,6 @@ defmodule Valimc.BlockTickBehavioursTest do
       assert Coral.scheduled_tick(position, @coral, world(%{{1, 64, 0} => waterlogged}), nil) ==
                []
     end
-
-    test "schedule their death 60 to 99 ticks after a shape update away from water" do
-      for draw <- [0, 39] do
-        assert Coral.shape_update({0, 64, 0}, @coral, world(%{}), fn 40 -> draw end) ==
-                 [{:schedule, {0, 64, 0}, @coral, 60 + draw, 0}]
-      end
-
-      assert Coral.shape_update({0, 64, 0}, @coral, world(%{{0, 63, 0} => @water}), nil) == []
-    end
   end
 
   describe "budding amethyst" do

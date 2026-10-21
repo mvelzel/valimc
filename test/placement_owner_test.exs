@@ -31,24 +31,23 @@ defmodule Valimc.PlacementOwnerTest do
     Task.await(task, 60_000)
   end
 
-  test "prepared native replacement is inert until a fresh fenced owner commit", c do
-    assert :ok = World.set_block(c.position, 89)
-    assert {:ok, prepared} = plan(c, "oak_slab")
-    assert prepared.candidate == %{position: c.position, state: 15_179, replace_clicked: true}
-    assert World.get_block(c.position) == 89
+  test "owner block commits refuse unsupported block entities and keep supported ones", c do
+    {pid, _} = c.owner
 
-    assert {:ok, _} =
-             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
+    # Default states the 26.3 client sent for a copper chest and a barrel.
+    for state <- [32_926, 24_100] do
+      revision = Valimc.TestConn.state(pid).resource.revision
 
-    assert World.get_block(c.position) == 15_179
+      assert {:error, :unsupported_block_entity} =
+               Region.set_blocks(c.owner, revision, %{c.position => state})
 
-    assert {:error, :stale_revision} =
-             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
+      assert World.get_block(c.position) == 0
+    end
 
-    assert {:ok, merged} = plan(c, "oak_slab")
-    assert merged.candidate.state == 15_182
-    assert {:ok, _} = Region.place_block(c.owner, merged.revision, merged.batch, merged.deadline)
-    assert World.get_block(c.position) == 15_182
+    {:ok, furnace} = Valimc.Physics.CookingBlocks.placement(:furnace, 90.0)
+    revision = Valimc.TestConn.state(pid).resource.revision
+    assert {:ok, _} = Region.set_blocks(c.owner, revision, %{c.position => furnace})
+    assert World.get_block(c.position) == furnace
   end
 
   test "a plan stays valid across edits in other sections of the region", c do

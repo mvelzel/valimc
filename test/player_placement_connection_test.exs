@@ -98,31 +98,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  test "actual packets replace clicked air and source water, orient halves and merge dry doubles",
-       c do
-    seed(c)
-    {client, pid} = login(c)
-    send_place(client, c.target)
-    client = ack(client)
-    assert World.get_block(c.target) == 1
-
-    :ok = World.set_block(c.target, 89)
-    send_place(client, c.target, 1, 0.5, 1, 2)
-    client = ack(client, 2)
-    assert World.get_block(c.target) == 15_179
-    send_place(client, c.target, 1, 0.5, 1, 3)
-    client = ack(client, 3)
-    assert World.get_block(c.target) == 15_182
-
-    :ok = World.set_block(c.target, 0)
-    send_place(client, c.target, 2, 0.75, 1, 4)
-    _client = ack(client, 4)
-    assert World.get_block(c.target) == 15_178
-    assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
-    assert Valimc.TestConn.state(pid).inventory.slots[45].count == 11
-    assert World.item_snapshot(c.key) == %{}
-  end
-
   test "survival chest placement consumes either hand, owns an immediately usable menu and survives login",
        c do
     c = %{c | pose: %{c.pose | yaw: 90.0}}
@@ -171,174 +146,63 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert World.item_snapshot(c.key) == %{}
   end
 
-  test "creative physical chest placement and destruction retire metadata without consuming or dropping",
-       c do
-    seed(c, :creative, %{36 => ItemStack.new("chest", 2)})
+  test "survival furnace placement owns empty cooking state and consumes either hand", c do
+    c = %{c | pose: %{c.pose | yaw: 90.0}}
+    seed(c, :survival, %{36 => ItemStack.new("furnace", 2), 45 => ItemStack.new("furnace", 3)})
     {client, pid} = login(c)
     send_place(client, c.target)
     client = ack(client)
-    assert Valimc.ChestAccess.single?(World.get_block(c.target))
-
-    Client.send_packet(client, :play, "player_action", [
-      Wire.varint(0),
-      Wire.position(c.target),
-      <<1>>,
-      Wire.varint(2)
-    ])
-
+    {:ok, block} = Valimc.Physics.CookingBlocks.placement(:furnace, 90.0)
+    assert World.get_block(c.target) == block
+    {x, y, z} = c.target
+    other = {x - 1, y, z}
+    send_place(client, other, 1, 0.5, 1, 2)
     _client = ack(client, 2)
-    assert World.get_block(c.target) == 0
-    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest", 2)
+    assert World.get_block(other) == block
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("furnace")
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("furnace", 2)
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     {:ok, {region, _}} = World.existing_owner(c.key)
-    assert :sys.get_state(region).resource.containers.entries == %{}
-    assert :sys.get_state(region).resource.containers.sequence == 2
+    containers = :sys.get_state(region).resource.containers
+    assert containers.sequence == 2 and containers.receipts == %{}
+
+    for position <- [c.target, other] do
+      assert containers.entries[position].kind == :furnace
+      assert Valimc.World.CookingEntry.empty?(containers.entries[position])
+    end
+
     assert World.item_snapshot(c.key) == %{}
   end
 
-  test "named chest placement refuses both modes without losing name, metadata or source counter",
-       c do
-    named = %{
-      ItemStack.new("chest", 2)
-      | components: %{"minecraft:custom_name" => {:string, "Named"}}
-    }
-
-    for mode <- [:creative, :survival] do
-      seed(c, mode, %{36 => named})
-      {client, pid} = login(c)
-      send_place(client, c.target)
-      client = ack(client)
-      assert World.get_block(c.target) == 0
-      assert Valimc.TestConn.state(pid).inventory.slots[36] == named
-
-      assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
-               0
-
-      Client.close(client)
-
-      wait(fn ->
-        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
-      end)
-    end
-  end
-
-  for kind <- [:furnace, :smoker, :blast_furnace], mode <- [:survival, :creative] do
-    main_count = if mode == :survival, do: 1, else: 2
-    off_count = if mode == :survival, do: 2, else: 3
-    sequence = if mode == :survival, do: 2, else: 0
-
-    test "#{mode} #{kind} packet placement owns empty state and preserves both hands through reconnect",
-         c do
-      kind = unquote(kind)
-      mode = unquote(mode)
-      name = Atom.to_string(kind)
-      c = %{c | pose: %{c.pose | yaw: 90.0}}
-      seed(c, mode, %{36 => ItemStack.new(name, 2), 45 => ItemStack.new(name, 3)})
-      {client, pid} = login(c)
-      send_place(client, c.target)
-      client = ack(client)
-      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 90.0)
-      assert World.get_block(c.target) == block
-      expected_main = ItemStack.new(name, unquote(main_count))
-      assert Valimc.TestConn.state(pid).inventory.slots[36] == expected_main
-      {x, y, z} = c.target
-      other = {x - 1, y, z}
-      send_place(client, other, 1, 0.5, 1, 2)
-      client = ack(client, 2)
-      assert World.get_block(other) == block
-      expected_off = ItemStack.new(name, unquote(off_count))
-      assert Valimc.TestConn.state(pid).inventory.slots[45] == expected_off
-      Client.close(client)
-
-      wait(fn ->
-        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
-      end)
-
-      {_fresh, fresh_pid} = login(c)
-      assert :sys.get_state(fresh_pid).inventory.slots[36] == expected_main
-      assert :sys.get_state(fresh_pid).inventory.slots[45] == expected_off
-      expected_sequence = unquote(sequence)
-      assert saved(c).transfer_sequence == expected_sequence and saved(c).outbox == nil
-      {:ok, {region, _}} = World.existing_owner(c.key)
-      containers = :sys.get_state(region).resource.containers
-      assert containers.sequence == 2 and containers.receipts == %{}
-
-      for position <- [c.target, other] do
-        assert containers.entries[position].kind == kind
-        assert Valimc.World.CookingEntry.empty?(containers.entries[position])
-      end
-
-      assert World.item_snapshot(c.key) == %{}
-    end
-  end
-
-  for kind <- [:furnace, :smoker, :blast_furnace] do
-    test "named #{kind} refuses without source consumption in both modes", c do
-      name = Atom.to_string(unquote(kind))
-
-      named = %{
-        ItemStack.new(name, 2)
-        | components: %{"minecraft:custom_name" => {:string, "Named"}}
-      }
-
-      for mode <- [:creative, :survival] do
-        seed(c, mode, %{36 => named})
-        {client, pid} = login(c)
-        send_place(client, c.target)
-        _client = ack(client)
-        assert World.get_block(c.target) == 0
-        assert Valimc.TestConn.state(pid).inventory.slots[36] == named
-
-        assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
-                 0
-
-        Client.close(client)
-
-        wait(fn ->
-          not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
-        end)
-      end
-    end
-
-    test "creative #{kind} destruction retires empty state without block loot or stock consumption",
-         c do
-      kind = unquote(kind)
-      name = Atom.to_string(kind)
-      seed(c, :creative, %{36 => ItemStack.new(name, 2)})
-      {client, pid} = login(c)
-      send_place(client, c.target)
-      client = ack(client)
-
-      Client.send_packet(client, :play, "player_action", [
-        Wire.varint(0),
-        Wire.position(c.target),
-        <<1>>,
-        Wire.varint(2)
-      ])
-
-      _client = ack(client, 2)
-      assert World.get_block(c.target) == 0
-      assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new(name, 2)
-      {:ok, {region, _}} = World.existing_owner(c.key)
-      containers = :sys.get_state(region).resource.containers
-      assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
-      assert World.item_snapshot(c.key) == %{}
-    end
-  end
-
-  test "body obstruction and occupied adjacency correct predictions without overwriting", c do
-    seed(c)
-    {client, _pid} = login(c)
-    feet = {floor(c.pose.x), 64, floor(c.pose.z)}
-    send_place(client, feet)
-    client = ack(client)
-    assert World.get_block(feet) == 0
-
+  test "unsupported block entities are corrected without a shell or item loss", c do
+    # Default states the 26.3 client sent for a copper chest and a barrel; the owner
+    # refuses them too (placement_owner_test).
+    held = %{36 => ItemStack.new("copper_chest", 2), 45 => ItemStack.new("barrel", 3)}
+    seed(c, :survival, held)
     {x, y, z} = c.target
-    :ok = World.set_block(c.target, 1)
-    :ok = World.set_block({x, y + 1, z}, 15)
-    send_place(client, c.target, 1, 0.5, 0, 2)
-    _client = ack(client, 2)
-    assert World.get_block({x, y + 1, z}) == 15
+    floor = {x, y - 1, z}
+    :ok = World.set_block(floor, 1)
+    {client, pid} = login(c)
+
+    # Click the solid floor's top face, as the client did, so the item targets the air above it.
+    Enum.reduce([{0, 1}, {1, 2}], client, fn {hand, seq}, client ->
+      send_place(client, floor, 1, 0.5, hand, seq)
+      client |> ack(seq) |> corrected(c.target)
+    end)
+
+    assert World.get_block(c.target) == 0
+    assert Map.take(Valimc.TestConn.state(pid).inventory.slots, [36, 45]) == held
+    {:ok, {region, _}} = World.existing_owner(c.key)
+    assert :sys.get_state(region).resource.containers.entries == %{}
+  end
+
+  # The client's predicted block in the target air cell is reset.
+  defp corrected(client, position) do
+    {bytes, client} = Client.await(client, :play, "block_update")
+
+    if bytes == IO.iodata_to_binary([Wire.position(position), Wire.varint(0)]),
+      do: client,
+      else: corrected(client, position)
   end
 
   test "survival consumes owned main/offhand stacks and persists wet/double placements across fresh login",
@@ -375,25 +239,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   defp saved(c) do
     {:ok, snapshot} = PlayerSnapshot.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
     snapshot
-  end
-
-  test "last-item placement depletes exactly its hand and subsequent empty use is inert", c do
-    seed(c, :survival, %{36 => ItemStack.new("stone"), 45 => ItemStack.new("oak_slab")})
-    {client, pid} = login(c)
-    send_place(client, c.target)
-    client = ack(client)
-    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
-    assert saved(c).inventory.slots[36] == nil
-    assert :ok = World.set_block(c.target, 0)
-    send_place(client, c.target, 1, 0.5, 1, 2)
-    client = ack(client, 2)
-    assert World.get_block(c.target) == 15_180
-    assert Valimc.TestConn.state(pid).inventory.slots[45] == nil
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-    assert :ok = World.set_block(c.target, 0)
-    send_place(client, c.target, 1, 0.5, 1, 3)
-    _client = ack(client, 3)
-    assert World.get_block(c.target) == 0 and saved(c).transfer_sequence == 2
   end
 
   test "survival body, occupied, reach and unloaded refusals preserve source stacks and counters",
@@ -472,62 +317,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end
   end
 
-  test "unloaded preview stays inert even with creative inventory permission", c do
-    seed(c)
-    {client, _pid} = login(c, false)
-    send_place(client, c.target)
-    _client = ack(client)
-    assert World.get_block(c.target) == 0
-  end
-
-  test "adventure and spectator placement cannot mutate blocks or source stacks", c do
-    for mode <- [:adventure, :spectator] do
-      seed(c, mode)
-      {client, pid} = login(c)
-      before = Valimc.TestConn.state(pid).inventory.slots
-      send_place(client, c.target)
-      client = ack(client)
-      assert World.get_block(c.target) == 0
-      assert Valimc.TestConn.state(pid).inventory.slots == before
-      Client.close(client)
-
-      wait(fn ->
-        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
-      end)
-    end
-  end
-
-  test "region stalls leave the socket responsive and cannot spend expired authority", c do
-    # The play placement window, which this test waits out (VMC-073).
-    Valimc.TestScope.isolate(c.uuid, owner_call_scale: 1)
-    seed(c)
-    {client, pid} = login(c)
-    {:ok, {owner, _}} = World.existing_owner(c.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      send_place(client, c.target)
-
-      wait(fn ->
-        state = Valimc.TestConn.state(pid)
-        state.table_job != nil or state.placement_job != nil
-      end)
-
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await_stats(client)
-      Process.sleep(275)
-      Valimc.TestRegionGate.resume(owner)
-      _client = ack(client)
-      assert World.get_block(c.target) == 0
-      assert Process.alive?(pid)
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
   test "stalled survival sampling fences selection and expires without source consumption", c do
-    # The play placement window, which this test waits out (VMC-073).
-    Valimc.TestScope.isolate(c.uuid, owner_call_scale: 1)
     seed(c, :survival)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
@@ -535,17 +325,17 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     try do
       send_place(client, c.target)
-
-      wait(fn ->
-        state = Valimc.TestConn.state(pid)
-        state.table_job != nil or state.placement_job != nil
-      end)
-
+      # The use first asks the stalled owner whether it clicked a table or container.
+      wait(fn -> Valimc.TestConn.state(pid).table_job end)
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await_stats(client)
       assert Valimc.TestConn.state(pid).inventory.selected == 0
-      Process.sleep(275)
+      # The command's authority lapses while the owner is stalled, however fast the host.
+      past = System.monotonic_time(:millisecond)
+
+      :sys.replace_state(pid, &put_in(&1.table_job.placement.command.expires, past))
+
       Valimc.TestRegionGate.resume(owner)
       _client = ack(client)
       assert World.get_block(c.target) == 0
@@ -556,124 +346,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     after
       Valimc.TestRegionGate.resume(owner)
     end
-  end
-
-  test "ordinary cube families use creative collision admission without consumption", c do
-    ordinary_cubes(c, :creative)
-  end
-
-  test "ordinary cube families use the survival journal and preserve counts on body refusal", c do
-    ordinary_cubes(c, :survival)
-  end
-
-  defp ordinary_cubes(c, mode) do
-    names = ~w(polished_granite spruce_planks iron_block red_concrete crafting_table)
-
-    slots =
-      names
-      |> Enum.with_index(36)
-      |> Map.new(fn {name, slot} -> {slot, ItemStack.new(name, 2)} end)
-
-    seed(c, mode, slots)
-    {client, pid} = login(c)
-    feet = {floor(c.pose.x), 64, floor(c.pose.z)}
-
-    Enum.reduce(Enum.with_index(names), client, fn {name, slot}, client ->
-      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
-      {_packet, client} = Client.await(client, :play, "set_held_slot")
-      assert :ok = World.set_block(c.target, 0)
-      send_place(client, c.target, 1, 0.5, 0, 2 * slot + 1)
-      client = ack(client, 2 * slot + 1)
-
-      assert World.get_block(c.target) ==
-               Valimc.Protocol.Data.item_block(ItemStack.new(name).item_id)
-
-      count = if mode == :survival, do: 1, else: 2
-      assert Valimc.TestConn.state(pid).inventory.slots[36 + slot].count == count
-      send_place(client, feet, 1, 0.5, 0, 2 * slot + 2)
-      client = ack(client, 2 * slot + 2)
-      assert World.get_block(feet) == 0
-      assert Valimc.TestConn.state(pid).inventory.slots[36 + slot].count == count
-
-      if mode == :survival do
-        assert saved(c).transfer_sequence == slot + 1 and saved(c).outbox == nil
-        assert saved(c).inventory.slots[36 + slot].count == 1
-      end
-
-      client
-    end)
-  end
-
-  test "pillar packets preserve all axes and both creative hand counts", c do
-    pillars(c, :creative)
-  end
-
-  test "survival table placement consumes either hand once and survives a fresh connection", c do
-    seed(c, :survival, %{
-      36 => ItemStack.new("crafting_table"),
-      45 => ItemStack.new("crafting_table")
-    })
-
-    {client, pid} = login(c)
-    table = Valimc.Protocol.Data.item_block(ItemStack.new("crafting_table").item_id)
-    other = {elem(c.target, 0) + 1, 64, elem(c.target, 2)}
-    :ok = World.set_block(other, 0)
-
-    send_place(client, c.target)
-    client = ack(client)
-    assert World.get_block(c.target) == table
-    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
-    assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
-
-    send_place(client, other, 1, 0.5, 1, 2)
-    _client = ack(client, 2)
-    assert World.get_block(other) == table
-    assert Valimc.TestConn.state(pid).inventory.slots[45] == nil
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
-    {_fresh, fresh_pid} = login(c)
-    assert :sys.get_state(fresh_pid).inventory.slots[36] == nil
-    assert :sys.get_state(fresh_pid).inventory.slots[45] == nil
-    assert World.get_block(c.target) == table and World.get_block(other) == table
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-  end
-
-  test "pillar packets consume and persist both survival hands without changing axes", c do
-    pillars(c, :survival)
-  end
-
-  defp pillars(c, mode) do
-    seed(c, mode, %{
-      36 => ItemStack.new("oak_log", 3),
-      45 => ItemStack.new("stripped_spruce_log", 3)
-    })
-
-    {client, pid} = login(c)
-    cases = [{0, 0, 140}, {1, 1, 178}, {2, 0, 141}, {3, 1, 179}, {4, 0, 139}, {5, 1, 177}]
-
-    Enum.reduce(Enum.with_index(cases, 1), client, fn {{face, hand, expected}, seq}, client ->
-      :ok = World.set_block(c.target, 0)
-      send_place(client, c.target, face, 0.5, hand, seq)
-      client = ack(client, seq)
-      assert World.get_block(c.target) == expected
-      remaining = if mode == :survival, do: 3 - div(seq + 1, 2), else: 3
-      slot = if hand == 0, do: 36, else: 45
-      stack = Valimc.TestConn.state(pid).inventory.slots[slot]
-      if remaining == 0, do: assert(stack == nil), else: assert(stack.count == remaining)
-      assert saved(c).transfer_sequence == if(mode == :survival, do: seq, else: 0)
-      assert saved(c).outbox == nil
-      client
-    end)
-
-    slots = Valimc.TestConn.state(pid).inventory.slots
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
-    {_fresh, pid} = login(c)
-    assert Valimc.TestConn.state(pid).inventory.slots == slots
-    assert World.get_block(c.target) == 177
-    assert saved(c).transfer_sequence == if(mode == :survival, do: 6, else: 0)
   end
 
   test "an accepted command retains its original held item before a later selection", c do

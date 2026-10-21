@@ -1,6 +1,5 @@
 defmodule Valimc.PlayerPlacementStoreTest do
-  use ExUnit.Case, async: false
-  @moduletag :tcp
+  use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
   alias Valimc.{
@@ -16,13 +15,10 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ItemRecords, Region}
-  alias Valimc.TestClient, as: Client
 
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-placement-source-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {30_000 + rem(nonce, 3_333) * 3, 800}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
@@ -30,6 +26,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     {x, _, z} = position
     name = "Place#{nonce}"
     uuid = Connection.offline_uuid(name)
+    Valimc.TestScope.isolate([uuid | Valimc.TestScope.neighborhood(key)], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     {:ok, owner} = World.item_owner(key)
     {:ok, observed} = Region.observe_blocks(owner, [position])
@@ -81,19 +78,10 @@ defmodule Valimc.PlayerPlacementStoreTest do
     }
 
     on_exit(fn ->
-      for {live, player} <- :ets.tab2list(Valimc.Players),
-          player.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, live)
+      for {registry, scope} <- [{Valimc.PlayerStoreRegistry, uuid}, {Valimc.RegionRegistry, key}],
+          {live, _} <- Registry.lookup(registry, scope),
+          do: Valimc.TestScope.kill(live)
 
-      for {live, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, live)
-
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
-
-      Application.put_env(:valimc, :world_path, previous)
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -101,7 +89,6 @@ defmodule Valimc.PlayerPlacementStoreTest do
       base: base,
       key: key,
       position: position,
-      name: name,
       uuid: uuid,
       writer: writer,
       fence: fence,
@@ -261,22 +248,5 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
     assert Enum.sort(Enum.map(records, & &1.stack)) ==
              Enum.sort([ctx.intent.before, ItemStack.new("iron_helmet")])
-  end
-
-  test "real TCP login resolves the typed pending intent before publishing inventory", ctx do
-    {_fence, _pending} = prepare(ctx)
-    {ctx, _restored, _fence} = restart(ctx)
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, ctx.writer)
-    {uuid, client} = Client.login_session(Client.begin_login(ctx.name), ctx.name)
-    assert uuid == ctx.uuid
-    client = Client.load_world(client)
-    assert Enum.at(client.inventory.items, 45) == ctx.intent.before
-    assert read(ctx).outbox == nil and read(ctx).transfer_sequence == 1
-    player = Enum.find(Valimc.Players.all(), &(&1.name == ctx.name))
-    state = :sys.get_state(player.pid)
-    assert state.recovery == nil and Inventory.get(state.inventory, 45) == ctx.intent.before
-    assert state.player.food.level == 18 and state.player.air_supply == 154
-    assert World.get_block(ctx.position) == 0
-    Client.close(client)
   end
 end

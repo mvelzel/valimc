@@ -3,7 +3,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
+  alias Valimc.Session.Jobs
   alias Valimc.TestClient, as: Client
+
+  # Mining tool rules, loot and attempt timing are compared by the mining oracles;
+  # these tests guard the live journal, fencing and recovery around them.
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -17,6 +21,8 @@ defmodule Valimc.PlayerMiningConnectionTest do
     target = {floor(pose.x), 65, floor(pose.z) + 3}
     name = "Dig#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate([uuid, Connection.offline_uuid(name <> "B")], player_ticks: :manual)
 
     on_exit(fn ->
       for player <- Players.all(),
@@ -27,12 +33,8 @@ defmodule Valimc.PlayerMiningConnectionTest do
           {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, source),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for x <- (rx - 1)..(rx + 1),
-          z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
       Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
@@ -42,7 +44,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
+  defp wait(fun), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, slots, block \\ Data.block("stone")) do
     player =
@@ -66,10 +68,55 @@ defmodule Valimc.PlayerMiningConnectionTest do
     :ok = World.set_block(ctx.target, block)
   end
 
+  # Retire wall timers while driving the real owner handler with single-use tokens.
+  defp park(pid) do
+    :sys.replace_state(pid, fn s ->
+      clock = %{
+        s.simulation_clock
+        | token: {s.simulation_clock.epoch, make_ref()},
+          deadline: System.monotonic_time(:millisecond) + 60_000
+      }
+
+      %{s | simulation_clock: clock}
+    end)
+  end
+
+  defp tick(pid) do
+    before =
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | simulation_clock: %{
+              s.simulation_clock
+              | deadline: System.monotonic_time(:millisecond)
+            }
+        }
+      end)
+
+    send(pid, {:player_tick, before.simulation_clock.token})
+    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
+    park(pid)
+    wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
+  end
+
+  defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
+
+  # Tick the players until `fun` holds; jobs and saves answer between ticks.
+  defp tick_until(pids, fun) do
+    wait(fn ->
+      fun.() or
+        (
+          Enum.each(List.wrap(pids), &tick/1)
+          false
+        )
+    end)
+  end
+
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
+    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    park(pid)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
     on_exit(fn -> Client.close(client) end)
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
@@ -80,7 +127,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
       <<ctx.pose.x::float-64, ctx.pose.y::float-64, ctx.pose.z::float-64, 1>>
     )
 
-    wait(fn -> state(pid).player.motion.on_ground and state(pid).pose_checked != nil end)
+    tick_until(pid, fn ->
+      s = state(pid)
+      s.player.motion.on_ground and s.pose_checked != nil and not s.teleport_pending
+    end)
+
     {client, pid}
   end
 
@@ -100,12 +151,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
     snapshot
   end
 
-  defp await_ack(client, expected) do
-    {body, client} = Client.await(client, :play, "block_changed_ack")
-    {sequence, <<>>} = Wire.take_varint(body)
-    if sequence == expected, do: client, else: await_ack(client, expected)
-  end
-
   defp finished(pid), do: state(pid).mining == nil and state(pid).recovery == nil
 
   defp drops(ctx) do
@@ -114,119 +159,73 @@ defmodule Valimc.PlayerMiningConnectionTest do
     Enum.map(ledger.records, & &1.stack)
   end
 
+  defp reconnect(ctx, client) do
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    login(ctx)
+  end
+
+  defp instant(name, enchantments \\ %{}) do
+    %{
+      ItemStack.new(name)
+      | components: %{
+          "minecraft:enchantments" => Map.put(enchantments, "minecraft:efficiency", 255)
+        }
+    }
+  end
+
+  defp place(ctx, block) do
+    {:ok, owner} = World.owner(ctx.key)
+    {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [ctx.target])
+    {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.target => block})
+
+    assert {:ok, _} =
+             Valimc.World.Region.place_block(
+               owner,
+               observed.revision,
+               batch,
+               Valimc.TestRegion.grant_expires()
+             )
+  end
+
   test "active ticks never destroy without stop; committed drops and wear survive a real reconnect",
        ctx do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    started = state(pid).mining.started
-    wait(fn -> state(pid).simulation_clock.tick - started >= 12 end)
+    tick_until(pid, fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
+    ticks(pid, 12)
     assert World.get_block(ctx.target) == Data.block("stone")
     action(client, "stop_destroy_block", ctx.target, 2)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    tick_until(pid, fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-
     assert drops(ctx) == [ItemStack.new("cobblestone")]
 
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {_fresh, pid} = login(ctx)
+    {_fresh, pid} = reconnect(ctx, client)
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
     assert map_size(World.item_snapshot(ctx.key)) == 1
     assert World.get_block(ctx.target) == 0
   end
 
   test "instant final-use mining samples Silk Touch before the selected tool breaks", ctx do
-    tool = %{
-      ItemStack.new("iron_pickaxe")
-      | components: %{
-          "minecraft:damage" => 249,
-          "minecraft:enchantments" => %{
-            "minecraft:efficiency" => 255,
-            "minecraft:silk_touch" => 1
-          }
-        }
-    }
-
-    seed(ctx, %{36 => tool})
+    tool = instant("iron_pickaxe", %{"minecraft:silk_touch" => 1})
+    seed(ctx, %{36 => put_in(tool.components["minecraft:damage"], 249)})
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    tick_until(pid, fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
     assert Inventory.held(state(pid).inventory, :main) == nil
-
     assert drops(ctx) == [ItemStack.new("stone")]
-
     assert saved(ctx).inventory.slots == %{}
     assert saved(ctx).transfer_sequence == 1
-  end
-
-  test "abort, target ABA and relocation retire attempts without changing blocks or gear", ctx do
-    tool = ItemStack.new("iron_pickaxe")
-    seed(ctx, %{36 => tool})
-    {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    action(client, "abort_destroy_block", ctx.target, 2)
-    wait(fn -> finished(pid) end)
-    assert World.get_block(ctx.target) == Data.block("stone")
-    assert Inventory.held(state(pid).inventory, :main) == tool
-
-    action(client, "start_destroy_block", ctx.target, 3)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    :ok = World.set_block(ctx.target, Data.block("dirt"))
-    :ok = World.set_block(ctx.target, Data.block("stone"))
-    action(client, "stop_destroy_block", ctx.target, 4)
-    wait(fn -> finished(pid) end)
-    assert World.get_block(ctx.target) == Data.block("stone")
-    assert Inventory.held(state(pid).inventory, :main) == tool
-    assert World.item_snapshot(ctx.key) == %{}
-
-    action(client, "start_destroy_block", ctx.target, 5)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    assert :ok = Connection.teleport(pid, %{ctx.pose | x: ctx.pose.x + 15})
-    assert state(pid).mining == nil
-    assert World.get_block(ctx.target) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
-  end
-
-  test "a slower selected tool changes the whole elapsed prefix and an early stop finishes later",
-       ctx do
-    seed(ctx, %{36 => ItemStack.new("iron_pickaxe"), 37 => ItemStack.new("wooden_pickaxe")})
-    {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
-    wait(fn -> state(pid).inventory.selected == 1 end)
-    action(client, "stop_destroy_block", ctx.target, 2)
-    wait(fn -> match?(%{attempt: %{phase: :finishing}}, state(pid).mining) end)
-    assert World.get_block(ctx.target) == Data.block("stone")
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-    assert state(pid).inventory.slots[36] == ItemStack.new("iron_pickaxe")
-    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 1
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-  end
-
-  test "unsupported blocks stay intact", ctx do
-    # Bare-hand harvest rules are covered by the native mining loot oracle; the
-    # live bare-hand stone path took 7.5 s of real mining time.
-    seed(ctx, %{})
-    {client, pid} = login(ctx)
-    unsupported = Data.item_block(Data.item("diamond_ore"))
-    :ok = World.set_block(ctx.target, unsupported)
-    action(client, "start_destroy_block", ctx.target, 3)
-    await_ack(client, 3)
-    wait(fn -> finished(pid) end)
-    assert World.get_block(ctx.target) == unsupported
-    assert World.item_snapshot(ctx.key) == %{}
   end
 
   test "a pending ordinary save holds ready mining without cancelling or resampling it", ctx do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
+    tick_until(pid, fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
+    ticks(pid, 12)
     writer = state(pid).player_store
     :ok = :sys.suspend(writer)
 
@@ -234,7 +233,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       send(pid, :save_player)
       wait(fn -> state(pid).save_ref != nil end)
       action(client, "stop_destroy_block", ctx.target, 2)
-      wait(fn -> match?(%{attempt: %{phase: :ready}}, state(pid).mining) end)
+      tick_until(pid, fn -> match?(%{attempt: %{phase: :ready}}, state(pid).mining) end)
       assert World.get_block(ctx.target) == Data.block("stone")
       assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
       assert state(pid).recovery == nil
@@ -242,7 +241,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       :ok = :sys.resume(writer)
     end
 
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    tick_until(pid, fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
     assert saved(ctx).transfer_sequence == 1
     assert drops(ctx) == [ItemStack.new("cobblestone")]
   end
@@ -256,17 +255,22 @@ defmodule Valimc.PlayerMiningConnectionTest do
     {client, pid} = login(ctx)
     {other, other_pid} = login(peer)
     action(client, "start_destroy_block", ctx.target, 1)
+    tick_until(pid, fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
     {body, _other} = Client.await(other, :play, "block_destruction")
     {entity, body} = Wire.take_varint(body)
     {position, <<stage>>} = Wire.take_position(body)
     assert entity == state(pid).player.entity_id and position == ctx.target and stage in 0..9
     action(other, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(other_pid).mining) end)
-    started = max(state(pid).mining.started, state(other_pid).mining.started)
-    wait(fn -> state(pid).simulation_clock.tick - started >= 7 end)
+
+    tick_until(other_pid, fn -> match?(%{attempt: %{phase: :active}}, state(other_pid).mining) end)
+
+    Enum.each(1..12, fn _ -> Enum.each([pid, other_pid], &tick/1) end)
     action(client, "stop_destroy_block", ctx.target, 2)
     action(other, "stop_destroy_block", ctx.target, 2)
-    wait(fn -> finished(pid) and finished(other_pid) and World.get_block(ctx.target) == 0 end)
+
+    tick_until([pid, other_pid], fn ->
+      finished(pid) and finished(other_pid) and World.get_block(ctx.target) == 0
+    end)
 
     damages =
       for owner <- [pid, other_pid],
@@ -282,20 +286,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert saved(ctx).outbox == nil and saved(peer).outbox == nil
   end
 
-  test "death retires active digging and drops owned gear without mining the target", ctx do
-    tool = ItemStack.new("iron_pickaxe")
-    seed(ctx, %{36 => tool})
-    {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 1000.0)
-    wait(fn -> state(pid).life_stage == :dead end)
-    assert state(pid).mining == nil
-    assert World.get_block(ctx.target) == Data.block("stone")
-    assert drops(ctx) == [tool]
-    assert saved(ctx).outbox == nil
-  end
-
   test "a stalled reservation expires outside the socket owner and its retired callback is inert",
        ctx do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
@@ -306,12 +296,13 @@ defmodule Valimc.PlayerMiningConnectionTest do
     try do
       action(client, "start_destroy_block", ctx.target, 1)
       job = wait(fn -> state(pid).mining_job end)
-      ref = job.task.ref
+      # The job's own deadline timer, fired now instead of after its budget.
+      send(pid, {:job_timeout, :mining, job.ref})
       wait(fn -> state(pid).mining == nil and state(pid).mining_job == nil end)
 
       send(
         pid,
-        {ref,
+        {job.task.ref,
          {:ok,
           %{
             owner: owner,
@@ -333,7 +324,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   end
 
   test "a completed reservation cannot outlive its budget in a suspended player mailbox", ctx do
-    seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
+    seed(ctx, %{36 => instant("iron_pickaxe")})
     {client, pid} = login(ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
     :ok = Valimc.TestRegionGate.stall(region)
@@ -342,8 +333,15 @@ defmodule Valimc.PlayerMiningConnectionTest do
     :ok = :sys.suspend(pid)
 
     try do
+      # The reply reaches the mailbox after the job's budget, however fast the host.
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | jobs: Jobs.update(s.jobs, :mining, %{deadline: System.monotonic_time(:millisecond)})
+        }
+      end)
+
       :ok = Valimc.TestRegionGate.resume(region)
-      Process.sleep(300)
     after
       :ok = :sys.resume(pid)
     end
@@ -351,150 +349,18 @@ defmodule Valimc.PlayerMiningConnectionTest do
     wait(fn -> finished(pid) and state(pid).mining_job == nil end)
     assert World.get_block(ctx.target) == Data.block("stone")
     assert World.item_snapshot(ctx.key) == %{}
-    assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
+    assert Inventory.held(state(pid).inventory, :main) == instant("iron_pickaxe")
     assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
   end
 
-  test "live wet single and dry double slabs commit contained fluid, exact counts and one wear each",
-       ctx do
-    tool = %{
-      ItemStack.new("diamond_axe")
-      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 10}}
-    }
-
-    seed(ctx, %{36 => tool})
-    {client, pid} = login(ctx)
-
-    for {{block, replacement}, sequence} <- Enum.with_index([{15179, 89}, {15182, 0}], 1) do
-      :ok = World.set_block(ctx.target, block)
-      action(client, "start_destroy_block", ctx.target, sequence)
-      await_ack(client, sequence)
-      wait(fn -> finished(pid) and World.get_block(ctx.target) == replacement end)
-      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
-
-      assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] ==
-               sequence
-    end
-
-    assert Enum.sort_by(drops(ctx), & &1.count) == [
-             ItemStack.new("oak_slab"),
-             ItemStack.new("oak_slab", 2)
-           ]
-
-    assert map_size(World.item_snapshot(ctx.key)) == 2
-  end
-
-  test "ordinary cubes use live tool rules, bookshelf counts and Silk Touch across reconnect",
-       ctx do
-    enchant = fn name, levels ->
-      %{ItemStack.new(name) | components: %{"minecraft:enchantments" => levels}}
-    end
-
-    seed(ctx, %{
-      36 => enchant.("diamond_pickaxe", %{"minecraft:efficiency" => 5}),
-      37 => enchant.("diamond_axe", %{"minecraft:efficiency" => 5}),
-      38 => enchant.("diamond_axe", %{"minecraft:efficiency" => 5, "minecraft:silk_touch" => 1})
-    })
-
-    {client, pid} = login(ctx)
-
-    cases = [
-      {"polished_granite", 0, ItemStack.new("polished_granite")},
-      {"bookshelf", 1, ItemStack.new("book", 3)},
-      {"bookshelf", 2, ItemStack.new("bookshelf")}
-    ]
-
-    for {{name, slot, _drop}, sequence} <- Enum.with_index(cases, 1) do
-      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
-      wait(fn -> state(pid).inventory.selected == slot end)
-      :ok = World.set_block(ctx.target, Data.item_block(Data.item(name)))
-      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
-      await_ack(client, sequence * 2 - 1)
-      action(client, "stop_destroy_block", ctx.target, sequence * 2)
-      await_ack(client, sequence * 2)
-      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
-    end
-
-    expected = cases |> Enum.map(&elem(&1, 2)) |> Enum.sort_by(& &1.item_id)
-    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
-
-    for {slot, damage} <- [{36, 1}, {37, 1}, {38, 1}] do
-      assert state(pid).inventory.slots[slot].components["minecraft:damage"] == damage
-    end
-
-    inventory = state(pid).inventory
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {_fresh, pid} = login(ctx)
-    assert state(pid).inventory.slots == inventory.slots
-    assert state(pid).inventory.selected == inventory.selected
-    assert state(pid).inventory.carried == inventory.carried
-    assert saved(ctx).transfer_sequence == 3 and saved(ctx).outbox == nil
-    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
-    assert World.get_block(ctx.target) == 0
-  end
-
-  test "wrong-tier ordinary mining wears its tool without loot and excluded blocks do nothing",
-       ctx do
-    tool = %{
-      ItemStack.new("wooden_pickaxe")
-      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 5}}
-    }
-
-    seed(ctx, %{36 => tool})
-    {client, pid} = login(ctx)
-    :ok = World.set_block(ctx.target, Data.item_block(Data.item("iron_block")))
-    action(client, "start_destroy_block", ctx.target, 1)
-    await_ack(client, 1)
-    action(client, "stop_destroy_block", ctx.target, 2)
-    await_ack(client, 2)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-    assert drops(ctx) == []
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-    worn = Inventory.held(state(pid).inventory, :main)
-    assert worn.components["minecraft:damage"] == 1
-
-    for {name, sequence} <-
-          Enum.with_index(~w(bedrock diamond_ore oak_stairs), 3) do
-      block = Data.item_block(Data.item(name))
-      :ok = World.set_block(ctx.target, block)
-      action(client, "start_destroy_block", ctx.target, sequence)
-      await_ack(client, sequence)
-      wait(fn -> finished(pid) and state(pid).mining_job == nil end)
-      assert World.get_block(ctx.target) == block
-      assert Inventory.held(state(pid).inventory, :main) == worn
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert drops(ctx) == []
-    end
-  end
-
-  test "physical empty wet chest mining durably removes metadata and drops exactly its block",
-       ctx do
-    tool = %{
-      ItemStack.new("diamond_axe")
-      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
-    }
-
-    seed(ctx, %{36 => tool})
-    :ok = World.set_block(ctx.target, 89)
-    {:ok, owner} = World.owner(ctx.key)
-    {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [ctx.target])
-    {:ok, chest} = Valimc.Physics.ChestPlacement.single_state(0.0, 89)
-    {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.target => chest})
-
-    assert {:ok, _} =
-             Valimc.World.Region.place_block(
-               owner,
-               observed.revision,
-               batch,
-               Valimc.TestRegion.grant_expires()
-             )
-
+  test "empty furnace mining retires its metadata and releases exactly its stock block", ctx do
+    seed(ctx, %{36 => instant("diamond_pickaxe")}, 0)
+    {:ok, block} = Valimc.Physics.CookingBlocks.placement(:furnace, 0.0)
+    place(ctx, block)
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 89 end)
-    assert drops(ctx) == [ItemStack.new("chest")]
+    tick_until(pid, fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    assert drops(ctx) == [ItemStack.new("furnace")]
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
 
@@ -505,113 +371,49 @@ defmodule Valimc.PlayerMiningConnectionTest do
       )
 
     assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {_fresh, fresh_pid} = login(ctx)
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-    assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
-    assert drops(ctx) == [ItemStack.new("chest")]
   end
 
-  for kind <- [:furnace, :smoker, :blast_furnace] do
-    test "empty #{kind} TCP mining retires metadata and releases exactly its stock block", ctx do
-      kind = unquote(kind)
+  test "occupied furnace mining rejects durably without wearing tools or releasing contents",
+       ctx do
+    alias Valimc.World.Containers
+    tool = instant("diamond_pickaxe")
+    seed(ctx, %{36 => tool}, 0)
+    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
 
-      tool = %{
-        ItemStack.new("diamond_pickaxe")
-        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
-      }
+    {:ok, containers, entry} =
+      Containers.create_cooking(%Containers{}, ctx.key, ctx.target, :furnace)
 
-      seed(ctx, %{36 => tool}, 0)
-      {:ok, owner} = World.owner(ctx.key)
-      {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [ctx.target])
-      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
-      {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.target => block})
+    cooking = %Valimc.Cooking{slots: {ItemStack.new("raw_iron"), nil, nil}}
 
-      assert {:ok, _} =
-               Valimc.World.Region.place_block(
-                 owner,
-                 observed.revision,
-                 batch,
-                 Valimc.TestRegion.grant_expires()
-               )
+    {:ok, containers, _} =
+      Containers.replace_cooking(containers, ctx.target, entry.revision, cooking, %{})
 
-      {client, pid} = login(ctx)
-      action(client, "start_destroy_block", ctx.target, 1)
-      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-      assert drops(ctx) == [ItemStack.new(Atom.to_string(kind))]
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
+    {:ok, bytes} = Containers.encode(ctx.key, containers)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
+    {:ok, block} = Valimc.Physics.CookingBlocks.placement(:furnace, 0.0)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => block})
 
-      {:ok, containers} =
-        Valimc.World.Containers.decode(
-          Valimc.TestDisk.read(ctx.base, ctx.key, :containers),
-          ctx.key
-        )
+    {client, pid} = login(ctx)
+    action(client, "start_destroy_block", ctx.target, 1)
 
-      assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      {_fresh, fresh_pid} = login(ctx)
-      assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
-      assert drops(ctx) == [ItemStack.new(Atom.to_string(kind))]
-    end
+    tick_until(pid, fn ->
+      finished(pid) and saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    end)
+
+    assert World.get_block(ctx.target) == block
+    assert Inventory.held(state(pid).inventory, :main) == tool
+    assert drops(ctx) == []
+
+    {:ok, restored} =
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
+
+    assert restored == containers
   end
 
-  for kind <- [:furnace, :smoker, :blast_furnace] do
-    test "occupied #{kind} TCP mining rejects durably without wearing tools or releasing contents",
-         ctx do
-      alias Valimc.World.Containers
-      kind = unquote(kind)
-
-      tool = %{
-        ItemStack.new("diamond_pickaxe")
-        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
-      }
-
-      seed(ctx, %{36 => tool}, 0)
-      {:ok, {region, _}} = World.existing_owner(ctx.key)
-      :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
-
-      {:ok, containers, entry} =
-        Containers.create_cooking(%Containers{}, ctx.key, ctx.target, kind)
-
-      cooking = %Valimc.Cooking{slots: {ItemStack.new("raw_iron"), nil, nil}}
-
-      {:ok, containers, _} =
-        Containers.replace_cooking(containers, ctx.target, entry.revision, cooking, %{})
-
-      {:ok, bytes} = Containers.encode(ctx.key, containers)
-      Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
-      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
-      Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => block})
-
-      {client, pid} = login(ctx)
-      action(client, "start_destroy_block", ctx.target, 1)
-
-      wait(fn ->
-        finished(pid) and saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      end)
-
-      assert World.get_block(ctx.target) == block
-      assert Inventory.held(state(pid).inventory, :main) == tool
-      assert drops(ctx) == []
-
-      {:ok, restored} =
-        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
-
-      assert restored == containers
-    end
-  end
-
-  test "filled chest TCP mining consumes only tool wear while its owner releases exact stored patches",
+  test "filled chest mining consumes only tool wear while its owner releases exact stored patches",
        ctx do
     alias Valimc.World.{Containers, Region}
-
-    tool = %{
-      ItemStack.new("diamond_axe")
-      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
-    }
 
     stored = %{
       ItemStack.new("diamond", 3)
@@ -630,14 +432,12 @@ defmodule Valimc.PlayerMiningConnectionTest do
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => chest})
 
-    seed(ctx, %{36 => tool}, chest)
+    seed(ctx, %{36 => instant("diamond_axe")}, chest)
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-
-    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
-             Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
-
+    tick_until(pid, fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    expected = Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
+    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
 
@@ -645,108 +445,13 @@ defmodule Valimc.PlayerMiningConnectionTest do
       Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert containers.entries == %{} and containers.sequence == 3 and containers.receipts == typed
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {_fresh, fresh_pid} = login(ctx)
+
+    {_fresh, fresh_pid} = reconnect(ctx, client)
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
     {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
     assert receipt.sequence == 1
-
-    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
-             Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
-  end
-
-  test "live random cubes persist bounded sampled loot and original-tool Silk Touch", ctx do
-    tool = %{
-      ItemStack.new("diamond_pickaxe")
-      | components: %{
-          "minecraft:enchantments" => %{"minecraft:efficiency" => 10, "minecraft:fortune" => 3}
-        }
-    }
-
-    silk = %{
-      tool
-      | components: %{
-          "minecraft:enchantments" => %{
-            "minecraft:efficiency" => 10,
-            "minecraft:fortune" => 255,
-            "minecraft:silk_touch" => 1
-          }
-        }
-    }
-
-    seed(ctx, %{36 => tool, 37 => silk})
-    {client, pid} = login(ctx)
-
-    cases = [
-      {"melon", 0, "melon_slice", 3..9},
-      {"gilded_blackstone", 1, "gilded_blackstone", 1..1}
-    ]
-
-    for {{name, slot, drop, count}, sequence} <- Enum.with_index(cases, 1) do
-      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
-      wait(fn -> state(pid).inventory.selected == slot end)
-      :ok = World.set_block(ctx.target, Data.item_block(Data.item(name)))
-      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
-      await_ack(client, sequence * 2 - 1)
-      action(client, "stop_destroy_block", ctx.target, sequence * 2)
-      await_ack(client, sequence * 2)
-      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
-      assert Enum.count(drops(ctx), &(&1.item_id == Data.item(drop) and &1.count in count)) == 1
-    end
-
-    before = drops(ctx)
-    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 1
-    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 1
-    Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {_fresh, pid} = login(ctx)
-    assert drops(ctx) == before
-    assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
-    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 1
-    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 1
-  end
-
-  test "live pillar mining handles horizontal logs and deepslate with native tool and loot rules",
-       ctx do
-    enchant = fn name ->
-      %{
-        ItemStack.new(name)
-        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 10}}
-      }
-    end
-
-    seed(ctx, %{36 => enchant.("diamond_axe"), 37 => enchant.("diamond_pickaxe")})
-    {client, pid} = login(ctx)
-
-    for {{block, slot}, sequence} <-
-          Enum.with_index([{139, 0}, {140, 0}, {141, 0}, {33773, 1}], 1) do
-      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
-      wait(fn -> state(pid).inventory.selected == slot end)
-      :ok = World.set_block(ctx.target, block)
-      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
-      await_ack(client, sequence * 2 - 1)
-      action(client, "stop_destroy_block", ctx.target, sequence * 2)
-      await_ack(client, sequence * 2)
-      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
-      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
-    end
-
-    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
-             Enum.sort_by(
-               [
-                 ItemStack.new("oak_log"),
-                 ItemStack.new("oak_log"),
-                 ItemStack.new("oak_log"),
-                 ItemStack.new("cobbled_deepslate")
-               ],
-               & &1.item_id
-             )
-
-    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 3
-    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 1
+    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
   end
 end

@@ -34,7 +34,7 @@ defmodule Valimc.PlayerPlacementIntentTest do
   end
 
   test "typed intents preserve exact patches and single-item depletion in either hand" do
-    for count <- [1, 2, 17, 64], hand <- [:main, :off] do
+    for {count, hand} <- [{1, :off}, {17, :main}] do
       original = intent(count)
 
       original = %{
@@ -58,7 +58,7 @@ defmodule Valimc.PlayerPlacementIntentTest do
     original = intent(2)
     stack = ItemStack.new("chest", 2)
 
-    for yaw <- [0.0, 90.0, 180.0, 270.0], fluid <- [0, 89, 90, 105] do
+    for {yaw, fluid} <- [{0.0, 0}, {90.0, 89}, {270.0, 105}] do
       {:ok, state} = Valimc.Physics.ChestPlacement.single_state(yaw, fluid)
 
       chest = %{

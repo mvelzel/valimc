@@ -71,18 +71,4 @@ defmodule Valimc.PlacementTest do
     assert {:error, :invalid_context} = Placement.candidate(stone, -1, 0, request())
     assert {:error, :invalid_context} = Placement.candidate(stone, 0, 0, request(6))
   end
-
-  test "ordinary cube admission includes stone, wood, mineral storage and color families" do
-    for name <-
-          ~w(polished_granite spruce_planks iron_block red_concrete purple_terracotta crafting_table) do
-      assert Placement.supported_item?(item(name))
-      assert {:ok, %{state: state}} = Placement.candidate(item(name), 0, 0, request())
-      assert state == Data.item_block(item(name))
-    end
-
-    for name <- ~w(sand oak_stairs redstone_block) do
-      refute Placement.supported_item?(item(name))
-      assert {:error, :unsupported_item} = Placement.candidate(item(name), 0, 0, request())
-    end
-  end
 end

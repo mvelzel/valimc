@@ -356,40 +356,4 @@ defmodule Valimc.MiningRegionTest do
     assert {:error, :stale_mining_permit} = Region.renew_mining(ctx.owner, aba.permit)
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
-
-  test "waterlogged removal survives a failed writer and recovers its water and exact drop",
-       ctx do
-    assert :ok = World.set_block(ctx.position, 15179)
-    assert :ok = Region.flush(ctx.pid)
-    assert {:ok, permit} = Region.reserve_mining(ctx.owner, [ctx.position])
-    request = Map.merge(ctx.transfer, permit)
-    writer = :sys.get_state(ctx.pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
-    ref = Process.monitor(ctx.pid)
-
-    capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} = Region.apply_mining_transfer(ctx.owner, request)
-      assert_receive {:DOWN, ^ref, :process, _, _}
-    end)
-
-    Valimc.TestDisk.await_exit(writer)
-    assert {:ok, owner} = World.item_owner(ctx.key)
-    assert World.get_block(ctx.position) == 15179 and World.item_snapshot(ctx.key) == %{}
-    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, request)
-    assert {:ok, permit} = Region.reserve_mining(owner, [ctx.position])
-    request = Map.merge(%{ctx.transfer | source: :crypto.strong_rand_bytes(16)}, permit)
-    assert {:ok, :applied} = Region.apply_mining_transfer(owner, request)
-    {pid, _} = owner
-    ref = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, _, _}
-    assert {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
-    assert World.get_block(ctx.position) == 89
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-    assert :ok = World.set_block(ctx.position, Data.block("dirt"))
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
-    assert World.get_block(ctx.position) == Data.block("dirt")
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-  end
 end

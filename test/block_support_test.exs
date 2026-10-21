@@ -7,79 +7,23 @@ defmodule Valimc.BlockSupportTest do
   alias Valimc.World
   alias Valimc.World.Region
 
+  # Survival and update rules are compared by the support oracle stage; these tests
+  # cover the owner's reads, drops and persistence.
   @air Blocks.default_state("air")
   @stone Blocks.default_state("stone")
   @dirt Blocks.default_state("dirt")
-  @grass Blocks.default_state("grass_block")
-  @sand Blocks.default_state("sand")
-  @water Blocks.default_state("water")
   @short_grass Blocks.default_state("short_grass")
   @poppy Blocks.default_state("poppy")
   @torch Blocks.default_state("torch")
   @cane Blocks.default_state("sugar_cane")
   @lower Blocks.state("tall_grass", %{"half" => "lower"})
-  @upper Blocks.state("tall_grass", %{"half" => "upper"})
-
-  # Directions in vanilla order: down, up, north, south, west, east.
-  @down 0
-  @up 1
-  @north 2
-  @south 3
   @at {0, 64, 0}
-  @below {0, 63, 0}
-  @above {0, 65, 0}
-
-  defp world(blocks), do: &Map.get(blocks, &1, @air)
-
-  test "plants need soil below and break on an update from any side once unsupported" do
-    for soil <- [@grass, @dirt] do
-      assert Support.survives?(@at, @short_grass, world(%{@below => soil}))
-      assert Support.update(@at, @short_grass, [@down], world(%{@below => soil})) == :keep
-    end
-
-    refute Support.survives?(@at, @short_grass, world(%{@below => @stone}))
-    assert Support.update(@at, @short_grass, [@down], world(%{})) == :break
-    assert Support.update(@at, @short_grass, [@north], world(%{@below => @sand})) == :break
-    refute Support.dependent?(@stone)
-    assert Support.update(@at, @stone, [@down], world(%{})) == :keep
-  end
-
-  test "a torch checks only the face it stands on" do
-    assert Support.survives?(@at, @torch, world(%{@below => @stone}))
-    assert Support.update(@at, @torch, [@down], world(%{})) == :break
-    assert Support.update(@at, @torch, [@up, @north], world(%{})) == :keep
-
-    wall = Blocks.state("wall_torch", %{"facing" => "north"})
-    behind = {0, 64, 1}
-    assert Support.survives?(@at, wall, world(%{behind => @stone}))
-    refute Support.survives?(@at, wall, world(%{@below => @stone}))
-    assert Support.update(@at, wall, [@south], world(%{})) == :break
-    assert Support.update(@at, wall, [@down], world(%{})) == :keep
-  end
-
-  test "sugar cane needs cane below, or sand beside water, and breaks on its tick" do
-    beside = {1, 63, 0}
-    assert Support.survives?(@at, @cane, world(%{@below => @sand, beside => @water}))
-    assert Support.survives?(@at, @cane, world(%{@below => @cane}))
-    refute Support.survives?(@at, @cane, world(%{@below => @sand}))
-    assert Support.update(@at, @cane, [@down], world(%{@below => @sand})) == {:tick, 1}
-    assert Support.breaks?(@at, @cane, world(%{@below => @sand}))
-    refute Support.breaks?(@at, @cane, world(%{@below => @cane}))
-  end
-
-  test "tall plants break when they lose their other half" do
-    whole = %{@below => @grass, @above => @upper}
-    assert Support.update(@at, @lower, [@up], world(whole)) == :keep
-    assert Support.update(@at, @lower, [@up], world(%{@below => @grass})) == :break
-    assert Support.breaks?(@at, @lower, world(%{@below => @grass}))
-    assert Support.update(@above, @upper, [@down], world(%{@at => @lower})) == :keep
-    assert Support.update(@above, @upper, [@down], world(%{})) == :break
-  end
 
   test "a neighbour outside the readable region never breaks a block" do
     unknown = fn _ -> nil end
     assert Support.survives?(@at, @short_grass, unknown)
-    assert Support.update(@at, @lower, [@up, @down], unknown) == :keep
+    # Updates from above and below (vanilla direction order: down 0, up 1).
+    assert Support.update(@at, @lower, [1, 0], unknown) == :keep
     refute Support.breaks?(@at, @cane, unknown)
   end
 
@@ -157,38 +101,6 @@ defmodule Valimc.BlockSupportTest do
 
       assert Enum.sort(items(owner)) ==
                Enum.sort([{ItemTypes.id("poppy"), 1}, {ItemTypes.id("torch"), 1}])
-    end
-
-    test "a sugar cane column falls one block per tick and a tall plant loses both halves",
-         %{owner: owner, origin: {x, y, z} = base} do
-      cane = for dy <- 1..3, do: {x, y + dy, z}
-      grass = {x + 4, y, z}
-      tall = [{x + 4, y + 1, z}, {x + 4, y + 2, z}]
-
-      set(
-        owner,
-        Map.merge(
-          %{base => @sand, {x + 1, y, z} => @water, grass => @grass},
-          Map.new(Enum.zip(tall, [@lower, @upper]) ++ Enum.map(cane, &{&1, @cane}))
-        )
-      )
-
-      # Removing the water leaves the cane standing: it watches only its own neighbours.
-      set(owner, %{{x + 1, y, z} => @stone})
-      {:ok, _} = Region.step(owner, 1)
-      assert blocks(owner, cane) == [@cane, @cane, @cane]
-      set(owner, %{base => @air})
-      {:ok, _} = Region.step(owner, 1)
-      assert blocks(owner, cane) == [@air, @cane, @cane]
-      {:ok, _} = Region.step(owner, 2)
-      assert blocks(owner, cane) == [@air, @air, @air]
-
-      set(owner, %{List.last(tall) => @air})
-      {:ok, _} = Region.step(owner, 1)
-      assert blocks(owner, tall) == [@air, @air]
-      settle(owner)
-      # Tall grass drops only by chance or to shears; that loot is not evaluated yet.
-      assert items(owner) == List.duplicate({ItemTypes.id("sugar_cane"), 1}, 3)
     end
 
     test "breaks and their drops persist across an owner restart",
