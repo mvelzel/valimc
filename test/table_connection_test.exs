@@ -31,21 +31,14 @@ defmodule Valimc.TableConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
     %{base: base, name: name, uuid: uuid, pose: pose, key: key}
   end
 
-  defp wait(fun, attempts \\ 1_000) do
-    if value = fun.() do
-      value
-    else
-      assert attempts > 0
-      Process.sleep(5)
-      wait(fun, attempts - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, slots, mode \\ :survival) do
     player =
@@ -270,7 +263,7 @@ defmodule Valimc.TableConnectionTest do
     try do
       send_click(client, 0)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_message, client} = Client.await(client, :play, "system_chat")
+      {_message, client} = Client.await_stats(client)
       wait(fn -> Valimc.TestConn.state(pid).table_menu == nil end)
       Valimc.TestRegionGate.resume(region)
       _client = inventory_until(client, &(&1.container == 0))
@@ -333,7 +326,7 @@ defmodule Valimc.TableConnectionTest do
 
       Client.send_packet(client, :play, "set_carried_item", <<2::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_message, client} = Client.await(client, :play, "system_chat")
+      {_message, client} = Client.await_stats(client)
       assert Valimc.TestConn.state(pid).inventory.slots == full
       assert Valimc.TestConn.state(pid).inventory.selected == 0
       :sys.resume(writer)
@@ -512,7 +505,7 @@ defmodule Valimc.TableConnectionTest do
       ])
 
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_message, client} = Client.await(client, :play, "system_chat")
+      {_message, client} = Client.await_stats(client)
       assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
 
       assert elem(Valimc.TestConn.state(pid).inventory.table_inputs, 8) ==

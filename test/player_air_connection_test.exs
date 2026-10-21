@@ -20,6 +20,8 @@ defmodule Valimc.PlayerAirConnectionTest do
     nonce = System.unique_integer([:positive])
     name = "Air#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-air-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
@@ -39,6 +41,8 @@ defmodule Valimc.PlayerAirConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -47,16 +51,7 @@ defmodule Valimc.PlayerAirConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, opts) do
     mode = Keyword.get(opts, :mode, :survival)
@@ -76,7 +71,9 @@ defmodule Valimc.PlayerAirConnectionTest do
     {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
-    for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 89)
+
+    for y <- [64, 65],
+        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 89)
   end
 
   defp park(pid) do
@@ -195,6 +192,11 @@ defmodule Valimc.PlayerAirConnectionTest do
     Valimc.TestRegionGate.stall(region)
 
     try do
+      # A frame sampled just before the stall may still land: let geometry settle,
+      # spend it, then start from 20 (VMC-073).
+      wait(fn -> state(pid).pose_job == nil end)
+      tick(pid, false)
+      :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: 20}} end)
       for _ <- 1..40, do: tick(pid, false)
       assert state(pid).player.air_supply == 20
       assert state(pid).player.health.value == 20.0
@@ -204,12 +206,12 @@ defmodule Valimc.PlayerAirConnectionTest do
 
     tick(pid)
     assert state(pid).player.air_supply == 19
-    :ok = World.set_block({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, 0)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, 0, pid)
     tick(pid)
     assert state(pid).player.air_supply == 23
 
     for id <- PlayerAir.bubble_states() do
-      :ok = World.set_block({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, id)
+      :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, id, pid)
       before = state(pid).player.air_supply
       tick(pid)
       assert state(pid).player.air_supply == before + 4

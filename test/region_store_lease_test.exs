@@ -35,8 +35,8 @@ defmodule Valimc.RegionStoreLeaseTest do
     assert {:error, :store_owned} = Store.open(ctx.key)
     assert :ok = Store.flush(writer, lease, %{})
     send(owner.pid, :finish)
-    Task.await(owner)
-    assert_receive {:DOWN, ^ref, :process, ^writer, :normal}, 1000
+    Task.await(owner, 60_000)
+    assert_receive {:DOWN, ^ref, :process, ^writer, :normal}
     assert {:ok, replacement, next_lease} = Store.open(ctx.key)
     assert replacement != writer and lease != next_lease
     assert Store.load(replacement) == %{}

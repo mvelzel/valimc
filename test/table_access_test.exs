@@ -29,7 +29,7 @@ defmodule Valimc.TableAccessTest do
       secondary: false,
       main: false,
       off: false,
-      expires: System.monotonic_time(:millisecond) + 500
+      expires: Valimc.TestRegion.grant_expires(500)
     }
 
     World.subscribe(MapSet.new([key]), MapSet.new())
@@ -41,7 +41,7 @@ defmodule Valimc.TableAccessTest do
     assert_receive {:event, {:block, ^position, 0}}
 
     ref = make_ref()
-    click = %{grant | kind: :click, expires: System.monotonic_time(:millisecond) + 500}
+    click = %{grant | kind: :click, expires: Valimc.TestRegion.grant_expires(500)}
     assert :ok = Region.request_table(owner, self(), ref, position, click)
     assert_receive {:event, {:table_admitted, ^ref, ^owner, {:error, :invalid_table_context}}}
     :ok = World.set_block(position, table)

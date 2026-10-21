@@ -67,7 +67,7 @@ defmodule Valimc.ClockConnectionTest do
     {_time, clocks} = decode(body)
     assert elem(clocks[0], 2) == 0.0 and elem(clocks[1], 2) == 1.0
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, _client} = Client.await(client, :play, "system_chat")
+    {body, _client} = Client.await_stats(client)
     assert is_binary(body) and byte_size(body) > 0
   end
 end

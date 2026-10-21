@@ -20,7 +20,13 @@ defmodule Valimc.World.Directory do
     ArgumentError -> nil
   end
 
-  def admit(key), do: GenServer.call(__MODULE__, {:admit, Valimc.Dimension.scope(key)})
+  def admit(key),
+    do:
+      GenServer.call(
+        __MODULE__,
+        {:admit, Valimc.Dimension.scope(key)},
+        5000 * Valimc.config(:owner_call_scale)
+      )
 
   def publish(key, token, publication),
     do: GenServer.call(__MODULE__, {:publish, Valimc.Dimension.scope(key), token, publication})

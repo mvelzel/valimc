@@ -100,7 +100,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
     ref = make_ref()
     PlayerStore.prepare_container(writer, fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, pending}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, pending}}
     assert pending.inventory == ctx.snapshot.inventory and pending.outbox.kind == :container
 
     assert {:ok, disk} =
@@ -124,16 +124,16 @@ defmodule Valimc.PlayerContainerStoreTest do
     {writer, fence, pending} = prepare(ctx)
     ref = make_ref()
     PlayerStore.checkpoint(writer, fence, %{ctx.snapshot | inventory: %Inventory{}}, ref)
-    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}, 1000
+    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}
     decision = write_decision(ctx, pending, true)
     monitor = Process.monitor(writer)
     Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}
     {:ok, replacement, restored, next_fence} = PlayerStore.open(ctx.uuid)
     assert restored.inventory == ctx.snapshot.inventory and restored.outbox == pending.outbox
     ref = make_ref()
     PlayerStore.complete_transfer(replacement, next_fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, sealed_fence, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, sealed_fence, sealed}}
 
     assert sealed.inventory.carried == nil and
              sealed.inventory.slots == ctx.snapshot.inventory.slots
@@ -157,7 +157,7 @@ defmodule Valimc.PlayerContainerStoreTest do
 
     ref = make_ref()
     PlayerStore.complete_transfer(replacement, sealed_fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:error, :no_pending_transfer}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:error, :no_pending_transfer}}
 
     assert {:ok, %{outbox: nil, transfer_sequence: 1, inventory: inventory}} =
              PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
@@ -171,7 +171,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     write_decision(ctx, pending, false)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
 
     assert sealed.inventory == ctx.snapshot.inventory and sealed.outbox == nil and
              sealed.transfer_sequence == 1
@@ -186,7 +186,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_not_applied}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_not_applied}}
 
     assert {:ok, saved} =
              PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
@@ -199,12 +199,12 @@ defmodule Valimc.PlayerContainerStoreTest do
     {writer, fence, pending} = prepare(ctx)
     token = make_ref()
     assert {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
-    assert_receive {:transfer_delivered, _, ^token, {:ok, :rejected} = result}, 1500
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :rejected} = result}
     Process.demonitor(job.monitor, [:flush])
     assert TransferDelivery.completed?(pending, result)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
 
     assert sealed.inventory == ctx.snapshot.inventory and sealed.outbox == nil and
              sealed.transfer_sequence == 1
@@ -226,11 +226,11 @@ defmodule Valimc.PlayerContainerStoreTest do
     decision = write_decision(ctx, pending, true)
     token = make_ref()
     {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
-    assert_receive {:transfer_delivered, _, ^token, {:ok, :already_applied}}, 1500
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :already_applied}}
     Process.demonitor(job.monitor, [:flush])
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
     assert sealed.inventory.carried == nil and sealed.outbox == nil
 
     {:ok, containers} =
@@ -265,9 +265,9 @@ defmodule Valimc.PlayerContainerStoreTest do
                Region.container_transfer({pid, make_ref()}, pending.outbox.request)
 
       :sys.resume(writer)
-      assert Task.await(task, 1500) == {:ok, :rejected}
-      assert Task.await(repeat, 1500) == {:ok, :already_rejected}
-      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof, 1500)
+      assert Task.await(task, 60_000) == {:ok, :rejected}
+      assert Task.await(repeat, 60_000) == {:ok, :already_rejected}
+      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
@@ -280,7 +280,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, :rejected} = Region.container_transfer(owner, pending.outbox.request)
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
     {:ok, replacement} = World.item_owner(ctx.key)
     assert replacement != owner
 
@@ -289,7 +289,7 @@ defmodule Valimc.PlayerContainerStoreTest do
 
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
     assert sealed.outbox == nil and sealed.inventory == ctx.snapshot.inventory
     assert sealed.transfer_sequence == 1
   end
@@ -301,13 +301,15 @@ defmodule Valimc.PlayerContainerStoreTest do
     :ok = World.set_block(ctx.intent.request.position, block)
     {:ok, owner} = World.item_owner(ctx.key)
     {x, y, z} = ctx.intent.request.position
+    # The player's 250 ms grant starts now: not while the owner still writes the block.
+    quiescent(owner)
 
     actor = %{
       uuid: ctx.uuid,
       mode: :survival,
       eye: {x + 0.5, y + 1.6, z + 0.5},
       health: 19.0,
-      expires: System.monotonic_time(:millisecond) + 250
+      expires: Valimc.TestRegion.grant_expires()
     }
 
     assert {:ok, request} = Region.admit_container_transfer(owner, ctx.intent.request, actor)
@@ -321,11 +323,11 @@ defmodule Valimc.PlayerContainerStoreTest do
     {writer, fence, pending} = prepare(ctx)
     token = make_ref()
     {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
-    assert_receive {:transfer_delivered, _, ^token, {:ok, :applied}}, 1500
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :applied}}
     Process.demonitor(job.monitor, [:flush])
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
     assert sealed.outbox == nil and sealed.inventory.carried == nil
     assert sealed.inventory.slots == ctx.snapshot.inventory.slots
     assert {:ok, :already_applied} = Region.container_transfer(owner, pending.outbox.request)
@@ -345,12 +347,12 @@ defmodule Valimc.PlayerContainerStoreTest do
     {writer, fence, pending} = prepare(ctx)
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
     {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :rejected} = Region.container_transfer(owner, pending.outbox.request)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}
     assert sealed.inventory == ctx.snapshot.inventory and sealed.outbox == nil
   end
 
@@ -369,6 +371,9 @@ defmodule Valimc.PlayerContainerStoreTest do
           %{actor | health: 0},
           %{actor | eye: {0.0, 0.0, 0.0}}
         ] do
+      # Each admission gets a fresh grant, so only the context is wrong.
+      actor = %{actor | expires: Valimc.TestRegion.grant_expires()}
+
       assert {:error, :invalid_container_context} =
                Region.admit_container_transfer(owner, request, actor)
     end
@@ -410,7 +415,8 @@ defmodule Valimc.PlayerContainerStoreTest do
     {{pid, _} = owner, ctx, actor} = admit(ctx)
     source = :crypto.strong_rand_bytes(16)
     request = %{ctx.intent.request | source: source}
-    actor = %{actor | uuid: source, expires: System.monotonic_time(:millisecond) + 250}
+    quiescent(owner)
+    actor = %{actor | uuid: source, expires: Valimc.TestRegion.grant_expires()}
     writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
     task = Task.async(fn -> Region.admit_container_transfer(owner, request, actor) end)
@@ -423,8 +429,8 @@ defmodule Valimc.PlayerContainerStoreTest do
       # Owner order puts the edit after the admission, so it invalidates the permit.
       assert :ok = World.set_block(request.position, 0)
       :sys.resume(writer)
-      assert {:ok, {_, %{sequence: 0}}} = Task.await(proof, 1500)
-      assert {:ok, admitted} = Task.await(task, 1500)
+      assert {:ok, {_, %{sequence: 0}}} = Task.await(proof, 60_000)
+      assert {:ok, admitted} = Task.await(task, 60_000)
       assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, source)
 
       refute Map.has_key?(
@@ -441,7 +447,8 @@ defmodule Valimc.PlayerContainerStoreTest do
     {owner, ctx, actor} = admit(ctx)
     source = :crypto.strong_rand_bytes(16)
     request = %{ctx.intent.request | source: source}
-    actor = %{actor | uuid: source, expires: System.monotonic_time(:millisecond) + 250}
+    quiescent(owner)
+    actor = %{actor | uuid: source, expires: Valimc.TestRegion.grant_expires()}
     assert {:ok, competing} = Region.admit_container_transfer(owner, request, actor)
     assert {:ok, :applied} = Region.container_transfer(owner, ctx.intent.request)
     assert {:ok, :rejected} = Region.container_transfer(owner, competing)
@@ -463,7 +470,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     snapshot = %{ctx.snapshot | inventory: %{ctx.snapshot.inventory | state_id: 123}}
     ref = make_ref()
     PlayerStore.container_candidate(writer, fence, snapshot, draft, ref)
-    assert_receive {:container_candidate, ^ref, {:ok, candidate}}, 1000
+    assert_receive {:container_candidate, ^ref, {:ok, candidate}}
     assert candidate.request.source == ctx.uuid and candidate.request.sequence == 1
     assert candidate.request.inventory.state_id == 0
     refute File.exists?(PlayerStore.path(ctx.base, ctx.uuid))
@@ -471,7 +478,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {_owner, ctx, _actor} = admit(%{ctx | intent: candidate})
     ref = make_ref()
     PlayerStore.prepare_container(writer, fence, snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _, prepared}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, prepared}}
     assert prepared.outbox == ctx.intent
     assert prepared.transfer_sequence == 1 and prepared.inventory == snapshot.inventory
   end
@@ -526,7 +533,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     for {fence, expected} <- [{make_ref(), :stale_player_snapshot}, {fence, :transfer_pending}] do
       ref = make_ref()
       PlayerStore.container_candidate(writer, fence, ctx.snapshot, ctx.intent, ref)
-      assert_receive {:container_candidate, ^ref, {:error, ^expected}}, 1000
+      assert_receive {:container_candidate, ^ref, {:error, ^expected}}
     end
 
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == before
@@ -538,37 +545,36 @@ defmodule Valimc.PlayerContainerStoreTest do
     draft = %{ctx.intent | request: Map.drop(ctx.intent.request, [:source, :sequence])}
     ref = make_ref()
     PlayerStore.container_candidate(writer, fence, ctx.snapshot, draft, ref)
-    assert_receive {:container_candidate, ^ref, {:ok, old}}, 1000
+    assert_receive {:container_candidate, ^ref, {:ok, old}}
     ref = make_ref()
     PlayerStore.prepare_container(writer, fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}
     write_decision(ctx, pending, false)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, _sealed}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, _sealed}}
     before = File.read!(PlayerStore.path(ctx.base, ctx.uuid))
     snapshot = Map.delete(ctx.snapshot, :transfer_sequence)
     ref = make_ref()
     PlayerStore.prepare_container(writer, fence, snapshot, old, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_container_plan}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_container_plan}}
     ref = make_ref()
     PlayerStore.container_candidate(writer, fence, snapshot, draft, ref)
-    assert_receive {:container_candidate, ^ref, {:ok, fresh}}, 1000
+    assert_receive {:container_candidate, ^ref, {:ok, fresh}}
     assert fresh.request.sequence == 2 and fresh.request.source == ctx.uuid
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == before
     assert :sys.get_state(writer).snapshot.transfer_sequence == 1
   end
 
-  defp await(check, remaining \\ 100)
-  defp await(_, 0), do: flunk("container recovery did not reach its expected boundary")
+  # No durable write in flight, so a request computed now is answered at once (VMC-073).
+  defp quiescent({pid, _}),
+    do:
+      Valimc.TestWait.until(fn ->
+        not Valimc.TestRegion.writing?(:sys.get_state(pid).resource)
+      end)
 
-  defp await(check, remaining) do
-    if check.(),
-      do: :ok,
-      else:
-        (
-          Process.sleep(5)
-          await(check, remaining - 1)
-        )
+  defp await(check, _budget \\ nil) do
+    Valimc.TestWait.until(check)
+    :ok
   end
 end

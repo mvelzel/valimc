@@ -96,6 +96,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
           do: DynamicSupervisor.terminate_child(supervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -119,17 +120,9 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
     {client, pid}
   end
 
-  defp wait(check, remaining \\ 500)
-  defp wait(_, 0), do: flunk("container login did not reach its expected boundary")
-
-  defp wait(check, remaining) do
-    if check.(),
-      do: :ok,
-      else:
-        (
-          Process.sleep(5)
-          wait(check, remaining - 1)
-        )
+  defp wait(check, _budget \\ nil) do
+    Valimc.TestWait.until(check)
+    :ok
   end
 
   for applied <- [false, true] do

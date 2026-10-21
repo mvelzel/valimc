@@ -14,6 +14,7 @@ defmodule Valimc.PlayerStoreTest do
 
     on_exit(fn ->
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -25,13 +26,11 @@ defmodule Valimc.PlayerStoreTest do
   defp uuid, do: :crypto.strong_rand_bytes(16)
   defp pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
 
-  defp wait_for_departure(name, uuid, retries \\ 100) do
-    if Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) or
-         Registry.lookup(Valimc.PlayerStoreRegistry, uuid) != [] do
-      assert retries > 0
-      Process.sleep(10)
-      wait_for_departure(name, uuid, retries - 1)
-    end
+  defp wait_for_departure(name, uuid, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      not Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) and
+        Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
+    end)
   end
 
   test "reconnect and supervised shutdown restore pose; new identities use spawn", %{base: base} do
@@ -43,7 +42,7 @@ defmodule Valimc.PlayerStoreTest do
     client = Client.teleport(client, player.pid, pose())
     ref = Process.monitor(player.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     wait_for_departure(name, uuid)
     bytes = File.read!(Store.path(base, uuid))
     assert byte_size(bytes) == 251
@@ -145,7 +144,7 @@ defmodule Valimc.PlayerStoreTest do
     {:ok, writer, nil, writer_fence} = Store.open(uuid)
     ref = make_ref()
     Store.checkpoint(writer, writer_fence, snapshot(), ref)
-    assert_receive {:player_saved, ^ref, :ok}, 1000
+    assert_receive {:player_saved, ^ref, :ok}
     assert byte_size(File.read!(Store.path(base, uuid))) == 139
 
     # Turn the directory into a file to force a real filesystem error.
@@ -155,7 +154,7 @@ defmodule Valimc.PlayerStoreTest do
 
     assert capture_log(fn ->
              Store.checkpoint(writer, writer_fence, snapshot(), ref)
-             assert_receive {:player_saved, ^ref, {:error, _}}, 1000
+             assert_receive {:player_saved, ^ref, {:error, _}}
            end) =~ "Player state save failed"
 
     File.rm!(base)
@@ -188,7 +187,7 @@ defmodule Valimc.PlayerStoreTest do
     healthy_name = username()
     {healthy_uuid, healthy} = Client.login(healthy_name)
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(healthy, :play, "system_chat")
+    {_, _} = Client.await_stats(healthy)
     Client.close(healthy)
     wait_for_departure(healthy_name, healthy_uuid)
     assert Process.alive?(Process.whereis(Valimc.Listener))
@@ -210,7 +209,7 @@ defmodule Valimc.PlayerStoreTest do
       healthy_name = username()
       {healthy_uuid, healthy} = Client.login(healthy_name)
       Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-      {_, _} = Client.await(healthy, :play, "system_chat")
+      {_, _} = Client.await_stats(healthy)
       Client.close(healthy)
       wait_for_departure(healthy_name, healthy_uuid)
     after
@@ -235,13 +234,13 @@ defmodule Valimc.PlayerStoreTest do
              send(player.pid, :save_player)
              {body, _} = Client.await(bad, :play, "disconnect")
              assert :binary.match(body, "Player save failed") != :nomatch
-             assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+             assert_receive {:DOWN, ^ref, :process, _, :normal}
            end) =~ "Player state save failed"
 
     Client.close(bad)
     wait_for_departure(name, uuid)
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(healthy, :play, "system_chat")
+    {_, _} = Client.await_stats(healthy)
     Client.close(healthy)
     wait_for_departure(healthy_name, healthy_uuid)
     assert Process.alive?(Process.whereis(Valimc.Listener))
@@ -268,7 +267,7 @@ defmodule Valimc.PlayerStoreTest do
       Wire.frame(id, bad, client.threshold)
     ])
 
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.close(client)
     wait_for_departure(name, uuid)
     {^uuid, next} = Client.login(name)
@@ -326,7 +325,7 @@ defmodule Valimc.PlayerStoreTest do
 
       # Control the exact callback boundary; arbitrary TCP segmentation must not hide the bug.
       send(pid, {:tcp, state.socket, batch})
-      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
       Client.close(client)
       wait_for_departure(name, uuid)
       assert File.exists?(Store.path(base, uuid))
@@ -350,7 +349,7 @@ defmodule Valimc.PlayerStoreTest do
     [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
     ref = Process.monitor(pid)
     Client.send_packet(client, :configuration, "finish_configuration", <<1>>)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
     Client.close(client)
     wait_for_departure(name, uuid)
     assert File.read!(path) == saved

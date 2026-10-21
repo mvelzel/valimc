@@ -33,6 +33,8 @@ defmodule Valimc.FlightConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -46,16 +48,7 @@ defmodule Valimc.FlightConnectionTest do
 
   defp state(ctx), do: Valimc.TestConn.state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
 
-  defp wait(fun, attempts \\ 500) do
-    if result = fun.(),
-      do: result,
-      else:
-        (
-          assert attempts > 0
-          Process.sleep(5)
-          wait(fun, attempts - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp saved(ctx) do
     {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
@@ -68,13 +61,13 @@ defmodule Valimc.FlightConnectionTest do
   defp close(ctx, client) do
     ref = Process.monitor(state(ctx).player.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 6000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     departed(ctx)
   end
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     client
   end
 
@@ -136,7 +129,7 @@ defmodule Valimc.FlightConnectionTest do
       Wire.frame(Data.id(:play, :serverbound, "player_abilities"), <<2, 0>>, client.threshold)
     ])
 
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 6000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.close(client)
     departed(ctx)
     assert saved(ctx).flying
@@ -198,7 +191,7 @@ defmodule Valimc.FlightConnectionTest do
       client = toggle(client, 2) |> barrier()
       ref = Process.monitor(state(ctx).player.pid)
       Client.close(client)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 6000
+      assert_receive {:DOWN, ^ref, :process, _, :normal}
       assert saved(ctx).flying and saved(ctx).outbox != nil
       assert saved(ctx).inventory.slots[36].count == 6
       :sys.resume(writer)

@@ -50,6 +50,7 @@ defmodule Valimc.CookingOrbConnectionTest do
             do: DynamicSupervisor.terminate_child(supervisor, pid)
 
         Application.put_env(:valimc, :world_path, previous)
+        Valimc.TestScope.stop_players(base)
         File.rm_rf!(base)
       end)
 
@@ -235,16 +236,7 @@ defmodule Valimc.CookingOrbConnectionTest do
     end
   end
 
-  defp wait(fun, left \\ 300) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(10)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp removed(client, wanted) do
     {body, client} = Client.await(client, :play, "remove_entities")

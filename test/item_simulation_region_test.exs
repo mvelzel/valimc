@@ -68,16 +68,28 @@ defmodule Valimc.ItemSimulationRegionTest do
   def entry(ctx), do: state(ctx).items.entries |> Map.values() |> hd()
 
   # Owners tick only when stepped: advance every live owner around the test's
-  # region one tick at a time (simulation workers report in between).
-  def wait(ctx, fun, count \\ 600) do
-    if value = fun.() do
-      value
-    else
-      assert count > 0
-      step(ctx, 1)
-      Process.sleep(1)
-      wait(ctx, fun, count - 1)
-    end
+  # region one tick, then let their simulation workers report, so each step
+  # simulates however slow the host is (VMC-073).
+  def wait(ctx, fun, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      fun.() ||
+        (
+          step(ctx, 1)
+          settle(ctx)
+          nil
+        )
+    end)
+  end
+
+  defp settle(ctx) do
+    Valimc.TestWait.until(fn ->
+      Enum.all?(TestScope.neighborhood(ctx.key), fn key ->
+        case Registry.lookup(Valimc.RegionRegistry, key) do
+          [{pid, _}] -> :sys.get_state(pid).resource.item_simulation == nil
+          [] -> true
+        end
+      end)
+    end)
   end
 
   def step(ctx, ticks) do

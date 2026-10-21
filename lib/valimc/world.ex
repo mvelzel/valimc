@@ -100,9 +100,14 @@ defmodule Valimc.World do
   def owner(key) do
     with {:ok, pid} <- region(key) do
       case Directory.lookup(key) do
-        {^pid, _, %{epoch: epoch}} -> {:ok, {pid, epoch}}
-        {^pid, _, :loading} -> GenServer.call(pid, :owner)
-        _ -> {:error, :region_restarting}
+        {^pid, _, %{epoch: epoch}} ->
+          {:ok, {pid, epoch}}
+
+        {^pid, _, :loading} ->
+          GenServer.call(pid, :owner, 5000 * Valimc.config(:owner_call_scale, pid))
+
+        _ ->
+          {:error, :region_restarting}
       end
     else
       {:error, _} = error -> error

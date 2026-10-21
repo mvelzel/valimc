@@ -80,11 +80,5 @@ defmodule Valimc.PlayerLogTest do
     assert writer(path) == pid
   end
 
-  defp wait(fun, tries \\ 500) do
-    unless fun.() do
-      assert tries > 0
-      Process.sleep(1)
-      wait(fun, tries - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 end

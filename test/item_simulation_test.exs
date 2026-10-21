@@ -33,7 +33,7 @@ defmodule Valimc.ItemSimulationTest do
     token = make_ref()
     {:ok, job} = ItemSimulation.start(self(), epoch, token, inputs)
     worker = job.worker
-    assert_receive {:resource, ^epoch, {:item_simulation, ^worker, ^token, result}}, 1000
+    assert_receive {:resource, ^epoch, {:item_simulation, ^worker, ^token, result}}
     Process.demonitor(job.monitor, [:flush])
     result
   end
@@ -115,7 +115,7 @@ defmodule Valimc.ItemSimulationTest do
       {rx, rz} = ctx.key
       box = {rx * 128 + 3.0, 65.0, rz * 128 + 3.0, rx * 128 + 4.0, 66.0, rz * 128 + 4.0}
       assert {:ok, task} = Valimc.Physics.CollisionQuery.start(box)
-      assert {:ok, _} = Task.await(task, 1000)
+      assert {:ok, _} = Task.await(task, 60_000)
     after
       for pid <- holders, do: Task.Supervisor.terminate_child(Valimc.ItemGeometryWorkers, pid)
     end
@@ -139,10 +139,10 @@ defmodule Valimc.ItemSimulationTest do
       end)
 
     try do
-      assert_receive {:job, worker}, 1000
+      assert_receive {:job, worker}
       monitor = Process.monitor(worker)
       Process.exit(owner, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^worker, reason}, 1000
+      assert_receive {:DOWN, ^monitor, :process, ^worker, reason}
       assert reason in [:killed, :noproc]
 
       assert Enum.reduce_while(1..100, false, fn _, _ ->

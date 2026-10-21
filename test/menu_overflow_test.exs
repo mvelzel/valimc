@@ -82,6 +82,8 @@ defmodule Valimc.MenuOverflowTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -164,7 +166,7 @@ defmodule Valimc.MenuOverflowTest do
   # 252 fixture items alone send more packets than `await`'s default budget.
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat", 5000)
+    {_, client} = Client.await_stats(client)
     client
   end
 

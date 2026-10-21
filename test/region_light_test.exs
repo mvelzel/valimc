@@ -76,7 +76,7 @@ defmodule Valimc.RegionLightTest do
     lamp = {x0 + 47, 70, z0 + 40}
     set(ctx.owner, %{lamp => glowstone})
 
-    assert_receive {:event, {:block_batch, updates}}, 2000
+    assert_receive {:event, {:block_batch, updates}}
     light_chunks = for {chunk, frame} <- updates, light_update?(frame), do: chunk
     assert World.chunk_key(x0 + 47, z0 + 40) in light_chunks
     assert World.chunk_key(x0 + 48, z0 + 40) in light_chunks
@@ -116,13 +116,7 @@ defmodule Valimc.RegionLightTest do
   end
 
   # Light reaches a neighbour region's ring asynchronously: poll briefly.
-  defp eventually(fun, tries \\ 100) do
-    cond do
-      fun.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(10) && eventually(fun, tries - 1)
-    end
-  end
+  defp eventually(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   test "light crosses region borders both ways, also when a neighbour loads later", ctx do
     {rx, rz} = ctx.key
@@ -201,7 +195,7 @@ defmodule Valimc.RegionLightTest do
              level(image(neighbour, unsent), :block, {edge + 2, 70, z0 + 48}) > 0
            end)
 
-    assert_receive {:event, {:block_batch, frames}}, 2000
+    assert_receive {:event, {:block_batch, frames}}
     light = for {chunk, frame} <- frames, light_update?(frame), do: chunk
     assert sent in light
     refute unsent in light

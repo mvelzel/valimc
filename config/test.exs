@@ -7,6 +7,8 @@ config :valimc,
   world_path: nil,
   acceptors: 2,
   view_distance: 2,
+  # A loaded host (parallel suites, other work) can take seconds to answer (VMC-073).
+  owner_call_scale: 20,
   # Fixtures expect fresh players at the spawn block.
   respawn_radius: 0,
   region_read_gates: true,

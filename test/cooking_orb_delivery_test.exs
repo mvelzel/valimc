@@ -103,7 +103,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
   defp result(state) do
     %{worker: worker, token: token} = state.cooking_orbs.job
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_orb_plan, ^worker, ^token, _} = message}, 3000
+    assert_receive {:resource, ^epoch, {:cooking_orb_plan, ^worker, ^token, _} = message}
     assert {:noreply, next} = RegionData.handle_info(message, state)
     next
   end
@@ -112,7 +112,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
     writer = state.store
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}, 3000
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}
     RegionData.handle_info(message, state)
   end
 
@@ -125,16 +125,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
   defp resource(pid), do: Valimc.TestConn.state(pid).resource
   def now, do: System.monotonic_time(:millisecond)
 
-  def wait(fun, left \\ 800) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(10)
-          wait(fun, left - 1)
-        )
-  end
+  def wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   test "destination rebases concurrent cooking/receipts and exposes no entity or ACK before durability",
        ctx do
@@ -233,7 +224,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
 
     job = working.cooking_orbs.job
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_orb_plan, _, _, _} = late}, 3000
+    assert_receive {:resource, ^epoch, {:cooking_orb_plan, _, _, _} = late}
     {:noreply, expired} = CookingOrbRuntime.expired(working, job.token)
     assert_receive {^tag, {:error, :cooking_orb_plan_timeout}}
     assert {:noreply, ^expired} = RegionData.handle_info(late, expired)

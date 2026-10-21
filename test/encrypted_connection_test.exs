@@ -12,15 +12,9 @@ defmodule Valimc.EncryptedConnectionTest do
     :ok
   end
 
-  defp eventually(fun, n \\ 100) do
-    if fun.(),
-      do: :ok,
-      else:
-        (
-          assert n > 0
-          Process.sleep(5)
-          eventually(fun, n - 1)
-        )
+  defp eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 
   defp begin(name) do
@@ -69,7 +63,7 @@ defmodule Valimc.EncryptedConnectionTest do
     assert uuid == Connection.offline_uuid(name)
     assert Valimc.TestConn.state(pid).cipher.owner == pid
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, client} = Client.await(client, :play, "system_chat")
+    {body, client} = Client.await_stats(client)
     assert byte_size(body) > 0
     {peer, pair, nonce, secret} = begin("EncryptedTwo")
     peer = Client.send_packet(peer, :login, "key", response(pair, nonce, secret))
@@ -233,7 +227,7 @@ defmodule Valimc.EncryptedConnectionTest do
     assert_receive {:dormant_worker, worker}
     ref = Process.monitor(worker)
     Process.exit(caller, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
     eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
   end
 
@@ -251,7 +245,7 @@ defmodule Valimc.EncryptedConnectionTest do
     try do
       client = Client.send_packet(client, :login, "key", response(pair, nonce, secret))
       live = Client.send_packet(live, :play, "chat_command", Wire.string("stats"))
-      {body, _} = Client.await(live, :play, "system_chat")
+      {body, _} = Client.await_stats(live)
       assert byte_size(body) > 0
       {_body, _} = Client.await(client, :login, "login_disconnect")
       eventually(fn -> not Process.alive?(pid) end)

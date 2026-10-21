@@ -36,6 +36,7 @@ defmodule Valimc.UnsupportedBlockEntityTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -180,13 +181,5 @@ defmodule Valimc.UnsupportedBlockEntityTest do
       else: corrected(client, position)
   end
 
-  defp wait(fun, tries \\ 200) do
-    if result = fun.() do
-      result
-    else
-      assert tries > 0
-      Process.sleep(5)
-      wait(fun, tries - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 end

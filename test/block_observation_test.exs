@@ -107,11 +107,12 @@ defmodule Valimc.BlockObservationTest do
     reads =
       1..200
       |> Task.async_stream(fn _ -> Region.observe_blocks(c.owner, [c.pos]) end,
+        timeout: 60_000,
         max_concurrency: 8
       )
       |> Enum.to_list()
 
-    Task.await(writer)
+    Task.await(writer, 60_000)
 
     for {:ok, {:ok, snapshot}} <- reads do
       assert snapshot.blocks[c.pos] == rem(snapshot.revision, 2)
@@ -123,6 +124,8 @@ defmodule Valimc.BlockObservationTest do
 
   test "timed-out and dead owners never yield empty terrain", c do
     {pid, _} = c.owner
+    # This owner's queries time out at the play budget (VMC-073).
+    Valimc.TestScope.isolate(pid, owner_call_scale: 1)
     :sys.suspend(pid)
 
     try do

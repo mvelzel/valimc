@@ -42,6 +42,8 @@ defmodule Valimc.KeyboardDropTest do
 
       Application.put_env(:valimc, :world_path, old)
       Application.put_env(:valimc, :item_simulation, old_simulation)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -61,37 +63,25 @@ defmodule Valimc.KeyboardDropTest do
     Client.load_world(client)
   end
 
-  defp await_state(ctx, predicate, attempts \\ 1000) do
-    player = Enum.find(Players.all(), &(&1.name == ctx.name))
-    state = if player, do: :sys.get_state(player.pid)
-
-    if state && predicate.(state) do
-      {player.pid, state}
-    else
-      assert attempts > 0
-      Process.sleep(2)
-      await_state(ctx, predicate, attempts - 1)
-    end
+  defp await_state(ctx, predicate, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      player = Enum.find(Players.all(), &(&1.name == ctx.name))
+      state = if player, do: :sys.get_state(player.pid)
+      if state && predicate.(state), do: {player.pid, state}
+    end)
   end
 
   # The departed session's store finishes its recovery before the next login.
-  defp closed(ctx, attempts \\ 1000) do
-    if Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) != [] do
-      assert attempts > 0
-      Process.sleep(2)
-      closed(ctx, attempts - 1)
-    end
-  end
+  defp closed(ctx, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
 
-  defp departed(ctx, attempts \\ 1000) do
-    if Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
-         v != :closing
-       end) or
-         Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end) do
-      assert attempts > 0
-      Process.sleep(2)
-      departed(ctx, attempts - 1)
-    end
+  defp departed(ctx, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      not Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
+        v != :closing
+      end) and not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end)
+    end)
   end
 
   defp action(client, action) do
@@ -104,7 +94,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     client
   end
 

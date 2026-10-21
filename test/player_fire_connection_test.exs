@@ -9,6 +9,8 @@ defmodule Valimc.PlayerFireConnectionTest do
     nonce = System.unique_integer([:positive])
     name = "Fire#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-fire-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
@@ -28,6 +30,8 @@ defmodule Valimc.PlayerFireConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -36,20 +40,13 @@ defmodule Valimc.PlayerFireConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 500) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp material(ctx, name) do
     id = %{"air" => 0, "water" => 89, "lava" => 105, "fire" => 4931, "soul_fire" => 5443}[name]
-    for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+
+    for y <- [64, 65],
+        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
   end
 
   defp seed(ctx, opts) do
@@ -241,14 +238,16 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert state(pid).inventory.slots[5] == helmet
 
     for id <- [4931, 5443, 24235, 24267] do
-      for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+      for y <- [64, 65],
+          do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+
       tick(pid)
       assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
       assert state(pid).inventory.slots[5] == helmet
     end
 
     material(ctx, "air")
-    :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
 
     :sys.replace_state(pid, fn s ->
       %{s | player: %{s.player | motion: %{s.player.motion | physical_ground: true}}}
@@ -257,7 +256,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     tick(pid)
     assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
     assert state(pid).inventory.slots[5] == helmet
-    :ok = World.set_block({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
     tick(pid)
     assert state(pid).player.health.value < 20.0
     assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
@@ -329,7 +328,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     tick(pid)
     {_fields, client} = effect_packet(client)
     assert state(pid).player.effects == effects
-    :ok = World.set_block({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
     {:ok, dead} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
@@ -351,7 +350,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     sources = [{24234, :campfire}, {8599, :cactus}, {24299, :sweet_berry_bush}]
 
     Enum.reduce(sources, client, fn {id, source}, client ->
-      :ok = World.set_block(block, id)
+      :ok = Valimc.TestRegion.set_published(block, id)
 
       :sys.replace_state(pid, fn s ->
         %{
@@ -394,7 +393,7 @@ defmodule Valimc.PlayerFireConnectionTest do
   test "grounded magma respects careful input and fresh feet immunity before cooldown or armor wear",
        ctx do
     seed(ctx, fire: -20, material: "air")
-    :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
     {client, pid} = login(ctx)
     helmet = ItemStack.new("iron_helmet")
 
@@ -452,8 +451,8 @@ defmodule Valimc.PlayerFireConnectionTest do
     )
 
     {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
-    :ok = World.set_block({x + 1, 64, z}, 4931)
-    :ok = World.set_block({x + 2, 64, z}, 8599)
+    :ok = Valimc.TestRegion.set_published({x + 1, 64, z}, 4931)
+    :ok = Valimc.TestRegion.set_published({x + 2, 64, z}, 8599)
     {client, pid} = login(ctx)
     target = ctx.pose.x + 1.25
 
@@ -715,7 +714,7 @@ defmodule Valimc.PlayerFireConnectionTest do
   test "a real accepted crossing retains fire contact at a dry endpoint", ctx do
     seed(ctx, fire: -1, material: "air")
     {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
-    :ok = World.set_block({x + 1, 64, z}, 4931)
+    :ok = Valimc.TestRegion.set_published({x + 1, 64, z}, 4931)
     {client, pid} = login(ctx)
     target = ctx.pose.x + 2.0
 
@@ -749,7 +748,7 @@ defmodule Valimc.PlayerFireConnectionTest do
       inventory: %Inventory{slots: %{5 => helmet}}
     )
 
-    :ok = World.set_block({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, 5443)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, 5443)
     {client, pid} = login(ctx)
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
@@ -788,7 +787,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     rain()
     seed(ctx, fire: -1, material: "fire")
     roof = {floor(ctx.pose.x), 66, floor(ctx.pose.z)}
-    :ok = World.set_block(roof, Data.block("glass"))
+    :ok = Valimc.TestRegion.set_published(roof, Data.block("glass"))
     {_client, pid} = login(ctx)
     tick(pid)
     assert state(pid).player.fire_ticks == 160
@@ -812,7 +811,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     high = %{ctx.pose | y: 1024.0}
     assert :ok = Connection.teleport(pid, high)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _client} = Client.await(client, :play, "system_chat")
+    {_, _client} = Client.await_stats(client)
     # Trusted owner setup supplies only a burning counter after an authorized relocation.
     :sys.replace_state(pid, fn s -> %{s | player: %{s.player | fire_ticks: 181}} end)
     wait(fn -> not state(pid).teleport_pending and state(pid).pose_job == nil end)

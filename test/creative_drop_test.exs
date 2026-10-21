@@ -35,6 +35,8 @@ defmodule Valimc.CreativeDropTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -46,25 +48,26 @@ defmodule Valimc.CreativeDropTest do
     Client.load_world(client)
   end
 
-  defp wait(ctx, predicate, attempts \\ 1500) do
-    player = Enum.find(Players.all(), &(&1.name == ctx.name))
-    state = if player, do: :sys.get_state(player.pid)
-
-    if state && predicate.(state) do
-      {player.pid, state}
-    else
-      assert attempts > 0
-      Process.sleep(2)
-      wait(ctx, predicate, attempts - 1)
-    end
+  defp wait(ctx, predicate, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      player = Enum.find(Players.all(), &(&1.name == ctx.name))
+      state = if player, do: :sys.get_state(player.pid)
+      if state && predicate.(state), do: {player.pid, state}
+    end)
   end
 
   defp depart(ctx, client) do
     p = Enum.find(Players.all(), &(&1.name == ctx.name))
     ref = if p, do: Process.monitor(p.pid)
     Client.close(client)
-    if ref, do: assert_receive({:DOWN, ^ref, :process, _, :normal}, 6000)
+    if ref, do: assert_receive({:DOWN, ^ref, :process, _, :normal})
   end
+
+  # The old session's store finishes its delivery after the connection; a login
+  # before then is refused with "retry" (VMC-073).
+  defp store_closed(ctx),
+    do:
+      Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
 
   defp saved(ctx) do
     {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
@@ -400,6 +403,7 @@ defmodule Valimc.CreativeDropTest do
       pinned = saved(ctx).outbox.records
       depart(ctx, client)
       :sys.resume(destination)
+      store_closed(ctx)
       second = login(ctx)
       completed(ctx, 1)
       assert records(ctx) == pinned
@@ -427,7 +431,7 @@ defmodule Valimc.CreativeDropTest do
     capture_log(fn ->
       batch(client, [{-1, %{ctx.stone | count: 1}}, {36, %{ctx.stone | count: 6}}])
       {_, _} = Client.await(client, :play, "disconnect")
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
     end)
 
     assert File.read!(ctx.path) == original and records(ctx) == []

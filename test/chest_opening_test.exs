@@ -1,5 +1,7 @@
 defmodule Valimc.ChestOpeningTest do
   use ExUnit.Case, async: true
+  # They check the 250 ms window's edge (VMC-073).
+  setup do: Valimc.TestScope.isolate(self(), owner_call_scale: 1)
   alias Valimc.ChestOpening
   alias Valimc.Protocol.Data
   @block hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])

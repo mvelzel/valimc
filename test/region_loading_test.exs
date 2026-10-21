@@ -29,6 +29,8 @@ defmodule Valimc.RegionLoadingTest do
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
           do: TestScope.kill(pid)
 
+      Valimc.TestScope.stop_neighbourhood(key)
+
       File.rm_rf!(base)
     end
   end
@@ -81,8 +83,8 @@ defmodule Valimc.RegionLoadingTest do
       # The writer receives actual persisted bytes, not a fake completion message.
       bytes = :erlang.term_to_binary({:valimc_region, 1, %{}})
       File.write!(path, bytes, [:raw])
-      assert {:ok, {^pid, epoch}} = Task.await(loading, 1000)
-      for task <- waiters, do: assert(Task.await(task, 1000) == {:ok, {pid, epoch}})
+      assert {:ok, {^pid, epoch}} = Task.await(loading, 60_000)
+      for task <- waiters, do: assert(Task.await(task, 60_000) == {:ok, {pid, epoch}})
       assert is_reference(epoch)
       assert World.existing_owner(key) == {:ok, {pid, epoch}}
       assert {:ok, %{revision: 0}} = Region.observe_blocks({pid, epoch}, [])
@@ -104,21 +106,18 @@ defmodule Valimc.RegionLoadingTest do
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
           do: TestScope.kill(pid)
 
+      Valimc.TestScope.stop_neighbourhood(key)
+
       File.rm_rf!(base)
     end
   end
 
-  defp wait_registered(key, retries \\ 200)
-  defp wait_registered(_key, 0), do: flunk("cold owner was not registered")
-
-  defp wait_registered(key, retries) do
-    case Registry.lookup(Valimc.RegionRegistry, key) do
-      [{pid, _}] ->
-        pid
-
-      [] ->
-        Process.sleep(1)
-        wait_registered(key, retries - 1)
-    end
+  defp wait_registered(key, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      case Registry.lookup(Valimc.RegionRegistry, key) do
+        [{pid, _}] -> pid
+        [] -> nil
+      end
+    end)
   end
 end

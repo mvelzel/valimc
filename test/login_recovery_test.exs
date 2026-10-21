@@ -19,6 +19,8 @@ defmodule Valimc.LoginRecoveryTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -153,7 +155,7 @@ defmodule Valimc.LoginRecoveryTest do
       name = "Healthy" <> Integer.to_string(System.unique_integer([:positive]))
       {healthy_uuid, healthy} = Client.login(name)
       Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-      {_, _} = Client.await(healthy, :play, "system_chat")
+      {_, _} = Client.await_stats(healthy)
       Client.close(healthy)
       departed(%{name: name, uuid: healthy_uuid})
       :sys.resume(writer)

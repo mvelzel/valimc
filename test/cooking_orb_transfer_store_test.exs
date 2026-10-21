@@ -71,7 +71,7 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     assert {:ok, ^containers} = Store.load_containers(writer)
     monitor = Process.monitor(writer)
     Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}
     {:ok, replacement, next_lease} = Store.open(key)
     assert {:ok, ^containers} = Store.load_containers(replacement)
 
@@ -162,7 +162,7 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     epoch = make_ref()
     token = make_ref()
     Store.commit_containers(writer, lease, ctx.adopted, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}, 1000
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}
     assert {:ok, restored} = Store.load_containers(source_writer)
     assert restored == ctx.routed
     assert {:ok, request} = CookingOrbTransfers.request(restored, ctx.source, ctx.id)

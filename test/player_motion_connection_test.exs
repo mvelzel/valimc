@@ -39,6 +39,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -78,16 +79,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end
   end
 
-  defp wait(fun, left \\ 400) do
-    if result = fun.(),
-      do: result,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp move(client, p, flags \\ 1) do
     Client.send_raw(client, [
@@ -698,7 +690,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       wait(fn -> state(independent).player.x == other_pos.x + 0.2 end)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       client = correction(client, pid, ctx.pos)
-      {_, client} = Client.await(client, :play, "system_chat")
+      {_, client} = Client.await_stats(client)
       refute Process.alive?(job.task.pid)
       Valimc.TestRegionGate.resume(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
@@ -738,6 +730,8 @@ defmodule Valimc.PlayerMotionConnectionTest do
   end
 
   test "expired completed geometry cannot commit after its player mailbox resumes", ctx do
+    # The play admission window, which the suspended mailbox outlasts (VMC-073).
+    Valimc.TestScope.isolate(Connection.offline_uuid(hd(ctx.names)), owner_call_scale: 1)
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
     Valimc.TestRegionGate.stall(owner)
@@ -780,25 +774,52 @@ defmodule Valimc.PlayerMotionConnectionTest do
       job = wait(fn -> state(pid).motion_job end)
       ref = Process.monitor(job.task.pid)
       Client.close(client)
-      assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, _}
     after
       Valimc.TestRegionGate.resume(owner)
     end
   end
 
+  # The queued input retries while the workers are full, then expires uncommitted.
+  # Its token comes from that retry rather than from polling the brief queue. A
+  # loaded host can deschedule the connection past the 250 ms window before the
+  # input queues at all; that input is corrected too, and the move is tried again
+  # (VMC-073).
+  defp queued_motion(client, pid, pos, tries \\ 10) do
+    :erlang.trace(pid, true, [:receive])
+    move(client, %{pos | x: pos.x + 0.1})
+    # Either way the input ends in a correction to the unmoved position.
+    client = correction(client, pid, pos)
+    :erlang.trace(pid, false, [:receive])
+    retries = trace_retries(pid, [])
+    assert state(pid).motion_job == nil
+
+    case retries do
+      [token | _] -> {client, token}
+      [] when tries > 1 -> queued_motion(client, pid, pos, tries - 1)
+    end
+  end
+
+  defp trace_retries(pid, acc) do
+    receive do
+      {:trace, ^pid, :receive, {:retry_motion, token}} -> trace_retries(pid, [token | acc])
+      {:trace, ^pid, :receive, _} -> trace_retries(pid, acc)
+    after
+      0 -> acc
+    end
+  end
+
   test "worker saturation queues briefly, then expires without granting movement", ctx do
+    # The play admission window, which this test exhausts (VMC-073).
+    Valimc.TestScope.isolate(Connection.offline_uuid(hd(ctx.names)), owner_call_scale: 1)
     {client, pid} = login(hd(ctx.names))
     wait(fn -> state(pid).pose_job == nil end)
 
     holders = Valimc.TestPool.fill(pid)
 
     try do
-      move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
-      input = wait(fn -> state(pid).motion_pending end)
-      assert state(pid).motion_job == nil
-      assert state(pid).player.x == ctx.pos.x
-      client = correction(client, pid, ctx.pos)
-      send(pid, {:retry_motion, input.token})
+      {client, token} = queued_motion(client, pid, ctx.pos)
+      send(pid, {:retry_motion, token})
       Valimc.TestPool.release(holders)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.2 end)

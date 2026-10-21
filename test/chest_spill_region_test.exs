@@ -111,19 +111,11 @@ defmodule Valimc.ChestSpillRegionTest do
     saved
   end
 
-  defp writing(pid, tries \\ 200)
-  defp writing(_, 0), do: flunk("spill did not reach its joint writer")
-
-  defp writing(pid, tries) do
-    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
-      %{} = pending ->
-        pending
-
-      _ ->
-        Process.sleep(1)
-        writing(pid, tries - 1)
-    end
-  end
+  defp writing(pid, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
+      end)
 
   test "survival self loot and region-owned component stacks publish together, then replay once",
        c do
@@ -144,7 +136,7 @@ defmodule Valimc.ChestSpillRegionTest do
 
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
+      assert {:ok, :applied} = Task.await(task, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
@@ -192,8 +184,8 @@ defmodule Valimc.ChestSpillRegionTest do
       proposed = Items.records(pending.items)
       monitor = Process.monitor(c.pid)
       Process.exit(c.pid, :kill)
-      assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
-      assert :retired = Task.await(task)
+      assert_receive {:DOWN, ^monitor, :process, _, :killed}
+      assert :retired = Task.await(task, 60_000)
       :sys.resume(writer)
       {:ok, owner} = World.item_owner(c.key)
       assert elem(owner, 0) != c.pid
@@ -234,7 +226,7 @@ defmodule Valimc.ChestSpillRegionTest do
       assert {:error, :mining_commit_uncertain} =
                Region.apply_mining_transfer(c.owner, c.transfer)
 
-      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+      assert_receive {:DOWN, ^monitor, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)

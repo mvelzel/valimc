@@ -70,7 +70,7 @@ defmodule Valimc.PlayerInputConnectionTest do
 
     ref = Process.monitor(player.pid)
     Client.close(sender)
-    assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, _}
     {_reconnected, new_player} = login_name(username)
     assert new_player.input.buttons == 0
     assert new_player.input.shared_flags == 0
@@ -109,7 +109,7 @@ defmodule Valimc.PlayerInputConnectionTest do
       assert current(player).input.shared_flags == 2
       ref = Process.monitor(player.pid)
       Client.send_packet(bad, :play, packet, payload)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, :normal}
       assert Process.alive?(Process.whereis(Valimc.Listener))
     end
 
@@ -143,7 +143,7 @@ defmodule Valimc.PlayerInputConnectionTest do
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_body, client} = Client.await(client, :play, "system_chat")
+    {_body, client} = Client.await_stats(client)
     client
   end
 

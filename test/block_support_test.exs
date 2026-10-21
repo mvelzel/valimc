@@ -120,14 +120,10 @@ defmodule Valimc.BlockSupportTest do
     end
 
     # Waits until every queued commit is durable.
-    defp settle({pid, _} = owner, tries \\ 200) do
-      case Region.flush(pid) do
-        :ok ->
-          :ok
-
-        {:error, :item_storage_busy} when tries > 0 ->
-          Process.sleep(5) && settle(owner, tries - 1)
-      end
+    defp settle({pid, _}, _budget \\ nil) do
+      # A write still in flight answers busy; the flush itself must then succeed.
+      Valimc.TestWait.until(fn -> Region.flush(pid) == :ok end)
+      :ok
     end
 
     test "a flower and a torch on a removed block break on the next tick and drop",

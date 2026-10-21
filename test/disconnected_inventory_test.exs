@@ -56,6 +56,8 @@ defmodule Valimc.DisconnectedInventoryTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -71,17 +73,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     }
   end
 
-  defp wait(predicate, attempts \\ 1000) do
-    case predicate.() do
-      value when value not in [nil, false] ->
-        value
-
-      _ ->
-        assert attempts > 0
-        Process.sleep(2)
-        wait(predicate, attempts - 1)
-    end
-  end
+  defp wait(predicate, _budget \\ nil), do: Valimc.TestWait.until(predicate)
 
   defp saved(ctx) do
     {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
@@ -143,7 +135,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     :sys.replace_state(p.pid, &%{&1 | inventory: %{ctx.inventory | infinite_materials: true}})
     ref = Process.monitor(p.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     departed(ctx)
     idle(ctx)
     owner = region(ctx)
@@ -177,7 +169,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       end)
 
     try do
-      assert_receive {:closed, writer, old_fence}, 1000
+      assert_receive {:closed, writer, old_fence}
 
       closing =
         wait(fn ->
@@ -216,7 +208,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)
       ref = make_ref()
       PlayerStore.complete_transfer(writer, fence, ref)
-      assert_receive {:player_transfer_saved, ^ref, {:ok, fence, completed}}, 1000
+      assert_receive {:player_transfer_saved, ^ref, {:ok, fence, completed}}
       verify(ctx, completed, records(owner))
 
       assert MapSet.new(Enum.map(records(owner), & &1.uuid)) ==
@@ -261,7 +253,7 @@ defmodule Valimc.DisconnectedInventoryTest do
         Client.login("Other" <> Integer.to_string(System.unique_integer([:positive])))
 
       Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-      {_, _} = Client.await(healthy, :play, "system_chat")
+      {_, _} = Client.await_stats(healthy)
       Client.close(healthy)
       :sys.resume(disk)
       {uuid, client} = Client.login_session(client, ctx.name)
@@ -339,7 +331,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     snapshot = %{ctx.snapshot | inventory: %{ctx.inventory | infinite_materials: true}}
     ref = make_ref()
     PlayerStore.prepare_creative_drop(writer, fence, snapshot, ctx.key, created, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _new_fence, prepared}}, 1000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _new_fence, prepared}}
 
     stale = %{
       ctx.snapshot
@@ -402,7 +394,15 @@ defmodule Valimc.DisconnectedInventoryTest do
 
     for item <- Enum.take(fixture, 2) do
       {:ok, token} = Region.find_item(handle, item.uuid)
-      assert :ok = Region.remove_item(token)
+
+      # The owner answers busy while another write is in flight (VMC-073).
+      assert :ok =
+               Valimc.TestWait.until(fn ->
+                 case Region.remove_item(token) do
+                   {:error, :item_storage_busy} -> false
+                   result -> result
+                 end
+               end)
     end
 
     idle(ctx)

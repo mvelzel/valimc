@@ -64,7 +64,7 @@ defmodule Valimc.ItemConnectionTest do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     client = await_removal(client, another)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, _} = Client.await(client, :play, "system_chat")
+    {body, _} = Client.await_stats(client)
     assert :binary.match(body, "schedulers") != :nomatch
   end
 

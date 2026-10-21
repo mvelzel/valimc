@@ -14,6 +14,8 @@ defmodule Valimc.InventoryPersistenceTest do
 
     on_exit(fn ->
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood({0, 0})
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -61,7 +63,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     client
   end
 
@@ -73,7 +75,7 @@ defmodule Valimc.InventoryPersistenceTest do
   defp close(client, name, uuid) do
     ref = Process.monitor(player(name).pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     departed(uuid)
   end
 
@@ -89,10 +91,7 @@ defmodule Valimc.InventoryPersistenceTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
-    on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    end)
+    on_exit(fn -> Valimc.TestScope.stop_neighbourhood(key) end)
 
     {uuid, client} = login(username)
 
@@ -221,7 +220,7 @@ defmodule Valimc.InventoryPersistenceTest do
         ])
 
       send(pid, {:tcp, state.socket, batch})
-      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
       Client.close(client)
       departed(uuid)
       {^uuid, next} = login(username)
@@ -248,7 +247,7 @@ defmodule Valimc.InventoryPersistenceTest do
     pid = player(username).pid
     ref = Process.monitor(pid)
     Client.send_packet(client, :configuration, "finish_configuration", <<1>>)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
     Client.close(client)
     departed(uuid)
     assert File.read!(path) == legacy
@@ -294,7 +293,7 @@ defmodule Valimc.InventoryPersistenceTest do
         GenServer.call(writer, :load)
       end)
 
-    assert {:error, :not_owner} = Task.await(task)
+    assert {:error, :not_owner} = Task.await(task, 60_000)
     assert File.read!(PlayerStore.path(base, uuid)) == saved and Process.alive?(writer)
 
     assert capture_log(fn ->

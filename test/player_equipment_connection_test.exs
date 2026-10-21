@@ -40,6 +40,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -57,15 +58,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 500) do
-    if result = fun.() do
-      result
-    else
-      assert left > 0
-      Process.sleep(5)
-      wait(fun, left - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, name, inventory, mode \\ :creative) do
     uuid = Valimc.Connection.offline_uuid(name)

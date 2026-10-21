@@ -336,8 +336,9 @@ defmodule Valimc.Net.LoginFlow do
       end)
 
     clock = TickClock.new(make_ref(), System.monotonic_time(:millisecond))
-    Process.send_after(self(), {:player_tick, clock.token}, 50)
-    state = %{state | simulation_clock: clock}
+    ticks = Valimc.config(:player_ticks, state.player.uuid)
+    if ticks == :timer, do: Process.send_after(self(), {:player_tick, clock.token}, 50)
+    state = %{state | simulation_clock: clock, player_ticks: ticks}
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
     if state.player.health.value <= 0, do: Vitals.death_notice(state, false), else: state

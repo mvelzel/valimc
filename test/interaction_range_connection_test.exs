@@ -42,6 +42,8 @@ defmodule Valimc.InteractionRangeConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 

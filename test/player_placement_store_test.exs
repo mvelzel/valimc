@@ -92,6 +92,8 @@ defmodule Valimc.PlayerPlacementStoreTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -122,7 +124,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
   defp prepare(ctx) do
     ref = make_ref()
     PlayerStore.prepare_placement(ctx.writer, ctx.fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}
     assert pending.transfer_sequence == 1 and pending.outbox == ctx.intent
     assert Inventory.get(pending.inventory, 45) == nil
     assert read(ctx) == persisted(pending)
@@ -132,14 +134,14 @@ defmodule Valimc.PlayerPlacementStoreTest do
   defp complete(ctx, fence) do
     ref = make_ref()
     PlayerStore.complete_transfer(ctx.writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, result}, 2000
+    assert_receive {:player_transfer_saved, ^ref, result}
     result
   end
 
   defp deliver(ctx, pending) do
     token = make_ref()
     {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
-    assert_receive {:transfer_delivered, worker, ^token, result}, 3000
+    assert_receive {:transfer_delivered, worker, ^token, result}
     assert worker == job.pid
     Process.demonitor(job.monitor, [:flush])
     result
@@ -223,8 +225,8 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
     capture_log(fn ->
       PlayerStore.prepare_placement(ctx.writer, ctx.fence, ctx.snapshot, ctx.intent, ref)
-      assert_receive {:player_transfer_saved, ^ref, {:error, :player_commit_uncertain}}, 2000
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}, 2000
+      assert_receive {:player_transfer_saved, ^ref, {:error, :player_commit_uncertain}}
+      assert_receive {:DOWN, ^monitor, :process, _, :normal}
     end)
 
     assert World.get_block(ctx.position) == 0
@@ -246,7 +248,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
     monitor = Process.monitor(ctx.writer)
     assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 5000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     final = read(ctx)
     assert final.outbox == nil and final.transfer_sequence == 2 and final.inventory.slots == %{}
     assert final.health == later.health and final.food == later.food

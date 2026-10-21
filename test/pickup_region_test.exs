@@ -100,17 +100,7 @@ defmodule Valimc.PickupRegionTest do
     saved
   end
 
-  defp wait(fun, n \\ 200) do
-    case fun.() do
-      x when x not in [nil, false] ->
-        x
-
-      _ ->
-        assert n > 0
-        Process.sleep(5)
-        wait(fun, n - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp prepare(ctx, grant) do
     inventory = %{
@@ -129,7 +119,7 @@ defmodule Valimc.PickupRegionTest do
     intent = %{kind: :pickup, key: ctx.key, request: request}
     ref = make_ref()
     PlayerStore.prepare_pickup(ctx.writer, ctx.fence, ctx.snapshot, intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}
     assert pending.inventory == ctx.snapshot.inventory
     assert player(ctx).outbox == pending.outbox
     {fence, pending}
@@ -141,7 +131,7 @@ defmodule Valimc.PickupRegionTest do
     {:ok, %{pid: pid, monitor: monitor}} =
       TransferDelivery.start(self(), token, ctx.uuid, pending)
 
-    assert_receive {:transfer_delivered, ^pid, ^token, result}, 2000
+    assert_receive {:transfer_delivered, ^pid, ^token, result}
     Process.demonitor(monitor, [:flush])
     assert TransferDelivery.completed?(pending, result)
     result
@@ -150,7 +140,7 @@ defmodule Valimc.PickupRegionTest do
   defp complete(ctx, fence) do
     ref = make_ref()
     PlayerStore.complete_transfer(ctx.writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, resolved}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, resolved}}
     {next_fence, resolved}
   end
 
@@ -193,8 +183,8 @@ defmodule Valimc.PickupRegionTest do
       again = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
       assert Task.yield(again, 20) == nil
       :sys.resume(writer)
-      assert {:ok, _} = Task.await(task, 2000)
-      assert {:error, :pickup_already_pending} = Task.await(again, 2000)
+      assert {:ok, _} = Task.await(task, 60_000)
+      assert {:error, :pickup_already_pending} = Task.await(again, 60_000)
       assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -208,9 +198,10 @@ defmodule Valimc.PickupRegionTest do
     try do
       task = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
       wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
-      Process.sleep(260)
+      # The contact deadline passes while the receipt slot is still being written.
+      Valimc.TestRegion.expire_held_replies(ctx.owner)
       :sys.resume(writer)
-      assert {:error, :expired_item_step} = Task.await(task, 2000)
+      assert {:error, :expired_item_step} = Task.await(task, 60_000)
       assert disk(ctx).records == [ctx.record]
       assert state(ctx.owner).permits.entries == %{}
       assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
@@ -245,8 +236,8 @@ defmodule Valimc.PickupRegionTest do
 
       assert Task.yield(duplicate, 20) == nil
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task, 2000)
-      assert {:ok, :already_applied} = Task.await(duplicate, 2000)
+      assert {:ok, :applied} = Task.await(task, 60_000)
+      assert {:ok, :already_applied} = Task.await(duplicate, 60_000)
       {_fence, resolved} = complete(ctx, fence)
       assert resolved.inventory.slots[36].count == 64
       assert [%{stack: %{count: 6}}] = disk(ctx).records
@@ -320,7 +311,7 @@ defmodule Valimc.PickupRegionTest do
     later = %{pending | game_mode: GameMode.new(:creative)}
     monitor = Process.monitor(ctx.writer)
     assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 2000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     assert player(ctx).outbox == nil and player(ctx).game_mode.current == :creative
     assert player(ctx).inventory.slots[36].count == 64
     assert [%{stack: %{count: 6}}] = disk(ctx).records

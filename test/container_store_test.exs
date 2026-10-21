@@ -54,9 +54,9 @@ defmodule Valimc.ContainerStoreTest do
     :sys.resume(writer)
 
     for {token, i} <- Enum.with_index(sent) do
-      assert_receive {:resource, ^epoch, message}, 1000
+      assert_receive {:resource, ^epoch, message}
       assert message == {:containers_saved, writer, token, :ok}
-      assert_receive {:resource, ^epoch, {:saved, ^writer, ^i, :ok}}, 1000
+      assert_receive {:resource, ^epoch, {:saved, ^writer, ^i, :ok}}
     end
 
     {:ok, %{frames: frames}} = Valimc.World.RegionLog.read(dir)
@@ -93,13 +93,8 @@ defmodule Valimc.ContainerStoreTest do
     assert map_size(Map.take(Store.load(writer), for(i <- 1..20, do: {x + i, 64, z}))) == 20
   end
 
-  defp wait_checkpointed(writer, tries \\ 200) do
-    if :sys.get_state(writer).checkpointing != nil do
-      assert tries > 0
-      Process.sleep(5)
-      wait_checkpointed(writer, tries - 1)
-    end
-  end
+  defp wait_checkpointed(writer, _budget \\ nil),
+    do: Valimc.TestWait.until(fn -> :sys.get_state(writer).checkpointing == nil end)
 
   test "leased asynchronous commit survives writer replacement with exact contents and revisions",
        ctx do
@@ -109,7 +104,7 @@ defmodule Valimc.ContainerStoreTest do
     epoch = make_ref()
     token = make_ref()
     Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}, 1000
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
     assert {:ok, saved} = Store.load_containers(writer)
     assert saved == ctx.filled
 
@@ -190,7 +185,7 @@ defmodule Valimc.ContainerStoreTest do
     epoch = make_ref()
     token = make_ref()
     Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}, 1000
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}
     assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
   end
 
@@ -226,7 +221,7 @@ defmodule Valimc.ContainerStoreTest do
     assert {:ok, ^committed} = Store.load_containers(writer)
     monitor = Process.monitor(writer)
     Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}
     {:ok, replacement, _lease} = Store.open(ctx.key)
     assert {:ok, restored} = Store.load_containers(replacement)
     assert restored == committed
@@ -313,7 +308,7 @@ defmodule Valimc.ContainerStoreTest do
     assert {:ok, ^committed} = Store.load_containers(writer)
     monitor = Process.monitor(writer)
     Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}
     assert {:ok, replacement, next_lease} = Store.open(ctx.key)
     assert {:ok, ^committed} = Store.load_containers(replacement)
 
@@ -350,7 +345,7 @@ defmodule Valimc.ContainerStoreTest do
     assert {:ok, ^materialized} = Store.load_containers(replacement)
     monitor = Process.monitor(replacement)
     Process.exit(replacement, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^replacement, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^replacement, :killed}
     assert {:ok, recovered, recovered_lease} = Store.open(ctx.key)
     assert {:ok, ^materialized} = Store.load_containers(recovered)
 

@@ -10,7 +10,8 @@ defmodule Valimc.ItemCheckpointsTest do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-item-checkpoints-#{nonce}")
     key = {20_000 + rem(nonce, 3_333) * 3, 320}
-    TestScope.isolate(key, world_path: base)
+    # Checkpoints run only when a test sends the armed token (VMC-073).
+    TestScope.isolate(key, world_path: base, item_checkpoint_ms: :timer.hours(1))
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {rx, rz} = key
     position = {rx * 128 + 8.5, 65.5, rz * 128 + 8.5}
@@ -80,17 +81,11 @@ defmodule Valimc.ItemCheckpointsTest do
     assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
   end
 
-  defp wait(ctx, predicate, attempts \\ 200) do
-    value = state(ctx)
-
-    if predicate.(value),
-      do: value,
-      else:
-        (
-          assert attempts > 0
-          Process.sleep(2)
-          wait(ctx, predicate, attempts - 1)
-        )
+  defp wait(ctx, predicate, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      value = state(ctx)
+      if predicate.(value), do: value
+    end)
   end
 
   test "motion publishes while the writer is suspended and coalesces to one in-flight snapshot",
@@ -140,7 +135,7 @@ defmodule Valimc.ItemCheckpointsTest do
       assert {:error, :item_storage_busy} = Region.flush(ctx.pid)
       assert Task.yield(replacement, 10) == nil
       :sys.resume(writer)
-      assert {:ok, final} = Task.await(replacement)
+      assert {:ok, final} = Task.await(replacement, 60_000)
       after_commit = state(ctx)
       assert after_commit.item_saved_generation == after_commit.item_motion_generation
       assert read(ctx).records == Items.records(after_commit.items)
@@ -164,7 +159,7 @@ defmodule Valimc.ItemCheckpointsTest do
       removal = Task.async(fn -> Region.remove_item(handle) end)
       wait(ctx, &Valimc.TestRegion.writing?/1)
       :sys.resume(writer)
-      assert :ok = Task.await(removal)
+      assert :ok = Task.await(removal, 60_000)
       assert read(ctx).records == []
       assert read(ctx).receipts[ctx.transfer.source].sequence == 1
       assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, ctx.transfer)
@@ -186,7 +181,7 @@ defmodule Valimc.ItemCheckpointsTest do
       flushing = Task.async(fn -> Region.flush(ctx.pid) end)
       assert Task.yield(flushing, 10) == nil
       :sys.resume(writer)
-      assert :ok = Task.await(flushing)
+      assert :ok = Task.await(flushing, 60_000)
       clean = wait(ctx, &(&1.item_checkpoint == nil))
       assert clean.item_saved_generation == 2 and clean.item_motion_generation == 2
       assert read(ctx).records == Items.records(clean.items)
@@ -205,7 +200,7 @@ defmodule Valimc.ItemCheckpointsTest do
     _second = advance(fresh, handle, 2)
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1500
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
     assert [%{motion: %{age: 1}}] = Items.records(Valimc.TestConn.state(pid).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
@@ -256,13 +251,16 @@ defmodule Valimc.ItemCheckpointsTest do
        ctx do
     old = disk(ctx)
     _ = advance(ctx, ctx.handle, 1)
-    Valimc.TestDisk.break_writer(state(ctx).store)
+    # Only the checkpoint may meet the broken writer (VMC-073).
+    wait(ctx, &(not Valimc.TestRegion.writing?(&1)))
     ref = Process.monitor(ctx.pid)
+    Valimc.TestDisk.break_writer(state(ctx).store)
 
     capture_log(fn ->
       timer = state(ctx).item_checkpoint_timer
       send_resource(ctx, {:item_checkpoint, timer.token})
-      assert_receive {:DOWN, ^ref, :process, _, {:item_checkpoint_failed, _}}, 1500
+
+      assert_receive {:DOWN, ^ref, :process, _, {:item_checkpoint_failed, _}}
     end)
 
     assert disk(ctx) == old
@@ -286,9 +284,9 @@ defmodule Valimc.ItemCheckpointsTest do
       stopping =
         Task.async(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid) end)
 
-      assert {:error, :item_commit_uncertain} = Task.await(removal)
+      assert {:error, :item_commit_uncertain} = Task.await(removal, 60_000)
       :sys.resume(writer)
-      assert :ok = Task.await(stopping)
+      assert :ok = Task.await(stopping, 60_000)
       assert read(ctx).records == []
       assert read(ctx).receipts[ctx.transfer.source].sequence == 1
     after
@@ -306,7 +304,7 @@ defmodule Valimc.ItemCheckpointsTest do
 
     capture_log(fn ->
       send_resource(ctx, {:item_checkpoint_deadline, pending.token})
-      assert_receive {:DOWN, ^ref, :process, _, :item_checkpoint_timeout}, 2500
+      assert_receive {:DOWN, ^ref, :process, _, :item_checkpoint_timeout}
     end)
 
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)

@@ -4,11 +4,12 @@ defmodule Valimc.PlayerPlacementQuery do
   alias Valimc.Physics.{BlockShapes, Box, Shape}
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
-  @timeout 250
+  # A plan's budget; tests on a loaded host scale it (`owner_call_scale`, VMC-073).
+  defp timeout, do: 250 * Valimc.config(:owner_call_scale)
 
   def start(item, request) do
     with {:ok, _} <- Placement.candidate(item, 0, 0, request) do
-      deadline = now() + @timeout
+      deadline = now() + timeout()
 
       {:ok,
        Task.Supervisor.async_nolink(
@@ -33,7 +34,7 @@ defmodule Valimc.PlayerPlacementQuery do
        Valimc.TransferWorkers,
        Valimc.Dimension.bind(fn ->
          outcome =
-           case prepare(item, request, now() + @timeout) do
+           case prepare(item, request, now() + timeout()) do
              {:ok, plan} ->
                if admitted?(plan, grant, expires) do
                  Region.place_block(
@@ -99,7 +100,7 @@ defmodule Valimc.PlayerPlacementQuery do
        Valimc.Workers.collision(),
        Valimc.Dimension.bind(fn ->
          result =
-           with {:ok, plan} <- prepare(item, request, now() + @timeout),
+           with {:ok, plan} <- prepare(item, request, now() + timeout()),
                 true <- admitted?(plan, grant, expires),
                 {:ok, reservation} <-
                   Region.reserve_placement(plan.owner, plan.revision, plan.expected) do

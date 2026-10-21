@@ -73,7 +73,7 @@ defmodule Valimc.DeathStoreTest do
     inventory = %{inventory | slots: Map.merge(inventory.slots, %{5 => cursed, 36 => cursed})}
     monitor = Process.monitor(ctx.writer)
     assert :ok = PlayerStore.close_session(ctx.writer, ctx.fence, snapshot(ctx, inventory))
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 5000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     assert {:ok, stored} = saved(ctx)
 
     assert stored.health.value == 0 and stored.inventory.slots == %{} and
@@ -95,7 +95,7 @@ defmodule Valimc.DeathStoreTest do
     {:ok, after_snapshot, key, records} = PlayerTransfers.plan_death(before)
     ref = make_ref()
     PlayerStore.prepare_death(ctx.writer, ctx.fence, before, after_snapshot, key, records, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, pending}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, pending}}
     {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
@@ -104,12 +104,12 @@ defmodule Valimc.DeathStoreTest do
     assert :ok = Region.remove_item(handle)
     monitor = Process.monitor(ctx.writer)
     Process.exit(ctx.writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
     {:ok, writer, recovered, fence} = PlayerStore.open(ctx.uuid)
     assert recovered.health.value == 0 and length(recovered.outbox.records) == 5
     monitor = Process.monitor(writer)
     assert :ok = PlayerStore.close_session(writer, fence, recovered)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 5000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     assert {:ok, stored} = saved(ctx)
     assert stored.health.value == 0 and stored.inventory.slots == %{}
     assert stored.outbox == nil and stored.transfer_sequence == 2
@@ -138,7 +138,7 @@ defmodule Valimc.DeathStoreTest do
                snapshot(ctx, %Inventory{slots: %{5 => cursed}})
              )
 
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     assert {:ok, stored} = saved(ctx)
     assert stored.health.value == 0 and stored.inventory.slots == %{}
     assert stored.transfer_sequence == 0 and stored.outbox == nil

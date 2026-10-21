@@ -37,6 +37,8 @@ defmodule Valimc.GameModeConnectionTest do
 
       Application.put_env(:valimc, :world_path, old)
       Application.put_env(:valimc, :default_game_mode, old_mode)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -56,27 +58,21 @@ defmodule Valimc.GameModeConnectionTest do
 
   defp state(ctx), do: Valimc.TestConn.state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
 
-  defp wait(fun, attempts \\ 500) do
-    if fun.(),
-      do: :ok,
-      else:
-        (
-          assert attempts > 0
-          Process.sleep(5)
-          wait(fun, attempts - 1)
-        )
+  defp wait(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 
   defp close(ctx, client) do
     ref = Process.monitor(state(ctx).player.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 6000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
   end
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     client
   end
 
@@ -228,7 +224,7 @@ defmodule Valimc.GameModeConnectionTest do
       )
     ])
 
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 6000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)

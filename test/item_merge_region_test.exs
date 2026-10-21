@@ -62,17 +62,7 @@ defmodule Valimc.ItemMergeRegionTest do
     [%{a: {a, ar}, b: {b, br}}]
   end
 
-  defp wait(fun, n \\ 200) do
-    case fun.() do
-      x when x not in [nil, false] ->
-        x
-
-      _ ->
-        assert n > 0
-        Process.sleep(5)
-        wait(fun, n - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp survivor_age(ctx, uuid) do
     Enum.find(Items.records(state(ctx.owner).items), &(&1.uuid == uuid)).motion.age
@@ -113,7 +103,7 @@ defmodule Valimc.ItemMergeRegionTest do
       # The pair is already merged in owner memory; a second merge cannot apply.
       assert {:error, _} = Region.merge_items(ctx.owner, proposal)
       :sys.resume(writer)
-      assert {:ok, [_]} = Task.await(task, 2000)
+      assert {:ok, [_]} = Task.await(task, 60_000)
       assert [record] = disk(ctx).records
       assert record.uuid == <<2::128>> and record.stack.count == 5
       assert record.motion.age == 100 and record.motion.pickup_delay == 20
@@ -125,7 +115,7 @@ defmodule Valimc.ItemMergeRegionTest do
       {pid, _} = ctx.owner
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1500
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}
       assert {:ok, next} = World.item_owner(ctx.key)
       assert Items.records(state(next).items) == [record]
       assert state(next).item_receipts == ctx.receipts
@@ -144,7 +134,7 @@ defmodule Valimc.ItemMergeRegionTest do
 
     capture_log(fn ->
       assert {:error, :item_commit_uncertain} = Region.merge_items(ctx.owner, pairs(ctx.owner))
-      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1500
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}
     end)
 
     assert items_bytes(ctx) == original

@@ -53,15 +53,9 @@ defmodule Valimc.DiscoveryTest do
     Application.put_env(:valimc, :online_mode, false)
   end
 
-  defp eventually(fun, n \\ 200) do
-    if fun.(),
-      do: :ok,
-      else:
-        (
-          assert n > 0
-          Process.sleep(5)
-          eventually(fun, n - 1)
-        )
+  defp eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 
   defp accept(worker, route \\ @url) do
@@ -131,7 +125,7 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "one initial fetch wakes parallel subscribers and supports protected concurrent reads" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     parent = self()
 
     waiters =
@@ -142,7 +136,7 @@ defmodule Valimc.DiscoveryTest do
     for _ <- 1..20, do: Discovery.refresh()
     refute_receive {:discovery_fetch, _, _}, 20
     accept(worker)
-    for _ <- waiters, do: assert_receive({:endpoint, {:ok, @url}}, 1000)
+    for _ <- waiters, do: assert_receive({:endpoint, {:ok, @url}})
     eventually(fn -> Registry.count(Valimc.Auth.DiscoveryWaiters) == 0 end)
     assert {:ok, @url} = Discovery.endpoint(deadline())
 
@@ -155,7 +149,7 @@ defmodule Valimc.DiscoveryTest do
 
   test "initial failure completes readiness and follows native capped backoff" do
     for i <- 0..8 do
-      assert_receive {:discovery_fetch, worker, _}, 1000
+      assert_receive {:discovery_fetch, worker, _}
       send(worker, {:fetch_result, {:error, :unavailable}})
       eventually(fn -> :sys.get_state(Discovery).job == nil end)
       state = :sys.get_state(Discovery)
@@ -172,27 +166,27 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "cached document survives refresh failure; successful unavailable publication clears routing" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     accept(worker)
     Discovery.refresh()
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     assert {:ok, @url} = Discovery.endpoint(deadline())
     send(worker, {:fetch_result, {:error, :invalid_discovery}})
     eventually(fn -> :sys.get_state(Discovery).job == nil end)
     assert {:ok, @url} = Discovery.endpoint(deadline())
     assert :erlang.read_timer(:sys.get_state(Discovery).timer) in 86_390_000..86_400_000
     Discovery.refresh()
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     accept(worker, nil)
     assert {:error, :discovery_unavailable} = Discovery.endpoint(deadline())
     Discovery.refresh()
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     accept(worker, "https://new.example/verify")
     assert {:ok, "https://new.example/verify"} = Discovery.endpoint(deadline())
   end
 
   test "subscriber deadlines and abrupt death release registrations" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     assert {:error, :discovery_unavailable} = Discovery.endpoint(deadline(20))
     assert Registry.count(Valimc.Auth.DiscoveryWaiters) == 0
     waiting = spawn(fn -> Discovery.endpoint(deadline()) end)
@@ -204,11 +198,11 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "stale timers/results and late valid documents cannot overwrite a cached route" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     accept(worker)
     old = :sys.get_state(Discovery).generation
     Discovery.refresh()
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     state = :sys.get_state(Discovery)
     send(Discovery, {:refresh, old})
     send(Discovery, {:discovery_result, self(), make_ref(), {:ok, "https://forged.example/"}})
@@ -222,7 +216,7 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "worker failure unblocks initial readiness and releases its job" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     Process.exit(worker, :kill)
     eventually(fn -> Discovery.publication().ready end)
     assert :sys.get_state(Discovery).job == nil
@@ -230,7 +224,7 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "owner loss cancels fetch and waiting subscribers without disconnecting admitted play" do
-    assert_receive {:discovery_fetch, worker, _}, 1000
+    assert_receive {:discovery_fetch, worker, _}
     {_uuid, client} = Client.login("DiscoveryLive")
     client = Client.load_world(client)
     parent = self()
@@ -240,9 +234,9 @@ defmodule Valimc.DiscoveryTest do
     old = Process.whereis(Discovery)
     Application.put_env(:valimc, :online_mode, true)
     Process.exit(old, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^worker, _}, 1000
-    assert_receive {:waiting_result, {:error, :discovery_unavailable}}, 1000
-    assert_receive {:discovery_fetch, new_worker, _}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^worker, _}
+    assert_receive {:waiting_result, {:error, :discovery_unavailable}}
+    assert_receive {:discovery_fetch, new_worker, _}
     Application.put_env(:valimc, :online_mode, false)
     refute new_worker == worker
     accept(new_worker)
@@ -250,12 +244,12 @@ defmodule Valimc.DiscoveryTest do
     client =
       Client.send_packet(client, :play, "chat_command", Valimc.Protocol.Wire.string("stats"))
 
-    {_body, _} = Client.await(client, :play, "system_chat")
+    {_body, _} = Client.await_stats(client)
     Client.close(client)
   end
 
   test "offline startup and refresh perform no external fetch" do
-    assert_receive {:discovery_fetch, _, _}, 1000
+    assert_receive {:discovery_fetch, _, _}
     restart(false)
     assert Discovery.publication().ready
     Discovery.refresh()

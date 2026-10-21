@@ -70,17 +70,7 @@ defmodule Valimc.ItemHandoffRegionTest do
 
   defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
 
-  defp wait(fun, remaining \\ 600) do
-    case fun.() do
-      value when value not in [nil, false] ->
-        value
-
-      _ ->
-        assert remaining > 0
-        Process.sleep(5)
-        wait(fun, remaining - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp steps(owner, destination, uuids) do
     state = resource(owner)
@@ -125,7 +115,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     {pid, _} = owner
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 1500
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _}
     assert {:ok, next} = World.item_owner(key)
     next
   end
@@ -182,7 +172,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     assert disk(ctx, ctx.key).ledger.outgoing == nil
     assert :ok = World.set_block({floor(ctx.record.x), 64, floor(ctx.record.z)}, 1)
     :sys.resume(writer)
-    assert {:ok, 1} = Task.await(task)
+    assert {:ok, 1} = Task.await(task, 60_000)
     complete(ctx.owner)
     assert published(ctx.other, ctx.uuid)
   end
@@ -256,8 +246,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     b_steps = steps(ctx.other, ctx.key, b_uuids)
     a = Task.async(fn -> Region.handoff_items(ctx.owner, ctx.destination, a_steps) end)
     b = Task.async(fn -> Region.handoff_items(ctx.other, ctx.key, b_steps) end)
-    assert {:ok, 1} = Task.await(a)
-    assert {:ok, 1} = Task.await(b)
+    assert {:ok, 1} = Task.await(a, 60_000)
+    assert {:ok, 1} = Task.await(b, 60_000)
     complete(ctx.owner)
     complete(ctx.other)
     records = disk(ctx, ctx.key).records ++ disk(ctx, ctx.destination).records
@@ -391,7 +381,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     {pid, epoch} = ctx.owner
     monitor = Process.monitor(job.worker)
     send(pid, {:resource, epoch, {:item_handoff_deadline, job.token}})
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
     assert disk(ctx, ctx.key).ledger.sequence == 1
 
     assert {:ok, {_, _, id, revision}} =

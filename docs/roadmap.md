@@ -47,6 +47,7 @@ resumes on these foundations alongside M2.
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 | [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets (large biomes, amplified, single biome, flat) live, worldgen from a world's data packs, 26.2 worlds upgraded on import | Awaiting client |
+| [VMC-073](tickets/VMC-073.md) | The full `mix test` passes on a loaded host: condition waits, explicit expiry and manual player ticks instead of wall-clock sleeps, scaled owner budgets in tests | Done |
 
 Next: structure placement (VMC-025f), end gateways (VMC-026b4); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
 
@@ -60,11 +61,10 @@ with them; M2 finishes the world and administration commands.
 ## Paused
 
 Cooking-orb simulation ([VMC-034n4c](tickets/VMC-034n4c.md)) is unblocked by the
-entity model (orbs already age and despawn). Additional status effects and
-container variants can resume. Sugar cane and cactus growth need their placement
-survival rules first ([VMC-066](tickets/VMC-066.md)).
-Removing a furnace that holds items is refused until its spill and stored
-experience exist ([VMC-034f](tickets/VMC-034f.md)).
+entity model (orbs already age and despawn). Additional status effects and container
+variants can resume. Sugar cane and cactus growth need their placement survival rules
+first ([VMC-066](tickets/VMC-066.md)). Removing a furnace that holds items is refused
+until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 ## Pending client gates
 

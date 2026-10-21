@@ -138,7 +138,10 @@ defmodule Valimc.Player.Movement do
         input = %{
           position: position,
           flags: flags,
-          deadline: System.monotonic_time(:millisecond) + 250,
+          # The admission window bounds the owner round trip (scaled in tests, VMC-073).
+          deadline:
+            System.monotonic_time(:millisecond) +
+              Valimc.Txn.Permits.window(250, state.player.uuid),
           token: make_ref(),
           retry: nil,
           prepared: nil

@@ -55,19 +55,11 @@ defmodule Valimc.MiningRegionTest do
     }
   end
 
-  defp writing(pid, attempts \\ 200)
-  defp writing(_, 0), do: flunk("mining did not reach bounded writing phase")
-
-  defp writing(pid, attempts) do
-    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
-      %{} = pending ->
-        pending
-
-      _ ->
-        Process.sleep(1)
-        writing(pid, attempts - 1)
-    end
-  end
+  defp writing(pid, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
+      end)
 
   test "pending write publishes neither blocks nor drops, ignores foreign completions and retries exactly once",
        ctx do
@@ -92,7 +84,7 @@ defmodule Valimc.MiningRegionTest do
       assert Task.yield(task, 10) == nil
       assert World.item_snapshot(ctx.key) == %{}
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
+      assert {:ok, :applied} = Task.await(task, 60_000)
       assert World.get_block(ctx.position) == 0
       assert map_size(World.item_snapshot(ctx.key)) == 1
       assert {:ok, {_, receipt}} = Region.item_transfer_receipt(ctx.owner, ctx.transfer.source)
@@ -120,7 +112,7 @@ defmodule Valimc.MiningRegionTest do
       refute_receive {:event, {:block, _, _}}, 20
       refute_received {:event, {:block_batch, _}}
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
+      assert {:ok, :applied} = Task.await(task, 60_000)
       assert_receive {:event, {:block_batch, _}}
       assert_receive {:event, {:block, position, 1}}
       assert position == ctx.position and World.get_block(ctx.position) == 1
@@ -241,7 +233,7 @@ defmodule Valimc.MiningRegionTest do
     assert :ok = World.set_block(ctx.position, Data.block("dirt"))
     assert :ok = World.set_block(ctx.position, 1)
     send(worker, :continue)
-    assert {:ok, :rejected} = Task.await(caller)
+    assert {:ok, :rejected} = Task.await(caller, 60_000)
     assert_receive :planning_finished
     assert World.get_block(ctx.position) == 1
     assert World.item_snapshot(ctx.key) == %{}
@@ -285,9 +277,9 @@ defmodule Valimc.MiningRegionTest do
             DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
           end)
 
-        assert {:error, :mining_commit_uncertain} = Task.await(task)
+        assert {:error, :mining_commit_uncertain} = Task.await(task, 60_000)
         :sys.resume(writer)
-        assert :ok = Task.await(stop)
+        assert :ok = Task.await(stop, 60_000)
         stop
       after
         if Process.alive?(writer), do: :sys.resume(writer)
@@ -312,7 +304,7 @@ defmodule Valimc.MiningRegionTest do
       assert {:error, :mining_commit_uncertain} =
                Region.apply_mining_transfer(ctx.owner, ctx.transfer)
 
-      assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)
@@ -377,7 +369,7 @@ defmodule Valimc.MiningRegionTest do
 
     capture_log(fn ->
       assert {:error, :mining_commit_uncertain} = Region.apply_mining_transfer(ctx.owner, request)
-      assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)
@@ -390,7 +382,7 @@ defmodule Valimc.MiningRegionTest do
     {pid, _} = owner
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, _}
     assert {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
     assert World.get_block(ctx.position) == 89

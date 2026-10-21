@@ -128,9 +128,9 @@ defmodule Valimc.InventoryCloseConnectionTest do
     pid = Enum.find(Valimc.Players.all(), &(&1.name == username)).pid
     ref = Process.monitor(pid)
     Client.send_packet(client, :play, "container_close", <<0, 1>>)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
     Client.send_packet(peer, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(peer, :play, "system_chat")
+    {_, _} = Client.await_stats(peer)
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 end

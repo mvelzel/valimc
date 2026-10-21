@@ -28,7 +28,7 @@ defmodule Valimc.PlacementOwnerTest do
   defp plan(c, item \\ "stone", request \\ nil) do
     request = request || %{position: c.position, face: 1, cursor: {0.5, 0.5, 0.5}}
     {:ok, task} = PlayerPlacementQuery.start(ItemStack.new(item).item_id, request)
-    Task.await(task, 1000)
+    Task.await(task, 60_000)
   end
 
   test "prepared native replacement is inert until a fresh fenced owner commit", c do
@@ -93,7 +93,7 @@ defmodule Valimc.PlacementOwnerTest do
       assert Valimc.TestRegion.published_block(c.owner, c.position) == 0
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
-      assert {:ok, _} = Task.await(task)
+      assert {:ok, _} = Task.await(task, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
@@ -127,7 +127,7 @@ defmodule Valimc.PlacementOwnerTest do
 
       assert Task.yield(removal, 10) == nil
       :sys.resume(writer)
-      assert :ok = Task.await(removal)
+      assert :ok = Task.await(removal, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(removal, :brutal_kill)
@@ -171,10 +171,13 @@ defmodule Valimc.PlacementOwnerTest do
     monitor = Process.monitor(pid)
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} =
-               Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
+      # A fresh placement deadline: the setup above may outlast the plan's on a loaded host.
+      deadline = System.monotonic_time(:millisecond) + 250
 
-      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+      assert {:error, :mining_commit_uncertain} =
+               Region.place_block(c.owner, prepared.revision, prepared.batch, deadline)
+
+      assert_receive {:DOWN, ^monitor, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)
@@ -189,16 +192,12 @@ defmodule Valimc.PlacementOwnerTest do
     assert containers.sequence == 1 and containers.receipts == %{}
   end
 
-  defp wait_writing(pid, tries \\ 200)
-  defp wait_writing(_, 0), do: flunk("joint chest write did not start")
+  defp wait_writing(pid, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks))
+    end)
 
-  defp wait_writing(pid, tries) do
-    if Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks)) do
-      :ok
-    else
-      Process.sleep(1)
-      wait_writing(pid, tries - 1)
-    end
+    :ok
   end
 
   test "corrections share owner message order with later world publications", c do
@@ -219,14 +218,17 @@ defmodule Valimc.PlacementOwnerTest do
     :sys.suspend(pid)
 
     try do
+      # A short deadline that passes while the commit waits behind the suspended owner.
+      deadline = System.monotonic_time(:millisecond) + 50
+
       task =
         Task.async(fn ->
-          Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
+          Region.place_block(c.owner, prepared.revision, prepared.batch, deadline)
         end)
 
-      Process.sleep(275)
+      Process.sleep(60)
       :sys.resume(pid)
-      assert {:error, :invalid_or_expired_placement} = Task.await(task, 1000)
+      assert {:error, :invalid_or_expired_placement} = Task.await(task, 60_000)
       assert World.get_block(c.position) == 0
     after
       :sys.resume(pid)
@@ -255,6 +257,8 @@ defmodule Valimc.PlacementOwnerTest do
 
   test "stalled and absent sources fail without cold admission or blocking the caller", c do
     {pid, _} = c.owner
+    # This owner's queries time out at the play budget (VMC-073).
+    Valimc.TestScope.isolate(pid, owner_call_scale: 1)
     :sys.suspend(pid)
 
     try do

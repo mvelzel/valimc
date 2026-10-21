@@ -74,6 +74,7 @@ defmodule Valimc.World.RegionData do
     :item_saved_generation,
     :item_checkpoint,
     :item_checkpoint_timer,
+    :item_checkpoint_ms,
     :permits,
     :store,
     :store_lease,
@@ -300,6 +301,7 @@ defmodule Valimc.World.RegionData do
       ticks_dirty: false,
       tick_index: tick_index,
       random_tick_speed: Valimc.config(:random_tick_speed, key),
+      item_checkpoint_ms: Valimc.config(:item_checkpoint_ms, key),
       dirty: false,
       unsaved: %{},
       item_writes: [],
@@ -622,7 +624,13 @@ defmodule Valimc.World.RegionData do
                     stamp: stamp,
                     scan_stamp: scan_stamp,
                     retry: retry,
-                    timer: send_after(state, {:item_cross_deadline, token}, 750)
+                    # Bounds the worker's owner round trips (scaled in tests, VMC-073).
+                    timer:
+                      send_after(
+                        state,
+                        {:item_cross_deadline, token},
+                        Valimc.Txn.Permits.window(750)
+                      )
                   }
 
                   %{state | item_cross_job: job}
@@ -844,7 +852,8 @@ defmodule Valimc.World.RegionData do
         id: id,
         uuid: uuid,
         versions: view.physical_revision,
-        expires_at: System.monotonic_time(:millisecond) + 250
+        # A contact window like the item-merge permit's (VMC-073 scales it in tests).
+        expires_at: System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250)
       }
 
       {:reply, {:ok, proposal, fence}, state}
@@ -1372,7 +1381,8 @@ defmodule Valimc.World.RegionData do
       not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
-      not (is_integer(deadline) and now < deadline and deadline <= now + 250) ->
+      not (is_integer(deadline) and now < deadline and
+               deadline <= now + Valimc.Txn.Permits.window(250)) ->
         {:reply, {:error, :expired_destruction}, state}
 
       true ->
@@ -1463,7 +1473,8 @@ defmodule Valimc.World.RegionData do
       end)
 
     cond do
-      not (is_integer(deadline) and deadline > now and deadline <= now + 250 and
+      not (is_integer(deadline) and deadline > now and
+             deadline <= now + Valimc.Txn.Permits.window(250) and
                map_size(batch.edits) == 1) ->
         {:reply, {:error, :invalid_or_expired_placement}, state}
 
@@ -1917,7 +1928,7 @@ defmodule Valimc.World.RegionData do
     if state.item_saved_generation < state.item_motion_generation and state.item_checkpoint == nil and
          state.item_checkpoint_timer == nil do
       token = make_ref()
-      timer = send_after(state, {:item_checkpoint, token}, 1000)
+      timer = send_after(state, {:item_checkpoint, token}, state.item_checkpoint_ms)
       %{state | item_checkpoint_timer: %{token: token, timer: timer}}
     else
       state

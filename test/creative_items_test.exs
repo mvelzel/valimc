@@ -70,7 +70,7 @@ defmodule Valimc.CreativeItemsTest do
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
     assert Valimc.Inventory.get(:sys.get_state(player.pid).inventory, 36) == stone
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(client, :play, "system_chat")
+    {_, _} = Client.await_stats(client)
   end
 
   test "malformed creative stacks disconnect their owner while peers keep responding" do
@@ -84,9 +84,9 @@ defmodule Valimc.CreativeItemsTest do
     Client.send_packet(bad, :play, "set_creative_mode_slot", <<36::16, 0, 99>>)
     {body, _} = Client.await(bad, :play, "disconnect")
     assert :binary.match(body, "invalid creative item") != :nomatch
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(healthy, :play, "system_chat")
+    {_, _} = Client.await_stats(healthy)
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 
@@ -112,9 +112,9 @@ defmodule Valimc.CreativeItemsTest do
 
     {body, _} = Client.await(bad, :play, "disconnect")
     assert :binary.match(body, "invalid creative item") != :nomatch
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(healthy, :play, "system_chat")
+    {_, _} = Client.await_stats(healthy)
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 end

@@ -35,6 +35,7 @@ defmodule Valimc.CookingConnectionTest do
           do: DynamicSupervisor.terminate_child(supervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -48,15 +49,7 @@ defmodule Valimc.CookingConnectionTest do
     }
   end
 
-  defp wait(fun, left \\ 1000) do
-    if value = fun.() do
-      value
-    else
-      assert left > 0
-      Process.sleep(5)
-      wait(fun, left - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, kind, mode \\ :survival, cooking \\ %Valimc.Cooking{}, recipes \\ %{}) do
     input = ItemStack.new(if(kind == :smoker, do: "cod", else: "raw_iron"), 3)
@@ -222,7 +215,7 @@ defmodule Valimc.CookingConnectionTest do
     client = close(client, pid)
     send_click(client, 0, 0, "pickup", old_id)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _client} = Client.await(client, :play, "system_chat")
+    {_, _client} = Client.await_stats(client)
     assert Valimc.TestConn.state(pid).table_menu == nil
     assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
     assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
@@ -614,7 +607,7 @@ defmodule Valimc.CookingConnectionTest do
           )
 
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     assert Valimc.TestConn.state(pid).table_menu.view.generation == 1
     assert Valimc.TestConn.state(pid).table_job == nil
     _client = close(client, pid)

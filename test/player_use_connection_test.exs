@@ -18,21 +18,14 @@ defmodule Valimc.PlayerUseConnectionTest do
   @saturation Valimc.Protocol.EffectTypes.id("saturation")
   @absorption Valimc.Protocol.EffectTypes.id("absorption")
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   setup do
     nonce = System.unique_integer([:positive])
     name = "Use#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-use-#{nonce}")
     key = {137_000 + rem(nonce, 3_333) * 3, 987}
     {rx, rz} = key
@@ -57,6 +50,8 @@ defmodule Valimc.PlayerUseConnectionTest do
       Application.put_env(:valimc, :world_path, old)
       :ok = Valimc.World.Clock.configure({:difficulty, difficulty, true})
       :ok = Valimc.World.Clock.configure({:natural_regeneration, regeneration})
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 

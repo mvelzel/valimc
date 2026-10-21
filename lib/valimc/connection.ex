@@ -278,6 +278,8 @@ defmodule Valimc.Connection do
        motion_pending: nil,
        motion_window: nil,
        simulation_clock: nil,
+       # `:manual` (tests): only explicit `{:player_tick, token}` messages tick (VMC-073).
+       player_ticks: :timer,
        movement_speed_view: nil,
        absorption_view: nil,
        jump_boost_view: nil,

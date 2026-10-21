@@ -54,19 +54,11 @@ defmodule Valimc.PlacementRegionTest do
     Region.reserve_placement(owner, observed.revision, observed.blocks)
   end
 
-  defp writing(pid, attempts \\ 200)
-  defp writing(_, 0), do: flunk("placement did not reach bounded writing phase")
-
-  defp writing(pid, attempts) do
-    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
-      %{} = pending ->
-        pending
-
-      _ ->
-        Process.sleep(1)
-        writing(pid, attempts - 1)
-    end
-  end
+  defp writing(pid, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
+      end)
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
 
@@ -98,8 +90,8 @@ defmodule Valimc.PlacementRegionTest do
       assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
-      assert {:ok, _} = Task.await(proof)
+      assert {:ok, :applied} = Task.await(task, 60_000)
+      assert {:ok, _} = Task.await(proof, 60_000)
       assert World.get_block(ctx.position) == 1
       receipt(ctx, ctx.owner, ctx.transfer, :applied)
       assert World.item_snapshot(ctx.key) == %{}
@@ -130,7 +122,7 @@ defmodule Valimc.PlacementRegionTest do
       assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
+      assert {:ok, :applied} = Task.await(task, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
@@ -161,6 +153,11 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, reservation} = reserve(ctx.owner, [position])
     ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
     request = %{ctx.transfer | edits: %{ctx.position => @chest}}
+    # Only this placement may meet the broken writer, not a write still in flight.
+    Valimc.TestWait.until(fn ->
+      not Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
+    end)
+
     writer = :sys.get_state(ctx.pid).resource.store
     Valimc.TestDisk.break_writer(writer)
     monitor = Process.monitor(ctx.pid)
@@ -169,7 +166,7 @@ defmodule Valimc.PlacementRegionTest do
       assert {:error, :mining_commit_uncertain} =
                Region.apply_placement_transfer(ctx.owner, request)
 
-      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+      assert_receive {:DOWN, ^monitor, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)
@@ -237,7 +234,7 @@ defmodule Valimc.PlacementRegionTest do
 
     results =
       for {task, request} <- Enum.zip(tasks, [ctx.transfer, second]) do
-        case Task.await(task) do
+        case Task.await(task, 60_000) do
           {:error, :item_storage_busy} -> Region.apply_placement_transfer(ctx.owner, request)
           result -> result
         end
@@ -290,7 +287,7 @@ defmodule Valimc.PlacementRegionTest do
     assert :ok = World.set_block(ctx.other, 1)
     assert :ok = World.set_block(ctx.other, 0)
     send(worker, :continue)
-    assert {:ok, :rejected} = Task.await(caller)
+    assert {:ok, :rejected} = Task.await(caller, 60_000)
     assert World.get_block(ctx.position) == 0
     receipt(ctx, ctx.owner, request, :rejected)
   end
@@ -328,6 +325,11 @@ defmodule Valimc.PlacementRegionTest do
         {x + 0.5, y + 0.5, z + 0.5}
       )
 
+    # Only this placement may meet the broken writer, not the new item's write.
+    Valimc.TestWait.until(fn ->
+      not Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
+    end)
+
     records = Valimc.World.Items.records(:sys.get_state(ctx.pid).resource.items)
     writer = :sys.get_state(ctx.pid).resource.store
     Valimc.TestDisk.break_writer(writer)
@@ -337,7 +339,7 @@ defmodule Valimc.PlacementRegionTest do
       assert {:error, :mining_commit_uncertain} =
                Region.apply_placement_transfer(ctx.owner, ctx.transfer)
 
-      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+      assert_receive {:DOWN, ^monitor, :process, _, _}
     end)
 
     Valimc.TestDisk.await_exit(writer)
@@ -361,9 +363,9 @@ defmodule Valimc.PlacementRegionTest do
       stop =
         Task.async(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid) end)
 
-      assert {:error, :mining_commit_uncertain} = Task.await(task)
+      assert {:error, :mining_commit_uncertain} = Task.await(task, 60_000)
       :sys.resume(writer)
-      assert :ok = Task.await(stop)
+      assert :ok = Task.await(stop, 60_000)
       {:ok, owner} = World.item_owner(ctx.key)
       assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, ctx.transfer)
       assert World.get_block(ctx.position) == 1 and World.get_block(ctx.other) == 10

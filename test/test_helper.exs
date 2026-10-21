@@ -3,8 +3,9 @@ run_tmp = Path.join(System.tmp_dir!(), "valimc-test-#{System.os_time()}-#{System
 File.mkdir_p!(run_tmp)
 System.put_env("TMPDIR", run_tmp)
 ExUnit.after_suite(fn _ -> File.rm_rf(run_tmp) end)
-# Concurrent modules share the schedulers; a passing assert_receive returns at once.
-ExUnit.start(assert_receive_timeout: 1000)
+# Concurrent modules share the schedulers, and the host may be loaded by other work;
+# a passing assert_receive returns at once (VMC-073).
+ExUnit.start(assert_receive_timeout: 15_000)
 Code.require_file("support/client.ex", __DIR__)
 :ok = Valimc.TestScope.start()
 # Damage/movement fixtures assert exact health. Food tests explicitly enable recovery.

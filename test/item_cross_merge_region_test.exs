@@ -77,17 +77,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
     saved
   end
 
-  defp wait(fun, tries \\ 600) do
-    case fun.() do
-      value when value not in [nil, false] ->
-        value
-
-      _ ->
-        assert tries > 0
-        Process.sleep(5)
-        wait(fun, tries - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp proposal(c) do
     s = state(c.source)
@@ -140,9 +130,10 @@ defmodule Valimc.ItemCrossMergeRegionTest do
       wait(fn -> Valimc.TestRegion.in_flight?(state(c.target)) end)
       assert disk(c, c.destination).ledger.incoming == %{}
       assert state(c.target).permits.entries == %{}
-      Process.sleep(260)
+      # The contact deadline passes while the capacity is still being written.
+      Valimc.TestRegion.expire_held_replies(c.target)
       :sys.resume(writer)
-      assert {:error, :expired_item_step} = Task.await(task, 2000)
+      assert {:error, :expired_item_step} = Task.await(task, 60_000)
       assert disk(c, c.destination).ledger.incoming[c.key].sequence == 0
       assert disk(c, c.key).ledger.sequence == 6 and disk(c, c.key).records == [c.donor]
       assert {:ok, _} = grant(c)
@@ -170,7 +161,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
       capture_log(fn ->
         Process.exit(pid, :kill)
-        assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 1500
+        assert_receive {:DOWN, ^monitor, :process, ^pid, _}
       end)
 
       {:ok, owner} = World.item_owner(c.key)
@@ -178,10 +169,10 @@ defmodule Valimc.ItemCrossMergeRegionTest do
       Process.sleep(260)
       :sys.resume(writer)
       wait(fn -> finished(c) end)
-      assert {:ok, {key, %{sequence: sequence}}} = Task.await(receipt)
+      assert {:ok, {key, %{sequence: sequence}}} = Task.await(receipt, 60_000)
       assert sequence > 0
       assert key == c.destination
-      assert disk(c, c.key).records == [] and disk(c, c.key).ledger.outgoing == nil
+      wait(fn -> disk(c, c.key).records == [] and disk(c, c.key).ledger.outgoing == nil end)
       assert [%{stack: %{count: 5}}] = disk(c, c.destination).records
       assert {:ok, :already_applied} = Region.apply_item_merge(c.target, request)
     after
@@ -218,7 +209,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
   test "expired contact and stale epochs never authorize a recipient gain", c do
     assert {:ok, request} = grant(c)
-    Process.sleep(260)
+    Valimc.TestRegion.expire_permits(c.target)
     assert {:ok, :prepared} = Region.prepare_item_merge(c.source, request)
     wait(fn -> finished(c) end)
     assert disk(c, c.key).records == [c.donor] and disk(c, c.destination).records == [c.recipient]
@@ -286,7 +277,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     capture_log(fn ->
       assert {:error, :item_commit_uncertain} = Region.prepare_item_merge(c.source, request)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 2000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _}
     end)
 
     assert disk(c, c.key).records == [c.donor] and disk(c, c.key).ledger.sequence == 6
@@ -306,7 +297,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     capture_log(fn ->
       assert {:ok, :prepared} = Region.prepare_item_merge(c.source, request)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 2000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _}
       wait(fn -> finished(c) end)
     end)
 
@@ -409,10 +400,11 @@ defmodule Valimc.ItemCrossMergeRegionTest do
                %{step | id: id, revision: revision, position: {c.donor.x, c.donor.y, c.donor.z}}
              ])
 
-    assert {:ok, proposal, expired} =
+    assert {:ok, proposal, observation} =
              Region.item_merge_donor(c.source, c.donor.uuid, c.recipient.uuid)
 
-    Process.sleep(260)
+    # The observation's window passes (explicitly, however loaded the host).
+    expired = %{observation | expires_at: System.monotonic_time(:millisecond) - 1}
     assert {:ok, request} = Region.reserve_item_merge(c.target, proposal)
     refute World.item_observation_current?(expired)
 

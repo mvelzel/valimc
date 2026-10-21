@@ -9,6 +9,8 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     nonce = System.unique_integer([:positive])
     name = "Effect#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-periodic-#{nonce}")
     old = Valimc.config(:world_path)
     {difficulty, regeneration} = World.Clock.survival()
@@ -33,6 +35,8 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
       :ok = World.Clock.configure({:difficulty, difficulty, true})
       :ok = World.Clock.configure({:natural_regeneration, regeneration})
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -41,16 +45,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 500) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, opts) do
     mode = Keyword.get(opts, :mode, :survival)
@@ -77,7 +72,9 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
-    for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 0)
+
+    for y <- [64, 65],
+        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 0)
   end
 
   defp park(pid) do

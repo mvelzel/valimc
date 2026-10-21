@@ -26,7 +26,7 @@ defmodule Valimc.PlayerStore do
   def open(uuid) do
     case DynamicSupervisor.start_child(Valimc.PlayerStoreSupervisor, {__MODULE__, {uuid, self()}}) do
       {:ok, pid} ->
-        case GenServer.call(pid, :load) do
+        case GenServer.call(pid, :load, budget(pid, 5000)) do
           {:ok, snapshot, fence} -> {:ok, pid, snapshot, fence}
           {:error, reason} -> {:error, reason}
         end
@@ -35,7 +35,7 @@ defmodule Valimc.PlayerStore do
         case Registry.lookup(Valimc.PlayerStoreRegistry, uuid) do
           [{^pid, :closing}] ->
             try do
-              case GenServer.call(pid, :load) do
+              case GenServer.call(pid, :load, budget(pid, 5000)) do
                 {:ok, snapshot, fence} -> {:ok, pid, snapshot, fence}
                 error -> error
               end
@@ -96,10 +96,14 @@ defmodule Valimc.PlayerStore do
   def container_candidate(pid, fence, snapshot, intent, ref),
     do: GenServer.cast(pid, {:container_candidate, self(), fence, snapshot, intent, ref})
 
-  def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
+  def close(pid, fence, snapshot),
+    do: GenServer.call(pid, {:close, fence, snapshot}, budget(pid, 5000))
 
   def close_session(pid, fence, snapshot),
-    do: GenServer.call(pid, {:close_session, fence, snapshot}, 5000)
+    do: GenServer.call(pid, {:close_session, fence, snapshot}, budget(pid, 5000))
+
+  # Call budgets scale like an owner's (`owner_call_scale`, VMC-073): 1 in play.
+  defp budget(pid, ms), do: ms * Valimc.config(:owner_call_scale, pid)
 
   def pose(player), do: Map.take(player, @keys)
 

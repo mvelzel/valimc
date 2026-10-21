@@ -31,9 +31,14 @@ defmodule Valimc.ChestAccess do
       when mode in [:survival, :creative, :adventure] and is_number(hp) and hp > 0 and
              is_integer(expires) and is_integer(now) do
     cond do
-      expires <= now or expires > now + 250 -> {:error, :expired_container_context}
-      valid_view?(block, mode, eye, position) -> :ok
-      true -> {:error, :invalid_container_context}
+      expires <= now or expires > now + Valimc.Txn.Permits.window(250) ->
+        {:error, :expired_container_context}
+
+      valid_view?(block, mode, eye, position) ->
+        :ok
+
+      true ->
+        {:error, :invalid_container_context}
     end
   end
 

@@ -9,6 +9,8 @@ defmodule Valimc.MovementFoodConnectionTest do
     nonce = System.unique_integer([:positive])
     name = "Travel#{nonce}"
     uuid = Connection.offline_uuid(name)
+    # Player ticks come only from the test's own tick messages (VMC-073).
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-travel-food-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
@@ -28,6 +30,8 @@ defmodule Valimc.MovementFoodConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -36,16 +40,7 @@ defmodule Valimc.MovementFoodConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, opts \\ []) do
     mode = Keyword.get(opts, :mode, :survival)
@@ -129,7 +124,7 @@ defmodule Valimc.MovementFoodConnectionTest do
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     client
   end
 
@@ -214,7 +209,7 @@ defmodule Valimc.MovementFoodConnectionTest do
       seed(ctx)
 
       for {y, id} <- unquote(states),
-          do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+          do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
 
       {client, pid} = login(ctx)
       target = %{ctx.pose | y: ctx.pose.y + 0.1}
@@ -247,7 +242,10 @@ defmodule Valimc.MovementFoodConnectionTest do
 
   test "selected swimming takes precedence over the sprint flag", ctx do
     seed(ctx)
-    for y <- 64..66, do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 89)
+
+    for y <- 64..66,
+        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 89)
+
     {client, pid} = login(ctx)
     command(client, pid, true)
     target = %{ctx.pose | y: 64.1}
@@ -260,14 +258,14 @@ defmodule Valimc.MovementFoodConnectionTest do
   test "fresh ladder contact suppresses grounded sprint cost until the ladder is removed", ctx do
     seed(ctx)
     pos = {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
-    :ok = World.set_block(pos, 7308)
+    :ok = Valimc.TestRegion.set_published(pos, 7308)
     {client, pid} = login(ctx)
     command(client, pid, true)
     target = %{ctx.pose | x: ctx.pose.x + 0.1}
     move(client, target)
     moved(pid, target)
     assert state(pid).player.food == %PlayerFood{}
-    :ok = World.set_block(pos, 0)
+    :ok = Valimc.TestRegion.set_published(pos, 0)
     next = %{target | x: target.x + 0.1}
     move(client, next)
     moved(pid, next)
@@ -310,7 +308,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
     assert state(pid).player.food == %PlayerFood{}
-    :ok = World.set_block({floor(ctx.pose.x) + 1, 64, floor(ctx.pose.z)}, 1)
+    :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x) + 1, 64, floor(ctx.pose.z)}, 1)
     move(client, %{ctx.pose | x: ctx.pose.x + 0.4})
     {body, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", body)

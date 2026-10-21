@@ -199,12 +199,12 @@ defmodule Valimc.MiningStoreTest do
     ctx = container_proposal(ctx)
     token = make_ref()
     Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-    assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}, 1000
+    assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}
     assert_outcome(ctx.writer, ctx)
     assert Store.load_containers(ctx.writer) == {:ok, ctx.proposal.containers}
     monitor = Process.monitor(ctx.writer)
     Process.exit(ctx.writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
     assert {:ok, writer, _} = Store.open(ctx.key)
     assert_outcome(writer, ctx)
     assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
@@ -232,7 +232,7 @@ defmodule Valimc.MiningStoreTest do
 
       token = make_ref()
       Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-      assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}, 1000
+      assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}
       assert :ok = Store.close(ctx.writer, ctx.lease)
       assert {:ok, writer, lease} = Store.open(ctx.key)
       assert_outcome(writer, ctx)
@@ -257,8 +257,8 @@ defmodule Valimc.MiningStoreTest do
 
     capture_log(fn ->
       Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-      assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, _}}}, 1000
-      assert_receive {:DOWN, ^monitor, :process, _, {:storage_failed, _}}, 1000
+      assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, _}}}
+      assert_receive {:DOWN, ^monitor, :process, _, {:storage_failed, _}}
     end)
 
     assert durable(ctx) == before
@@ -280,8 +280,7 @@ defmodule Valimc.MiningStoreTest do
       token
     )
 
-    assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :invalid_mining_proposal}}},
-                   1000
+    assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :invalid_mining_proposal}}}
 
     assert durable(ctx) == before
     assert Process.alive?(ctx.writer)

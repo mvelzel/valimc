@@ -20,7 +20,7 @@ defmodule Valimc.TestClient do
         {127, 0, 0, 1},
         Valimc.Listener.port(),
         [:binary, active: false, packet: :raw],
-        5000
+        30_000
       )
 
     %{socket: socket, buffer: <<>>, threshold: nil}
@@ -28,16 +28,11 @@ defmodule Valimc.TestClient do
 
   def close(client), do: :gen_tcp.close(client.socket)
 
-  def await_position(pid, expected, attempts \\ 200) do
-    player = :sys.get_state(pid).player
-
-    if Map.take(player, Map.keys(expected)) == expected do
-      player
-    else
-      if attempts == 0, do: raise("Player did not reach #{inspect(expected)}")
-      Process.sleep(5)
-      await_position(pid, expected, attempts - 1)
-    end
+  def await_position(pid, expected, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      player = :sys.get_state(pid, 30_000).player
+      if Map.take(player, Map.keys(expected)) == expected, do: player
+    end)
   end
 
   def teleport(client, pid, pose) do
@@ -83,7 +78,8 @@ defmodule Valimc.TestClient do
         {id, body, %{client | buffer: rest}}
 
       :more ->
-        {:ok, bytes} = :gen_tcp.recv(client.socket, 0, 5000)
+        # Generous on a loaded host; a passing read returns as data arrives (VMC-073).
+        {:ok, bytes} = :gen_tcp.recv(client.socket, 0, 30_000)
 
         bytes =
           case Map.get(client, :cipher) do
@@ -293,7 +289,28 @@ defmodule Valimc.TestClient do
 
     client = Map.put(client, :pose, %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
     client = auto_reply(client, :play, "player_position", body)
+    # The position packet precedes the player's listing in `Players`; tests look the
+    # player up right after login (VMC-073).
+    Valimc.TestWait.until(fn -> Enum.any?(Valimc.Players.all(), &(&1.name == name)) end)
     {uuid, client}
+  end
+
+  # Every packet sent before `/stats` has been handled once its reply arrives. Other
+  # system chat on the way (join and leave lines) is skipped (VMC-073).
+  def barrier(client) do
+    client = send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_body, client} = await_stats(client)
+    client
+  end
+
+  # The reply can trail a long burst (inventory and chunk packets), so the read
+  # limit is generous.
+  def await_stats(client) do
+    {body, client} = await(client, :play, "system_chat", 5000)
+
+    if :binary.match(body, " schedulers") != :nomatch,
+      do: {body, client},
+      else: await_stats(client)
   end
 
   # View distance 2, the vanilla minimum the test server allows: 7×7 chunks.
@@ -446,7 +463,7 @@ defmodule Valimc.TestDisk do
   Wait until a broken writer has stopped, so the next owner opens a fresh store
   instead of reclaiming the broken one.
   """
-  def await_exit(writer, timeout \\ 2000) do
+  def await_exit(writer, timeout \\ 30_000) do
     ref = Process.monitor(writer)
 
     receive do
@@ -472,7 +489,8 @@ defmodule Valimc.TestConn do
     experience: :experience_job
   ]
 
-  def state(pid), do: view(:sys.get_state(pid))
+  # Generous on a loaded host; a free owner answers at once (VMC-073).
+  def state(pid), do: view(:sys.get_state(pid, 30_000))
 
   def view(%{jobs: %Valimc.Session.Jobs{} = jobs} = state) do
     Enum.reduce(@legacy_jobs, state, fn {kind, key}, acc ->
@@ -504,12 +522,96 @@ defmodule Valimc.TestRegion do
     end
   end
 
+  @doc """
+  The expiry of a contact grant a test builds itself (container contexts, table
+  grants): `ms` scaled like the owner's widest accepted window (VMC-073).
+  """
+  def grant_expires(ms \\ 250),
+    do: System.monotonic_time(:millisecond) + ms * Valimc.config(:owner_call_scale)
+
+  @doc """
+  Wait until collision readers see `block` at `position`: the published snapshot
+  follows durable writes once the owner is quiescent, which a loaded host can lag
+  behind the edit (VMC-073).
+  """
+  def await_published({x, _, z} = position, block) do
+    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+    {:ok, owner} = Valimc.World.existing_owner(key)
+    Valimc.TestWait.until(fn -> published_block(owner, position) == block end)
+    :ok
+  end
+
+  @doc "`World.set_block/2`, then `await_published/2`: the edit as collision readers will see it."
+  def set_published(position, block) do
+    with :ok <- Valimc.World.set_block(position, block), do: await_published(position, block)
+  end
+
+  @doc """
+  `set_published/2`, then wait until `connection` has seen the edit, as it has before
+  its next tick on an idle host: the edit drops geometry it sampled earlier, so a tick
+  between the two would have no frame (VMC-073).
+  """
+  def set_published(position, block, connection) do
+    generation = :sys.get_state(connection, 30_000).pose_generation
+
+    with :ok <- set_published(position, block) do
+      Valimc.TestWait.until(fn ->
+        :sys.get_state(connection, 30_000).pose_generation > generation
+      end)
+
+      :ok
+    end
+  end
+
   @doc "The block at `position` as collision readers see it (the published snapshot)."
   def published_block({pid, epoch}, {x, _, z} = position) do
     key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
     {^pid, _, %{items: table}} = Valimc.World.Directory.lookup(key)
     {:ok, _revision, blocks} = Valimc.World.BlockSnapshot.read(table, epoch, [position])
     blocks[position]
+  end
+
+  @doc """
+  Expire, now, the deadlines of the grants an owner answers once its in-flight
+  writes are durable (pickup and item-merge grants): a test reaches the deadline
+  without sleeping past it, however loaded the host (VMC-073).
+  """
+  def expire_held_replies({pid, _epoch}), do: expire_held_replies(pid)
+
+  def expire_held_replies(pid) do
+    past = System.monotonic_time(:millisecond) - 1
+
+    :sys.replace_state(pid, fn s ->
+      writes =
+        Enum.map(s.resource.item_writes, fn write ->
+          held = Enum.map(write.held, fn {from, reply} -> {from, expire(reply, past)} end)
+          %{write | reply: expire(write.reply, past), held: held}
+        end)
+
+      %{s | resource: %{s.resource | item_writes: writes}}
+    end)
+
+    :ok
+  end
+
+  defp expire({:pickup_grant, actor, uuid, _}, past), do: {:pickup_grant, actor, uuid, past}
+  defp expire({:item_merge_grant, request, _}, past), do: {:item_merge_grant, request, past}
+  defp expire(reply, _past), do: reply
+
+  @doc "Expire every permit an owner holds, now (grant lifetimes without sleeping, VMC-073)."
+  def expire_permits({pid, _epoch}), do: expire_permits(pid)
+
+  def expire_permits(pid) do
+    past = System.monotonic_time(:millisecond) - 1
+
+    :sys.replace_state(pid, fn s ->
+      entries =
+        Map.new(s.resource.permits.entries, fn {token, e} -> {token, %{e | expires: past}} end)
+
+      %{s | resource: %{s.resource | permits: %{s.resource.permits | entries: entries}}}
+    end)
+
+    :ok
   end
 
   @doc "The token of the oldest in-flight item write, or of the pending slot."
@@ -557,7 +659,86 @@ defmodule Valimc.TestScope do
     end
   end
 
+  @doc """
+  Teardown before removing a test world: stop the region owners and stores around
+  `key`, gracefully so their final writes finish first. A player's view (distance
+  2) loads the neighbouring regions, which would otherwise keep writing into the
+  removed directory (VMC-073).
+  """
+  def stop_neighbourhood(key, opts \\ []) do
+    # Serial socket tests also stop the regions around the world spawn, which a
+    # respawn or a spawn-point join loads with the test's world path.
+    regions =
+      if opts[:spawn], do: neighborhood(key) ++ neighborhood({0, 0}), else: neighborhood(key)
+
+    for region <- Enum.uniq(regions),
+        {registry, supervisor} <- [
+          {Valimc.RegionRegistry, Valimc.RegionSupervisor},
+          {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
+        ],
+        {pid, _} <- Registry.lookup(registry, region),
+        do: DynamicSupervisor.terminate_child(supervisor, pid)
+
+    :ok
+  end
+
+  @doc """
+  Stop the connections and player stores writing under the world `base`: a store
+  writes its player file when its session closes, which can race `File.rm_rf!`
+  (VMC-073).
+  """
+  def stop_players(base) do
+    stores =
+      for {_, pid, _, _} <- DynamicSupervisor.which_children(Valimc.PlayerStoreSupervisor),
+          state = safe_state(pid),
+          is_map(state) and String.starts_with?(Map.get(state, :path, ""), base),
+          do: {pid, state}
+
+    uuids = MapSet.new(stores, fn {_, state} -> state.uuid end)
+
+    for player <- Valimc.Players.all(),
+        MapSet.member?(uuids, player.uuid),
+        do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
+
+    for {pid, _} <- stores,
+        do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+
+    :ok
+  end
+
+  defp safe_state(pid) do
+    :sys.get_state(pid, 30_000)
+  catch
+    :exit, _ -> nil
+  end
+
   @doc "`key` and the region keys within `radius` of it (owners a handoff may start)."
   def neighborhood({rx, rz}, radius \\ 1),
     do: for(x <- (rx - radius)..(rx + radius), z <- (rz - radius)..(rz + radius), do: {x, z})
+end
+
+defmodule Valimc.TestWait do
+  @moduledoc """
+  Waiting on a loaded host (VMC-073): poll a condition until it holds or a generous
+  wall-clock deadline passes, never a fixed count of short sleeps. A passing wait
+  returns as soon as its condition does.
+  """
+  @deadline 30_000
+
+  @doc "The condition's truthy value once it holds; fails the test at the deadline."
+  def until(fun, timeout \\ @deadline) do
+    poll(fun, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp poll(fun, deadline) do
+    if value = fun.() do
+      value
+    else
+      if System.monotonic_time(:millisecond) >= deadline,
+        do: ExUnit.Assertions.flunk("condition not reached within the deadline")
+
+      Process.sleep(5)
+      poll(fun, deadline)
+    end
+  end
 end

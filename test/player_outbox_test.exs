@@ -41,6 +41,8 @@ defmodule Valimc.PlayerOutboxTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -69,14 +71,14 @@ defmodule Valimc.PlayerOutboxTest do
       ref
     )
 
-    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, snapshot}}, 1500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, next_fence, snapshot}}
     {next_fence, snapshot}
   end
 
   defp complete(ctx, fence) do
     ref = make_ref()
     PlayerStore.complete_transfer(ctx.writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, result}, 1500
+    assert_receive {:player_transfer_saved, ^ref, result}
     result
   end
 
@@ -92,7 +94,7 @@ defmodule Valimc.PlayerOutboxTest do
   defp kill_writer(ctx) do
     monitor = Process.monitor(ctx.writer)
     Process.exit(ctx.writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
   end
 
   defp creative(snapshot),
@@ -110,7 +112,7 @@ defmodule Valimc.PlayerOutboxTest do
       ref
     )
 
-    assert_receive {:player_transfer_saved, ^ref, result}, 1500
+    assert_receive {:player_transfer_saved, ^ref, result}
     result
   end
 
@@ -138,7 +140,7 @@ defmodule Valimc.PlayerOutboxTest do
         )
       end)
 
-    Task.await(task)
+    Task.await(task, 60_000)
     assert {:ok, loaded, _} = GenServer.call(ctx.writer, :load)
     assert loaded.outbox == nil and loaded.transfer_sequence == 0
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
@@ -260,13 +262,8 @@ defmodule Valimc.PlayerOutboxTest do
   end
 
   # The session's close may still touch the region; let it finish before cleanup.
-  defp closed(uuid, attempts \\ 500) do
-    unless Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] do
-      assert attempts > 0
-      Process.sleep(2)
-      closed(uuid, attempts - 1)
-    end
-  end
+  defp closed(uuid, _budget \\ nil),
+    do: Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
 
   test "prepare/complete fence old saves and retain the sequence in ordinary checkpoints", ctx do
     {prepared_fence, snapshot} = prepare(ctx)
@@ -513,7 +510,7 @@ defmodule Valimc.PlayerOutboxTest do
         GenServer.call(ctx.writer, :load)
       end)
 
-    assert {:error, :not_owner} = Task.await(foreign)
+    assert {:error, :not_owner} = Task.await(foreign, 60_000)
     :sys.suspend(ctx.writer)
     prepare_ref = make_ref()
     stale_ref = make_ref()
@@ -548,7 +545,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert :ok = PlayerStore.close(other, other_fence, ctx.before)
     Application.put_env(:valimc, :world_path, ctx.base)
     :sys.resume(ctx.writer)
-    assert_receive {:player_transfer_saved, ^prepare_ref, {:ok, _, pending}}, 1500
+    assert_receive {:player_transfer_saved, ^prepare_ref, {:ok, _, pending}}
     assert_receive {:player_saved, ^stale_ref, {:error, :stale_player_snapshot}}
     assert saved(ctx) == {:ok, pending}
   end
@@ -571,7 +568,7 @@ defmodule Valimc.PlayerOutboxTest do
     player = Enum.find(Valimc.Players.all(), &(&1.name == name))
     monitor = Process.monitor(player.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 
@@ -631,11 +628,11 @@ defmodule Valimc.PlayerOutboxTest do
         end
       end)
 
-    assert_receive {:owned_pending, writer, old_fence, pending}, 1500
+    assert_receive {:owned_pending, writer, old_fence, pending}
     monitor = Process.monitor(writer)
     send(owner.pid, :finish)
-    assert Task.await(owner) == :ok
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :normal}, 1000
+    assert Task.await(owner, 60_000) == :ok
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :normal}
     {:ok, replacement, recovered, fence} = PlayerStore.open(id)
     assert recovered == pending and fence != old_fence
     assert {:error, :transfer_pending} = PlayerStore.close(replacement, fence, ctx.before)

@@ -33,6 +33,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -41,15 +42,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, attempts \\ 1000) do
-    if result = fun.() do
-      result
-    else
-      assert attempts > 0
-      Process.sleep(5)
-      wait(fun, attempts - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, slots, block \\ Data.block("stone")) do
     player =
@@ -495,7 +488,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
                owner,
                observed.revision,
                batch,
-               System.monotonic_time(:millisecond) + 250
+               Valimc.TestRegion.grant_expires()
              )
 
     {client, pid} = login(ctx)
@@ -540,7 +533,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
                  owner,
                  observed.revision,
                  batch,
-                 System.monotonic_time(:millisecond) + 250
+                 Valimc.TestRegion.grant_expires()
                )
 
       {client, pid} = login(ctx)

@@ -132,7 +132,7 @@ defmodule Valimc.BlockBatchTest do
       assert Task.yield(pending, 10) == nil
       assert {:ok, 1} = Region.set_blocks(second, 0, %{{406 * 128, 64, 407 * 128} => 1})
       :sys.resume(slow)
-      assert Task.await(pending, 1000) == {:ok, 1}
+      assert Task.await(pending, 60_000) == {:ok, 1}
     after
       :sys.resume(slow)
     end

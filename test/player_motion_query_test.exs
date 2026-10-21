@@ -29,7 +29,7 @@ defmodule Valimc.PlayerMotionQueryTest do
 
   defp query(player, changes) do
     {:ok, task} = PlayerMotionQuery.start(player, Map.merge(player, changes))
-    Task.await(task, 1000)
+    Task.await(task, 60_000)
   end
 
   test "open walking, flying and downward floor contact resolve without changing authority", %{

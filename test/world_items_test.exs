@@ -140,6 +140,7 @@ defmodule Valimc.WorldItemsTest do
     results =
       1..32
       |> Task.async_stream(fn _ -> Region.replace_item(handle, ItemStack.new("egg")) end,
+        timeout: 60_000,
         max_concurrency: 32
       )
       |> Enum.map(fn {:ok, result} -> result end)

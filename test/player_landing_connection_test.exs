@@ -39,6 +39,8 @@ defmodule Valimc.PlayerLandingConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -54,16 +56,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, opts) do
     mode = Keyword.get(opts, :mode, :survival)
@@ -163,7 +156,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert state(pid).player.motion.fall_distance == 0.0
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _client} = Client.await(client, :play, "system_chat")
+    {_, _client} = Client.await_stats(client)
     assert state(pid).player.health.value == 19.0
   end
 
@@ -199,7 +192,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     assert state(pid).player.health.value == 15.0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
@@ -228,7 +221,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     wait(fn -> state(pid).player.health.value == 19.0 end)
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(client, :play, "system_chat")
+    {_, _} = Client.await_stats(client)
     assert state(pid).player.motion.fall_distance == 0.0
     assert state(pid).player.health.value == 19.0
   end

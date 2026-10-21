@@ -442,7 +442,8 @@ defmodule Valimc.Player.Mining do
         request: %{position: position, sequence: sequence},
         eye: Valimc.PlayerInteraction.eye(state.player),
         body: %{},
-        expires: System.monotonic_time(:millisecond) + 250
+        expires:
+          System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250, state.player.uuid)
       }
 
       Valimc.Player.Placement.drain_placements(%{

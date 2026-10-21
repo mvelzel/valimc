@@ -36,7 +36,7 @@ defmodule Valimc.TooltipConnectionTest do
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
     assert :sys.get_state(player.pid).inventory.slots[36] == stack
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(client, :play, "system_chat")
+    {_, _} = Client.await_stats(client)
   end
 
   test "malformed/unknown tooltip set input rejects only its owner while a peer responds" do
@@ -62,9 +62,9 @@ defmodule Valimc.TooltipConnectionTest do
 
       {body, _} = Client.await(bad, :play, "disconnect")
       assert :binary.match(body, "invalid creative item") != :nomatch
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, :normal}
       Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-      {_, _} = Client.await(healthy, :play, "system_chat")
+      {_, _} = Client.await_stats(healthy)
     end
   end
 end

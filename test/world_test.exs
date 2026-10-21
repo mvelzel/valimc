@@ -27,7 +27,7 @@ defmodule Valimc.WorldTest do
       assert :ok = World.set_block({14081, 64, 14081}, 1)
       assert World.get_block({14081, 64, 14081}) == 1
       for pid <- blockers, do: send(pid, :release)
-      assert is_binary(Task.await(task, 5000))
+      assert is_binary(Task.await(task, 60_000))
     after
       for pid <- blockers, do: send(pid, :release)
     end
@@ -41,6 +41,7 @@ defmodule Valimc.WorldTest do
           {:ok, pid} = World.region({100, 100})
           pid
         end,
+        timeout: 60_000,
         max_concurrency: 64
       )
       |> Enum.map(fn {:ok, pid} -> pid end)
@@ -54,7 +55,7 @@ defmodule Valimc.WorldTest do
 
     frames =
       1..64
-      |> Task.async_stream(fn _ -> World.chunk(key) end, max_concurrency: 64)
+      |> Task.async_stream(fn _ -> World.chunk(key) end, timeout: 60_000, max_concurrency: 64)
       |> Enum.map(fn {:ok, frame} -> frame end)
 
     assert length(Enum.uniq(frames)) == 1

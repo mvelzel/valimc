@@ -31,6 +31,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -95,16 +96,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     client
   end
 
-  defp wait(fun, tries \\ 200) do
-    if result = fun.(),
-      do: result,
-      else:
-        (
-          assert tries > 0
-          Process.sleep(5)
-          wait(fun, tries - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   test "actual packets replace clicked air and source water, orient halves and merge dry doubles",
        c do
@@ -440,7 +432,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await(client, :play, "system_chat")
+      {_body, client} = Client.await_stats(client)
       assert Valimc.TestConn.state(pid).inventory.selected == 0
       assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
       assert World.get_block(c.target) == 0
@@ -506,6 +498,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   end
 
   test "region stalls leave the socket responsive and cannot spend expired authority", c do
+    # The play placement window, which this test waits out (VMC-073).
+    Valimc.TestScope.isolate(c.uuid, owner_call_scale: 1)
     seed(c)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
@@ -520,7 +514,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       end)
 
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await(client, :play, "system_chat")
+      {_body, client} = Client.await_stats(client)
       Process.sleep(275)
       Valimc.TestRegionGate.resume(owner)
       _client = ack(client)
@@ -532,6 +526,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   end
 
   test "stalled survival sampling fences selection and expires without source consumption", c do
+    # The play placement window, which this test waits out (VMC-073).
+    Valimc.TestScope.isolate(c.uuid, owner_call_scale: 1)
     seed(c, :survival)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
@@ -547,7 +543,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await(client, :play, "system_chat")
+      {_body, client} = Client.await_stats(client)
       assert Valimc.TestConn.state(pid).inventory.selected == 0
       Process.sleep(275)
       Valimc.TestRegionGate.resume(owner)

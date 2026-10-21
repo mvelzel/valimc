@@ -96,15 +96,8 @@ defmodule Valimc.RegionDirectoryTest do
     assert {:ok, _} = World.owner(ctx.other)
   end
 
-  defp await_name_release(key, attempts \\ 100)
-  defp await_name_release(_, 0), do: flunk("old region name was not released")
-
-  defp await_name_release(key, attempts) do
-    if Registry.lookup(Valimc.RegionRegistry, key) == [] do
-      :ok
-    else
-      Process.sleep(1)
-      await_name_release(key, attempts - 1)
-    end
+  defp await_name_release(key, _budget \\ nil) do
+    Valimc.TestWait.until(fn -> Registry.lookup(Valimc.RegionRegistry, key) == [] end)
+    :ok
   end
 end

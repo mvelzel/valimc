@@ -58,7 +58,7 @@ defmodule Valimc.WeatherConnectionTest do
     client =
       Client.send_packet(client, :play, "chat_command", Valimc.Protocol.Wire.string("stats"))
 
-    {body, _} = Client.await(client, :play, "system_chat")
+    {body, _} = Client.await_stats(client)
     assert byte_size(body) > 0
   end
 end

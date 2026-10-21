@@ -46,6 +46,8 @@ defmodule Valimc.ItemVoidRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
+      Valimc.TestScope.stop_neighbourhood(key)
+
       File.rm_rf!(base)
     end)
 
@@ -65,16 +67,7 @@ defmodule Valimc.ItemVoidRegionTest do
   defp enable({pid, _}),
     do: :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})
 
-  defp wait(fun, tries \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert tries > 0
-          Process.sleep(5)
-          wait(fun, tries - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp disk(c) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
@@ -120,7 +113,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
     capture_log(fn ->
       enable(c.owner)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 2000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _}
     end)
 
     assert length(disk(c).records) == 2 and disk(c).ledger == c.ledger

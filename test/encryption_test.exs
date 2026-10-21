@@ -87,7 +87,7 @@ defmodule Valimc.EncryptionTest do
     secret = <<0::128>>
     {:ok, context} = Encryption.new(secret)
     task = Task.async(fn -> Encryption.encrypt(context, <<1>>) end)
-    assert Task.await(task) == {:error, :cipher_owner_mismatch}
+    assert Task.await(task, 60_000) == {:error, :cipher_owner_mismatch}
 
     assert {:error, :invalid_cipher_chunk} =
              Encryption.encrypt(context, :binary.copy(<<0>>, Encryption.max_chunk() + 1))

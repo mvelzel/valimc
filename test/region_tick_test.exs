@@ -32,16 +32,7 @@ defmodule Valimc.RegionTickTest do
     on_exit(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid) end)
 
     # Hold the due time far ahead so ordinary scheduler timing cannot race assertions.
-    state =
-      :sys.replace_state(pid, fn state ->
-        %{
-          state
-          | tick_clock: %{
-              state.tick_clock
-              | deadline: System.monotonic_time(:millisecond) + 60_000
-            }
-        }
-      end)
+    state = hold_deadline(pid)
 
     token = state.tick_clock.token
     send(pid, :tick)
@@ -91,9 +82,22 @@ defmodule Valimc.RegionTickTest do
     assert :sys.get_state(replacement).tick_clock == state.tick_clock
   end
 
+  # Hold the due time far ahead. The timer armed at load may already have fired, so
+  # cancel it and take a fresh token: a tick still queued then carries a stale one
+  # and is ignored, however slowly this test runs (VMC-073).
   defp hold_deadline(pid) do
     :sys.replace_state(pid, fn state ->
-      put_in(state.tick_clock.deadline, System.monotonic_time(:millisecond) + 60_000)
+      Process.cancel_timer(state.tick_timer)
+      clock = state.tick_clock
+
+      %{
+        state
+        | tick_clock: %{
+            clock
+            | deadline: System.monotonic_time(:millisecond) + 60_000,
+              token: {elem(clock.token, 0), make_ref()}
+          }
+      }
     end)
   end
 end

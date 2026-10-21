@@ -108,7 +108,7 @@ defmodule Valimc.PlayerPickupStoreTest do
   defp prepare(ctx) do
     ref = make_ref()
     PlayerStore.prepare_pickup(ctx.writer, ctx.fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}
     assert pending.inventory == ctx.snapshot.inventory and read(ctx) == pending
     {fence, pending}
   end
@@ -116,7 +116,7 @@ defmodule Valimc.PlayerPickupStoreTest do
   defp complete(ctx, fence) do
     ref = make_ref()
     PlayerStore.complete_transfer(ctx.writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, result}, 2000
+    assert_receive {:player_transfer_saved, ^ref, result}
     result
   end
 
@@ -155,10 +155,10 @@ defmodule Valimc.PlayerPickupStoreTest do
     assert read(ctx) == pending
     ref = make_ref()
     PlayerStore.checkpoint(ctx.writer, fence, ctx.snapshot, ref)
-    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}, 2000
+    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}
     ref = make_ref()
     PlayerStore.prepare_pickup(ctx.writer, fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_pending}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_pending}}
   end
 
   test "source restart resolves actual region proof once and persists the gained inventory",
@@ -204,7 +204,7 @@ defmodule Valimc.PlayerPickupStoreTest do
 
     capture_log(fn ->
       assert {:error, :player_commit_uncertain} = complete(ctx, fence)
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}, 2000
+      assert_receive {:DOWN, ^monitor, :process, _, :normal}
     end)
 
     assert read(ctx) == pending

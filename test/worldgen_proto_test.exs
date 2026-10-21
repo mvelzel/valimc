@@ -126,10 +126,13 @@ defmodule Valimc.WorldgenProtoTest do
 
     parallel =
       chunks
-      |> Task.async_stream(fn c ->
-        {:ok, [one]} = Native.worldgen_proto_terrain(state, @source, [c])
-        one
-      end)
+      |> Task.async_stream(
+        fn c ->
+          {:ok, [one]} = Native.worldgen_proto_terrain(state, @source, [c])
+          one
+        end,
+        timeout: 60_000
+      )
       |> Enum.map(fn {:ok, one} -> one end)
 
     assert parallel == serial

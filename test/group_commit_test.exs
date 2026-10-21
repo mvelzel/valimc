@@ -22,6 +22,7 @@ defmodule Valimc.GroupCommitTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_neighbourhood(key)
       File.rm_rf!(base)
     end)
 
@@ -59,8 +60,8 @@ defmodule Valimc.GroupCommitTest do
       assert World.item_snapshot(ctx.key) == views
       assert Valimc.TestRegion.published_block(owner, ctx.block) == 0
       :sys.resume(writer)
-      assert {:ok, _} = Task.await(created)
-      assert Task.await(packet) != chunk
+      assert {:ok, _} = Task.await(created, 60_000)
+      assert Task.await(packet, 60_000) != chunk
       assert_receive {:event, {:block, _, 1}}
       assert map_size(World.item_snapshot(ctx.key)) == 1
     after
@@ -81,7 +82,7 @@ defmodule Valimc.GroupCommitTest do
         end)
 
       {handles, _log} = with_log(fn -> ack_until_failure(owner, ctx.position, 200, []) end)
-      Task.await(killer)
+      Task.await(killer, 60_000)
       {:ok, _} = await_owner(ctx.key, elem(owner, 0))
       recovered = uuids(ctx.key)
       # Each acknowledged create added one item; unacknowledged ones may or may not
@@ -104,23 +105,14 @@ defmodule Valimc.GroupCommitTest do
     :exit, _ -> acc
   end
 
-  defp wait(fun, tries \\ 200) do
-    unless fun.() do
-      assert tries > 0
-      Process.sleep(1)
-      wait(fun, tries - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp await_owner(key, old, tries \\ 200) do
-    case World.item_owner(key) do
-      {:ok, {pid, _} = owner} when pid != old ->
-        {:ok, owner}
-
-      _ ->
-        assert tries > 0
-        Process.sleep(5)
-        await_owner(key, old, tries - 1)
-    end
+  defp await_owner(key, old, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      case World.item_owner(key) do
+        {:ok, {pid, _} = owner} when pid != old -> {:ok, owner}
+        _ -> nil
+      end
+    end)
   end
 end

@@ -109,7 +109,7 @@ defmodule Valimc.LootChestRegionTest do
       secondary: false,
       main: false,
       off: false,
-      expires: System.monotonic_time(:millisecond) + 200
+      expires: Valimc.TestRegion.grant_expires(200)
     }
   end
 
@@ -120,7 +120,7 @@ defmodule Valimc.LootChestRegionTest do
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())
     ref = make_ref()
     assert :ok = Region.request_table(owner, self(), ref, position, grant(position, mode))
-    assert_receive {:event, {:table_admitted, ^ref, ^owner, decision}}, 2000
+    assert_receive {:event, {:table_admitted, ^ref, ^owner, decision}}
 
     if decision == {:error, :expired_chest_grant} and tries > 1,
       do: open(ctx, position, mode, tries - 1),

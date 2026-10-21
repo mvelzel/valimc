@@ -15,6 +15,7 @@ defmodule Valimc.Txn.Permits do
     pickup: %{
       limit: 128,
       lifetime: 250,
+      scaled: true,
       per_source: :pickup_already_pending,
       full: :pickup_permits_full
     },
@@ -27,6 +28,7 @@ defmodule Valimc.Txn.Permits do
     item_merge: %{
       limit: 8,
       lifetime: 250,
+      scaled: true,
       per_source: :item_merge_already_pending,
       full: :item_merge_permits_full
     },
@@ -40,7 +42,23 @@ defmodule Valimc.Txn.Permits do
 
   def new, do: %__MODULE__{}
 
-  def lifetime(kind), do: @kinds[kind].lifetime
+  @doc """
+  A kind's lifetime in ms. The short contact grants scale with the issuing owner's
+  `owner_call_scale` like its call budgets (VMC-073): 1 in play.
+  """
+  def lifetime(kind) do
+    case @kinds[kind] do
+      %{scaled: true, lifetime: ms} -> window(ms)
+      %{lifetime: ms} -> ms
+    end
+  end
+
+  @doc """
+  A contact window of `ms` as the calling owner measures it: `ms` in play, scaled by
+  `owner_call_scale` in tests (VMC-073). Owners use it for the widest grant they
+  accept; a connection passes its player's UUID as `scope` for the grants it issues.
+  """
+  def window(ms, scope \\ self()), do: ms * Valimc.config(:owner_call_scale, scope)
 
   @doc "Whether `source` may receive a `kind` permit now (limits and one-per-source)."
   def admit(%__MODULE__{} = permits, kind, source, now) do

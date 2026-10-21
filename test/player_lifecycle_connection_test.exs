@@ -28,6 +28,8 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -63,16 +65,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp login(name) do
     {_, client} = Client.login(name)
@@ -197,7 +190,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     wait(fn -> state(pid).life_stage == :dead end)
     monitor = Process.monitor(pid)
     Client.close(client)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     wait(fn ->
       Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
@@ -251,7 +244,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
         wait(fn -> match?(%{stage: :delivery}, state(pid).recovery) end)
         monitor = Process.monitor(pid)
         Client.close(client)
-        assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+        assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
         wait(fn -> not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == name end) end)
         next = Client.begin_login(name)
 
@@ -310,7 +303,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       :sys.resume(writer)
     end
 
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     wait(fn ->
       Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
@@ -405,7 +398,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       :sys.resume(pid)
     end
 
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     wait(fn ->
       Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
@@ -430,7 +423,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     Client.send_packet(client, :play, "client_command", <<0>>)
     Client.send_packet(client, :play, "client_command", <<0>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await_stats(client)
     assert state(pid).life_stage == :alive and state(pid).player.health == health
     Client.send_packet(client, :play, "client_command", <<0, 0>>)
     {_, _} = Client.await(client, :play, "disconnect")

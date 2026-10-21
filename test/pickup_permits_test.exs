@@ -1,5 +1,7 @@
 defmodule Valimc.PickupPermitsTest do
   use ExUnit.Case, async: true
+  # Pickup permits live the play lifetime here (VMC-073).
+  setup do: Valimc.TestScope.isolate(self(), owner_call_scale: 1)
   alias Valimc.{GameMode, ItemMotionState}
   alias Valimc.Physics.{ItemPickup, PlayerPose}
   alias Valimc.Protocol.ItemStack

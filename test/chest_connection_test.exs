@@ -36,6 +36,7 @@ defmodule Valimc.ChestConnectionTest do
           do: DynamicSupervisor.terminate_child(supervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -49,15 +50,7 @@ defmodule Valimc.ChestConnectionTest do
     }
   end
 
-  defp wait(fun, left \\ 1000) do
-    if value = fun.() do
-      value
-    else
-      assert left > 0
-      Process.sleep(5)
-      wait(fun, left - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, mode \\ :survival, present \\ true, stock \\ ItemStack.new("diamond", 3)) do
     inventory = %Inventory{slots: %{36 => ItemStack.new("oak_planks", 8)}}
@@ -349,7 +342,7 @@ defmodule Valimc.ChestConnectionTest do
       Client.send_packet(client, :play, "set_carried_item", <<2::signed-16>>)
       Client.send_packet(client, :play, "container_click", <<0, 0, 36::signed-16, 0, 0, 0, 0>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await(client, :play, "system_chat")
+      {_, client} = Client.await_stats(client)
 
       assert Valimc.TestConn.state(pid).table_menu == nil and
                Valimc.TestConn.state(pid).table_closing
@@ -422,7 +415,7 @@ defmodule Valimc.ChestConnectionTest do
 
     first = open(first, ctx)
     subscribed(first_pid)
-    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _lid, sound}}, 1000
+    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _lid, sound}}
     assert is_binary(sound)
 
     assert {:ok, _id, expected, <<>>} =
@@ -442,7 +435,7 @@ defmodule Valimc.ChestConnectionTest do
     refute_receive {:event, {:chest_lid, _, _, _, _, _}}, 20
     Client.send_packet(second, :play, "container_close", Wire.varint(second.inventory.container))
     _second = content(second, &(&1.container == 0))
-    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _lid, sound}}, 1000
+    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _lid, sound}}
     assert is_binary(sound)
 
     Client.send_packet(
@@ -457,10 +450,10 @@ defmodule Valimc.ChestConnectionTest do
 
     _first = open(first, ctx)
     subscribed(first_pid)
-    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _, sound}}, 1000
+    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _, sound}}
     assert is_binary(sound)
     assert :ok = World.remove_block(position)
-    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}, 1000
+    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}
     wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
   end
 
@@ -604,7 +597,7 @@ defmodule Valimc.ChestConnectionTest do
     for client <- [first, second],
         do: Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
 
-    {_, first} = Client.await(first, :play, "system_chat")
+    {_, first} = Client.await_stats(first)
     {_, second} = Client.await(second, :play, "system_chat")
 
     wait(fn ->
@@ -765,7 +758,7 @@ defmodule Valimc.ChestConnectionTest do
         owner,
         observed.revision,
         batch,
-        System.monotonic_time(:millisecond) + 250
+        Valimc.TestRegion.grant_expires()
       )
 
     client = open(client, ctx)

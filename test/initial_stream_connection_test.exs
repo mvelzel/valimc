@@ -5,15 +5,7 @@ defmodule Valimc.InitialStreamConnectionTest do
   alias Valimc.TestClient, as: Client
   @chunks ~w(chunk_batch_start level_chunk_with_light chunk_batch_finished)
 
-  defp wait(fun, attempts \\ 200) do
-    if value = fun.() do
-      value
-    else
-      assert attempts > 0
-      Process.sleep(5)
-      wait(fun, attempts - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp drain(client, names \\ []) do
     case Wire.next_frame(client.buffer, 2_097_152, client.threshold) do

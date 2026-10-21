@@ -51,7 +51,7 @@ defmodule Valimc.DifficultyConnectionTest do
     first = Client.send_packet(first, :play, "change_difficulty", <<0>>)
     first = Client.send_packet(first, :play, "lock_difficulty", <<0>>)
     first = Client.send_packet(first, :play, "chat_command", Wire.string("stats"))
-    {_body, first} = Client.await(first, :play, "system_chat")
+    {_body, first} = Client.await_stats(first)
     assert Clock.snapshot().difficulty.level == 3 and Clock.snapshot().difficulty.locked
     _first = first |> no_changes_until_time() |> no_changes_until_time()
     Client.close(second)

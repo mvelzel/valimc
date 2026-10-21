@@ -89,7 +89,9 @@ defmodule Valimc.Player.Placement do
             slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
             mode: state.player.game_mode.current,
             body: placement_body(state, request),
-            expires: System.monotonic_time(:millisecond) + 250
+            expires:
+              System.monotonic_time(:millisecond) +
+                Valimc.Txn.Permits.window(250, state.player.uuid)
           }
 
         stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->

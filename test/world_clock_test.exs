@@ -2,14 +2,9 @@ defmodule Valimc.WorldClockTest do
   use ExUnit.Case, async: true
   alias Valimc.World.{Clock, ClockRecord, ClockState, ClockStore}
 
-  defp eventually(fun, attempts \\ 100) do
-    if fun.() do
-      :ok
-    else
-      assert attempts > 0
-      Process.sleep(5)
-      eventually(fun, attempts - 1)
-    end
+  defp eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 
   defp clock(opts \\ []) do
@@ -232,7 +227,7 @@ defmodule Valimc.WorldClockTest do
     File.mkdir_p!(path)
     File.write!(ClockStore.path(path), bytes)
     send(pid, {:clock_save_deadline, pending.token})
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :clock_save_timeout}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :clock_save_timeout}
     refute Process.alive?(state.store)
     assert File.read!(ClockStore.path(path)) == bytes
     replacement = clock(world_path: path)
@@ -254,8 +249,7 @@ defmodule Valimc.WorldClockTest do
 
     # The owner allows up to five seconds to retire its linked I/O process.
     # Wait through that bounded cleanup while still requiring the exact write failure.
-    assert_receive {:DOWN, ^monitor, :process, ^pid, {:clock_save_failed, {:error, :enotdir}}},
-                   6000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, {:clock_save_failed, {:error, :enotdir}}}
 
     assert File.read!(path) == "blocked-directory"
   end

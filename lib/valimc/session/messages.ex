@@ -703,7 +703,7 @@ defmodule Valimc.Session.Messages do
     Valimc.Connection.guard_connection(state, fn ->
       case TickClock.advance(clock, token, System.monotonic_time(:millisecond)) do
         {:ok, next, late, delay} ->
-          Process.send_after(self(), {:player_tick, next.token}, delay)
+          schedule_player_tick(state, next, delay)
           Metrics.add(:player_ticks)
           if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
 
@@ -748,7 +748,7 @@ defmodule Valimc.Session.Messages do
            |> Movement.sample_pose()}
 
         {:early, next, delay} ->
-          Process.send_after(self(), {:player_tick, next.token}, delay)
+          schedule_player_tick(state, next, delay)
           {:noreply, %{state | simulation_clock: next}}
 
         :stale ->
@@ -926,4 +926,10 @@ defmodule Valimc.Session.Messages do
     Logger.warning("Connection ignored unexpected message: #{inspect(message, limit: 8)}")
     {:noreply, state}
   end
+
+  # Manual clocks (tests) tick only on explicit messages.
+  defp schedule_player_tick(%{player_ticks: :manual}, _next, _delay), do: :ok
+
+  defp schedule_player_tick(_state, next, delay),
+    do: Process.send_after(self(), {:player_tick, next.token}, delay)
 end

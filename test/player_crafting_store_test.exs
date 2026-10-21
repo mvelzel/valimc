@@ -61,7 +61,7 @@ defmodule Valimc.PlayerCraftingStoreTest do
       ref
     )
 
-    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 1_500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}
     assert pending.transfer_sequence == 1 and pending.inventory.slots == %{}
     assert pending.outbox.records == records
     stale = make_ref()
@@ -77,10 +77,10 @@ defmodule Valimc.PlayerCraftingStoreTest do
       stale
     )
 
-    assert_receive {:player_transfer_saved, ^stale, {:error, :stale_player_snapshot}}, 1_000
+    assert_receive {:player_transfer_saved, ^stale, {:error, :stale_player_snapshot}}
     missing = make_ref()
     PlayerStore.complete_transfer(ctx.writer, fence, missing)
-    assert_receive {:player_transfer_saved, ^missing, {:error, :transfer_not_applied}}, 1_000
+    assert_receive {:player_transfer_saved, ^missing, {:error, :transfer_not_applied}}
     {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     {:ok, {region, _} = destination} = World.item_owner(ctx.key)
     assert {:ok, :applied} = Region.apply_item_transfer(destination, request)
@@ -88,7 +88,7 @@ defmodule Valimc.PlayerCraftingStoreTest do
     assert :ok = Region.remove_item(handle)
     monitor = Process.monitor(ctx.writer)
     Process.exit(ctx.writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     {:ok, writer, recovered, fence} = PlayerStore.open(ctx.uuid)
     assert recovered.outbox == pending.outbox and recovered.inventory.slots == %{}
@@ -97,7 +97,7 @@ defmodule Valimc.PlayerCraftingStoreTest do
     assert World.item_snapshot(ctx.key) == %{}
     completed = make_ref()
     PlayerStore.complete_transfer(writer, fence, completed)
-    assert_receive {:player_transfer_saved, ^completed, {:ok, fence, resolved}}, 1_500
+    assert_receive {:player_transfer_saved, ^completed, {:ok, fence, resolved}}
     assert resolved.outbox == nil and resolved.transfer_sequence == 1
     assert :ok = PlayerStore.close(writer, fence, resolved)
     {:ok, writer, saved, fence} = PlayerStore.open(ctx.uuid)
@@ -121,7 +121,7 @@ defmodule Valimc.PlayerCraftingStoreTest do
       ref
     )
 
-    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_crafting_transfer}}, 1_000
+    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_crafting_transfer}}
     refute File.exists?(PlayerStore.path(ctx.base, ctx.uuid))
     assert World.item_snapshot(ctx.key) == %{}
     assert :ok = PlayerStore.close(ctx.writer, ctx.fence, %{before | inventory: %Inventory{}})

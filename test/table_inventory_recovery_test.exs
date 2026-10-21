@@ -51,23 +51,14 @@ defmodule Valimc.TableInventoryRecoveryTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
     %{base: base, key: key, uuid: uuid, name: name, snapshot: snapshot, inventory: inventory}
   end
 
-  defp wait(fun, attempts \\ 1_000) do
-    case fun.() do
-      value when value not in [nil, false] ->
-        value
-
-      _ ->
-        assert attempts > 0
-        Process.sleep(5)
-        wait(fun, attempts - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp idle(ctx), do: wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
 
@@ -132,7 +123,7 @@ defmodule Valimc.TableInventoryRecoveryTest do
 
     ref = make_ref()
     PlayerStore.prepare_transfer(writer, fence, ctx.snapshot, next, key, batch, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, pending}}, 1_500
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, pending}}
     assert {:ok, ^key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     {:ok, {region, _} = destination} = World.item_owner(key)
     assert {:ok, :applied} = Region.apply_item_transfer(destination, request)
@@ -141,7 +132,7 @@ defmodule Valimc.TableInventoryRecoveryTest do
     assert :ok = Region.remove_item(handle)
     monitor = Process.monitor(writer)
     Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1_000
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
 
     {_, client} = Client.login(ctx.name)

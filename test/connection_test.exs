@@ -24,13 +24,13 @@ defmodule Valimc.ConnectionTest do
     assert uuid == Valimc.Connection.offline_uuid(username)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, _} = Client.await(client, :play, "system_chat")
+    {body, _} = Client.await_stats(client)
     assert :binary.match(body, "schedulers") != :nomatch
     Client.send_packet(client, :play, "chat_command", Wire.string("spawn"))
     {teleport, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", teleport)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_body, _} = Client.await(client, :play, "system_chat")
+    {_body, _} = Client.await_stats(client)
   end
 
   test "one killed player leaves peers and listener running" do
@@ -42,10 +42,10 @@ defmodule Valimc.ConnectionTest do
     first_player = Enum.find(Valimc.Players.all(), &(&1.name == first_name))
     Process.exit(first_player.pid, :kill)
     Client.send_packet(second, :play, "chat_command", Wire.string("stats"))
-    {_body, second} = Client.await(second, :play, "system_chat")
+    {_body, second} = Client.await_stats(second)
     assert Process.alive?(Process.whereis(Valimc.Listener))
     Client.send_packet(second, :play, "chat_command", Wire.string("stats"))
-    {_body, _} = Client.await(second, :play, "system_chat")
+    {_body, _} = Client.await_stats(second)
   end
 
   test "commands follow Brigadier whitespace and report vanilla failures" do
@@ -54,7 +54,7 @@ defmodule Valimc.ConnectionTest do
     client = Client.load_world(client)
 
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, client} = Client.await(client, :play, "system_chat")
+    {body, client} = Client.await_stats(client)
     assert :binary.match(body, "schedulers") != :nomatch
 
     client =
@@ -117,7 +117,8 @@ defmodule Valimc.ConnectionTest do
   end
 
   test "peer updates publish the latest movement from a burst" do
-    {_, sender} = Client.login(name("Move"))
+    sender_name = name("Move")
+    {_, sender} = Client.login(sender_name)
     on_exit(fn -> Client.close(sender) end)
     {_, receiver} = Client.login(name("See"))
     on_exit(fn -> Client.close(receiver) end)
@@ -136,12 +137,26 @@ defmodule Valimc.ConnectionTest do
       end
 
     Client.send_raw(sender, frames)
-    {body, _} = Client.await(receiver, :play, "move_entity_pos_rot")
+    # Peers get the latest position per publication, not one packet per input. On a
+    # loaded host the burst may straddle a publication, so sum the sender's deltas
+    # (VMC-073).
+    entity = Enum.find(Valimc.Players.all(), &(&1.name == sender_name)).entity_id
+    {dx, packets} = coalesced_moves(receiver, entity, 1229)
+    assert dx == 1229 and packets < 20
+  end
 
-    {_entity, <<1, dx::signed-16, 0::signed-16, 0::signed-16, _yaw, _pitch>>} =
-      Wire.take_varint(body)
+  defp coalesced_moves(client, entity, target, dx \\ 0, packets \\ 0) do
+    {body, client} = Client.await(client, :play, "move_entity_pos_rot")
 
-    assert dx == 1229
+    case Wire.take_varint(body) do
+      {^entity, <<1, step::signed-16, 0::signed-16, 0::signed-16, _yaw, _pitch>>} ->
+        if dx + step >= target,
+          do: {dx + step, packets + 1},
+          else: coalesced_moves(client, entity, target, dx + step, packets + 1)
+
+      _other ->
+        coalesced_moves(client, entity, target, dx, packets)
+    end
   end
 
   test "mailbox overload terminates only the slow connection" do
@@ -156,8 +171,8 @@ defmodule Valimc.ConnectionTest do
     for _ <- 1..300, do: Valimc.Connection.deliver(player.pid, {:chat, "load"})
     # A stuck (here: suspended) connection cannot handle the graceful signal and is
     # killed by the fallback timer.
-    assert_receive {:DOWN, ^ref, :process, _, :killed}, 2_000
+    assert_receive {:DOWN, ^ref, :process, _, :killed}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_body, _} = Client.await(healthy, :play, "system_chat")
+    {_body, _} = Client.await_stats(healthy)
   end
 end

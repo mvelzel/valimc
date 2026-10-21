@@ -38,6 +38,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
 
       Application.put_env(:valimc, :world_path, previous)
       Application.put_env(:valimc, :item_simulation, simulation)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -76,16 +77,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {client, pid}
   end
 
-  defp wait(fun, tries \\ 600) do
-    if result = fun.(),
-      do: result,
-      else:
-        (
-          assert tries > 0
-          Process.sleep(5)
-          wait(fun, tries - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp spawn_item(c, stack, dx \\ 0.0) do
     at = {c.pose.x + dx, c.pose.y, c.pose.z}
@@ -216,7 +208,12 @@ defmodule Valimc.PlayerPickupConnectionTest do
       motion: %Valimc.ItemMotionState{no_gravity: true, pickup_delay: 4}
     }
 
-    assert {:ok, [_]} = Region.advance_items(owner, [step])
+    # Owner ticks age the item and bump its revision; step from the current one.
+    Valimc.TestWait.until(fn ->
+      revision = :sys.get_state(elem(owner, 0)).resource.items.entries[id].revision
+      match?({:ok, [_]}, Region.advance_items(owner, [%{step | revision: revision}]))
+    end)
+
     _client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
     Process.sleep(100)
     {region, ^epoch} = owner
@@ -291,7 +288,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   test "an expired permission during a paused source save rejects then retries without loss", c do
     seed(c)
     {client, pid} = login(c)
-    {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
+    {owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
     writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
@@ -300,7 +297,8 @@ defmodule Valimc.PlayerPickupConnectionTest do
       wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       assert saved(c).inventory.slots == %{} and saved(c).outbox == nil
       assert [%{stack: %{count: 7}}] = records(c, key)
-      Process.sleep(260)
+      # The pickup permit expires while the player's save is paused.
+      Valimc.TestRegion.expire_permits(owner)
       :sys.resume(writer)
       wait(fn -> picked(pid, 36, 7) end)
       assert records(c, key) == [] and saved(c).outbox == nil
@@ -314,7 +312,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
        c do
     seed(c)
     {client, pid} = login(c)
-    {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
+    {owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
     writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
@@ -322,7 +320,8 @@ defmodule Valimc.PlayerPickupConnectionTest do
       client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
       wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       Client.close(client)
-      Process.sleep(260)
+      # The pickup permit expires while the player's save is paused.
+      Valimc.TestRegion.expire_permits(owner)
       :sys.resume(writer)
 
       wait(fn ->
@@ -362,7 +361,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
       {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7))
       Process.sleep(100)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {chat, _client} = Client.await(client, :play, "system_chat")
+      {chat, _client} = Client.await_stats(client)
       assert :binary.match(chat, "schedulers") != :nomatch
 
       assert Valimc.TestConn.state(pid).recovery == nil and

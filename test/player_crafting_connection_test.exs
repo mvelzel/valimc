@@ -31,21 +31,14 @@ defmodule Valimc.PlayerCraftingConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
     %{base: base, name: name, uuid: uuid, pose: pose, key: key}
   end
 
-  defp wait(fun, attempts \\ 1_000) do
-    if value = fun.() do
-      value
-    else
-      assert attempts > 0
-      Process.sleep(5)
-      wait(fun, attempts - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, slots) do
     player =

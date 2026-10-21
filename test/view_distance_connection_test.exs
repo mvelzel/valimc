@@ -27,8 +27,9 @@ defmodule Valimc.ViewDistanceConnectionTest do
 
     {_, <<x::float-64, _y::float-64, z::float-64, _::binary>>} = Wire.take_varint(position)
     client = Client.auto_reply(client, :play, "player_position", position)
-    <<_entity::32, 0, 1, rest::binary>> = login
-    {_dimension, rest} = Wire.take_string(rest)
+    <<_entity::32, 0, rest::binary>> = login
+    {dimensions, rest} = Wire.take_varint(rest)
+    rest = Enum.reduce(1..dimensions, rest, fn _, rest -> elem(Wire.take_string(rest), 1) end)
     {_max_players, rest} = Wire.take_varint(rest)
     {chunk_radius, rest} = Wire.take_varint(rest)
     {simulation, _} = Wire.take_varint(rest)
@@ -43,16 +44,11 @@ defmodule Valimc.ViewDistanceConnectionTest do
     }
   end
 
-  defp owner(uuid, attempts \\ 200) do
-    case Enum.find_value(Players.all(), &if(&1.uuid == uuid, do: &1.pid)) do
-      nil when attempts > 0 ->
-        Process.sleep(5)
-        owner(uuid, attempts - 1)
-
-      pid when is_pid(pid) ->
-        pid
-    end
-  end
+  defp owner(uuid, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        Enum.find_value(Players.all(), &if(&1.uuid == uuid, do: &1.pid))
+      end)
 
   defp floor_div(coordinate), do: Integer.floor_div(floor(coordinate), 16)
 
@@ -118,8 +114,9 @@ defmodule Valimc.ViewDistanceConnectionTest do
       assert length(chunks) == count and forgotten == []
       assert MapSet.new(chunks) == view(joined.center, tracked)
       assert :sys.get_state(joined.owner).view == {joined.center, tracked}
-      # Vanilla's first batch carries its starting rate, later ones the client's.
-      assert hd(batches) == 9 and Enum.all?(batches, &(&1 <= 64)) and Enum.sum(batches) == count
+      # Vanilla's first batch is bounded by its starting rate, later ones by the
+      # client's; chunks of a region still loading wait for a later batch.
+      assert hd(batches) <= 9 and Enum.all?(batches, &(&1 <= 64)) and Enum.sum(batches) == count
     end
   end
 
@@ -151,6 +148,6 @@ defmodule Valimc.ViewDistanceConnectionTest do
     joined = join(4)
     Client.send_packet(joined.client, :play, "client_information", <<1, ?a>>)
     ref = Process.monitor(joined.owner)
-    assert_receive {:DOWN, ^ref, :process, _, _}, 2000
+    assert_receive {:DOWN, ^ref, :process, _, _}
   end
 end

@@ -182,9 +182,9 @@ defmodule Valimc.InventoryClickConnectionTest do
     Client.send_packet(client, :play, "container_click", <<0, 0, 9::16, 0, 0, 0, 0, 99>>)
     {body, _} = Client.await(client, :play, "disconnect")
     assert :binary.match(body, "Malformed inventory click") != :nomatch
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await(healthy, :play, "system_chat")
+    {_, _} = Client.await_stats(healthy)
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 end

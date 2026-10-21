@@ -42,7 +42,7 @@ defmodule Valimc.ChestOpening do
            hand in [:main, :off] and is_boolean(secondary) and
              is_boolean(main) and is_boolean(off) do
       cond do
-        expires <= now or expires > now + 250 ->
+        expires <= now or expires > now + Valimc.Txn.Permits.window(250) ->
           {:error, :expired_chest_grant}
 
         kind == :open and

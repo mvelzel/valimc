@@ -24,10 +24,16 @@ defmodule Valimc.World.Region do
       shutdown: 20_000
     }
 
-  def flush(pid), do: GenServer.call(pid, :flush, 15_000)
+  def flush(pid), do: GenServer.call(pid, :flush, budget(pid, 15_000))
+
+  # Owner call budgets (and the deadlines requests carry) scale with
+  # `owner_call_scale`: 1 in play; tests on a loaded host raise it, and pin it back to
+  # 1 for an owner whose timeout they exercise (VMC-073).
+  defp budget(pid, ms), do: ms * Valimc.config(:owner_call_scale, pid)
 
   @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
-  def step({pid, _epoch}, ticks \\ 1), do: GenServer.call(pid, {:step, ticks}, 10_000)
+  def step({pid, _epoch}, ticks \\ 1),
+    do: GenServer.call(pid, {:step, ticks}, budget(pid, 10_000))
 
   @doc "Read one owner-local block revision; this observation does not authorize later mutations."
   def observe_blocks(owner, positions, expected_revision \\ :any)
@@ -35,7 +41,11 @@ defmodule Valimc.World.Region do
   def observe_blocks({pid, epoch}, positions, expected_revision)
       when is_pid(pid) and is_reference(epoch) do
     if RegionData.valid_block_query?(positions, expected_revision) do
-      GenServer.call(pid, {:observe_blocks, epoch, positions, expected_revision}, 250)
+      GenServer.call(
+        pid,
+        {:observe_blocks, epoch, positions, expected_revision},
+        budget(pid, 250)
+      )
     else
       {:error, :invalid_block_query}
     end
@@ -48,7 +58,7 @@ defmodule Valimc.World.Region do
 
   @doc "A chunk's current light image (VMC-022c), for diagnostics and tests."
   def light_image({pid, epoch}, chunk) when is_pid(pid) and is_reference(epoch),
-    do: GenServer.call(pid, {:light_image, epoch, chunk}, 1000)
+    do: GenServer.call(pid, {:light_image, epoch, chunk}, budget(pid, 1000))
 
   @doc "Observe bounded native column heights at the same fence as block observations."
   def observe_columns(owner, columns, expected_revision \\ :any)
@@ -56,7 +66,7 @@ defmodule Valimc.World.Region do
   def observe_columns({pid, epoch}, columns, expected_revision)
       when is_pid(pid) and is_reference(epoch) do
     if RegionData.valid_column_query?(columns, expected_revision) do
-      GenServer.call(pid, {:observe_columns, epoch, columns, expected_revision}, 250)
+      GenServer.call(pid, {:observe_columns, epoch, columns, expected_revision}, budget(pid, 250))
     else
       {:error, :invalid_column_query}
     end
@@ -99,7 +109,7 @@ defmodule Valimc.World.Region do
   def set_blocks({pid, epoch}, revision, edits)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
-         do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, 1000)
+         do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
     :exit, _ -> {:error, :region_unavailable}
@@ -111,7 +121,7 @@ defmodule Valimc.World.Region do
   def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) and
              is_integer(deadline) do
-    GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, 1000)
+    GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
     :exit, _ -> {:error, :region_unavailable}
@@ -120,7 +130,7 @@ defmodule Valimc.World.Region do
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
   @doc "One fresh creative destruction through the owner, including its owned metadata journal."
   def destroy_block({pid, epoch}, revision, position, deadline) do
-    GenServer.call(pid, {:destroy_block, epoch, revision, position, deadline}, 1000)
+    GenServer.call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
     :exit, _ -> {:error, :region_unavailable}
@@ -132,67 +142,68 @@ defmodule Valimc.World.Region do
   the client dropped the block entity when it predicted the change (VMC-021e1).
   """
   def block_entity_update({pid, epoch}, position) do
-    GenServer.call(pid, {:block_entity_update, epoch, position}, 250)
+    GenServer.call(pid, {:block_entity_update, epoch, position}, budget(pid, 250))
   catch
     :exit, _ -> {:ok, nil}
   end
 
   @doc "Send current clicked/adjacent corrections from the same sender as owner block publications."
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
-    GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, 250)
+    GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, budget(pid, 250))
   catch
     :exit, _ -> {:error, :region_unavailable}
   end
 
   @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
   def reserve_mining({pid, epoch}, positions),
-    do: GenServer.call(pid, {:reserve_mining, epoch, positions}, 250)
+    do: GenServer.call(pid, {:reserve_mining, epoch, positions}, budget(pid, 250))
 
   @doc "Keep the original block fence alive during a long attempt; renewal cannot recreate it."
   def renew_mining({pid, epoch}, permit),
-    do: GenServer.call(pid, {:renew_mining, epoch, permit}, 250)
+    do: GenServer.call(pid, {:renew_mining, epoch, permit}, budget(pid, 250))
 
   @doc "Retire an uncommitted attempt without waiting for reservation expiry."
   def release_mining({pid, epoch}, permit),
-    do: GenServer.call(pid, {:release_mining, epoch, permit}, 250)
+    do: GenServer.call(pid, {:release_mining, epoch, permit}, budget(pid, 250))
 
   @doc "Internal inbox: the caller must have durably prepared and fenced the player's mining intent."
   def apply_mining_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, 6000)
+    do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, budget(pid, 6000))
 
   @doc "Fence the exact prepared placement context on its existing block owner."
   def reserve_placement({pid, epoch}, revision, expected),
-    do: GenServer.call(pid, {:reserve_placement, epoch, revision, expected}, 250)
+    do: GenServer.call(pid, {:reserve_placement, epoch, revision, expected}, budget(pid, 250))
 
   def release_placement({pid, epoch}, permit),
-    do: GenServer.call(pid, {:release_placement, epoch, permit}, 250)
+    do: GenServer.call(pid, {:release_placement, epoch, permit}, budget(pid, 250))
 
   @doc "Internal inbox: delivery follows durable, leased source consumption."
   def apply_placement_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:placement_transfer, epoch, transfer}, 6000)
+    do: GenServer.call(pid, {:placement_transfer, epoch, transfer}, budget(pid, 6000))
 
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
-    do: GenServer.call(pid, {:create_item, epoch, stack, position}, 6000)
+    do: GenServer.call(pid, {:create_item, epoch, stack, position}, budget(pid, 6000))
 
   def replace_item({pid, epoch, id, revision}, stack),
-    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack}, 6000)
+    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack}, budget(pid, 6000))
 
   def remove_item({pid, epoch, id, revision}),
-    do: GenServer.call(pid, {:remove_item, epoch, id, revision}, 6000)
+    do: GenServer.call(pid, {:remove_item, epoch, id, revision}, budget(pid, 6000))
 
   @doc "Trusted accepted player contact; a new receipt slot is durable before this returns a grant."
   def reserve_pickup({pid, epoch}, actor, item_uuid),
     do:
       GenServer.call(
         pid,
-        {:reserve_pickup, epoch, actor, item_uuid, System.monotonic_time(:millisecond) + 250},
-        6000
+        {:reserve_pickup, epoch, actor, item_uuid,
+         System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 6000)
       )
 
   @doc "Internal pickup inbox; delivery follows the player's durably prepared original inventory."
   def apply_pickup_transfer({pid, epoch}, request),
-    do: GenServer.call(pid, {:pickup_transfer, epoch, request}, 6000)
+    do: GenServer.call(pid, {:pickup_transfer, epoch, request}, budget(pid, 6000))
 
   def release_pickup({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
@@ -202,36 +213,38 @@ defmodule Valimc.World.Region do
     do:
       GenServer.call(
         pid,
-        {:reserve_item_merge, epoch, proposal, System.monotonic_time(:millisecond) + 250},
-        6000
+        {:reserve_item_merge, epoch, proposal,
+         System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 6000)
       )
 
   @doc "Internal source journal; use only the request returned by reserve_item_merge/2."
   def prepare_item_merge({pid, epoch}, request),
-    do: GenServer.call(pid, {:prepare_item_merge, epoch, request}, 6000)
+    do: GenServer.call(pid, {:prepare_item_merge, epoch, request}, budget(pid, 6000))
 
   def apply_item_merge({pid, epoch}, request),
-    do: GenServer.call(pid, {:apply_item_merge, epoch, request}, 6000)
+    do: GenServer.call(pid, {:apply_item_merge, epoch, request}, budget(pid, 6000))
 
   def owner_item_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:owner_item_receipt, epoch, source}, 2000)
+    do: GenServer.call(pid, {:owner_item_receipt, epoch, source}, budget(pid, 2000))
 
   def release_item_merge({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_item_merge, token, source}})
 
   def item_merge_donor({pid, epoch}, uuid, recipient),
-    do: GenServer.call(pid, {:item_merge_donor, epoch, uuid, recipient}, 2000)
+    do: GenServer.call(pid, {:item_merge_donor, epoch, uuid, recipient}, budget(pid, 2000))
 
   def apply_item_merge_counters({pid, epoch}, request, source_fence),
-    do: GenServer.call(pid, {:item_merge_counters, epoch, request, source_fence}, 2000)
+    do:
+      GenServer.call(pid, {:item_merge_counters, epoch, request, source_fence}, budget(pid, 2000))
 
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:
       GenServer.call(
         pid,
-        {:merge_items, epoch, pairs, System.monotonic_time(:millisecond) + 250},
-        6000
+        {:merge_items, epoch, pairs, System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 6000)
       )
 
   @doc "Trusted accepted steps; caller must supply fresh geometry and retain the returned fences."
@@ -239,8 +252,8 @@ defmodule Valimc.World.Region do
     do:
       GenServer.call(
         pid,
-        {:advance_items, epoch, steps, System.monotonic_time(:millisecond) + 250},
-        6000
+        {:advance_items, epoch, steps, System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 6000)
       )
 
   @doc "Trusted accepted ordinary motion; coalesced persistence may roll back motion after a crash."
@@ -248,24 +261,27 @@ defmodule Valimc.World.Region do
     do:
       GenServer.call(
         pid,
-        {:publish_item_motion, epoch, steps, System.monotonic_time(:millisecond) + 250},
-        2000
+        {:publish_item_motion, epoch, steps,
+         System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 2000)
       )
 
-  def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
+  def find_item({pid, epoch}, uuid),
+    do: GenServer.call(pid, {:find_item, epoch, uuid}, budget(pid, 5000))
 
   @doc "Trusted accepted border steps; success means durable withdrawal, with asynchronous delivery."
   def handoff_items({pid, epoch}, destination, steps),
     do:
       GenServer.call(
         pid,
-        {:handoff_items, epoch, destination, steps, System.monotonic_time(:millisecond) + 250},
-        6000
+        {:handoff_items, epoch, destination, steps,
+         System.monotonic_time(:millisecond) + budget(pid, 250)},
+        budget(pid, 6000)
       )
 
   @doc "Internal region inbox; delivery must follow a durably committed source intent."
   def apply_item_handoff({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:item_handoff, epoch, transfer}, 6000)
+    do: GenServer.call(pid, {:item_handoff, epoch, transfer}, budget(pid, 6000))
 
   @doc "Internal bounded XP inbox; source intent must already be durable."
   def apply_cooking_orb_spawn({pid, epoch}, bytes)
@@ -273,8 +289,8 @@ defmodule Valimc.World.Region do
     with true <- byte_size(bytes) <= CookingOrbTransfers.max_request_bytes(),
          {:message_queue_len, size} <- Process.info(pid, :message_queue_len),
          true <- size <= Valimc.config(:max_mailbox) do
-      deadline = System.monotonic_time(:millisecond) + 6000
-      GenServer.call(pid, {:cooking_orb_spawn, epoch, bytes, deadline}, 7000)
+      deadline = System.monotonic_time(:millisecond) + budget(pid, 6000)
+      GenServer.call(pid, {:cooking_orb_spawn, epoch, bytes, deadline}, budget(pid, 7000))
     else
       _ -> {:error, :cooking_orb_inbox_unavailable}
     end
@@ -284,21 +300,21 @@ defmodule Valimc.World.Region do
 
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.
   def apply_item_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:item_transfer, epoch, transfer}, 6000)
+    do: GenServer.call(pid, {:item_transfer, epoch, transfer}, budget(pid, 6000))
 
   def item_transfer_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, 2000)
+    do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, budget(pid, 2000))
 
   def container_transfer_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:container_transfer_receipt, epoch, source}, 2000)
+    do: GenServer.call(pid, {:container_transfer_receipt, epoch, source}, budget(pid, 2000))
 
   @doc "Internal action admission against the current chest and fresh player context."
   def admit_container_transfer({pid, epoch}, request, actor),
-    do: GenServer.call(pid, {:admit_container_transfer, epoch, request, actor}, 6000)
+    do: GenServer.call(pid, {:admit_container_transfer, epoch, request, actor}, budget(pid, 6000))
 
   @doc "Deliver a prepared source intent; absent matching action admission permits rejection only."
   def container_transfer({pid, epoch}, request),
-    do: GenServer.call(pid, {:container_transfer, epoch, request}, 6000)
+    do: GenServer.call(pid, {:container_transfer, epoch, request}, budget(pid, 6000))
 
   @impl true
   def init({scoped, token}) do

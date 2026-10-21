@@ -27,16 +27,7 @@ defmodule Valimc.WorldBorderConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 400) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp command(client, input, key) do
     Client.send_packet(client, :play, "chat_command", Wire.string(input))
@@ -141,6 +132,8 @@ defmodule Valimc.WorldBorderConnectionTest do
             do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
         Application.put_env(:valimc, :world_path, old)
+        Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+        Valimc.TestScope.stop_players(base)
         File.rm_rf!(base)
       end)
 

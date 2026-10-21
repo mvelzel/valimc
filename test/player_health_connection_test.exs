@@ -22,6 +22,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -39,13 +40,11 @@ defmodule Valimc.PlayerHealthConnectionTest do
     {health, client, pid}
   end
 
-  defp departed(ctx, attempts \\ 200) do
-    if Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) != [] or
-         Enum.any?(Players.all(), &(&1.name == ctx.name)) do
-      assert attempts > 0
-      Process.sleep(5)
-      departed(ctx, attempts - 1)
-    end
+  defp departed(ctx, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] and
+        not Enum.any?(Players.all(), &(&1.name == ctx.name))
+    end)
   end
 
   test "login health comes from the same saved inventory state and survives another session",
@@ -83,7 +82,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
       assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 7)
       monitor = Process.monitor(pid)
       Client.close(client)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
       departed(ctx)
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(path), ctx.uuid)
       assert saved.health.value == 7.25 and saved.health.hurt_ticks <= 7

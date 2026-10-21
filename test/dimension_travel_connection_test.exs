@@ -56,6 +56,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.ProtoSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -71,16 +72,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 6000) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(5)
-          wait(fun, left - 1)
-        )
-  end
+  defp wait(fun), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx) do
     player =

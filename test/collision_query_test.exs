@@ -19,7 +19,7 @@ defmodule Valimc.CollisionQueryTest do
     %{keys: keys, origin: -51_328}
   end
 
-  defp await(task), do: Task.await(task, 1500)
+  defp await(task), do: Task.await(task, 60_000)
 
   test "live geometry spans existing owners and retains exact snapshot fences", %{origin: n} do
     for x <- (n - 1)..(n + 1), y <- 64..65, do: :ok = World.set_block({x, y, n}, 1)

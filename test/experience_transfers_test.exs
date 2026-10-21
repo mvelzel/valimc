@@ -45,6 +45,7 @@ defmodule Valimc.ExperienceTransfersTest do
           do: DynamicSupervisor.terminate_child(supervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -146,15 +147,7 @@ defmodule Valimc.ExperienceTransfersTest do
   end
 
   defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
-  defp wait(f, n \\ 100)
-  defp wait(f, 0), do: assert(f.())
-
-  defp wait(f, n) do
-    unless f.() do
-      Process.sleep(20)
-      wait(f, n - 1)
-    end
-  end
+  defp wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
 
   test "native connection contact collects merged units and sends the persisted XP bar on reconnect",
        ctx do
@@ -370,7 +363,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
     ref = make_ref()
     PlayerStore.prepare_container(writer, fence, ctx.snapshot, prepared.outbox, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, saved}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, saved}}
     assert saved.outbox == prepared.outbox
     assert {:ok, :applied} = Region.container_transfer(ctx.owner, request)
     Process.exit(writer, :kill)
@@ -380,7 +373,7 @@ defmodule Valimc.ExperienceTransfersTest do
     stale_fence = fence
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, done}}, 2000
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, done}}
     assert done.progression.experience.total == 3 and done.outbox == nil
     # A disconnect can arrive before the socket processes the completion ACK.
     # Its stale progression must not overwrite the writer's committed grant.

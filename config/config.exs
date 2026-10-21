@@ -7,6 +7,9 @@ config :valimc,
   max_connections: 2048,
   max_players: 512,
   max_regions: 1024,
+  # Factor on owner call budgets and request deadlines (VMC-073); tests on a loaded
+  # host raise it.
+  owner_call_scale: 1,
   # server.properties `view-distance` (2..32): clients track the distance they
   # request, at least 2 and at most this (VMC-070). `simulation-distance` is what
   # clients are told; regions still simulate every loaded chunk.
@@ -34,9 +37,13 @@ config :valimc,
   # Overloaded connections stop gracefully; a stuck one is killed after this delay.
   overload_kill_ms: 5_000,
   store_checkpoint_bytes: 32 * 1024 * 1024,
+  # How long ordinary item motion stays unsaved before its owner checkpoints it.
+  item_checkpoint_ms: 1000,
   # Region tick behaviours (VMC-066) and whether owners tick on a timer or by `Region.step/2`.
   tick_behaviours: [],
   region_ticks: :timer,
+  # Whether player clocks tick on a timer or only on explicit ticks (tests, VMC-073).
+  player_ticks: :timer,
   # The vanilla `randomTickSpeed` gamerule: random ticks per section per game tick.
   random_tick_speed: 3,
   # The vanilla `respawn_radius` gamerule: new players and respawns without a bed

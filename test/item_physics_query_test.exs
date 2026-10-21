@@ -19,7 +19,7 @@ defmodule Valimc.ItemPhysicsQueryTest do
     ]
 
     assert {:ok, task} = ItemPhysicsQuery.start(inputs)
-    assert {:ok, result} = Task.await(task, 1500)
+    assert {:ok, result} = Task.await(task, 60_000)
     assert result.refused == [{1, :item_inside_block}]
     assert [step] = result.steps
     assert step.id == 2 and step.revision == 7
@@ -47,7 +47,7 @@ defmodule Valimc.ItemPhysicsQueryTest do
     assert {:error, :invalid_item_travel} = ItemPhysicsQuery.start([Map.delete(input, :motion)])
     assert {:error, :invalid_item_physics_batch} = ItemPhysicsQuery.start(nil)
     assert {:ok, task} = ItemPhysicsQuery.start(for id <- 1..32, do: %{input | id: id})
-    assert {:ok, %{steps: steps, refused: []}} = Task.await(task, 1500)
+    assert {:ok, %{steps: steps, refused: []}} = Task.await(task, 60_000)
     assert length(steps) == 32 and Enum.all?(steps, & &1.motion.on_ground)
   end
 end

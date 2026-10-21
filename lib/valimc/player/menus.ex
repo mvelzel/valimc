@@ -64,7 +64,9 @@ defmodule Valimc.Player.Menus do
   @doc false
   def request_table(state, kind, {x, _, z} = position, command) do
     key = World.region_key(World.chunk_key(x, z))
-    expires = System.monotonic_time(:millisecond) + 250
+
+    expires =
+      System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250, state.player.uuid)
 
     grant = %{
       kind: if(kind == :progress, do: :refresh, else: kind),
@@ -467,7 +469,8 @@ defmodule Valimc.Player.Menus do
       position: {state.player.x, state.player.y, state.player.z},
       eye: Valimc.PlayerInteraction.eye(state.player),
       health: state.player.health.value,
-      expires: System.monotonic_time(:millisecond) + 250
+      expires:
+        System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250, state.player.uuid)
     }
 
     case PlayerContainerQuery.start(state.table_job.owner, intent.request, actor) do

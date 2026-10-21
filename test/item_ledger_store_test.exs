@@ -83,7 +83,7 @@ defmodule Valimc.ItemLedgerStoreTest do
       do: Process.exit(pid, :kill),
       else: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
-    assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 1500
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _}
     assert {:ok, owner} = World.item_owner(key)
     owner
   end
@@ -186,7 +186,7 @@ defmodule Valimc.ItemLedgerStoreTest do
     token = make_ref()
     proposal = %{items: items, receipts: ctx.receipts, edits: edits, changes: edits}
     Store.commit_mining(writer, lease, proposal, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:mining_saved, ^writer, ^token, :ok}}, 1000
+    assert_receive {:resource, ^epoch, {:mining_saved, ^writer, ^token, :ok}}
     assert disk(ctx).records == [ctx.record]
     assert Store.load(writer) == edits
     assert :ok = Store.close(writer, lease)

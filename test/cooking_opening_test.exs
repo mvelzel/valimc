@@ -1,5 +1,7 @@
 defmodule Valimc.CookingOpeningTest do
   use ExUnit.Case, async: true
+  # They check the 250 ms window's edge (VMC-073).
+  setup do: Valimc.TestScope.isolate(self(), owner_call_scale: 1)
   alias Valimc.CookingOpening
   alias Valimc.Physics.CookingBlocks
   alias Valimc.World.Containers

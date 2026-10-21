@@ -33,17 +33,11 @@ defmodule Valimc.ItemStoreTest do
     }
   end
 
-  defp wait_pending(pid, retries \\ 100) do
-    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
-      nil ->
-        assert(retries > 0)
-        Process.sleep(1)
-        wait_pending(pid, retries - 1)
-
-      pending ->
-        pending
-    end
-  end
+  defp wait_pending(pid, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
+      end)
 
   defp send_resource(ctx, message), do: send(ctx.pid, {:resource, elem(ctx.owner, 1), message})
 
@@ -75,13 +69,11 @@ defmodule Valimc.ItemStoreTest do
     end
   end
 
-  defp wait_queued(pid, count, retries \\ 500) do
-    if length(Valimc.TestConn.state(pid).resource.item_writes) < count do
-      assert retries > 0
-      Process.sleep(1)
-      wait_queued(pid, count, retries - 1)
-    end
-  end
+  defp wait_queued(pid, count, _budget \\ nil),
+    do:
+      Valimc.TestWait.until(fn ->
+        length(Valimc.TestConn.state(pid).resource.item_writes) >= count
+      end)
 
   test "untagged and foreign-epoch callbacks cannot publish a real pending proposal", ctx do
     {handle, _, _stone} = seed(ctx)
@@ -106,7 +98,7 @@ defmodule Valimc.ItemStoreTest do
       # The owner adopted the change in memory, but publishes nothing before durability.
       assert World.item_snapshot(ctx.key)[elem(handle, 2)].revision == 1
       :sys.resume(writer)
-      assert {:ok, updated} = Task.await(task)
+      assert {:ok, updated} = Task.await(task, 60_000)
       assert World.item_snapshot(ctx.key)[elem(updated, 2)].revision == 2
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -154,7 +146,7 @@ defmodule Valimc.ItemStoreTest do
       do: Process.exit(ctx.pid, :kill),
       else: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
 
-    assert_receive {:DOWN, ^ref, :process, _, _}, 1500
+    assert_receive {:DOWN, ^ref, :process, _, _}
     {:ok, owner} = World.item_owner(ctx.key)
     owner
   end
@@ -204,8 +196,8 @@ defmodule Valimc.ItemStoreTest do
       assert Valimc.TestRegion.write_token(:sys.get_state(ctx.pid).resource) == pending.token
       assert {:message_queue_len, 2} = Process.info(writer, :message_queue_len)
       :sys.resume(writer)
-      assert {:ok, updated} = Task.await(task)
-      assert {:ok, _} = Task.await(created)
+      assert {:ok, updated} = Task.await(task, 60_000)
+      assert {:ok, _} = Task.await(created, 60_000)
       assert World.item_snapshot(ctx.key)[elem(updated, 2)].revision == 2
       assert map_size(World.item_snapshot(ctx.key)) == 2
       assert :ok = Region.flush(ctx.pid)
@@ -225,7 +217,7 @@ defmodule Valimc.ItemStoreTest do
              assert {:error, :item_commit_uncertain} =
                       Region.replace_item(handle, ItemStack.new("egg", 3))
 
-             assert_receive {:DOWN, ^ref, :process, _, {:item_storage_failed, _}}, 1500
+             assert_receive {:DOWN, ^ref, :process, _, {:item_storage_failed, _}}
            end) =~ "Region commit failed"
 
     Valimc.TestDisk.await_exit(writer)
@@ -246,8 +238,8 @@ defmodule Valimc.ItemStoreTest do
 
     capture_log(fn ->
       Process.exit(writer, :kill)
-      assert {:error, :item_commit_uncertain} = Task.await(task)
-      assert_receive {:DOWN, ^ref, :process, _, {:store_failed, :killed}}, 1500
+      assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
+      assert_receive {:DOWN, ^ref, :process, _, {:store_failed, :killed}}
     end)
 
     {:ok, owner} = World.item_owner(ctx.key)
@@ -266,8 +258,8 @@ defmodule Valimc.ItemStoreTest do
 
     capture_log(fn ->
       send_resource(ctx, {:item_commit_deadline, pending.token})
-      assert {:error, :item_commit_uncertain} = Task.await(task)
-      assert_receive {:DOWN, ^ref, :process, _, :item_storage_timeout}, 2000
+      assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
+      assert_receive {:DOWN, ^ref, :process, _, :item_storage_timeout}
     end)
 
     refute Process.alive?(writer)
@@ -288,7 +280,7 @@ defmodule Valimc.ItemStoreTest do
     assert {:ok, %{records: [%{stack: stack}]}} = Store.load_items(writer)
     assert stack == ItemStack.new("egg", 3)
     owner = replace_owner(ctx, :shutdown)
-    assert {:error, :item_commit_uncertain} = Task.await(task)
+    assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
     {:ok, current} = Region.find_item(owner, uuid)
     assert :sys.get_state(elem(owner, 0)).resource.items.entries[elem(current, 2)].stack == stack
   end
@@ -411,7 +403,7 @@ defmodule Valimc.ItemStoreTest do
       assert Task.yield(task, 10) == nil
       assert World.item_snapshot(ctx.key) == before
       :sys.resume(writer)
-      assert {:ok, [{_, _, ^id, 2}]} = Task.await(task)
+      assert {:ok, [{_, _, ^id, 2}]} = Task.await(task, 60_000)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
@@ -471,9 +463,9 @@ defmodule Valimc.ItemStoreTest do
       send_resource(ctx, {:items_saved, self(), pending.token, :ok})
       assert Task.yield(duplicate, 10) == nil
       :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task)
-      assert {:ok, :already_applied} = Task.await(duplicate)
-      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof)
+      assert {:ok, :applied} = Task.await(task, 60_000)
+      assert {:ok, :already_applied} = Task.await(duplicate, 60_000)
+      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof, 60_000)
       assert :sys.get_state(ctx.pid).resource.item_receipts[request.source].sequence == 1
       :sys.suspend(writer)
       assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, request)
@@ -494,7 +486,7 @@ defmodule Valimc.ItemStoreTest do
     assert {:ok, %{records: records, receipts: receipts}} = Store.load_items(writer)
     assert records == request.records and receipts[request.source].sequence == 1
     owner = replace_owner(ctx, :shutdown)
-    assert {:error, :item_commit_uncertain} = Task.await(task)
+    assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
@@ -509,8 +501,8 @@ defmodule Valimc.ItemStoreTest do
 
     capture_log(fn ->
       Process.exit(writer, :kill)
-      assert {:error, :item_commit_uncertain} = Task.await(task)
-      assert_receive {:DOWN, ^ref, :process, _, {:store_failed, :killed}}, 1500
+      assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
+      assert_receive {:DOWN, ^ref, :process, _, {:store_failed, :killed}}
     end)
 
     {:ok, owner} = World.item_owner(ctx.key)
@@ -566,7 +558,7 @@ defmodule Valimc.ItemStoreTest do
     assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
     assert {:error, :item_storage_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
     Process.exit(worker, :kill)
-    assert {:error, :item_plan_failed} = Task.await(caller)
+    assert {:error, :item_plan_failed} = Task.await(caller, 60_000)
     refute Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
 
     result =
@@ -585,8 +577,8 @@ defmodule Valimc.ItemStoreTest do
 
     capture_log(fn ->
       send_resource(ctx, {:item_commit_deadline, token})
-      assert {:error, :item_commit_uncertain} = Task.await(caller)
-      assert_receive {:DOWN, ^ref, :process, _, :item_storage_timeout}, 1500
+      assert {:error, :item_commit_uncertain} = Task.await(caller, 60_000)
+      assert_receive {:DOWN, ^ref, :process, _, :item_storage_timeout}
     end)
 
     refute Process.alive?(worker)

@@ -40,6 +40,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -57,13 +58,13 @@ defmodule Valimc.PlayerPoseConnectionTest do
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
-  defp wait(fun, left \\ 500) do
-    if result = fun.() do
-      result
-    else
-      assert left > 0
-      Process.sleep(5)
-      wait(fun, left - 1)
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
+
+  # One read: the job may finish between two (VMC-073).
+  defp pose_job_replaced?(pid, job) do
+    case state(pid).pose_job do
+      nil -> true
+      current -> current.task.ref != job.task.ref
     end
   end
 
@@ -198,7 +199,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       Client.send_packet(client, :play, "player_abilities", <<2>>)
       wait(fn -> state(pid).player.abilities.flying end)
       Valimc.TestRegionGate.resume(owner)
-      wait(fn -> state(pid).pose_job == nil or state(pid).pose_job.task.ref != job.task.ref end)
+      wait(fn -> pose_job_replaced?(pid, job) end)
       wait(fn -> state(pid).pose_job == nil and state(pid).pose_checked != nil end)
       assert state(pid).player.abilities.flying
       assert state(pid).player.pose == :standing
@@ -292,12 +293,12 @@ defmodule Valimc.PlayerPoseConnectionTest do
       job = wait(fn -> state(pid).pose_job end)
       assert state(pid).player.pose == :crouching
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await(client, :play, "system_chat")
+      {_, client} = Client.await_stats(client)
       _other = input(other, true) |> await_pose(state(other_pid).player.entity_id, 5)
       client = input(client, true)
       wait(fn -> state(pid).player.input.shared_flags == 2 end)
       Valimc.TestRegionGate.resume(owner)
-      wait(fn -> state(pid).pose_job == nil or state(pid).pose_job.task.ref != job.task.ref end)
+      wait(fn -> pose_job_replaced?(pid, job) end)
       assert state(pid).player.pose == :crouching
       assert Process.alive?(pid) and Process.alive?(other_pid)
       Client.close(client)
@@ -327,7 +328,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       job = wait(fn -> state(pid).pose_job end)
       ref = Process.monitor(job.task.pid)
       Client.close(client)
-      assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, _}
       refute Process.alive?(job.task.pid)
     after
       Valimc.TestRegionGate.resume(replacement)
@@ -346,7 +347,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     try do
       client = input(client, false)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await(client, :play, "system_chat")
+      {_, client} = Client.await_stats(client)
       Process.sleep(110)
       assert state(pid).player.pose == :crouching and state(pid).pose_job == nil
       assert Valimc.TestPool.active(pid) == length(holders)

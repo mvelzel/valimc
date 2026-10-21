@@ -48,11 +48,5 @@ defmodule Valimc.ItemDespawnTest do
     wait(fn -> World.item_snapshot(ctx.key) == %{} end)
   end
 
-  defp wait(fun, tries \\ 200) do
-    unless fun.() do
-      assert tries > 0
-      Process.sleep(5)
-      wait(fun, tries - 1)
-    end
-  end
+  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 end

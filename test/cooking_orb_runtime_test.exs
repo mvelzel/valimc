@@ -77,7 +77,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
   defp result(state) do
     %{worker: worker, token: token} = state.cooking_orbs.job
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_orb_plan, ^worker, ^token, _} = message}, 3000
+    assert_receive {:resource, ^epoch, {:cooking_orb_plan, ^worker, ^token, _} = message}
     {:noreply, next} = RegionData.handle_info(message, state)
     next
   end
@@ -86,7 +86,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
     writer = state.store
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}, 3000
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}
     RegionData.handle_info(message, state)
   end
 
@@ -328,7 +328,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     state = seed(ctx) |> start()
     job = state.cooking_orbs.job
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_orb_plan, _, _, _} = late}, 3000
+    assert_receive {:resource, ^epoch, {:cooking_orb_plan, _, _, _} = late}
     {:noreply, expired} = RegionData.handle_info({:cooking_orb_deadline, job.token}, state)
     assert expired.cooking_orbs.job == nil and expired.item_pending == nil
     assert {:noreply, ^expired} = RegionData.handle_info(late, expired)
@@ -414,7 +414,11 @@ defmodule Valimc.CookingOrbRuntimeTest do
     refused = result(%{state | containers: full})
     assert not queued?(refused, :containers) and refused.containers == full
     assert refused.containers.cooking_orbs == %{} and published(refused) == %{}
-    assert disk(ctx) == full and start(refused).cooking_orbs.job == nil
+    # The refusal backs off: a tick before its retry time starts no plan, at the
+    # runtime's own clock rather than however late this loaded test runs (VMC-073).
+    retry_at = refused.cooking_orbs.retry_at
+    assert is_integer(retry_at) and disk(ctx) == full
+    assert CookingOrbRuntime.tick(refused, retry_at - 1).cooking_orbs.job == nil
     RegionData.terminate(:shutdown, refused)
   end
 
@@ -539,7 +543,9 @@ defmodule Valimc.CookingOrbRuntimeTest do
     assert disk(ctx) == first.containers
     {x, _, z} = ctx.position
     chunk = Valimc.World.chunk_key(x, z)
-    assert Valimc.World.orb_snapshot(chunk) == first.cooking_orbs.views
+    # The owner publishes the restored views after holding them; until then readers
+    # see the seeded state's (VMC-073).
+    eventually(fn -> Valimc.World.orb_snapshot(chunk) == first.cooking_orbs.views end)
     assert Valimc.World.visible_orbs(MapSet.new([ctx.key]), MapSet.new()) == %{}
     assert Valimc.World.visible_orbs(MapSet.new(), MapSet.new([chunk])) == %{}
 
@@ -576,16 +582,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     assert disk(ctx) == first.containers
   end
 
-  defp eventually(fun, left \\ 200) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert left > 0
-          Process.sleep(10)
-          eventually(fun, left - 1)
-        )
-  end
+  defp eventually(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp fill_snapshot(cs, ctx) do
     stack = fn length ->

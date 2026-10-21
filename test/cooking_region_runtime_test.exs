@@ -64,7 +64,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   defp result(state) do
     %{worker: worker, token: token} = state.cooking.job
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_plan, ^worker, ^token, _} = message}, 2000
+    assert_receive {:resource, ^epoch, {:cooking_plan, ^worker, ^token, _} = message}
     {:noreply, next} = RegionData.handle_info(message, state)
     next
   end
@@ -72,7 +72,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   defp saved(state) do
     token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, message}, 2000
+    assert_receive {:resource, ^epoch, message}
     assert elem(message, 2) == token
     {:noreply, next} = RegionData.handle_info(message, state)
     next
@@ -150,7 +150,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
       mode: :survival,
       eye: {x + 0.5, y + 1.62, z - 1.0},
       health: 20.0,
-      expires: System.monotonic_time(:millisecond) + 250
+      expires: Valimc.TestRegion.grant_expires()
     }
 
     {:noreply, state} =
@@ -165,7 +165,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert state.containers.entries[ctx.position].cooking.progress == 10
     pending = state.item_pending
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:container_recovery_plan, _, _, _} = message}, 2000
+    assert_receive {:resource, ^epoch, {:container_recovery_plan, _, _, _} = message}
     {:noreply, state} = RegionData.handle_info(message, state)
     state = if state.item_writes != [], do: saved(state), else: state
     assert state.containers.receipts[source].sequence == 0
@@ -360,7 +360,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     state = seed(ctx, progress()) |> start()
     token = state.cooking.job.token
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_plan, _, ^token, _} = late}, 2000
+    assert_receive {:resource, ^epoch, {:cooking_plan, _, ^token, _} = late}
     {:noreply, expired} = RegionData.handle_info({:cooking_deadline, token}, state)
     assert expired.cooking.job == nil and expired.item_pending == nil
     {:noreply, ignored} = RegionData.handle_info(late, expired)
@@ -410,16 +410,13 @@ defmodule Valimc.CookingRegionRuntimeTest do
     end
   end
 
-  defp replacement(key, left \\ 100) do
-    case Valimc.World.item_owner(key) do
-      {:ok, owner} ->
-        owner
-
-      {:error, _} ->
-        assert left > 0
-        Process.sleep(20)
-        replacement(key, left - 1)
-    end
+  defp replacement(key, _budget \\ nil) do
+    Valimc.TestWait.until(fn ->
+      case Valimc.World.item_owner(key) do
+        {:ok, owner} -> owner
+        {:error, _} -> nil
+      end
+    end)
   end
 
   test "a cold live owner and its replacement retain pending awards through clock and flush",
@@ -480,7 +477,8 @@ defmodule Valimc.CookingRegionRuntimeTest do
     end)
 
     send(replacement, {:resource, old_epoch, {:containers_saved, state.store, make_ref(), :ok}})
-    assert :ok = Valimc.World.Region.flush(replacement)
+    # A write still in flight answers busy; the flush itself must then succeed.
+    Valimc.TestWait.until(fn -> Valimc.World.Region.flush(replacement) == :ok end)
     assert disk(ctx) == materialized
   end
 
@@ -557,14 +555,8 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert Enum.all?(disk(ctx).entries, fn {_, entry} -> map_size(entry.recipes) == 1 end)
   end
 
-  defp eventually(fun, left \\ 100) do
-    if fun.(),
-      do: :ok,
-      else:
-        (
-          assert left > 0
-          Process.sleep(20)
-          eventually(fun, left - 1)
-        )
+  defp eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 end

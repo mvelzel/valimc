@@ -140,16 +140,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
           )
   end
 
-  def wait(fun, tries \\ 1000) do
-    if value = fun.(),
-      do: value,
-      else:
-        (
-          assert tries > 0
-          Process.sleep(5)
-          wait(fun, tries - 1)
-        )
-  end
+  def wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   def idle(c),
     do:
@@ -279,9 +270,14 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
       job = state(c.source).item_cross_job
       assert job != nil
+      # The query's deadline passes during the paused fsync (explicitly, VMC-073).
+      {pid, epoch} = c.source
+      send(pid, {:resource, epoch, {:item_cross_deadline, job.token}})
       wait(fn -> not Process.alive?(job.worker) end)
       assert Valimc.TestRegion.in_flight?(state(c.source))
       assert {:ok, c.source} == GenServer.call(elem(c.source, 0), :owner)
+      # The first grant expires while the source is paused.
+      Valimc.TestRegion.expire_permits(c.target)
       :sys.resume(writer)
       wait(fn -> converged(c) end)
       # The first grant expires while the source is paused. Its committed journal

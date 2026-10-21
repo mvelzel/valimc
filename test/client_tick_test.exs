@@ -45,7 +45,7 @@ defmodule Valimc.ClientTickTest do
     assert :sys.get_state(peer.pid).player.x == 3.5
     ref = Process.monitor(player.pid)
     Client.send_packet(client, :play, "move_player_pos", position(4.5))
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     _healthy = barrier(healthy)
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
@@ -73,7 +73,7 @@ defmodule Valimc.ClientTickTest do
 
     body = await_disconnect(client)
     assert :binary.match(body, "Invalid player movement") != :nomatch
-    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 
@@ -88,7 +88,7 @@ defmodule Valimc.ClientTickTest do
       {client, player} = login()
       ref = Process.monitor(player.pid)
       Client.send_packet(client, :play, name, body)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+      assert_receive {:DOWN, ^ref, :process, _, :normal}
     end
 
     _healthy = barrier(healthy)
@@ -102,7 +102,7 @@ defmodule Valimc.ClientTickTest do
     assert :sys.get_state(player.pid).client_tick.position_received?
     ref = Process.monitor(player.pid)
     Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+    assert_receive {:DOWN, ^ref, :process, _, _}
     {next, replacement} = login(name)
     refute :sys.get_state(replacement.pid).client_tick.position_received?
     Client.send_packet(next, :play, "move_player_pos", position(2.5))
@@ -128,7 +128,7 @@ defmodule Valimc.ClientTickTest do
 
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_body, client} = Client.await(client, :play, "system_chat")
+    {_body, client} = Client.await_stats(client)
     client
   end
 

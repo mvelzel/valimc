@@ -43,15 +43,9 @@ defmodule Valimc.OnlineConnectionTest do
     :ok
   end
 
-  defp eventually(fun, n \\ 200) do
-    if fun.(),
-      do: :ok,
-      else:
-        (
-          assert n > 0
-          Process.sleep(5)
-          eventually(fun, n - 1)
-        )
+  defp eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
   end
 
   defp owner(name), do: Client.connection(name)
@@ -118,7 +112,7 @@ defmodule Valimc.OnlineConnectionTest do
 
   defp verified(name) do
     {client, pid, digest} = key(name)
-    assert_receive {:verify_session, worker, ^name, ^digest, _}, 1000
+    assert_receive {:verify_session, worker, ^name, ^digest, _}
     no_lease(pid, name)
     send(worker, {:auth_result, {:ok, profile(name)}})
     {uuid, client} = Client.login_session(client, name)
@@ -138,7 +132,7 @@ defmodule Valimc.OnlineConnectionTest do
     assert state.cipher.owner == pid and state.auth_job == nil
     assert state.key_public == nil and state.key_pair == nil and state.key_challenge == nil
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_body, _} = Client.await(client, :play, "system_chat")
+    {_body, _} = Client.await_stats(client)
     Client.close(client)
     eventually(fn -> not Process.alive?(pid) end)
     eventually(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, profile(name).uuid) == [] end)
@@ -149,7 +143,7 @@ defmodule Valimc.OnlineConnectionTest do
   test "coalesced encrypted tail waits for verification; stale results cannot admit" do
     name = "VerifiedTail"
     {client, pid, digest} = key(name, true)
-    assert_receive {:verify_session, worker, ^name, ^digest, _}, 1000
+    assert_receive {:verify_session, worker, ^name, ^digest, _}
     no_lease(pid, name)
     send(pid, {:session_verified, self(), make_ref(), {:ok, profile(name)}})
     send(pid, {:session_deadline, make_ref()})
@@ -175,7 +169,7 @@ defmodule Valimc.OnlineConnectionTest do
             }}}
         ] do
       {client, pid, digest} = key(name)
-      assert_receive {:verify_session, worker, ^name, ^digest, _}, 1000
+      assert_receive {:verify_session, worker, ^name, ^digest, _}
       no_lease(pid, name)
       send(worker, {:auth_result, result})
       {_body, _} = Client.await(client, :login, "login_disconnect")
@@ -198,7 +192,7 @@ defmodule Valimc.OnlineConnectionTest do
     try do
       {client, pid, _} = key("AuthBusy")
       live = Client.send_packet(live, :play, "chat_command", Wire.string("stats"))
-      {_body, _} = Client.await(live, :play, "system_chat")
+      {_body, _} = Client.await_stats(live)
       {_body, _} = Client.await(client, :login, "login_disconnect")
       eventually(fn -> not Process.alive?(pid) end)
       no_lease(pid, "AuthBusy")
@@ -218,7 +212,7 @@ defmodule Valimc.OnlineConnectionTest do
   test "absolute deadlines reject late valid results and expire stalled verification" do
     for {name, late} <- [{"AuthDeadline", false}, {"AuthLate", true}] do
       {client, pid, digest} = key(name)
-      assert_receive {:verify_session, worker, ^name, ^digest, _}, 1000
+      assert_receive {:verify_session, worker, ^name, ^digest, _}
 
       :sys.replace_state(pid, fn state ->
         job = state.auth_job
@@ -246,10 +240,10 @@ defmodule Valimc.OnlineConnectionTest do
 
   test "abrupt connection loss cancels its authentication worker and reclaims capacity" do
     {client, pid, digest} = key("AuthOwnerGone")
-    assert_receive {:verify_session, worker, "AuthOwnerGone", ^digest, _}, 1000
+    assert_receive {:verify_session, worker, "AuthOwnerGone", ^digest, _}
     ref = Process.monitor(worker)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}, 1000
+    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
     no_lease(pid, "AuthOwnerGone")
     Client.close(client)
     eventually(fn -> map_size(:sys.get_state(SessionJobs).jobs) == 0 end)
@@ -257,7 +251,7 @@ defmodule Valimc.OnlineConnectionTest do
 
   test "worker failure rejects its pending encrypted login" do
     {client, pid, digest} = key("AuthWorkerGone")
-    assert_receive {:verify_session, worker, "AuthWorkerGone", ^digest, _}, 1000
+    assert_receive {:verify_session, worker, "AuthWorkerGone", ^digest, _}
     Process.exit(worker, :kill)
     {_body, _} = Client.await(client, :login, "login_disconnect")
     eventually(fn -> not Process.alive?(pid) end)
@@ -272,7 +266,7 @@ defmodule Valimc.OnlineConnectionTest do
     try do
       {client, pid, _} = key("SessionAdmission")
       live = Client.send_packet(live, :play, "chat_command", Wire.string("stats"))
-      {_body, _} = Client.await(live, :play, "system_chat")
+      {_body, _} = Client.await_stats(live)
       {_body, _} = Client.await(client, :login, "login_disconnect")
       eventually(fn -> not Process.alive?(pid) end)
       no_lease(pid, "SessionAdmission")

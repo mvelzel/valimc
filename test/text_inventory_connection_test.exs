@@ -68,7 +68,7 @@ defmodule Valimc.TextInventoryConnectionTest do
       assert {:ok, ^stack} = ItemStack.decode(bytes)
       assert :sys.get_state(player.pid).inventory.slots[36] == stack
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {chat, _} = Client.await(client, :play, "system_chat")
+      {chat, _} = Client.await_stats(client)
       assert :binary.match(chat, "schedulers") != :nomatch
     end
   end
