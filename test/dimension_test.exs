@@ -140,4 +140,60 @@ defmodule Valimc.DimensionTest do
     {end_sky, 0b10, 0, 0, end_skies, [^lit]} = light(Light.packet(image, :the_end))
     assert end_sky == full and length(end_skies) == 18
   end
+
+  test "the Nether's and the End's generators follow the world's recorded settings" do
+    alias Valimc.World.{GenSettings, Generator}
+    base = Path.join(System.tmp_dir!(), "valimc-dimgen-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(base)
+    on_exit(fn -> File.rm_rf!(base) end)
+
+    record = fn settings ->
+      File.write!(
+        Valimc.World.Spawn.path(base),
+        JSON.encode!(%{
+          "spawn" => [0, 64, 0],
+          "generator" => %{"type" => "vanilla", "seed" => 5, "settings" => settings}
+        })
+      )
+    end
+
+    # A world without recorded settings (ValiMC's flat profile) takes the defaults.
+    assert {:ok, %{noise_settings: "minecraft:nether", biome_source: "minecraft:nether"}} =
+             Generator.spec(base, :the_nether)
+
+    settings = GenSettings.create("minecraft:normal", nil, 5, true)
+    record.(settings)
+
+    assert {:ok, %{seed: 5, noise_settings: "minecraft:nether", biome_source: "minecraft:nether"}} =
+             Generator.spec(base, :the_nether)
+
+    assert {:ok, %{noise_settings: "minecraft:end", biome_source: "minecraft:the_end"}} =
+             Generator.spec(base, :the_end)
+
+    deltas = %{"type" => "minecraft:fixed", "biome" => "minecraft:basalt_deltas"}
+
+    record.(
+      put_in(
+        settings,
+        ["dimensions", "minecraft:the_nether", "generator", "biome_source"],
+        deltas
+      )
+    )
+
+    assert {:ok, %{biome_source: "fixed:minecraft:basalt_deltas"}} =
+             Generator.spec(base, :the_nether)
+
+    checkerboard = %{"type" => "minecraft:checkerboard", "biomes" => ["minecraft:plains"]}
+
+    record.(
+      put_in(
+        settings,
+        ["dimensions", "minecraft:the_end", "generator", "biome_source"],
+        checkerboard
+      )
+    )
+
+    assert {:error, {:unsupported_biome_source, "minecraft:the_end", _}} =
+             Generator.spec(base, :the_end)
+  end
 end

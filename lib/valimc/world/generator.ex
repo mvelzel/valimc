@@ -190,17 +190,54 @@ defmodule Valimc.World.Generator do
   def spec(base, :overworld), do: spec(base)
 
   def spec(base, dimension) do
-    with {:ok, facts} <- facts(base) do
-      %{noise_settings: settings, biome_source: source} = Valimc.Dimension.facts(dimension)
+    recorded = recorded(base)
 
+    with {:ok, facts} <- facts(base),
+         {:ok, settings, source} <- dimension_generator(recorded, dimension) do
       {:ok,
        %{
          kind: :noise,
-         seed: seed(of(base), recorded(base)),
+         seed: seed(of(base), recorded),
          noise_settings: settings,
          biome_source: source,
          facts: facts
        }}
+    end
+  end
+
+  # The dimension's generator as the world records it (VMC-028a's settings,
+  # `dimensions.<id>.generator`), else its dimension type's defaults: noise
+  # settings by name, and a multi-noise preset, the End's or a fixed biome as
+  # the native worldgen names them.
+  defp dimension_generator(recorded, dimension) do
+    id = Valimc.Dimension.name(dimension)
+    %{noise_settings: settings, biome_source: source} = Valimc.Dimension.facts(dimension)
+
+    case recorded && get_in(recorded, ["dimensions", id, "generator"]) do
+      nil ->
+        {:ok, settings, source}
+
+      %{"type" => "minecraft:noise", "settings" => settings, "biome_source" => biome_source}
+      when is_binary(settings) ->
+        case biome_source do
+          %{"type" => "minecraft:multi_noise", "preset" => preset}
+          when preset in ["minecraft:overworld", "minecraft:nether"] ->
+            {:ok, settings, preset}
+
+          %{"type" => "minecraft:the_end"} ->
+            {:ok, settings, "minecraft:the_end"}
+
+          %{"type" => "minecraft:fixed", "biome" => biome} ->
+            if biome in Worldgen.biome_names(),
+              do: {:ok, settings, "fixed:" <> biome},
+              else: {:error, {:unknown_biome, biome}}
+
+          other ->
+            {:error, {:unsupported_biome_source, id, other}}
+        end
+
+      other ->
+        {:error, {:unsupported_generator, id, other}}
     end
   end
 
