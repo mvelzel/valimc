@@ -129,7 +129,6 @@ defmodule Valimc.RegionizerTest do
 
     :ok = Regionizer.settle(:overworld)
     assert same_group?(hd(kept), List.last(kept))
-    groups = Regionizer.groups(:overworld)
     # Hold the regionizer while both go, so it reads the bridge's report first.
     regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
     :sys.suspend(regionizer)
@@ -160,13 +159,17 @@ defmodule Valimc.RegionizerTest do
     assert same_group?(at(ctx.origin, 0), at(ctx.origin, 2))
 
     # Every group the regionizer knows holds exactly what it says, nothing
-    # unloaded among them, and no empty group was left behind.
+    # unloaded among them.
     for {pid, keys} <- Regionizer.groups(:overworld), Enum.any?(keys, &(&1 in kept)) do
       assert Enum.sort(keys) == Region.sections(pid)
       refute bridge in keys or far in keys
     end
 
-    assert map_size(Regionizer.groups(:overworld)) <= map_size(groups) + 1
+    # Exactly two groups hold this test's sections: the split made one more.
+    ours =
+      for {_, keys} <- Regionizer.groups(:overworld), Enum.any?(keys, &(&1 in kept)), do: keys
+
+    assert Enum.sort(Enum.map(ours, &Enum.sort/1)) == [Enum.take(kept, 3), [List.last(kept)]]
   end
 
   test "a section gone before its load report is read joins no groups", ctx do
