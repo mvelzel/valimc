@@ -11,7 +11,9 @@ defmodule Valimc.World.GameRules do
     log_admin_commands: true,
     players_nether_portal_default_delay: 80,
     players_nether_portal_creative_delay: 0,
-    allow_entering_nether_using_portals: true
+    allow_entering_nether_using_portals: true,
+    water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
+    lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion")
   }
 
   # Rule name => the environment owner's configure operation.

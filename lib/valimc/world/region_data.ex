@@ -74,6 +74,9 @@ defmodule Valimc.World.RegionData do
     :scheduled_ticks,
     :tick_index,
     :rule_backlog,
+    # Generated chunks' post-processing (VMC-031a): `chunk => {marks, fluid
+    # ticks}`, settled when the chunk first ticks with its neighbours present.
+    {:post, %{}},
     # The group's other sections (VMC-077j), as the group hands them in
     # (`Region`): what the block rules read across and whether a plan holds
     # each; and what this section's call did to them (block-rule changes,
@@ -177,6 +180,7 @@ defmodule Valimc.World.RegionData do
       scheduled_ticks: loaded.ticks,
       tick_index: tick_index,
       rule_backlog: [],
+      post: loaded.post_processing,
       random_tick_speed: Valimc.config(:random_tick_speed, key),
       storage: storage
     }
@@ -195,6 +199,7 @@ defmodule Valimc.World.RegionData do
       containers: state.containers,
       ticks: state.scheduled_ticks,
       block_entities: state.block_entities,
+      post: state.post,
       game_tick: state.game_tick
     }
 
@@ -1525,6 +1530,8 @@ defmodule Valimc.World.RegionData do
   end
 
   defp simulated_block_ticks(state, tick) do
+    state = post_process(state)
+
     # Only chunks a simulation ticket covers tick; due ticks elsewhere wait
     # untouched (vanilla's `LevelTicks`).
     {due, scheduled} =
@@ -1533,6 +1540,10 @@ defmodule Valimc.World.RegionData do
     state = %{state | scheduled_ticks: scheduled}
     state = retry_rule_backlog(state)
     read = &read_block(state, &1)
+
+    # Fluid ticks run in the block rules after the block ticks (VMC-031a).
+    {fluid_due, due} = Enum.split_with(due, &match?({_, {:fluid, _}}, &1))
+    fluid_due = for {position, {:fluid, kind}} <- fluid_due, do: {position, kind}
 
     # A tick a behaviour handles runs it; the others are dependent blocks'
     # (VMC-029c), which the block rules break if they can no longer survive.
@@ -1552,8 +1563,68 @@ defmodule Valimc.World.RegionData do
     {random_effects, state} = random_ticks(state, read)
 
     state
-    |> rule_updates(%{}, rule_due)
+    |> rule_run(%{ticks: rule_due, fluid_ticks: fluid_due})
+    |> elem(0)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
+  end
+
+  # Generated chunks' post-processing marks (`LevelChunk.postProcessGeneration`,
+  # VMC-031a), once a chunk ticks with its eight neighbours generated in the
+  # group: each mark's fluid ticks at once and its block takes its neighbours'
+  # shape, then the chunk's generation fluid ticks are due. A mark whose run
+  # read past the group stays for a later tick.
+  defp post_process(%{post: post} = state) when map_size(post) == 0, do: state
+
+  defp post_process(state) do
+    ready =
+      for {chunk, _} <- state.post,
+          Tickets.simulated?(state.tickets, chunk),
+          neighbours_present?(state, chunk),
+          do: chunk
+
+    if ready == [] do
+      state
+    else
+      marks = for chunk <- ready, {x, y, z} <- elem(state.post[chunk], 0), do: {x, y, z}
+      actions = for position <- marks, do: {:post, position}
+      {state, outcome} = rule_run(state, %{actions: actions})
+
+      kept =
+        if outcome,
+          do: for({position, 0} <- Enum.zip(marks, outcome.results), do: position),
+          else: marks
+
+      ticks =
+        for chunk <- ready,
+            {position, name} <- elem(state.post[chunk], 1),
+            do: {:schedule, position, {:fluid, Valimc.Blocks.Fluids.id(name)}, 0, 0}
+
+      kept_by_chunk = Enum.group_by(kept, fn {x, _, z} -> Grid.chunk_key(x, z) end)
+
+      post =
+        Enum.reduce(ready, state.post, fn chunk, acc ->
+          case kept_by_chunk do
+            %{^chunk => marks} -> Map.put(acc, chunk, {marks, []})
+            _ -> Map.delete(acc, chunk)
+          end
+        end)
+
+      schedule_ticks(%{state | post: post}, ticks)
+    end
+  end
+
+  # Whether `chunk`'s eight neighbours are generated in this section or a
+  # sibling section of the group.
+  defp neighbours_present?(state, {cx, cz}) do
+    Enum.all?(for(dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}), fn chunk ->
+      key = Grid.region_key(chunk)
+
+      cond do
+        key == state.key -> not RegionGeneration.absent?(state.generation, chunk)
+        sibling = state.siblings[key] -> chunk not in sibling.absent
+        true -> false
+      end
+    end)
   end
 
   # Vanilla picks `randomTickSpeed` positions per section per tick (the gamerule,
@@ -1628,25 +1699,53 @@ defmodule Valimc.World.RegionData do
   # whole.
   defp rule_updates(state, previous, []) when map_size(previous) == 0, do: state
 
-  defp rule_updates(state, previous, ticks) do
-    siblings = Map.delete(state.siblings, state.key)
-    {stores, absent} = rule_reach(state)
-    parts = state.blocks |> BlockRules.run(stores, previous, ticks, absent) |> by_section(state)
+  defp rule_updates(state, previous, ticks),
+    do: elem(rule_run(state, %{changes: previous, ticks: ticks}), 0)
 
-    busy =
-      Enum.any?(parts, fn {key, part} ->
-        Enum.any?(part.destroyed, &elem(&1, 2)) and
-          if(key == state.key, do: write_busy(state) != nil, else: siblings[key].busy)
-      end)
-
-    if busy do
-      %{state | rule_backlog: [{previous, ticks} | state.rule_backlog]}
+  # One block-rule run (`BlockRules.run/4`) over this section and its
+  # siblings with the dimension's fluid settings: the state with its outcome
+  # applied, and the outcome (nil when it waits in the backlog, and for a run
+  # with nothing to do).
+  defp rule_run(state, input) do
+    if Enum.all?(input, fn {_, value} -> value == [] or value == %{} end) do
+      {state, nil}
     else
-      {own, theirs} = Map.pop(parts, state.key)
-      state = if own, do: apply_rules(state, own), else: state
-      effects = for {key, part} <- theirs, do: {key, {:rules, part}}
-      %{state | sibling_effects: state.sibling_effects ++ effects}
+      siblings = Map.delete(state.siblings, state.key)
+      {stores, absent} = rule_reach(state)
+      input = Map.put(input, :options, fluid_options(state))
+      outcome = BlockRules.run(state.blocks, stores, input, absent)
+      parts = by_section(outcome, state)
+
+      busy =
+        Enum.any?(parts, fn {key, part} ->
+          Enum.any?(part.destroyed, &elem(&1, 2)) and
+            if(key == state.key, do: write_busy(state) != nil, else: siblings[key].busy)
+        end)
+
+      cond do
+        busy and Map.get(input, :actions, []) != [] ->
+          {state, nil}
+
+        busy ->
+          {%{state | rule_backlog: [input | state.rule_backlog]}, nil}
+
+        true ->
+          {own, theirs} = Map.pop(parts, state.key)
+          state = if own, do: apply_rules(state, own), else: state
+          effects = for {key, part} <- theirs, do: {key, {:rules, part}}
+          {%{state | sibling_effects: state.sibling_effects ++ effects}, outcome}
+      end
     end
+  end
+
+  # The fluid rules' settings: the dimension's attributes and the source
+  # conversion game rules.
+  defp fluid_options(state) do
+    Valimc.Blocks.Fluids.options(
+      Valimc.World.Dimension.facts(state.dimension).type,
+      Valimc.World.GameRules.get(:water_source_conversion),
+      Valimc.World.GameRules.get(:lava_source_conversion)
+    )
   end
 
   # What the block rules read beyond this section: the group's other
@@ -1662,9 +1761,15 @@ defmodule Valimc.World.RegionData do
   # group (ticks only) are dropped.
   defp by_section(outcome, state) do
     key = fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end
-    empty = %{changes: [], destroyed: [], ticks: []}
+    empty = %{changes: [], destroyed: [], ticks: [], fluid_ticks: [], events: []}
 
-    [changes: outcome.changes, destroyed: outcome.destroyed, ticks: outcome.ticks]
+    [
+      changes: outcome.changes,
+      destroyed: outcome.destroyed,
+      ticks: outcome.ticks,
+      fluid_ticks: outcome.fluid_ticks,
+      events: outcome.events
+    ]
     |> Enum.reduce(%{}, fn {field, records}, acc ->
       Enum.reduce(Enum.reverse(records), acc, fn record, acc ->
         section = key.(elem(record, 0))
@@ -1779,17 +1884,27 @@ defmodule Valimc.World.RegionData do
 
   @doc """
   Apply the block rules' changes, destroyed blocks and ticks in this section
-  (`rule_updates/3`'s, here or from a sibling section's run, VMC-077j).
+  (`rule_run/2`'s, here or from a sibling section's run, VMC-077j).
   """
-  def apply_rules(state, %{changes: changes, destroyed: destroyed, ticks: ticks}) do
+  def apply_rules(state, %{changes: changes, destroyed: destroyed, ticks: ticks} = part) do
     drops = for {position, block, true, _} <- destroyed, do: {position, block}
     breaks = for {position, block, _, true} <- destroyed, do: {position, block}
     changes = Map.new(changes)
 
+    fluid_ticks =
+      for {position, kind, delay} <- part.fluid_ticks,
+          in_region?(state, position),
+          do: {:schedule, position, {:fluid, kind}, delay, 0}
+
     state
-    |> schedule_ticks(rule_ticks(state, changes, ticks))
+    |> schedule_ticks(rule_ticks(state, changes, ticks) ++ fluid_ticks)
     |> commit_rule_changes(changes, drops, breaks)
+    |> rule_events(part.events)
   end
+
+  # The level events a run raised (lava fizzing, VMC-031a).
+  defp rule_events(state, []), do: state
+  defp rule_events(state, events), do: release_effect(state, {:level_events, events})
 
   # The rules schedule a block's tick, as vanilla does; the owner's ticks name
   # the state, so each takes the cell's state after the run when it is that
@@ -1821,8 +1936,8 @@ defmodule Valimc.World.RegionData do
     else
       backlog = Enum.reverse(state.rule_backlog)
 
-      Enum.reduce(backlog, %{state | rule_backlog: []}, fn {previous, ticks}, acc ->
-        rule_updates(acc, previous, ticks)
+      Enum.reduce(backlog, %{state | rule_backlog: []}, fn input, acc ->
+        elem(rule_run(acc, input), 0)
       end)
     end
   end

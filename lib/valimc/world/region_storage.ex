@@ -10,7 +10,7 @@ defmodule Valimc.World.RegionStorage do
   |---|---|
   | `{:column, chunk}` | the chunk's column image (generation, `/fillbiome`, checkpoints) |
   | `{:cell, position}` | a block state changed since the column image |
-  | `{:post, chunk}` | what a generated chunk leaves for fluids |
+  | `{:post, chunk}` | a generated chunk's post-processing marks and fluid ticks, until it first ticks |
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:containers, :sequence}` | containers |
@@ -60,7 +60,7 @@ defmodule Valimc.World.RegionStorage do
   @autosave_ms 300_000
   # Item motion is written at most this often, like the item checkpoints before.
   @motion_ms 1000
-  @parts [:items, :containers, :ticks, :block_entities]
+  @parts [:items, :containers, :ticks, :block_entities, :post]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
 
@@ -210,14 +210,6 @@ defmodule Valimc.World.RegionStorage do
         end),
       else: records
   end
-
-  @doc "Generated chunks' post-processing (`chunk => value`)."
-  def post_processing(storage, chunks),
-    do: %{
-      storage
-      | pending:
-          Enum.reduce(chunks, storage.pending, fn {c, v}, acc -> Map.put(acc, {:post, c}, v) end)
-    }
 
   @doc """
   Run `item` once everything adopted so far is durable: `{:reply, from,
@@ -505,10 +497,7 @@ defmodule Valimc.World.RegionStorage do
          frames when is_list(frames) <- Log.frames(job.base, job.owner, seq) do
       durable = fold(records, ops(Enum.filter(frames, &(elem(&1, 0) <= job.seq))))
 
-      kept =
-        Map.filter(durable, fn {key, _} ->
-          match?({kind, _} when kind in [:column, :post], key)
-        end)
+      kept = Map.filter(durable, fn {key, _} -> match?({:column, _}, key) end)
 
       lit = Blocks.lit_images(job.images, job.sky)
       columns = for {chunk, image} <- lit, into: %{}, do: {{:column, chunk}, image}
@@ -561,7 +550,8 @@ defmodule Valimc.World.RegionStorage do
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
   `Valimc.Entity.Store`), `containers`, `ticks` (a `ScheduledTicks`),
-  `block_entities` and `game_tick`.
+  `block_entities`, `post` (generated chunks' post-processing) and
+  `game_tick`.
 
   A frame carries only what changed, found in O(changes): each part is
   described once as keyed maps of entries (`fields/2`), and only the entries
@@ -656,6 +646,8 @@ defmodule Valimc.World.RegionStorage do
 
   defp fields(:block_entities, %BlockEntities{entries: entries}),
     do: [{entries, fn pos, %{type: type, nbt: nbt} -> {{:block_entity, pos}, {type, nbt}} end}]
+
+  defp fields(:post, post), do: [{post, &{{:post, &1}, &2}}]
 
   # `changes` with the records of `part` that changed between its last
   # committed value and `value`: `key => {old, new}`, `new` `:deleted` for a

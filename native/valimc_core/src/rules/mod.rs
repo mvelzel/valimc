@@ -3,10 +3,12 @@
 //! blocks whose rules read too much to tabulate, from code (fire, chorus,
 //! connections, redstone wire, vines, speleothems, mossy carpets, corals).
 //! Rules see the world through `BlockAccess`, which decoration's region and
-//! the live region's store both implement.
+//! the live region's store both implement. Live play's water and lava are
+//! `fluid`'s, run by the block-update engine.
 
 pub mod connect;
 pub mod fire;
+pub mod fluid;
 pub mod live;
 pub mod redstone;
 pub mod shapes;
@@ -70,6 +72,8 @@ pub struct Rules {
     pub chorus: Chorus,
     pub redstone: RedstoneWire,
     pub connections: Connections,
+    /// Live play's fluid facts (`priv/physics/fluids.json`), when given.
+    pub fluids: Option<fluid::FluidFacts>,
     vine_block: u16,
     speleothems: BlockSet,
 }
@@ -98,14 +102,20 @@ impl Rules {
             support,
             shapes,
             live,
+            fluids: None,
         })
     }
 
     /// The rules from their facts alone (live play, VMC-077m): the block
     /// registry with its tags (`block_registry`, `block_facts`), decoration's
-    /// survival and shape facts (`support`, `shapes`) and live play's survival
-    /// facts (`live_support`).
-    pub fn parse(json: &Json, states: &StateFacts) -> Result<Rules, String> {
+    /// survival and shape facts (`support`, `shapes`), live play's survival
+    /// facts (`live_support`) and its fluid facts (`fluids`, which read the
+    /// collision shapes of `physics`).
+    pub fn parse(
+        json: &Json,
+        states: &StateFacts,
+        physics: Option<&'static crate::physics::facts::Facts>,
+    ) -> Result<Rules, String> {
         let table = Arc::new(BlockTable::parse(
             json.field("block_registry")?,
             json.field("block_facts")?,
@@ -118,7 +128,13 @@ impl Rules {
             .transpose()?
             .map(Arc::new);
         let live = json.get("live_support").map(Support::parse).transpose()?;
-        Rules::new(table, support, shapes, live)
+        let fluids = json
+            .get("fluids")
+            .map(|f| fluid::FluidFacts::parse(f, &table, physics))
+            .transpose()?;
+        let mut rules = Rules::new(table, support, shapes, live)?;
+        rules.fluids = fluids;
+        Ok(rules)
     }
 
     /// `state.canSurvive(level, pos)`, as decoration checks it.
@@ -157,6 +173,14 @@ impl Rules {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
+        // A block holding water (waterlogged, kelp, seagrass) schedules its
+        // water in `updateShape`.
+        if self.fluids.is_some()
+            && !self.table.flag(state, crate::worldgen::blocks::LIQUID_BLOCK)
+            && self.table.fluid(state) == FLUID_WATER
+        {
+            access.schedule_fluid_tick(pos, FLUID_WATER, WATER_DELAY);
+        }
         if let Some(result) = self.code_update(access, state, pos, d, replaced, true) {
             return result;
         }

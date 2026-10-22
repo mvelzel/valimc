@@ -22,6 +22,7 @@
 //! can interact (VMC-077j).
 
 use super::{at, BlockAccess, Rules};
+use crate::worldgen::blocks::LIQUID_BLOCK;
 
 /// `NeighborUpdater.UPDATE_ORDER`: west, east, down, up, north, south.
 pub const UPDATE_ORDER: [usize; 6] = [4, 5, 0, 1, 2, 3];
@@ -101,6 +102,8 @@ pub struct Report {
     pub updates: u64,
     /// Whether the run stopped at its budget, incomplete.
     pub over_budget: bool,
+    /// Level events: position, event type and data (a fizz, a broken block).
+    pub events: Vec<([i32; 3], i32, i32)>,
 }
 
 pub struct Engine<'r, W: World> {
@@ -111,6 +114,7 @@ pub struct Engine<'r, W: World> {
     count: u64,
     max_chained: u64,
     budget: u64,
+    pub options: super::fluid::Options,
     pub report: Report,
 }
 
@@ -124,8 +128,15 @@ impl<'r, W: World> Engine<'r, W> {
             count: 0,
             max_chained: MAX_CHAINED,
             budget: u64::MAX,
+            options: super::fluid::Options::default(),
             report: Report::default(),
         }
+    }
+
+    /// The level's fluid settings.
+    pub fn with_options(mut self, options: super::fluid::Options) -> Self {
+        self.options = options;
+        self
     }
 
     /// Stop after `updates` updates (`Report::over_budget`).
@@ -200,6 +211,9 @@ impl<'r, W: World> Engine<'r, W> {
             return false;
         }
         self.placed(pos, old, new);
+        if self.rules.table.flag(new, LIQUID_BLOCK) && self.world.get(pos) == new {
+            self.liquid_changed(pos, new);
+        }
         true
     }
 
@@ -359,6 +373,10 @@ impl<'r, W: World> Engine<'r, W> {
         if flags & SKIP_WIRE_SHAPES != 0 && table.block_of(current) == self.rules.redstone.wire {
             return;
         }
+        if table.flag(current, LIQUID_BLOCK) && self.rules.fluids.is_some() {
+            self.liquid_shape(pos, current, neighbor_state);
+            return;
+        }
         let mark = self.world.begin();
         let new = self.rules.live_update_shape(
             &mut self.world,
@@ -391,7 +409,7 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `NeighborUpdater.executeUpdate`: the block at `pos` hears that a
-    /// neighbour of kind `block` changed. Only redstone wire reacts yet.
+    /// neighbour of kind `block` changed. Redstone wire and liquids react.
     fn neighbor_changed(&mut self, pos: [i32; 3], _block: u16) {
         if !self.world.owns(pos) {
             self.report.stopped += 1;
@@ -400,6 +418,8 @@ impl<'r, W: World> Engine<'r, W> {
         let state = self.world.get(pos);
         if self.is_wire(state) {
             self.wire_neighbor_changed(pos, state);
+        } else if self.rules.table.flag(state, LIQUID_BLOCK) {
+            self.liquid_changed(pos, state);
         }
     }
 }

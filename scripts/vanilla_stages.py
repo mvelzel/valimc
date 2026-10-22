@@ -663,6 +663,15 @@ STAGES = [
         ('java', 'RedstoneWireOracle', '@redstone-wire.json'),
         ('check', 'check_wire.exs', '@redstone-wire.json'),
     ]),
+    # VMC-031a: water and lava on the block-update engine; buckets' facts and clip.
+    ('fluids', [
+        ('regen', 'FluidOracle', 'facts', '@fluids.json'),
+        ('same', '@fluids.json', 'priv/physics/fluids.json'),
+        ('regen', 'FluidOracle', 'outlines', '@outlines.json'),
+        ('same', '@outlines.json', 'priv/physics/outlines.json'),
+        ('java', 'FluidOracle', 'scenes', '@fluid-scenes.json'),
+        ('check', 'check_fluids.exs', '@fluid-scenes.json'),
+    ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),
         ('check', 'check_chest_opening.exs', '@chest-opening.json'),

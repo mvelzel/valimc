@@ -307,16 +307,14 @@ defmodule Valimc.World.RegionGeneration do
         deferred_count: count
     }
 
-    storage =
-      state.storage
-      |> RegionStorage.columns(columns)
-      |> RegionStorage.post_processing(Map.take(parts.post_processing, chunks))
+    storage = RegionStorage.columns(state.storage, columns)
 
     state = %{
       state
       | generation: gen,
         block_entities: entities,
         scheduled_ticks: ticks,
+        post: Map.merge(state.post, Map.take(parts.post_processing, chunks)),
         storage: storage
     }
 

@@ -26,7 +26,7 @@ defmodule Valimc.Native do
   # NIFs with a dirty twin: worst-case nanoseconds per unit (VMC-077b) and the
   # twin. Disk NBT per input byte (terms included); LZ4 per output byte; block
   # changes per change; random ticks per draw; block updates (VMC-077m) per
-  # change or due tick. Neither a light update's cost nor a block update
+  # change, action or due tick. Neither a light update's cost nor a block update
   # cascade's is bounded by its input: past 64 positions a light update runs
   # dirty, past 500 changes block updates do, and on a normal scheduler Rust
   # stops either at a budget of work and drops it (`{:error, :too_large}`) for
@@ -112,11 +112,33 @@ defmodule Valimc.Native do
 
   def rules_new(_facts), do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_updates(_region, _siblings, _rules, _changes, _ticks, _absent, _seed),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def block_updates(
+        _region,
+        _siblings,
+        _rules,
+        _changes,
+        _ticks,
+        _fluid_ticks,
+        _actions,
+        _absent,
+        _seed,
+        _options
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_updates_dirty(_region, _siblings, _rules, _changes, _ticks, _absent, _seed),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def block_updates_dirty(
+        _region,
+        _siblings,
+        _rules,
+        _changes,
+        _ticks,
+        _fluid_ticks,
+        _actions,
+        _absent,
+        _seed,
+        _options
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -124,6 +146,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_scene(_rules, _floor, _sets), do: :erlang.nif_error(:nif_not_loaded)
+
+  def fluid_scene(_rules, _cells, _actions, _ticks, _seed, _options),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_init(_region, _absent), do: :erlang.nif_error(:nif_not_loaded)
