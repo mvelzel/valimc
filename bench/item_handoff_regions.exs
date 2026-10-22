@@ -131,8 +131,9 @@ rows =
       withdrawal: percentiles.(Enum.map(measured, & &1.withdrawal)),
       settled: percentiles.(Enum.map(measured, & &1.settled)),
       log_frames: Map.get(Valimc.Metrics.snapshot(), :storage_records, 0) - frames,
-      last_generations:
-        Map.values(:sys.get_state(elem(a, 0)).resource.entities.store.ledger.generations)
+      last_hops:
+        :sys.get_state(elem(a, 0)).resource.entities.store.entries
+        |> Enum.map(fn {_, entry} -> entry.hops end)
         |> Enum.uniq()
     }
   end

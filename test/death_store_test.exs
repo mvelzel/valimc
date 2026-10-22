@@ -49,11 +49,7 @@ defmodule Valimc.DeathStoreTest do
     do: PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
   defp destination(ctx) do
-    {:ok, %{records: records}} =
-      Valimc.World.ItemRecords.decode(
-        Valimc.TestDisk.read(ctx.base, ctx.key, :items),
-        ctx.key
-      )
+    %{records: records} = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
     records
   end

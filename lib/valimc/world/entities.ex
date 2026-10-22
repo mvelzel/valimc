@@ -3,17 +3,25 @@ defmodule Valimc.World.Entities do
   A region owner's entity store (VMC-077h): every entity it owns, by network
   id with a uuid index, each of a kind (`:item` now, `:orb` with VMC-077h's
   orbs, mobs and projectiles later), with its published view and the handoff
-  ledger. Only the owner mutates it.
+  ledger (`Valimc.World.EntityHandoffs`). Only the owner mutates it.
 
   An entity keeps its network id (`Valimc.World.EntityIds`) for the life of the
-  VM: a record handed over between owners carries it. Records are persisted
-  one by one (`RegionStorage`), so the store has no count or size cap.
+  VM: a record handed over between owners carries it. Its `hops` count the
+  handoffs it has made, so a permit granted before it left and came back no
+  longer matches. Records are persisted one by one (`RegionStorage`), so the
+  store has no count or size cap.
   """
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes}
-  alias Valimc.World.{EntityIds, EntityView, ItemLedger}
-  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: %ItemLedger{}
+  alias Valimc.World.{EntityIds, EntityView}
+
+  # The handoff ledger: the last outgoing sequence, the one outgoing intent and
+  # the receipts of incoming handoffs by source.
+  @ledger %{sequence: 0, outgoing: nil, incoming: %{}}
+  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger
   @max_steps 32
+
+  def empty_ledger, do: @ledger
 
   def new, do: %__MODULE__{epoch: make_ref()}
 
@@ -47,8 +55,6 @@ defmodule Valimc.World.Entities do
          }}
     end
   end
-
-  def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
   def age(state, ticks \\ 1, minimum_y \\ Valimc.World.Chunk.min_y()) do
@@ -89,46 +95,94 @@ defmodule Valimc.World.Entities do
     end)
   end
 
-  def records(state) do
-    state.entries
-    |> Enum.map(fn {_, %{entity: entity, stack: stack} = entry} ->
-      record = entity |> Map.take([:uuid, :x, :y, :z]) |> Map.put(:stack, stack)
+  @doc "Every entity's persistent record, by uuid (network ids are the VM's, never stored)."
+  def records(state),
+    do: state.entries |> Enum.map(fn {_, entry} -> record(entry) end) |> Enum.sort_by(& &1.uuid)
+
+  def record(%{kind: :item, entity: entity, stack: stack} = entry) do
+    record = entity |> Map.take([:uuid, :x, :y, :z]) |> Map.merge(%{kind: :item, stack: stack})
+
+    record =
       if Map.has_key?(entry, :motion), do: Map.put(record, :motion, entry.motion), else: record
-    end)
-    |> Enum.sort_by(& &1.uuid)
+
+    if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
   end
 
-  def restore(key, records, ledger \\ %ItemLedger{})
+  @doc "The number of handoffs the entity `uuid` has made (0 if it has none or is not here)."
+  def hops(state, uuid) do
+    case state.uuids do
+      %{^uuid => id} -> state.entries[id].hops
+      _ -> 0
+    end
+  end
 
-  def restore(key, records, %ItemLedger{} = ledger) when is_list(records) do
-    begin(fn ->
-      Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}, MapSet.new()}, fn
-        %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record, {:ok, state, seen} ->
-          with true <-
-                 is_binary(uuid) and byte_size(uuid) == 16 and not MapSet.member?(seen, uuid),
-               true <- valid_position?({x, y, z}),
-               true <- valid_record_motion?(record),
-               true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key,
-               {:ok, _} <- metadata(1, stack),
-               {:ok, id} <- EntityIds.next(),
-               {:ok, next, _} <-
-                 build_entity(state, stack, {x, y, z}, id, uuid, Map.get(record, :motion)) do
-            {:cont, {:ok, next, MapSet.put(seen, uuid)}}
-          else
-            _ -> {:halt, {:error, :invalid_item_file}}
-          end
-
-        _, _ ->
-          {:halt, {:error, :invalid_item_file}}
-      end)
-      |> case do
-        {:ok, state, _} -> {:ok, state}
-        error -> error
+  @doc """
+  Remove the entities of `handles` for a handoff: their records, each with its
+  network id and one more hop.
+  """
+  def withdraw(state, handles) do
+    Enum.reduce_while(handles, {:ok, state, []}, fn {epoch, id, revision}, {:ok, current, acc} ->
+      with {:ok, entry} <- current(current, epoch, id, revision),
+           {:ok, next} <- remove(current, epoch, id, revision) do
+        record = entry |> record() |> Map.merge(%{entity_id: id, hops: entry.hops + 1})
+        {:cont, {:ok, next, [record | acc]}}
+      else
+        error -> {:halt, error}
       end
+    end)
+    |> case do
+      {:ok, next, records} -> {:ok, next, Enum.sort_by(records, & &1.uuid)}
+      error -> error
+    end
+  end
+
+  def restore(key, records, ledger \\ @ledger)
+
+  def restore(key, records, %{sequence: _, outgoing: _, incoming: _} = ledger)
+      when is_list(records) do
+    begin(fn ->
+      Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}}, fn record, {:ok, state} ->
+        with true <- valid_record?(key, record) and not Map.has_key?(state.uuids, record.uuid),
+             {:ok, id} <- EntityIds.next(),
+             {:ok, next, _} <- build_record(state, id, record) do
+          {:cont, {:ok, next}}
+        else
+          _ -> {:halt, {:error, :invalid_item_file}}
+        end
+      end)
     end)
   end
 
   def restore(_, _, _), do: {:error, :invalid_item_file}
+
+  @doc "Whether `record` is an entity record this store would hold in region `key`."
+  def valid_record?(key, %{uuid: <<_::128>>, x: x, y: y, z: z, stack: stack} = record) do
+    Map.get(record, :kind, :item) == :item and valid_position?({x, y, z}) and
+      valid_record_motion?(record) and valid_hops?(record) and
+      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key and
+      match?({:ok, _}, metadata(1, stack))
+  end
+
+  def valid_record?(_, _), do: false
+
+  defp valid_hops?(record) do
+    case Map.get(record, :hops, 0) do
+      hops when is_integer(hops) and hops >= 0 -> true
+      _ -> false
+    end
+  end
+
+  defp build_record(state, id, %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record),
+    do:
+      build_entity(
+        state,
+        stack,
+        {x, y, z},
+        id,
+        uuid,
+        Map.get(record, :motion),
+        record[:hops] || 0
+      )
 
   # A record whose fields are not what the store wrote is an invalid file.
   defp begin(fun) do
@@ -161,20 +215,16 @@ defmodule Valimc.World.Entities do
   Creates a stable-UUID inbox record; the caller commits its receipt
   atomically. A record handed over by another owner keeps its `entity_id`.
   """
-  def create_record(
-        state,
-        key,
-        %{uuid: <<_::128>> = uuid, x: x, y: y, z: z, stack: stack} = record
-      ) do
+  def create_record(state, key, %{uuid: <<_::128>> = uuid, x: x, y: y, z: z} = record) do
     cond do
       not valid_position?({x, y, z}) ->
         {:error, :invalid_item_position}
 
-      not valid_record_motion?(record) ->
-        {:error, :invalid_item}
-
       Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key ->
         {:error, :wrong_region}
+
+      not valid_record?(key, record) ->
+        {:error, :invalid_item}
 
       Map.has_key?(state.uuids, uuid) ->
         {:error, :duplicate_item_uuid}
@@ -183,9 +233,7 @@ defmodule Valimc.World.Entities do
         {:error, :item_handoff_busy}
 
       true ->
-        with {:ok, _} <- metadata(1, stack),
-             {:ok, id} <- record_id(state, record),
-             do: build_entity(state, stack, {x, y, z}, id, uuid, Map.get(record, :motion))
+        with {:ok, id} <- record_id(state, record), do: build_record(state, id, record)
     end
   end
 
@@ -246,11 +294,7 @@ defmodule Valimc.World.Entities do
          state
          | entries: Map.delete(state.entries, id),
            uuids: Map.delete(state.uuids, entry.entity.uuid),
-           views: Map.delete(state.views, id),
-           ledger: %{
-             state.ledger
-             | generations: Map.delete(state.ledger.generations, entry.entity.uuid)
-           }
+           views: Map.delete(state.views, id)
        }}
     end
   end
@@ -378,9 +422,9 @@ defmodule Valimc.World.Entities do
     end
   end
 
-  defp build_entity(state, stack, position, id, uuid, motion \\ nil)
+  defp build_entity(state, stack, position, id, uuid, motion \\ nil, hops \\ 0)
 
-  defp build_entity(state, stack, {x, y, z}, id, uuid, motion)
+  defp build_entity(state, stack, {x, y, z}, id, uuid, motion, hops)
        when id in 1..2_147_483_647 do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
     entity = if motion, do: Map.put(entity, :velocity, motion.velocity), else: entity
@@ -394,7 +438,7 @@ defmodule Valimc.World.Entities do
         Map.put(entity, :on_ground, on_ground),
         metadata,
         state.epoch,
-        Map.get(state.ledger.generations, uuid, 0)
+        hops
       )
 
     view =
@@ -412,7 +456,8 @@ defmodule Valimc.World.Entities do
       stack: stack,
       revision: 1,
       physical_revision: 1,
-      no_gravity: no_gravity
+      no_gravity: no_gravity,
+      hops: hops
     }
 
     entry = if motion, do: Map.put(entry, :motion, motion), else: entry
@@ -427,7 +472,7 @@ defmodule Valimc.World.Entities do
     {:ok, next, {state.epoch, id, 1}}
   end
 
-  defp build_entity(_, _, _, _, _, _), do: {:error, :entity_id_exhausted}
+  defp build_entity(_, _, _, _, _, _, _), do: {:error, :entity_id_exhausted}
 
   defp merge_hints(stack, motion),
     do: %{
@@ -448,11 +493,9 @@ defmodule Valimc.World.Entities do
 
   def return_capacity?(_state), do: true
 
-  def reserved_uuid?(%{ledger: %{outgoing: %{kind: :merge, request: request}}}, uuid),
-    do: request.donor.uuid == uuid
-
-  def reserved_uuid?(%{ledger: %{outgoing: %{generations: generations}}}, uuid),
-    do: Map.has_key?(generations, uuid)
+  @doc "Whether `uuid` is in the outgoing handoff, so it cannot arrive back yet."
+  def reserved_uuid?(%{ledger: %{outgoing: %{records: records}}}, uuid),
+    do: Enum.any?(records, &(&1.uuid == uuid))
 
   def reserved_uuid?(_, _), do: false
 

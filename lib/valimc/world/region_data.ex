@@ -23,15 +23,11 @@ defmodule Valimc.World.RegionData do
     Entities,
     Jobs,
     RegionEntities,
-    ItemHandoffs,
-    ItemHandoffDelivery,
+    EntityHandoffs,
+    EntityHandoffDelivery,
     ItemPortals,
     ItemMerges,
-    ItemMergeEscrow,
-    ItemMergeInbox,
-    ItemMergePermits,
     ItemCrossMergeQuery,
-    OwnerItemReceipts,
     ItemTransfers,
     PickupPermits,
     PickupTransfers,
@@ -419,68 +415,37 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
+  # A border item that can merge into a neighbour's is handed over to merge
+  # there (VMC-077h); the neighbour decides, and a rejected donor comes back.
   defp start_item_cross_merging(state, now) do
-    if not Jobs.running?(state.jobs, :cross_merge) and state.entities.persistent and
-         state.entities.store.ledger.outgoing == nil and
-         (state.entities.cross_next == nil or now >= state.entities.cross_next) do
-      state = %{state | entities: %{state.entities | cross_next: now + 200}}
+    entities = state.entities
 
-      case ItemCrossMergeQuery.scene(state.key, state.entities.store.views) do
+    if entities.persistent and entities.store.ledger.outgoing == nil and not planning?(state) and
+         (entities.cross_next == nil or now >= entities.cross_next) do
+      state = %{state | entities: %{entities | cross_next: now + 200}}
+
+      case ItemCrossMergeQuery.scene(state.key, entities.store.views) do
         nil ->
-          %{
-            state
-            | entities: %{
-                state.entities
-                | cross_stamp: nil,
-                  cross_scan_stamp: nil,
-                  cross_cursor: nil,
-                  cross_retry: false
-              }
-          }
+          %{state | entities: %{state.entities | cross_stamp: nil}}
 
-        %{stamp: stamp} = scene ->
-          cond do
-            stamp == state.entities.cross_stamp ->
-              state
+        %{stamp: stamp} when stamp == entities.cross_stamp ->
+          state
 
-            scene.targets == [] ->
-              %{
-                state
-                | entities: %{
-                    state.entities
-                    | cross_stamp: stamp,
-                      cross_scan_stamp: nil,
-                      cross_cursor: nil,
-                      cross_retry: false
-                  }
-              }
+        scene ->
+          with {id, destination, target} <- ItemCrossMergeQuery.pick(state.key, scene),
+               %{revision: revision} <- entities.store.entries[id] do
+            request = {{id, revision}, destination, target, now + 250}
 
-            true ->
-              # Physical changes cannot keep resetting a crowded moving scene to
-              # its first batch. Finish the cycle, then rescan changed observations.
-              cursor = state.entities.cross_cursor
-              scan_stamp = state.entities.cross_scan_stamp || stamp
-              retry = state.entities.cross_retry
-              owner = {self(), state.epoch}
+            case plan_item_change(:item_merge_out, request, nil, state) do
+              {:noreply, next} ->
+                Valimc.Metrics.add(:item_cross_merges)
+                next
 
-              case start_job(
-                     state,
-                     :cross_merge,
-                     ItemCrossMergeQuery.work(owner, state.key, scene, cursor),
-                     supervisor: Valimc.TransferWorkers,
-                     link: true,
-                     # Bounds the worker's owner round trips (scaled in tests, VMC-073).
-                     deadline: Valimc.Txn.Permits.window(750),
-                     data: %{stamp: stamp, scan_stamp: scan_stamp, retry: retry}
-                   ) do
-                {:ok, state} ->
-                  Valimc.Metrics.add(:item_cross_jobs)
-                  state
-
-                {:error, _} ->
-                  Valimc.Metrics.add(:item_cross_busy)
-                  state
-              end
+              {:reply, _, next} ->
+                next
+            end
+          else
+            _ -> %{state | entities: %{state.entities | cross_stamp: scene.stamp}}
           end
       end
     else
@@ -637,139 +602,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:item_merge_donor, epoch, uuid, recipient}, _, state) do
-    with :ok <- cross_merge_ready(state, epoch),
-         true <- state.entities.store.ledger.outgoing == nil,
-         {:ok, {^epoch, id, _}} <- Entities.find(state.entities.store, uuid) do
-      entry = state.entities.store.entries[id]
-
-      record =
-        entry.entity
-        |> Map.take([:uuid, :x, :y, :z])
-        |> Map.put(:stack, entry.stack)
-        |> Map.put(
-          :motion,
-          Map.get(entry, :motion, %Valimc.ItemMotionState{no_gravity: entry.no_gravity})
-        )
-
-      view = state.entities.store.views[id]
-
-      proposal = %{
-        source: state.key,
-        sequence: state.entities.store.ledger.sequence + 1,
-        donor: record,
-        donor_generation: Map.get(state.entities.store.ledger.generations, uuid, 0),
-        recipient_uuid: recipient
-      }
-
-      fence = %{
-        key: state.key,
-        owner: {self(), epoch},
-        id: id,
-        uuid: uuid,
-        versions: view.physical_revision,
-        # A contact window like the item-merge permit's (VMC-073 scales it in tests).
-        expires_at: System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250)
-      }
-
-      {:reply, {:ok, proposal, fence}, state}
-    else
-      _ -> {:reply, {:error, :item_merge_not_available}, state}
-    end
-  end
-
-  def handle_call({:item_merge_counters, epoch, request, source_fence}, from, state) do
-    with :ok <- cross_merge_ready(state, epoch) do
-      {permits, permitted} =
-        ItemMergePermits.consume(
-          state.permits,
-          state.entities.store,
-          request,
-          System.monotonic_time(:millisecond)
-        )
-
-      valid =
-        permitted and
-          match?(
-            %{key: key, uuid: uuid} when key == request.source and uuid == request.donor.uuid,
-            source_fence
-          ) and
-          Valimc.World.item_observation_current?(source_fence)
-
-      # The source owner authorized this snapshot. Its publication only fences it;
-      # this admission orders the counter effect before later source changes.
-      case plan_item_change(:cross_merge_counters, {request, valid}, from, state) do
-        {:noreply, next} -> {:noreply, %{next | permits: permits}}
-        reply -> reply
-      end
-    else
-      error -> {:reply, error, state}
-    end
-  end
-
-  def handle_call({:reserve_item_merge, epoch, proposal, deadline}, from, state) do
-    now = System.monotonic_time(:millisecond)
-
-    source =
-      case proposal do
-        %{source: source} -> source
-        _ -> nil
-      end
-
-    with :ok <- cross_merge_ready(state, epoch),
-         true <- is_integer(deadline) and now < deadline,
-         :ok <- ItemMergePermits.available?(state.permits, source, now) do
-      plan_item_change(:cross_merge_admission, {proposal, deadline}, from, state)
-    else
-      false -> {:reply, {:error, :expired_item_step}, state}
-      error -> {:reply, error, state}
-    end
-  end
-
-  def handle_call({:prepare_item_merge, epoch, request}, from, state) do
-    with :ok <- cross_merge_ready(state, epoch),
-         do: plan_item_change(:cross_merge_out, request, from, state),
-         else: (error -> {:reply, error, state})
-  end
-
-  def handle_call({:apply_item_merge, epoch, request}, from, state) do
-    with :ok <- cross_merge_ready(state, epoch) do
-      {permits, allowed} =
-        ItemMergePermits.consume(
-          state.permits,
-          state.entities.store,
-          request,
-          System.monotonic_time(:millisecond)
-        )
-
-      case plan_item_change(:cross_merge_in, {request, allowed}, from, state) do
-        {:noreply, next} -> {:noreply, %{next | permits: permits}}
-        reply -> reply
-      end
-    else
-      error -> {:reply, error, state}
-    end
-  end
-
-  def handle_call({:owner_item_receipt, epoch, source}, from, state) do
-    result =
-      cond do
-        epoch != state.epoch ->
-          Error.retry(:stale_owner)
-
-        not state.entities.persistent ->
-          {:error, :transfer_storage_disabled}
-
-        not Map.has_key?(state.entities.store.ledger.incoming, source) ->
-          {:error, :missing_item_receipt}
-
-        true ->
-          {:ok, {state.key, state.entities.store.ledger.incoming[source]}}
-      end
-
-    {:noreply, reply_when_durable(state, from, result)}
-  end
-
   def handle_call({:merge_items, epoch, pairs, deadline}, from, state) do
     cond do
       epoch != state.epoch ->
@@ -865,7 +697,7 @@ defmodule Valimc.World.RegionData do
   def handle_call({:cooking_orb_spawn, epoch, bytes, deadline}, from, state),
     do: CookingOrbRuntime.adopt(state, epoch, bytes, deadline, from)
 
-  def handle_call({:item_handoff, epoch, transfer}, from, state) do
+  def handle_call({:entity_handoff, epoch, transfer}, from, state) do
     cond do
       epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
       not state.entities.persistent -> {:reply, {:error, :transfer_storage_disabled}, state}
@@ -2230,15 +2062,6 @@ defmodule Valimc.World.RegionData do
 
   defp planning(state), do: with(%{data: pending} <- Jobs.get(state.jobs, :plan), do: pending)
 
-  defp cross_merge_ready(state, epoch) do
-    cond do
-      state.epoch != epoch -> Error.retry(:stale_owner)
-      not state.entities.persistent -> {:error, :transfer_storage_disabled}
-      busy = write_busy(state) -> {:error, busy}
-      true -> :ok
-    end
-  end
-
   defp plan_item_change(kind, request, from, state) do
     items = state.entities.store
     receipts = state.entities.receipts
@@ -2248,7 +2071,7 @@ defmodule Valimc.World.RegionData do
       case kind do
         :item_handoff_out -> elem(request, 2)
         :pickup_admission -> elem(request, 2)
-        :cross_merge_admission -> elem(request, 1)
+        :item_merge_out -> elem(request, 3)
         :item_merge -> elem(request, 1)
         :item_merge_auto -> elem(request, 1)
         _ -> nil
@@ -2294,67 +2117,33 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan(:item_handoff_in, items, receipts, key, transfer) do
-    case ItemHandoffs.accept(items, key, transfer) do
-      {:ok, next, :applied} -> {:write, next, receipts, {:ok, :applied}}
-      {:ok, _, :already_applied} -> {:reply, {:ok, :already_applied}}
-      error -> error
-    end
-  end
-
-  defp item_plan(:item_handoff_out, items, receipts, key, {destination, steps, _}) do
-    with {:ok, next, request} <- ItemHandoffs.depart(items, key, items.epoch, destination, steps),
-         do: {:write, next, receipts, {:ok, request.sequence}}
-  end
-
-  defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest}) do
-    result =
-      case digest do
-        {:item_merge, proof} ->
-          case ItemMergeEscrow.finish(items, key, sequence, proof) do
-            {:ok, next, _} -> {:ok, next}
-            error -> error
-          end
-
-        _ ->
-          ItemHandoffs.finish(items, key, sequence, digest)
-      end
-
-    with {:ok, next} <- result, do: {:write, next, receipts, :ok}
-  end
-
-  defp item_plan(:cross_merge_admission, items, receipts, key, {proposal, deadline}) do
-    with {:ok, request} <- ItemMergePermits.prepare(items, key, proposal),
-         {:ok, incoming, status} <-
-           OwnerItemReceipts.reserve(items.ledger.incoming, request.source, key) do
-      reply = {:item_merge_grant, request, deadline}
-
-      if status == :existing,
-        do: {:reply, reply},
-        else: {:write, %{items | ledger: %{items.ledger | incoming: incoming}}, receipts, reply}
-    end
-  end
-
-  defp item_plan(:cross_merge_out, items, receipts, key, request) do
-    with {:ok, next} <- ItemMergeEscrow.prepare(items, key, items.epoch, request),
-         do: {:write, next, receipts, {:ok, :prepared}}
-  end
-
-  defp item_plan(:cross_merge_in, items, receipts, key, {request, permitted}) do
-    case ItemMergeInbox.apply(items, key, request, permitted) do
-      {:ok, _, result} when result in [:already_applied, :already_rejected] ->
-        {:reply, {:ok, result}}
-
-      {:ok, next, result} ->
+    case EntityHandoffs.accept(items, key, transfer) do
+      {:ok, next, result} when result in [:applied, :rejected] ->
         {:write, next, receipts, {:ok, result}}
+
+      {:ok, _, result} ->
+        {:reply, {:ok, result}}
 
       error ->
         error
     end
   end
 
-  defp item_plan(:cross_merge_counters, items, _, key, {request, permitted}) do
-    with {:ok, _} <- ItemMergeInbox.counter_plan(items, key, request, permitted),
-         do: {:reply, {:item_merge_counters, request, permitted}}
+  defp item_plan(:item_handoff_out, items, receipts, key, {destination, steps, _}) do
+    with {:ok, next, request} <-
+           EntityHandoffs.depart(items, key, items.epoch, destination, steps),
+         do: {:write, next, receipts, {:ok, request.sequence}}
+  end
+
+  defp item_plan(:item_merge_out, items, receipts, key, {donor, destination, target, _}) do
+    with {:ok, next, request} <-
+           EntityHandoffs.depart_merge(items, key, items.epoch, donor, destination, target),
+         do: {:write, next, receipts, {:ok, request.sequence}}
+  end
+
+  defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest, result}) do
+    with {:ok, next} <- EntityHandoffs.finish(items, key, sequence, digest, result),
+         do: {:write, next, receipts, {:ok, result}}
   end
 
   defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
@@ -2895,9 +2684,6 @@ defmodule Valimc.World.RegionData do
   def handle_info({:release_pickup, token, source}, state),
     do: {:noreply, %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
 
-  def handle_info({:release_item_merge, token, source}, state),
-    do: {:noreply, %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
-
   def handle_info(
         {:item_handoff_wake, token},
         %{entities: %{handoff: %{phase: :retry, token: token}}} = state
@@ -2905,7 +2691,7 @@ defmodule Valimc.World.RegionData do
     case start_job(
            state,
            :handoff,
-           ItemHandoffDelivery.work(state.key, state.entities.store.ledger),
+           EntityHandoffDelivery.work(state.key, state.entities.store.ledger),
            supervisor: Valimc.TransferWorkers,
            link: true,
            deadline: 8000
@@ -2923,14 +2709,14 @@ defmodule Valimc.World.RegionData do
         %{entities: %{handoff: %{phase: :ready_clear, token: token} = ack}} = state
       ) do
     if write_busy(state) != nil do
-      {:noreply, schedule_handoff_clear(state, ack.sequence, ack.digest, 100)}
+      {:noreply, schedule_handoff_clear(state, ack.receipt, 100)}
     else
-      case plan_item_change(:item_handoff_clear, {ack.sequence, ack.digest}, nil, state) do
+      case plan_item_change(:item_handoff_clear, ack.receipt, nil, state) do
         {:noreply, next} ->
           {:noreply, %{next | entities: %{next.entities | handoff: %{phase: :clearing}}}}
 
         {:reply, _, next} ->
-          {:noreply, schedule_handoff_clear(next, ack.sequence, ack.digest, 100)}
+          {:noreply, schedule_handoff_clear(next, ack.receipt, 100)}
       end
     end
   end
@@ -3351,50 +3137,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp finish_item_reply(state, from, {:item_merge_grant, request, deadline}) do
-    now = System.monotonic_time(:millisecond)
-
-    result =
-      if now < deadline,
-        do:
-          ItemMergePermits.grant(
-            state.permits,
-            state.entities.store.ledger.incoming,
-            request,
-            now
-          ),
-        else: {:error, :expired_item_step}
-
-    case result do
-      {:ok, permits, request} ->
-        reply_item(from, {:ok, request})
-        %{state | permits: permits}
-
-      error ->
-        reply_item(from, error)
-        state
-    end
-  end
-
-  # The counters apply to the items as they are when the reply is released: a reply
-  # held behind an earlier write must not restore the items its plan saw.
-  defp finish_item_reply(state, from, {:item_merge_counters, request, permitted}) do
-    items =
-      case ItemMergeInbox.counter_plan(state.entities.store, state.key, request, permitted) do
-        {:ok, items} -> items
-        {:error, _} -> state.entities.store
-      end
-
-    reply_item(from, {:ok, if(items == state.entities.store, do: :unchanged, else: :applied)})
-
-    if items == state.entities.store do
-      state
-    else
-      publish_item_views(%{state | entities: %{state.entities | store: items}})
-      %{state | entities: %{state.entities | store: items}}
-    end
-  end
-
   defp finish_item_reply(state, from, reply) do
     reply_item(from, reply)
     state
@@ -3544,23 +3286,12 @@ defmodule Valimc.World.RegionData do
     %{state | entities: %{state.entities | handoff: %{phase: :retry, token: token, timer: timer}}}
   end
 
-  defp schedule_handoff_clear(state, sequence, digest, delay) do
+  # `receipt` is the destination's `{sequence, digest, result}`.
+  defp schedule_handoff_clear(state, receipt, delay) do
     token = make_ref()
     timer = send_after(state, {:item_handoff_wake, token}, delay)
-
-    %{
-      state
-      | entities: %{
-          state.entities
-          | handoff: %{
-              phase: :ready_clear,
-              sequence: sequence,
-              digest: digest,
-              token: token,
-              timer: timer
-            }
-        }
-    }
+    handoff = %{phase: :ready_clear, receipt: receipt, token: token, timer: timer}
+    %{state | entities: %{state.entities | handoff: handoff}}
   end
 
   defp item_plan_failed(state, pending) do
@@ -3613,31 +3344,6 @@ defmodule Valimc.World.RegionData do
   defp job_done(:cooking, _job, {:error, _}, state) do
     Valimc.Metrics.add(:cooking_plan_failures)
     {:noreply, retry_cooking(state, 1000)}
-  end
-
-  defp job_done(:cross_merge, job, result, state) do
-    retry = job.retry or result.retry
-
-    complete =
-      result.cursor == nil and not retry and not result.progress and
-        job.scan_stamp == job.stamp
-
-    next =
-      System.monotonic_time(:millisecond) +
-        if(result.progress or result.cursor != nil, do: 0, else: 200)
-
-    {:noreply,
-     %{
-       state
-       | entities: %{
-           state.entities
-           | cross_next: next,
-             cross_stamp: if(complete, do: job.stamp),
-             cross_scan_stamp: if(result.cursor != nil, do: job.scan_stamp),
-             cross_cursor: result.cursor,
-             cross_retry: result.cursor != nil and retry
-         }
-     }}
   end
 
   defp job_done(:portal, job, {:ok, target}, state),
@@ -3712,11 +3418,20 @@ defmodule Valimc.World.RegionData do
     case result do
       {:write, items, receipts, reply} ->
         state = %{state | entities: %{state.entities | store: items, receipts: receipts}}
-        # A cleared handoff is over once adopted; the next one starts from its resume.
+        # A cleared handoff is over once adopted; the next one starts from its
+        # resume. A rejected merge's donor is back: it waits before trying again.
         state =
-          if pending.kind == :item_handoff_clear,
-            do: %{state | entities: %{state.entities | handoff: nil}},
-            else: state
+          case {pending.kind, reply} do
+            {:item_handoff_clear, {:ok, :rejected}} ->
+              next = System.monotonic_time(:millisecond) + 1000
+              %{state | entities: %{state.entities | handoff: nil, cross_next: next}}
+
+            {:item_handoff_clear, _} ->
+              %{state | entities: %{state.entities | handoff: nil}}
+
+            _ ->
+              state
+          end
 
         publish_item_views(state)
         {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
@@ -3743,8 +3458,8 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp job_done(:handoff, _job, {:ok, sequence, digest}, state),
-    do: {:noreply, schedule_handoff_clear(state, sequence, digest, 0)}
+  defp job_done(:handoff, _job, {:ok, sequence, digest, result}, state),
+    do: {:noreply, schedule_handoff_clear(state, {sequence, digest, result}, 0)}
 
   defp job_done(:handoff, _job, {:error, _}, state) do
     Valimc.Metrics.add(:item_handoff_retries)
@@ -3780,14 +3495,6 @@ defmodule Valimc.World.RegionData do
   defp job_failed(:portal, _job, reason, state) do
     require Logger
     Logger.warning("Item portal destination failed: #{inspect(reason, limit: 12)}")
-    {:noreply, state}
-  end
-
-  defp job_failed(:cross_merge, _job, reason, state) do
-    Valimc.Metrics.add(
-      if reason == :timeout, do: :item_cross_timeouts, else: :item_cross_failures
-    )
-
     {:noreply, state}
   end
 

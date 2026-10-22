@@ -312,11 +312,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert source.health.value == 20 and source.transfer_sequence == 2 and source.outbox == nil
     assert source.inventory.slots == %{}
 
-    {:ok, %{records: records}} =
-      Valimc.World.ItemRecords.decode(
-        Valimc.TestDisk.read(ctx.base, ctx.key, :items),
-        ctx.key
-      )
+    %{records: records} = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
     assert length(records) == 3
     assert Enum.reduce(records, 0, fn record, n -> n + record.stack.count end) == 9

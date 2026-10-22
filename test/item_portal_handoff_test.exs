@@ -4,7 +4,7 @@ defmodule Valimc.ItemPortalHandoffTest do
   alias Valimc.{Dimension, ItemMotionState, TestScope}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemHandoffs, ItemLedger, ItemRecords, Entities, Region}
+  alias Valimc.World.{EntityHandoffs, Entities, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -25,8 +25,7 @@ defmodule Valimc.ItemPortalHandoffTest do
       }
     end
 
-    {:ok, bytes} = ItemRecords.encode(key, [record.(key, 1)])
-    Valimc.TestDisk.write(base, key, :items, bytes)
+    Valimc.TestDisk.write(base, key, :items, %{records: [record.(key, 1)]})
 
     on_exit(fn ->
       for region <- [key, beside, {:the_nether, key}, {:the_nether, beside}],
@@ -110,8 +109,10 @@ defmodule Valimc.ItemPortalHandoffTest do
        ctx do
     {bx, bz} = ctx.beside
     # The Nether region at the overworld source's coordinates, with an item of its own.
-    {:ok, bytes} = ItemRecords.encode(ctx.key, [ctx.record.(ctx.key, 2)])
-    Valimc.TestDisk.write(Dimension.storage(ctx.base, :the_nether), ctx.key, :items, bytes)
+    Valimc.TestDisk.write(Dimension.storage(ctx.base, :the_nether), ctx.key, :items, %{
+      records: [ctx.record.(ctx.key, 2)]
+    })
+
     nether_source = owner(:the_nether, ctx.key)
     target = owner(:the_nether, ctx.beside)
     source = owner(:overworld, ctx.key)
@@ -138,52 +139,24 @@ defmodule Valimc.ItemPortalHandoffTest do
              Enum.sort([ctx.key, {:overworld, ctx.key}])
   end
 
-  test "crossing digests and ledgers: tagged ends round-trip, own-dimension tags are refused",
-       ctx do
+  test "crossing digests: tagged ends of two dimensions, never one", ctx do
     {bx, bz} = ctx.beside
     records = [%{ctx.record.(ctx.beside, 7) | x: bx * 128 + 3.5, z: bz * 128 + 3.5}]
-    generations = %{<<7::128>> => 1}
 
     transfer = %{
       source: {:overworld, ctx.key},
       sequence: 1,
       destination: {:the_nether, ctx.beside},
       records: records,
-      generations: generations
+      merge: nil
     }
 
-    assert {:ok, digest} = ItemHandoffs.digest(transfer.destination, transfer)
-    assert byte_size(digest) == 32
+    assert {:ok, <<_::256>> = digest} = EntityHandoffs.digest(transfer)
+    # A network id is the VM's and never part of the digest.
+    with_id = %{transfer | records: Enum.map(records, &Map.put(&1, :entity_id, 9))}
+    assert {:ok, ^digest} = EntityHandoffs.digest(with_id)
 
-    # Both ends in one dimension is not a crossing.
     assert {:error, :invalid_item_handoff} =
-             ItemHandoffs.digest({:overworld, ctx.beside}, %{
-               transfer
-               | destination: {:overworld, ctx.beside}
-             })
-
-    # A ledger with a crossing outgoing intent and a tagged receipt is version 2,
-    # and decodes to itself; one without keeps version 1.
-    ledger = %ItemLedger{
-      sequence: 1,
-      outgoing: %{
-        destination: {:the_nether, ctx.beside},
-        records: records,
-        generations: generations
-      },
-      incoming: %{{:the_end, ctx.beside} => %{sequence: 3, digest: <<5::256>>}}
-    }
-
-    assert {:ok, <<"VMCLEDGR", 2, _::binary>> = bytes} =
-             ItemLedger.encode(ctx.key, [], %{}, ledger)
-
-    assert {:ok, %{ledger: ^ledger}} = ItemLedger.decode(bytes, ctx.key)
-
-    plain = %ItemLedger{
-      sequence: 1,
-      incoming: %{ctx.beside => %{sequence: 3, digest: <<5::256>>}}
-    }
-
-    assert {:ok, <<"VMCLEDGR", 1, _::binary>>} = ItemLedger.encode(ctx.key, [], %{}, plain)
+             EntityHandoffs.digest(%{transfer | destination: {:overworld, ctx.beside}})
   end
 end

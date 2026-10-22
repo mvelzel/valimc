@@ -8,7 +8,7 @@ defmodule Valimc.ItemPortalRegionTest do
   alias Valimc.Portal.{Access, Blocks}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemRecords, Entities, Region}
+  alias Valimc.World.{Entities, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -63,8 +63,11 @@ defmodule Valimc.ItemPortalRegionTest do
     }
 
     region = World.region_key(World.chunk_key(x, z))
-    {:ok, bytes} = ItemRecords.encode(region, [record])
-    Valimc.TestDisk.write(Dimension.storage(ctx.base, dimension), region, :items, bytes)
+
+    Valimc.TestDisk.write(Dimension.storage(ctx.base, dimension), region, :items, %{
+      records: [record]
+    })
+
     Dimension.within(dimension, fn -> elem(World.item_owner(region), 1) end)
   end
 

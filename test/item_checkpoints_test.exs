@@ -3,7 +3,7 @@ defmodule Valimc.ItemCheckpointsTest do
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, World}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemRecords, Entities, Region}
+  alias Valimc.World.{Entities, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -64,10 +64,7 @@ defmodule Valimc.ItemCheckpointsTest do
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
-  defp read(ctx) do
-    assert {:ok, data} = ItemRecords.decode(disk(ctx), ctx.key)
-    data
-  end
+  defp read(ctx), do: disk(ctx)
 
   # Motion waits up to a second for a frame (VMC-077f); the kill comes sooner.
   test "normal shutdown checkpoints motion but a crash may roll back only ordinary motion", ctx do

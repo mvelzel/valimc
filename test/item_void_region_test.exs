@@ -3,7 +3,7 @@ defmodule Valimc.ItemVoidRegionTest do
   # Serial: the fsync-wait assertion races a simulation tick that queued writes allow.
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Region}
+  alias Valimc.World.Region
 
   setup do
     n = System.unique_integer([:positive])
@@ -18,21 +18,23 @@ defmodule Valimc.ItemVoidRegionTest do
       x: elem(key, 0) * 128 + 8.5,
       y: -128.01,
       z: elem(key, 1) * 128 + 8.5,
+      kind: :item,
       stack: ItemStack.new("stone", 7),
-      motion: motion
+      motion: motion,
+      hops: 3
     }
 
-    boundary = %{below | uuid: <<n::64, 2::64>>, y: -128.0}
+    boundary = %{below | uuid: <<n::64, 2::64>>, y: -128.0, hops: 4}
     receipts = %{<<n::64, 3::64>> => %{sequence: 11, digest: <<12::256>>}}
 
-    ledger = %ItemLedger{
+    ledger = %{
       sequence: 8,
-      incoming: %{{elem(key, 0) - 1, elem(key, 1)} => %{sequence: 6, digest: <<7::256>>}},
-      generations: %{below.uuid => 3, boundary.uuid => 4}
+      outgoing: nil,
+      incoming: %{{elem(key, 0) - 1, elem(key, 1)} => %{sequence: 6, digest: <<7::256>>}}
     }
 
-    {:ok, bytes} = ItemLedger.encode(key, [below, boundary], receipts, ledger)
-    Valimc.TestDisk.write(base, key, :items, bytes)
+    data = %{records: [below, boundary], receipts: receipts, ledger: ledger}
+    Valimc.TestDisk.write(base, key, :items, data)
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
@@ -63,10 +65,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp disk(c) do
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
-    saved
-  end
+  defp disk(c), do: Valimc.TestDisk.read(c.base, c.key, :items)
 
   test "void removal applies at once, retains receipts and survives owner reopening", c do
     enable(c.owner)
@@ -80,10 +79,10 @@ defmodule Valimc.ItemVoidRegionTest do
     assert :ok = Region.flush(pid)
     saved = disk(c)
 
-    assert Enum.map(saved.records, & &1.uuid) == [c.boundary.uuid] and
+    assert Enum.map(saved.records, &{&1.uuid, &1.hops}) == [{c.boundary.uuid, 4}] and
              saved.receipts == c.receipts
 
-    assert saved.ledger == %{c.ledger | generations: %{c.boundary.uuid => 4}}
+    assert saved.ledger == c.ledger
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, reopened} = World.item_owner(c.key)
     assert map_size(state(reopened).entities.store.entries) == 1

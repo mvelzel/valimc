@@ -41,7 +41,7 @@ defmodule Valimc.World.PickupTransfers do
          true <-
            Valimc.World.region_key(Valimc.World.chunk_key(entry.entity.x, entry.entity.z)) == key,
          true <- entry.stack == request.before,
-         true <- Map.get(items.ledger.generations, request.item_uuid, 0) == request.generation,
+         true <- Entities.hops(items, request.item_uuid) == request.generation,
          true <- Map.get(Map.get(entry, :motion, %{}), :pickup_delay, 0) == 0 do
       if request.remainder == nil,
         do: Entities.remove(items, epoch, id, revision),

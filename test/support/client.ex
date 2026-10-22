@@ -345,14 +345,15 @@ defmodule Valimc.TestDisk do
   written as its checkpoint while the region does not run.
   """
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{Containers, ItemLedger, Entities, RegionStorage}
+  alias Valimc.World.{Containers, Entities, RegionStorage}
 
   @junk "corrupt"
 
   @doc """
-  `:items` and `:containers` as their codecs encode them (nil while empty),
-  `:blocks` the cells not folded into column images; `:corrupt` when the
-  checkpoint is unreadable.
+  `:items` as `%{records, receipts, ledger}` (the entity records, the
+  players' transfer receipts and the handoff ledger), `:containers` as their
+  codec encodes them (nil while empty), `:blocks` the cells not folded into
+  column images; `:corrupt` when the checkpoint is unreadable.
   """
   def read(base, key, part) do
     case RegionStorage.read(base, :overworld, key) do
@@ -363,13 +364,10 @@ defmodule Valimc.TestDisk do
 
   defp encode(:blocks, _key, parts), do: parts.cells
 
-  defp encode(:items, key, parts) do
-    if parts.items == [] and parts.receipts == %{} and parts.ledger == %ItemLedger{} do
-      nil
-    else
-      {:ok, bytes} = ItemLedger.encode(key, parts.items, parts.receipts, parts.ledger)
-      bytes
-    end
+  defp encode(:items, _key, parts) do
+    if parts.items == [] and parts.receipts == %{} and parts.ledger == Entities.empty_ledger(),
+      do: nil,
+      else: %{records: parts.items, receipts: parts.receipts, ledger: parts.ledger}
   end
 
   defp encode(:containers, key, parts) do
@@ -382,8 +380,9 @@ defmodule Valimc.TestDisk do
   end
 
   @doc """
-  Replace `part` of a region that is not running: `:items` or `:containers`
-  bytes of their codecs (nil for none), `:blocks` cells to add.
+  Replace `part` of a region that is not running: `:items` as `%{records,
+  receipts}` (and optionally `ledger`), `:containers` bytes of their codec (nil
+  for none), `:blocks` cells to add.
   """
   def write(base, key, part, value) when part in [:blocks, :items, :containers] do
     {:ok, seq, records} = RegionStorage.records(base, :overworld, key)
@@ -396,7 +395,7 @@ defmodule Valimc.TestDisk do
     :ok = Checkpoint.write(path(base, key), seq, records)
   end
 
-  defp owns?(:items, {kind, _}) when kind in [:item, :receipt, :ledger, :ledger_in, :generation],
+  defp owns?(:items, {kind, _}) when kind in [:entity, :receipt, :handoff, :handoff_in],
     do: true
 
   defp owns?(:containers, {kind, _}) when kind in [:container, :container_receipt, :containers],
@@ -409,13 +408,13 @@ defmodule Valimc.TestDisk do
   defp records(:blocks, _key, cells),
     do: Map.new(cells, fn {pos, block} -> {{:cell, pos}, block} end)
 
-  defp records(:items, key, bytes) do
-    {:ok, data} = ItemLedger.decode(bytes, key)
-    {:ok, items} = Entities.restore(key, data.records, data.ledger)
+  defp records(:items, key, data) do
+    ledger = Map.get(data, :ledger, Entities.empty_ledger())
+    {:ok, items} = Entities.restore(key, data.records, ledger)
 
     Map.merge(
       RegionStorage.part_records(:items, items),
-      RegionStorage.part_records(:receipts, data.receipts)
+      RegionStorage.part_records(:receipts, Map.get(data, :receipts, %{}))
     )
   end
 

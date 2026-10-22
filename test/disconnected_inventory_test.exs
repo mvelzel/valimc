@@ -93,8 +93,11 @@ defmodule Valimc.DisconnectedInventoryTest do
   # Durable records of that owner's region (owner memory may hold in-flight writes).
   defp records(pid) do
     [key] = Registry.keys(Valimc.RegionRegistry, pid)
-    bytes = Valimc.TestDisk.read(Valimc.config(:world_path), key, :items)
-    if bytes, do: elem(Valimc.World.ItemLedger.decode(bytes, key), 1).records, else: []
+
+    case Valimc.TestDisk.read(Valimc.config(:world_path), key, :items) do
+      nil -> []
+      saved -> saved.records
+    end
   end
 
   defp verify(ctx, snapshot, records) do

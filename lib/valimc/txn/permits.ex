@@ -25,13 +25,6 @@ defmodule Valimc.Txn.Permits do
       per_source: :container_already_pending,
       full: :container_permits_full
     },
-    item_merge: %{
-      limit: 8,
-      lifetime: 250,
-      scaled: true,
-      per_source: :item_merge_already_pending,
-      full: :item_merge_permits_full
-    },
     mining: %{limit: 128, lifetime: 10_000, per_source: nil, full: :mining_permit_limit},
     placement: %{limit: 128, lifetime: 10_000, per_source: nil, full: :placement_permit_limit},
     # A box edit's cells (VMC-077o), locked from its prepare to its commit or

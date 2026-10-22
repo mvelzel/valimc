@@ -18,8 +18,5 @@ defmodule Valimc.World.RegionEntities do
             merge_next: nil,
             cross_next: nil,
             cross_stamp: nil,
-            cross_scan_stamp: nil,
-            cross_cursor: nil,
-            cross_retry: false,
             age_debt: 0
 end

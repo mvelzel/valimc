@@ -4,7 +4,7 @@ defmodule Valimc.ItemSimulationRegionTest do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, ItemRecords, ItemTransfers, Region}
+  alias Valimc.World.{ItemTransfers, Region}
 
   setup :scope
 
@@ -46,8 +46,7 @@ defmodule Valimc.ItemSimulationRegionTest do
       })
 
     receipts = %{<<99::128>> => %{sequence: 1, digest: digest}}
-    {:ok, bytes} = ItemRecords.encode(key, records, receipts)
-    Valimc.TestDisk.write(base, key, :items, bytes)
+    Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
@@ -111,8 +110,7 @@ defmodule Valimc.ItemSimulationRegionTest do
 
     assert :ok = Region.flush(elem(ctx.owner, 0))
 
-    assert {:ok, saved} =
-             ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
+    saved = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
     assert saved.records == [] and saved.receipts == ctx.receipts
     transfer = %{source: <<99::128>>, sequence: 1, records: ctx.records}

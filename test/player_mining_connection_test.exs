@@ -155,9 +155,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   defp finished(pid), do: state(pid).mining == nil and state(pid).recovery == nil
 
   defp drops(ctx) do
-    bytes = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
-    {:ok, ledger} = Valimc.World.ItemRecords.decode(bytes, ctx.key)
-    Enum.map(ledger.records, & &1.stack)
+    Enum.map(Valimc.TestDisk.read(ctx.base, ctx.key, :items).records, & &1.stack)
   end
 
   defp reconnect(ctx, client) do

@@ -104,6 +104,36 @@ defmodule Valimc.World.ItemMerges do
     end
   end
 
+  @doc """
+  Merge an item handed over by a neighbouring owner into its `target` here
+  (VMC-077h), as vanilla merges two items: `:error` when the target is gone,
+  moved away or no longer takes the whole donor.
+  """
+  def absorb(items, key, target, %{kind: :item, x: x, y: y, z: z, stack: stack} = donor) do
+    motion = Map.get(donor, :motion, %ItemMotionState{no_gravity: true})
+    input = %{stack: stack, motion: motion, target: nil, alive: true}
+
+    with {:ok, {epoch, id, revision}} <- Entities.find(items, target),
+         entry = items.entries[id],
+         true <- ItemMerge.near?(point(entry), {x, y, z}),
+         {:ok, %{recipient: :b, donor_stack: nil} = decision} <-
+           ItemMerge.pair(input, input(entry)),
+         {:ok, next, {^epoch, ^id, revision}} <-
+           Entities.replace(items, epoch, id, revision, decision.stack),
+         {:ok, next, _} <-
+           Entities.advance(next, key, epoch, [
+             %{id: id, revision: revision, position: point(entry), motion: decision.motion}
+           ]) do
+      {:ok, next}
+    else
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  def absorb(_, _, _, _), do: :error
+
   defp donor(items, id, revision, nil) do
     with {:ok, next} <- Entities.remove(items, items.epoch, id, revision), do: {:ok, next, nil}
   end

@@ -1,10 +1,10 @@
 defmodule Valimc.World.MiningRecord do
   @moduledoc "Bounded write-ahead proposal for owner-local blocks, items and optional container state."
   alias Valimc.Protocol.Data
-  alias Valimc.World.{Chunk, Containers, ItemLedger}
+  alias Valimc.World.{Chunk, Containers, ItemRecords}
   @max_edits 4096
   @container_bytes Containers.max_bytes()
-  @max_bytes 30 + @max_edits * 14 + ItemLedger.max_bytes() + Containers.max_bytes() + 32
+  @max_bytes 30 + @max_edits * 14 + ItemRecords.max_bytes() + Containers.max_bytes() + 32
   def max_bytes, do: @max_bytes
 
   def encode(key, edits, item_bytes), do: encode_record(key, edits, item_bytes, nil)
@@ -19,7 +19,7 @@ defmodule Valimc.World.MiningRecord do
               map_size(edits) in 1..@max_edits do
     with true <- rx in -2_147_483_648..2_147_483_647 and rz in -2_147_483_648..2_147_483_647,
          true <- Enum.all?(edits, &valid_edit?(key, &1)),
-         {:ok, _} <- ItemLedger.decode(item_bytes, key),
+         {:ok, _} <- ItemRecords.decode(item_bytes, key),
          :ok <- valid_containers(container_bytes, key) do
       version = if container_bytes == nil, do: 1, else: 2
       container_size = if version == 1, do: <<>>, else: <<byte_size(container_bytes)::32>>
@@ -74,7 +74,7 @@ defmodule Valimc.World.MiningRecord do
 
     with true <-
            :crypto.hash(:sha256, payload) == checksum and count in 1..@max_edits and
-             item_size <= ItemLedger.max_bytes(),
+             item_size <= ItemRecords.max_bytes(),
          <<edit_bytes::binary-size(^edit_size), item_bytes::binary-size(^item_size),
            container_bytes::binary-size(^container_size)>> <- body,
          entries <-
@@ -83,7 +83,7 @@ defmodule Valimc.World.MiningRecord do
            ),
          edits <- Map.new(entries),
          true <- map_size(edits) == count and Enum.all?(edits, &valid_edit?(key, &1)),
-         {:ok, ledger} <- ItemLedger.decode(item_bytes, key),
+         {:ok, ledger} <- ItemRecords.decode(item_bytes, key),
          :ok <- valid_containers(if(version == 1, do: nil, else: container_bytes), key) do
       proposal = %{edits: edits, item_bytes: item_bytes, ledger: ledger}
 

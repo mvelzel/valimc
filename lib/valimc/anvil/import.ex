@@ -15,8 +15,7 @@ defmodule Valimc.Anvil.Import do
   processing...) is kept for export as the region's `chunk_extras`.
 
   Entities (VMC-021e2, `Valimc.Anvil.Entity`): dropped items become item records
-  in the region their position falls in (at most 256 per region, as owners
-  allow; vanilla skips a repeated UUID), XP orbs become imported orb births
+  in the region their position falls in (vanilla skips a repeated UUID), XP orbs become imported orb births
   (VMC-021e4, 256 awards per region); every other entity is preserved per chunk
   for export. Every other vanilla file except chunk storage (`level.dat`,
   world and dimension data such as world generation settings, game rules,
@@ -42,7 +41,7 @@ defmodule Valimc.Anvil.Import do
     CookingOrbs,
     DataFix,
     GenSettings,
-    ItemLedger,
+    Entities,
     RegionStorage,
     Settings,
     Spec
@@ -50,7 +49,6 @@ defmodule Valimc.Anvil.Import do
 
   @overworld "dimensions/minecraft/overworld/region"
   @entities "dimensions/minecraft/overworld/entities"
-  @max_items 256
   @max_errors 20
 
   @doc "Import `source` into `destination`; returns a report or an error."
@@ -418,21 +416,19 @@ defmodule Valimc.Anvil.Import do
     {containers, counts, entities}
   end
 
-  # Items in stored order up to the owner's bound; a repeated UUID is skipped as
-  # vanilla's entity lookup skips it, an item past the bound is preserved.
+  # Items in stored order; a repeated UUID is skipped as vanilla's entity lookup
+  # skips it.
   defp entities(%{items: items, preserved: preserved}, counts) do
-    {records, extra, _} =
+    {records, _} =
       items
       |> Enum.reverse()
-      |> Enum.reduce({[], [], MapSet.new()}, fn {chunk, tag, record}, {records, extra, seen} ->
-        cond do
-          MapSet.member?(seen, record.uuid) -> {records, extra, seen}
-          length(records) >= @max_items -> {records, [{chunk, tag} | extra], seen}
-          true -> {[record | records], extra, MapSet.put(seen, record.uuid)}
-        end
+      |> Enum.reduce({[], MapSet.new()}, fn {_chunk, _tag, record}, {records, seen} ->
+        if MapSet.member?(seen, record.uuid),
+          do: {records, seen},
+          else: {[record | records], MapSet.put(seen, record.uuid)}
       end)
 
-    kept = Enum.reverse(preserved) ++ Enum.reverse(extra)
+    kept = Enum.reverse(preserved)
 
     stored = Enum.group_by(kept, &elem(&1, 0), &elem(&1, 1))
 
@@ -446,10 +442,11 @@ defmodule Valimc.Anvil.Import do
 
   defp item_part(_key, [], parts), do: {:ok, parts}
 
-  # The codecs check the owners' bounds; the checkpoint keeps the values.
+  # The store checks each record; the checkpoint keeps the values.
   defp item_part(key, records, parts) do
-    with {:ok, _} <- ItemLedger.encode(key, records, %{}),
-         do: {:ok, Map.put(parts, :items, records)}
+    if Enum.all?(records, &Entities.valid_record?(key, &1)),
+      do: {:ok, Map.put(parts, :items, records)},
+      else: {:error, :invalid_item}
   end
 
   defp container_part(_key, %Containers{} = containers, parts)

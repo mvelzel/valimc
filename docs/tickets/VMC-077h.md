@@ -28,6 +28,20 @@ Acceptance:
   the older format are refused (D4).
 - Network ids come from one `:atomics` counter (`Valimc.World.EntityIds`) for
   players and every entity kind.
+- One handoff for every kind (`Valimc.World.EntityHandoffs`): the source
+  withdraws a cohort of at most 32 records into one durable outgoing intent,
+  the destination adopts it and records its receipt (applied or rejected) in
+  the same frame, and the source clears the intent once that receipt is
+  durable. Records keep their uuid, kind and hops and, within one VM, their
+  network id, which stays out of the digest and off disk. The digest is a
+  SHA-256 of the transfer's deterministic term; the legacy `ItemLedger` codec
+  is gone. Portal crossings keep their tagged `{dimension, key}` ends.
+- A cross-region merge is the donor handed over with its target's uuid, then
+  merged on arrival as vanilla merges two items; a target that is gone or
+  changed rejects it, and the donor comes back when the source clears. Only
+  whole donors cross (vanilla merges at most 64 items at once). Discovery stays
+  an observation of the neighbours' snapshots; the merge escrow, inbox,
+  permits, transfer record, query protocol and owner receipt table are deleted.
 
 Measurements (`bench/entity_store.exs`, raw results kept, untracked, in
 `bench/results/entity-store-*.json`):

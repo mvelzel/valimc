@@ -2,7 +2,7 @@ defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Entities, Region}
+  alias Valimc.World.{Entities, Region}
 
   setup :scope
 
@@ -24,16 +24,15 @@ defmodule Valimc.ItemMergeRegionTest do
             x: elem(key, 0) * 128 + 8.5,
             y: 64.0,
             z: elem(key, 1) * 128 + 8.5,
+            kind: :item,
             stack: ItemStack.new("stone", i + 1),
-            motion: %ItemMotionState{age: i * 100, pickup_delay: i * 10, no_gravity: true}
+            motion: %ItemMotionState{age: i * 100, pickup_delay: i * 10, no_gravity: true},
+            hops: if(i == 2, do: 3, else: 0)
           }
 
     receipts = %{<<99::128>> => %{sequence: 4, digest: :crypto.hash(:sha256, "birth")}}
 
-    {:ok, bytes} =
-      ItemLedger.encode(key, records, receipts, %ItemLedger{generations: %{<<2::128>> => 3}})
-
-    Valimc.TestDisk.write(base, key, :items, bytes)
+    Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
@@ -54,12 +53,7 @@ defmodule Valimc.ItemMergeRegionTest do
     [%{a: {a, ar}, b: {b, br}}]
   end
 
-  defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
-
-  def disk(ctx) do
-    {:ok, saved} = ItemLedger.decode(items_bytes(ctx), ctx.key)
-    saved
-  end
+  def disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
   test "a merge applies and publishes at once; a competing merge refuses; restart keeps one stack",
        ctx do
@@ -75,8 +69,7 @@ defmodule Valimc.ItemMergeRegionTest do
     assert record.uuid == <<2::128>> and record.stack.count == 5
     assert record.motion.age == 100 and record.motion.pickup_delay == 20
 
-    assert disk(ctx).receipts == ctx.receipts and
-             disk(ctx).ledger.generations == %{record.uuid => 3}
+    assert disk(ctx).receipts == ctx.receipts and record.hops == 3
 
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
@@ -85,6 +78,4 @@ defmodule Valimc.ItemMergeRegionTest do
     assert Entities.records(state(next).entities.store) == [record]
     assert state(next).entities.receipts == ctx.receipts
   end
-
-  @tag simulation: true
 end

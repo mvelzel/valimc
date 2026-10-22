@@ -3,7 +3,7 @@ defmodule Valimc.ChestSpillRegionTest do
   alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{Containers, ItemLedger, Entities, MiningTransfers, Region}
+  alias Valimc.World.{Containers, Entities, MiningTransfers, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -36,10 +36,7 @@ defmodule Valimc.ChestSpillRegionTest do
     Valimc.TestDisk.write(base, key, :containers, bytes)
     Valimc.TestDisk.write(base, key, :blocks, %{position => chest})
 
-    initial = []
-
-    {:ok, bytes} = ItemLedger.encode(key, initial, %{}, %ItemLedger{})
-    Valimc.TestDisk.write(base, key, :items, bytes)
+    Valimc.TestDisk.write(base, key, :items, nil)
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {:ok, permit} = Region.reserve_mining(owner, [position])
     {x, y, z} = position
@@ -72,7 +69,6 @@ defmodule Valimc.ChestSpillRegionTest do
       containers: containers,
       stock: stock,
       typed: typed,
-      initial: initial,
       transfer: transfer
     }
   end
@@ -89,7 +85,7 @@ defmodule Valimc.ChestSpillRegionTest do
     assert containers.entries == %{} and containers.sequence == 3 and
              containers.receipts == c.typed
 
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
+    saved = Valimc.TestDisk.read(c.base, c.key, :items)
     expected = if self_loot, do: [ItemStack.new("chest") | c.stock], else: c.stock
     assert quantities(Enum.map(saved.records, & &1.stack)) == quantities(expected)
     assert Valimc.TestBlocks.get(c.position) == 89

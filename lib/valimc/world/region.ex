@@ -303,36 +303,6 @@ defmodule Valimc.World.Region do
   def release_pickup({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
 
-  @doc "Trusted donor proposal; a returned grant follows durable recipient receipt admission."
-  def reserve_item_merge({pid, epoch}, proposal),
-    do:
-      GenServer.call(
-        pid,
-        {:reserve_item_merge, epoch, proposal,
-         System.monotonic_time(:millisecond) + budget(pid, 250)},
-        budget(pid, 6000)
-      )
-
-  @doc "Internal source journal; use only the request returned by reserve_item_merge/2."
-  def prepare_item_merge({pid, epoch}, request),
-    do: GenServer.call(pid, {:prepare_item_merge, epoch, request}, budget(pid, 6000))
-
-  def apply_item_merge({pid, epoch}, request),
-    do: GenServer.call(pid, {:apply_item_merge, epoch, request}, budget(pid, 6000))
-
-  def owner_item_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:owner_item_receipt, epoch, source}, budget(pid, 2000))
-
-  def release_item_merge({pid, epoch}, token, source),
-    do: send(pid, {:resource, epoch, {:release_item_merge, token, source}})
-
-  def item_merge_donor({pid, epoch}, uuid, recipient),
-    do: GenServer.call(pid, {:item_merge_donor, epoch, uuid, recipient}, budget(pid, 2000))
-
-  def apply_item_merge_counters({pid, epoch}, request, source_fence),
-    do:
-      GenServer.call(pid, {:item_merge_counters, epoch, request, source_fence}, budget(pid, 2000))
-
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:
@@ -374,9 +344,9 @@ defmodule Valimc.World.Region do
         budget(pid, 6000)
       )
 
-  @doc "Internal region inbox; delivery must follow a durably committed source intent."
-  def apply_item_handoff({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:item_handoff, epoch, transfer}, budget(pid, 6000))
+  @doc "Internal entity handoff inbox; delivery must follow a durably committed source intent."
+  def apply_entity_handoff({pid, epoch}, transfer),
+    do: GenServer.call(pid, {:entity_handoff, epoch, transfer}, budget(pid, 6000))
 
   @doc "Internal bounded XP inbox; source intent must already be durable."
   def apply_cooking_orb_spawn({pid, epoch}, bytes)

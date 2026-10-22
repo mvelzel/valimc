@@ -21,7 +21,7 @@ defmodule Valimc.World.PickupPermits do
          true <- ItemPickup.eligible?(actor, entry) do
       grant = %{
         item_uuid: item_uuid,
-        generation: Map.get(items.ledger.generations, item_uuid, 0),
+        generation: Entities.hops(items, item_uuid),
         before: entry.stack,
         actor:
           %{
@@ -60,7 +60,7 @@ defmodule Valimc.World.PickupPermits do
              entry = items.entries[id],
              true <-
                entry.stack == grant.before and
-                 Map.get(items.ledger.generations, grant.item_uuid, 0) == grant.generation,
+                 Entities.hops(items, grant.item_uuid) == grant.generation,
              do: ItemPickup.eligible?(grant.actor, entry),
              else: (_ -> false)
       rescue

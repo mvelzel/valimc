@@ -2,7 +2,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Entities, Region}
+  alias Valimc.World.{EntityHandoffs, Entities, Region}
 
   setup do
     n = System.unique_integer([:positive])
@@ -17,6 +17,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       x: (elem(key, 0) + 1) * 128 - 0.1,
       y: 68.0,
       z: elem(key, 1) * 128 + 7.5,
+      kind: :item,
       stack: ItemStack.new("stone", 2),
       motion: %ItemMotionState{age: 30, pickup_delay: 15, no_gravity: true}
     }
@@ -29,10 +30,8 @@ defmodule Valimc.ItemCrossMergeAutoTest do
         motion: %{donor.motion | age: 100, pickup_delay: 0}
     }
 
-    for {k, records} <- [{key, [donor]}, {target_key, [recipient]}] do
-      {:ok, bytes} = ItemLedger.encode(k, records, %{}, %ItemLedger{})
-      Valimc.TestDisk.write(base, k, :items, bytes)
-    end
+    for {k, records} <- [{key, [donor]}, {target_key, [recipient]}],
+        do: Valimc.TestDisk.write(base, k, :items, %{records: records})
 
     {:ok, source} = World.item_owner(key)
     {:ok, target} = World.item_owner(target_key)
@@ -51,6 +50,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       target_key: target_key,
       source: source,
       target: target,
+      donor: donor,
       recipient: recipient,
       base: base
     }
@@ -72,8 +72,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       Enum.all?([c.source, c.target], fn owner ->
         s = state(owner)
 
-        s.entities.store.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
-          not Valimc.World.Jobs.running?(s.jobs, :cross_merge)
+        s.entities.store.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
       end)
 
   defp total(c),
@@ -86,12 +85,9 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
   defp converged(c), do: map_size(state(c.source).entities.store.entries) == 0 and idle(c)
 
-  defp disk(c, k) do
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, k, :items), k)
-    saved
-  end
+  defp disk(c, k), do: Valimc.TestDisk.read(c.base, k, :items)
 
-  test "automatic boundary discovery commits and recovers a merge without manual grants", c do
+  test "a border item is handed over and merged on arrival, durably", c do
     start(c)
     wait(fn -> converged(c) end)
     assert total(c) == 5
@@ -109,5 +105,37 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
     assert [%{uuid: ^uuid, stack: %{count: 5}}] =
              Entities.records(state(restarted).entities.store)
+  end
+
+  test "a donor whose target is gone is rejected and comes back with its network id", c do
+    {:ok, source} = Entities.restore(c.key, [c.donor])
+    {:ok, {epoch, id, revision}} = Entities.find(source, c.donor.uuid)
+
+    assert {:ok, departed, transfer} =
+             EntityHandoffs.depart_merge(
+               source,
+               c.key,
+               epoch,
+               {id, revision},
+               c.target_key,
+               <<1::128>>
+             )
+
+    assert departed.entries == %{} and transfer.merge == <<1::128>>
+    assert {:ok, digest} = EntityHandoffs.digest(transfer)
+    {:ok, target} = Entities.restore(c.target_key, [c.recipient])
+    assert {:ok, target, :rejected} = EntityHandoffs.accept(target, c.target_key, transfer)
+
+    assert {:ok, ^target, :already_rejected} =
+             EntityHandoffs.accept(target, c.target_key, transfer)
+
+    assert Entities.records(target) ==
+             Entities.records(elem(Entities.restore(c.target_key, [c.recipient]), 1))
+
+    assert {:ok, back} =
+             EntityHandoffs.finish(departed, c.key, transfer.sequence, digest, :rejected)
+
+    assert back.ledger.outgoing == nil
+    assert {:ok, {_, ^id, _}} = Entities.find(back, c.donor.uuid)
   end
 end

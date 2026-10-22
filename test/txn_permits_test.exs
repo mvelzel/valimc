@@ -8,7 +8,6 @@ defmodule Valimc.TxnPermitsTest do
   @kinds [
     {:pickup, 128, true},
     {:container, 128, true},
-    {:item_merge, 8, true},
     {:mining, 128, false},
     {:placement, 128, false}
   ]

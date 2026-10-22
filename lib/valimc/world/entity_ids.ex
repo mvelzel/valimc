@@ -15,11 +15,24 @@ defmodule Valimc.World.EntityIds do
 
   @doc "The next id, or `{:error, :entity_id_exhausted}` past the protocol's range."
   def next do
-    case :atomics.add_get(:persistent_term.get(@key), 1, 1) do
+    case :atomics.add_get(counter(), 1, 1) do
       id when id <= @max -> {:ok, id}
       _ -> {:error, :entity_id_exhausted}
     end
   end
 
   def valid?(id), do: is_integer(id) and id in 1..@max
+
+  # The application creates the counter before any owner starts; code running
+  # without it (vanilla check scripts) creates it on first use.
+  defp counter do
+    case :persistent_term.get(@key, nil) do
+      nil ->
+        init!()
+        :persistent_term.get(@key)
+
+      counter ->
+        counter
+    end
+  end
 end

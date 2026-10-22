@@ -13,7 +13,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:post, chunk}` | what a generated chunk leaves for fluids |
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:receipt, source}` | a player transfer's receipt |
-  | `{:ledger, field}`, `{:ledger_in, source}`, `{:generation, uuid}` | the item handoff ledger |
+  | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:container_receipt, source}`, `{:containers, field}` | containers |
   | `{:tick, position, block}` | a scheduled block tick, `{due, priority}` |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
@@ -40,7 +40,7 @@ defmodule Valimc.World.RegionStorage do
   """
   require Logger
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Entities, ScheduledTicks}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, Entities, ScheduledTicks}
 
   @commit_ms 50
   @checkpoint_bytes 1024 * 1024
@@ -551,13 +551,12 @@ defmodule Valimc.World.RegionStorage do
 
     for(record <- Entities.records(items), into: %{}, do: {{:entity, record.uuid}, record})
     |> Map.merge(%{
-      {:ledger, :sequence} => ledger.sequence,
-      {:ledger, :outgoing} => ledger.outgoing
+      {:handoff, :sequence} => ledger.sequence,
+      {:handoff, :outgoing} => stored_outgoing(ledger.outgoing)
     })
     |> Map.merge(
-      for {source, receipt} <- ledger.incoming, into: %{}, do: {{:ledger_in, source}, receipt}
+      for {source, receipt} <- ledger.incoming, into: %{}, do: {{:handoff_in, source}, receipt}
     )
-    |> Map.merge(for {uuid, gen} <- ledger.generations, into: %{}, do: {{:generation, uuid}, gen})
   end
 
   def part_records(:receipts, receipts),
@@ -601,6 +600,12 @@ defmodule Valimc.World.RegionStorage do
         do: {{:block_entity, pos}, {type, nbt}}
       )
 
+  # Network ids are the VM's: a recovered intent delivers without them.
+  defp stored_outgoing(nil), do: nil
+
+  defp stored_outgoing(outgoing),
+    do: %{outgoing | records: Enum.map(outgoing.records, &Map.delete(&1, :entity_id))}
+
   @doc false
   def apply_ops(records, ops) do
     Enum.reduce(ops, records, fn
@@ -625,7 +630,7 @@ defmodule Valimc.World.RegionStorage do
       post_processing: %{},
       items: [],
       receipts: %{},
-      ledger: %ItemLedger{},
+      ledger: Entities.empty_ledger(),
       containers: %Containers{},
       ticks: [],
       block_entities: %{},
@@ -649,14 +654,11 @@ defmodule Valimc.World.RegionStorage do
       {{:receipt, source}, receipt}, acc ->
         put_in(acc, [:receipts, source], receipt)
 
-      {{:ledger, field}, value}, acc ->
+      {{:handoff, field}, value}, acc when field in [:sequence, :outgoing] ->
         %{acc | ledger: Map.put(acc.ledger, field, value)}
 
-      {{:ledger_in, source}, receipt}, acc ->
+      {{:handoff_in, source}, receipt}, acc ->
         %{acc | ledger: %{acc.ledger | incoming: Map.put(acc.ledger.incoming, source, receipt)}}
-
-      {{:generation, uuid}, gen}, acc ->
-        %{acc | ledger: %{acc.ledger | generations: Map.put(acc.ledger.generations, uuid, gen)}}
 
       {{:container, pos}, entry}, acc ->
         %{
@@ -734,7 +736,7 @@ defmodule Valimc.World.RegionStorage do
           |> Map.merge(
             for record <- Map.get(parts, :items, []),
                 into: %{},
-                do: {{:entity, record.uuid}, record}
+                do: {{:entity, record.uuid}, Map.put_new(record, :kind, :item)}
           )
 
         extra = Map.take(parts, [:chunk_extras, :entities])

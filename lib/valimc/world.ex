@@ -129,37 +129,6 @@ defmodule Valimc.World do
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.
-  @doc "Invalidate a previously source-owner-authorized item snapshot; observations grant no authority."
-  def item_observation_current?(%{
-        key: key,
-        owner: {pid, epoch},
-        id: id,
-        uuid: uuid,
-        versions: versions,
-        expires_at: expires
-      }) do
-    true = is_integer(expires) and System.monotonic_time(:millisecond) < expires
-
-    case Directory.lookup(key) do
-      {^pid, _, %{epoch: ^epoch, publication: table}} ->
-        case Valimc.World.EntityPublication.source(table, :items) do
-          %{^id => view} ->
-            Process.alive?(pid) and view.uuid == uuid and view.merge_open and
-              view.physical_revision == versions
-
-          _ ->
-            false
-        end
-
-      _ ->
-        false
-    end
-  rescue
-    _ -> false
-  end
-
-  def item_observation_current?(_), do: false
-
   def item_snapshot(key) do
     case Directory.lookup(key) do
       {_, _, %{publication: table}} ->

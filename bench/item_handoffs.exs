@@ -1,6 +1,6 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{ItemHandoffs, ItemLedger, EntityReplication, Entities}
+alias Valimc.World.{EntityHandoffs, EntityReplication, Entities}
 
 measure = fn run ->
   for _ <- 1..20, do: run.()
@@ -46,12 +46,14 @@ handoffs =
       end)
 
     run = fn ->
-      {:ok, source, transfer} = ItemHandoffs.depart(initial, {0, 0}, initial.epoch, {1, 0}, steps)
-      {:ok, destination, :applied} = ItemHandoffs.accept(Entities.new(), {1, 0}, transfer)
-      {:ok, digest} = ItemHandoffs.digest({1, 0}, transfer)
-      {:ok, source} = ItemHandoffs.finish(source, {0, 0}, transfer.sequence, digest)
+      {:ok, source, transfer} =
+        EntityHandoffs.depart(initial, {0, 0}, initial.epoch, {1, 0}, steps)
+
+      {:ok, destination, :applied} = EntityHandoffs.accept(Entities.new(), {1, 0}, transfer)
+      {:ok, digest} = EntityHandoffs.digest(transfer)
+      {:ok, source} = EntityHandoffs.finish(source, {0, 0}, transfer.sequence, digest, :applied)
       true = map_size(source.entries) + map_size(destination.entries) == active
-      true = map_size(destination.ledger.generations) == count
+      true = Enum.all?(destination.entries, fn {_, entry} -> entry.hops == 1 end)
     end
 
     Map.merge(measure.(run), %{active: active, moved: count, component_bytes: bytes})
@@ -78,9 +80,8 @@ replication =
         if records == [] do
           views
         else
-          records = Enum.map(records, &%{&1 | x: 128.5})
-          ledger = %ItemLedger{generations: Map.new(records, &{&1.uuid, 1})}
-          {:ok, adopted} = Entities.restore({1, 0}, records, ledger)
+          records = Enum.map(records, &Map.merge(&1, %{x: 128.5, hops: 1}))
+          {:ok, adopted} = Entities.restore({1, 0}, records)
           Map.merge(views, adopted.views)
         end
       else

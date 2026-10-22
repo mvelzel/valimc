@@ -5,7 +5,7 @@ defmodule Valimc.LootChestRegionTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Region, RegionStorage}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}
 
   @chest BlockRegistry.default_state("chest")
   @seed 5_530_731_629_134_945_404
@@ -179,7 +179,7 @@ defmodule Valimc.LootChestRegionTest do
     assert :ok = Valimc.TestBlocks.remove(position)
     assert Valimc.TestBlocks.get(position) != @chest
 
-    {:ok, saved} = ItemLedger.decode(durable(ctx, :items), ctx.key)
+    saved = durable(ctx, :items)
 
     spilled =
       saved.records

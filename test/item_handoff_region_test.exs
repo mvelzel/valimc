@@ -4,7 +4,7 @@ defmodule Valimc.ItemHandoffRegionTest do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, ItemRecords, Entities, Region}
+  alias Valimc.World.{Entities, Region}
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -32,10 +32,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     receipts = %{<<99::128>> => %{sequence: 1, digest: <<99::256>>}}
     source_records = records.(key, 1)
     destination_records = if count == 1, do: [], else: records.(destination, 1000)
-    {:ok, bytes} = ItemRecords.encode(key, source_records, receipts)
-    Valimc.TestDisk.write(base, key, :items, bytes)
-    {:ok, bytes} = ItemRecords.encode(destination, destination_records)
-    Valimc.TestDisk.write(base, destination, :items, bytes)
+    Valimc.TestDisk.write(base, key, :items, %{records: source_records, receipts: receipts})
+    Valimc.TestDisk.write(base, destination, :items, %{records: destination_records})
     {:ok, owner} = World.item_owner(key)
     {:ok, other} = World.item_owner(destination)
 
@@ -96,16 +94,13 @@ defmodule Valimc.ItemHandoffRegionTest do
   defp published({pid, _}, uuid) do
     [key] = Registry.keys(Valimc.RegionRegistry, pid)
 
-    {:ok, saved} =
-      ItemLedger.decode(Valimc.TestDisk.read(Valimc.config(:world_path, key), key, :items), key)
-
-    Enum.any?(saved.records, &(&1.uuid == uuid))
+    saved = Valimc.TestDisk.read(Valimc.config(:world_path, key), key, :items)
+    saved != nil and Enum.any?(saved.records, &(&1.uuid == uuid))
   end
 
-  defp disk(ctx, key) do
-    assert {:ok, snapshot} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, key, :items), key)
-    snapshot
-  end
+  defp disk(ctx, key), do: Valimc.TestDisk.read(ctx.base, key, :items)
+
+  defp hops(ctx, key, uuid), do: Enum.find(disk(ctx, key).records, &(&1.uuid == uuid))[:hops]
 
   defp replace_owner(owner, key) do
     {pid, _} = owner
@@ -116,8 +111,10 @@ defmodule Valimc.ItemHandoffRegionTest do
     next
   end
 
-  test "both directions and owner recovery conserve one item and leave original player receipts",
+  test "both directions and owner recovery conserve one item, its network id and player receipts",
        ctx do
+    {:ok, {_, id, _}} = Entities.find(resource(ctx.owner).entities.store, ctx.uuid)
+
     assert {:ok, 1} =
              Region.handoff_items(
                ctx.owner,
@@ -130,7 +127,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     assert published(ctx.other, ctx.uuid)
     assert disk(ctx, ctx.key).receipts == ctx.receipts
     assert disk(ctx, ctx.destination).receipts == %{}
-    assert disk(ctx, ctx.destination).ledger.generations == %{ctx.uuid => 1}
+    assert hops(ctx, ctx.destination, ctx.uuid) == 1
+    assert {:ok, {_, ^id, _}} = Entities.find(resource(ctx.other).entities.store, ctx.uuid)
     receipt = ctx.receipts[<<99::128>>]
     # The existing player receipt still fences a retry after the item has left.
     assert {:ok, {key, ^receipt}} = Region.item_transfer_receipt(ctx.owner, <<99::128>>)
@@ -143,13 +141,14 @@ defmodule Valimc.ItemHandoffRegionTest do
     owner = replace_owner(ctx.owner, ctx.key)
     other = replace_owner(ctx.other, ctx.destination)
     assert published(owner, ctx.uuid) and not published(other, ctx.uuid)
-    assert disk(ctx, ctx.key).ledger.generations == %{ctx.uuid => 2}
+    assert hops(ctx, ctx.key, ctx.uuid) == 2
     assert disk(ctx, ctx.destination).ledger.incoming[ctx.key].sequence == 1
     assert disk(ctx, ctx.key).receipts == ctx.receipts
   end
 
   @tag population: 256
-  test "full neighbors simultaneously exchange cohorts without a destination lock cycle", ctx do
+  test "crowded neighbors simultaneously exchange cohorts without a destination lock cycle",
+       ctx do
     a_uuids = Enum.map(1..32, &<<&1::128>>)
     b_uuids = Enum.map(1000..1031, &<<&1::128>>)
     a_steps = steps(ctx.owner, ctx.destination, a_uuids)
