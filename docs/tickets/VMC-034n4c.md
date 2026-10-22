@@ -1,7 +1,7 @@
 # VMC-034n4c — Supplied XP travel geometry and currents
 
-Status: Parked
-Note: paused until the generic entity model (VMC-067); orb motion should land on it.
+Status: Planned
+Milestone: M3 (the entity model it waited for, VMC-067 and VMC-077h, is in place; VMC-026d needs moving orbs)
 Earlier plan: follow [stored bodies](VMC-034n4b.md) within [orb simulation](VMC-034n4.md). Reuse the accepted motion arithmetic and pickup protocol; do not reopen those gates.
 
 Acceptance:

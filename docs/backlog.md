@@ -155,6 +155,48 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-068 | Unified registry and block behaviours | One generated fact source and version module; behaviour callbacks |
 | VMC-069 | Connection decomposition | Codec/login/job/replication modules; encode-once fan-out; slim peer views |
 
+### M3 — Survival core
+
+The [roadmap](roadmap.md#m3--survival-core-planned) orders these and says which run in
+parallel. In every slice:
+
+- Behaviour comes from pinned 26.3 through oracle extractors.
+- Mobs belong to the group that owns their section. Physics, AI and trackers
+  run once per section per tick, and pathfinding runs as bounded jobs over
+  snapshots.
+- An entity or shape update without behaviour yet never fails generation.
+
+| ID | Slice | Acceptance gate |
+|---|---|---|
+| [VMC-079](tickets/VMC-079.md) | Ticket hygiene after foundations II | No ticket claims work nobody is doing; the backlog lists only open work |
+| [VMC-043a](tickets/VMC-043a.md) | Entity kinds beyond items and orbs | Generated entity facts; summoned mobs and primed TNT persist, hand off and replicate as in vanilla |
+| [VMC-015i](tickets/VMC-015i.md) | Living-entity travel in the kernel | Mob falling, swimming, climbing, step-up and pushing match the oracle; hundreds of mobs per group within budget |
+| [VMC-041a](tickets/VMC-041a.md) | Goals, targets, brains and sensors | Goal selection and brain fixtures match the oracle; a shared goal library |
+| [VMC-041b](tickets/VMC-041b.md) | Pathfinding and navigation | Paths of the four node evaluators match the oracle; searches never run in the owner |
+| [VMC-037n](tickets/VMC-037n.md) | Melee combat, mob death, loot and XP | Attack cooldown, criticals, knockback, armor and shields; mob loot and XP match the oracle |
+| [VMC-037o](tickets/VMC-037o.md) | Projectiles | Arrows, thrown items, fireballs and eyes of ender fly and hit as the oracle's fixtures |
+| [VMC-050a](tickets/VMC-050a.md) | Explosions, TNT and falling blocks | Craters, damage and knockback match the oracle, committed across group lines at once |
+| [VMC-042a](tickets/VMC-042a.md) | Natural spawning and despawning | Spawn attempts, packs, per-player caps and despawn distances match the oracle |
+| [VMC-042b](tickets/VMC-042b.md) | Structure mobs and spawners | Structures place their entities; spawners spawn; no generation error for entities |
+| [VMC-043b](tickets/VMC-043b.md) | Overworld hostiles | Zombie and skeleton families, creepers, spiders, endermen, witches, slimes, phantoms and silverfish behave as the oracle's fixtures |
+| [VMC-043c](tickets/VMC-043c.md) | Farm and passive animals | Breeding, growth, shearing, milking and drops match the oracle |
+| [VMC-043d](tickets/VMC-043d.md) | Nether mobs | Piglins (bartering), blazes, ghasts and the rest match the oracle; a fortress yields blaze rods |
+| [VMC-043e](tickets/VMC-043e.md) | Water, ambient and End mobs | Fish, squid, dolphins, turtles, axolotls, guardians, bats, shulkers and endermites match the oracle |
+| [VMC-044a](tickets/VMC-044a.md) | Villagers and golems without trades | A generated village lives through a day and night as the oracle's fixtures |
+| [VMC-029d](tickets/VMC-029d.md) | Survival block states and shape updates | Every obtainable block places in its vanilla state; `ShapeOracle` excludes nothing |
+| [VMC-031a](tickets/VMC-031a.md) | Water and lava flow | Flow, mixing, sources and buckets match the oracle across group lines |
+| [VMC-039a](tickets/VMC-039a.md) | Crops, plants and saplings grow | Growth by random ticks and bone meal matches the oracle |
+| [VMC-032b](tickets/VMC-032b.md) | Double chests | Joined chests, the large menu and splitting, across group lines too |
+| [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |
+| [VMC-034n4c](tickets/VMC-034n4c.md) | Experience orb travel geometry and currents | Orbs move, follow players and ride currents as vanilla's; needed before orbs use portals |
+| [VMC-026d](tickets/VMC-026d.md) | Eyes of ender; mobs and orbs through portals | Eyes lead to vanilla's stronghold; mobs and orbs cross portals with their state |
+| [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals, the exit portal, gateways and the respawn ritual |
+| [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |
+
+Out of M3: redstone components (VMC-047–049), enchanting, anvils and brewing,
+villager trading, POIs and raids, vehicles and riding (VMC-046), maps, books
+and signs, advancements, and the remaining command families.
+
 ## Milestone gates and concurrency constraints
 
 A: persistent synchronized player/inventory state and authenticated client

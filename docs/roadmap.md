@@ -31,21 +31,44 @@ striped log, one entity store, one block fact table, Rust kernels for physics,
 block rules, light and generation scheduling, and a layered module layout. The
 final client run and its rechecks passed; see [VMC-077](tickets/VMC-077.md).
 
-## M3 onward
+## M3 — Survival core (planned)
 
-Survival core on the entity model (mobs/AI, spawning, combat, projectiles), redstone
-and block updates, then commands/admin and certification; backlog milestones C–F
-hold the rest. From VMC-026: the dragon fight (crystals, exit portal, new gateways),
-thrown eyes of ender, and orbs (VMC-034n4c) and mobs through portals. Double chests
-(placement beside a same-facing chest is refused today) go with VMC-032.
+Gate: [VMC-078](tickets/VMC-078.md), a fresh-world survival run to the dragon's
+death. Slices: the [backlog](backlog.md#m3--survival-core). A lane owns its
+code, so one session per lane runs at once; a lane's slices run in order.
+
+| Lane | Owns | Slices |
+|---|---|---|
+| Entities (critical path) | Entity store, physics kernel, a new AI context | 043a → 015i → 041a → 041b |
+| Combat | Living damage, a projectile kernel, orb motion | 037n → 037o → 034n4c → 026d |
+| World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
+| Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
+| Blocks | Block rules, placement | 029d → 039a → 032b |
+| Fluids | A fluid module, fluid ticks | 031a |
+| Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
+| Finale | The End fight, then the gate | 045a → 078 |
+
+Phases:
+
+1. **Now:** 079, 043a, 029d and 031a. 029d and 031a share the block-rule
+   engine, so they rebase often.
+2. **After 043a:** 015i, 037n and 050a; Blocks goes on.
+3. **After 015i:** 041a then 041b; 042a, 037o and 042b alongside.
+4. **After 041b, 037n, 037o and 050a:** the families in parallel (043b
+   first), plus 034n4c, 026d, 040a and 032b.
+5. **Last:** 045a, then the gate.
+
+When sessions are scarce, this order: 079, 043a, 015i, 041a, 041b, 037n,
+037o, 050a, 043b, 029d, 031a, 042a, 043c, 042b, 043d, 039a, 040a, 034n4c,
+026d, 043e, 044a, 032b, 045a, 078.
+
+Later: redstone and machines, enchanting and brewing, trading and raids,
+vehicles, then commands/admin and certification.
 
 ## Paused
 
-Cooking-orb simulation ([VMC-034n4c](tickets/VMC-034n4c.md)) is unblocked by the
-entity model (orbs already age and despawn). Additional status effects and container
-variants can resume. Sugar cane and cactus growth need their placement survival rules
-first ([VMC-066](tickets/VMC-066.md)). Removing a furnace that holds items is refused
-until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
+A furnace that holds items cannot be removed until its spill and stored
+experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 ## Pending client gates
 
