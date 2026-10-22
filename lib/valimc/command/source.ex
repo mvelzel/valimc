@@ -28,9 +28,9 @@ defmodule Valimc.Command.Source do
     kind: :player
   ]
 
-  @doc "The source of a command its connection's player runs (built in that connection)."
+  @doc "The source of a command its player runs (built in its session; feedback goes to its connection)."
   def player(state) do
-    player = Map.put(state.player, :pid, self())
+    player = Map.put(state.player, :pid, state.connection)
 
     %__MODULE__{
       level: Valimc.Permissions.level(player),
@@ -39,7 +39,7 @@ defmodule Valimc.Command.Source do
       position: {player.x, player.y, player.z},
       rotation: {player.yaw, player.pitch},
       dimension: Map.get(player, :dimension, :overworld),
-      sink: {:player, self()}
+      sink: {:player, state.connection}
     }
   end
 

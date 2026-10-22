@@ -158,7 +158,7 @@ defmodule Valimc.Player.ItemUse do
     packet = Packets.player_use(player)
     send_packets(state, [packet])
 
-    for pid <- Players.nearby(state.regions),
+    for pid <- Players.around(state.player),
         pid != state.connection,
         do:
           Valimc.Connection.deliver(
@@ -297,7 +297,7 @@ defmodule Valimc.Player.ItemUse do
               do: Vitals.death_notice(state, true, transition.death),
               else: state
 
-          send(self(), :drain)
+          send(state.connection, :resume_inputs)
           state
 
         _ ->

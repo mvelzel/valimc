@@ -115,7 +115,7 @@ defmodule Valimc.Player.Portals do
 
     Valimc.Players.update(state.connection, player)
 
-    for pid <- Valimc.Players.nearby(state.regions),
+    for pid <- Valimc.Players.around(state.player),
         pid != state.connection,
         do:
           Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})

@@ -68,7 +68,7 @@ defmodule Valimc.TableConnectionTest do
     owner = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
     on_exit(fn -> Client.close(client) end)
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(owner).player.input) end)
+    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(owner).player.input) end)
     {client, owner}
   end
 

@@ -189,34 +189,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
   end
 
-  test "an unavailable block owner times out its admission without blocking the player clock or losing the fallback",
-       ctx do
-    food = %PlayerFood{}
-    drink = potion("fire_resistance")
-    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
-    {client, pid} = login(ctx, 20.0, food)
-    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
-    :sys.suspend(region)
-
-    try do
-      client = block_then_drink(client, ctx)
-      wait(fn -> state(pid).table_job != nil end)
-      assert byte_size(state(pid).buffer) > 0 and not state(pid).active
-      tick(pid)
-      assert state(pid).active_use == nil and living(pid).effects == %{}
-      {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
-      {<<2>>, _client} = Client.await(client, :play, "block_changed_ack")
-      wait(fn -> state(pid).active_use != nil end)
-      assert state(pid).table_job == nil and state(pid).active_use.remaining == 32
-      :sys.resume(region)
-      ticks(pid, 32)
-      assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
-      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
-    after
-      if Process.alive?(region), do: :sys.resume(region)
-    end
-  end
-
   test "both-hand potion completion grants only after native timing and saves effects with the bottle",
        ctx do
     food = %PlayerFood{}
@@ -273,7 +245,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     _client = use_hand(client, pid, :main, 3)
     ticks(pid, 31)
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{s | inventory: %{s.inventory | slots: %{36 => unsupported}}}
     end)
 
@@ -574,7 +546,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).active_use == nil end)
     client = use_hand(client, pid, :main, 4)
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{
         s
         | inventory: %{s.inventory | slots: Map.put(s.inventory.slots, 36, ItemStack.new("dirt"))}
@@ -606,7 +578,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).active_use == nil
       action(client, "drop_item")
 
-      :sys.replace_state(pid, fn s ->
+      Valimc.TestConn.replace(pid, fn s ->
         player = %{s.player | food: %{s.player.food | exhaustion: 5.0}}
         Players.update(pid, player)
         %{s | player: player}
@@ -681,7 +653,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = use_hand(client, pid)
     assert state(pid).active_use == nil
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       player = %{
         s.player
         | input: %Valimc.PlayerInput{},

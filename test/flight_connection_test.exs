@@ -112,14 +112,14 @@ defmodule Valimc.FlightConnectionTest do
     client = login(ctx)
     pid = state(ctx).player.pid
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{s | player: %{s.player | abilities: PlayerAbilities.for_mode(:survival)}}
     end)
 
     client = toggle(client, 255) |> barrier()
     assert state(ctx).player.abilities == PlayerAbilities.for_mode(:survival)
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{s | player: %{s.player | abilities: PlayerAbilities.for_mode(:creative)}}
     end)
 

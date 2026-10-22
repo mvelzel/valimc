@@ -19,7 +19,7 @@ defmodule Valimc.CommandConnectionTest do
   defp count(pid, item) do
     id = Valimc.Protocol.ItemTypes.id(item)
 
-    :sys.get_state(pid).inventory
+    Valimc.TestConn.state(pid).inventory
     |> Valimc.Inventory.contents()
     |> Enum.filter(&(&1 && &1.item_id == id))
     |> Enum.map(& &1.count)
@@ -39,8 +39,8 @@ defmodule Valimc.CommandConnectionTest do
     {client, pid} = join()
 
     client = command(client, "gamemode survival", "commands.gamemode.success.self")
-    assert :sys.get_state(pid).player.game_mode.current == :survival
-    assert :sys.get_state(pid).inventory.infinite_materials == false
+    assert Valimc.TestConn.state(pid).player.game_mode.current == :survival
+    assert Valimc.TestConn.state(pid).inventory.infinite_materials == false
 
     client = command(client, "give @s minecraft:diamond 70", "commands.give.success.single")
     assert count(pid, "diamond") == 70
@@ -63,7 +63,7 @@ defmodule Valimc.CommandConnectionTest do
 
     swords =
       for %Valimc.Protocol.ItemStack{} = stack <-
-            Valimc.Inventory.contents(:sys.get_state(pid).inventory),
+            Valimc.Inventory.contents(Valimc.TestConn.state(pid).inventory),
           stack.item_id == Valimc.Protocol.ItemTypes.id("diamond_sword"),
           do: stack.components
 
@@ -95,7 +95,7 @@ defmodule Valimc.CommandConnectionTest do
 
     [blade] =
       for %Valimc.Protocol.ItemStack{} = stack <-
-            Valimc.Inventory.contents(:sys.get_state(pid).inventory),
+            Valimc.Inventory.contents(Valimc.TestConn.state(pid).inventory),
           stack.item_id == Valimc.Protocol.ItemTypes.id("iron_sword"),
           do: stack.components
 
@@ -119,14 +119,14 @@ defmodule Valimc.CommandConnectionTest do
     client =
       command(client, "xp add @s 3 levels", "commands.experience.add.levels.success.single")
 
-    assert :sys.get_state(pid).player.progression.experience.level == 3
+    assert Valimc.TestConn.state(pid).player.progression.experience.level == 3
     client = command(client, "xp set @s 100 points", "commands.experience.set.points.invalid")
     client = command(client, "xp query @s levels", "commands.experience.query.levels")
 
     client = command(client, "effect give @s speed 10 1", "commands.effect.give.success.single")
 
     assert Map.has_key?(
-             :sys.get_state(pid).player.living.effects,
+             Valimc.TestConn.state(pid).player.living.effects,
              Valimc.Protocol.EffectTypes.id("speed")
            )
 
@@ -134,14 +134,14 @@ defmodule Valimc.CommandConnectionTest do
     client = command(client, "effect clear @s", "commands.effect.clear.everything.failed")
 
     client = command(client, "tp @s 3 70 4", "commands.teleport.success.location.single")
-    assert %{x: 3.5, y: 70.0, z: 4.5} = Map.take(:sys.get_state(pid).player, [:x, :y, :z])
+    assert %{x: 3.5, y: 70.0, z: 4.5} = Map.take(Valimc.TestConn.state(pid).player, [:x, :y, :z])
     client = command(client, "tp 0 30000000 0", "commands.teleport.invalidPosition")
 
     # As in vanilla, the death message comes before the command's feedback.
     client = command(client, "kill", "death.attack.genericKill")
     {body, _client} = Client.await(client, :play, "system_chat")
     assert :binary.match(body, "commands.kill.success.single") != :nomatch
-    assert :sys.get_state(pid).life_stage != :alive
+    assert Valimc.TestConn.state(pid).life_stage != :alive
   end
 
   test "commands reach other players through their own connections" do
@@ -157,7 +157,7 @@ defmodule Valimc.CommandConnectionTest do
     _a = command(a, "gamemode adventure #{second}", "commands.gamemode.success.other")
     {body, _b} = Client.await(b, :play, "system_chat")
     assert :binary.match(body, "gameMode.changed") != :nomatch
-    assert :sys.get_state(pid(second)).player.game_mode.current == :adventure
+    assert Valimc.TestConn.state(pid(second)).player.game_mode.current == :adventure
   end
 
   test "two operators giving to each other at once both get their items" do
@@ -189,7 +189,7 @@ defmodule Valimc.CommandConnectionTest do
 
     # The command waits in its job; the connection keeps answering meanwhile.
     Valimc.TestWait.until(fn ->
-      Valimc.Session.Jobs.active?(:sys.get_state(pid, 1000).jobs, :command)
+      Valimc.Session.Jobs.active?(Valimc.TestConn.state(pid, 1000).jobs, :command)
     end)
 
     # The owner call exits (5 s); before VMC-077a that exit ended the session.

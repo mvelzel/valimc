@@ -1,5 +1,11 @@
 defmodule Valimc.Session.Messages do
-  @moduledoc "The connection's message router: socket data, worker replies, store acknowledgements, ticks and deliveries (VMC-069)."
+  @moduledoc """
+  A session's message router (VMC-069): socket data, worker replies, store
+  acknowledgements, ticks and deliveries. Before play the connection runs it
+  on its whole state; in play the session's group runs it on the session
+  (`Valimc.Session.Host`), and the connection handles only its own messages
+  (`Valimc.Session.Link`).
+  """
 
   require Logger
 
@@ -27,7 +33,6 @@ defmodule Valimc.Session.Messages do
 
   alias Valimc.{
     Metrics,
-    Players,
     PlayerContainerQuery,
     PlayerInput,
     PlayerPickupIntent,
@@ -40,19 +45,8 @@ defmodule Valimc.Session.Messages do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{
-    BorderReplication,
-    ChestLidReplication,
-    EntityReplication,
-    WeatherReplication
-  }
+  alias Valimc.World.ChestLidReplication
 
-  # Vanilla tracking ranges, in chunks, of the entity kinds regions own (VMC-070).
-  @tracking_ranges %{
-    item: Valimc.Protocol.EntityTypes.tracking_range("item"),
-    orb: Valimc.Protocol.EntityTypes.tracking_range("experience_orb")
-  }
-  @entity_range @tracking_ranges |> Map.values() |> Enum.max()
   @resistance EffectTypes.id("resistance")
   # Events region owners publish to their visibility topics (`Valimc.World.publish/2`).
   @region_events [
@@ -72,6 +66,87 @@ defmodule Valimc.Session.Messages do
 
   defguardp inventory_pending(state)
             when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
+
+  @doc "Route `message`: a session job's outcome (`Valimc.Session.Jobs`) or another message."
+  def dispatch(message, %{jobs: %Jobs{}} = state) do
+    case Jobs.classify(state.jobs, message) do
+      {:result, kind, job, payload, jobs} ->
+        Valimc.Session.JobHandlers.job_result(kind, job, payload, %{state | jobs: jobs})
+
+      {:down, kind, job, reason, jobs} ->
+        Valimc.Session.JobHandlers.job_down(kind, job, reason, %{state | jobs: jobs})
+
+      {:timeout, kind, job, jobs} ->
+        Valimc.Session.JobHandlers.job_timeout(kind, job, %{state | jobs: jobs})
+
+      :stale ->
+        {:noreply, state}
+
+      :unknown ->
+        info(message, state)
+    end
+  end
+
+  def dispatch(message, state), do: info(message, state)
+
+  @doc """
+  Whether a process-bound `message` (a task reply, a DOWN, a job timer) is
+  this session's: its group hands it the ones it claims.
+  """
+  def claims?(session, {:job_timeout, kind, ref}),
+    do: match?(%{ref: ^ref}, Jobs.get(session.jobs, kind))
+
+  def claims?(session, {:transfer_delivered, worker, token, _}),
+    do: match?(%{job: %{pid: ^worker, token: ^token}}, session.recovery)
+
+  def claims?(session, {:DOWN, ref, :process, _, _}), do: owns_ref?(session, ref)
+  def claims?(session, {ref, _}) when is_reference(ref), do: owns_ref?(session, ref)
+  def claims?(_session, _message), do: false
+
+  defp owns_ref?(session, ref) do
+    Map.has_key?(session.jobs.refs, ref) or ref == session.store_monitor or
+      Map.has_key?(session.pose_sources, ref) or
+      match?(%{monitor: ^ref}, session.table_menu) or
+      match?(%{monitor: ^ref}, session.table_job) or
+      match?(%{task: %Task{ref: ^ref}}, session.table_job) or
+      match?(%{job: %{monitor: ^ref}}, session.recovery)
+  end
+
+  @doc "A session ends: its views and jobs are released and the player saves."
+  def terminate(state) do
+    Menus.retire_container_view(state)
+    Menus.cancel_table_query(state)
+    Transfers.cancel_pickup_query(state)
+    Transfers.cancel_experience_query(state)
+    Mining.cancel_mining(state)
+    Jobs.cancel_all(state.jobs)
+
+    if state.recovery do
+      Process.cancel_timer(state.recovery.timer)
+      if state.recovery.retry_timer, do: Process.cancel_timer(state.recovery.retry_timer)
+
+      if state.recovery.job && Process.whereis(Valimc.TransferWorkers) != nil,
+        do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, state.recovery.job.pid)
+    end
+
+    if state.player_store && state.phase == :play do
+      # Observations can lag quiet simulation clocks. Persist the owner state;
+      # per-frame exception boundaries already retain earlier accepted packets.
+      snapshot =
+        case state.life_save do
+          %{kind: :respawn, snapshot: snapshot} -> snapshot
+          _ -> PlayerState.capture(state.player, state.inventory)
+        end
+
+      try do
+        PlayerStore.close_session(state.player_store, state.store_fence, snapshot)
+      catch
+        :exit, _ -> Logger.error("Player state final save could not complete")
+      end
+    end
+
+    :ok
+  end
 
   def info(:activate, state) do
     :ok = :inet.setopts(state.socket, active: :once)
@@ -625,12 +700,15 @@ defmodule Valimc.Session.Messages do
     do:
       Valimc.Connection.guard_connection(state, fn -> reject(state, "Player storage stopped") end)
 
-  def info({:DOWN, ref, :process, pid, _} = message, state) do
+  def info({:DOWN, ref, :process, pid, _} = message, %{socket: socket} = state)
+      when socket != nil do
     case Replication.chunk_reply(state, message) do
       {:ok, state} -> {:noreply, state}
       :error -> down(state, ref, pid)
     end
   end
+
+  def info({:DOWN, ref, :process, _, _}, state), do: {:noreply, forget_pose_source(state, ref)}
 
   # Replies to chunk requests (VMC-077e) are tagged with the request's alias.
   def info({[:alias | ref], _} = message, state) when is_reference(ref) do
@@ -659,8 +737,11 @@ defmodule Valimc.Session.Messages do
           {_, sent} when now - sent > timeout ->
             reject(state, "Keepalive timed out")
 
-          # VMC-010c: the idle kick, checked with each keepalive.
-          _ when idle > 0 and now - state.last_action > idle * 60_000 ->
+          # VMC-010c: the idle kick, checked with each keepalive (a hosted
+          # session checks it on its own tick).
+          _
+          when idle > 0 and is_map_key(state, :last_action) and
+                 now - state.last_action > idle * 60_000 ->
             reject(
               state,
               Valimc.Text.encode(Valimc.Text.translatable("multiplayer.disconnect.idling"))
@@ -711,6 +792,7 @@ defmodule Valimc.Session.Messages do
               environment_effects: Map.take(player.living.effects, [@resistance])
           }
 
+          idle!(state)
           state = Vitals.tick_burning(state)
           state = Vitals.tick_effects(state)
 
@@ -741,138 +823,59 @@ defmodule Valimc.Session.Messages do
 
   def info({:player_tick, _}, state), do: {:noreply, state}
 
-  def info(:publish_movement, state) do
+  # The session's 50 ms work (its connection replicates the view on the same
+  # timer): input and equipment, the pose, its own flags, and the items and
+  # orbs it touches.
+  def info(:publish_movement, %{phase: :play} = state) do
     Valimc.Connection.guard_connection(state, fn ->
-      if state.phase == :play do
-        Process.send_after(state.connection, :publish_movement, 50)
+      state =
+        Movement.update_player_input(
+          ItemUse.publish_equipment(state),
+          PlayerInput.tick(state.player.input)
+        )
+        |> Movement.sample_pose()
 
-        state =
-          Movement.update_player_input(
-            ItemUse.publish_equipment(state),
-            PlayerInput.tick(state.player.input)
-          )
-          |> Movement.sample_pose()
-          |> Replication.chunk_tick()
+      state =
+        if state.player_flags_view != Packets.shared_flags(state.player) do
+          send_packets(state, [Packets.player_flags(state.player)])
+          %{state | player_flags_view: Packets.shared_flags(state.player)}
+        else
+          state
+        end
 
-        state =
-          if state.player_flags_view != Packets.shared_flags(state.player) do
-            state =
-              Replication.emit_peer_packets(state, [Packets.player_flags(state.player)], :buffer)
+      {touching, cache} = touching(state)
+      state = %{state | pickup_cache: cache}
 
-            %{state | player_flags_view: Packets.shared_flags(state.player)}
-          else
-            state
-          end
+      state =
+        Transfers.start_pickup_query(
+          state,
+          for({id, %{kind: :item} = v} <- touching, into: %{}, do: {id, v})
+        )
 
-        nearby = Players.nearby(state.regions)
-
-        state = Enum.reduce(nearby, state, &Replication.replicate_peer(&2, &1))
-
-        state =
-          Enum.reduce(state.peers, state, fn {pid, player}, acc ->
-            if MapSet.member?(nearby, pid),
-              do: acc,
-              else: %{
-                Replication.emit_peer_packets(
-                  acc,
-                  [Packets.remove_entity(player), Packets.remove_info(player)],
-                  :buffer
-                )
-                | peers: Map.delete(acc.peers, pid)
-              }
-          end)
-
-        # One tracker for every entity kind; unchanged chunks are not re-read. Only
-        # entities within vanilla's tracking range of their type are seen.
-        {desired, cache} =
-          World.visible_entities(
-            state.regions,
-            Replication.entity_chunks(state, @entity_range),
-            state.entity_cache
-          )
-
-        desired =
-          for {_, %{kind: kind, at: {x, _, z}}} = entry <- desired,
-              Replication.sees?(state, {x, z}, @tracking_ranges[kind]),
-              into: %{},
-              do: entry
-
-        state = %{state | entity_cache: cache}
-
-        state =
-          Transfers.start_pickup_query(
-            state,
-            for({id, %{kind: :item} = v} <- desired, into: %{}, do: {id, v})
-          )
-
-        state =
-          Transfers.start_experience_query(
-            state,
-            for({id, %{kind: :orb} = v} <- desired, into: %{}, do: {id, v})
-          )
-
-        {replication, packets} =
-          EntityReplication.reconcile(state.entity_replication, desired, fn region, last ->
-            World.entity_frames(World.section(state.player.dimension, region, :section), last)
-          end)
-
-        state =
-          Replication.emit_peer_packets(
-            %{state | entity_replication: replication},
-            packets,
-            :buffer
-          )
-
-        {version, clock_packet} = Valimc.World.Clock.publication()
-
-        state =
-          if version != state.clock_version do
-            %{state | clock_version: version, outbound: [clock_packet | state.outbound]}
-          else
-            state
-          end
-
-        {weather_view, weather_packets} =
-          WeatherReplication.reconcile(state.weather_view, Valimc.World.Clock.weather())
-
-        state =
-          Replication.emit_peer_packets(
-            %{state | weather_view: weather_view},
-            weather_packets,
-            :buffer
-          )
-
-        {border_view, border_packets} =
-          BorderReplication.reconcile(state.border_view, Valimc.World.Clock.border())
-
-        state =
-          Replication.emit_peer_packets(
-            %{state | border_view: border_view},
-            border_packets,
-            :buffer
-          )
-
-        {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
-
-        state =
-          if state.difficulty_view != difficulty,
-            do:
-              Replication.emit_peer_packets(
-                %{state | difficulty_view: difficulty},
-                [difficulty_packet],
-                :buffer
-              ),
-            else: state
-
-        packets = state.outbound |> Enum.reverse() |> List.flatten()
-        send_packets(state, packets)
-
-        {:noreply, %{state | outbound: []}}
-      else
-        {:noreply, state}
-      end
+      {:noreply,
+       Transfers.start_experience_query(
+         state,
+         for({id, %{kind: :orb} = v} <- touching, into: %{}, do: {id, v})
+       )}
     end)
   end
+
+  def info(:publish_movement, state), do: {:noreply, state}
+
+  # Play input from the connection (`Valimc.Session.Link`), in arrival order.
+  def info({:input, id, payload}, state),
+    do:
+      Valimc.Connection.guard_connection(state, fn ->
+        {:noreply, Valimc.Session.Inputs.receive(state, id, payload)}
+      end)
+
+  def info(:resume_inputs, %{socket: nil} = state),
+    do:
+      Valimc.Connection.guard_connection(state, fn ->
+        {:noreply, Valimc.Session.Inputs.run(state)}
+      end)
+
+  def info(:resume_inputs, state), do: info(:drain, state)
 
   def info(:send_chunks, state),
     do:
@@ -886,7 +889,7 @@ defmodule Valimc.Session.Messages do
     if dimension == Valimc.Dimension.current(),
       do:
         Valimc.Connection.guard_connection(state, fn ->
-          {:noreply, Events.event(state, event)}
+          {:noreply, Events.session(state, event)}
         end),
       else: {:noreply, state}
   end
@@ -898,7 +901,7 @@ defmodule Valimc.Session.Messages do
        do: {:noreply, state},
        else:
          Valimc.Connection.guard_connection(state, fn ->
-           {:noreply, Events.event(state, event)}
+           {:noreply, Events.session(state, event)}
          end)
   end
 
@@ -927,16 +930,41 @@ defmodule Valimc.Session.Messages do
     send_packets(state, Enum.map(closed, &Packets.chest_lid(&1, false)))
     state = %{state | chest_lids: lids}
 
+    {:noreply, forget_pose_source(state, ref)}
+  end
+
+  # A group the pose was sampled from went down: the pose is sampled again.
+  defp forget_pose_source(state, ref) do
     if Map.has_key?(state.pose_sources, ref) do
-      {:noreply,
-       %{
-         state
-         | pose_sources: Map.delete(state.pose_sources, ref),
-           pose_generation: state.pose_generation + 1,
-           pose_checked: nil
-       }}
+      %{
+        state
+        | pose_sources: Map.delete(state.pose_sources, ref),
+          pose_generation: state.pose_generation + 1,
+          pose_checked: nil
+      }
     else
-      {:noreply, state}
+      state
     end
+  end
+
+  # VMC-010c: a player idle longer than `idle_timeout` minutes is kicked.
+  defp idle!(state) do
+    idle = Valimc.World.Settings.get(:idle_timeout)
+
+    if idle > 0 and System.monotonic_time(:millisecond) - state.last_action > idle * 60_000,
+      do:
+        reject(
+          state,
+          Valimc.Text.encode(Valimc.Text.translatable("multiplayer.disconnect.idling"))
+        )
+  end
+
+  # The items and orbs within reach of a pickup: the chunks around the player.
+  defp touching(state) do
+    %{x: x, z: z, dimension: dimension} = state.player
+    {cx, cz} = World.chunk_key(x, z)
+    chunks = for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}
+    sections = MapSet.new(chunks, &World.section(dimension, &1))
+    World.visible_entities(sections, chunks, state.pickup_cache)
   end
 end

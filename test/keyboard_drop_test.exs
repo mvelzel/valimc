@@ -56,7 +56,7 @@ defmodule Valimc.KeyboardDropTest do
   defp await_state(ctx, predicate, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
       player = Enum.find(Players.all(), &(&1.name == ctx.name))
-      state = if player, do: :sys.get_state(player.pid)
+      state = if player, do: Valimc.TestConn.state(player.pid)
       if state && predicate.(state), do: {player.pid, state}
     end)
   end

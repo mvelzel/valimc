@@ -85,7 +85,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     client = client |> click(36) |> click(1)
     assert hd(client.inventory.items) == ItemStack.new("oak_planks", 4)
     assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log", 2)
-    assert Inventory.get(:sys.get_state(owner).inventory, 0) == nil
+    assert Inventory.get(Valimc.TestConn.state(owner).inventory, 0) == nil
     client = click(client, 0, 1)
     assert client.inventory.carried == ItemStack.new("oak_planks", 4)
     assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log")
@@ -105,7 +105,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert Enum.at(fresh.inventory.items, 36) == ItemStack.new("oak_planks", 8)
     assert fresh.inventory.carried == nil
     assert Enum.all?(Enum.take(fresh.inventory.items, 5), &is_nil/1)
-    inv = :sys.get_state(owner).inventory
+    inv = Valimc.TestConn.state(owner).inventory
     assert inv.slots == %{36 => ItemStack.new("oak_planks", 8)}
 
     {:ok, saved} =

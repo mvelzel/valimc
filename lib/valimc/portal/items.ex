@@ -33,9 +33,7 @@ defmodule Valimc.Portal.Items do
   def item?(_), do: false
 
   @doc "Start the use of `command` (from `Valimc.Player.Placement`) in a task."
-  def start(command) do
-    connection = self()
-
+  def start(command, connection) do
     {:ok,
      Task.Supervisor.async_nolink(
        Valimc.TransferWorkers,

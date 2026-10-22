@@ -46,6 +46,7 @@ defmodule Valimc.World.Region do
   }
 
   alias Valimc.Storage.Log
+  alias Valimc.Session.Host
 
   @forward_ms 120_000
 
@@ -90,10 +91,24 @@ defmodule Valimc.World.Region do
          do: {:ok, target}
   end
 
-  @doc "The keys of the sections group `pid` owns."
-  def sections(pid), do: GenServer.call(pid, :sections, 5000)
+  @doc """
+  A call to a group. Inside one of this group's session callbacks
+  (`Valimc.Session.Host`) a call to the group itself runs inline, as a plain
+  call inside the owner.
+  """
+  def call(pid, message, timeout) when pid == self() do
+    case Valimc.Session.Host.inline(&inline_call(&1, message)) do
+      {:ok, reply} -> reply
+      :none -> GenServer.call(pid, message, timeout)
+    end
+  end
 
-  def flush(pid), do: GenServer.call(pid, :flush, budget(pid, 15_000))
+  def call(pid, message, timeout), do: GenServer.call(pid, message, timeout)
+
+  @doc "The keys of the sections group `pid` owns."
+  def sections(pid), do: call(pid, :sections, 5000)
+
+  def flush(pid), do: call(pid, :flush, budget(pid, 15_000))
 
   @doc """
   The calling process holds a `type` ticket (`Valimc.World.Tickets`) over
@@ -117,7 +132,7 @@ defmodule Valimc.World.Region do
   most `timeout` ms; `{:error, reason}` otherwise.
   """
   def await_chunks({pid, _epoch}, chunks, timeout) do
-    GenServer.call(pid, {:await_chunks, chunks}, max(timeout, 0))
+    call(pid, {:await_chunks, chunks}, max(timeout, 0))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:chunk_generating)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -125,14 +140,14 @@ defmodule Valimc.World.Region do
 
   @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
   def step({pid, _epoch}, ticks \\ 1),
-    do: GenServer.call(pid, {:step, ticks}, budget(pid, 10_000))
+    do: call(pid, {:step, ticks}, budget(pid, 10_000))
 
   @doc """
   The live preserved block entity at `position` (`%{type: id, nbt: binary}`,
   an end gateway's exit for one, VMC-026b4), or nil.
   """
   def block_entity({pid, epoch}, position) when is_pid(pid) and is_reference(epoch) do
-    GenServer.call(pid, {:block_entity, epoch, position}, 1000)
+    call(pid, {:block_entity, epoch, position}, 1000)
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -144,7 +159,7 @@ defmodule Valimc.World.Region do
   """
   def put_block_entities({pid, epoch}, entries)
       when is_pid(pid) and is_reference(epoch) and is_map(entries) do
-    GenServer.call(pid, {:put_block_entities, epoch, entries}, 7000)
+    call(pid, {:put_block_entities, epoch, entries}, 7000)
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_entity_commit_uncertain)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -156,7 +171,7 @@ defmodule Valimc.World.Region do
   def observe_blocks({pid, epoch}, positions, expected_revision)
       when is_pid(pid) and is_reference(epoch) do
     if RegionData.valid_block_query?(positions, expected_revision) do
-      GenServer.call(
+      call(
         pid,
         {:observe_blocks, epoch, positions, expected_revision},
         budget(pid, 250)
@@ -173,12 +188,12 @@ defmodule Valimc.World.Region do
 
   @doc "A chunk's current light image (VMC-022c), for diagnostics and tests."
   def light_image({pid, epoch}, chunk) when is_pid(pid) and is_reference(epoch),
-    do: GenServer.call(pid, {:light_image, epoch, chunk}, budget(pid, 1000))
+    do: call(pid, {:light_image, epoch, chunk}, budget(pid, 1000))
 
   @doc "`/fillbiome` in this region's `chunks` (VMC-053j4): `{:ok, changed_cells}`."
   def fill_biomes({pid, epoch}, chunks, box, biome, filter)
       when is_pid(pid) and is_reference(epoch) do
-    GenServer.call(pid, {:fill_biomes, epoch, chunks, box, biome, filter}, budget(pid, 2000))
+    call(pid, {:fill_biomes, epoch, chunks, box, biome, filter}, budget(pid, 2000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:biome_fill_timeout)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -186,7 +201,7 @@ defmodule Valimc.World.Region do
 
   @doc "Column images of this region's `chunks` for `/place` (VMC-053)."
   def column_images({pid, epoch}, chunks) when is_pid(pid) and is_reference(epoch) do
-    GenServer.call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))
+    call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:column_query_timeout)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -218,7 +233,7 @@ defmodule Valimc.World.Region do
 
   @doc "The states of a box of this region, x fastest (`Valimc.World.BoxEdit`)."
   def read_box({pid, epoch}, min, max) when is_pid(pid) and is_reference(epoch) do
-    GenServer.call(pid, {:read_box, epoch, min, max}, budget(pid, 1000))
+    call(pid, {:read_box, epoch, min, max}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -226,14 +241,14 @@ defmodule Valimc.World.Region do
 
   @doc "Check and lock a box edit's part in this owner (`Valimc.World.BoxEdit`)."
   def prepare_box({pid, epoch}, token, edits, expected, entries) when is_pid(pid) do
-    GenServer.call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
+    call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
   catch
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Commit a prepared box edit part (`:retry` while a write is in flight)."
   def commit_box({pid, epoch}, token, entries) when is_pid(pid) do
-    GenServer.call(pid, {:commit_box, epoch, token, entries}, budget(pid, 7000))
+    call(pid, {:commit_box, epoch, token, entries}, budget(pid, 7000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -241,7 +256,7 @@ defmodule Valimc.World.Region do
 
   @doc "Release a prepared box edit part."
   def abort_box({pid, epoch}, token) when is_pid(pid) do
-    GenServer.call(pid, {:abort_box, epoch, token}, budget(pid, 1000))
+    call(pid, {:abort_box, epoch, token}, budget(pid, 1000))
   catch
     :exit, _ -> :ok
   end
@@ -254,7 +269,7 @@ defmodule Valimc.World.Region do
   def set_blocks({pid, epoch}, revision, edits)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
-         do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, budget(pid, 1000))
+         do: call(pid, {:set_blocks, epoch, revision, batch}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -271,7 +286,7 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) and is_struct(entity_positions, MapSet) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          do:
-           GenServer.call(
+           call(
              pid,
              {:set_blocks, epoch, revision, batch, entity_positions},
              budget(pid, 1000)
@@ -287,7 +302,7 @@ defmodule Valimc.World.Region do
   """
   def placement_state({pid, epoch}, position, states)
       when is_pid(pid) and is_reference(epoch) and is_list(states) do
-    GenServer.call(pid, {:placement_state, epoch, position, states}, budget(pid, 1000))
+    call(pid, {:placement_state, epoch, position, states}, budget(pid, 1000))
   catch
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
@@ -296,7 +311,7 @@ defmodule Valimc.World.Region do
   def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) and
              is_integer(deadline) do
-    GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
+    call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -305,7 +320,7 @@ defmodule Valimc.World.Region do
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
   @doc "One fresh creative destruction through the owner, including its owned metadata journal."
   def destroy_block({pid, epoch}, revision, position, deadline) do
-    GenServer.call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))
+    call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
@@ -317,59 +332,59 @@ defmodule Valimc.World.Region do
   the client dropped the block entity when it predicted the change (VMC-021e1).
   """
   def block_entity_update({pid, epoch}, position) do
-    GenServer.call(pid, {:block_entity_update, epoch, position}, budget(pid, 250))
+    call(pid, {:block_entity_update, epoch, position}, budget(pid, 250))
   catch
     :exit, _ -> {:ok, nil}
   end
 
   @doc "Send current clicked/adjacent corrections from the same sender as owner block publications."
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
-    GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, budget(pid, 250))
+    call(pid, {:correct_blocks, epoch, positions, connection}, budget(pid, 250))
   catch
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
   def reserve_mining({pid, epoch}, positions),
-    do: GenServer.call(pid, {:reserve_mining, epoch, positions}, budget(pid, 250))
+    do: call(pid, {:reserve_mining, epoch, positions}, budget(pid, 250))
 
   @doc "Keep the original block fence alive during a long attempt; renewal cannot recreate it."
   def renew_mining({pid, epoch}, permit),
-    do: GenServer.call(pid, {:renew_mining, epoch, permit}, budget(pid, 250))
+    do: call(pid, {:renew_mining, epoch, permit}, budget(pid, 250))
 
   @doc "Retire an uncommitted attempt without waiting for reservation expiry."
   def release_mining({pid, epoch}, permit),
-    do: GenServer.call(pid, {:release_mining, epoch, permit}, budget(pid, 250))
+    do: call(pid, {:release_mining, epoch, permit}, budget(pid, 250))
 
   @doc "Internal inbox: the caller must have durably prepared and fenced the player's mining intent."
   def apply_mining_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, budget(pid, 6000))
+    do: call(pid, {:mining_transfer, epoch, transfer}, budget(pid, 6000))
 
   @doc "Fence the exact prepared placement context on its existing block owner."
   def reserve_placement({pid, epoch}, revision, expected),
-    do: GenServer.call(pid, {:reserve_placement, epoch, revision, expected}, budget(pid, 250))
+    do: call(pid, {:reserve_placement, epoch, revision, expected}, budget(pid, 250))
 
   def release_placement({pid, epoch}, permit),
-    do: GenServer.call(pid, {:release_placement, epoch, permit}, budget(pid, 250))
+    do: call(pid, {:release_placement, epoch, permit}, budget(pid, 250))
 
   @doc "Internal inbox: delivery follows durable, leased source consumption."
   def apply_placement_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:placement_transfer, epoch, transfer}, budget(pid, 6000))
+    do: call(pid, {:placement_transfer, epoch, transfer}, budget(pid, 6000))
 
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
-    do: GenServer.call(pid, {:create_item, epoch, stack, position}, budget(pid, 6000))
+    do: call(pid, {:create_item, epoch, stack, position}, budget(pid, 6000))
 
   def replace_item({pid, epoch, id, revision}, stack),
-    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack}, budget(pid, 6000))
+    do: call(pid, {:replace_item, epoch, id, revision, stack}, budget(pid, 6000))
 
   def remove_item({pid, epoch, id, revision}),
-    do: GenServer.call(pid, {:remove_item, epoch, id, revision}, budget(pid, 6000))
+    do: call(pid, {:remove_item, epoch, id, revision}, budget(pid, 6000))
 
   @doc "Trusted accepted player contact; a new receipt slot is durable before this returns a grant."
   def reserve_pickup({pid, epoch}, actor, item_uuid),
     do:
-      GenServer.call(
+      call(
         pid,
         {:reserve_pickup, epoch, actor, item_uuid,
          System.monotonic_time(:millisecond) + budget(pid, 250)},
@@ -378,7 +393,7 @@ defmodule Valimc.World.Region do
 
   @doc "Internal pickup inbox; delivery follows the player's durably prepared original inventory."
   def apply_pickup_transfer({pid, epoch}, request),
-    do: GenServer.call(pid, {:pickup_transfer, epoch, request}, budget(pid, 6000))
+    do: call(pid, {:pickup_transfer, epoch, request}, budget(pid, 6000))
 
   def release_pickup({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
@@ -386,7 +401,7 @@ defmodule Valimc.World.Region do
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:
-      GenServer.call(
+      call(
         pid,
         {:merge_items, epoch, pairs, System.monotonic_time(:millisecond) + budget(pid, 250)},
         budget(pid, 6000)
@@ -395,7 +410,7 @@ defmodule Valimc.World.Region do
   @doc "Trusted accepted steps; caller must supply fresh geometry and retain the returned fences."
   def advance_items({pid, epoch}, steps),
     do:
-      GenServer.call(
+      call(
         pid,
         {:advance_items, epoch, steps, System.monotonic_time(:millisecond) + budget(pid, 250)},
         budget(pid, 6000)
@@ -404,7 +419,7 @@ defmodule Valimc.World.Region do
   @doc "Trusted accepted ordinary motion; coalesced persistence may roll back motion after a crash."
   def publish_item_motion({pid, epoch}, steps),
     do:
-      GenServer.call(
+      call(
         pid,
         {:publish_item_motion, epoch, steps,
          System.monotonic_time(:millisecond) + budget(pid, 250)},
@@ -412,12 +427,12 @@ defmodule Valimc.World.Region do
       )
 
   def find_item({pid, epoch}, uuid),
-    do: GenServer.call(pid, {:find_item, epoch, uuid}, budget(pid, 5000))
+    do: call(pid, {:find_item, epoch, uuid}, budget(pid, 5000))
 
   @doc "Trusted accepted border steps; success means durable withdrawal, with asynchronous delivery."
   def handoff_items({pid, epoch}, destination, steps),
     do:
-      GenServer.call(
+      call(
         pid,
         {:handoff_items, epoch, destination, steps,
          System.monotonic_time(:millisecond) + budget(pid, 250)},
@@ -426,25 +441,25 @@ defmodule Valimc.World.Region do
 
   @doc "Internal entity handoff inbox; delivery must follow a durably committed source intent."
   def apply_entity_handoff({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:entity_handoff, epoch, transfer}, budget(pid, 6000))
+    do: call(pid, {:entity_handoff, epoch, transfer}, budget(pid, 6000))
 
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.
   def apply_item_transfer({pid, epoch}, transfer),
-    do: GenServer.call(pid, {:item_transfer, epoch, transfer}, budget(pid, 6000))
+    do: call(pid, {:item_transfer, epoch, transfer}, budget(pid, 6000))
 
   def item_transfer_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, budget(pid, 2000))
+    do: call(pid, {:item_transfer_receipt, epoch, source}, budget(pid, 2000))
 
   def container_transfer_receipt({pid, epoch}, source),
-    do: GenServer.call(pid, {:container_transfer_receipt, epoch, source}, budget(pid, 2000))
+    do: call(pid, {:container_transfer_receipt, epoch, source}, budget(pid, 2000))
 
   @doc "Internal action admission against the current chest and fresh player context."
   def admit_container_transfer({pid, epoch}, request, actor),
-    do: GenServer.call(pid, {:admit_container_transfer, epoch, request, actor}, budget(pid, 6000))
+    do: call(pid, {:admit_container_transfer, epoch, request, actor}, budget(pid, 6000))
 
   @doc "Deliver a prepared source intent; absent matching action admission permits rejection only."
   def container_transfer({pid, epoch}, request),
-    do: GenServer.call(pid, {:container_transfer, epoch, request}, budget(pid, 6000))
+    do: call(pid, {:container_transfer, epoch, request}, budget(pid, 6000))
 
   ## Group
 
@@ -488,7 +503,11 @@ defmodule Valimc.World.Region do
       tick_steps: nil,
       commit_timer: nil,
       commit_ms: RegionStorage.commit_ms(),
-      forward_timer: nil
+      forward_timer: nil,
+      # Players this group hosts (`Valimc.Session.Host`): uuid => entry.
+      players: %{},
+      # Players handed to other groups: uuid => {pid, until}.
+      player_moves: %{}
     }
   end
 
@@ -608,6 +627,27 @@ defmodule Valimc.World.Region do
     end
   end
 
+  # A connection's player enters play here (`Valimc.Session.Host`).
+  def handle_call({:host_player, session}, _from, state),
+    do: {:reply, :ok, host_player(state, session)}
+
+  def handle_call({:player_call, uuid, message}, from, state),
+    do: {:noreply, Host.call(state, uuid, message, from)}
+
+  def handle_call({:player_left, uuid, reason} = message, from, state) do
+    cond do
+      Map.has_key?(state.players, uuid) ->
+        {:reply, :ok, Host.left(state, uuid, reason)}
+
+      pid = Host.moved(state, uuid) ->
+        send(pid, {:"$gen_call", from, message})
+        {:noreply, state}
+
+      true ->
+        {:reply, :ok, state}
+    end
+  end
+
   def handle_call(:sections, _from, state),
     do: {:reply, state.sections |> Map.keys() |> Enum.sort(), state}
 
@@ -640,7 +680,10 @@ defmodule Valimc.World.Region do
   def handle_call({:hand_over, target, keys}, _from, state) do
     keys = if keys == :all, do: Map.keys(state.sections), else: keys
 
-    if target == self() or not Enum.all?(keys, &Map.has_key?(state.sections, &1)) do
+    # A target that stopped meanwhile cannot adopt; the regionizer learns of
+    # its exit through its own monitor.
+    if target == self() or not Process.alive?(target) or
+         not Enum.all?(keys, &Map.has_key?(state.sections, &1)) do
       {:reply, {:error, :invalid_handoff}, state}
     else
       started = System.monotonic_time(:microsecond)
@@ -751,6 +794,53 @@ defmodule Valimc.World.Region do
   defp section_result({:noreply, state, _}, _from), do: {:noreply, commit_frames(state)}
   defp section_result({:stop, state, reason}, _from), do: {:stop, reason, state}
 
+  # A session's call to its own group (`call/3`): it runs as the group would
+  # run it. A reply the group sends itself at once is taken from the mailbox;
+  # one that waits for durability cannot be made inline.
+  defp inline_call(state, {:owner, key}) do
+    case state.sections do
+      %{^key => %{resource: resource}} -> {{:ok, {self(), resource.epoch}}, state}
+      _ -> {Valimc.Error.retry(:stale_owner), state}
+    end
+  end
+
+  defp inline_call(state, message) do
+    dimension = Valimc.Dimension.put(state.dimension)
+
+    try do
+      case target(message, state) do
+        {:section, key} ->
+          tag = make_ref()
+
+          case section_call(state, key, message, {self(), tag}) do
+            {:reply, state, reply} ->
+              {reply, commit_frames(state)}
+
+            {:noreply, state, _} ->
+              receive do
+                {^tag, reply} -> {reply, commit_frames(state)}
+              after
+                0 -> raise ArgumentError, "inline owner call waits: #{inspect(elem(message, 0))}"
+              end
+          end
+
+        _ ->
+          {Valimc.Error.retry(:stale_owner), state}
+      end
+    after
+      Valimc.Dimension.put(dimension)
+    end
+  end
+
+  defp host_player(state, session) do
+    state = Host.host(state, session)
+
+    if Map.has_key?(state.players, session.player.uuid),
+      do: send(session.connection, {:player_owner, session.player.uuid, self()})
+
+    state
+  end
+
   # A message for a section that moved is forwarded as it came; one for a
   # section this group never had is answered as for a stale owner.
   defp elsewhere(state, target, message) do
@@ -786,6 +876,24 @@ defmodule Valimc.World.Region do
   ## Messages
 
   @impl true
+  def handle_info({:player, uuid, message}, state),
+    do: {:noreply, Host.info(state, uuid, message)}
+
+  def handle_info({:adopt_player, session}, state), do: {:noreply, host_player(state, session)}
+
+  def handle_info({:player_claim, hops, message}, state) do
+    case Host.claim(state, message, hops) do
+      {:ok, state} -> {:noreply, state}
+      :error -> {:noreply, state}
+    end
+  end
+
+  # A session's job timer or task reply (`Valimc.Session.Jobs`) comes to the
+  # group that started it.
+  def handle_info({:job_timeout, _, _} = message, state), do: claim(state, message)
+  def handle_info({:transfer_delivered, _, _, _} = message, state), do: claim(state, message)
+  def handle_info({ref, _} = message, state) when is_reference(ref), do: claim(state, message)
+
   def handle_info({:tick, token}, %{tick_clock: %{token: token}} = state) do
     now = System.monotonic_time(:millisecond)
 
@@ -894,7 +1002,10 @@ defmodule Valimc.World.Region do
         maybe_forwarder(%{state | moved: moved, targets: Map.delete(state.targets, pid)})
 
       {_, nil} ->
-        broadcast(state, info)
+        case Host.claim(state, info) do
+          {:ok, state} -> {:noreply, state}
+          :error -> broadcast(state, info)
+        end
 
       {_, target} ->
         send(target, info)
@@ -943,6 +1054,13 @@ defmodule Valimc.World.Region do
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
 
+  defp claim(state, message) do
+    case Host.claim(state, message) do
+      {:ok, state} -> {:noreply, state}
+      :error -> {:noreply, state}
+    end
+  end
+
   defp section_info(state, key, message) do
     case RegionData.handle_info(message, enter(state, key)) do
       {:noreply, resource} ->
@@ -987,9 +1105,12 @@ defmodule Valimc.World.Region do
         end
       end)
 
+    state =
+      if state.players == %{} and state.player_moves == %{}, do: state, else: Host.tick(state)
+
     state = commit_frames(state)
 
-    if state.sections == %{} and state.moved == %{},
+    if idle?(state),
       do: {:stop, :normal, state},
       else: {:noreply, schedule_tick(state, state.tick_clock, delay)}
   end
@@ -1016,6 +1137,12 @@ defmodule Valimc.World.Region do
         state
     end
   end
+
+  # A group without sections, forwards or players stops.
+  defp idle?(state),
+    do:
+      state.sections == %{} and state.moved == %{} and state.players == %{} and
+        state.player_moves == %{}
 
   # A group with sections ticks on its timer, unless tests step it.
   defp schedule_tick(state, clock, delay) do
@@ -1082,6 +1209,7 @@ defmodule Valimc.World.Region do
     true = :ets.give_away(resource.publication, target, {:section, key})
     Registry.unregister(Valimc.RegionRegistry, section(state, key))
     send(target, {:adopt, key, token, %{resource | siblings: %{}}, state.tick_clock.tick})
+    state = Host.give(state, [key], target)
 
     :ok =
       Valimc.World.Directory.move(section(state, key), token, target, %{
@@ -1120,7 +1248,7 @@ defmodule Valimc.World.Region do
     state = %{state | moved: moved}
 
     cond do
-      state.sections == %{} and moved == %{} ->
+      idle?(state) ->
         {:stop, :normal, state}
 
       moved != %{} and state.forward_timer == nil ->
@@ -1136,6 +1264,7 @@ defmodule Valimc.World.Region do
   # section then saves (VMC-077f). A crash commits nothing more.
   def terminate(reason, state) do
     clean = reason in [:normal, :shutdown] or match?({:shutdown, _}, reason)
+    state = if clean, do: Host.stop_all(state), else: state
     state = if clean and state.sections != %{}, do: commit_frames(state, true), else: state
 
     for {_, section} <- state.sections, do: RegionData.terminate(reason, section.resource)

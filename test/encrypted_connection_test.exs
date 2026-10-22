@@ -156,7 +156,7 @@ defmodule Valimc.EncryptedConnectionTest do
       pid = owner(name)
       body = response(pair, nonce, secret)
 
-      :sys.replace_state(pid, fn state ->
+      Valimc.TestConn.replace(pid, fn state ->
         token = make_ref()
         {:ok, job} = KeyExchange.start(self(), token, pair, nonce, body)
         deadline = System.monotonic_time(:millisecond) + if(late, do: -1, else: 100)

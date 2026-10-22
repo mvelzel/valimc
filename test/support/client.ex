@@ -498,7 +498,25 @@ defmodule Valimc.TestConn do
   @moduledoc "A connection's state for assertions; its asynchronous jobs live in `Valimc.Session.Jobs`."
 
   # Generous on a loaded host; a free owner answers at once (VMC-073).
-  def state(pid), do: :sys.get_state(pid, 30_000)
+  # A connection answers with its session merged in, wherever the session runs
+  # (VMC-077i3); any other process with its state.
+  def state(pid, timeout \\ 30_000) do
+    if connection?(pid),
+      do: GenServer.call(pid, :debug_state, timeout),
+      else: :sys.get_state(pid, timeout)
+  end
+
+  @doc "Replace the session wherever it runs; returns the new state, as `:sys.replace_state/2`."
+  def replace(pid, fun) do
+    if connection?(pid),
+      do: GenServer.call(pid, {:debug_update, fun}, 30_000),
+      else: :sys.replace_state(pid, fun)
+  end
+
+  defp connection?(pid) when is_pid(pid),
+    do: match?({Valimc.Connection, :init, _}, :proc_lib.initial_call(pid))
+
+  defp connection?(_), do: false
 
   @doc "The connection's active job of `kind` (`:mining`, `:placement`, ...), or nil."
   def job(state, kind), do: Valimc.Session.Jobs.get(state.jobs, kind)
@@ -875,14 +893,14 @@ defmodule Valimc.TestPlayer do
   def put_living(pid, fields) do
     update = if is_function(fields, 1), do: fields, else: &struct!(&1, fields)
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{s | player: %{s.player | living: update.(s.player.living)}}
     end)
   end
 
   @doc "Retire the wall-clock tick, so only `tick/2` runs the owner's simulation."
   def park(pid) do
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       clock = %{
         s.simulation_clock
         | token: {s.simulation_clock.epoch, make_ref()},
@@ -924,7 +942,7 @@ defmodule Valimc.TestPlayer do
   """
   def tick(pid, settle \\ false) do
     before =
-      :sys.replace_state(pid, fn s ->
+      Valimc.TestConn.replace(pid, fn s ->
         %{
           s
           | simulation_clock: %{

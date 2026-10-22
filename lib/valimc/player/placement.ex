@@ -40,7 +40,7 @@ defmodule Valimc.Player.Placement do
           state.life_stage == :alive and PlayerInput.loaded?(state.player.input) and
             not state.teleport_pending and state.save_ref == nil and
             MapSet.member?(
-              state.chunks,
+              near_chunks(state.player),
               World.chunk_key(elem(request.position, 0), elem(request.position, 2))
             ) and
             Mining.reachable?(state, request.position) and
@@ -161,14 +161,21 @@ defmodule Valimc.Player.Placement do
          not state.teleport_pending and not inventory_pending(state) and
          Mining.reachable?(state, request.position) and
          Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) do
-      %{boxes: [body(state.player) | peer_bodies(state)], chunks: state.chunks}
+      %{boxes: [body(state.player) | peer_bodies(state)], chunks: near_chunks(state.player)}
     end
+  end
+
+  # The chunks around the player: a reachable block is in one of them, and its
+  # client has them once it confirmed its position.
+  defp near_chunks(%{x: x, z: z}) do
+    {cx, cz} = World.chunk_key(x, z)
+    MapSet.new(for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz})
   end
 
   # Placement is obstructed by every nearby living player that is not a
   # spectator (vanilla's `isUnobstructed`), the placing player included.
   defp peer_bodies(state) do
-    for pid <- Valimc.Players.nearby(state.regions),
+    for pid <- Valimc.Players.around(state.player),
         pid != state.connection,
         {:ok, peer} <- [Valimc.Players.get(pid)],
         peer.game_mode.current != :spectator and peer.living.health.value > 0,
@@ -200,8 +207,8 @@ defmodule Valimc.Player.Placement do
 
         start =
           if command.mode == :survival,
-            do: &PlayerPlacementQuery.start_survival/4,
-            else: &PlayerPlacementQuery.start_creative/4
+            do: &PlayerPlacementQuery.start_survival/5,
+            else: &PlayerPlacementQuery.start_creative/5
 
         started =
           case command[:kind] do
@@ -209,17 +216,24 @@ defmodule Valimc.Player.Placement do
               PlayerPlacementQuery.start_destroy(
                 command.request.position,
                 command.eye,
-                command.expires
+                command.expires,
+                state.connection
               )
 
             :correction ->
-              PlayerPlacementQuery.start_correction(command.request, nil)
+              PlayerPlacementQuery.start_correction(command.request, nil, state.connection)
 
             :ignite ->
-              Valimc.Portal.Items.start(command)
+              Valimc.Portal.Items.start(command, state.connection)
 
             _ ->
-              start.(command.item, command.request, command.body, command.expires)
+              start.(
+                command.item,
+                command.request,
+                command.body,
+                command.expires,
+                state.connection
+              )
           end
 
         case started do
@@ -298,7 +312,7 @@ defmodule Valimc.Player.Placement do
 
   @doc false
   def correct_placement(state, request, reservation) do
-    case PlayerPlacementQuery.start_correction(request, reservation) do
+    case PlayerPlacementQuery.start_correction(request, reservation, state.connection) do
       {:ok, task} ->
         command = %{mode: :correction, body: nil, request: request}
 

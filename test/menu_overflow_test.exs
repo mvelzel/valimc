@@ -112,7 +112,7 @@ defmodule Valimc.MenuOverflowTest do
     if seed do
       {pid, state} = await_state(ctx, &(&1.phase == :play))
       inventory = %{ctx.original | infinite_materials: state.inventory.infinite_materials}
-      :sys.replace_state(pid, &%{&1 | inventory: inventory})
+      Valimc.TestConn.replace(pid, &%{&1 | inventory: inventory})
       # This is administrative setup through the trusted leased owner, not a click.
       send(pid, :save_player)
       await_state(ctx, &(&1.save_ref == nil && saved(ctx).inventory.carried == inventory.carried))
@@ -123,7 +123,7 @@ defmodule Valimc.MenuOverflowTest do
 
   defp await_state(ctx, predicate, attempts \\ 1000) do
     player = Enum.find(Players.all(), &(&1.name == ctx.name))
-    state = if player, do: :sys.get_state(player.pid)
+    state = if player, do: Valimc.TestConn.state(player.pid)
 
     if state && predicate.(state) do
       {player.pid, state}

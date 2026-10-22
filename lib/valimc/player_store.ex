@@ -54,54 +54,58 @@ defmodule Valimc.PlayerStore do
   end
 
   def checkpoint(pid, fence, snapshot, ref),
-    do: GenServer.cast(pid, {:checkpoint, self(), fence, snapshot, ref})
+    do: GenServer.cast(pid, {:checkpoint, owner(), fence, snapshot, ref})
 
   def prepare_transfer(pid, fence, before, after_snapshot, key, records, ref),
-    do: GenServer.cast(pid, {:prepare, self(), fence, before, after_snapshot, key, records, ref})
+    do: GenServer.cast(pid, {:prepare, owner(), fence, before, after_snapshot, key, records, ref})
 
   def prepare_crafting(pid, fence, before, after_snapshot, key, records, gesture, ref),
     do:
       GenServer.cast(
         pid,
-        {:prepare_crafting, self(), fence, before, after_snapshot, key, records, gesture, ref}
+        {:prepare_crafting, owner(), fence, before, after_snapshot, key, records, gesture, ref}
       )
 
   def prepare_death(pid, fence, before, after_snapshot, key, records, ref),
     do:
       GenServer.cast(
         pid,
-        {:prepare_death, self(), fence, before, after_snapshot, key, records, ref}
+        {:prepare_death, owner(), fence, before, after_snapshot, key, records, ref}
       )
 
   # This is a trusted leased-owner operation, never a client-provided privilege.
   def prepare_creative_drop(pid, fence, snapshot, key, record, ref),
-    do: GenServer.cast(pid, {:prepare_creative_drop, self(), fence, snapshot, key, record, ref})
+    do: GenServer.cast(pid, {:prepare_creative_drop, owner(), fence, snapshot, key, record, ref})
 
   def complete_transfer(pid, fence, ref),
-    do: GenServer.cast(pid, {:complete, self(), fence, ref})
+    do: GenServer.cast(pid, {:complete, owner(), fence, ref})
 
   # The trusted player owner has already sampled the original loot/wear proposal.
   def prepare_mining(pid, fence, snapshot, intent, ref),
-    do: GenServer.cast(pid, {:prepare_mining, self(), fence, snapshot, intent, ref})
+    do: GenServer.cast(pid, {:prepare_mining, owner(), fence, snapshot, intent, ref})
 
   def prepare_placement(pid, fence, snapshot, intent, ref),
-    do: GenServer.cast(pid, {:prepare_placement, self(), fence, snapshot, intent, ref})
+    do: GenServer.cast(pid, {:prepare_placement, owner(), fence, snapshot, intent, ref})
 
   def prepare_pickup(pid, fence, snapshot, intent, ref),
-    do: GenServer.cast(pid, {:prepare_pickup, self(), fence, snapshot, intent, ref})
+    do: GenServer.cast(pid, {:prepare_pickup, owner(), fence, snapshot, intent, ref})
 
   def prepare_container(pid, fence, snapshot, intent, ref),
-    do: GenServer.cast(pid, {:prepare_container, self(), fence, snapshot, intent, ref})
+    do: GenServer.cast(pid, {:prepare_container, owner(), fence, snapshot, intent, ref})
 
   @doc "Preview the canonical next action; only preparation persists/reserves its sequence."
   def container_candidate(pid, fence, snapshot, intent, ref),
-    do: GenServer.cast(pid, {:container_candidate, self(), fence, snapshot, intent, ref})
+    do: GenServer.cast(pid, {:container_candidate, owner(), fence, snapshot, intent, ref})
 
   def close(pid, fence, snapshot),
-    do: GenServer.call(pid, {:close, fence, snapshot}, budget(pid, 5000))
+    do: GenServer.call(pid, {:close, owner(), fence, snapshot}, budget(pid, 5000))
 
   def close_session(pid, fence, snapshot),
-    do: GenServer.call(pid, {:close_session, fence, snapshot}, budget(pid, 5000))
+    do: GenServer.call(pid, {:close_session, owner(), fence, snapshot}, budget(pid, 5000))
+
+  # The store's owner is the player's connection; a session its group hosts
+  # acts for it (`Valimc.Session.Host`).
+  defp owner, do: Valimc.Session.Host.acting() || self()
 
   # Call budgets scale like an owner's (`owner_call_scale`, VMC-073): 1 in play.
   defp budget(pid, ms), do: ms * Valimc.config(:owner_call_scale, pid)
@@ -175,7 +179,7 @@ defmodule Valimc.PlayerStore do
   def handle_call(:load, {owner, _}, %{owner: owner} = state),
     do: {:reply, {:ok, state.snapshot, state.fence}, state}
 
-  def handle_call({:close, fence, snapshot}, {owner, _}, %{owner: owner} = state) do
+  def handle_call({:close, owner, fence, snapshot}, _from, %{owner: owner} = state) do
     result =
       with {:ok, next} <- checkpoint_snapshot(state, fence, snapshot), do: save(state, next)
 
@@ -183,8 +187,8 @@ defmodule Valimc.PlayerStore do
   end
 
   def handle_call(
-        {:close_session, fence, snapshot},
-        {owner, _},
+        {:close_session, owner, fence, snapshot},
+        _from,
         %{owner: owner, closing: nil} = state
       ) do
     # Preserve the newest accepted raw contents first. A failed cleanup prepare must

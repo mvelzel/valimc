@@ -212,7 +212,7 @@ defmodule Valimc.OnlineConnectionTest do
       {client, pid, digest} = key(name)
       assert_receive {:verify_session, worker, ^name, ^digest, _}
 
-      :sys.replace_state(pid, fn state ->
+      Valimc.TestConn.replace(pid, fn state ->
         job = state.auth_job
         Process.cancel_timer(job.timer)
         ms = if late, do: -1, else: 100

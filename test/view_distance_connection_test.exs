@@ -128,7 +128,7 @@ defmodule Valimc.ViewDistanceConnectionTest do
     assert MapSet.new(forgotten) ==
              MapSet.difference(view(joined.center, 6), view(joined.center, 3))
 
-    state = :sys.get_state(joined.owner)
+    state = Valimc.TestConn.state(joined.owner)
     assert state.view == {joined.center, 3} and state.chunks == view(joined.center, 3)
 
     # The same distance again changes nothing.

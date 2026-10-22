@@ -1,7 +1,12 @@
 defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
-  @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
+  @moduledoc """
+  A socket-owning process per player: framing, encryption, compression, login
+  and configuration, then in play the chunk view and replication while its
+  session runs at the player's group (`Valimc.Session.Link`,
+  `Valimc.Session.Host`). It stays the player's address throughout.
+  """
   require Logger
 
   alias Valimc.Protocol.{
@@ -12,29 +17,13 @@ defmodule Valimc.Connection do
 
   alias Valimc.Session.Jobs
   alias Valimc.Session.Messages
-  alias Valimc.Session.JobHandlers
   alias Valimc.Net.Serverbound
-  alias Valimc.Player.Menus
   alias Valimc.Player.CreativeInventory
-  alias Valimc.Player.Transfers
-  alias Valimc.Player.Mining
-  alias Valimc.Player.Movement
-  alias Valimc.Player.Vitals
 
   import Valimc.Net.Codec,
     only: [reject: 2, reset_window: 1]
 
-  alias Valimc.{
-    ChatThrottle,
-    CreativeInput,
-    Inventory,
-    Metrics,
-    Players,
-    PlayerKinetics,
-    PlayerStore
-  }
-
-  alias Valimc.Player.State, as: PlayerState
+  alias Valimc.{ChatThrottle, CreativeInput, Inventory, Metrics}
 
   alias Valimc.World.{ChestLidReplication, EntityReplication}
   import Bitwise
@@ -84,108 +73,27 @@ defmodule Valimc.Connection do
   end
 
   @impl true
-  def handle_call(
-        {:teleport, destination, deadline},
-        _,
-        %{phase: :play, life_stage: :alive} = state
-      ) do
-    if System.monotonic_time(:millisecond) < deadline and is_map(destination) and
-         map_size(destination) == 5 and
-         Enum.all?([:x, :y, :z, :yaw, :pitch], &Map.has_key?(destination, &1)) and
-         PlayerStore.valid_pose?(destination) do
-      {:reply, :ok, Movement.relocate(state, Map.merge(state.player, destination))}
-    else
-      {:reply, {:error, :invalid_or_expired_teleport}, state}
+  # A playing session's calls (`Valimc.Session.Calls`) go to its owner, which
+  # answers the caller; before play the connection holds the session itself.
+  def handle_call(message, _from, %{owner: owner} = state)
+      when owner != nil and (message == :debug_state or elem(message, 0) == :debug_update) do
+    case GenServer.call(owner, {:player_call, state.player.uuid, message}, 30_000) do
+      %{} = session -> {:reply, Map.merge(state, Map.delete(session, :socket)), state}
+      _gone -> {:reply, state, state}
     end
   end
 
-  def handle_call({:teleport, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
-
-  def handle_call(
-        {:set_velocity, velocity, deadline},
-        _,
-        %{phase: :play, life_stage: :alive} = state
-      ) do
-    if System.monotonic_time(:millisecond) < deadline and PlayerKinetics.valid_velocity?(velocity) and
-         PlayerKinetics.admissible?(state.player, velocity) do
-      velocity = velocity |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
-      motion = %{state.player.motion | velocity: velocity, settled: false}
-      player = %{state.player | motion: motion}
-      Players.update(self(), player)
-      state = %{state | player: player, pose_checked: nil, login_velocity_pending: false}
-      state = Movement.send_velocity(state, velocity)
-      {:reply, :ok, Movement.sample_pose(state)}
-    else
-      {:reply, {:error, :invalid_or_expired_velocity}, state}
-    end
+  def handle_call(message, from, %{owner: owner} = state) when owner != nil do
+    send(owner, {:"$gen_call", from, {:player_call, state.player.uuid, message}})
+    {:noreply, state}
   end
 
-  def handle_call({:set_velocity, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
-
-  def handle_call({:fall_damage, amount, deadline}, _, %{phase: :play} = state) do
-    if System.monotonic_time(:millisecond) < deadline do
-      case Valimc.Living.Health.hurt_window(state.player.living.health, amount) do
-        {:ok, selected} ->
-          try do
-            {result, next} = Vitals.apply_damage(state, selected, :fall)
-            {:reply, {:ok, result}, next}
-          catch
-            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
-          end
-
-        error ->
-          {:reply, error, state}
-      end
-    else
-      {:reply, {:error, :expired_damage}, state}
+  def handle_call(message, _from, state) do
+    case Valimc.Session.Calls.call(message, state) do
+      {:stop, reason, reply, next} -> {:stop, reason, reply, next}
+      {:reply, reply, next} -> {:reply, reply, next}
     end
   end
-
-  def handle_call({:fall_damage, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
-
-  def handle_call(
-        {:effect, id, incoming, deadline},
-        _,
-        %{phase: :play, life_stage: :alive} = state
-      ) do
-    if System.monotonic_time(:millisecond) < deadline and id in @live_effects do
-      try do
-        case Vitals.apply_effect(state, id, incoming) do
-          {:ok, changed, next} -> {:reply, {:ok, changed}, next}
-          {:error, _} = error -> {:reply, error, state}
-        end
-      catch
-        {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
-      end
-    else
-      {:reply, {:error, :invalid_or_expired_effect}, state}
-    end
-  end
-
-  def handle_call({:command_op, op, deadline}, _, %{phase: :play} = state) do
-    if System.monotonic_time(:millisecond) < deadline do
-      try do
-        {reply, next} = Valimc.Player.CommandOps.apply(state, op)
-        {:reply, {:ok, reply}, next}
-      rescue
-        exception ->
-          Logger.error(
-            "Command operation failed: " <> Exception.format(:error, exception, __STACKTRACE__)
-          )
-
-          {:reply, {:error, :failed}, state}
-      catch
-        {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
-        {:command_syntax, error} -> {:reply, {:error, error}, state}
-      end
-    else
-      {:reply, {:error, :expired}, state}
-    end
-  end
-
-  def handle_call({:command_op, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
-
-  def handle_call({:effect, _, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
   def deliver(pid, event) do
     case Process.info(pid, :message_queue_len) do
@@ -226,6 +134,9 @@ defmodule Valimc.Connection do
        socket: socket,
        # The player's stable address: timers, replies and deliveries come here.
        connection: self(),
+       # The group hosting the session in play (`Valimc.Session.Host`).
+       owner: nil,
+       owner_monitor: nil,
        phase: :handshake,
        step: nil,
        threshold: nil,
@@ -328,28 +239,12 @@ defmodule Valimc.Connection do
   end
 
   @impl true
-  # Session jobs (`Valimc.Session.Jobs`) claim their results, DOWNs and timeouts
-  # first; everything else goes to the per-message clauses below.
-  def handle_info(message, %{jobs: %Jobs{}} = state) do
-    case Jobs.classify(state.jobs, message) do
-      {:result, kind, job, payload, jobs} ->
-        JobHandlers.job_result(kind, job, payload, %{state | jobs: jobs})
+  # In play the session runs at its owner and the connection keeps its own
+  # messages (`Valimc.Session.Link`); before that it runs the session itself.
+  def handle_info(message, %{owner: owner} = state) when owner != nil,
+    do: Valimc.Session.Link.info(message, state)
 
-      {:down, kind, job, reason, jobs} ->
-        JobHandlers.job_down(kind, job, reason, %{state | jobs: jobs})
-
-      {:timeout, kind, job, jobs} ->
-        JobHandlers.job_timeout(kind, job, %{state | jobs: jobs})
-
-      :stale ->
-        {:noreply, state}
-
-      :unknown ->
-        Messages.info(message, state)
-    end
-  end
-
-  def handle_info(message, state), do: Messages.info(message, state)
+  def handle_info(message, state), do: Messages.dispatch(message, state)
 
   @doc false
   def guard_connection(state, work) do
@@ -437,20 +332,31 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(reason, state) do
     Valimc.Session.Presence.left(state, reason)
-    Menus.retire_container_view(state)
-    Menus.cancel_table_query(state)
-    Transfers.cancel_pickup_query(state)
-    Transfers.cancel_experience_query(state)
-    Mining.cancel_mining(state)
-
     :gen_tcp.close(state.socket)
+    stop_login_jobs(state)
 
-    Jobs.cancel_all(state.jobs)
+    case state do
+      # The session at its owner saves and leaves before the connection ends.
+      %{owner: owner} when owner != nil ->
+        try do
+          GenServer.call(owner, {:player_left, state.player.uuid, reason}, 15_000)
+        catch
+          :exit, _ -> Logger.error("Player state final save could not complete")
+        end
 
+      # Before play the connection holds the session itself.
+      %{jobs: %Jobs{}} ->
+        Messages.terminate(state)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp stop_login_jobs(state) do
     if state.key_job do
       Process.cancel_timer(state.key_job.timer)
       Process.demonitor(state.key_job.monitor, [:flush])
-
       Valimc.KeyExchange.cancel(state.key_job)
     end
 
@@ -458,38 +364,6 @@ defmodule Valimc.Connection do
       Process.cancel_timer(state.auth_job.timer)
       Process.demonitor(state.auth_job.monitor, [:flush])
       Valimc.Auth.SessionJobs.cancel(state.auth_job)
-    end
-
-    if state.recovery do
-      Process.cancel_timer(state.recovery.timer)
-      if state.recovery.retry_timer, do: Process.cancel_timer(state.recovery.retry_timer)
-
-      if state.recovery.job && Process.whereis(Valimc.TransferWorkers) != nil,
-        do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, state.recovery.job.pid)
-    end
-
-    if state.player_store && state.phase == :play do
-      # Observations can lag quiet simulation clocks. Persist the owner state;
-      # per-frame exception boundaries already retain earlier accepted packets.
-      snapshot =
-        case state.life_save do
-          %{kind: :respawn, snapshot: snapshot} ->
-            snapshot
-
-          _ ->
-            PlayerState.capture(state.player, state.inventory)
-        end
-
-      try do
-        PlayerStore.close_session(
-          state.player_store,
-          state.store_fence,
-          snapshot
-        )
-      catch
-        :exit, _ ->
-          Logger.error("Player state final save could not complete")
-      end
     end
   end
 end

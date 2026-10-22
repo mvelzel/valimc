@@ -116,25 +116,4 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
     assert {:ok, ^helmet, <<255>>} = ItemStack.take(stack_bytes)
   end
-
-  test "a stalled region owner cannot stop or replay owned periodic healing", ctx do
-    seed(ctx, health: 10.0)
-    {_client, pid} = login(ctx)
-    effect(pid, "regeneration", 50)
-    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      for _ <- 1..50, do: tick(pid, false)
-
-      assert living(pid).health.value == 11.0 and
-               living(pid).effects == %{}
-
-      Valimc.TestRegionGate.resume(region)
-      tick(pid, false)
-      assert living(pid).health.value == 11.0
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
-  end
 end

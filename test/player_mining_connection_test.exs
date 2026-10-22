@@ -69,7 +69,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   # Retire wall timers while driving the real owner handler with single-use tokens.
   defp park(pid) do
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       clock = %{
         s.simulation_clock
         | token: {s.simulation_clock.epoch, make_ref()},
@@ -82,7 +82,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp tick(pid) do
     before =
-      :sys.replace_state(pid, fn s ->
+      Valimc.TestConn.replace(pid, fn s ->
         %{
           s
           | simulation_clock: %{
@@ -258,43 +258,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert Enum.sort(damages) == [0, 1]
     assert drops(ctx) == [ItemStack.new("cobblestone")]
     assert saved(ctx).outbox == nil and saved(peer).outbox == nil
-  end
-
-  test "a stalled reservation expires outside the socket owner and its retired callback is inert",
-       ctx do
-    seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
-    {client, pid} = login(ctx)
-    {:ok, {region, _} = owner} = Valimc.TestWorld.existing_owner(ctx.key)
-    :ok = Valimc.TestRegionGate.stall(region)
-
-    try do
-      action(client, "start_destroy_block", ctx.target, 1)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :mining) end)
-      # The job's own deadline timer, fired now instead of after its budget.
-      send(pid, {:job_timeout, :mining, job.ref})
-      wait(fn -> state(pid).mining == nil and Valimc.TestConn.job(state(pid), :mining) == nil end)
-
-      send(
-        pid,
-        {job.task.ref,
-         {:ok,
-          %{
-            owner: owner,
-            key: ctx.key,
-            permit: <<0::128>>,
-            expected: %{ctx.target => Data.block("stone")}
-          }}}
-      )
-
-      assert state(pid).mining == nil and state(pid).recovery == nil
-      assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
-    after
-      :ok = Valimc.TestRegionGate.resume(region)
-    end
-
-    assert Valimc.TestBlocks.get(ctx.target) == Data.block("stone")
-    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
-    assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
   end
 
   test "filled chest mining consumes only tool wear while its owner releases exact stored patches",

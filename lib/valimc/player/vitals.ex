@@ -36,7 +36,7 @@ defmodule Valimc.Player.Vitals do
     Health
   }
 
-  alias Valimc.World.{BorderReplication, EntityReplication, WeatherReplication}
+  alias Valimc.World.{BorderReplication, WeatherReplication}
   require Logger
   import Bitwise
   @hunger EffectTypes.id("hunger")
@@ -285,7 +285,7 @@ defmodule Valimc.Player.Vitals do
 
         state = Valimc.Player.Movement.publish_absorption(state)
         state = if health.value <= 0, do: death_notice(state, true, source), else: state
-        send(self(), :drain)
+        send(state.connection, :resume_inputs)
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
     end
   end
@@ -391,14 +391,23 @@ defmodule Valimc.Player.Vitals do
   def continue_life(state), do: state
 
   def finish_respawn(state, player) do
-    old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
+    {clock_version, clock_packet} = Valimc.World.Clock.initial()
+    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
 
-    old_items = Map.keys(state.entity_replication.tracked)
+    {weather_view, weather_packets} =
+      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
 
-    old_items =
-      if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
+    border = Valimc.World.Clock.border()
 
-    send_packets(state, Enum.map(state.chunks, &Packets.unload/1) ++ old_entities ++ old_items)
+    # The client forgets its level chunk by chunk first (its connection's view).
+    Valimc.Session.Link.reset_view(state, %{
+      unload: true,
+      dimension: Map.get(player, :dimension, :overworld),
+      clock_version: clock_version,
+      difficulty: difficulty,
+      weather: weather_view,
+      border: border
+    })
 
     # Post effects (`/posteffect`) do not survive a respawn, as in vanilla.
     if Map.get(state.player, :post_effects, []) != [],
@@ -407,13 +416,6 @@ defmodule Valimc.Player.Vitals do
     player = Map.put(player, :post_effects, [])
     # A death in another dimension respawns in the spawn's (VMC-026b, VMC-077a).
     state = Valimc.Player.Travel.leave(state, player)
-    {clock_version, clock_packet} = Valimc.World.Clock.initial()
-    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
-
-    {weather_view, weather_packets} =
-      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
-
-    border = Valimc.World.Clock.border()
     inventory = Inventory.new(player.abilities.infinite_materials)
 
     state = %{
@@ -431,17 +433,7 @@ defmodule Valimc.Player.Vitals do
         active_use: nil,
         respawn_requested: false,
         food_tick_origin: state.simulation_clock.tick,
-        client_tick: %ClientTick{},
-        view: nil,
-        chunks: MapSet.new(),
-        pending: [],
-        peers: %{},
-        entity_replication: EntityReplication.new(),
-        entity_cache: %{},
-        clock_version: clock_version,
-        difficulty_view: difficulty,
-        weather_view: weather_view,
-        border_view: border
+        client_tick: %ClientTick{}
     }
 
     send_packets(
@@ -475,7 +467,7 @@ defmodule Valimc.Player.Vitals do
       |> Valimc.Player.Movement.publish_jump_boost()
       |> Valimc.Player.Movement.relocate(player)
 
-    for pid <- Players.nearby(state.regions),
+    for pid <- Players.around(state.player),
         pid != state.connection,
         do:
           Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})

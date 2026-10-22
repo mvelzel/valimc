@@ -104,7 +104,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     helmet = ItemStack.new("iron_helmet")
     seed(ctx, inventory: %Inventory{slots: %{5 => helmet}})
     {_client, pid} = login(ctx)
-    :sys.replace_state(pid, &%{&1 | use_save: make_ref()})
+    Valimc.TestConn.replace(pid, &%{&1 | use_save: make_ref()})
     tick(pid)
 
     assert living(pid).health.value == 20.0 and
@@ -112,7 +112,7 @@ defmodule Valimc.PlayerFireConnectionTest do
 
     material(ctx, "air")
 
-    :sys.replace_state(
+    Valimc.TestConn.replace(
       pid,
       &%{&1 | use_save: nil, player: %{&1.player | living: %{&1.player.living | fire_ticks: 19}}}
     )
@@ -155,7 +155,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert Bitwise.band(Valimc.Protocol.Packets.shared_flags(state(pid).player), 1) == 0
     material(ctx, "lava")
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestConn.replace(pid, fn s ->
       %{s | player: %{s.player | input: %Valimc.PlayerInput{load_ticks: 60}}}
     end)
 

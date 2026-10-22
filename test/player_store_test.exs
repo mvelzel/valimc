@@ -232,7 +232,7 @@ defmodule Valimc.PlayerStoreTest.Connection do
 
     try do
       for _ <- 1..3, do: send(player.pid, :save_player)
-      state = :sys.get_state(player.pid)
+      state = Valimc.TestConn.state(player.pid)
       assert is_reference(state.save_ref)
       assert {:message_queue_len, 1} = Process.info(writer, :message_queue_len)
       healthy_name = username()

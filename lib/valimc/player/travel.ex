@@ -17,18 +17,12 @@ defmodule Valimc.Player.Travel do
 
   import Valimc.Net.Codec, only: [send_packets: 2]
 
-  alias Valimc.{Players, World}
+  alias Valimc.Players
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.{Movement, Vitals}
   alias Valimc.Protocol.Packets
 
-  alias Valimc.World.{
-    BorderReplication,
-    ChestLidReplication,
-    Clock,
-    EntityReplication,
-    WeatherReplication
-  }
+  alias Valimc.World.{BorderReplication, Clock, WeatherReplication}
 
   @typedoc "Where a travel ends: a dimension and a pose, with the arrival velocity."
   @type target :: %{
@@ -119,22 +113,19 @@ defmodule Valimc.Player.Travel do
     border = Clock.border()
     weather = Clock.weather()
 
+    Valimc.Session.Link.reset_view(state, %{
+      unload: false,
+      dimension: player.dimension,
+      clock_version: clock_version,
+      difficulty: difficulty,
+      weather: weather,
+      border: border
+    })
+
     state = %{
       state
       | player: player,
         active_use: nil,
-        view: nil,
-        chunks: MapSet.new(),
-        pending: [],
-        chunk_sender: Valimc.Session.ChunkSender.reset(state.chunk_sender),
-        peers: %{},
-        chest_lids: %ChestLidReplication{},
-        entity_replication: EntityReplication.new(),
-        entity_cache: %{},
-        clock_version: clock_version,
-        difficulty_view: difficulty,
-        weather_view: weather,
-        border_view: border,
         life_save: nil,
         travel: nil,
         portal: state.portal && %{state.portal | last: nil}
@@ -178,7 +169,7 @@ defmodule Valimc.Player.Travel do
         if(portal, do: [Packets.level_event(1032, {0, 0, 0}, 0)], else: [])
     )
 
-    for pid <- Players.nearby(state.regions),
+    for pid <- Players.around(state.player),
         pid != state.connection,
         do:
           Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
@@ -194,19 +185,20 @@ defmodule Valimc.Player.Travel do
   end
 
   @doc """
-  Leave the connection's dimension for `player.dimension`, if it differs:
-  release the old dimension's topics, publish the player in the new one,
-  tell the old dimension's nearby players it is gone, and switch the context.
+  Leave the session's dimension for `player.dimension`, if it differs:
+  publish the player in the new one, tell the old dimension's nearby players
+  it is gone, and switch the context. The connection releases the old
+  dimension's topics with its view reset; the session's group hands it to the
+  new dimension's.
   """
   def leave(state, player) do
-    from = Valimc.Dimension.current()
+    from = state.player.dimension
     to = Map.get(player, :dimension, :overworld)
 
     if from == to do
       state
     else
-      peers = Players.nearby(state.regions)
-      World.subscribe(MapSet.new(), state.regions)
+      peers = Players.around(state.player)
       Valimc.Dimension.put(to)
       # The index moves the player first, so the old peers' refresh finds it gone.
       Players.update(state.connection, player)
@@ -219,7 +211,7 @@ defmodule Valimc.Player.Travel do
               {:player_respawned, state.connection, player.entity_id}
             )
 
-      %{state | regions: MapSet.new()}
+      state
     end
   end
 end

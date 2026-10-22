@@ -114,7 +114,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     assert Valimc.TestConn.state(pid).teleport_pending
     on_exit(fn -> Client.close(client) end)
 
-    :sys.replace_state(pid, fn state ->
+    Valimc.TestConn.replace(pid, fn state ->
       health = %{
         state.player.living.health
         | value: 7.25,
@@ -149,7 +149,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     send(pid, {:player_tick, token})
     assert Valimc.TestPlayer.living(pid).health == next.player.living.health
 
-    :sys.replace_state(pid, fn state ->
+    Valimc.TestConn.replace(pid, fn state ->
       %{
         state
         | simulation_clock: %{

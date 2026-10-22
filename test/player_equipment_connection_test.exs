@@ -163,7 +163,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
       assert remaining > 0, "use did not finish"
 
       before =
-        :sys.replace_state(pid, fn s ->
+        Valimc.TestConn.replace(pid, fn s ->
           %{
             s
             | simulation_clock: %{

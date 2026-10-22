@@ -26,7 +26,7 @@ defmodule Valimc.ItemConnectionTest do
     client
   end
 
-  test "world items replicate current stacks to late joiners, visibility changes and owner loss" do
+  test "world items replicate current stacks to late joiners, visibility changes and removal" do
     username = name()
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
@@ -60,7 +60,7 @@ defmodule Valimc.ItemConnectionTest do
     {:ok, {^pid, ^epoch, another, 1}} = Region.create_item(owner, stone, {0.5, 64.5, 0.5})
     {_, client} = await_entity(client, "add_entity", another)
     client = assert_stack(client, another, stone)
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    assert :ok = Region.remove_item({pid, epoch, another, 1})
     client = await_removal(client, another)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {body, _} = Client.await_stats(client)

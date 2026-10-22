@@ -27,9 +27,7 @@ defmodule Valimc.PlayerPlacementQuery do
   end
 
   @doc "Execute one already-admitted creative command, then order its corrections on block owners."
-  def start_creative(item, request, grant, expires) do
-    connection = self()
-
+  def start_creative(item, request, grant, expires, connection) do
     {:ok,
      Task.Supervisor.async_nolink(
        Valimc.TransferWorkers,
@@ -62,9 +60,7 @@ defmodule Valimc.PlayerPlacementQuery do
   end
 
   @doc "Bounded creative destruction and correction; disk acknowledgment never blocks the player owner."
-  def start_destroy(position, eye, expires) do
-    connection = self()
-
+  def start_destroy(position, eye, expires, connection) do
     {:ok,
      Task.Supervisor.async_nolink(
        Valimc.TransferWorkers,
@@ -93,9 +89,7 @@ defmodule Valimc.PlayerPlacementQuery do
   end
 
   @doc "Reserve a prepared survival context; this job never consumes inventory or places a block."
-  def start_survival(item, request, grant, expires) do
-    connection = self()
-
+  def start_survival(item, request, grant, expires, connection) do
     {:ok,
      Task.Supervisor.async_nolink(
        Valimc.Workers.actions(),
@@ -134,9 +128,7 @@ defmodule Valimc.PlayerPlacementQuery do
     :exit, _ -> {:error, :placement_workers_busy}
   end
 
-  def start_correction(request, reservation) do
-    connection = self()
-
+  def start_correction(request, reservation, connection) do
     {:ok,
      Task.Supervisor.async_nolink(
        Valimc.Workers.actions(),

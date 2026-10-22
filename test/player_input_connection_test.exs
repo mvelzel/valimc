@@ -106,7 +106,7 @@ defmodule Valimc.PlayerInputConnectionTest do
     {client, player}
   end
 
-  defp current(player), do: :sys.get_state(player.pid).player
+  defp current(player), do: Valimc.TestConn.state(player.pid).player
 
   defp relocate(client, player, x) do
     :ok = Valimc.Connection.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})

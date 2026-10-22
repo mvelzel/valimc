@@ -38,6 +38,9 @@ defmodule Valimc.Session.Presence do
   @doc "Remembers why this connection ends (a text or a server text component)."
   def record(reason), do: Process.put(@reason, reason)
 
+  @doc "The recorded reason, forgotten here: a session's group passes it to the connection."
+  def take, do: Process.delete(@reason)
+
   def left(%{phase: :play, player: %{name: _} = player}, exit_reason) do
     reason =
       case {Process.get(@reason), exit_reason} do

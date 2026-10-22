@@ -18,6 +18,14 @@ defmodule Valimc.Net.Codec do
     if size > Valimc.config(:max_write_batch_bytes),
       do: throw({:disconnect, :write_batch_too_large, state})
 
+    write(state, frames, size)
+  end
+
+  # A session its group hosts (VMC-077i3) has no socket: its frames go to its
+  # connection after the callback, in order with its view changes.
+  defp write(%{socket: nil}, frames, _size), do: Valimc.Session.Host.out({:frames, frames})
+
+  defp write(state, frames, size) do
     bytes =
       if state.cipher,
         do: crypt_bytes(state.cipher, :encrypt, IO.iodata_to_binary(frames)),

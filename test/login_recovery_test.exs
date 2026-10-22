@@ -58,7 +58,7 @@ defmodule Valimc.LoginRecoveryTest do
 
   defp await_state(name, predicate, attempts \\ 400) do
     found = Enum.find(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
-    state = if found, do: :sys.get_state(elem(found, 0))
+    state = if found, do: Valimc.TestConn.state(elem(found, 0))
 
     if state && predicate.(state) do
       {elem(found, 0), state}
@@ -86,7 +86,7 @@ defmodule Valimc.LoginRecoveryTest do
     assert {:ok, saved} = PlayerState.decode(File.read!(fixture.path), uuid)
     assert saved.outbox == nil and saved.transfer_sequence == 1
     player = Enum.find(Valimc.Players.all(), &(&1.name == fixture.name))
-    state = :sys.get_state(player.pid)
+    state = Valimc.TestConn.state(player.pid)
     assert state.recovery == nil and state.inventory.infinite_materials
     Client.close(client)
     departed(fixture)

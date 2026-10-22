@@ -106,52 +106,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     client
   end
 
-  test "death queues respawn until all durable batches finish",
-       ctx do
-    [name | _] = ctx.names
-    seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
-    {client, pid} = login(name)
-    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      p = state(pid).player
-      assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-      wait(fn -> match?(%{stage: :delivery}, state(pid).recovery) end)
-      Client.send_packet(client, :play, "client_command", <<0>>)
-
-      Client.send_packet(
-        client,
-        :play,
-        "move_player_pos",
-        <<p.x + 7::float-64, 80.0::float-64, p.z::float-64, 1>>
-      )
-
-      Client.send_packet(client, :play, "container_click", <<>>)
-      Client.send_packet(client, :play, "chat_command", Wire.string("spawn"))
-      wait(fn -> state(pid).respawn_requested end)
-      blocked = state(pid)
-      assert blocked.player.living.health.value == 0 and blocked.life_stage == :dropping
-      assert {blocked.player.x, blocked.player.y, blocked.player.z} == {p.x, p.y, p.z}
-      assert {:ok, stored} = saved(ctx, name)
-      assert stored.health.value == 0 and stored.outbox != nil
-      assert stored.transfer_sequence == 1 and map_size(stored.inventory.slots) == 3
-      assert stored.last_death == {floor(p.x), floor(p.y), floor(p.z)}
-      assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
-
-    # The queued request is delivered automatically after the blocked destination.
-    client = respawn(client, pid)
-    assert state(pid).life_stage == :alive and living(pid).health.value == 20
-    assert state(pid).inventory.slots == %{} and state(pid).inventory.carried == nil
-    assert {:ok, stored} = saved(ctx, name)
-    assert stored.health.value == 20 and stored.transfer_sequence == 2 and stored.outbox == nil
-    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
-    assert client.inventory.items == List.duplicate(nil, 46)
-  end
-
   test "dead reconnect retains its screen/state; repeated death updates location without duplicating drops",
        ctx do
     [name | _] = ctx.names
@@ -185,58 +139,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert stored.transfer_sequence == 1 and stored.outbox == nil
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     Client.close(client)
-  end
-
-  test "disconnect during a pending death resumes all delivery before login publication", ctx do
-    [name | _] = ctx.names
-    seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
-    {client, pid} = login(name)
-    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    next =
-      try do
-        assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-        wait(fn -> match?(%{stage: :delivery}, state(pid).recovery) end)
-        monitor = Process.monitor(pid)
-        Client.close(client)
-        assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
-        wait(fn -> not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == name end) end)
-        next = Client.begin_login(name)
-
-        recovering =
-          wait(fn ->
-            case Enum.find(:ets.tab2list(Players), fn {_, p} -> p.name == name end) do
-              {new_pid, _} ->
-                s = state(new_pid)
-                if match?(%{stage: :delivery}, s.recovery), do: s
-
-              _ ->
-                nil
-            end
-          end)
-
-        assert recovering.phase == :login and recovering.player.living.health.value == 0
-        refute recovering.player.ready
-        refute Enum.any?(Players.all(), &(&1.name == name))
-        assert {:ok, source} = saved(ctx, name)
-        assert source.health.value == 0 and source.transfer_sequence == 1 and source.outbox != nil
-        assert map_size(source.inventory.slots) == 3
-        next
-      after
-        Valimc.TestRegionGate.resume(region)
-      end
-
-    {_, next} = Client.login_session(next, name)
-    {_, next} = Client.await(next, :play, "player_combat_kill")
-    next = Client.load_world(next)
-    new_pid = Enum.find(Players.all(), &(&1.name == name)).pid
-    assert state(new_pid).life_stage == :dead
-    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
-    _next = respawn(next, new_pid)
-    assert {:ok, source} = saved(ctx, name)
-    assert source.health.value == 20 and source.transfer_sequence == 2 and source.outbox == nil
-    Client.close(next)
   end
 
   test "an accepted respawn survives a disconnected client while its save is stalled", ctx do
@@ -275,48 +177,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
     {_client, new_pid} = login(name)
     assert living(new_pid).health.value == 20 and state(new_pid).life_stage == :alive
-  end
-
-  test "death behind an in-flight ordinary drop retains the old receipt and all remaining items",
-       ctx do
-    [name | _] = ctx.names
-
-    seed(ctx, name, %Inventory{
-      slots: %{36 => ItemStack.new("stone", 7), 37 => ItemStack.new("egg", 2)}
-    })
-
-    {client, pid} = login(name)
-    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      Client.send_packet(client, :play, "player_action", [
-        Wire.varint(Valimc.Protocol.ItemTypes.action_id("drop_item")),
-        Wire.position({0, 0, 0}),
-        <<0, 0>>
-      ])
-
-      wait(fn -> match?(%{mode: :play, stage: :delivery}, state(pid).recovery) end)
-      assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-      Client.send_packet(client, :play, "client_command", <<0>>)
-      wait(fn -> state(pid).respawn_requested end)
-      assert state(pid).life_stage == :sealing_death
-      assert {:ok, source} = saved(ctx, name)
-      assert source.health.value == 20 and source.transfer_sequence == 1 and source.outbox != nil
-      assert source.inventory.slots[36].count == 6
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
-
-    _client = respawn(client, pid)
-    assert {:ok, source} = saved(ctx, name)
-    assert source.health.value == 20 and source.transfer_sequence == 2 and source.outbox == nil
-    assert source.inventory.slots == %{}
-
-    %{records: records} = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
-
-    assert length(records) == 3
-    assert Enum.reduce(records, 0, fn record, n -> n + record.stack.count end) == 9
   end
 
   test "a failed respawn wire write cannot roll back the already committed living snapshot",

@@ -53,7 +53,7 @@ defmodule Valimc.CreativeItemsTest do
 
     {^rich, _, client} = set_slot(client, 37, rich)
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert :sys.get_state(player.pid).inventory.slots[37] == rich
+    assert Valimc.TestConn.state(player.pid).inventory.slots[37] == rich
 
     stack = %{
       ItemStack.new("stone", 17)
@@ -135,7 +135,7 @@ defmodule Valimc.CreativeItemsTest do
     assert Valimc.TestBlocks.get({7, 64, 3}) == 0
 
     # A pane's post would stand in the placing player's own cell: refused.
-    %{x: x, z: z} = :sys.get_state(player.pid).player
+    %{x: x, z: z} = Valimc.TestConn.state(player.pid).player
     feet = {floor(x), 64, floor(z)}
     {_, _, client} = set_slot(client, 36, ItemStack.new("glass_pane", 1))
     _client = use.(client, {floor(x), 63, floor(z)}, 1, 24)
@@ -159,7 +159,7 @@ defmodule Valimc.CreativeItemsTest do
 
     {^stone, 2, client} = slot_reply(client, 36)
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert Valimc.Inventory.get(:sys.get_state(player.pid).inventory, 36) == stone
+    assert Valimc.Inventory.get(Valimc.TestConn.state(player.pid).inventory, 36) == stone
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, _} = Client.await_stats(client)
   end

@@ -6,12 +6,12 @@ defmodule Valimc.CookingOrbConnectionTest do
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
-  alias Valimc.World.{Entities, ExperienceOrbs, Region}
+  alias Valimc.World.{ExperienceOrbs, Region}
   alias Valimc.TestClient, as: Client
 
   # The orbs were spawned by the neighbouring region, whose durable handoff
   # delivers them here first (VMC-077h).
-  test "native XP spawn/metadata, late tracking and owner replacement stay separate from item pickup" do
+  test "native XP spawn/metadata and late tracking stay separate from item pickup" do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-orb-wire-#{nonce}")
     key = {98_000 + rem(nonce, 333) * 3, 2191}
@@ -85,9 +85,9 @@ defmodule Valimc.CookingOrbConnectionTest do
     assert MapSet.new(Map.keys(spawns)) == MapSet.new(Map.keys(views))
     Client.send_packet(client, :play, "player_loaded", <<>>)
     player = Enum.find(Players.all(), &(&1.name == hd(names))).pid
-    wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(player).player.input) end)
+    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(player).player.input) end)
     # Only the two orbs are tracked; there are no items.
-    assert map_size(:sys.get_state(player).entity_replication.tracked) == 2
+    assert map_size(Valimc.TestConn.state(player).entity_replication.tracked) == 2
 
     # Resting orbs need no movement packets (no more "predicted" resends).
     orb_id = spawns |> Map.keys() |> Enum.min()
@@ -101,12 +101,12 @@ defmodule Valimc.CookingOrbConnectionTest do
     {:ok, {_, ^epoch, item_id, 1}} =
       Region.create_item({owner, epoch}, ItemStack.new("stone", 3), {pose.x, 64.1, pose.z})
 
-    {body, client} = Client.await(client, :play, "take_item_entity")
+    {body, _client} = Client.await(client, :play, "take_item_entity")
     assert {^item_id, rest} = Wire.take_varint(body)
     {_collector, <<3>>} = Wire.take_varint(rest)
 
     wait(fn ->
-      Enum.any?(:sys.get_state(player).inventory.slots, fn {_, s} ->
+      Enum.any?(Valimc.TestConn.state(player).inventory.slots, fn {_, s} ->
         s && s.item_id == Data.item("stone") && s.count == 3
       end)
     end)
@@ -118,39 +118,16 @@ defmodule Valimc.CookingOrbConnectionTest do
 
     # One tracker for every kind: the two orbs, and the picked-up stone until the
     # next 50 ms tick reconciles its removal.
-    tracked = :sys.get_state(player).entity_replication.tracked
+    tracked = Valimc.TestConn.state(player).entity_replication.tracked
     assert Map.has_key?(tracked, orb_id) and map_size(Map.delete(tracked, item_id)) == 2
 
     {_, late} = Client.login(List.last(names))
     on_exit(fn -> Client.close(late) end)
     {_late, late_spawns, _values} = observe(late, uuids)
     assert late_spawns == spawns
-    # The group holding the section now (the regionizer may have merged it).
-    {:ok, {owner, ^epoch}} = Valimc.TestWorld.item_owner(key)
-    ref = Process.monitor(owner)
-    Process.exit(owner, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^owner, :killed}
-
-    wait(fn ->
-      case Valimc.TestWorld.item_owner(key) do
-        {:ok, {pid, _}} -> pid != owner
-        _ -> false
-      end
-    end)
-
-    client = removed(client, MapSet.new(Map.keys(spawns)))
-    {_client, recreated, new_values} = observe(client, uuids, 9)
-    assert Enum.sort(Map.values(new_values)) == [1, 3]
-    assert MapSet.disjoint?(MapSet.new(Map.keys(spawns)), MapSet.new(Map.keys(recreated)))
-    {:ok, {replacement, new_epoch}} = Valimc.TestWorld.item_owner(key)
-    assert new_epoch != epoch
-    assert orbs(store({replacement, new_epoch})) == orbs(installed)
   end
 
   defp store(owner), do: Valimc.TestRegion.section(owner).entities.store
-
-  # Orb records without their age, a counter a crash may roll back.
-  defp orbs(store), do: Enum.map(Entities.records(store), &Map.delete(&1, :age))
 
   defp observe(client, uuids, chunks \\ 0, spawns \\ %{}, values \\ %{}) do
     if chunks >= 9 and map_size(spawns) == 2 and map_size(values) == 2 do
@@ -201,12 +178,4 @@ defmodule Valimc.CookingOrbConnectionTest do
   end
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
-
-  defp removed(client, wanted) do
-    {body, client} = Client.await(client, :play, "remove_entities")
-    {count, rest} = Wire.take_varint(body)
-    {ids, <<>>} = Enum.map_reduce(1..count, rest, fn _, bytes -> Wire.take_varint(bytes) end)
-    remaining = MapSet.difference(wanted, MapSet.new(ids))
-    if MapSet.size(remaining) == 0, do: client, else: removed(client, remaining)
-  end
 end

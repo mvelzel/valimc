@@ -74,7 +74,7 @@ defmodule Valimc.InventoryConnectionTest do
     assert client.inventory.state_id == 4
     assert Enum.at(client.inventory.items, 0) == nil
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert map_size(:sys.get_state(player.pid).inventory.slots) == 2
+    assert map_size(Valimc.TestConn.state(player.pid).inventory.slots) == 2
   end
 
   test "stale clicks use owned stacks; forged predictions cannot create items; malformed clicks stay isolated" do

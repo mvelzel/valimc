@@ -26,8 +26,10 @@ defmodule Valimc.Player.Transfers do
   def deliver_recovery(state) do
     token = make_ref()
 
+    # The worker reports to the process that monitors it: the one the session
+    # runs in, so its report precedes its exit.
     case TransferDelivery.start(
-           state.connection,
+           self(),
            token,
            state.player.uuid,
            state.recovery.intent,

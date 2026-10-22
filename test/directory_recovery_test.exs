@@ -4,7 +4,7 @@ defmodule Valimc.DirectoryRecoveryTest do
   # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.{Directory, Entities, Region, RegionStorage}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
@@ -68,7 +68,6 @@ defmodule Valimc.DirectoryRecoveryTest do
     File.write!(source_path, source_bytes)
     {^uuid, client} = Client.login(name)
     client = Client.load_world(client)
-    [player] = Enum.filter(Players.all(), &(&1.name == name))
     writer = Valimc.TestDisk.stripe(base, {0, 0})
     :sys.suspend(writer)
 
@@ -120,8 +119,6 @@ defmodule Valimc.DirectoryRecoveryTest do
              10
            )
 
-    # The session outlives the world domain's restart.
-    assert Process.alive?(player.pid)
     Client.close(client)
     assert :ets.info(publication) == :undefined
     assert {:error, {:retry, :region_unavailable}} = Region.observe_blocks(owner, [])

@@ -389,7 +389,7 @@ defmodule Valimc.CookingConnectionTest do
     {fresh, fresh_pid} = login(ctx)
     {fresh, _} = open(fresh, ctx, kind)
     assert Enum.take(fresh.inventory.items, 3) == [nil, nil, nil]
-    assert :sys.get_state(fresh_pid).inventory.slots == expected
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots == expected
     assert saved(ctx).transfer_sequence == 8 and saved(ctx).outbox == nil
     _fresh = close(fresh, fresh_pid)
   end

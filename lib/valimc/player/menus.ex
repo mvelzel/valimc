@@ -143,7 +143,7 @@ defmodule Valimc.Player.Menus do
       Process.demonitor(task.ref, [:flush])
     end
 
-    if state.table_job.kind == :open, do: send(self(), :drain)
+    if state.table_job.kind == :open, do: send(state.connection, :resume_inputs)
     %{state | table_job: nil}
   end
 

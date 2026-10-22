@@ -86,7 +86,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
     assert Valimc.TestBlocks.get(target) == 1
     _client = break(client, clicked)
     assert Valimc.TestBlocks.get(clicked) == 0
-    assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
+    assert Valimc.TestConn.state(ctx.pid).inventory.slots[36].count == 7
   end
 
   test "remote placement and break are acknowledged without allocating a region", ctx do
@@ -96,6 +96,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
     client = place(ctx.client, pos, 1, {0.5, 1.0, 0.5})
     _client = break(client, pos)
     assert Valimc.TestWorld.registered(key) == []
-    assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
+    assert Valimc.TestConn.state(ctx.pid).inventory.slots[36].count == 7
   end
 end

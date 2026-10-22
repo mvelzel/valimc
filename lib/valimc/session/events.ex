@@ -1,5 +1,11 @@
 defmodule Valimc.Session.Events do
-  @moduledoc "World and peer events delivered to a connection's client (block updates, entity pickups, peer packets, lids, weather) (VMC-069)."
+  @moduledoc """
+  World and peer events (VMC-069). Since VMC-077i3 an event has two parts:
+  what the client sees (`view/2`, at the connection: block updates of loaded
+  chunks, entity pickups, peer packets, lids, chat) and what the session does
+  (`session/2`, at the owner: block menus' grants and contents, and block
+  changes that touch mining, menus and the pose).
+  """
 
   alias Valimc.Protocol.{
     Packets
@@ -22,8 +28,8 @@ defmodule Valimc.Session.Events do
 
   alias Valimc.World.{ChestLidReplication}
 
-  @doc false
-  def event(
+  @doc "The session's part of `event`."
+  def session(
         %{phase: :play, table_job: %{ref: ref, owner: owner} = job} = state,
         {:table_admitted, ref, owner, decision}
       ) do
@@ -119,7 +125,7 @@ defmodule Valimc.Session.Events do
     end
   end
 
-  def event(
+  def session(
         %{
           phase: :play,
           table_menu: %{kind: kind, owner: owner, view_ref: ref, position: position} = menu
@@ -134,7 +140,7 @@ defmodule Valimc.Session.Events do
     end
   end
 
-  def event(
+  def session(
         %{
           phase: :play,
           table_menu: %{kind: :cooking, owner: owner, view_ref: ref, position: position} = menu
@@ -147,14 +153,26 @@ defmodule Valimc.Session.Events do
       else: state
   end
 
-  def event(
+  def session(
         %{phase: :play, table_menu: %{kind: kind, owner: owner, view_ref: ref}} = state,
         {:container_closed, owner, ref}
       )
       when kind in [:chest, :cooking],
       do: Menus.begin_table_close(state)
 
-  def event(
+  # Blocks changed near the player: its pose is sampled again, and mining and
+  # an open block menu check their block.
+  def session(%{phase: :play} = state, event)
+      when is_tuple(event) and elem(event, 0) in [:block, :block_batch] do
+    state
+    |> Map.put(:pose_generation, state.pose_generation + 1)
+    |> Mining.mining_changed()
+    |> Menus.check_table_menu()
+  end
+
+  def session(state, _), do: state
+
+  def view(
         %{phase: :play} = state,
         {:chest_lid, owner, {x, _, z} = position, open, frame, sound}
       ) do
@@ -180,42 +198,39 @@ defmodule Valimc.Session.Events do
   end
 
   # `Level.globalLevelEvent` (an end portal opening, VMC-026b3): every player hears it.
-  def event(%{phase: :play} = state, {:global_level_event, type, position, data}) do
+  def view(%{phase: :play} = state, {:global_level_event, type, position, data}) do
     send_packets(state, [Packets.level_event(type, position, data, true)])
     state
   end
 
-  def event(%{phase: :play} = state, {:chat, message}) do
+  def view(%{phase: :play} = state, {:chat, message}) do
     send_packets(state, [Packets.chat(message)])
     state
   end
 
-  def event(%{phase: :play} = state, {:kick, reason}), do: Valimc.Net.Codec.reject(state, reason)
+  def view(%{phase: :play} = state, {:kick, reason}), do: Valimc.Net.Codec.reject(state, reason)
 
-  def event(%{phase: :play} = state, {:packet, packet}) do
+  def view(%{phase: :play} = state, {:packet, packet}) do
     send_packets(state, [packet])
     state
   end
 
-  def event(%{phase: :play} = state, :spawn_position) do
+  def view(%{phase: :play} = state, :spawn_position) do
     send_packets(state, [Packets.spawn_position()])
     state
   end
 
-  def event(%{phase: :play} = state, {:block, {x, _, z} = pos, block}) do
+  def view(%{phase: :play} = state, {:block, {x, _, z} = pos, block}) do
     if MapSet.member?(state.chunks, World.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
     state
-    |> Map.put(:pose_generation, state.pose_generation + 1)
-    |> Mining.mining_changed()
-    |> Menus.check_table_menu()
   end
 
   # `/fillbiome` (VMC-053j4): the new biomes of chunks this player has loaded.
   # A packet not sent yet that a reply brought is stale after a change of its
   # chunk; it is asked for again (VMC-077e).
-  def event(%{phase: :play} = state, {:chunks_biomes, entries}) do
+  def view(%{phase: :play} = state, {:chunks_biomes, entries}) do
     state = forget_ready(state, Enum.map(entries, &elem(&1, 0)))
 
     entries =
@@ -225,19 +240,15 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def event(%{phase: :play} = state, {:block_batch, updates}) do
+  def view(%{phase: :play} = state, {:block_batch, updates}) do
     state = forget_ready(state, Enum.map(updates, &chunk_of(elem(&1, 0))))
     frames = for {target, frame} <- updates, sends?(state.chunks, target), do: frame
     send_frames(state, frames)
-
     state
-    |> Map.put(:pose_generation, state.pose_generation + 1)
-    |> Mining.mining_changed()
-    |> Menus.check_table_menu()
   end
 
   # Vanilla broadcasts level events to players within 64 blocks of the block corner.
-  def event(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
+  def view(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
     packets =
       for {{x, y, z} = position, type, data} <- events,
           MapSet.member?(state.chunks, World.chunk_key(x, z)),
@@ -248,24 +259,24 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def event(%{phase: :play} = state, {:player_joined, player}),
+  def view(%{phase: :play} = state, {:player_joined, player}),
     do: Replication.track_peer(state, player)
 
-  def event(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
+  def view(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
     if match?(%{epoch: ^epoch}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, 1)])
 
     state
   end
 
-  def event(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
+  def view(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
     if match?(%{epoch: ^epoch}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, count)])
 
     state
   end
 
-  def event(%{phase: :play} = state, {:player_packet, pid, entity, packet, {threshold, frame}}) do
+  def view(%{phase: :play} = state, {:player_packet, pid, entity, packet, {threshold, frame}}) do
     case Map.get(state.peers, pid) do
       view when is_tuple(view) and elem(view, 0) == entity ->
         if threshold == state.threshold,
@@ -279,7 +290,7 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def event(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
+  def view(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
     case Map.get(state.peers, pid) do
       view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
       _ -> :ok
@@ -288,20 +299,20 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def event(%{phase: :play} = state, {:player_use_packet, pid, entity, packet}) do
+  def view(%{phase: :play} = state, {:player_use_packet, pid, entity, packet}) do
     case {Map.get(state.peers, pid), Players.get(pid)} do
       {view, {:ok, %{entity_id: ^entity} = player}} when is_tuple(view) ->
         # Native use starts by refreshing equipment. Sample the current owner
         # publication before sending the animation flag, within this peer view.
         state = Replication.track_peer(state, player)
-        event(state, {:player_packet, pid, entity, packet})
+        view(state, {:player_packet, pid, entity, packet})
 
       _ ->
         state
     end
   end
 
-  def event(%{phase: :play} = state, {:player_respawned, pid, entity}) do
+  def view(%{phase: :play} = state, {:player_respawned, pid, entity}) do
     case Players.get(pid) do
       {:ok, %{entity_id: ^entity} = player} ->
         if Map.has_key?(state.peers, pid),
@@ -314,14 +325,15 @@ defmodule Valimc.Session.Events do
     end
   end
 
-  def event(%{phase: :play} = state, {:player_left, player}) do
+  def view(%{phase: :play} = state, {:player_left, player}) do
     if Map.has_key?(state.peers, player.pid),
       do: send_packets(state, [Packets.remove_entity(player), Packets.remove_info(player)])
 
     %{state | peers: Map.delete(state.peers, player.pid)}
   end
 
-  def event(state, _), do: state
+  @doc "The client's part of `event`."
+  def view(state, _), do: state
 
   defp forget_ready(state, chunks),
     do: %{state | chunk_sender: Valimc.Session.ChunkSender.forget(state.chunk_sender, chunks)}

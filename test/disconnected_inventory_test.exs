@@ -135,7 +135,12 @@ defmodule Valimc.DisconnectedInventoryTest do
     assert uuid == ctx.uuid
     client = Client.load_world(client)
     p = Enum.find(Players.all(), &(&1.uuid == uuid))
-    :sys.replace_state(p.pid, &%{&1 | inventory: %{ctx.inventory | infinite_materials: true}})
+
+    Valimc.TestConn.replace(
+      p.pid,
+      &%{&1 | inventory: %{ctx.inventory | infinite_materials: true}}
+    )
+
     ref = Process.monitor(p.pid)
     Client.close(client)
     assert_receive {:DOWN, ^ref, :process, _, :normal}

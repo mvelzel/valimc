@@ -35,6 +35,16 @@ defmodule Valimc.Players do
     end)
   end
 
+  @doc """
+  Players that may see `player`: those in the sections within the server's
+  view distance of it. Each one's connection still checks that it tracks
+  `player` before it sends anything about it.
+  """
+  def around(%{x: x, z: z} = player) do
+    view = {Valimc.World.chunk_key(x, z), Valimc.Session.ChunkView.server_distance()}
+    nearby(Valimc.Session.Replication.regions(view, Map.get(player, :dimension, :overworld)))
+  end
+
   # Replication reads a 22-word view per known peer each tick, and the slim replica
   # only when that view changed; full maps are read only for newly visible peers.
   @replica_keys [

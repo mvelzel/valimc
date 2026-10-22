@@ -258,7 +258,7 @@ defmodule Valimc.ChestConnectionTest do
     fresh = open(fresh, ctx)
     assert Enum.all?(Enum.take(fresh.inventory.items, 27), &(&1 == nil))
 
-    assert :sys.get_state(fresh_pid).inventory.slots == %{
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots == %{
              36 => ItemStack.new("diamond", 3),
              44 => ItemStack.new("oak_planks", 8)
            }
@@ -358,7 +358,7 @@ defmodule Valimc.ChestConnectionTest do
     assert is_binary(sound)
 
     assert {:ok, _id, expected, <<>>} =
-             Wire.next_frame(sound, 2_097_152, :sys.get_state(first_pid).threshold)
+             Wire.next_frame(sound, 2_097_152, Valimc.TestConn.state(first_pid).threshold)
 
     assert {^expected, second} = Client.await(second, :play, "sound")
     assert {^expected, spectator_client} = Client.await(spectator_client, :play, "sound")
@@ -393,6 +393,6 @@ defmodule Valimc.ChestConnectionTest do
     assert is_binary(sound)
     assert :ok = Valimc.TestBlocks.remove(position)
     assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}
-    wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
+    wait(fn -> Valimc.TestConn.state(first_pid).table_menu == nil end)
   end
 end

@@ -213,7 +213,7 @@ defmodule Valimc.ConnectionTest do
 
     # Force the pending stream event while a real TCP peer withholds its play ack.
     send(owner, :send_chunks)
-    state = :sys.get_state(owner)
+    state = Valimc.TestConn.state(owner)
     {client, names} = drain(client)
 
     refute Enum.any?(
@@ -231,12 +231,12 @@ defmodule Valimc.ConnectionTest do
     Client.send_packet(client, :play, "chunk_batch_received", <<8.0::float-32>>)
 
     Valimc.TestWait.until(fn ->
-      current = :sys.get_state(owner)
+      current = Valimc.TestConn.state(owner)
       current.packets > packets or (current.window != window and current.packets > 0)
     end)
 
     send(owner, :send_chunks)
-    assert :sys.get_state(owner).teleport_pending
+    assert Valimc.TestConn.state(owner).teleport_pending
     {client, names} = drain(client)
 
     refute Enum.any?(
@@ -246,7 +246,7 @@ defmodule Valimc.ConnectionTest do
 
     client = Client.auto_reply(client, :play, "player_position", teleport)
     client = Client.load_world(client)
-    state = :sys.get_state(owner)
+    state = Valimc.TestConn.state(owner)
     refute state.teleport_pending
     assert MapSet.size(state.chunks) >= 49
     Client.close(client)

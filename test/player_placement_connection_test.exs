@@ -136,8 +136,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end)
 
     {_fresh, fresh_pid} = login(c)
-    assert :sys.get_state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
-    assert :sys.get_state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     containers = Valimc.TestRegion.section(owner).containers
@@ -205,8 +205,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end)
 
     {_fresh, fresh_pid} = login(c)
-    assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
-    assert :sys.get_state(fresh_pid).inventory.slots[45].count == 9
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots[36].count == 6
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots[45].count == 9
     assert Valimc.TestBlocks.get(c.target) == 15_182
   end
 
@@ -290,7 +290,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
       {_fresh, fresh_pid} = login(c)
       assert Valimc.TestBlocks.get(c.target) == 1
-      assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
+      assert Valimc.TestConn.state(fresh_pid).inventory.slots[36].count == 6
       assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
     after
       if Process.alive?(writer), do: :sys.resume(writer)

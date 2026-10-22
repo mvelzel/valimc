@@ -14,7 +14,14 @@ defmodule Valimc.Session.Replication do
     World
   }
 
-  alias Valimc.World.{ChestLidReplication, Directory, Region}
+  alias Valimc.World.{
+    BorderReplication,
+    ChestLidReplication,
+    Directory,
+    Region,
+    WeatherReplication
+  }
+
   alias Valimc.Session.{ChunkSender, ChunkView}
 
   @player_range Valimc.Protocol.EntityTypes.tracking_range("player")
@@ -132,8 +139,8 @@ defmodule Valimc.Session.Replication do
 
   defp refresh_wants(state), do: state
 
-  # The sections (routing keys) holding any chunk of the view.
-  defp regions({{cx, cz}, distance} = view, dimension) do
+  @doc "The sections (routing keys) holding any chunk of the view."
+  def regions({{cx, cz}, distance} = view, dimension) do
     size = Valimc.config(:region_size)
     {rx0, rz0} = World.region_key({cx - distance - 1, cz - distance - 1})
     {rx1, rz1} = World.region_key({cx + distance + 1, cz + distance + 1})
@@ -391,4 +398,32 @@ defmodule Valimc.Session.Replication do
 
   def emit_peer_packets(state, packets, :buffer),
     do: %{state | outbound: [packets | state.outbound]}
+
+  @doc """
+  The world's clocks, weather, border and difficulty as the client last saw
+  them: what changed goes into the outbound buffer.
+  """
+  def replicate_world(state) do
+    {version, clock_packet} = Valimc.World.Clock.publication()
+
+    state =
+      if version != state.clock_version,
+        do: %{state | clock_version: version, outbound: [clock_packet | state.outbound]},
+        else: state
+
+    {weather_view, weather_packets} =
+      WeatherReplication.reconcile(state.weather_view, Valimc.World.Clock.weather())
+
+    state = emit_peer_packets(%{state | weather_view: weather_view}, weather_packets, :buffer)
+
+    {border_view, border_packets} =
+      BorderReplication.reconcile(state.border_view, Valimc.World.Clock.border())
+
+    state = emit_peer_packets(%{state | border_view: border_view}, border_packets, :buffer)
+    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
+
+    if state.difficulty_view != difficulty,
+      do: emit_peer_packets(%{state | difficulty_view: difficulty}, [difficulty_packet], :buffer),
+      else: state
+  end
 end

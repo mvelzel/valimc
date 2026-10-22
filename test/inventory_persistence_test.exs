@@ -118,7 +118,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
     Client.send_packet(client, :play, "set_carried_item", <<2::signed-16>>)
     client = barrier(client)
-    original = :sys.get_state(player(username).pid).inventory
+    original = Valimc.TestConn.state(player(username).pid).inventory
     assert original.drag != nil and original.carried == stone
     close(client, username, uuid)
 
@@ -133,7 +133,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert saved.transfer_sequence == 1 and saved.outbox == nil
 
     {^uuid, second} = login(username)
-    state = :sys.get_state(player(username).pid)
+    state = Valimc.TestConn.state(player(username).pid)
     assert state.inventory.slots == expected.slots and state.inventory.carried == nil
     assert state.inventory.selected == 2 and second.selected == 2
     assert second.inventory.carried == nil

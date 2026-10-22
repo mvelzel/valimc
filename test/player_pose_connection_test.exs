@@ -136,21 +136,4 @@ defmodule Valimc.PlayerPoseConnectionTest do
              {3, 71, 0}
            )
   end
-
-  test "source incarnation loss invalidates an idle sample", ctx do
-    {client, pid} = login(hd(ctx.names))
-    entity = state(pid).player.entity_id
-    roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
-    :ok = Valimc.TestBlocks.set(roof, 1)
-    client = await_pose(client, entity, 3)
-    {:ok, {owner, _}} = Valimc.TestWorld.owner(ctx.key)
-    Process.exit(owner, :kill)
-    wait(fn -> not Process.alive?(owner) and state(pid).pose_checked == nil end)
-    assert Process.alive?(pid)
-    {:ok, {replacement, _}} = Valimc.TestWorld.owner(ctx.key)
-    refute replacement == owner
-    # The roof was durable before the kill (VMC-077f); the new owner's change is seen.
-    :ok = Valimc.TestBlocks.set(roof, 0)
-    _client = await_pose(client, entity, 0)
-  end
 end

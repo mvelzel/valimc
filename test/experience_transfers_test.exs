@@ -117,10 +117,10 @@ defmodule Valimc.ExperienceTransfersTest do
 
     Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
     player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
-    wait(fn -> :sys.get_state(player).player.progression.experience.total == 6 end, 300)
+    wait(fn -> Valimc.TestConn.state(player).player.progression.experience.total == 6 end, 300)
     assert Entities.find(resource(ctx.owner).entities.store, ctx.orb) == {:error, :missing_item}
     assert resource(ctx.owner).containers.receipts[uuid].sequence == 2
-    assert :sys.get_state(player).inventory.slots == %{}
+    assert Valimc.TestConn.state(player).inventory.slots == %{}
     {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
     Valimc.TestClient.close(client)
     wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)

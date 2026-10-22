@@ -161,6 +161,29 @@ defmodule Valimc.Net.Serverbound do
     end
   end
 
+  # In play the session runs at its owner (VMC-077i3): the connection keeps
+  # keepalives, chunk acknowledgements and the client's view distance, and
+  # forwards every other packet in order.
+  def handle_packet(%{phase: :play, owner: owner} = state, id, payload) when owner != nil do
+    case Data.name(:play, :serverbound, id) do
+      "keep_alive" ->
+        play_packet(state, "keep_alive", payload)
+
+      "chunk_batch_received" ->
+        play_packet(state, "chunk_batch_received", payload)
+
+      "client_information" ->
+        play_packet(state, "client_information", payload)
+
+      nil ->
+        reject(state, "Unknown packet ID")
+
+      _ ->
+        Valimc.Session.Link.forward(state, {:input, id, payload})
+        state
+    end
+  end
+
   def handle_packet(%{phase: :play} = state, id, payload) do
     name = Data.name(:play, :serverbound, id)
     after_packet = play_packet(state, name, payload)
@@ -256,7 +279,7 @@ defmodule Valimc.Net.Serverbound do
               login_velocity_pending: false
           }
 
-          if confirmed, do: send(self(), :send_chunks)
+          if confirmed and state.socket != nil, do: send(self(), :send_chunks)
           if resume, do: Movement.send_velocity(state, state.player.motion.velocity), else: state
         end
 

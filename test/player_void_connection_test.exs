@@ -98,8 +98,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     assert living(owner).health.value == 8.0
   end
 
-  test "void consequences do not wait on stalled geometry and ignore armor/enchantment defenses",
-       ctx do
+  test "void consequences ignore armor/enchantment defenses", ctx do
     gear = %{
       ItemStack.new("iron_helmet")
       | components: %{
@@ -113,18 +112,11 @@ defmodule Valimc.PlayerVoidConnectionTest do
     inventory = %Inventory{slots: %{5 => gear}}
     seed(ctx, inventory: inventory)
     {_client, pid} = login(ctx)
-    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      tick(pid)
-      assert living(pid).health.value == 16.0
-      ticks(pid, 10)
-      assert living(pid).health.value == 12.0
-      assert state(pid).inventory.slots == inventory.slots
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
+    tick(pid)
+    assert living(pid).health.value == 16.0
+    ticks(pid, 10)
+    assert living(pid).health.value == 12.0
+    assert state(pid).inventory.slots == inventory.slots
   end
 
   test "a fatal tick seals once while its writer is stalled, then respawns after durable batches",

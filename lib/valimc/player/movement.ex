@@ -1,6 +1,6 @@
 defmodule Valimc.Player.Movement do
   @moduledoc """
-  Player movement inside the connection: input, position and motion
+  Player movement in the player's session: input, position and motion
   validation, pose sampling, kinetics and movement attributes (VMC-069).
   A move packet is validated synchronously against published snapshots by
   the physics kernel (VMC-077l): accepted, or corrected by a teleport.
@@ -182,7 +182,7 @@ defmodule Valimc.Player.Movement do
     if result.pose != state.player.pose,
       do: send_packets(state, [Packets.player_pose(player)])
 
-    send(self(), :drain)
+    send(state.connection, :resume_inputs)
 
     next =
       %{state | player: player, pose_checked: nil}
@@ -199,7 +199,6 @@ defmodule Valimc.Player.Movement do
         result.kinetics.tick
       )
       |> monitor_pose_sources(result.sources)
-      |> Valimc.Session.Replication.update_view()
       |> Valimc.Player.Vitals.apply_landing(result.landing)
 
     if next.life_stage == :alive, do: %{next | pose_checked: pose_signature(next)}, else: next
@@ -229,9 +228,10 @@ defmodule Valimc.Player.Movement do
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport, delta)])
     Players.update(state.connection, player)
-    send(self(), :drain)
+    send(state.connection, :resume_inputs)
 
-    Valimc.Session.Replication.update_view(%{
+    # The connection's view follows the new pose (`Valimc.Session.Link`).
+    %{
       state
       | player: player,
         # A teleport is no movement through portals (VMC-026c): contact starts anew.
@@ -242,7 +242,7 @@ defmodule Valimc.Player.Movement do
         motion_window: nil,
         pose_checked: nil,
         pose_generation: state.pose_generation + 1
-    })
+    }
   end
 
   def pose_signature(state),
@@ -334,7 +334,7 @@ defmodule Valimc.Player.Movement do
   def broadcast_player_packet(state, packet) do
     framed = {state.threshold, IO.iodata_to_binary(Packets.frame(packet, state.threshold))}
 
-    for pid <- Players.nearby(state.regions),
+    for pid <- Players.around(state.player),
         pid != state.connection,
         do:
           Valimc.Connection.deliver(

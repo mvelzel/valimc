@@ -41,7 +41,7 @@ defmodule Valimc.ServerConnectionTest do
     {client, pid} = join()
     client = command(client, "setidletimeout 5", "commands.setidletimeout.success")
     assert Valimc.World.Settings.get(:idle_timeout) == 5
-    :sys.replace_state(pid, &%{&1 | last_action: &1.last_action - 6 * 60_000})
+    Valimc.TestConn.replace(pid, &%{&1 | last_action: &1.last_action - 6 * 60_000})
     send(pid, :keepalive)
     {body, _client} = Client.await(client, :play, "disconnect")
     assert :binary.match(body, "multiplayer.disconnect.idling") != :nomatch

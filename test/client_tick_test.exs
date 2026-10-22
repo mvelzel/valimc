@@ -22,18 +22,18 @@ defmodule Valimc.ClientTickTest do
 
     client = barrier(client)
     Client.await_position(player.pid, %{x: 2.5})
-    state = :sys.get_state(player.pid)
+    state = Valimc.TestConn.state(player.pid)
     assert state.player.x == 2.5 and state.player.yaw == 45.0
     assert state.client_tick.position_received?
     send(player.pid, :publish_movement)
     client = barrier(client)
-    assert :sys.get_state(player.pid).client_tick.position_received?
+    assert Valimc.TestConn.state(player.pid).client_tick.position_received?
 
     # A different socket still has its own unused client frame.
     Client.send_packet(healthy, :play, "move_player_pos", position(3.5))
     healthy = barrier(healthy)
     Client.await_position(peer.pid, %{x: 3.5})
-    assert :sys.get_state(peer.pid).player.x == 3.5
+    assert Valimc.TestConn.state(peer.pid).player.x == 3.5
     ref = Process.monitor(player.pid)
     Client.send_packet(client, :play, "move_player_pos", position(4.5))
     assert_receive {:DOWN, ^ref, :process, _, :normal}

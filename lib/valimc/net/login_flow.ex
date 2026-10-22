@@ -346,7 +346,7 @@ defmodule Valimc.Net.LoginFlow do
 
     state =
       Enum.reduce(existing, state, fn player, acc ->
-        Valimc.Session.Events.event(acc, {:player_joined, player})
+        Valimc.Session.Events.view(acc, {:player_joined, player})
       end)
 
     clock = TickClock.new(make_ref(), System.monotonic_time(:millisecond))
@@ -355,6 +355,11 @@ defmodule Valimc.Net.LoginFlow do
     state = %{state | simulation_clock: clock, player_ticks: ticks}
     Process.send_after(state.connection, :publish_movement, 50)
     Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
-    if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
+
+    state =
+      if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
+
+    # In play the session runs at the group that owns the player's section.
+    Valimc.Session.Link.host(state)
   end
 end
