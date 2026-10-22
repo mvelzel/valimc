@@ -1,7 +1,6 @@
 defmodule Valimc.PlayerPlacementConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
@@ -15,10 +14,10 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     key = {70_000 + rem(nonce, 3_333) * 3, 1800}
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}
     name = "Place#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
 
     on_exit(fn ->
       for player <- PlayerList.all(),
@@ -232,7 +231,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   test "a block cannot be placed into another player standing there", c do
     seed(c, :survival)
     other = "Peer#{System.unique_integer([:positive])}"
-    other_uuid = Connection.offline_uuid(other)
+    other_uuid = Valimc.Data.UUID.offline(other)
     {tx, _, tz} = c.target
 
     peer =

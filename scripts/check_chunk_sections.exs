@@ -44,7 +44,7 @@ end
 
       {{:ok, %{chunk: chunk, sections: specs}}, digests} when is_list(digests) ->
         unless chunk == {row["x"], row["z"]}, do: raise("chunk #{i}: position #{inspect(chunk)}")
-        key = Valimc.World.region_key(chunk)
+        key = Valimc.Data.Grid.region_key(chunk)
         regions = Map.put_new_lazy(regions, key, fn -> elem(Blocks.new(key), 1) end)
         blocks = regions[key]
         :ok = Valimc.Native.put_column(blocks.ref, elem(chunk, 0), elem(chunk, 1), specs)
@@ -78,7 +78,7 @@ loaded =
   for %{"sections" => expected, "x" => x, "z" => z} <- facts["chunks"], reduce: %{} do
     loaded ->
       chunk = {x, z}
-      key = Valimc.World.region_key(chunk)
+      key = Valimc.Data.Grid.region_key(chunk)
 
       loaded =
         Map.put_new_lazy(loaded, key, fn ->

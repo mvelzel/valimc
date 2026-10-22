@@ -14,7 +14,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     Application.put_env(:valimc, :world_path, base)
     key = {70_000 + rem(nonce, 3_333) * 3, 400}
     name = "Gone" <> Integer.to_string(nonce)
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 

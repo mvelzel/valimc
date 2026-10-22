@@ -134,7 +134,7 @@ defmodule Valimc.Commands.Chat do
         disguised(content, "minecraft:msg_command_outgoing", sender, Source.display_name(target))
 
       if source.player,
-        do: Valimc.Net.Connection.deliver(source.player.pid, {:packet, outgoing}),
+        do: Valimc.Player.PlayerList.deliver(source.player.pid, {:packet, outgoing}),
         else:
           Logger.info(
             Valimc.Text.Render.string(
@@ -147,7 +147,7 @@ defmodule Valimc.Commands.Chat do
 
       incoming = disguised(content, "minecraft:msg_command_incoming", sender, nil)
 
-      Valimc.Net.Connection.deliver(target.pid, {:packet, incoming})
+      Valimc.Player.PlayerList.deliver(target.pid, {:packet, incoming})
     end
 
     length(targets)

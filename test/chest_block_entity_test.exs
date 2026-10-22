@@ -1,6 +1,6 @@
 defmodule Valimc.Protocol.ChestBlockEntityTest do
   use ExUnit.Case, async: true
-  alias Valimc.Protocol.ChestBlockEntity
+  alias Valimc.Blocks.ChestBlockEntity
   @facts JSON.decode!(File.read!("priv/protocol/chest_states.json"))
   @single hd(@facts["single_states"])
 

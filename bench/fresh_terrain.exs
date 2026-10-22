@@ -13,7 +13,7 @@
 # proto chunks in memory and their bytes, spilled ones and the scratch file.
 # `proto_cells` sets the cap on proto chunks in memory for the run.
 alias Valimc.Protocol.{Data, Wire}
-alias Valimc.Session.ChunkView
+alias Valimc.Player.ChunkView
 
 [output | rest] = System.argv()
 hops = String.to_integer(Enum.at(rest, 0, "6"))
@@ -215,7 +215,9 @@ memory = fn ->
   )
 end
 
-view_at = fn x, z -> MapSet.new(ChunkView.chunks({Valimc.World.chunk_key(x, z), distance})) end
+view_at = fn x, z ->
+  MapSet.new(ChunkView.chunks({Valimc.Data.Grid.chunk_key(x, z), distance}))
+end
 
 before = Valimc.Data.Metrics.snapshot()
 started = now.()

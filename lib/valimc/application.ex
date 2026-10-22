@@ -53,10 +53,7 @@ defmodule Valimc.Application do
       {Valimc.Admin.Lists, []},
       {Task.Supervisor, name: Valimc.ChunkWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
-      {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4},
-      # Placement and mining jobs: each player owns at most one, and its
-      # cancelled predecessor may still retire.
-      Valimc.Workers.partitioned(Valimc.ActionWorkers, Valimc.config(:max_players) * 2)
+      {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4}
     ]
 
     storage = [

@@ -11,7 +11,7 @@ Enum.each(rows, fn row ->
   {:ok, actual} = Experience.give(xp, row["amount"])
   expected = Map.from_struct(actual) |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
   if expected != row["after"], do: raise("XP mismatch: #{inspect(row)} => #{inspect(actual)}")
-  {_, payload} = Valimc.Protocol.Packets.experience(actual)
+  {_, payload} = Valimc.Player.Packets.experience(actual)
 
   if Base.encode16(IO.iodata_to_binary(payload), case: :lower) != row["packet"],
     do: raise("packet mismatch")

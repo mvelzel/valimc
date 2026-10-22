@@ -26,7 +26,7 @@ defmodule Valimc.Entity.View do
       epoch: epoch,
       ownership_generation: ownership_generation,
       metadata_revision: 1,
-      chunk: Valimc.World.chunk_key(x, z),
+      chunk: Valimc.Data.Grid.chunk_key(x, z),
       at: {x, y, z},
       velocity: Map.get(entity, :velocity, {0.0, 0.0, 0.0}),
       on_ground: Map.get(entity, :on_ground, false),

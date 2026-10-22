@@ -14,7 +14,7 @@ alias Valimc.Worldgen.Generator
 [output | rest] = System.argv()
 regions = rest |> Enum.at(0, "4") |> String.to_integer()
 seed = 20_261_020
-size = Valimc.config(:region_size)
+size = Valimc.Data.Grid.region_size()
 Code.ensure_loaded!(Blocks)
 per_chunk = function_exported?(Blocks, :new, 4)
 now = fn -> System.monotonic_time(:microsecond) end

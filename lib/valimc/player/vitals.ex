@@ -136,10 +136,10 @@ defmodule Valimc.Player.Vitals do
     # Native replication observes health, food and whether saturation crossed zero.
     if previous.value != health.value or before.food.level != food.level or
          before.food.saturation == 0 != (food.saturation == 0),
-       do: send_packets(state, [Packets.health(health, food)])
+       do: send_packets(state, [Valimc.Player.Packets.health(health, food)])
 
     if previous.value != health.value,
-      do: send_packets(state, [Packets.player_health(state.player)])
+      do: send_packets(state, [Valimc.Player.Packets.player_health(state.player)])
 
     if effect.damage > 0 do
       {:ok, selected} = Health.hurt_window(health, effect.damage)
@@ -222,7 +222,7 @@ defmodule Valimc.Player.Vitals do
           end
 
         for {slot, _stack} <- broken do
-          packet = Packets.armor_break(player.entity_id, slot)
+          packet = Valimc.Living.Packets.armor_break(player.entity_id, slot)
           send_packets(state, [packet])
           Valimc.Player.Movement.broadcast_player_packet(state, packet)
         end
@@ -251,8 +251,8 @@ defmodule Valimc.Player.Vitals do
         end
 
         send_packets(state, [
-          Packets.health(state.player.living.health, state.player.food),
-          Packets.player_health(state.player)
+          Valimc.Player.Packets.health(state.player.living.health, state.player.food),
+          Valimc.Player.Packets.player_health(state.player)
         ])
 
         state = Valimc.Player.Movement.publish_absorption(state)
@@ -282,7 +282,7 @@ defmodule Valimc.Player.Vitals do
       )
 
     send_packets(state, [
-      Packets.player_pose(state.player),
+      Valimc.Player.Packets.player_pose(state.player),
       Packets.death(state.player.entity_id, message),
       Packets.death_animation(state.player.entity_id)
     ])
@@ -412,7 +412,8 @@ defmodule Valimc.Player.Vitals do
           packet =
             if incoming == :remove,
               do: Packets.remove_effect(player.entity_id, id),
-              else: Packets.update_effect(player.entity_id, id, hd(effects[id]), new)
+              else:
+                Valimc.Living.Packets.update_effect(player.entity_id, id, hd(effects[id]), new)
 
           send_packets(next, [packet])
         end
@@ -493,7 +494,7 @@ defmodule Valimc.Player.Vitals do
     packets =
       Enum.map(events, fn
         {:update, id, rung, _reapply} ->
-          Packets.update_effect(next.player.entity_id, id, rung, false)
+          Valimc.Living.Packets.update_effect(next.player.entity_id, id, rung, false)
 
         {:remove, id} ->
           Packets.remove_effect(next.player.entity_id, id)
@@ -542,7 +543,12 @@ defmodule Valimc.Player.Vitals do
       state = put_living(state, health: health)
       player = state.player
       PlayerList.update(state.connection, player)
-      send_packets(state, [Packets.health(health, player.food), Packets.player_health(player)])
+
+      send_packets(state, [
+        Valimc.Player.Packets.health(health, player.food),
+        Valimc.Player.Packets.player_health(player)
+      ])
+
       state
     end
   end
@@ -666,7 +672,7 @@ defmodule Valimc.Player.Vitals do
 
     if freezing.frozen_ticks != previous.frozen_ticks or
          (previous.powder_snow and not powder) do
-      send_packets(state, [Packets.player_environment(player)])
+      send_packets(state, [Valimc.Player.Packets.player_environment(player)])
     end
 
     PlayerList.update(state.connection, player)
@@ -702,7 +708,7 @@ defmodule Valimc.Player.Vitals do
     player = state.player
 
     if air != previous do
-      send_packets(state, [Packets.player_air(player)])
+      send_packets(state, [Valimc.Player.Packets.player_air(player)])
       PlayerList.update(state.connection, player)
     end
 

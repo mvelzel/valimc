@@ -19,7 +19,8 @@ defmodule Valimc.Session.Replication do
     WeatherReplication
   }
 
-  alias Valimc.Session.{ChunkSender, ChunkView}
+  alias Valimc.Session.ChunkSender
+  alias Valimc.Player.ChunkView
 
   @doc """
   Track the chunks of the player's current view (VMC-070): its chunk and the
@@ -30,7 +31,7 @@ defmodule Valimc.Session.Replication do
   def update_view(state) do
     {center, _} =
       view =
-      {World.chunk_key(state.player.x, state.player.z),
+      {Valimc.Data.Grid.chunk_key(state.player.x, state.player.z),
        ChunkView.distance(state.requested_view_distance)}
 
     if view == state.view do
@@ -46,7 +47,7 @@ defmodule Valimc.Session.Replication do
           Enum.map(forgotten, &Packets.unload/1)
       )
 
-      regions = regions(view, state.player.dimension)
+      regions = ChunkView.regions(view, state.player.dimension)
       World.subscribe(regions, state.regions)
       chunks = MapSet.difference(state.chunks, MapSet.new(forgotten))
       leaving = MapSet.new(leaving)
@@ -80,9 +81,9 @@ defmodule Valimc.Session.Replication do
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
   defp want_chunks(%{view: {{cx, cz} = center, distance} = view} = state) do
-    loading = view |> ChunkView.chunks() |> Enum.group_by(&World.region_key/1)
+    loading = view |> ChunkView.chunks() |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
     reach = min(Valimc.config(:simulation_distance), distance)
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
 
     wanted =
       loading
@@ -90,7 +91,7 @@ defmodule Valimc.Session.Replication do
         (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
       end)
       |> Map.new(fn {key, chunks} ->
-        section = World.section(state.player.dimension, key, :section)
+        section = Valimc.Data.Grid.section(state.player.dimension, key, :section)
 
         case World.region(section) do
           {:ok, pid} ->
@@ -110,7 +111,7 @@ defmodule Valimc.Session.Replication do
     # (VMC-077j): only sections the view left (or of the dimension the player
     # left) are told to drop them.
     for {section, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, section) do
-      {_, key} = World.split_section(section)
+      {_, key} = Valimc.Data.Grid.split_section(section)
       Region.ticket(pid, key, :player_loading, nil, [])
       Region.ticket(pid, key, :player_simulation, nil, [])
     end
@@ -133,22 +134,6 @@ defmodule Valimc.Session.Replication do
   end
 
   defp refresh_wants(state), do: state
-
-  @doc "The sections (routing keys) holding any chunk of the view."
-  def regions({{cx, cz}, distance} = view, dimension) do
-    size = Valimc.config(:region_size)
-    {rx0, rz0} = World.region_key({cx - distance - 1, cz - distance - 1})
-    {rx1, rz1} = World.region_key({cx + distance + 1, cz + distance + 1})
-
-    for rx <- rx0..rx1,
-        rz <- rz0..rz1,
-        ChunkView.intersects?(
-          view,
-          {rx * size, rz * size, rx * size + size - 1, rz * size + size - 1}
-        ),
-        into: MapSet.new(),
-        do: {dimension, rx, rz}
-  end
 
   @doc "A 50 ms tick of the chunk stream: refill the send quota, then stream."
   def chunk_tick(state),
@@ -259,7 +244,9 @@ defmodule Valimc.Session.Replication do
     limit = 16 * min(range, distance)
     dx = x - state.player.x
     dz = z - state.player.z
-    dx * dx + dz * dz <= limit * limit and ChunkView.contains?(view, World.chunk_key(x, z))
+
+    dx * dx + dz * dz <= limit * limit and
+      ChunkView.contains?(view, Valimc.Data.Grid.chunk_key(x, z))
   end
 
   def sees?(_state, _at, _range), do: false
@@ -268,8 +255,8 @@ defmodule Valimc.Session.Replication do
   def entity_chunks(%{view: {_, distance}} = state, range) do
     limit = 16 * min(range, distance)
     %{x: x, z: z} = state.player
-    {cx0, cz0} = World.chunk_key(x - limit, z - limit)
-    {cx1, cz1} = World.chunk_key(x + limit, z + limit)
+    {cx0, cz0} = Valimc.Data.Grid.chunk_key(x - limit, z - limit)
+    {cx1, cz1} = Valimc.Data.Grid.chunk_key(x + limit, z + limit)
 
     for cx <- cx0..cx1,
         cz <- cz0..cz1,

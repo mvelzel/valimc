@@ -21,10 +21,10 @@ defmodule Valimc.Player.MotionQuery do
   over the published snapshots (or a supplied `view`).
   """
   def run(player, target, flags \\ 0, view \\ nil) do
-    with {:ok, query} <- Kernel.player_query(player, target, flags),
+    with {:ok, query} <- Valimc.Player.Kinetics.player_query(player, target, flags),
          true <- Kernel.bounded?(query) or {:error, :movement_query_limit},
          view = view || View.load(View.new(), query),
-         {:ok, r} <- Kernel.player_move(view, query, player, target, flags),
+         {:ok, r} <- Valimc.Player.Kinetics.player_move(view, query, player, target, flags),
          {:ok, tick} <- kinetics(r.tick),
          {:ok, rain} <- RainQuery.sample({target.x, target.y, target.z}, r.top, view),
          {:ok, landing} <- landing(r.landing, player) do

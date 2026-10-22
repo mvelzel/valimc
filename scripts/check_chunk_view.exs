@@ -1,7 +1,7 @@
-# VMC-070: `Valimc.Session.ChunkView` tracks the chunks vanilla's
+# VMC-070: `Valimc.Player.ChunkView` tracks the chunks vanilla's
 # `ChunkTrackingView` tracks, and a view change enters and leaves the same chunks
 # (ChunkViewOracle facts).
-alias Valimc.Session.ChunkView
+alias Valimc.Player.ChunkView
 
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

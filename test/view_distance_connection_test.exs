@@ -4,7 +4,7 @@ defmodule Valimc.ViewDistanceConnectionTest do
   @moduletag :tcp
   alias Valimc.Player.PlayerList
   alias Valimc.{Protocol.Data, Protocol.Wire}
-  alias Valimc.Session.ChunkView
+  alias Valimc.Player.ChunkView
   alias Valimc.TestClient, as: Client
 
   setup do

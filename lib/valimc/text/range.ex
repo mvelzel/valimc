@@ -1,4 +1,4 @@
-defmodule Valimc.Commands.Parser.Range do
+defmodule Valimc.Text.Range do
   @moduledoc "Vanilla `MinMaxBounds` ranges (`1`, `1..`, `..5`, `1..5`) for selector options (VMC-053)."
   alias Valimc.Text.{Error, Reader}
 

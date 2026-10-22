@@ -7,15 +7,13 @@ defmodule Valimc.Player.Presence do
   N at (x, y, z)` and broadcasts `multiplayer.player.joined`;
   `ServerGamePacketListenerImpl.onDisconnect` logs `Name lost connection:
   reason` and broadcasts `multiplayer.player.left`. A connection records its
-  disconnect reason (`record/1`) where it ends the session; a closed socket is
+  disconnect reason (`Valimc.Protocol.Codec.record_reason/1`) where it ends the session; a closed socket is
   vanilla's "End of stream".
   """
   require Logger
   alias Valimc.Text
   alias Valimc.Text.Render
   alias Valimc.Protocol.Packets
-
-  @reason {__MODULE__, :reason}
 
   def joined(state) do
     player = state.player
@@ -35,15 +33,9 @@ defmodule Valimc.Player.Presence do
     state
   end
 
-  @doc "Remembers why this connection ends (a text or a server text component)."
-  def record(reason), do: Process.put(@reason, reason)
-
-  @doc "The recorded reason, forgotten here: a session's group passes it to the connection."
-  def take, do: Process.delete(@reason)
-
   def left(%{phase: :play, player: %{name: _} = player}, exit_reason) do
     reason =
-      case {Process.get(@reason), exit_reason} do
+      case {Valimc.Protocol.Codec.reason(), exit_reason} do
         {nil, :shutdown} -> Text.translatable("multiplayer.disconnect.server_shutdown")
         {nil, {:shutdown, _}} -> Text.translatable("multiplayer.disconnect.server_shutdown")
         {nil, _} -> Text.translatable("disconnect.endOfStream")

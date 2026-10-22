@@ -14,12 +14,12 @@ block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_s
 results =
   for count <- [128, 512] do
     key = {900 + count, 900}
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     position = {elem(key, 0) * span + 40, 64, elem(key, 1) * span + 40}
     {x, _, z} = position
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
     :ok = RegionStorage.import(dataset, :overworld, key, %{containers: containers})
-    {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
+    {:ok, owner} = World.owner(Valimc.Data.Grid.section(:overworld, key, :section))
     :ok = Bench.Blocks.set(position, block)
 
     clients =
@@ -67,7 +67,7 @@ results =
 
     round = fn ->
       for {pid, view_ref} <- clients do
-        {:ok, ^owner} = World.existing_owner(Valimc.World.section(:overworld, key, :section))
+        {:ok, ^owner} = World.existing_owner(Valimc.Data.Grid.section(:overworld, key, :section))
 
         true =
           MenuAccess.authorize(

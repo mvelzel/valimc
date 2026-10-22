@@ -217,7 +217,7 @@ defmodule Valimc.Storage.Log do
 
   defp recover(_base, {:region, dimension, key}) do
     Task.start(fn ->
-      Valimc.World.Directory.admit(Valimc.World.section(dimension, key, :section))
+      Valimc.World.Directory.admit(Valimc.Data.Grid.section(dimension, key, :section))
     end)
   end
 

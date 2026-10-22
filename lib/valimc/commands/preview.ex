@@ -10,7 +10,7 @@ defmodule Valimc.Commands.Preview do
     Feedback.success(
       source,
       Text.literal(
-        "#{stats.players} players · #{stats.regions} regions · #{stats.schedulers} schedulers · #{div(stats.memory_bytes, 1_048_576)} MiB"
+        "#{Valimc.Player.PlayerList.count()} players · #{stats.regions} regions · #{stats.schedulers} schedulers · #{div(stats.memory_bytes, 1_048_576)} MiB"
       ),
       false
     )

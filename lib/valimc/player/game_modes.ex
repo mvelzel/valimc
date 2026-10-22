@@ -33,8 +33,8 @@ defmodule Valimc.Player.GameModes do
 
       send_packets(state, [
         Packets.packet("game_event", <<3, GameMode.id(mode) * 1.0::float-32>>),
-        Packets.abilities(abilities),
-        Packets.interaction_attributes(player),
+        Valimc.Player.Packets.abilities(abilities),
+        Valimc.Living.Packets.interaction_attributes(player),
         info(player)
       ])
 

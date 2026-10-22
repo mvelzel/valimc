@@ -25,7 +25,6 @@ config :valimc,
   worldgen_proto_cells: 1024,
   # Sections whose loaded chunks come near share a group process (VMC-077j2).
   regionizer: true,
-  region_size: 8,
   item_simulation: true,
   cooking_simulation: true,
   world_path: "world",

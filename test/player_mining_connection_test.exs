@@ -2,7 +2,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
@@ -19,13 +18,13 @@ defmodule Valimc.PlayerMiningConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     key = {50_000 + rem(nonce, 3_333) * 3, 700}
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}
     target = {floor(pose.x), 65, floor(pose.z) + 3}
     name = "Dig#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     # Player ticks come only from the test's own tick messages (VMC-073).
-    Valimc.TestScope.isolate([uuid, Connection.offline_uuid(name <> "B")], player_ticks: :manual)
+    Valimc.TestScope.isolate([uuid, Valimc.Data.UUID.offline(name <> "B")], player_ticks: :manual)
 
     on_exit(fn ->
       for player <- PlayerList.all(),
@@ -191,7 +190,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
        ctx do
     tool = ItemStack.new("iron_pickaxe")
     seed(ctx, %{36 => tool})
-    peer = %{ctx | name: ctx.name <> "B", uuid: Connection.offline_uuid(ctx.name <> "B")}
+    peer = %{ctx | name: ctx.name <> "B", uuid: Valimc.Data.UUID.offline(ctx.name <> "B")}
     seed(peer, %{36 => tool})
     {client, pid} = login(ctx)
     {other, other_pid} = login(peer)

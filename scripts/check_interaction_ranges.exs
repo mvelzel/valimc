@@ -8,7 +8,7 @@ packets =
   for c <- native["packets"] do
     {:ok, mode} = GameMode.parse(c["mode"])
     player = %{entity_id: 42, game_mode: GameMode.new(mode)}
-    {_, body} = Packets.interaction_attributes(player)
+    {_, body} = Valimc.Living.Packets.interaction_attributes(player)
     body = body |> IO.iodata_to_binary() |> Base.encode16(case: :lower)
     if body != c["body"], do: raise("Native interaction attributes differ")
     if Interaction.block_range(mode) != c["block_range"], do: raise("Block range differs")

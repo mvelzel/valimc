@@ -1,28 +1,8 @@
 defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
-  alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Wire}
-  alias Valimc.Data.DamageTypes
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Protocol.DamageTypes
   import Bitwise
-
-  def time(data) do
-    entries =
-      Enum.sort_by(data.clocks, fn {name, _} ->
-        Data.registry_id("minecraft:world_clock", name)
-      end)
-
-    body = [
-      <<data.game_time::signed-64>>,
-      Wire.varint(length(entries)),
-      Enum.map(entries, fn {name, clock} ->
-        [
-          Wire.varint(Data.registry_id("minecraft:world_clock", name)),
-          Valimc.World.ClockState.network(clock, data.advance_time)
-        ]
-      end)
-    ]
-
-    packet("set_time", IO.iodata_to_binary(body))
-  end
 
   def packet(name, payload, state \\ :play), do: {Data.id(state, :clientbound, name), payload}
   def frame({id, payload}, threshold), do: Wire.frame(id, payload, threshold)
@@ -36,28 +16,6 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def inventory(inventory),
-    do: inventory_content(0, inventory, Valimc.Menus.Inventory.display_contents(inventory))
-
-  def open_table(container) when container in 1..127 do
-    open_screen(container, 12, "container.crafting")
-  end
-
-  def open_chest(container, rows) when container in 1..127 and rows in 1..6 do
-    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.chest(rows))
-
-    open_screen(
-      container,
-      type,
-      if(rows == 6, do: "container.chestDouble", else: "container.chest")
-    )
-  end
-
-  def open_cooking(container, kind) when container in 1..127 do
-    {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
-    open_screen(container, type, "container." <> Atom.to_string(kind))
-  end
-
   # Native event1 opens for any positive byte; binary occupancy avoids wrapping
   # an opener count of256 to a spurious close. Ordinary chest registry ID245.
   def chest_lid(position, open?) when is_boolean(open?),
@@ -67,51 +25,6 @@ defmodule Valimc.Protocol.Packets do
         <<1, if(open?, do: 1, else: 0)>>,
         Wire.varint(245)
       ])
-
-  defp open_screen(container, type, title) do
-    packet("open_screen", [
-      Wire.varint(container),
-      Wire.varint(type),
-      Valimc.Data.NBT.encode({:compound, %{"translate" => {:string, title}}})
-    ])
-  end
-
-  def table_inventory(container, inventory) when container in 1..127,
-    do:
-      inventory_content(
-        container,
-        inventory,
-        elem(Valimc.Menus.Menu.contents(Valimc.Menus.Menu.table(), nil, inventory), 1)
-      )
-
-  def chest_inventory(container, rows, storage, inventory) when container in 1..127 do
-    {:ok, contents} =
-      Valimc.Menus.Menu.contents(Valimc.Menus.Menu.chest(rows), storage, inventory)
-
-    inventory_content(container, inventory, contents)
-  end
-
-  def cooking_inventory(container, cooking, inventory) when container in 1..127 do
-    {:ok, contents} = Valimc.Menus.Menu.cooking_contents(cooking, inventory)
-    inventory_content(container, inventory, contents)
-  end
-
-  def cooking_properties(container, cooking) when container in 1..127 do
-    {:ok, properties} = Valimc.Menus.Menu.properties(cooking)
-
-    for {value, index} <- Enum.with_index(properties),
-        do: packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])
-  end
-
-  defp inventory_content(container, inventory, contents) do
-    packet("container_set_content", [
-      Wire.varint(container),
-      Wire.varint(inventory.state_id),
-      Wire.varint(length(contents)),
-      Enum.map(contents, &ItemStack.encode/1),
-      ItemStack.encode(inventory.carried)
-    ])
-  end
 
   def held_slot(slot), do: packet("set_held_slot", Wire.varint(slot))
   def cursor(stack), do: packet("set_cursor_item", ItemStack.encode(stack))
@@ -149,61 +62,6 @@ defmodule Valimc.Protocol.Packets do
       ]
   end
 
-  def login(player) do
-    levels = Valimc.World.Dimension.ids()
-
-    packet("login", [
-      <<player.entity_id::signed-32, 0>>,
-      Wire.varint(length(levels)),
-      Enum.map(levels, &Wire.string(Valimc.World.Dimension.name(&1))),
-      Wire.varint(Valimc.config(:max_players)),
-      Wire.varint(Valimc.Session.ChunkView.server_distance()),
-      Wire.varint(Valimc.config(:simulation_distance)),
-      <<0, 1, 0>>,
-      spawn_info(player, Map.get(player, :last_death)),
-      <<0, 0>>
-    ])
-  end
-
-  @doc """
-  A respawn into the player's dimension. `keep` is vanilla's data-to-keep
-  flags: 0 after death, 3 (attributes and entity data) when changing
-  dimension (VMC-026b).
-  """
-  def respawn(player, last_death \\ nil, keep \\ 0),
-    do: packet("respawn", [spawn_info(player, last_death), <<keep>>])
-
-  # Vanilla's `CommonPlayerSpawnInfo` of the player's level.
-  defp spawn_info(player, last_death) do
-    dimension = Map.get(player, :dimension, :overworld)
-    facts = Valimc.World.Dimension.facts(dimension)
-    {hashed_seed, flat?} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), dimension)
-    overworld = dimension == :overworld
-
-    [
-      Wire.varint(facts.type_id),
-      Wire.string(Valimc.World.Dimension.name(dimension)),
-      <<hashed_seed::signed-64>>,
-      Wire.varint(
-        Valimc.Player.GameMode.id(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).current)
-      ),
-      previous_mode(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).previous),
-      <<0, if(flat?, do: 1, else: 0)>>,
-      death_location(last_death, Map.get(player, :death_dimension, :overworld)),
-      Wire.varint(Map.get(player, :portal_cooldown, 0)),
-      Wire.varint(if(overworld, do: 63, else: facts.sea_level))
-    ]
-  end
-
-  defp death_location(nil, _dimension), do: <<0>>
-
-  defp death_location({x, y, z} = position, dimension)
-       when is_integer(x) and abs(x) <= 29_999_984 and is_integer(z) and abs(z) <= 29_999_984 and
-              is_integer(y) and abs(y) <= 1_000_000,
-       do: [<<1>>, Wire.string(Valimc.World.Dimension.name(dimension)), Wire.position(position)]
-
-  defp death_location(_, _), do: raise(ArgumentError, "invalid death location")
-
   def teleport(player, teleport_id, {dx, dy, dz} \\ {0.0, 0.0, 0.0}) do
     %{x: x, y: y, z: z, yaw: yaw, pitch: pitch} = player
 
@@ -214,74 +72,7 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  @doc "Light of one chunk (VMC-022c): its light image as `level_chunk_with_light` carries it."
-  def light_update({cx, cz}, image) do
-    packet("light_update", [
-      Wire.varint(cx),
-      Wire.varint(cz),
-      Valimc.Storage.Anvil.Light.packet(image)
-    ])
-  end
-
-  def spawn_position do
-    packet("set_default_spawn_position", [
-      Wire.string(Valimc.World.Dimension.name(Valimc.World.Spawn.dimension())),
-      Wire.position(Valimc.World.Spawn.position()),
-      <<Valimc.World.Spawn.yaw()::float-32, Valimc.World.Spawn.pitch()::float-32>>
-    ])
-  end
-
-  def abilities(abilities \\ Valimc.Player.Abilities.for_mode(:creative)) do
-    packet(
-      "player_abilities",
-      <<Valimc.Player.Abilities.flags(abilities), abilities.flying_speed::float-32,
-        abilities.walking_speed::float-32>>
-    )
-  end
-
-  def experience(%Valimc.Player.Experience{} = xp) do
-    true = Valimc.Player.Experience.valid?(xp)
-
-    packet("set_experience", [
-      <<xp.progress::float-32>>,
-      Wire.varint(xp.level),
-      Wire.varint(xp.total)
-    ])
-  end
-
-  def health(health \\ %Valimc.Living.Health{}, food \\ %Valimc.Player.Food{}) do
-    unless Valimc.Living.Health.valid?(health) and Valimc.Player.Food.valid?(food),
-      do: raise(ArgumentError, "invalid health/food")
-
-    packet("set_health", [
-      <<health.value::float-32>>,
-      Wire.varint(food.level),
-      <<food.saturation::float-32>>
-    ])
-  end
-
   def level_load_start, do: packet("game_event", <<13, 0.0::float-32>>)
-
-  def update_effect(entity_id, effect_id, {ticks, level, ambient, particles, icon} = rung, blend) do
-    life_entity_id!(entity_id)
-
-    unless Valimc.Data.EffectTypes.valid_id?(effect_id) and
-             Valimc.Living.Effects.valid_instance?([rung]) and
-             is_boolean(blend),
-           do: raise(ArgumentError, "invalid effect packet")
-
-    flags =
-      if(ambient, do: 1, else: 0) + if(particles, do: 2, else: 0) +
-        if(icon, do: 4, else: 0) + if(blend, do: 8, else: 0)
-
-    packet("update_mob_effect", [
-      Wire.varint(entity_id),
-      Wire.varint(effect_id),
-      Wire.varint(level),
-      Wire.varint(ticks),
-      <<flags>>
-    ])
-  end
 
   def remove_effect(entity_id, effect_id) do
     life_entity_id!(entity_id)
@@ -342,17 +133,13 @@ defmodule Valimc.Protocol.Packets do
   def item_break(entity_id, :main), do: packet("entity_event", <<entity_id::signed-32, 47>>)
   def item_break(entity_id, :off), do: packet("entity_event", <<entity_id::signed-32, 48>>)
 
-  def armor_break(entity_id, slot) when slot in [:head, :chest, :legs, :feet] do
-    life_entity_id!(entity_id)
-    packet("entity_event", <<entity_id::signed-32, Valimc.Living.Armor.break_event(slot)>>)
-  end
-
   def use_item_finished(entity_id) do
     life_entity_id!(entity_id)
     packet("entity_event", <<entity_id::signed-32, 9>>)
   end
 
-  defp life_entity_id!(entity_id) do
+  @doc "Raises unless `entity_id` is a living entity's network id."
+  def life_entity_id!(entity_id) do
     unless is_integer(entity_id) and entity_id in 1..2_147_483_647,
       do: raise(ArgumentError, "invalid entity ID")
   end
@@ -360,14 +147,6 @@ defmodule Valimc.Protocol.Packets do
   def difficulty(%{level: level, locked: locked})
       when is_integer(level) and level in 0..3 and is_boolean(locked),
       do: packet("change_difficulty", <<level, if(locked, do: 1, else: 0)>>)
-
-  def commands(level), do: packet("commands", Valimc.Commands.graph_payload(level))
-
-  @doc "The entity event that sets the client's permission level (24..28)."
-  def permission_level(entity_id, level) do
-    life_entity_id!(entity_id)
-    packet("entity_event", <<entity_id::signed-32, Valimc.Admin.Permissions.entity_event(level)>>)
-  end
 
   @doc "`ClientboundChunksBiomesPacket`: per chunk its packed position and biome containers."
   def chunks_biomes(entries) do
@@ -411,34 +190,11 @@ defmodule Valimc.Protocol.Packets do
           <<stage::8>>
         ])
 
-  def player_info(player) do
-    packet("player_info_update", [
-      <<0x1D, 1>>,
-      player.uuid,
-      Wire.string(player.name),
-      properties(Map.get(player, :properties, [])),
-      Wire.varint(
-        Valimc.Player.GameMode.id(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).current)
-      ),
-      <<1, 0>>
-    ])
-  end
-
-  defp previous_mode(nil), do: <<0>>
-  defp previous_mode(mode), do: Wire.varint(Valimc.Player.GameMode.id(mode) + 1)
-
-  def interaction_attributes(player) do
-    attributes = Valimc.Living.Interaction.attributes(player.game_mode.current)
-    attribute_packet(player.entity_id, attributes)
-  end
-
-  def armor_attributes(entity_id, attributes),
-    do: attribute_packet(entity_id, Valimc.Living.Armor.protocol_attributes(attributes))
-
   @doc "One derived attribute `{id, base, modifiers}` of a living entity."
-  def attribute(entity_id, attribute), do: attribute_packet(entity_id, [attribute])
+  def attribute(entity_id, attribute), do: attributes(entity_id, [attribute])
 
-  defp attribute_packet(entity_id, attributes) do
+  @doc "Derived attributes `{id, base, modifiers}` of a living entity."
+  def attributes(entity_id, attributes) do
     packet("update_attributes", [
       Wire.varint(entity_id),
       Wire.varint(length(attributes)),
@@ -480,50 +236,9 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def player_flags(player),
-    do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
-
-  def player_pose(player),
-    do: EntityPackets.metadata(player.entity_id, pose: Map.get(player, :pose, :standing))
-
-  def player_health(player),
-    do: EntityPackets.metadata(player.entity_id, health: living(player).health.value)
-
-  def player_absorption(player),
-    do: EntityPackets.metadata(player.entity_id, absorption: living(player).absorption)
-
-  def player_use(player),
-    do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
-
-  def player_equipment(player, previous \\ %{}) do
-    case Valimc.Player.Equipment.changes(Map.get(player, :equipment, %{}), previous) do
-      [] -> []
-      changes -> [EntityPackets.equipment(player.entity_id, changes)]
-    end
-  end
-
-  # Players and their peer replicas carry `living`; bare test bodies default to a fresh one.
-  defp living(player), do: Map.get(player, :living, %Valimc.Living{})
-
-  def player_environment(player),
-    do:
-      EntityPackets.metadata(player.entity_id,
-        frozen_ticks: living(player).freezing.frozen_ticks,
-        air_supply: living(player).air_supply
-      )
-
-  def player_air(player),
-    do: EntityPackets.metadata(player.entity_id, air_supply: living(player).air_supply)
-
   def drowning_bubbles(entity_id) do
     life_entity_id!(entity_id)
     packet("entity_event", <<entity_id::signed-32, 67>>)
-  end
-
-  def shared_flags(player) do
-    flags = Map.get(player, :input, %Valimc.Player.Input{}).shared_flags &&& bnot(17)
-    flags = if living(player).fire_ticks > 0, do: flags ||| 1, else: flags
-    if Map.get(player, :motion, %Valimc.Player.Motion{}).swimming, do: flags ||| 16, else: flags
   end
 
   defp angle(value), do: round(value * 256 / 360) &&& 255

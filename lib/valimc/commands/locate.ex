@@ -126,10 +126,10 @@ defmodule Valimc.Commands.Locate do
 
     unless found, do: Error.fail!("commands.locate.biome.not_found", [printable])
     {x, y, z} = source.position
-    min_y = Valimc.World.Chunk.min_y()
+    min_y = Valimc.Data.Grid.min_y()
 
     {bx, by, bz} =
-      {floor(x), floor(y) |> max(min_y + 1) |> min(Valimc.World.Chunk.max_y() + 1), floor(z)}
+      {floor(x), floor(y) |> max(min_y + 1) |> min(Valimc.Data.Grid.max_y() + 1), floor(z)}
 
     name = if match?({:tag, _, _}, biome), do: "#{printable} (minecraft:plains)", else: printable
 

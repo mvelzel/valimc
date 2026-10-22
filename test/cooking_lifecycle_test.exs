@@ -4,7 +4,8 @@ defmodule Valimc.CookingLifecycleTest do
   alias Valimc.Blocks.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ContainerLifecycle, Containers}
-  alias Valimc.Entity.{ContainerSpills, Store}
+  alias Valimc.World.ContainerSpills
+  alias Valimc.Entity.Store
 
   test "items, remaining heat, progress and recipe uses independently block processor removal" do
     pos = {0, 64, 0}

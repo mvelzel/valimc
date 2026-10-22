@@ -72,7 +72,7 @@ defmodule Valimc.Player.Movement do
 
       packets =
         if previous == nil or elem(previous, 1) != elem(view, 1),
-          do: packets ++ [Packets.player_absorption(state.player)],
+          do: packets ++ [Valimc.Player.Packets.player_absorption(state.player)],
           else: packets
 
       PlayerList.update(state.connection, state.player)
@@ -175,7 +175,7 @@ defmodule Valimc.Player.Movement do
       |> Map.put(:motion, result.motion)
 
     if result.pose != state.player.pose,
-      do: send_packets(state, [Packets.player_pose(player)])
+      do: send_packets(state, [Valimc.Player.Packets.player_pose(player)])
 
     next =
       %{state | player: player, pose_checked: nil}
@@ -267,7 +267,7 @@ defmodule Valimc.Player.Movement do
     }
 
     if result.pose != state.player.pose,
-      do: send_packets(state, [Packets.player_pose(player)])
+      do: send_packets(state, [Valimc.Player.Packets.player_pose(player)])
 
     state =
       %{state | player: player}
@@ -323,7 +323,7 @@ defmodule Valimc.Player.Movement do
     for pid <- PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Net.Connection.deliver(
+          Valimc.Player.PlayerList.deliver(
             pid,
             {:player_packet, state.connection, state.player.entity_id, packet, framed}
           )

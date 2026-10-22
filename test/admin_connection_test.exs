@@ -37,7 +37,7 @@ defmodule Valimc.AdminConnectionTest do
     body
   end
 
-  defp profile(player), do: %{uuid: Valimc.Net.Connection.offline_uuid(player), name: player}
+  defp profile(player), do: %{uuid: Valimc.Data.UUID.offline(player), name: player}
 
   # Leaves the shared lists as other suites expect them.
   defp restore(operators) do

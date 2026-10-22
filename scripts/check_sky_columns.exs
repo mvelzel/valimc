@@ -5,8 +5,8 @@ rows = :json.decode(File.read!(trace_path))
 
 for row <- rows do
   {x, z} = {row["x"], row["z"]}
-  chunk = Valimc.World.chunk_key(x, z)
-  {:ok, blocks} = Blocks.new(Valimc.World.region_key(chunk))
+  chunk = Valimc.Data.Grid.chunk_key(x, z)
+  {:ok, blocks} = Blocks.new(Valimc.Data.Grid.region_key(chunk))
 
   Enum.each(row["steps"], fn [y, block, expected] ->
     :ok = Blocks.put(blocks, %{{x, y, z} => block})

@@ -8,7 +8,7 @@ defmodule Valimc.Commands.Text do
   alias Valimc.Protocol.{Packets, Wire}
 
   defp deliver(%{pid: pid}, packets),
-    do: for(packet <- packets, do: Valimc.Net.Connection.deliver(pid, {:packet, packet}))
+    do: for(packet <- packets, do: Valimc.Player.PlayerList.deliver(pid, {:packet, packet}))
 
   defp component_packet(name, component),
     do: Packets.packet(name, Wire.text_component(Text.encode(component)))

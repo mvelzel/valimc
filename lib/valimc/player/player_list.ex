@@ -40,8 +40,8 @@ defmodule Valimc.Player.PlayerList do
   `player` before it sends anything about it.
   """
   def around(%{x: x, z: z} = player) do
-    view = {Valimc.World.chunk_key(x, z), Valimc.Session.ChunkView.server_distance()}
-    nearby(Valimc.Session.Replication.regions(view, Map.get(player, :dimension, :overworld)))
+    view = {Valimc.Data.Grid.chunk_key(x, z), Valimc.Player.ChunkView.server_distance()}
+    nearby(Valimc.Player.ChunkView.regions(view, Map.get(player, :dimension, :overworld)))
   end
 
   def get(pid) do
@@ -54,18 +54,47 @@ defmodule Valimc.Player.PlayerList do
   # The section the player is in (VMC-026b, VMC-077j).
   defp spatial_key(player),
     do:
-      Valimc.World.section(
+      Valimc.Data.Grid.section(
         Map.get(player, :dimension, :overworld),
-        Valimc.World.chunk_key(player.x, player.z)
+        Valimc.Data.Grid.chunk_key(player.x, player.z)
       )
 
   def broadcast(event, except \\ nil) do
     # Select only ready pids; copying every full player map would make chat O(N * state).
     for pid <- :ets.select(__MODULE__, [{{:"$1", %{ready: true}}, [], [:"$1"]}]),
         pid != except,
-        do: Valimc.Net.Connection.deliver(pid, event)
+        do: deliver(pid, event)
 
     :ok
+  end
+
+  @doc """
+  Send `event` to an online player's process. A mailbox over `:max_mailbox`
+  is a client too slow to keep up: its first sender asks it to stop
+  (`{:shutdown, :overloaded}`, so its final save runs) and kills it if it
+  cannot; `:overloaded` or `:closed` otherwise.
+  """
+  def deliver(pid, event) do
+    case Process.info(pid, :message_queue_len) do
+      {:message_queue_len, size} ->
+        if size <= Valimc.config(:max_mailbox) do
+          send(pid, {:event, event})
+          :ok
+        else
+          # First sender only: ask for a graceful stop (terminate/2 saves), and kill
+          # it if it is too stuck to handle the signal.
+          if :ets.insert_new(Valimc.OverloadedConnections, {pid}) do
+            Valimc.Data.Metrics.add(:slow_clients_disconnected)
+            Process.exit(pid, {:shutdown, :overloaded})
+            :timer.kill_after(Valimc.config(:overload_kill_ms), pid)
+          end
+
+          :overloaded
+        end
+
+      nil ->
+        :closed
+    end
   end
 
   @impl true
@@ -136,7 +165,7 @@ defmodule Valimc.Player.PlayerList do
     :ets.insert(Valimc.SpatialIndex, {spatial_key(player), pid})
 
     for other <- existing do
-      Valimc.Net.Connection.deliver(other.pid, {:player_joined, player})
+      deliver(other.pid, {:player_joined, player})
     end
 
     {:reply, existing, state}

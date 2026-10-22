@@ -9,7 +9,7 @@ unless facts == JSON.decode!(File.read!("priv/protocol/item_armor_wear.json")),
 
 for {slot, event} <- facts["break_events"] do
   slot = Map.fetch!(%{"5" => :head, "6" => :chest, "7" => :legs, "8" => :feet}, slot)
-  {_, body} = Packets.armor_break(128, slot)
+  {_, body} = Valimc.Living.Packets.armor_break(128, slot)
 
   unless IO.iodata_to_binary(body) == <<128::signed-32, event>>,
     do: raise("Native armor-break packet differs")

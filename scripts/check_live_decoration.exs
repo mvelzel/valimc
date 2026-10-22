@@ -42,7 +42,7 @@ Valimc.World.Dimension.put(dimension)
 if {facts["min_y"] || -64, facts["height"] || 384} != {min_y, height},
   do: raise("dimension bounds differ from the oracle's")
 
-size = Valimc.config(:region_size)
+size = Valimc.Data.Grid.region_size()
 if facts["region_size"] != size, do: raise("region size #{size}, oracle #{facts["region_size"]}")
 
 expand = fn runs ->

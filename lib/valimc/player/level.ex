@@ -49,7 +49,7 @@ defmodule Valimc.Player.Level do
   @doc "The player's active effects, as a client entering a level learns them."
   def effects(player) do
     Enum.map(player.living.effects, fn {id, [rung | _]} ->
-      Packets.update_effect(player.entity_id, id, rung, false)
+      Valimc.Living.Packets.update_effect(player.entity_id, id, rung, false)
     end)
   end
 
@@ -65,18 +65,24 @@ defmodule Valimc.Player.Level do
     {views, packets} = views()
     state = Travel.leave(state, player)
 
-    # The client forgets its level chunk by chunk first (its connection's view).
-    Valimc.Session.Link.reset_view(
-      state,
-      Map.merge(views, %{unload: Keyword.get(opts, :unload, false), dimension: player.dimension})
+    # The client forgets its level chunk by chunk first: its connection
+    # resets the view in order with the session's packets (`Valimc.Session.Link`)
+    # for the new `dimension`, unloading the old level chunk by chunk
+    # (`unload`), with the clock, difficulty, weather and border views.
+    Valimc.Protocol.Codec.out(
+      {:reset,
+       Map.merge(views, %{unload: Keyword.get(opts, :unload, false), dimension: player.dimension})}
     )
 
     state = %{state | player: player, inventory: inventory, active_use: nil}
 
     send_packets(state, [
-      Packets.respawn(player, player.last_death, keep),
+      Valimc.Player.Packets.respawn(player, player.last_death, keep),
       packets.difficulty,
-      Packets.permission_level(player.entity_id, Valimc.Admin.Permissions.level(player))
+      Valimc.Player.Packets.permission_level(
+        player.entity_id,
+        Valimc.Admin.Permissions.level(player)
+      )
     ])
 
     state =
@@ -91,39 +97,42 @@ defmodule Valimc.Player.Level do
       if (keep &&& @keep_entity_data) != 0,
         do: [],
         else: [
-          Packets.player_health(player),
-          Packets.player_use(player),
-          Packets.player_pose(player),
-          Packets.player_environment(player),
-          Packets.player_flags(player)
+          Valimc.Player.Packets.player_health(player),
+          Valimc.Player.Packets.player_use(player),
+          Valimc.Player.Packets.player_pose(player),
+          Valimc.Player.Packets.player_environment(player),
+          Valimc.Player.Packets.player_flags(player)
         ]
 
     attributes =
       if (keep &&& @keep_attributes) != 0,
         do: [],
         else: [
-          Packets.interaction_attributes(player),
-          Packets.armor_attributes(player.entity_id, Armor.attributes(Armor.equipment(inventory)))
+          Valimc.Living.Packets.interaction_attributes(player),
+          Valimc.Living.Packets.armor_attributes(
+            player.entity_id,
+            Armor.attributes(Armor.equipment(inventory))
+          )
         ]
 
     send_packets(
       state,
       [
-        Packets.abilities(player.abilities),
+        Valimc.Player.Packets.abilities(player.abilities),
         packets.border,
         packets.clock,
-        Packets.spawn_position()
+        Valimc.Player.Packets.spawn_position()
       ] ++
         packets.rain ++
         [
           Packets.level_load_start(),
           TickRate.state_packet(TickRate.published()),
           TickRate.step_packet(TickRate.join_steps()),
-          Packets.inventory(inventory),
+          Valimc.Menus.Packets.inventory(inventory),
           Packets.cursor(inventory.carried),
           Packets.held_slot(inventory.selected),
-          Packets.experience(player.progression.experience),
-          Packets.health(player.living.health, player.food)
+          Valimc.Player.Packets.experience(player.progression.experience),
+          Valimc.Player.Packets.health(player.living.health, player.food)
         ] ++
         effects(player) ++
         entity_data ++
@@ -147,7 +156,7 @@ defmodule Valimc.Player.Level do
     for pid <- PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Net.Connection.deliver(
+          Valimc.Player.PlayerList.deliver(
             pid,
             {:player_respawned, state.connection, player.entity_id}
           )

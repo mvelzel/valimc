@@ -197,10 +197,12 @@ defmodule Valimc.Commands.Place do
   # Column images by chunk, read from the running owners (unloaded otherwise).
   defp images!(source, chunks) do
     chunks
-    |> Enum.group_by(&Valimc.World.region_key/1)
+    |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
     |> Enum.reduce(%{}, fn {key, group}, images ->
       with {:ok, owner} <-
-             Valimc.World.existing_owner(Valimc.World.section(source.dimension, key, :section)),
+             Valimc.World.existing_owner(
+               Valimc.Data.Grid.section(source.dimension, key, :section)
+             ),
            {:ok, %{images: read}} <- Valimc.World.Region.column_images(owner, group) do
         Map.merge(images, read)
       else
@@ -210,7 +212,7 @@ defmodule Valimc.Commands.Place do
   end
 
   defp base do
-    for y <- Valimc.World.Chunk.min_y()..Valimc.World.Chunk.max_y(),
+    for y <- Valimc.Data.Grid.min_y()..Valimc.Data.Grid.max_y(),
         do: Valimc.World.Chunk.base(y)
   end
 

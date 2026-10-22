@@ -60,7 +60,7 @@ defmodule Valimc.Commands.ComponentResolver do
 
   defp contents({:compound, %{"selector" => {:string, text}} = fields}, source, depth) do
     {selector, _} =
-      Valimc.Commands.Parser.Selector.parse(Valimc.Text.Reader.new(text), source.level >= 2)
+      Valimc.Text.Selector.parse(Valimc.Text.Reader.new(text), source.level >= 2)
 
     names = Enum.map(Targets.players(source, selector), &Source.display_name/1)
 

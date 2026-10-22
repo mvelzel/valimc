@@ -84,7 +84,7 @@ defmodule Valimc.InventoryPersistenceTest do
   test "owned storage survives reconnect/shutdown while cursor/grid drop once; drag and authority reset",
        %{base: base} do
     username = name()
-    uuid = Valimc.Net.Connection.offline_uuid(username)
+    uuid = Valimc.Data.UUID.offline(username)
     key = {60_000 + rem(System.unique_integer([:positive]), 3_333) * 3, 400}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
@@ -190,7 +190,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
   test "a player file from before M1 refuses the login and stays as it was", %{base: base} do
     username = name()
-    uuid = Valimc.Net.Connection.offline_uuid(username)
+    uuid = Valimc.Data.UUID.offline(username)
 
     payload =
       <<"VMCPOSE", 1, uuid::binary-size(16), -3.25::float-64, 64.0::float-64, 0.5::float-64,

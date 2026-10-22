@@ -1,4 +1,4 @@
-defmodule Valimc.Commands.Registries do
+defmodule Valimc.Protocol.Registries do
   @moduledoc """
   Registry entries and tags that command arguments resolve (VMC-053), from the
   generated block, item, entity, effect and synchronized registry facts.

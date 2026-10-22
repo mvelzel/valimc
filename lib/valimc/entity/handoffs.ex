@@ -55,7 +55,7 @@ defmodule Valimc.Entity.Handoffs do
   """
   def spawn(items, {dimension, _, _} = source, [%{x: x, z: z} | _] = records)
       when length(records) <= @max_records do
-    case Valimc.World.section(dimension, Valimc.World.chunk_key(x, z)) do
+    case Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z)) do
       ^source ->
         create(items, plain(source), records)
 
@@ -69,10 +69,17 @@ defmodule Valimc.Entity.Handoffs do
 
   defp departable(items, source, epoch, destination) do
     cond do
-      items.epoch != epoch -> Valimc.Data.Error.retry(:stale_owner)
-      items.ledger.outgoing != nil -> {:error, :item_handoff_busy}
-      not section?(destination) or source == destination -> {:error, :invalid_item_handoff}
-      true -> :ok
+      items.epoch != epoch ->
+        Valimc.Data.Error.retry(:stale_owner)
+
+      items.ledger.outgoing != nil ->
+        {:error, :item_handoff_busy}
+
+      not Valimc.Data.Grid.section?(destination) or source == destination ->
+        {:error, :invalid_item_handoff}
+
+      true ->
+        :ok
     end
   end
 
@@ -86,11 +93,6 @@ defmodule Valimc.Entity.Handoffs do
   end
 
   defp plain({_dimension, sx, sz}), do: {sx, sz}
-
-  defp section?({dimension, sx, sz}),
-    do: dimension in Valimc.World.Dimension.ids() and is_integer(sx) and is_integer(sz)
-
-  defp section?(_), do: false
 
   @doc "The delivery of the outgoing intent, the same after recovery."
   def request(%{ledger: %{outgoing: nil}}, _), do: {:error, :missing_item_handoff}
@@ -110,7 +112,8 @@ defmodule Valimc.Entity.Handoffs do
              is_list(records) do
     merge = Map.get(transfer, :merge, :missing)
 
-    if section?(source) and section?(destination) and source != destination and
+    if Valimc.Data.Grid.section?(source) and Valimc.Data.Grid.section?(destination) and
+         source != destination and
          length(Enum.take(records, @max_records + 1)) in 1..@max_records and
          Enum.all?(records, &match?(%{uuid: <<_::128>>}, &1)) and
          (merge == nil or (match?(<<_::128>>, merge) and length(records) == 1)) do

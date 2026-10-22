@@ -23,7 +23,7 @@ defmodule Valimc.ImportedRegionTest do
     end)
 
     {rx, rz} = key
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     %{key: key, base: base, chunk: {rx * size + 2, rz * size + 3}}
   end
 

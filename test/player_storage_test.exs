@@ -185,7 +185,7 @@ defmodule Valimc.PlayerStorageTest.Connection do
 
   test "bad save rejects only that login; healthy listener and identity still work", %{base: base} do
     name = username()
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     path = Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "broken")

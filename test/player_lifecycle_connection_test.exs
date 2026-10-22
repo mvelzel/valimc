@@ -7,7 +7,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.Protocol.{ItemStack, Packets, Wire}
+  alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -49,7 +49,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
     {:ok, bytes} =
       PlayerState.encode(
-        Connection.offline_uuid(name),
+        Valimc.Data.UUID.offline(name),
         PlayerState.capture(player, inventory)
       )
 
@@ -58,14 +58,14 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     File.write!(path, bytes)
   end
 
-  defp path(ctx, name), do: Valimc.Player.Storage.path(ctx.base, Connection.offline_uuid(name))
+  defp path(ctx, name), do: Valimc.Player.Storage.path(ctx.base, Valimc.Data.UUID.offline(name))
 
   # An online player's file once it holds the live state.
   defp saved(ctx, name) do
     with %{pid: pid} <- Enum.find(PlayerList.all(), &(&1.name == name)),
          do: Valimc.TestPlayer.checkpointed(pid)
 
-    PlayerState.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
+    PlayerState.decode(File.read!(path(ctx, name)), Valimc.Data.UUID.offline(name))
   end
 
   defp state(pid), do: Valimc.TestConn.state(pid)
@@ -92,7 +92,9 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     next = state(pid)
 
     assert body ==
-             IO.iodata_to_binary(elem(Packets.respawn(next.player, next.player.last_death), 1))
+             IO.iodata_to_binary(
+               elem(Valimc.Player.Packets.respawn(next.player, next.player.last_death), 1)
+             )
 
     # Vanilla's order: the teleport right after the respawn, then the level.
     {position, client} = Client.await(client, :play, "player_position")
@@ -123,7 +125,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     wait(fn ->
-      Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid(name)) == []
+      Registry.lookup(Valimc.PlayerRegistry, Valimc.Data.UUID.offline(name)) == []
     end)
 
     {_, client} = Client.login(name)

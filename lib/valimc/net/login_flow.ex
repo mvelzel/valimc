@@ -55,7 +55,7 @@ defmodule Valimc.Net.LoginFlow do
       {:error, {:duplicate, old}} when attempts > 0 ->
         ref = Process.monitor(old)
         reason = Valimc.Text.translatable("multiplayer.disconnect.duplicate_login")
-        Valimc.Net.Connection.deliver(old, {:kick, Valimc.Text.encode(reason)})
+        Valimc.Player.PlayerList.deliver(old, {:kick, Valimc.Text.encode(reason)})
 
         receive do
           {:DOWN, ^ref, :process, ^old, _} -> :ok
@@ -81,7 +81,7 @@ defmodule Valimc.Net.LoginFlow do
     player = %{
       pid: state.connection,
       name: name,
-      uuid: if(profile, do: profile.uuid, else: Valimc.Net.Connection.offline_uuid(name)),
+      uuid: if(profile, do: profile.uuid, else: Valimc.Data.UUID.offline(name)),
       properties: if(profile, do: profile.properties, else: []),
       entity_id: elem(Valimc.Entity.Ids.next(), 1),
       address: Valimc.Admin.Login.address(state.socket),
@@ -231,38 +231,38 @@ defmodule Valimc.Net.LoginFlow do
     }
 
     send_packets(state, [
-      Packets.login(state.player),
-      Packets.experience(state.player.progression.experience),
+      Valimc.Player.Packets.login(state.player),
+      Valimc.Player.Packets.experience(state.player.progression.experience),
       Valimc.Blocks.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
       level.border,
       level.clock,
       level.difficulty,
-      Packets.abilities(state.player.abilities),
-      Packets.health(state.player.living.health, state.player.food),
-      Packets.spawn_position(),
-      Packets.permission_level(
+      Valimc.Player.Packets.abilities(state.player.abilities),
+      Valimc.Player.Packets.health(state.player.living.health, state.player.food),
+      Valimc.Player.Packets.spawn_position(),
+      Valimc.Player.Packets.permission_level(
         state.player.entity_id,
         Valimc.Admin.Permissions.level(state.player)
       ),
-      Packets.commands(Valimc.Admin.Permissions.level(state.player)),
+      Valimc.Commands.packet(Valimc.Admin.Permissions.level(state.player)),
       Valimc.World.TickRate.state_packet(Valimc.World.TickRate.published()),
       Valimc.World.TickRate.step_packet(Valimc.World.TickRate.join_steps()),
-      Packets.inventory(state.inventory),
+      Valimc.Menus.Packets.inventory(state.inventory),
       Packets.cursor(state.inventory.carried),
       Packets.held_slot(state.inventory.selected),
       Packets.teleport(state.player, state.teleport),
       Packets.level_load_start(),
-      Packets.player_info(state.player),
-      Packets.interaction_attributes(state.player),
-      Packets.armor_attributes(
+      Valimc.Player.Packets.player_info(state.player),
+      Valimc.Living.Packets.interaction_attributes(state.player),
+      Valimc.Living.Packets.armor_attributes(
         state.player.entity_id,
         Valimc.Living.Armor.attributes(Valimc.Living.Armor.equipment(state.inventory))
       ),
-      Packets.player_environment(state.player),
-      Packets.player_flags(state.player),
-      Packets.player_pose(state.player),
-      Packets.player_health(state.player),
-      Packets.player_use(state.player),
+      Valimc.Player.Packets.player_environment(state.player),
+      Valimc.Player.Packets.player_flags(state.player),
+      Valimc.Player.Packets.player_pose(state.player),
+      Valimc.Player.Packets.player_health(state.player),
+      Valimc.Player.Packets.player_use(state.player),
       Packets.chat(
         "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )

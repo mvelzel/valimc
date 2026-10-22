@@ -31,7 +31,7 @@ defmodule Valimc.World.ChestLidReplication do
 
   def retain(state, chunks) do
     Enum.reduce(state.positions, state, fn {{x, _, z} = position, owner}, current ->
-      if MapSet.member?(chunks, Valimc.World.chunk_key(x, z)),
+      if MapSet.member?(chunks, Valimc.Data.Grid.chunk_key(x, z)),
         do: current,
         else: forget(current, position, owner)
     end)

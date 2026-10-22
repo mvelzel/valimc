@@ -25,7 +25,7 @@ for c <- native["transitions"] do
   }
 
   result = Abilities.for_mode(Map.fetch!(modes, c["mode"]), initial)
-  {_, bytes} = Packets.abilities(result)
+  {_, bytes} = Valimc.Player.Packets.abilities(result)
 
   if bytes != Base.decode16!(c["payload"], case: :lower) or result.may_build != c["build"],
     do: raise("Native ability mismatch: #{inspect(c)}")

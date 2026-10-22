@@ -112,7 +112,7 @@ defmodule Valimc.WorldSettingsTest.Serial do
 
     scoped = [
       Valimc.TestWorld.section(overworld),
-      Valimc.World.section(:the_nether, nether, :section)
+      Valimc.Data.Grid.section(:the_nether, nether, :section)
     ]
 
     on_exit(fn ->

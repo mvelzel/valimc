@@ -1,7 +1,6 @@
 defmodule Valimc.ChestConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
@@ -20,10 +19,10 @@ defmodule Valimc.ChestConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     key = {72_000 + rem(nonce, 3_333) * 3, 961}
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}
     name = "ChestV#{rem(nonce, 1_000_000_000)}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
 
     on_exit(fn ->
       for player <- PlayerList.all(),
@@ -282,7 +281,7 @@ defmodule Valimc.ChestConnectionTest do
 
   defp second_actor(ctx, mode \\ :survival) do
     name = "ChestB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"
-    other = %{ctx | name: name, uuid: Connection.offline_uuid(name)}
+    other = %{ctx | name: name, uuid: Valimc.Data.UUID.offline(name)}
 
     snapshot = %{saved(ctx) | game_mode: GameMode.new(mode)}
 

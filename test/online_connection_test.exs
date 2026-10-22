@@ -18,7 +18,7 @@ defmodule Valimc.OnlineConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Encryption, Wire}
-  alias Valimc.Net.{Connection, LoginKeys}
+  alias Valimc.Net.LoginKeys
   alias Valimc.Player.PlayerList
   alias Valimc.Net.Auth.SessionJobs
 
@@ -107,7 +107,7 @@ defmodule Valimc.OnlineConnectionTest do
   defp no_lease(pid, name) do
     assert :ets.lookup(PlayerList, pid) == []
 
-    for uuid <- [Connection.offline_uuid(name), profile(name).uuid],
+    for uuid <- [Valimc.Data.UUID.offline(name), profile(name).uuid],
         do: assert(Registry.lookup(Valimc.PlayerRegistry, uuid) == [])
   end
 
@@ -127,7 +127,7 @@ defmodule Valimc.OnlineConnectionTest do
     {client, pid} = verified(name)
     assert {:ok, player} = PlayerList.get(pid)
     assert player.uuid == profile(name).uuid
-    assert player.uuid != Connection.offline_uuid(name)
+    assert player.uuid != Valimc.Data.UUID.offline(name)
     assert player.properties == profile(name).properties
     state = Valimc.TestConn.state(pid)
     assert state.cipher.owner == pid and state.auth_job == nil

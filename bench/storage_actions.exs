@@ -58,7 +58,7 @@ defmodule Bench.StorageActions do
         cells: Map.new(positions, &{&1, @chest})
       })
 
-    {:ok, owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
+    {:ok, owner} = World.item_owner(Valimc.Data.Grid.section(:overworld, key, :section))
     %{owner: owner, records: records, positions: positions, containers: containers}
   end
 
@@ -174,10 +174,10 @@ defmodule Bench.StorageActions do
 
     loads =
       for _ <- 1..3 do
-        {pid, _} = elem(World.owner(Valimc.World.section(:overworld, key, :section)), 1)
+        {pid, _} = elem(World.owner(Valimc.Data.Grid.section(:overworld, key, :section)), 1)
         stop(key, pid)
         started = System.monotonic_time(:microsecond)
-        {:ok, _} = World.owner(Valimc.World.section(:overworld, key, :section))
+        {:ok, _} = World.owner(Valimc.Data.Grid.section(:overworld, key, :section))
         System.monotonic_time(:microsecond) - started
       end
 
@@ -192,7 +192,7 @@ end
 
 defmodule Valimc.TestWaitless do
   def await_gone(key) do
-    if Registry.lookup(Valimc.RegionRegistry, Valimc.World.section(:overworld, key, :section)) !=
+    if Registry.lookup(Valimc.RegionRegistry, Valimc.Data.Grid.section(:overworld, key, :section)) !=
          [] do
       Process.sleep(1)
       await_gone(key)

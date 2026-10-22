@@ -53,7 +53,9 @@ defmodule Valimc.World.View do
         {row, owner} = lookup(view.dimension, chunk)
 
         owners =
-          if owner, do: Map.put(view.owners, World.region_key(chunk), owner), else: view.owners
+          if owner,
+            do: Map.put(view.owners, Valimc.Data.Grid.region_key(chunk), owner),
+            else: view.owners
 
         %{view | chunks: Map.put(view.chunks, chunk, row), owners: owners}
       end
@@ -89,8 +91,9 @@ defmodule Valimc.World.View do
     packed =
       for {x, y, z} <- positions, into: <<>>, do: <<x::32-signed, y::32-signed, z::32-signed>>
 
-    for <<state::16 <- Native.snapshot_blocks(snapshots, packed, Chunk.base(Chunk.min_y() - 1))>>,
-      do: if(state == 0xFFFF, do: nil, else: state)
+    for <<state::16 <-
+            Native.snapshot_blocks(snapshots, packed, Chunk.base(Valimc.Data.Grid.min_y() - 1))>>,
+        do: if(state == 0xFFFF, do: nil, else: state)
   end
 
   @doc """
@@ -203,9 +206,14 @@ defmodule Valimc.World.View do
 
     chunks
     |> Enum.filter(&(view.chunks[&1] == :unavailable))
-    |> Enum.group_by(&World.region_key/1)
+    |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
     |> Enum.reduce_while({:ok, view}, fn {key, members}, {:ok, view} ->
-      case await_region(World.section(view.dimension, key, :section), members, type, deadline) do
+      case await_region(
+             Valimc.Data.Grid.section(view.dimension, key, :section),
+             members,
+             type,
+             deadline
+           ) do
         :ok ->
           {:cont, {:ok, load_chunks(%{view | chunks: Map.drop(view.chunks, members)}, members)}}
 
@@ -220,7 +228,14 @@ defmodule Valimc.World.View do
 
   defp await_region(key, chunks, type, deadline) do
     with {:ok, owner} <- World.owner(key),
-         :ok <- Region.ticket(owner, elem(World.split_section(key), 1), type, hd(chunks), chunks) do
+         :ok <-
+           Region.ticket(
+             owner,
+             elem(Valimc.Data.Grid.split_section(key), 1),
+             type,
+             hd(chunks),
+             chunks
+           ) do
       Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond))
     else
       # An owner unloading or backing off is admitted again shortly.
@@ -238,7 +253,7 @@ defmodule Valimc.World.View do
   end
 
   defp lookup(dimension, chunk) do
-    case Directory.lookup(World.section(dimension, chunk)) do
+    case Directory.lookup(Valimc.Data.Grid.section(dimension, chunk)) do
       {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
           [{_, snapshot}] when is_reference(snapshot) -> {snapshot, {pid, epoch}}
@@ -254,4 +269,28 @@ defmodule Valimc.World.View do
   end
 
   defp chunk(coordinate), do: bsr(coordinate, 4)
+
+  # The cells the physics kernel reads (`Valimc.Physics.Cells`): supplied
+  # states, or the published rows of the chunks around `region` (the state
+  # below the build height is air).
+  defimpl Valimc.Physics.Cells do
+    def cells(%{supplied: supplied}, _region) when supplied != nil do
+      {:states,
+       for(
+         {{x, y, z}, state} <- supplied,
+         into: <<>>,
+         do: <<x::32-signed, y::32-signed, z::32-signed, state::16>>
+       )}
+    end
+
+    def cells(view, {x0, _, z0, x1, _, z1}) do
+      snapshots =
+        for cx <- Bitwise.bsr(floor(x0) - 2, 4)..Bitwise.bsr(floor(x1) + 2, 4)//1,
+            cz <- Bitwise.bsr(floor(z0) - 2, 4)..Bitwise.bsr(floor(z1) + 2, 4)//1,
+            (snapshot = Valimc.World.View.row(view, {cx, cz})) != :unavailable,
+            do: snapshot
+
+      {:rows, snapshots, Valimc.Protocol.Data.block("air")}
+    end
+  end
 end

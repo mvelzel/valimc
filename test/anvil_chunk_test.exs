@@ -61,7 +61,7 @@ defmodule Valimc.AnvilChunkTest do
     assert Enum.at(specs, 0) == {[0], <<>>, 0, [@plains], <<>>, 0}
     assert map_size(cache) == 2
 
-    {:ok, blocks} = Storage.new(Valimc.World.region_key({-3, 7}))
+    {:ok, blocks} = Storage.new(Valimc.Data.Grid.region_key({-3, 7}))
     assert :ok = Valimc.Native.put_column(blocks.ref, -3, 7, specs)
     assert Storage.get(blocks, {-48, 0, 112}) == log
     assert Storage.get(blocks, {-48, -64, 112}) == 0
@@ -106,7 +106,7 @@ defmodule Valimc.AnvilChunkTest do
   end
 
   test "packed data that does not fit the palette is refused by the store" do
-    {:ok, blocks} = Storage.new(Valimc.World.region_key({-3, 7}))
+    {:ok, blocks} = Storage.new(Valimc.Data.Grid.region_key({-3, 7}))
     air = {[0], <<>>, 0, [@plains], <<>>, 0}
     short = {[1, 2], :binary.copy(<<0>>, 8), 4, [@plains], <<>>, 0}
 

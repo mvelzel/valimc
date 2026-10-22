@@ -3,7 +3,7 @@ alias Valimc.Protocol.Data
 alias Valimc.World
 alias Valimc.World.Region
 [output] = System.argv()
-{:ok, owner} = World.owner(Valimc.World.section(:overworld, {700, 700}, :section))
+{:ok, owner} = World.owner(Valimc.Data.Grid.section(:overworld, {700, 700}, :section))
 World.subscribe(MapSet.new([{:overworld, 700, 700}]), MapSet.new())
 
 measure = fn edits, mode ->

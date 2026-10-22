@@ -23,10 +23,10 @@ defmodule Valimc.Player.PoseQuery do
   the published snapshots (or a supplied `view`).
   """
   def run(player, view \\ nil) do
-    with {:ok, query} <- Kernel.player_query(player, nil, 0),
+    with {:ok, query} <- Valimc.Player.Kinetics.player_query(player, nil, 0),
          true <- Kernel.bounded?(query) or {:error, :pose_query_limit},
          view = view || View.load(View.new(), query),
-         {:ok, r} <- Kernel.player_rest(view, query, player),
+         {:ok, r} <- Valimc.Player.Kinetics.player_rest(view, query, player),
          {:ok, tick} <- MotionQuery.kinetics(r.tick),
          {:ok, rain} <- RainQuery.sample({player.x, player.y, player.z}, r.top, view) do
       {:ok,

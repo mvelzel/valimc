@@ -694,10 +694,10 @@ defmodule Valimc.World.Region do
   end
 
   # The section a message names: by epoch (most), by chunk, or by key.
-  defp target({:chunk, chunk}, state), do: by_key(state, Valimc.World.region_key(chunk))
+  defp target({:chunk, chunk}, state), do: by_key(state, Valimc.Data.Grid.region_key(chunk))
 
   defp target({:await_chunks, [chunk | _]}, state),
-    do: by_key(state, Valimc.World.region_key(chunk))
+    do: by_key(state, Valimc.Data.Grid.region_key(chunk))
 
   defp target(message, state) when is_tuple(message) and tuple_size(message) >= 2 do
     epoch = elem(message, 1)

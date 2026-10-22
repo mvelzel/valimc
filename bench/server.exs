@@ -7,7 +7,7 @@ if scatter or fluid do
   count = System.fetch_env!("VALIMC_BENCH_PLAYERS") |> String.to_integer()
 
   for index <- 0..(count - 1) do
-    uuid = Valimc.Net.Connection.offline_uuid("Bench#{index}")
+    uuid = Valimc.Data.UUID.offline("Bench#{index}")
 
     pose = %{
       x: if(scatter, do: index * 128 + 64.5, else: 0.5),
@@ -35,10 +35,10 @@ if scatter or fluid do
 
     for {key, entries} <-
           Enum.group_by(edits, fn {{x, _, z}, _} ->
-            Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+            Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
           end),
         batch <- Enum.chunk_every(entries, 128) do
-      {:ok, owner} = Valimc.World.owner(Valimc.World.section(:overworld, key, :section))
+      {:ok, owner} = Valimc.World.owner(Valimc.Data.Grid.section(:overworld, key, :section))
 
       {:ok, observation} =
         Valimc.World.Region.observe_blocks(owner, Enum.map(batch, &elem(&1, 0)))

@@ -26,7 +26,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "Use of the block at `position` (a `use_item_on`): open its menu, or place against it."
   def use_block(state, {x, _, z} = position, request) do
-    section = World.section(state.player.dimension, World.chunk_key(x, z))
+    section = Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
 
     with {:ok, owner} <- World.existing_owner(section),
          decision when not is_tuple(decision) or elem(decision, 0) != :error <-
@@ -94,8 +94,8 @@ defmodule Valimc.Player.Menus do
 
     send_packets(state, [
       Packets.ack(sequence),
-      Packets.open_table(id),
-      Packets.table_inventory(id, inventory),
+      Valimc.Menus.Packets.open_table(id),
+      Valimc.Menus.Packets.table_inventory(id, inventory),
       Packets.cursor(inventory.carried)
     ])
 
@@ -115,13 +115,13 @@ defmodule Valimc.Player.Menus do
     {open, content, properties} =
       case kind do
         :chest ->
-          {Packets.open_chest(id, view.rows),
-           Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
+          {Valimc.Menus.Packets.open_chest(id, view.rows),
+           Valimc.Menus.Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
 
         :cooking ->
-          {Packets.open_cooking(id, view.kind),
-           Packets.cooking_inventory(id, view.cooking, inventory),
-           Packets.cooking_properties(id, view.cooking)}
+          {Valimc.Menus.Packets.open_cooking(id, view.kind),
+           Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory),
+           Valimc.Menus.Packets.cooking_properties(id, view.cooking)}
       end
 
     send_packets(
@@ -218,7 +218,9 @@ defmodule Valimc.Player.Menus do
 
   defp current_owner?(state, %{position: {x, _, z}, owner: owner}),
     do:
-      World.existing_owner(World.section(state.player.dimension, World.chunk_key(x, z))) ==
+      World.existing_owner(
+        Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
+      ) ==
         {:ok, owner}
 
   @doc "Another change to the open container (`container_changed`): it refreshes."
@@ -241,7 +243,7 @@ defmodule Valimc.Player.Menus do
     case Region.menu(menu.owner, state.connection, menu.position, grant(state, :refresh)) do
       {:cooking, _block, view} when kind == :progress and menu.kind == :cooking ->
         if view.revision == menu.view.revision and view.cooking.slots == menu.view.cooking.slots do
-          send_packets(state, Packets.cooking_properties(menu.id, view.cooking))
+          send_packets(state, Valimc.Menus.Packets.cooking_properties(menu.id, view.cooking))
           %{state | table_menu: %{menu | view: view, progress_dirty: false}}
         else
           refreshed(state, {:cooking, menu.block, view})
@@ -287,7 +289,7 @@ defmodule Valimc.Player.Menus do
          ) do
       {:ok, nil, inventory, []} ->
         send_packets(state, [
-          Packets.table_inventory(state.table_menu.id, inventory),
+          Valimc.Menus.Packets.table_inventory(state.table_menu.id, inventory),
           Packets.cursor(inventory.carried)
         ])
 

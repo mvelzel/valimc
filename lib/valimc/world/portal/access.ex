@@ -28,7 +28,7 @@ defmodule Valimc.World.Portal.Access do
     deadline = now() + @deadline
 
     fn {x, _y, z} = position ->
-      View.block(view(cache, World.chunk_key(x, z), deadline), position)
+      View.block(view(cache, Valimc.Data.Grid.chunk_key(x, z), deadline), position)
     end
   end
 
@@ -42,7 +42,7 @@ defmodule Valimc.World.Portal.Access do
     {min_y, height} = Valimc.World.Dimension.bounds()
 
     fn x, z ->
-      view = view(cache, World.chunk_key(x, z), deadline)
+      view = view(cache, Valimc.Data.Grid.chunk_key(x, z), deadline)
       top(view, x, z, min_y + height - 1, min_y, type)
     end
   end
@@ -92,7 +92,7 @@ defmodule Valimc.World.Portal.Access do
 
   @doc "The live preserved block entity at `position` (`%{type, nbt}`) or nil."
   def block_entity({x, _, z} = position) do
-    key = World.region_key(World.chunk_key(x, z))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
 
     retry(fn ->
       with {:ok, owner} <- World.owner(section(key)), do: Region.block_entity(owner, position)
@@ -102,7 +102,9 @@ defmodule Valimc.World.Portal.Access do
   @doc "Record preserved block entities (`position => {type, nbt}`), durably, per region."
   def put_block_entities(entries) do
     entries
-    |> Enum.group_by(fn {{x, _, z}, _} -> World.region_key(World.chunk_key(x, z)) end)
+    |> Enum.group_by(fn {{x, _, z}, _} ->
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+    end)
     |> Enum.reduce_while(:ok, fn {key, entries}, :ok ->
       result =
         retry(fn ->
@@ -119,7 +121,7 @@ defmodule Valimc.World.Portal.Access do
   end
 
   # The routing key of section `key` of the dimension this work runs in.
-  defp section(key), do: World.section(Valimc.World.Dimension.current(), key, :section)
+  defp section(key), do: Valimc.Data.Grid.section(Valimc.World.Dimension.current(), key, :section)
 
   defp retry(fun, deadline \\ nil) do
     deadline = deadline || now() + @deadline
@@ -146,7 +148,7 @@ defmodule Valimc.World.Portal.Access do
   """
   def portal_blocks(chunks, states) do
     chunks
-    |> Enum.group_by(&World.region_key/1)
+    |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
     |> Enum.filter(fn {key, _} -> stored?(key) end)
     |> Enum.flat_map(fn {key, chunks} ->
       case World.owner(section(key)) do
@@ -185,7 +187,9 @@ defmodule Valimc.World.Portal.Access do
     deadline = now() + @deadline
 
     edits
-    |> Enum.group_by(fn {{x, _, z}, _} -> World.region_key(World.chunk_key(x, z)) end)
+    |> Enum.group_by(fn {{x, _, z}, _} ->
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+    end)
     |> Enum.reduce_while(:ok, fn {key, edits}, :ok ->
       case commit_region(key, Map.new(edits), deadline) do
         :ok -> {:cont, :ok}

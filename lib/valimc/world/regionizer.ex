@@ -86,7 +86,7 @@ defmodule Valimc.World.Regionizer do
       end
 
     for {scoped, pid, _, _, %{}} <- rows,
-        {dimension, key} = Valimc.World.split_section(scoped),
+        {dimension, key} = Valimc.Data.Grid.split_section(scoped),
         dimension == state.dimension,
         Valimc.config(:regionizer, key),
         reduce: state do

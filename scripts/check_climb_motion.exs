@@ -49,7 +49,10 @@ for c <- cases do
     }
 
     {:ok, query} =
-      Native.physics_player_parity(:kinetic_query, {Kernel.player(player), standing.box, false})
+      Native.physics_player_parity(
+        :kinetic_query,
+        {Valimc.Player.Kinetics.player(player), standing.box, false}
+      )
 
     {:ok, plan} = BlockScan.plan(query, 1024)
     acquired = MapSet.new(plan, &elem(&1, 0))

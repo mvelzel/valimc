@@ -9,7 +9,6 @@ defmodule Valimc.Player.CommandOps do
   alias Valimc.Menus.Inventory
   alias Valimc.Player.Experience
   alias Valimc.Living.{Effects, Health}
-  alias Valimc.Commands.Parser.ItemPredicate
 
   alias Valimc.Player.{
     CreativeInventory,
@@ -68,7 +67,7 @@ defmodule Valimc.Player.CommandOps do
       Enum.reduce(slots, {state.inventory, 0}, fn slot, {inventory, total} ->
         case Inventory.get(inventory, slot) do
           %ItemStack{} = stack ->
-            if ItemPredicate.matches?(predicate, stack) do
+            if predicate.(stack) do
               if counting do
                 {inventory, total + stack.count}
               else
@@ -93,7 +92,7 @@ defmodule Valimc.Player.CommandOps do
       case inventory.carried do
         %ItemStack{} = stack ->
           cond do
-            not ItemPredicate.matches?(predicate, stack) ->
+            not predicate.(stack) ->
               {inventory, total}
 
             counting ->
@@ -170,7 +169,7 @@ defmodule Valimc.Player.CommandOps do
     else
       player = %{state.player | progression: %{state.player.progression | experience: next}}
       Valimc.Player.PlayerList.update(state.connection, player)
-      send_packets(state, [Packets.experience(next)])
+      send_packets(state, [Valimc.Player.Packets.experience(next)])
       {reply, %{state | player: player}}
     end
   end

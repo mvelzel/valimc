@@ -8,7 +8,7 @@ defmodule Valimc.Living.Damage do
   """
   alias Valimc.Living.{Armor, DamageSource, Health}
   alias Valimc.Data.EffectTypes
-  alias Valimc.Data.EnchantmentEffects
+  alias Valimc.Protocol.EnchantmentEffects
   @float_max 3.4028234663852886e38
   @resistance EffectTypes.id("resistance")
   @fire_resistance EffectTypes.id("fire_resistance")

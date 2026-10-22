@@ -131,7 +131,7 @@ defmodule Valimc.Player.ItemUse do
     PlayerList.update(state.connection, player)
     state = %{state | player: player}
     # Observers get the flag from the player's tracker (VMC-077i4).
-    send_packets(state, [Packets.player_use(player)])
+    send_packets(state, [Valimc.Player.Packets.player_use(player)])
     state
   end
 
@@ -156,7 +156,10 @@ defmodule Valimc.Player.ItemUse do
       attributes = Armor.attributes(Armor.equipment(state.inventory))
 
       if attributes != state.armor_view and state.phase == :play,
-        do: send_packets(state, [Packets.armor_attributes(state.player.entity_id, attributes)])
+        do:
+          send_packets(state, [
+            Valimc.Living.Packets.armor_attributes(state.player.entity_id, attributes)
+          ])
 
       %{state | armor_view: attributes}
     end
@@ -205,7 +208,7 @@ defmodule Valimc.Player.ItemUse do
                 Packets.remove_effect(state.player.entity_id, id)
 
               {:update, id, rung, new} ->
-                Packets.update_effect(state.player.entity_id, id, rung, new)
+                Valimc.Living.Packets.update_effect(state.player.entity_id, id, rung, new)
             end)
 
           send_packets(state, effect_packets)
@@ -235,9 +238,9 @@ defmodule Valimc.Player.ItemUse do
             |> Valimc.Player.Movement.publish_jump_boost()
 
           send_packets(state, [
-            Packets.health(state.player.living.health, state.player.food),
-            Packets.player_health(state.player),
-            Packets.inventory(state.inventory),
+            Valimc.Player.Packets.health(state.player.living.health, state.player.food),
+            Valimc.Player.Packets.player_health(state.player),
+            Valimc.Menus.Packets.inventory(state.inventory),
             Packets.cursor(state.inventory.carried)
           ])
 

@@ -10,7 +10,7 @@ defmodule Valimc.MiningRegionTest do
     key = {20_000 + rem(nonce, 3_333) * 3, 400}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     position = {rx * span, 63, rz * span}
     {:ok, {pid, _epoch} = owner} = Valimc.TestWorld.item_owner(key)
     assert :ok = Valimc.TestBlocks.set(position, Data.block("stone"))

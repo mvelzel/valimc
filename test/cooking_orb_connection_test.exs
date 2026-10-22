@@ -2,11 +2,9 @@ defmodule Valimc.CookingOrbConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Blocks.CookingAwards
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
-  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -50,7 +48,7 @@ defmodule Valimc.CookingOrbConnectionTest do
           abilities: Valimc.Player.Abilities.for_mode(:survival)
         })
 
-      uuid = Connection.offline_uuid(name)
+      uuid = Valimc.Data.UUID.offline(name)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, %Inventory{}))
       path = Valimc.Player.Storage.path(base, uuid)
       File.mkdir_p!(Path.dirname(path))
@@ -96,7 +94,7 @@ defmodule Valimc.CookingOrbConnectionTest do
 
     assert Valimc.TestWorld.visible_items(
              MapSet.new([key]),
-             MapSet.new([World.chunk_key(pose.x, pose.z)])
+             MapSet.new([Valimc.Data.Grid.chunk_key(pose.x, pose.z)])
            ) ==
              %{}
 

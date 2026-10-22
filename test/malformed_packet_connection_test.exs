@@ -1,6 +1,6 @@
 defmodule Valimc.MalformedPacketConnectionTest do
   # Every play decoder ends only its sender's session on malformed input
-  # (`Connection.guard_connection/2`); one healthy peer keeps responding throughout.
+  # (`Valimc.Session.Messages.guard/2`); one healthy peer keeps responding throughout.
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.Protocol.{Enchantments, ItemTypes, Wire}

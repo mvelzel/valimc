@@ -19,7 +19,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     for {name, index} <- Enum.with_index(names) do
-      uuid = Valimc.Net.Connection.offline_uuid(name)
+      uuid = Valimc.Data.UUID.offline(name)
       pose = %{pos | x: pos.x + index * 2}
       path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
@@ -59,7 +59,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, name, inventory, mode \\ :creative) do
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
 
     player =
       Map.merge(ctx.pos, %{
@@ -121,7 +121,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     Client.close(sender)
 
     wait(fn ->
-      Registry.lookup(Valimc.PlayerRegistry, Valimc.Net.Connection.offline_uuid(first)) == []
+      Registry.lookup(Valimc.PlayerRegistry, Valimc.Data.UUID.offline(first)) == []
     end)
 
     {_sender, fresh} = login(first)
@@ -135,7 +135,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
        ctx do
     [first, second] = ctx.names
     # The eater's ticks come only from this test, not 32 real ticks of eating.
-    Valimc.TestScope.isolate(Valimc.Net.Connection.offline_uuid(first), player_ticks: :manual)
+    Valimc.TestScope.isolate(Valimc.Data.UUID.offline(first), player_ticks: :manual)
     soup = ItemStack.new("mushroom_stew")
     seed(ctx, first, %Inventory{slots: %{45 => soup}}, :survival)
     {sender, pid} = login(first)

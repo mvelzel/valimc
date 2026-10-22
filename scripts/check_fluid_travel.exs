@@ -60,7 +60,10 @@ check = fn c ->
     }
 
     {:ok, envelope} =
-      Native.physics_player_parity(:kinetic_query, {Kernel.player(player), geometry.box, false})
+      Native.physics_player_parity(
+        :kinetic_query,
+        {Valimc.Player.Kinetics.player(player), geometry.box, false}
+      )
 
     {:ok, acquired} = BlockScan.plan(envelope, 1024)
     positions = MapSet.new(acquired, &elem(&1, 0))

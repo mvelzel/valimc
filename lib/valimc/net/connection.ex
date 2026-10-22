@@ -26,10 +26,6 @@ defmodule Valimc.Net.Connection do
 
   alias Valimc.World.ChestLidReplication
   alias Valimc.Entity.Observer
-  import Bitwise
-  @live_effects Valimc.Living.Effects.live()
-  @doc "Status effects the live game applies; others are refused (login, commands)."
-  def live_effects, do: @live_effects
 
   # Before configuration a client sends only small frames (VMC-077a): the
   # handshake and status are a few hundred bytes, login its name, key and
@@ -90,29 +86,6 @@ defmodule Valimc.Net.Connection do
     case Valimc.Player.Calls.call(message, state) do
       {:stop, reason, reply, next} -> {:stop, reason, reply, next}
       {:reply, reply, next} -> {:reply, reply, next}
-    end
-  end
-
-  def deliver(pid, event) do
-    case Process.info(pid, :message_queue_len) do
-      {:message_queue_len, size} ->
-        if size <= Valimc.config(:max_mailbox) do
-          send(pid, {:event, event})
-          :ok
-        else
-          # First sender only: ask for a graceful stop (terminate/2 saves), and kill
-          # it if it is too stuck to handle the signal.
-          if :ets.insert_new(Valimc.OverloadedConnections, {pid}) do
-            Metrics.add(:slow_clients_disconnected)
-            Process.exit(pid, {:shutdown, :overloaded})
-            :timer.kill_after(Valimc.config(:overload_kill_ms), pid)
-          end
-
-          :overloaded
-        end
-
-      nil ->
-        :closed
     end
   end
 
@@ -231,25 +204,6 @@ defmodule Valimc.Net.Connection do
   def handle_info(message, state), do: Messages.dispatch(message, state)
 
   @doc false
-  def guard_connection(state, work) do
-    work.()
-  rescue
-    exception ->
-      # Malformed input and server defects both end the session; never silently.
-      Metrics.add(:malformed_connections)
-
-      Logger.warning(
-        "Connection closed after exception: " <>
-          Exception.format(:error, exception, __STACKTRACE__)
-      )
-
-      {:stop, :normal, state}
-  catch
-    {:disconnect, _reason, current} -> {:stop, :normal, current}
-    {:disconnect, _reason} -> {:stop, :normal, state}
-  end
-
-  @doc false
   def consume(%{step: step} = state, _) when step in [:key_job, :auth_job],
     do: {:noreply, %{state | active: false}}
 
@@ -261,7 +215,7 @@ defmodule Valimc.Net.Connection do
   def consume(state, remaining) do
     # Leave the exception boundary before recursing so the 64-packet drain does
     # not grow a stack of guards. A failed frame retains earlier accepted state.
-    case guard_connection(state, fn -> consume_packet(state) end) do
+    case Messages.guard(state, fn -> consume_packet(state) end) do
       {:continue, next} -> consume(next, remaining - 1)
       result -> result
     end
@@ -299,11 +253,6 @@ defmodule Valimc.Net.Connection do
 
         {:continue, state}
     end
-  end
-
-  def offline_uuid(name) do
-    <<a::48, b::16, c::16, d::48>> = :crypto.hash(:md5, "OfflinePlayer:" <> name)
-    <<a::48, (b &&& 0x0FFF) ||| 0x3000::16, (c &&& 0x3FFF) ||| 0x8000::16, d::48>>
   end
 
   @impl true

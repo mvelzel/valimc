@@ -38,26 +38,16 @@ defmodule Valimc.Player.Host do
   require Logger
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.Storage
+  alias Valimc.Protocol.Codec
   alias Valimc.Session.Messages
   alias Valimc.World
   alias Valimc.World.PlayerTracker
 
-  @out {__MODULE__, :out}
   @group {__MODULE__, :group}
   @acting {__MODULE__, :acting}
   @forward_ms 120_000
 
-  ## Output and inline calls (inside a callback)
-
-  @doc "Queue `item` (`{:frames, iodata}`, `{:view, map}`, `{:reset, map}`) for the connection."
-  def out(item) do
-    case Process.get(@out) do
-      nil -> raise ArgumentError, "session output outside a hosted callback"
-      items -> Process.put(@out, [item | items])
-    end
-
-    :ok
-  end
+  ## Inline calls (inside a callback)
 
   @doc """
   Run `fun` on the hosting group's state (`fun.(state) -> {reply, state}`)
@@ -421,7 +411,7 @@ defmodule Valimc.Player.Host do
   defp run(state, uuid, fun) do
     %{session: session} = entry = state.players[uuid]
     group_dimension = Valimc.World.Dimension.put(session.player.dimension)
-    Process.put(@out, [])
+    Codec.open_outbox()
     Process.put(@group, state)
     Process.put(@acting, session.connection)
 
@@ -457,7 +447,7 @@ defmodule Valimc.Player.Host do
 
   defp settle(state, uuid, entry, session) do
     view = view(session)
-    if view != entry.view, do: out({:view, view})
+    if view != entry.view, do: Codec.out({:view, view})
     flush(session)
     entry = %{entry | session: session, view: view}
     state = %{state | players: Map.put(state.players, uuid, entry)}
@@ -491,18 +481,18 @@ defmodule Valimc.Player.Host do
 
     case reason do
       {:left, _, reply} ->
-        Process.delete(@out)
+        Codec.take_outbox()
         leave(state, uuid, session, reply, true)
 
       _ ->
         flush(session)
-        send(session.connection, {:player_stop, Valimc.Player.Presence.take()})
+        send(session.connection, {:player_stop, Codec.take_reason()})
         leave(state, uuid, session, nil, true)
     end
   end
 
   defp flush(session) do
-    case Process.delete(@out) do
+    case Codec.take_outbox() do
       [] -> :ok
       nil -> :ok
       items -> send(session.connection, {:player_out, Enum.reverse(items)})
@@ -527,7 +517,8 @@ defmodule Valimc.Player.Host do
 
   ## Moves
 
-  defp key(player), do: World.region_key(World.chunk_key(player.x, player.z))
+  defp key(player),
+    do: Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(player.x, player.z))
 
   defp home?(state, entry),
     do:
@@ -543,7 +534,7 @@ defmodule Valimc.Player.Host do
     if home?(state, %{entry | key: key}) do
       state
     else
-      section = World.section(entry.session.player.dimension, key, :section)
+      section = Valimc.Data.Grid.section(entry.session.player.dimension, key, :section)
 
       case World.existing_owner(section) do
         {:ok, {pid, _}} when pid != self() -> handoff(state, uuid, pid)

@@ -54,7 +54,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     {^pid, admission, %{publication: publication}} = Valimc.TestWorld.lookup({0, 0})
     [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {:overworld, 0, 0})
     name = "DirRecovery"
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
 
     initial =
       PlayerState.capture(

@@ -12,7 +12,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   # Called at most every 200 ms. Fingerprints are computed on stack changes,
   # never while ticking counters.
   def scene(dimension, {rx, rz} = key, views) do
-    width = Valimc.config(:region_size) * 16
+    width = Valimc.Data.Grid.region_size() * 16
 
     donors =
       views

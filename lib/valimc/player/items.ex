@@ -61,7 +61,11 @@ defmodule Valimc.Player.Items do
          state = %{state | pickup_cursor: id},
          {:ok, owner} <- owner_of(state, view),
          {:ok, inventory, _taken} <- Region.take_item(owner, actor, view.uuid, state.inventory) do
-      send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
+      send_packets(state, [
+        Valimc.Menus.Packets.inventory(inventory),
+        Packets.cursor(inventory.carried)
+      ])
+
       %{state | inventory: inventory}
     else
       _ -> state
@@ -85,7 +89,7 @@ defmodule Valimc.Player.Items do
            Experience.give(state.player.progression.experience, view.value),
          {:ok, owner} <- owner_of(state, view),
          :ok <- Region.take_orb(owner, actor, view.uuid, view.value) do
-      send_packets(state, [Packets.experience(experience)])
+      send_packets(state, [Valimc.Player.Packets.experience(experience)])
       state = put_in(state.player.progression.experience, experience)
       %{state | experience_after: now + 100}
     else
@@ -157,14 +161,21 @@ defmodule Valimc.Player.Items do
   # The owner of the player's section, when it is the group the session runs in.
   defp owner(state) do
     %{x: x, z: z, dimension: dimension} = state.player
-    local(World.existing_owner(World.section(dimension, World.chunk_key(x, z))))
+
+    local(
+      World.existing_owner(Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z)))
+    )
   end
 
   defp owner_of(state, view),
     do:
       local(
         World.existing_owner(
-          World.section(state.player.dimension, World.region_key(view.chunk), :section)
+          Valimc.Data.Grid.section(
+            state.player.dimension,
+            Valimc.Data.Grid.region_key(view.chunk),
+            :section
+          )
         )
       )
 

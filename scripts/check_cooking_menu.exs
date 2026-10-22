@@ -36,9 +36,9 @@ for row <- facts["cases"] do
   inventory = %Inventory{slots: slots}
   {:ok, contents} = Menu.cooking_contents(cooking, inventory)
   true = contents == Enum.map(row["contents"], stack) and row["after_close"] == row["storage"]
-  {_, body} = Packets.open_cooking(17, kind)
+  {_, body} = Valimc.Menus.Packets.open_cooking(17, kind)
   true = IO.iodata_to_binary(body) == Base.decode16!(row["open_hex"], case: :lower)
-  {_, body} = Packets.cooking_inventory(17, cooking, inventory)
+  {_, body} = Valimc.Menus.Packets.cooking_inventory(17, cooking, inventory)
   true = IO.iodata_to_binary(body) == Base.decode16!(row["content_hex"], case: :lower)
 end
 
@@ -52,7 +52,11 @@ for row <- facts["progress"] do
 
   {:ok, actual} = Menu.properties(cooking)
   true = actual == row["data"]
-  bodies = for {_, body} <- Packets.cooking_properties(17, cooking), do: IO.iodata_to_binary(body)
+
+  bodies =
+    for {_, body} <- Valimc.Menus.Packets.cooking_properties(17, cooking),
+        do: IO.iodata_to_binary(body)
+
   true = bodies == Enum.map(row["data_hex"], &Base.decode16!(&1, case: :lower))
 end
 

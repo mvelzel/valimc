@@ -46,7 +46,7 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc "Region `key`'s chunks, Z outer and X inner."
   def chunks_of({rx, rz}) do
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
 
     for cz <- (rz * size)..(rz * size + size - 1),
         cx <- (rx * size)..(rx * size + size - 1),

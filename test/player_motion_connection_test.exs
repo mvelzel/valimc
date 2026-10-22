@@ -19,7 +19,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     for {name, index} <- Enum.with_index(names) do
-      uuid = Connection.offline_uuid(name)
+      uuid = Valimc.Data.UUID.offline(name)
       snapshot = PlayerState.capture(%{pos | x: pos.x + index * 256}, Inventory.new())
       {:ok, bytes} = PlayerState.encode(uuid, snapshot)
       path = Valimc.Player.Storage.path(base, uuid)

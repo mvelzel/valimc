@@ -4,7 +4,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.Protocol.{Data, Packets, Wire}
+  alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -18,7 +18,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     for {name, index} <- Enum.with_index(names) do
-      uuid = Valimc.Net.Connection.offline_uuid(name)
+      uuid = Valimc.Data.UUID.offline(name)
       pose = %{pos | x: pos.x + index * 256}
       path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
@@ -93,7 +93,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     wait(fn -> state(pid).pose_checked != nil end)
     assert state(pid).player.pose == :standing
     refute state(pid).player.motion.swimming
-    assert Packets.shared_flags(state(pid).player) == 8
+    assert Valimc.Player.Packets.shared_flags(state(pid).player) == 8
   end
 
   test "live occupancy selects and replicates crouch/crawl/standing, with selected eye height",

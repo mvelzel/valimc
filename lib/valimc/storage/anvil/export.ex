@@ -40,7 +40,7 @@ defmodule Valimc.Storage.Anvil.Export do
     with :ok <- empty(destination),
          {:ok, keys} <- region_keys(source),
          :ok <- File.mkdir_p(destination) do
-      size = Valimc.config(:region_size)
+      size = Valimc.Data.Grid.region_size()
 
       written =
         keys
@@ -149,13 +149,13 @@ defmodule Valimc.Storage.Anvil.Export do
 
     entities =
       Enum.reduce(records, entities, fn record, acc ->
-        chunk = Valimc.World.chunk_key(record.x, record.z)
+        chunk = Valimc.Data.Grid.chunk_key(record.x, record.z)
         tag = entity_tag(record)
         Map.update(acc, chunk, [tag], &[tag | &1])
       end)
 
     holders =
-      Enum.map(Map.keys(containers.entries), fn {x, _, z} -> Valimc.World.chunk_key(x, z) end)
+      Enum.map(Map.keys(containers.entries), fn {x, _, z} -> Valimc.Data.Grid.chunk_key(x, z) end)
 
     exported =
       (Blocks.touched_chunks(blocks) ++ holders ++ Map.keys(entities))
@@ -187,7 +187,7 @@ defmodule Valimc.Storage.Anvil.Export do
 
     owned =
       for {{x, _, z} = position, entry} <- containers.entries,
-          Valimc.World.chunk_key(x, z) == chunk,
+          Valimc.Data.Grid.chunk_key(x, z) == chunk,
           block = Blocks.get(blocks, position),
           Valimc.Blocks.block_entity(block) != nil,
           do: BlockEntity.container_tag(position, Types.type_name(Types.type_id(block)), entry)

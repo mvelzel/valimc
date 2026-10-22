@@ -1,4 +1,4 @@
-defmodule Valimc.Data.EnchantmentEffects do
+defmodule Valimc.Protocol.EnchantmentEffects do
   @moduledoc """
   Enchantment effects from the pinned data pack's definitions
   (`EnchantmentMetadata`): the equipment slot groups an enchantment acts in,
@@ -12,7 +12,7 @@ defmodule Valimc.Data.EnchantmentEffects do
   still grants immunity.
   """
   use Valimc.Data.Facts, "registry/enchantments.json"
-  alias Valimc.Data.DamageTypes
+  alias Valimc.Protocol.DamageTypes
 
   @groups %{
     any: [:mainhand, :offhand, :feet, :legs, :chest, :head, :body, :saddle],

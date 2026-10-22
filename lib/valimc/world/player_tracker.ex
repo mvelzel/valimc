@@ -68,7 +68,7 @@ defmodule Valimc.World.PlayerTracker do
         move ++
           turn ++
           data_packets(player, tracker.data, data) ++
-          Enum.map(Packets.player_equipment(player, tracker.equipment), &binary/1)
+          Enum.map(Valimc.Player.Packets.player_equipment(player, tracker.equipment), &binary/1)
 
       {%{tracker | head: head, data: data, equipment: equipment, tick: tracker.tick + 1}, packets}
     else
@@ -147,7 +147,7 @@ defmodule Valimc.World.PlayerTracker do
         epoch: epoch,
         ownership_generation: generation,
         tracker: tracker.incarnation,
-        chunk: Valimc.World.chunk_key(x, z),
+        chunk: Valimc.Data.Grid.chunk_key(x, z),
         at: {player.x, player.y, player.z},
         base: tracker.base,
         yaw: player.yaw,
@@ -164,20 +164,20 @@ defmodule Valimc.World.PlayerTracker do
   # Everything an observer that starts tracking the player needs.
   defp shown(player) do
     [
-      Packets.player_flags(player),
-      Packets.player_pose(player),
-      Packets.player_environment(player),
-      Packets.player_use(player),
-      Packets.player_health(player),
-      Packets.player_absorption(player),
+      Valimc.Player.Packets.player_flags(player),
+      Valimc.Player.Packets.player_pose(player),
+      Valimc.Player.Packets.player_environment(player),
+      Valimc.Player.Packets.player_use(player),
+      Valimc.Player.Packets.player_health(player),
+      Valimc.Player.Packets.player_absorption(player),
       absorption_attribute(player)
-    ] ++ Packets.player_equipment(player)
+    ] ++ Valimc.Player.Packets.player_equipment(player)
   end
 
   defp data(player) do
     living = player.living
 
-    {Packets.shared_flags(player), Map.get(player, :pose, :standing),
+    {Valimc.Player.Packets.shared_flags(player), Map.get(player, :pose, :standing),
      {living.freezing.frozen_ticks, living.air_supply}, Map.get(player, :use_flags, 0),
      living.health.value, living.absorption, Attributes.absorption_level(living.effects)}
   end
@@ -186,12 +186,12 @@ defmodule Valimc.World.PlayerTracker do
 
   defp data_packets(player, old, new) do
     [
-      {0, &Packets.player_flags/1},
-      {1, &Packets.player_pose/1},
-      {2, &Packets.player_environment/1},
-      {3, &Packets.player_use/1},
-      {4, &Packets.player_health/1},
-      {5, &Packets.player_absorption/1},
+      {0, &Valimc.Player.Packets.player_flags/1},
+      {1, &Valimc.Player.Packets.player_pose/1},
+      {2, &Valimc.Player.Packets.player_environment/1},
+      {3, &Valimc.Player.Packets.player_use/1},
+      {4, &Valimc.Player.Packets.player_health/1},
+      {5, &Valimc.Player.Packets.player_absorption/1},
       {6, &absorption_attribute/1}
     ]
     |> Enum.filter(fn {index, _} -> elem(old, index) != elem(new, index) end)

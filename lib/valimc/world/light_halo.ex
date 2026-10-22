@@ -33,7 +33,7 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Whether `chunk` is in the one-chunk ring around region `key`."
   def ring?({rx, rz}, {cx, cz}) do
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     {mx, mz} = {rx * size, rz * size}
     inside = cx in mx..(mx + size - 1) and cz in mz..(mz + size - 1)
     not inside and cx in (mx - 1)..(mx + size) and cz in (mz - 1)..(mz + size)
@@ -41,7 +41,7 @@ defmodule Valimc.World.LightHalo do
 
   # This region's generated chunks that lie in `other`'s ring.
   defp ring_chunks(state, other) do
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     {rx, rz} = state.key
 
     for cx <- (rx * size)..(rx * size + size - 1),
@@ -89,7 +89,9 @@ defmodule Valimc.World.LightHalo do
   def forward(state, edits) do
     for key <- neighbours(state.key), pid = owner(state, key), pid != nil do
       list =
-        for {{x, y, z}, block} <- edits, ring?(key, World.chunk_key(x, z)), do: {x, y, z, block}
+        for {{x, y, z}, block} <- edits,
+            ring?(key, Valimc.Data.Grid.chunk_key(x, z)),
+            do: {x, y, z, block}
 
       if list != [], do: send(pid, {:halo, key, {:edits, state.key, list}})
     end
@@ -149,9 +151,18 @@ defmodule Valimc.World.LightHalo do
 
     for {chunk, sky, block} <- changes,
         image = Blocks.light_image(state.blocks, chunk, {sky, block}),
-        do: {target(scope, chunk), Packets.frame(Packets.light_update(chunk, image), threshold)}
+        do: {target(scope, chunk), Packets.frame(light_update(chunk, image), threshold)}
   end
 
   defp target(:border, chunk), do: {:light, chunk}
   defp target(:all, chunk), do: chunk
+
+  # Light of one chunk (VMC-022c): its light image as `level_chunk_with_light` carries it.
+  defp light_update({cx, cz}, image) do
+    Packets.packet("light_update", [
+      Valimc.Protocol.Wire.varint(cx),
+      Valimc.Protocol.Wire.varint(cz),
+      Valimc.Storage.Anvil.Light.packet(image)
+    ])
+  end
 end

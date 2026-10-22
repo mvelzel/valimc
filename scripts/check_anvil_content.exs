@@ -30,7 +30,7 @@ unless report.error_count == 0, do: raise("import errors: #{inspect(report.error
 regions =
   facts["block_entities"]
   |> Enum.map(fn %{"pos" => [x, _, z]} ->
-    Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+    Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
   end)
   |> Enum.uniq()
   |> Map.new(fn key ->
@@ -51,7 +51,7 @@ counts =
   Enum.reduce(facts["block_entities"], %{}, fn row, counts ->
     [x, y, z] = row["pos"]
     position = {x, y, z}
-    region = regions[Valimc.World.region_key(Valimc.World.chunk_key(x, z))]
+    region = regions[Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))]
     block = Blocks.get(region.blocks, position)
 
     unless block == row["state"],
@@ -112,7 +112,7 @@ unless counts[:owned] >= 6 and counts[:locked] >= 4 and counts[:preserved] >= 40
 # UUID, position and loaded stack; every other entity is preserved unchanged.
 entity_regions =
   facts["entities"]
-  |> Enum.map(&Valimc.World.region_key({&1["chunk_x"], &1["chunk_z"]}))
+  |> Enum.map(&Valimc.Data.Grid.region_key({&1["chunk_x"], &1["chunk_z"]}))
   |> Enum.uniq()
 
 records =
@@ -180,7 +180,7 @@ chunks =
   |> Enum.uniq()
 
 for {cx, cz} = chunk <- chunks do
-  region = regions[Valimc.World.region_key(chunk)]
+  region = regions[Valimc.Data.Grid.region_key(chunk)]
   positions = BlockEntities.in_chunk(region.preserved, chunk)
 
   preserved =
@@ -203,14 +203,14 @@ end
 # Corrections resend a preserved block entity's update packet after its block.
 updates =
   for %{"pos" => [x, y, z]} <- facts["block_entities"],
-      region = regions[Valimc.World.region_key(Valimc.World.chunk_key(x, z))],
+      region = regions[Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))],
       entry =
         BlockEntities.live(region.preserved, {x, y, z}, Blocks.get(region.blocks, {x, y, z})),
       entry != nil and entry.update != nil,
       reduce: 0 do
     n ->
       {_id, payload} =
-        Valimc.Protocol.ChestBlockEntity.data_packet({x, y, z}, entry.type, entry.update)
+        Valimc.Blocks.ChestBlockEntity.data_packet({x, y, z}, entry.type, entry.update)
 
       File.write!(Path.join(out_dir, "update.#{x}.#{y}.#{z}.bin"), IO.iodata_to_binary(payload))
       n + 1

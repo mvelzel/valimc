@@ -10,7 +10,7 @@ defmodule Valimc.Commands.Parser.ItemPredicate do
   with a ValiMC message.
   """
   alias Valimc.Text.{Error, Packrat, Reader, Snbt}
-  alias Valimc.Commands.Registries
+  alias Valimc.Protocol.Registries
   import Packrat, only: [get: 2, get_any: 2, mark: 1, store: 3]
 
   def parse(reader) do
@@ -85,7 +85,7 @@ defmodule Valimc.Commands.Parser.ItemPredicate do
   defp id(state) do
     reader = Reader.skip_whitespace(state.reader)
 
-    case Error.catching(fn -> Valimc.Commands.Parser.Identifier.read(reader) end) do
+    case Error.catching(fn -> Valimc.Text.Identifier.read(reader) end) do
       {:ok, {_id, after_id}} when after_id.cursor == reader.cursor ->
         {nil, %{state | reader: reader}}
 

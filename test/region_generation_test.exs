@@ -27,7 +27,7 @@ defmodule Valimc.RegionGenerationTest do
       File.rm_rf(base)
     end)
 
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     %{key: key, east: east, base: base, origin: {elem(key, 0) * size, elem(key, 1) * size}}
   end
 
@@ -47,7 +47,9 @@ defmodule Valimc.RegionGenerationTest do
 
   # A block of `chunk` as the generator makes it.
   defp generated_block(chunk, position) do
-    {:ok, blocks} = World.Blocks.new(World.region_key(chunk), %{}, %{chunk => column(chunk)})
+    {:ok, blocks} =
+      World.Blocks.new(Valimc.Data.Grid.region_key(chunk), %{}, %{chunk => column(chunk)})
+
     World.Blocks.get(blocks, position)
   end
 
@@ -247,7 +249,7 @@ defmodule Valimc.RegionGenerationTest do
     Valimc.TestWorld.subscribe(MapSet.new([@light_key]), MapSet.new())
     {:ok, owner} = Valimc.TestWorld.owner(@light_key)
     {rx, rz} = @light_key
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     chunk = {rx * size + 1, rz * size + 1}
     _ = Valimc.TestWorld.chunk(chunk)
     before = Region.light_image(owner, chunk)

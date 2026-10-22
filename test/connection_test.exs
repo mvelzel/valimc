@@ -21,7 +21,7 @@ defmodule Valimc.ConnectionTest do
     username = name("Login")
     {uuid, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
-    assert uuid == Valimc.Net.Connection.offline_uuid(username)
+    assert uuid == Valimc.Data.UUID.offline(username)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {body, _} = Client.await_stats(client)
@@ -179,7 +179,7 @@ defmodule Valimc.ConnectionTest do
     player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     ref = Process.monitor(player.pid)
     :sys.suspend(player.pid)
-    for _ <- 1..300, do: Valimc.Net.Connection.deliver(player.pid, {:chat, "load"})
+    for _ <- 1..300, do: Valimc.Player.PlayerList.deliver(player.pid, {:chat, "load"})
     # A stuck (here: suspended) connection cannot handle the graceful signal and is
     # killed by the fallback timer.
     assert_receive {:DOWN, ^ref, :process, _, :killed}

@@ -257,7 +257,12 @@ defmodule Valimc.Commands.Players do
 
     predicate = Map.get(arguments, "item", {:all, []})
     max_count = Map.get(arguments, "maxCount", -1)
-    tracked = on_targets(targets, fn _ -> {:clear, predicate, max_count} end)
+
+    tracked =
+      on_targets(targets, fn _ ->
+        {:clear, &Valimc.Commands.Parser.ItemPredicate.matches?(predicate, &1), max_count}
+      end)
+
     tracked = Enum.map(tracked, fn {target, n} -> {target, if(is_integer(n), do: n, else: 0)} end)
 
     if Enum.all?(tracked, &(elem(&1, 1) == 0)) do
@@ -387,7 +392,7 @@ defmodule Valimc.Commands.Players do
   defp live_effect!(effect) do
     id = EffectTypes.id(effect)
 
-    if id in Valimc.Net.Connection.live_effects(),
+    if id in Valimc.Living.Effects.live(),
       do: id,
       else:
         Error.throw!(%Error{message: Text.literal("The effect #{effect} is not supported yet")})

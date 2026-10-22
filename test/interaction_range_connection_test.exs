@@ -3,7 +3,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
   @moduletag :tcp
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
-  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -14,7 +13,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
     name = "Range" <> Integer.to_string(nonce)
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     key = {100_000 + rem(nonce, 3_333) * 3, 800}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
@@ -90,7 +89,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
 
   test "remote placement and break are acknowledged without allocating a region", ctx do
     pos = {-30_000_000, 65, -30_000_000}
-    key = World.region_key(World.chunk_key(elem(pos, 0), elem(pos, 2)))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(elem(pos, 0), elem(pos, 2)))
     assert Valimc.TestWorld.registered(key) == []
     client = place(ctx.client, pos, 1, {0.5, 1.0, 0.5})
     _client = break(client, pos)

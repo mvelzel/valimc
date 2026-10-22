@@ -7,6 +7,37 @@ defmodule Valimc.Protocol.Codec do
   alias Valimc.Data.Metrics
   alias Valimc.Protocol.{Encryption, Packets, Wire}
 
+  # A session its group hosts (VMC-077i3) has no socket: its client output
+  # (frames and view changes) queues here during the group's callback, which
+  # forwards it to the connection in order (`Valimc.Player.Host`).
+  @outbox {__MODULE__, :outbox}
+  # Why this connection ends, for its leave message (`Valimc.Player.Presence`).
+  @reason {__MODULE__, :reason}
+
+  @doc "Start queueing a hosted session's client output."
+  def open_outbox, do: Process.put(@outbox, [])
+
+  @doc "The queued output, newest first, or nil; the queue closes."
+  def take_outbox, do: Process.delete(@outbox)
+
+  @doc "Queue `item` (`{:frames, iodata}`, `{:view, map}`, `{:reset, map}`) for the connection."
+  def out(item) do
+    case Process.get(@outbox) do
+      nil -> raise ArgumentError, "session output outside a hosted callback"
+      items -> Process.put(@outbox, [item | items])
+    end
+
+    :ok
+  end
+
+  @doc "Remembers why this connection ends (a text or a server text component)."
+  def record_reason(reason), do: Process.put(@reason, reason)
+
+  def reason, do: Process.get(@reason)
+
+  @doc "The recorded reason, forgotten here: a session's group passes it to the connection."
+  def take_reason, do: Process.delete(@reason)
+
   def send_packets(state, packets),
     do: send_frames(state, Enum.map(packets, &Packets.frame(&1, state.threshold)))
 
@@ -21,9 +52,7 @@ defmodule Valimc.Protocol.Codec do
     write(state, frames, size)
   end
 
-  # A session its group hosts (VMC-077i3) has no socket: its frames go to its
-  # connection after the callback, in order with its view changes.
-  defp write(%{socket: nil}, frames, _size), do: Valimc.Player.Host.out({:frames, frames})
+  defp write(%{socket: nil}, frames, _size), do: out({:frames, frames})
 
   defp write(state, frames, size) do
     bytes =
@@ -68,7 +97,7 @@ defmodule Valimc.Protocol.Codec do
 
   def reject(state, message) do
     Metrics.add(:connections_rejected)
-    Valimc.Player.Presence.record(message)
+    record_reason(message)
     if state.phase in [:handshake, :status], do: throw({:disconnect, message, state})
 
     payload =

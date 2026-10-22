@@ -64,7 +64,7 @@ results =
       for key <- keys,
           do:
             (
-              {:ok, owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
+              {:ok, owner} = World.item_owner(Valimc.Data.Grid.section(:overworld, key, :section))
               chunks = Valimc.World.RegionGeneration.chunks_of(key)
               :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
               owner

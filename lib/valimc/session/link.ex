@@ -77,7 +77,8 @@ defmodule Valimc.Session.Link do
     %{x: x, z: z, dimension: dimension} = state.player
     session = session(state)
 
-    with {:ok, {pid, _}} <- World.owner(World.section(dimension, World.chunk_key(x, z))),
+    with {:ok, {pid, _}} <-
+           World.owner(Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z))),
          :ok <- host_call(pid, session) do
       link = Map.take(state, @link_keys ++ @shared_keys)
 
@@ -107,19 +108,9 @@ defmodule Valimc.Session.Link do
     |> Map.merge(%{socket: nil, pickup_cache: %{}})
   end
 
-  @doc """
-  The session rebuilds its client's level (a respawn or a travel): its
-  connection resets the view in order with the session's packets. `reset`
-  names the new `dimension`, whether the old level is unloaded chunk by chunk
-  (`unload`), and the clock, difficulty, weather and border views the session
-  sends with the respawn.
-  """
-  def reset_view(%{socket: nil}, reset), do: Valimc.Player.Host.out({:reset, reset})
-
   @doc "A message to a connection whose session its group hosts."
   def info({:player_out, items}, state),
-    do:
-      Valimc.Net.Connection.guard_connection(state, fn -> {:noreply, apply_out(state, items)} end)
+    do: Valimc.Session.Messages.guard(state, fn -> {:noreply, apply_out(state, items)} end)
 
   def info({:player_owner, uuid, pid}, %{player: %{uuid: uuid}} = state) do
     if pid == state.owner do
@@ -131,13 +122,13 @@ defmodule Valimc.Session.Link do
   end
 
   def info({:player_stop, reason}, state) do
-    if reason != nil, do: Valimc.Player.Presence.record(reason)
+    if reason != nil, do: Valimc.Protocol.Codec.record_reason(reason)
     Process.demonitor(state.owner_monitor, [:flush])
     {:stop, :normal, %{state | owner: nil, owner_monitor: nil}}
   end
 
   def info({:DOWN, ref, :process, _, _}, %{owner_monitor: ref} = state) do
-    Valimc.Net.Connection.guard_connection(%{state | owner: nil, owner_monitor: nil}, fn ->
+    Valimc.Session.Messages.guard(%{state | owner: nil, owner_monitor: nil}, fn ->
       Codec.reject(%{state | owner: nil}, "World owner restarted; please reconnect")
     end)
   end
@@ -162,7 +153,7 @@ defmodule Valimc.Session.Link do
   def info(:publish_movement, state) do
     forward(state, :publish_movement)
 
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    Valimc.Session.Messages.guard(state, fn ->
       Process.send_after(self(), :publish_movement, 50)
       {:noreply, replicate(state)}
     end)
@@ -200,7 +191,7 @@ defmodule Valimc.Session.Link do
   # session's part at the owner.
   defp event(state, event, message) do
     if is_tuple(event) and elem(event, 0) in @session_events, do: forward(state, message)
-    Valimc.Net.Connection.guard_connection(state, fn -> {:noreply, Events.view(state, event)} end)
+    Valimc.Session.Messages.guard(state, fn -> {:noreply, Events.view(state, event)} end)
   end
 
   defp apply_out(state, items) do
@@ -301,7 +292,10 @@ defmodule Valimc.Session.Link do
 
     {replication, packets} =
       Observer.reconcile(state.entity_replication, desired, fn region, last ->
-        World.entity_frames(World.section(state.player.dimension, region, :section), last)
+        World.entity_frames(
+          Valimc.Data.Grid.section(state.player.dimension, region, :section),
+          last
+        )
       end)
 
     state =

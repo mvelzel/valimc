@@ -1,6 +1,5 @@
 defmodule Valimc.World.ContainerLifecycle do
   @moduledoc "Pure owner-local chest and empty cooking-block metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
-  alias Valimc.World
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
   @double Valimc.Blocks.Chest.double_states()
@@ -27,7 +26,7 @@ defmodule Valimc.World.ContainerLifecycle do
     original = expected[position]
 
     abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and Chunk.valid_y?(y) and
-      World.region_key(World.chunk_key(x, z)) == key and
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key and
       is_integer(original) and original >= 0 and original < Data.block_state_count() and
       state >= 0 and state < Data.block_state_count() and
       not MapSet.member?(@double, original) and not MapSet.member?(@double, state)

@@ -1,4 +1,4 @@
-defmodule Valimc.Data.DamageTypes do
+defmodule Valimc.Protocol.DamageTypes do
   @moduledoc """
   Damage types by name (`:fall`, `:in_fire`, ...): their registry ids and
   their tags (`:is_fire`, `:bypasses_armor`, ...), from the generated

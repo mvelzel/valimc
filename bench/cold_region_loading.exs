@@ -6,7 +6,7 @@ base = Path.join(System.tmp_dir!(), "valimc-cold-bench-#{System.unique_integer([
 File.mkdir_p!(base)
 old = Valimc.config(:world_path)
 Application.put_env(:valimc, :world_path, base)
-{:ok, hot} = World.owner(Valimc.World.section(:overworld, {709, 710}, :section))
+{:ok, hot} = World.owner(Valimc.Data.Grid.section(:overworld, {709, 710}, :section))
 # A cold region's checkpoint, as a FIFO stalls its read: the bytes of an empty one.
 seed = Path.join(base, "seed")
 :ok = RegionStorage.import(seed, :overworld, {0, 0}, %{})
@@ -14,7 +14,10 @@ bytes = File.read!(Checkpoint.path(seed, {:region, :overworld, {0, 0}}))
 
 registered = fn key ->
   Enum.reduce_while(1..1000, nil, fn _, _ ->
-    case Registry.lookup(Valimc.RegionRegistry, Valimc.World.section(:overworld, key, :section)) do
+    case Registry.lookup(
+           Valimc.RegionRegistry,
+           Valimc.Data.Grid.section(:overworld, key, :section)
+         ) do
       [{pid, _}] ->
         {:halt, pid}
 
@@ -42,14 +45,14 @@ results =
 
     cold =
       Task.async(fn ->
-        measure.(fn -> World.owner(Valimc.World.section(:overworld, cold_key, :section)) end)
+        measure.(fn -> World.owner(Valimc.Data.Grid.section(:overworld, cold_key, :section)) end)
       end)
 
     pid = registered.(cold_key)
     nil = Task.yield(cold, 10)
 
     unpublished =
-      World.existing_owner(Valimc.World.section(:overworld, cold_key, :section)) ==
+      World.existing_owner(Valimc.Data.Grid.section(:overworld, cold_key, :section)) ==
         {:error, :region_unavailable}
 
     release =
@@ -60,7 +63,7 @@ results =
 
     other =
       Task.async(fn ->
-        measure.(fn -> World.owner(Valimc.World.section(:overworld, other_key, :section)) end)
+        measure.(fn -> World.owner(Valimc.Data.Grid.section(:overworld, other_key, :section)) end)
       end)
 
     {{:ok, _}, hot_us} = measure.(fn -> Region.observe_blocks(hot, []) end)

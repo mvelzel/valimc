@@ -28,7 +28,12 @@ encoded =
             {row["ticks"], row["level"], (flags &&& 1) != 0, (flags &&& 2) != 0,
              (flags &&& 4) != 0}
 
-          Packets.update_effect(row["entity"], row["effect"], rung, (flags &&& 8) != 0)
+          Valimc.Living.Packets.update_effect(
+            row["entity"],
+            row["effect"],
+            rung,
+            (flags &&& 8) != 0
+          )
       end
 
     {id, body} = packet

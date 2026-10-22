@@ -5,7 +5,6 @@ defmodule Valimc.DimensionTravelConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 180_000
-  alias Valimc.Net.Connection
   alias Valimc.World.Dimension
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
@@ -17,7 +16,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
   setup do
     nonce = System.unique_integer([:positive])
     name = "Travel#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     base = Path.join(System.tmp_dir!(), "valimc-travel-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
@@ -313,7 +312,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     seed(ctx)
     other = ctx.name <> "b"
     {:ok, bytes} = File.read(ctx.path)
-    other_uuid = Connection.offline_uuid(other)
+    other_uuid = Valimc.Data.UUID.offline(other)
     {:ok, snapshot} = PlayerState.decode(bytes, ctx.uuid)
     {:ok, other_bytes} = PlayerState.encode(other_uuid, snapshot)
     File.write!(Valimc.Player.Storage.path(ctx.base, other_uuid), other_bytes)

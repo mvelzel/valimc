@@ -1,36 +1,13 @@
 defmodule Valimc.World do
   @moduledoc """
   Section ownership and spatial topics. There is no global world mutation
-  process: each 8 × 8 section belongs to one group process (VMC-077j), found
-  through the Directory's routes.
-
-  Routing names a section by its dimension-explicit key `{dimension, sx, sz}`
-  (`section/2`) and never reads the calling process's context: equal
-  coordinates of two dimensions never meet, and a plain `{sx, sz}` is refused
-  rather than taken for the overworld (finding C8). `region_key/1` is plain
-  geometry.
+  process: each section belongs to one group process (VMC-077j), found
+  through the Directory's routes by its dimension-explicit key
+  (`Valimc.Data.Grid.section/2`); routing never reads the calling process's
+  context.
   """
+  alias Valimc.Data.Grid
   alias Valimc.World.{BlockSnapshot, Directory}
-  def chunk_key(x, z), do: {Integer.floor_div(floor(x), 16), Integer.floor_div(floor(z), 16)}
-
-  @doc "The 8 × 8 section coordinates `{sx, sz}` of a chunk (geometry, no dimension)."
-  def region_key({cx, cz}) do
-    size = Valimc.config(:region_size)
-    {Integer.floor_div(cx, size), Integer.floor_div(cz, size)}
-  end
-
-  @doc """
-  The routing key of the section of `dimension` that holds chunk `chunk`, or
-  whose coordinates are `{sx, sz}` (`at: :section`).
-  """
-  def section(dimension, chunk, at \\ :chunk)
-  def section(dimension, chunk, :chunk), do: section(dimension, region_key(chunk), :section)
-
-  def section(dimension, {sx, sz}, :section) when is_atom(dimension),
-    do: {dimension, sx, sz}
-
-  @doc "A section key's dimension and coordinates: `{dimension, {sx, sz}}`."
-  def split_section({dimension, sx, sz}), do: {dimension, {sx, sz}}
 
   def region({_, _, _} = key) do
     Valimc.World.Owners.ensure(
@@ -52,7 +29,7 @@ defmodule Valimc.World do
   end
 
   def chunk(dimension, key) do
-    with {:ok, pid} <- region(section(dimension, key)),
+    with {:ok, pid} <- region(Grid.section(dimension, key)),
          do: GenServer.call(pid, {:chunk, key}, 15_000)
   end
 
@@ -70,7 +47,7 @@ defmodule Valimc.World do
   defp sendable(_dimension, [], _limit, _routes, acc), do: Enum.reverse(acc)
 
   defp sendable(dimension, [key | rest], limit, routes, acc) do
-    region = section(dimension, key)
+    region = Grid.section(dimension, key)
 
     {route, routes} =
       case routes do
@@ -140,7 +117,7 @@ defmodule Valimc.World do
           {:ok, {pid, epoch}}
 
         {^pid, _, :loading} ->
-          {_, plain} = split_section(key)
+          {_, plain} = Grid.split_section(key)
           GenServer.call(pid, {:owner, plain}, 5000 * Valimc.config(:owner_call_scale, pid))
 
         # Handed to another group meanwhile (VMC-077j): the section is the same.
@@ -176,7 +153,7 @@ defmodule Valimc.World do
 
   @doc "Public lid presentation for a loaded chunk; never contains storage contents."
   def chest_lid_snapshot(dimension, chunk) do
-    case Directory.lookup(section(dimension, chunk)) do
+    case Directory.lookup(Grid.section(dimension, chunk)) do
       {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:container_lids, chunk}) do
           [{{:container_lids, ^chunk}, ^epoch, positions, frame}] ->
@@ -205,7 +182,7 @@ defmodule Valimc.World do
 
     tables =
       Map.new(regions, fn key ->
-        {_, plain} = split_section(key)
+        {_, plain} = Grid.split_section(key)
 
         case Directory.lookup(key) do
           {_, _, %{publication: table}} -> {plain, table}
@@ -217,7 +194,7 @@ defmodule Valimc.World do
     |> Enum.sort()
     |> Enum.take(4096)
     |> Enum.reduce_while({%{}, %{}}, fn chunk, {acc, next_cache} ->
-      table = tables[region_key(chunk)]
+      table = tables[Grid.region_key(chunk)]
 
       cond do
         map_size(acc) == limit ->
@@ -284,7 +261,7 @@ defmodule Valimc.World do
     event = if dimension == :overworld, do: event, else: {:in_dimension, dimension, event}
 
     Registry.dispatch(Valimc.VisibilityRegistry, key, fn entries ->
-      for {pid, _} <- entries, do: Valimc.Net.Connection.deliver(pid, event)
+      for {pid, _} <- entries, do: Valimc.Player.PlayerList.deliver(pid, event)
     end)
   end
 

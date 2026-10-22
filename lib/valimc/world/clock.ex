@@ -289,7 +289,7 @@ defmodule Valimc.World.Clock do
   defp checkpoint(state), do: state
 
   defp publish(state, changed \\ true) do
-    latest = Packets.time(state.data)
+    latest = time_packet(state.data)
 
     {version, periodic} =
       if changed do
@@ -427,5 +427,27 @@ defmodule Valimc.World.Clock do
           end
       end
     end
+  end
+
+  defp time_packet(data) do
+    entries =
+      Enum.sort_by(data.clocks, fn {name, _} ->
+        Valimc.Protocol.Data.registry_id("minecraft:world_clock", name)
+      end)
+
+    body = [
+      <<data.game_time::signed-64>>,
+      Valimc.Protocol.Wire.varint(length(entries)),
+      Enum.map(entries, fn {name, clock} ->
+        [
+          Valimc.Protocol.Wire.varint(
+            Valimc.Protocol.Data.registry_id("minecraft:world_clock", name)
+          ),
+          Valimc.World.ClockState.network(clock, data.advance_time)
+        ]
+      end)
+    ]
+
+    Packets.packet("set_time", IO.iodata_to_binary(body))
   end
 end

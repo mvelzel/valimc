@@ -12,6 +12,12 @@ defmodule Valimc.Data.UUID do
   defp hex_digits({value, digits}),
     do: value |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(digits, "0")
 
+  @doc "An offline-mode player's UUID: `UUID.nameUUIDFromBytes(\"OfflinePlayer:\" + name)`."
+  def offline(name) do
+    <<a::48, b::16, c::16, d::48>> = :crypto.hash(:md5, "OfflinePlayer:" <> name)
+    <<a::48, (b &&& 0x0FFF) ||| 0x3000::16, (c &&& 0x3FFF) ||| 0x8000::16, d::48>>
+  end
+
   @doc "Java `UUID.fromString`: five hex groups split by four dashes, each at most 16 digits."
   def parse(text) when is_binary(text) do
     with parts when length(parts) == 5 <- String.split(text, "-"),

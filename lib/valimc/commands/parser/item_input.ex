@@ -8,8 +8,8 @@ defmodule Valimc.Commands.Parser.ItemInput do
   approximated.
   """
   alias Valimc.Text.{Error, Reader}
-  alias Valimc.Commands.Parser.Identifier
-  alias Valimc.Commands.Registries
+  alias Valimc.Text.Identifier
+  alias Valimc.Protocol.Registries
 
   defstruct [:item, :item_id, components: %{}, removed: MapSet.new()]
 

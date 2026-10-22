@@ -67,8 +67,8 @@ rows =
           }
 
     :ok = RegionStorage.import(base, :overworld, a_key, %{items: records})
-    {:ok, a} = World.item_owner(Valimc.World.section(:overworld, a_key, :section))
-    {:ok, b} = World.item_owner(Valimc.World.section(:overworld, b_key, :section))
+    {:ok, a} = World.item_owner(Valimc.Data.Grid.section(:overworld, a_key, :section))
+    {:ok, b} = World.item_owner(Valimc.Data.Grid.section(:overworld, b_key, :section))
     frames = Map.get(Valimc.Data.Metrics.snapshot(), :storage_records, 0)
 
     samples =
@@ -96,7 +96,7 @@ rows =
           :timer.tc(fn ->
             Region.handoff_items(
               source,
-              Valimc.World.section(:overworld, destination_key, :section),
+              Valimc.Data.Grid.section(:overworld, destination_key, :section),
               steps
             )
           end)

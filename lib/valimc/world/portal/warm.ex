@@ -58,21 +58,21 @@ defmodule Valimc.World.Portal.Warm do
     for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
         cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
         uniq: true,
-        do: World.region_key({cx, cz})
+        do: Valimc.Data.Grid.region_key({cx, cz})
   end
 
   defp admit(dimension, {x0, z0, x1, z1} = area) do
-    center = World.chunk_key(div(x0 + x1, 2), div(z0 + z1, 2))
+    center = Valimc.Data.Grid.chunk_key(div(x0 + x1, 2), div(z0 + z1, 2))
 
     chunks =
       for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
           cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
           do: {cx, cz}
 
-    by_region = Enum.group_by(chunks, &World.region_key/1)
+    by_region = Enum.group_by(chunks, &Valimc.Data.Grid.region_key/1)
 
     for key <- regions(area),
-        {:ok, pid} <- [World.region(World.section(dimension, key, :section))],
+        {:ok, pid} <- [World.region(Valimc.Data.Grid.section(dimension, key, :section))],
         do: Valimc.World.Region.ticket(pid, key, :portal, center, Map.get(by_region, key, []))
   end
 end

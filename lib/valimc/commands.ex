@@ -139,6 +139,9 @@ defmodule Valimc.Commands do
   @doc "The commands packet payload for a player at permission `level`."
   def graph_payload(level), do: Map.fetch!(elem(tables(), 1), level)
 
+  @doc "The commands packet for a player at permission `level`."
+  def packet(level), do: Valimc.Protocol.Packets.packet("commands", graph_payload(level))
+
   @doc "The handler module that suggests for `name`'s `ask_server` nodes, or nil."
   def suggester(name) do
     case registry()[name] do

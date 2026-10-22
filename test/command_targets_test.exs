@@ -7,7 +7,7 @@ defmodule Valimc.CommandTargetsTest do
   # Writes rows into the global player table.
   use ExUnit.Case, async: false
   alias Valimc.Text.Reader
-  alias Valimc.Commands.Parser.Selector
+  alias Valimc.Text.Selector
   alias Valimc.Commands.{Source, Targets}
 
   setup do
@@ -38,7 +38,7 @@ defmodule Valimc.CommandTargetsTest do
         }
 
         :ets.insert(Valimc.Player.PlayerList, {pid, player})
-        section = Valimc.World.section(dimension, Valimc.World.chunk_key(x, 0.5))
+        section = Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, 0.5))
         :ets.insert(Valimc.SpatialIndex, {section, pid})
         pid
       end

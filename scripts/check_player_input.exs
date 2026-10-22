@@ -37,7 +37,7 @@ for c <- native["metadata"] do
   input = Input.loaded(%Input{})
   {:ok, input} = Input.receive_input(input, <<if(c["shift"], do: 32, else: 0)>>)
   {:ok, input} = Input.receive_command(input, <<0, if(c["sprint"], do: 1, else: 2), 0>>)
-  {_, bytes} = Packets.player_flags(%{entity_id: 300, input: input})
+  {_, bytes} = Valimc.Player.Packets.player_flags(%{entity_id: 300, input: input})
 
   if input.shared_flags != c["flags"] or
        IO.iodata_to_binary(bytes) != Base.decode16!(c["payload"], case: :lower),

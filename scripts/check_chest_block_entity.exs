@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{ChestBlockEntity, Data}
+alias Valimc.Blocks.ChestBlockEntity
+alias Valimc.Protocol.Data
 alias Valimc.World.Chunk
 [input, output] = System.argv()
 raw = JSON.decode!(File.read!(input))

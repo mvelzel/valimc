@@ -5,7 +5,6 @@ defmodule Valimc.RegionLightTest do
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   setup do
@@ -22,7 +21,7 @@ defmodule Valimc.RegionLightTest do
     end)
 
     {rx, rz} = key
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     {:ok, owner} = Valimc.TestWorld.owner(key)
     %{key: key, owner: owner, origin: {rx * size * 16, rz * size * 16}}
   end
@@ -60,8 +59,8 @@ defmodule Valimc.RegionLightTest do
     {x0, z0} = ctx.origin
     Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     # Served chunks get light updates.
-    _ = packet_light(World.chunk_key(x0 + 47, z0 + 40))
-    _ = packet_light(World.chunk_key(x0 + 48, z0 + 40))
+    _ = packet_light(Valimc.Data.Grid.chunk_key(x0 + 47, z0 + 40))
+    _ = packet_light(Valimc.Data.Grid.chunk_key(x0 + 48, z0 + 40))
     glowstone = BlockRegistry.default_state("glowstone")
     # At the east edge of its chunk, so the light crosses into the next chunk.
     lamp = {x0 + 47, 70, z0 + 40}
@@ -70,14 +69,14 @@ defmodule Valimc.RegionLightTest do
     assert_receive {:event, {:block_batch, updates}}
     # After block changes, for clients that have the chunk at the edge of their view.
     light = for {{:light, chunk}, frame} <- updates, light_update?(frame), do: {chunk, frame}
-    assert World.chunk_key(x0 + 47, z0 + 40) in Enum.map(light, &elem(&1, 0))
-    assert World.chunk_key(x0 + 48, z0 + 40) in Enum.map(light, &elem(&1, 0))
+    assert Valimc.Data.Grid.chunk_key(x0 + 47, z0 + 40) in Enum.map(light, &elem(&1, 0))
+    assert Valimc.Data.Grid.chunk_key(x0 + 48, z0 + 40) in Enum.map(light, &elem(&1, 0))
     # Each carries only its changed sections around the lamp, not the 26 of a
     # chunk packet.
     for {_, frame} <- light, do: assert(byte_size(payload(frame)) < 5 * 2048)
 
-    here = image(ctx.owner, World.chunk_key(x0 + 47, z0 + 40))
-    east = image(ctx.owner, World.chunk_key(x0 + 48, z0 + 40))
+    here = image(ctx.owner, Valimc.Data.Grid.chunk_key(x0 + 47, z0 + 40))
+    east = image(ctx.owner, Valimc.Data.Grid.chunk_key(x0 + 48, z0 + 40))
     assert level(here, :block, lamp) == 15
     assert level(here, :block, {x0 + 46, 70, z0 + 40}) == 14
     assert level(east, :block, {x0 + 48, 70, z0 + 40}) == 14
@@ -86,14 +85,14 @@ defmodule Valimc.RegionLightTest do
     # A shaft through the grass and dirt opens the stone below to the sky.
     shaft = for y <- 50..63, into: %{}, do: {{x0 + 20, y, z0 + 20}, 0}
     set(ctx.owner, shaft)
-    pit = image(ctx.owner, World.chunk_key(x0 + 20, z0 + 20))
+    pit = image(ctx.owner, Valimc.Data.Grid.chunk_key(x0 + 20, z0 + 20))
     assert level(pit, :sky, {x0 + 20, 50, z0 + 20}) == 15
 
     # Removing the lamp takes its light away again.
     set(ctx.owner, %{lamp => 0})
 
     assert level(
-             image(ctx.owner, World.chunk_key(x0 + 48, z0 + 40)),
+             image(ctx.owner, Valimc.Data.Grid.chunk_key(x0 + 48, z0 + 40)),
              :block,
              {x0 + 48, 70, z0 + 40}
            ) == 0
@@ -120,11 +119,11 @@ defmodule Valimc.RegionLightTest do
 
     {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
-    edge = x0 + Valimc.config(:region_size) * 16 - 1
+    edge = x0 + Valimc.Data.Grid.region_size() * 16 - 1
     glowstone = BlockRegistry.default_state("glowstone")
     lamp = {edge, 70, z0 + 40}
     across = {edge + 2, 70, z0 + 40}
-    across_chunk = World.chunk_key(edge + 2, z0 + 40)
+    across_chunk = Valimc.Data.Grid.chunk_key(edge + 2, z0 + 40)
     # The neighbour's chunk was sent before the lamp, as to a player nearby.
     _ = packet_light(across_chunk)
     set(ctx.owner, %{lamp => glowstone})
@@ -139,7 +138,11 @@ defmodule Valimc.RegionLightTest do
     set(ctx.owner, %{lamp => 0})
 
     assert eventually(fn ->
-             level(image(neighbour, World.chunk_key(edge + 2, z0 + 40)), :block, across) == 0
+             level(
+               image(neighbour, Valimc.Data.Grid.chunk_key(edge + 2, z0 + 40)),
+               :block,
+               across
+             ) == 0
            end)
 
     # A lamp in the neighbour, then this owner restarts: its hello brings the light back.
@@ -149,7 +152,11 @@ defmodule Valimc.RegionLightTest do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
 
     assert eventually(fn ->
-             level(image(owner, World.chunk_key(edge, z0 + 40)), :block, {edge - 1, 70, z0 + 40}) ==
+             level(
+               image(owner, Valimc.Data.Grid.chunk_key(edge, z0 + 40)),
+               :block,
+               {edge - 1, 70, z0 + 40}
+             ) ==
                13
            end)
   end
@@ -173,10 +180,10 @@ defmodule Valimc.RegionLightTest do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
-    edge = x0 + Valimc.config(:region_size) * 16 - 1
+    edge = x0 + Valimc.Data.Grid.region_size() * 16 - 1
     glowstone = BlockRegistry.default_state("glowstone")
     across = {edge + 2, 70, z0 + 40}
-    across_chunk = World.chunk_key(edge + 2, z0 + 40)
+    across_chunk = Valimc.Data.Grid.chunk_key(edge + 2, z0 + 40)
     set(owner, %{{edge, 70, z0 + 40} => glowstone})
     assert eventually(fn -> level(image(neighbour, across_chunk), :block, across) == 13 end)
     set(owner, %{{edge, 70, z0 + 40} => 0})
@@ -185,7 +192,7 @@ defmodule Valimc.RegionLightTest do
 
     assert eventually(fn ->
              level(
-               image(owner, World.chunk_key(edge, z0 + 40)),
+               image(owner, Valimc.Data.Grid.chunk_key(edge, z0 + 40)),
                :block,
                {edge - 1, 70, z0 + 40}
              ) ==
@@ -211,9 +218,9 @@ defmodule Valimc.RegionLightTest do
 
     {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
-    edge = x0 + Valimc.config(:region_size) * 16 - 1
-    sent = World.chunk_key(edge + 2, z0 + 40)
-    unsent = World.chunk_key(edge + 2, z0 + 48)
+    edge = x0 + Valimc.Data.Grid.region_size() * 16 - 1
+    sent = Valimc.Data.Grid.chunk_key(edge + 2, z0 + 40)
+    unsent = Valimc.Data.Grid.chunk_key(edge + 2, z0 + 48)
     _ = packet_light(sent)
     Valimc.TestWorld.subscribe(MapSet.new([east]), MapSet.new())
     set(ctx.owner, %{{edge, 70, z0 + 44} => BlockRegistry.default_state("glowstone")})
@@ -245,8 +252,8 @@ defmodule Valimc.RegionLightTest do
 
   test "fresh chunk packets carry current light after edits in and beside the chunk", ctx do
     {x0, z0} = ctx.origin
-    here = World.chunk_key(x0 + 40, z0 + 40)
-    east = World.chunk_key(x0 + 48, z0 + 40)
+    here = Valimc.Data.Grid.chunk_key(x0 + 40, z0 + 40)
+    east = Valimc.Data.Grid.chunk_key(x0 + 48, z0 + 40)
     # Both chunks were sent (and cached) before the edit, as for a player nearby.
     _ = packet_light(here)
     _ = packet_light(east)

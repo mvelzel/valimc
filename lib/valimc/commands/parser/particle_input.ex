@@ -7,7 +7,7 @@ defmodule Valimc.Commands.Parser.ParticleInput do
   geyser particles, `dust_color_transition`) are refused when given options.
   """
   alias Valimc.Text.{Error, Reader, Snbt}
-  alias Valimc.Commands.Parser.Identifier
+  alias Valimc.Text.Identifier
   alias Valimc.Protocol.Wire
 
   def parse(reader) do

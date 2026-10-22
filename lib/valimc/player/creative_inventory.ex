@@ -93,16 +93,16 @@ defmodule Valimc.Player.CreativeInventory do
     packet =
       case state.table_menu do
         %{kind: :chest, id: id, view: view} ->
-          Packets.chest_inventory(id, view.rows, view.slots, inventory)
+          Valimc.Menus.Packets.chest_inventory(id, view.rows, view.slots, inventory)
 
         %{kind: :cooking, id: id, view: view} ->
-          Packets.cooking_inventory(id, view.cooking, inventory)
+          Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory)
 
         %{id: id} ->
-          Packets.table_inventory(id, inventory)
+          Valimc.Menus.Packets.table_inventory(id, inventory)
 
         nil ->
-          Packets.inventory(inventory)
+          Valimc.Menus.Packets.inventory(inventory)
       end
 
     # Generic chest/table contents exclude the offhand, although native F input
@@ -114,8 +114,11 @@ defmodule Valimc.Player.CreativeInventory do
 
     properties =
       case state.table_menu do
-        %{kind: :cooking, id: id, view: view} -> Packets.cooking_properties(id, view.cooking)
-        _ -> []
+        %{kind: :cooking, id: id, view: view} ->
+          Valimc.Menus.Packets.cooking_properties(id, view.cooking)
+
+        _ ->
+          []
       end
 
     send_packets(state, [packet, Packets.cursor(inventory.carried)] ++ offhand ++ properties)
@@ -156,7 +159,11 @@ defmodule Valimc.Player.CreativeInventory do
                click.button
              ) do
           {:ok, nil, inventory, []} ->
-            send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
+            send_packets(state, [
+              Valimc.Menus.Packets.inventory(inventory),
+              Packets.cursor(inventory.carried)
+            ])
+
             %{state | inventory: inventory}
 
           {:ok, nil, inventory, stacks} ->

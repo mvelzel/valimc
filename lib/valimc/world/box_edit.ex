@@ -33,7 +33,8 @@ defmodule Valimc.World.BoxEdit do
           do: {key, {ax, y0, az}, {bx, y1, bz}}
 
     Enum.reduce_while(parts, {:ok, %{}}, fn {key, min, max}, {:ok, acc} ->
-      with {:ok, owner} <- World.existing_owner(World.section(dimension, key, :section)),
+      with {:ok, owner} <-
+             World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section)),
            {:ok, states} <- Region.read_box(owner, min, max) do
         {:cont, {:ok, Map.merge(acc, Map.new(Enum.zip(positions(min, max), decode(states))))}}
       else
@@ -52,7 +53,7 @@ defmodule Valimc.World.BoxEdit do
 
     owners =
       Enum.reduce_while(Enum.sort(parts), {:ok, []}, fn {key, part}, {:ok, acc} ->
-        case World.existing_owner(World.section(dimension, key, :section)) do
+        case World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section)) do
           {:ok, owner} -> {:cont, {:ok, [{owner, part} | acc]}}
           _ -> {:halt, {:error, :unloaded}}
         end
@@ -104,13 +105,15 @@ defmodule Valimc.World.BoxEdit do
 
   @doc "Group `edits` (`position => state`) by region key."
   def by_region(edits) do
-    Enum.group_by(edits, fn {{x, _, z}, _} -> World.region_key(World.chunk_key(x, z)) end)
+    Enum.group_by(edits, fn {{x, _, z}, _} ->
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+    end)
     |> Map.new(fn {key, cells} -> {key, Map.new(cells)} end)
   end
 
   # The box split by region: `{key, {min, max}}` (y as given).
   defp split({x0, y0, z0}, {x1, y1, z1}) do
-    size = Valimc.config(:region_size) * 16
+    size = Valimc.Data.Grid.region_size() * 16
 
     for rx <- Integer.floor_div(x0, size)..Integer.floor_div(x1, size),
         rz <- Integer.floor_div(z0, size)..Integer.floor_div(z1, size) do

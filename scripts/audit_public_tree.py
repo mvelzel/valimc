@@ -63,3 +63,7 @@ if __name__ == "__main__":
     lint = subprocess.run([sys.executable, str(ROOT / "scripts/lint_docs.py")])
     if lint.returncode:
         raise SystemExit("DOCS LINT FAILED (scripts/lint_docs.py)")
+
+    layers = subprocess.run([sys.executable, str(ROOT / "scripts/check_layers.py")])
+    if layers.returncode:
+        raise SystemExit("LAYERING CHECK FAILED (scripts/check_layers.py)")

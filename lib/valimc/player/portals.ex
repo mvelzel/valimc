@@ -118,7 +118,7 @@ defmodule Valimc.Player.Portals do
     for pid <- Valimc.Player.PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Net.Connection.deliver(
+          Valimc.Player.PlayerList.deliver(
             pid,
             {:player_respawned, state.connection, player.entity_id}
           )

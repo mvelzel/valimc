@@ -3,7 +3,8 @@ defmodule Valimc.World.CookingBatch do
   alias Valimc.Blocks.Cooking
   alias Valimc.Blocks.CookingBlocks
   alias Valimc.World.{Containers, CookingEntry}
-  alias Valimc.Entity.{ContainerSpills, Store}
+  alias Valimc.World.ContainerSpills
+  alias Valimc.Entity.Store
   @limit 1024
 
   @doc "Whether an owned processor can change on its next logical tick."

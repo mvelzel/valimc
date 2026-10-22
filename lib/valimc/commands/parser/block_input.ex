@@ -5,8 +5,8 @@ defmodule Valimc.Commands.Parser.BlockInput do
   Block-entity data (`{...}`) is SNBT (`Valimc.Text.Snbt`).
   """
   alias Valimc.Text.{Error, Reader}
-  alias Valimc.Commands.Parser.Identifier
-  alias Valimc.Commands.Registries
+  alias Valimc.Text.Identifier
+  alias Valimc.Protocol.Registries
   alias Valimc.Data.Blocks
 
   defstruct [:block, :state, :tag, properties: %{}, vague: %{}, nbt: nil]

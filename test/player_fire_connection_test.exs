@@ -124,7 +124,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert living(pid).fire_ticks == -20 and
              living(pid).health.value == 20.0
 
-    assert Bitwise.band(Valimc.Protocol.Packets.shared_flags(state(pid).player), 1) == 0
+    assert Bitwise.band(Valimc.Player.Packets.shared_flags(state(pid).player), 1) == 0
     material(ctx, "lava")
 
     Valimc.TestConn.replace(pid, fn s ->

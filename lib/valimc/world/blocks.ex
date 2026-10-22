@@ -29,8 +29,8 @@ defmodule Valimc.World.Blocks do
   then the edits relight incrementally.
   """
   def new({rx, rz} = key, edits \\ %{}, images \\ %{}, absent \\ nil) do
-    size = Valimc.config(:region_size)
-    layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
+    size = Valimc.Data.Grid.region_size()
+    layers = for y <- Valimc.Data.Grid.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
     # The owner's dimension may have no sky light (the Nether, VMC-026b).
     unless Valimc.World.Dimension.facts().sky_light, do: :ok = Native.light_sky(ref, false)
@@ -328,7 +328,7 @@ defmodule Valimc.World.Blocks do
 
   @doc "Sampled random tick hits `{position, state}` for this tick (vanilla positions per section)."
   def random_ticks(%__MODULE__{} = blocks, per_section) do
-    sections = Valimc.config(:region_size) ** 2 * 24
+    sections = Valimc.Data.Grid.region_size() ** 2 * 24
 
     {:ok, hits} =
       Native.dispatch(:random_ticks, per_section * sections, [blocks.ref, per_section])

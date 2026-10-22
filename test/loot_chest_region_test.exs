@@ -42,7 +42,7 @@ defmodule Valimc.LootChestRegionTest do
     end)
 
     {rx, rz} = key
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     {cx, cz} = chunk = {rx * size + 1, rz * size + 2}
     at = fn dx -> {cx * 16 + dx, 70, cz * 16 + 4} end
 

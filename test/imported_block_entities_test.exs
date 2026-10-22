@@ -6,7 +6,6 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}
 
   @sign BlockRegistry.default_state("oak_sign")
@@ -26,7 +25,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     end)
 
     {rx, rz} = key
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     {cx, cz} = chunk = {rx * size + 1, rz * size + 2}
     sign = {cx * 16 + 3, 70, cz * 16 + 4}
     chest = {cx * 16 + 6, 70, cz * 16 + 4}
@@ -85,7 +84,10 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   defp grant(position, secondary \\ false) do
     {x, y, z} = position
     # The 200 ms grant starts once its owner has no write in flight (VMC-073).
-    {:ok, owner} = Valimc.TestWorld.existing_owner(World.region_key(World.chunk_key(x, z)))
+    {:ok, owner} =
+      Valimc.TestWorld.existing_owner(
+        Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+      )
 
     Valimc.TestWait.until(fn ->
       not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner))

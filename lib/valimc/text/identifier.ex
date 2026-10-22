@@ -1,4 +1,4 @@
-defmodule Valimc.Commands.Parser.Identifier do
+defmodule Valimc.Text.Identifier do
   @moduledoc "Vanilla `Identifier.read` and `parse` for command arguments (VMC-053)."
   alias Valimc.Text.{Error, Reader}
 

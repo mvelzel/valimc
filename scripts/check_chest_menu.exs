@@ -39,12 +39,12 @@ for row <- facts["cases"] do
 
   {:ok, contents} = Menu.contents(Menu.chest(rows), storage, %Inventory{slots: slots})
   unless contents == Enum.map(row["contents"], stack), do: raise("Native chest contents differ")
-  {_, body} = Packets.open_chest(17, rows)
+  {_, body} = Valimc.Menus.Packets.open_chest(17, rows)
 
   unless IO.iodata_to_binary(body) == Base.decode16!(row["open_hex"], case: :lower),
     do: raise("Native chest open body differs")
 
-  {_, body} = Packets.chest_inventory(17, rows, storage, %Inventory{slots: slots})
+  {_, body} = Valimc.Menus.Packets.chest_inventory(17, rows, storage, %Inventory{slots: slots})
 
   unless IO.iodata_to_binary(body) == Base.decode16!(row["content_hex"], case: :lower),
     do: raise("Native chest content body differs")

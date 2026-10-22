@@ -255,7 +255,7 @@ defmodule Valimc.World.Containers do
     do:
       region?(key) and x in -2_147_483_648..2_147_483_647 and
         z in -2_147_483_648..2_147_483_647 and Chunk.valid_y?(y) and
-        Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key
+        Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key
 
   defp owned?(_, _), do: false
 

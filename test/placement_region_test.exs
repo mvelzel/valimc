@@ -11,7 +11,7 @@ defmodule Valimc.PlacementRegionTest do
     key = {20_000 + rem(nonce, 3_333) * 3, 700}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     position = {rx * span + 4, 64, rz * span + 4}
     {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
 

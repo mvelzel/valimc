@@ -27,15 +27,18 @@ defmodule Valimc.Commands.Operators do
   defp online(uuid), do: Targets.by_uuid(uuid)
 
   defp disconnect(player, reason),
-    do: Valimc.Net.Connection.deliver(player.pid, {:kick, Text.encode(reason)})
+    do: Valimc.Player.PlayerList.deliver(player.pid, {:kick, Text.encode(reason)})
 
   # `PlayerList.sendPlayerPermissionLevel`: the level event and a new command tree.
   defp push_level(uuid) do
     with %{} = player <- online(uuid) do
       level = Valimc.Admin.Permissions.level(player)
 
-      for packet <- [Packets.permission_level(player.entity_id, level), Packets.commands(level)],
-          do: Valimc.Net.Connection.deliver(player.pid, {:packet, packet})
+      for packet <- [
+            Valimc.Player.Packets.permission_level(player.entity_id, level),
+            Valimc.Commands.packet(level)
+          ],
+          do: Valimc.Player.PlayerList.deliver(player.pid, {:packet, packet})
     end
   end
 
@@ -338,7 +341,7 @@ defmodule Valimc.Commands.Operators do
 
     packet = Packets.packet("transfer", [Wire.string(host), Wire.varint(port)])
 
-    for player <- players, do: Valimc.Net.Connection.deliver(player.pid, {:packet, packet})
+    for player <- players, do: Valimc.Player.PlayerList.deliver(player.pid, {:packet, packet})
 
     message =
       case players do

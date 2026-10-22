@@ -13,6 +13,7 @@ defmodule Valimc.World.TickRate do
   100-sample ring for `/tick query`.
   """
   use GenServer
+  require Logger
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
@@ -219,7 +220,7 @@ defmodule Valimc.World.TickRate do
         Valimc.Text.Number.fixed(mspt, 2)
       ])
 
-    Valimc.Commands.Feedback.console(report)
+    console(report)
     %{state | sprint: nil, frozen: sprint.previous_frozen} |> publish() |> broadcast_state()
   end
 
@@ -240,5 +241,23 @@ defmodule Valimc.World.TickRate do
   defp broadcast(state, packet) do
     Valimc.Player.PlayerList.broadcast({:packet, packet})
     state
+  end
+
+  # The sprint report comes from the server's command source: logged, and
+  # shown to operators as `[Server: ...]` while `sendCommandFeedback` is on.
+  defp console(component) do
+    Logger.info("[Server] " <> Valimc.Text.Render.string(component))
+
+    if Valimc.World.GameRules.get(:send_command_feedback) do
+      message =
+        Text.translatable("chat.type.admin", [Text.literal("Server"), component])
+        |> Text.style([{"color", "gray"}, {"italic", true}])
+
+      for player <- Valimc.Player.PlayerList.all(),
+          Valimc.Admin.Permissions.operator?(player),
+          do: Valimc.Player.PlayerList.deliver(player.pid, {:chat, Text.encode(message)})
+    end
+
+    :ok
   end
 end

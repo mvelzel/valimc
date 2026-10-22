@@ -57,24 +57,7 @@ defmodule Valimc.Commands.Feedback do
 
   @doc "A system message to an online player."
   def tell(%{pid: pid}, component) do
-    Valimc.Net.Connection.deliver(pid, {:chat, Text.encode(component)})
-    :ok
-  end
-
-  @doc "A message from the server console: logged and shown to operators as `[Server: ...]`."
-  def console(component) do
-    Logger.info("[Server] " <> Render.string(component))
-
-    if GameRules.get(:send_command_feedback) do
-      message =
-        Text.translatable("chat.type.admin", [Text.literal("Server"), component])
-        |> Text.style([{"color", "gray"}, {"italic", true}])
-
-      for player <- Targets.online(),
-          Valimc.Admin.Permissions.operator?(player),
-          do: tell(player, message)
-    end
-
+    Valimc.Player.PlayerList.deliver(pid, {:chat, Text.encode(component)})
     :ok
   end
 

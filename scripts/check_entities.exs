@@ -127,7 +127,7 @@ packets =
               String.to_float(points)
             )
 
-          Packets.health(health)
+          Valimc.Player.Packets.health(health)
 
         "pickup" ->
           EntityPackets.pickup(300, 301, 7)

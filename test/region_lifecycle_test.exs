@@ -2,7 +2,6 @@ defmodule Valimc.RegionLifecycleTest do
   use ExUnit.Case, async: false
   # Serial: lowers the global region cap and counts every owner.
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   @coral Valimc.Data.Blocks.default_state("tube_coral_block")
@@ -27,7 +26,7 @@ defmodule Valimc.RegionLifecycleTest do
   end
 
   defp chunks({rx, rz}) do
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   end
 
@@ -43,7 +42,8 @@ defmodule Valimc.RegionLifecycleTest do
       {rx, rz} = first
 
       edit =
-        {rx * Valimc.config(:region_size) * 16 + 3, 70, rz * Valimc.config(:region_size) * 16}
+        {rx * Valimc.Data.Grid.region_size() * 16 + 3, 70,
+         rz * Valimc.Data.Grid.region_size() * 16}
 
       table = fn key -> elem(Valimc.TestWorld.lookup(key), 2).publication end
 
@@ -90,7 +90,7 @@ defmodule Valimc.RegionLifecycleTest do
     TestScope.isolate(key, region_ticks: :manual, random_tick_speed: 0)
     {:ok, owner} = Valimc.TestWorld.owner(key)
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     ticking = {rx * span + 8, 64, rz * span + 8}
     idle = {rx * span + 8 + 64, 64, rz * span + 8 + 64}
     {:ok, observed} = Region.observe_blocks(owner, [ticking, idle])
@@ -98,14 +98,17 @@ defmodule Valimc.RegionLifecycleTest do
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{ticking => @coral, idle => @coral})
 
     Region.ticket(owner, key, :player_simulation, nil, [
-      World.chunk_key(8 + rx * span, 8 + rz * span)
+      Valimc.Data.Grid.chunk_key(8 + rx * span, 8 + rz * span)
     ])
 
     {:ok, _} = Region.step(owner, 100)
     assert Valimc.TestBlocks.get(ticking) == @dead
     assert Valimc.TestBlocks.get(idle) == @coral
 
-    Region.ticket(owner, key, :forced, nil, [World.chunk_key(elem(idle, 0), elem(idle, 2))])
+    Region.ticket(owner, key, :forced, nil, [
+      Valimc.Data.Grid.chunk_key(elem(idle, 0), elem(idle, 2))
+    ])
+
     {:ok, _} = Region.step(owner, 1)
     assert Valimc.TestBlocks.get(idle) == @dead
   end

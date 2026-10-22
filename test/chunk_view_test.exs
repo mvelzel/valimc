@@ -1,7 +1,8 @@
 defmodule Valimc.ChunkViewTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.ClientInformation
-  alias Valimc.Session.{ChunkSender, ChunkView}
+  alias Valimc.Session.ChunkSender
+  alias Valimc.Player.ChunkView
 
   # Views and their differences are the `chunk_view` oracle stage.
   test "a region intersects the view when any of its chunks is tracked" do
@@ -77,7 +78,7 @@ end
 defmodule Valimc.ChunkViewTest.Serial do
   # Changes the server view distance, which every connection reads.
   use ExUnit.Case, async: false
-  alias Valimc.Session.ChunkView
+  alias Valimc.Player.ChunkView
 
   setup do
     old = Application.fetch_env!(:valimc, :view_distance)

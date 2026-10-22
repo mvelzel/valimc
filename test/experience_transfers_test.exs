@@ -4,7 +4,6 @@ defmodule Valimc.ExperienceTransfersTest do
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Player.{GameMode, Progression}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
@@ -83,7 +82,7 @@ defmodule Valimc.ExperienceTransfersTest do
   test "native connection contact collects merged units and sends the persisted XP bar on reconnect",
        ctx do
     name = "XpPickup" <> Integer.to_string(System.unique_integer([:positive]))
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     {:ok, bytes} = PlayerState.encode(uuid, ctx.snapshot)
     path = Valimc.Player.Storage.path(ctx.base, uuid)
     File.mkdir_p!(Path.dirname(path))

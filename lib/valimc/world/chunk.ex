@@ -3,10 +3,8 @@ defmodule Valimc.World.Chunk do
   import Bitwise
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.Data.BlockFacts
-  @min_y -64
-  @max_y 319
-  def min_y, do: @min_y
-  def max_y, do: @max_y
+  @min_y Valimc.Data.Grid.min_y()
+  @max_y Valimc.Data.Grid.max_y()
   @doc "Whether `y` is inside the caller's dimension's build height (VMC-026b)."
   def valid_y?(y) do
     y >= @min_y and y <= @max_y and
@@ -109,7 +107,7 @@ defmodule Valimc.World.Chunk do
       motion,
       Wire.varint(IO.iodata_length(data)),
       data,
-      Valimc.Protocol.ChestBlockEntity.chunk_entries(key, edits, preserved),
+      Valimc.Blocks.ChestBlockEntity.chunk_entries(key, edits, preserved),
       Valimc.Storage.Anvil.Light.packet(light)
     ])
   end

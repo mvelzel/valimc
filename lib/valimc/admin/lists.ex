@@ -290,13 +290,13 @@ defmodule Valimc.Admin.Lists do
             :unknown
 
           cache? ->
-            profile = %{uuid: Valimc.Net.Connection.offline_uuid(key), name: key}
+            profile = %{uuid: Valimc.Data.UUID.offline(key), name: key}
             {:ok, profile, cache(state, profile)}
 
           true ->
             # Seeded operators keep their configured spelling, which is the name
             # the player logs in with.
-            {:ok, %{uuid: Valimc.Net.Connection.offline_uuid(name), name: name}, state}
+            {:ok, %{uuid: Valimc.Data.UUID.offline(name), name: name}, state}
         end
     end
   end

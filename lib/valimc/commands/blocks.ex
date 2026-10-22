@@ -40,8 +40,8 @@ defmodule Valimc.Commands.Blocks do
     barrier = Blocks.default_state("barrier")
     air = Blocks.default_state("air")
     # Destinations above or below the world are skipped and not counted.
-    to_min = put_elem(to_min, 1, max(elem(to_min, 1), Valimc.World.Chunk.min_y()))
-    to_max = put_elem(to_max, 1, min(elem(to_max, 1), Valimc.World.Chunk.max_y()))
+    to_min = put_elem(to_min, 1, max(elem(to_min, 1), Valimc.Data.Grid.min_y()))
+    to_max = put_elem(to_max, 1, min(elem(to_max, 1), Valimc.Data.Grid.max_y()))
 
     boxes = [
       {min, max} | if(elem(to_min, 1) <= elem(to_max, 1), do: [{to_min, to_max}], else: [])
@@ -150,7 +150,7 @@ defmodule Valimc.Commands.Blocks do
 
     count =
       chunks
-      |> Enum.group_by(&Valimc.World.region_key/1)
+      |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
       |> Enum.reduce(0, fn {key, group}, count ->
         with {:ok, owner} <- Source.owner(source, key),
              {:ok, changed} <-

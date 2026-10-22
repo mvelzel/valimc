@@ -14,7 +14,7 @@ defmodule Valimc.FlightConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     key = {70_000 + rem(nonce, 3_333) * 3, 500}
     name = "Flight" <> Integer.to_string(nonce)
-    uuid = Valimc.Net.Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 70.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}, selected: 0}

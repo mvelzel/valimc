@@ -57,7 +57,7 @@ defmodule Valimc.Entity.Store do
   end
 
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
-  def age(state, ticks \\ 1, minimum_y \\ Valimc.World.Chunk.min_y()) do
+  def age(state, ticks \\ 1, minimum_y \\ Valimc.Data.Grid.min_y()) do
     Enum.reduce(state.entries, {state, []}, fn
       {id, %{kind: :orb} = entry}, {items, expired} ->
         # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
@@ -185,7 +185,7 @@ defmodule Valimc.Entity.Store do
     %{value: value, count: count, age: age} = record
 
     valid_position?({x, y, z}) and valid_hops?(record) and
-      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key and
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key and
       is_integer(value) and value in 1..32_767 and is_integer(count) and count >= 1 and
       is_integer(age) and age in -32_768..5_999 and saved?(Map.get(record, :saved))
   end
@@ -193,7 +193,7 @@ defmodule Valimc.Entity.Store do
   def valid_record?(key, %{uuid: <<_::128>>, x: x, y: y, z: z, stack: stack} = record) do
     Map.get(record, :kind, :item) == :item and valid_position?({x, y, z}) and
       valid_record_motion?(record) and valid_hops?(record) and
-      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key and
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key and
       match?({:ok, _}, metadata(1, stack))
   end
 
@@ -280,9 +280,14 @@ defmodule Valimc.Entity.Store do
 
   def create(state, key, stack, {x, y, z} = position) do
     cond do
-      not valid_position?(position) -> {:error, :invalid_item_position}
-      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key -> {:error, :wrong_region}
-      true -> build_new(state, stack, {x, y, z})
+      not valid_position?(position) ->
+        {:error, :invalid_item_position}
+
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) != key ->
+        {:error, :wrong_region}
+
+      true ->
+        build_new(state, stack, {x, y, z})
     end
   end
 
@@ -298,7 +303,7 @@ defmodule Valimc.Entity.Store do
       not valid_position?({x, y, z}) ->
         {:error, :invalid_item_position}
 
-      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key ->
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) != key ->
         {:error, :wrong_region}
 
       not valid_record?(key, record) ->
@@ -437,7 +442,7 @@ defmodule Valimc.Entity.Store do
   defp advance_one(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
     with {:ok, entry} <- current_item(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
-         true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key do
+         true <- Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key do
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
       old = state.views[id]
 
@@ -468,7 +473,7 @@ defmodule Valimc.Entity.Store do
             at: {x, y, z},
             pickup_delay: motion.pickup_delay,
             merge_open: merge_open?(entry.stack.count, state.views[id].merge_max, motion),
-            chunk: Valimc.World.chunk_key(x, z),
+            chunk: Valimc.Data.Grid.chunk_key(x, z),
             velocity: motion.velocity,
             on_ground: motion.on_ground,
             metadata: metadata,

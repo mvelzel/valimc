@@ -5,8 +5,8 @@ defmodule Valimc.WorldTest do
   alias Valimc.Protocol.Wire
 
   test "negative chunk/region boundaries use floor division" do
-    assert World.chunk_key(-0.5, -16.1) == {-1, -2}
-    assert World.region_key({-1, -9}) == {-1, -2}
+    assert Valimc.Data.Grid.chunk_key(-0.5, -16.1) == {-1, -2}
+    assert Valimc.Data.Grid.region_key({-1, -9}) == {-1, -2}
   end
 
   test "a saturated encoder pool does not block region state operations" do

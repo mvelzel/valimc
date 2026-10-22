@@ -3,7 +3,6 @@ defmodule Valimc.PlayerKineticsTest do
   alias Valimc.Player.{GameMode, Abilities, Input, Kinetics, Motion}
   alias Valimc.Native
   alias Valimc.Player.{MotionQuery, PoseQuery}
-  alias Valimc.Physics.Kernel
   alias Valimc.Data.PlayerPose
 
   defp player do
@@ -48,7 +47,10 @@ defmodule Valimc.PlayerKineticsTest do
     refute Kinetics.signature(p) == Kinetics.signature(high)
 
     query = fn player ->
-      Native.physics_player_parity(:kinetic_query, {Kernel.player(player), body.box, true})
+      Native.physics_player_parity(
+        :kinetic_query,
+        {Valimc.Player.Kinetics.player(player), body.box, true}
+      )
     end
 
     {:ok, ordinary} = query.(p)
@@ -71,7 +73,7 @@ defmodule Valimc.PlayerKineticsTest do
     assert tick.paths == [] and length(result.motion.paths) == 1
     candidate = %{target | motion: result.motion}
     refute Kinetics.signature(target) == Kinetics.signature(candidate)
-    {:ok, query} = Kernel.player_query(candidate, nil)
+    {:ok, query} = Valimc.Player.Kinetics.player_query(candidate, nil)
     assert elem(query, 0) <= 2.2 and elem(query, 3) >= 5.8
     incomplete = %{f | supplied: Map.delete(f.supplied, {3, 64, 4})}
     assert {:error, {:missing_block, _}} = MotionQuery.run(p, target, 1, incomplete)

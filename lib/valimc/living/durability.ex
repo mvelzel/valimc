@@ -7,7 +7,7 @@ defmodule Valimc.Living.Durability do
   """
   alias Valimc.Blocks.MiningTools
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  alias Valimc.Data.EnchantmentEffects
+  alias Valimc.Protocol.EnchantmentEffects
 
   @doc "Wear `stack` by `cost`: `{remaining stack or nil, broken stack or nil}`."
   def hurt_and_break(stack, cost, infinite, random \\ &next_float/0)

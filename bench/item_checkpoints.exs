@@ -47,7 +47,10 @@ results =
       end
 
     :ok = RegionStorage.import(Path.expand(base), :overworld, key, %{items: records})
-    {:ok, {pid, _} = owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
+
+    {:ok, {pid, _} = owner} =
+      World.item_owner(Valimc.Data.Grid.section(:overworld, key, :section))
+
     original = :sys.get_state(pid).resource.entities.store
     origin = Map.new(original.entries, fn {id, %{entity: e}} -> {id, {e.x, e.y, e.z}} end)
     {frames, checkpoints} = {metric.(:storage_records), metric.(:region_checkpoints)}

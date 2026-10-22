@@ -4,14 +4,13 @@ defmodule Valimc.Player.Drops do
   alias Valimc.Entity.ItemDrop
   alias Valimc.Data.PlayerPose
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   @poses [:standing, :crouching, :swimming, :sleeping, :fall_flying, :spin_attack, :dying]
   @height_offset 0.30000001192092896
 
   def records(player, stacks, kind) when is_list(stacks) and kind in [:directed, :scattered] do
     with {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)),
          {:ok, records} <- build(player, dimensions["eye_height"], stacks, kind) do
-      {:ok, World.region_key(World.chunk_key(player.x, player.z)), records}
+      {:ok, Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(player.x, player.z)), records}
     else
       _ -> {:error, :invalid_player_drop}
     end

@@ -62,7 +62,7 @@ defmodule Valimc.Commands.Admin do
 
     # `KickCommand`: the disconnect, then the feedback (which a kicked source misses).
     for target <- targets do
-      Valimc.Net.Connection.deliver(target.pid, {:kick, Text.encode(reason)})
+      Valimc.Player.PlayerList.deliver(target.pid, {:kick, Text.encode(reason)})
 
       Feedback.success(
         source,

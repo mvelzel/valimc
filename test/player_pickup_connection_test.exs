@@ -1,10 +1,8 @@
 defmodule Valimc.PlayerPickupConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Player.{GameMode, PlayerList}
   alias Valimc.Menus.Inventory
-  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.World.Region
@@ -19,7 +17,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     Application.put_env(:valimc, :item_simulation, true)
     key = {70000 + rem(nonce, 3333) * 3, 1900}
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}
     names = ["Pickup#{nonce}", "Race#{nonce}"]
 
@@ -45,7 +43,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
       pose: pose,
       names: names,
       name: hd(names),
-      uuid: Connection.offline_uuid(hd(names))
+      uuid: Valimc.Data.UUID.offline(hd(names))
     }
   end
 
@@ -78,7 +76,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
 
   defp spawn_item(c, stack, dx) do
     at = {c.pose.x + dx, c.pose.y, c.pose.z}
-    key = World.region_key(World.chunk_key(c.pose.x + dx, c.pose.z))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(c.pose.x + dx, c.pose.z))
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
     {:ok, handle} = Region.create_item(owner, stack, at)
     {owner, handle, key}

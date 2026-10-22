@@ -59,15 +59,6 @@ defmodule Valimc.Physics.CollisionContext do
 
   def with_entity(_, _, _, _), do: raise(ArgumentError, "invalid entity collision facts")
 
-  @doc "A player's context: its feet at `bottom`, sneaking as it descends, its fall distance."
-  def player(player, bottom) do
-    shift = Bitwise.band(player.input.shared_flags, 2) != 0
-
-    bottom
-    |> entity(shift)
-    |> with_entity(Valimc.Player.Motion.distance(player), false, false)
-  end
-
   def valid?(%__MODULE__{kind: :empty, bottom: bottom, descending: false, placement: false} = c),
     do: is_float(bottom) and bottom == 0.0 and absent_entity?(c) and movement?(c.piston_movement)
 

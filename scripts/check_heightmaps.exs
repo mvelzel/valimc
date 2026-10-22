@@ -5,10 +5,14 @@ alias Valimc.World.Chunk
 
 # One above the column's top state whose mask has `bit`, else the bottom.
 height = fn edits, bit ->
-  Enum.find_value(Chunk.max_y()..Chunk.min_y()//-1, Chunk.min_y(), fn y ->
-    mask = BlockFacts.heightmap(Map.get_lazy(edits, y, fn -> Chunk.base(y) end))
-    if (mask &&& 1 <<< bit) != 0, do: y + 1
-  end)
+  Enum.find_value(
+    Valimc.Data.Grid.max_y()..Valimc.Data.Grid.min_y()//-1,
+    Valimc.Data.Grid.min_y(),
+    fn y ->
+      mask = BlockFacts.heightmap(Map.get_lazy(edits, y, fn -> Chunk.base(y) end))
+      if (mask &&& 1 <<< bit) != 0, do: y + 1
+    end
+  )
 end
 
 for row <- :json.decode(File.read!(trace_path)) do

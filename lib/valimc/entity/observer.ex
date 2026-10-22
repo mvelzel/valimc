@@ -153,7 +153,7 @@ defmodule Valimc.Entity.Observer do
   defp entry(view),
     do: %{epoch: view.epoch, tracker: view.tracker, since: view.tick, region: region(view)}
 
-  defp region(view), do: Valimc.World.region_key(view.chunk)
+  defp region(view), do: Valimc.Data.Grid.region_key(view.chunk)
 
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 end

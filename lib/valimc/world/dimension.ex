@@ -18,7 +18,7 @@ defmodule Valimc.World.Dimension do
   19 and the rest stays air. Packets send only the dimension's own sections.
   """
 
-  @ids [:overworld, :the_nether, :the_end]
+  @ids Valimc.Data.Grid.levels()
   @context {__MODULE__, :current}
 
   def ids, do: @ids

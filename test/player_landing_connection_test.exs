@@ -15,7 +15,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
   setup do
     nonce = System.unique_integer([:positive])
     name = "Land#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     base = Path.join(System.tmp_dir!(), "valimc-landing-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)

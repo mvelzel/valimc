@@ -2,7 +2,6 @@ defmodule Valimc.PlayerHealthConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
@@ -12,7 +11,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
   setup do
     nonce = System.unique_integer([:positive])
     name = "Health#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     base = Path.join(System.tmp_dir!(), "valimc-health-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)

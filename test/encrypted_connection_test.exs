@@ -3,7 +3,7 @@ defmodule Valimc.EncryptedConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Encryption, Wire}
-  alias Valimc.Net.{Connection, KeyExchange, LoginKeys}
+  alias Valimc.Net.{KeyExchange, LoginKeys}
   alias Valimc.Player.PlayerList
 
   setup do
@@ -44,7 +44,7 @@ defmodule Valimc.EncryptedConnectionTest do
 
   defp assert_no_lease(pid, name) do
     assert PlayerList.get(pid) == :error
-    assert Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid(name)) == []
+    assert Registry.lookup(Valimc.PlayerRegistry, Valimc.Data.UUID.offline(name)) == []
   end
 
   test "fragmented plaintext key response, encrypted configuration/chunks/commands and independent peer" do
@@ -61,7 +61,7 @@ defmodule Valimc.EncryptedConnectionTest do
     {:ok, cipher} = Encryption.new(secret)
     {uuid, client} = Client.login_session(Map.put(client, :cipher, cipher), name)
     client = Client.load_world(client)
-    assert uuid == Connection.offline_uuid(name)
+    assert uuid == Valimc.Data.UUID.offline(name)
     assert Valimc.TestConn.state(pid).cipher.owner == pid
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {body, client} = Client.await_stats(client)
@@ -114,7 +114,7 @@ defmodule Valimc.EncryptedConnectionTest do
     eventually(fn -> not Process.alive?(pid) end)
 
     eventually(fn ->
-      Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid("CryptoReplay")) == []
+      Registry.lookup(Valimc.PlayerRegistry, Valimc.Data.UUID.offline("CryptoReplay")) == []
     end)
 
     Client.close(client)

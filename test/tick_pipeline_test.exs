@@ -51,7 +51,7 @@ defmodule Valimc.TickPipelineTest do
 
   defp blocks(owner, key, block) do
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
 
     positions =
       for x <- 0..(span - 1), z <- 0..(span - 1), do: {rx * span + x, 63, rz * span + z}

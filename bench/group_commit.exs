@@ -24,7 +24,7 @@ region =
     handles =
       for i <- 1..owners do
         key = {9300 + owners * 100 + i, 9300}
-        {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
+        {:ok, owner} = World.owner(Valimc.Data.Grid.section(:overworld, key, :section))
         {key, owner}
       end
 

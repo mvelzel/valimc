@@ -12,7 +12,8 @@ defmodule Valimc.Commands.Targets do
   ValiMC's only selectable entities until mobs have owners.
   """
   alias Valimc.Text.Error
-  alias Valimc.Commands.Parser.Selector
+  alias Valimc.Text.{Range, Selector}
+  alias Valimc.Protocol.Registries
   alias Valimc.Commands.Source
 
   @fields ~w(pid name uuid entity_id address dimension x y z yaw pitch game_mode progression)a
@@ -41,7 +42,7 @@ defmodule Valimc.Commands.Targets do
       end
 
     own = source.player && Enum.find(candidates, &(&1.pid == source.player.pid))
-    Selector.find(selector, candidates, own, source.position)
+    find(selector, candidates, own, source.position)
   end
 
   @doc "`EntityArgument.getPlayers`: at least one player or `argument.entity.notfound.player`."
@@ -109,7 +110,7 @@ defmodule Valimc.Commands.Targets do
 
   # Players the spatial index holds in the regions within `radius` of `{x, z}`.
   defp nearby(source, {x, z, radius}) do
-    size = Valimc.config(:region_size) * 16
+    size = Valimc.Data.Grid.region_size() * 16
     [rx0, rx1] = for edge <- [x - radius, x + radius], do: Integer.floor_div(floor(edge), size)
     [rz0, rz1] = for edge <- [z - radius, z + radius], do: Integer.floor_div(floor(edge), size)
 
@@ -123,4 +124,103 @@ defmodule Valimc.Commands.Targets do
 
     projections(pids)
   end
+
+  # Players a selector picks for a source at `origin` (`EntitySelector.findEntities`):
+  # `players` are the online player maps, `self` the source's player map or nil.
+  defp find(%Selector{} = s, players, self, origin) do
+    # Players have no saved entity data to compare yet.
+    if Enum.any?(s.predicates, &match?({:nbt, _, _}, &1)),
+      do: Error.refuse!("Selector nbt= is not supported yet")
+
+    cond do
+      s.player_name ->
+        players
+        |> Enum.filter(&(String.downcase(&1.name) == String.downcase(s.player_name)))
+        |> Enum.take(1)
+
+      s.uuid ->
+        players |> Enum.filter(&(&1.uuid == s.uuid)) |> Enum.take(1)
+
+      s.current_entity ->
+        if self && matches?(s, self, origin), do: [self], else: []
+
+      true ->
+        position = {s.x || elem(origin, 0), s.y || elem(origin, 1), s.z || elem(origin, 2)}
+
+        players
+        |> Enum.filter(&matches?(s, &1, position))
+        |> sort(s.order, position)
+        |> Enum.take(s.max_results)
+    end
+  end
+
+  defp matches?(s, player, position) do
+    in_box?(s, player, position) and in_distance?(s, player, position) and
+      Enum.all?(s.predicates, &predicate?(&1, player))
+  end
+
+  defp in_box?(%{dx: nil, dy: nil, dz: nil}, _player, _position), do: true
+
+  defp in_box?(s, player, {x, y, z}) do
+    {x0, x1} = span(s.dx || 0.0, x)
+    {y0, y1} = span(s.dy || 0.0, y)
+    {z0, z1} = span(s.dz || 0.0, z)
+    # The player's hitbox (0.6 x 1.8, smaller when crouching is ignored) intersects the box.
+    player.x + 0.3 > x0 and player.x - 0.3 < x1 and player.y + 1.8 > y0 and player.y < y1 and
+      player.z + 0.3 > z0 and player.z - 0.3 < z1
+  end
+
+  defp span(delta, origin) when delta < 0, do: {origin + delta, origin + 1.0}
+  defp span(delta, origin), do: {origin, origin + delta + 1.0}
+
+  defp in_distance?(%{distance: nil}, _player, _position), do: true
+
+  defp in_distance?(%{distance: range}, player, {x, y, z}) do
+    squared = (player.x - x) ** 2 + (player.y - y) ** 2 + (player.z - z) ** 2
+    Range.matches_squared?(range, squared)
+  end
+
+  # `Entity.isAlive` (commands audit E9: comparing the health struct with 0 was always true).
+  defp predicate?(:alive, player), do: alive?(player)
+  defp predicate?({:name, name, inverted}, player), do: player.name == name != inverted
+
+  defp predicate?({:gamemode, mode, inverted}, player),
+    do: game_mode(player) == mode != inverted
+
+  defp predicate?({:team, team, inverted}, _player), do: team == "" != inverted
+  defp predicate?({:type, type, inverted}, _player), do: type == "minecraft:player" != inverted
+
+  defp predicate?({:type_tag, tag, inverted}, _player) do
+    members = Registries.tag("minecraft:entity_type", tag) || []
+    player = Valimc.Data.EntityTypes.id("minecraft:player")
+    player in members != inverted
+  end
+
+  defp predicate?({:tag, "", inverted}, _player), do: not inverted
+  defp predicate?({:tag, _tag, inverted}, _player), do: inverted
+  defp predicate?({:scores, _}, _player), do: false
+  defp predicate?({:advancements, _}, _player), do: false
+  defp predicate?({:predicate, _, _}, _player), do: false
+
+  defp predicate?({:level, range}, player),
+    do: Range.matches?(range, get_in(player, [:progression, :experience, :level]) || 0)
+
+  defp predicate?({:rot_x, range}, player),
+    do: Range.rotation?(range, Map.get(player, :pitch, 0.0))
+
+  defp predicate?({:rot_y, range}, player), do: Range.rotation?(range, Map.get(player, :yaw, 0.0))
+
+  defp game_mode(%{game_mode: %{current: mode}}), do: mode
+  defp game_mode(%{game_mode: mode}) when is_atom(mode), do: mode
+  defp game_mode(_), do: nil
+
+  defp sort(players, :arbitrary, _), do: players
+  defp sort(players, :random, _), do: Enum.shuffle(players)
+  defp sort(players, :nearest, position), do: Enum.sort_by(players, &squared(&1, position))
+
+  defp sort(players, :furthest, position),
+    do: Enum.sort_by(players, &squared(&1, position), :desc)
+
+  defp squared(player, {x, y, z}),
+    do: (player.x - x) ** 2 + (player.y - y) ** 2 + (player.z - z) ** 2
 end

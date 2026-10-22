@@ -129,7 +129,7 @@ defmodule Valimc.Commands.Source do
   is not loaded is not started (`argument.pos.unloaded` for the caller).
   """
   def owner(%__MODULE__{dimension: dimension}, key),
-    do: Valimc.World.existing_owner(Valimc.World.section(dimension, key, :section))
+    do: Valimc.World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section))
 
   def self?(%__MODULE__{player: nil}, _target), do: false
   def self?(%__MODULE__{player: player}, target), do: target.pid == player.pid

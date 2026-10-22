@@ -5,9 +5,10 @@ defmodule Valimc.Commands.Parser.Arguments do
   `supported/0` lists the parsers ValiMC parses; `Valimc.Commands` refuses to
   compile a handler whose path needs any other.
   """
-  alias Valimc.Commands.Parser.{BlockInput, Coordinates, Identifier, ItemInput, Selector}
+  alias Valimc.Commands.Parser.{BlockInput, Coordinates, ItemInput}
+  alias Valimc.Text.{Identifier, Selector}
   alias Valimc.Text.{Error, Reader}
-  alias Valimc.Commands.Registries
+  alias Valimc.Protocol.Registries
 
   @int_min -2_147_483_648
   @int_max 2_147_483_647

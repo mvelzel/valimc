@@ -10,7 +10,7 @@ defmodule Valimc.Commands.Effects do
 
   @sources ~w(master music record weather block hostile neutral player ambient voice ui)
 
-  defp deliver(%{pid: pid}, packet), do: Valimc.Net.Connection.deliver(pid, {:packet, packet})
+  defp deliver(%{pid: pid}, packet), do: Valimc.Player.PlayerList.deliver(pid, {:packet, packet})
 
   # ---- particle ----
 

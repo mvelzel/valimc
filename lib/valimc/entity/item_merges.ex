@@ -76,8 +76,8 @@ defmodule Valimc.Entity.ItemMerges do
            {:ok, next, [recipient_handle]} <-
              Store.advance(
                next,
-               Valimc.World.region_key(
-                 Valimc.World.chunk_key(recipient.entity.x, recipient.entity.z)
+               Valimc.Data.Grid.region_key(
+                 Valimc.Data.Grid.chunk_key(recipient.entity.x, recipient.entity.z)
                ),
                epoch,
                [

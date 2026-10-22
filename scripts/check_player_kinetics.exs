@@ -52,7 +52,7 @@ Enum.each(data["support"], fn c ->
 
   groups =
     Enum.group_by(plan, fn {{px, _, pz}, _} ->
-      Valimc.World.region_key(Valimc.World.chunk_key(px, pz))
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(px, pz))
     end)
 
   observations =

@@ -91,7 +91,7 @@ packets =
 
     if rem(index, 5) == 0 do
       container = 1 + rem(index, 127)
-      {id, bytes} = Packets.table_inventory(container, result)
+      {id, bytes} = Valimc.Menus.Packets.table_inventory(container, result)
 
       unless id == Data.id(:play, :clientbound, "container_set_content"),
         do: raise("Wrong table content packet ID")
@@ -111,7 +111,7 @@ packets =
   end)
 
 unless length(cases) == 11_990, do: raise("Incomplete table click coverage:#{length(cases)}")
-{id, open} = Packets.open_table(17)
+{id, open} = Valimc.Menus.Packets.open_table(17)
 unless id == Data.id(:play, :clientbound, "open_screen"), do: raise("Wrong open table packet ID")
 
 File.write!(

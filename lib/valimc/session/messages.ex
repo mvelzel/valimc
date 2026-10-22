@@ -37,6 +37,28 @@ defmodule Valimc.Session.Messages do
     :experience_pickup
   ]
 
+  @doc """
+  The session's exception boundary: malformed input and server defects both
+  end the session, never silently; a thrown `{:disconnect, ...}` ends it too.
+  """
+  def guard(state, work) do
+    work.()
+  rescue
+    exception ->
+      # Malformed input and server defects both end the session; never silently.
+      Metrics.add(:malformed_connections)
+
+      Logger.warning(
+        "Connection closed after exception: " <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      {:stop, :normal, state}
+  catch
+    {:disconnect, _reason, current} -> {:stop, :normal, current}
+    {:disconnect, _reason} -> {:stop, :normal, state}
+  end
+
   @doc "Route `message`: a session job's outcome (`Valimc.Player.Jobs`) or another message."
   def dispatch(message, %{jobs: %Jobs{}} = state) do
     case Jobs.classify(state.jobs, message) do
@@ -104,7 +126,7 @@ defmodule Valimc.Session.Messages do
   end
 
   def info({:tcp, socket, data}, %{socket: socket} = state) do
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       state = reset_window(state)
       bytes = state.bytes + byte_size(data)
       if bytes > Valimc.config(:bytes_per_second), do: reject(state, "Inbound byte rate exceeded")
@@ -123,7 +145,7 @@ defmodule Valimc.Session.Messages do
 
   def info(:drain, state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         Valimc.Net.Connection.consume(state, 64)
       end)
 
@@ -139,7 +161,7 @@ defmodule Valimc.Session.Messages do
     Valimc.Net.KeyExchange.cancel(job)
     state = %{state | key_job: nil}
 
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       if System.monotonic_time(:millisecond) >= job.deadline,
         do: reject(state, "Login encryption timed out")
 
@@ -197,7 +219,7 @@ defmodule Valimc.Session.Messages do
     Valimc.Net.Auth.SessionJobs.cancel(job)
     state = %{state | auth_job: nil}
 
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       if System.monotonic_time(:millisecond) >= job.deadline,
         do: reject(state, "Authentication timed out")
 
@@ -223,7 +245,7 @@ defmodule Valimc.Session.Messages do
   def info({:session_deadline, token}, %{auth_job: %{token: token} = job} = state) do
     if System.monotonic_time(:millisecond) >= job.deadline,
       do:
-        Valimc.Net.Connection.guard_connection(state, fn ->
+        guard(state, fn ->
           reject(state, "Authentication timed out")
         end),
       else: {:noreply, state}
@@ -233,14 +255,14 @@ defmodule Valimc.Session.Messages do
 
   def info({:DOWN, ref, :process, _, _}, %{auth_job: %{monitor: ref}} = state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         reject(state, "Authentication servers unavailable; please retry")
       end)
 
   def info({:key_deadline, token}, %{key_job: %{token: token} = job} = state) do
     if System.monotonic_time(:millisecond) >= job.deadline,
       do:
-        Valimc.Net.Connection.guard_connection(state, fn ->
+        guard(state, fn ->
           reject(state, "Login encryption timed out")
         end),
       else: {:noreply, state}
@@ -250,7 +272,7 @@ defmodule Valimc.Session.Messages do
 
   def info({:DOWN, ref, :process, _, _}, %{key_job: %{monitor: ref}} = state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         reject(state, "Login encryption unavailable")
       end)
 
@@ -276,7 +298,7 @@ defmodule Valimc.Session.Messages do
 
   # Replies to chunk requests (VMC-077e) are tagged with the request's alias.
   def info({[:alias | ref], _} = message, state) when is_reference(ref) do
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       case Replication.chunk_reply(state, message) do
         {:ok, state} -> {:noreply, state}
         :error -> {:noreply, state}
@@ -288,7 +310,7 @@ defmodule Valimc.Session.Messages do
   def info(:login_deadline, state), do: {:stop, :normal, state}
 
   def info(:keepalive, state) do
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       Process.send_after(self(), :keepalive, Valimc.config(:keepalive_interval_ms))
 
       if state.phase == :play do
@@ -329,7 +351,7 @@ defmodule Valimc.Session.Messages do
         {:player_tick, token},
         %{phase: :play, simulation_clock: %TickClock{} = clock} = state
       ) do
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       case TickClock.advance(clock, token, System.monotonic_time(:millisecond)) do
         {:ok, next, late, delay} ->
           schedule_player_tick(state, next, delay)
@@ -386,7 +408,7 @@ defmodule Valimc.Session.Messages do
   # timer): input and equipment, the pose, its own flags, and the items and
   # orbs it touches.
   def info(:publish_movement, %{phase: :play} = state) do
-    Valimc.Net.Connection.guard_connection(state, fn ->
+    guard(state, fn ->
       state =
         Movement.update_player_input(
           ItemUse.publish_equipment(state),
@@ -395,9 +417,9 @@ defmodule Valimc.Session.Messages do
         |> Movement.sample_pose()
 
       state =
-        if state.player_flags_view != Packets.shared_flags(state.player) do
-          send_packets(state, [Packets.player_flags(state.player)])
-          %{state | player_flags_view: Packets.shared_flags(state.player)}
+        if state.player_flags_view != Valimc.Player.Packets.shared_flags(state.player) do
+          send_packets(state, [Valimc.Player.Packets.player_flags(state.player)])
+          %{state | player_flags_view: Valimc.Player.Packets.shared_flags(state.player)}
         else
           state
         end
@@ -414,7 +436,7 @@ defmodule Valimc.Session.Messages do
   # or grid left from a lost connection returns, and a death continues.
   def info(:entered, state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         state =
           case Inventory.disconnect(state.inventory) do
             {:ok, _, []} ->
@@ -438,13 +460,13 @@ defmodule Valimc.Session.Messages do
   # packet tasks between ticks.
   def info({:input, id, payload}, state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         {:noreply, Valimc.Net.Serverbound.handle_packet(state, id, payload)}
       end)
 
   def info(:send_chunks, state),
     do:
-      Valimc.Net.Connection.guard_connection(state, fn ->
+      guard(state, fn ->
         {:noreply, Replication.stream_chunks(state)}
       end)
 
@@ -453,7 +475,7 @@ defmodule Valimc.Session.Messages do
   def info({:event, {:in_dimension, dimension, event}}, state) do
     if dimension == Valimc.World.Dimension.current(),
       do:
-        Valimc.Net.Connection.guard_connection(state, fn ->
+        guard(state, fn ->
           {:noreply, Events.session(state, event)}
         end),
       else: {:noreply, state}
@@ -465,7 +487,7 @@ defmodule Valimc.Session.Messages do
          Valimc.World.Dimension.current() != :overworld,
        do: {:noreply, state},
        else:
-         Valimc.Net.Connection.guard_connection(state, fn ->
+         guard(state, fn ->
            {:noreply, Events.session(state, event)}
          end)
   end
@@ -527,9 +549,9 @@ defmodule Valimc.Session.Messages do
   # The items and orbs within reach of a pickup: the chunks around the player.
   defp touching(state) do
     %{x: x, z: z, dimension: dimension} = state.player
-    {cx, cz} = World.chunk_key(x, z)
+    {cx, cz} = Valimc.Data.Grid.chunk_key(x, z)
     chunks = for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}
-    sections = MapSet.new(chunks, &World.section(dimension, &1))
+    sections = MapSet.new(chunks, &Valimc.Data.Grid.section(dimension, &1))
     World.visible_entities(sections, chunks, state.pickup_cache)
   end
 end

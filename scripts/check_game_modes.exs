@@ -15,8 +15,8 @@ results =
     }
 
     player = %{entity_id: 42, uuid: <<12::128>>, name: "ModeProbe", game_mode: mode}
-    {_, login} = Packets.login(player)
-    {_, info} = Packets.player_info(player)
+    {_, login} = Valimc.Player.Packets.login(player)
+    {_, info} = Valimc.Player.Packets.player_info(player)
     login = login |> IO.iodata_to_binary() |> Base.encode16(case: :lower)
     if login != c["login"], do: raise("Native login-mode bytes differ: #{inspect(c)}")
     Map.put(c, "info", info |> IO.iodata_to_binary() |> Base.encode16(case: :lower))

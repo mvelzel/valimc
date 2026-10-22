@@ -23,7 +23,7 @@ packets =
           Packets.level_load_start()
 
         ["health", health, food, saturation] ->
-          Packets.health(
+          Valimc.Player.Packets.health(
             %Health{value: String.to_float(health)},
             %Valimc.Player.Food{
               level: String.to_integer(food),
@@ -38,7 +38,10 @@ packets =
               if(previous == "-1", do: nil, else: GameMode.from_id(String.to_integer(previous)))
           }
 
-          Packets.respawn(%{game_mode: mode}, Enum.at(positions, String.to_integer(location)))
+          Valimc.Player.Packets.respawn(
+            %{game_mode: mode},
+            Enum.at(positions, String.to_integer(location))
+          )
 
         [source, id] when source in ["fall", "stalagmite", "freeze", "drown", "starve"] ->
           Packets.damage_event(String.to_integer(id), String.to_existing_atom(source))

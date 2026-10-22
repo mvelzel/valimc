@@ -42,14 +42,14 @@ for c <- cases do
     }
 
     target = %{player | x: player.x + dx, y: y + dy, z: player.z + dz}
-    {:ok, packet_box} = Kernel.player_query(player, target)
+    {:ok, packet_box} = Valimc.Player.Kinetics.player_query(player, target)
     {:ok, standing} = PlayerPose.geometry(:standing, {player.x, y, player.z})
     tick_player = %{player | motion: %{player.motion | velocity: {dx, dy, dz}}}
 
     {:ok, tick_box} =
       Native.physics_player_parity(
         :kinetic_query,
-        {Kernel.player(tick_player), standing.box, false}
+        {Valimc.Player.Kinetics.player(tick_player), standing.box, false}
       )
 
     for box <- [packet_box, tick_box] do

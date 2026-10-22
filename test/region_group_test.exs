@@ -59,7 +59,7 @@ defmodule Valimc.RegionGroupTest do
     stone = BlockRegistry.default_state("stone")
     set({ctx.pb, ctx.eb}, position(ctx.b), stone)
     {x, y, z} = position(ctx.b, 6)
-    chunk = Valimc.World.chunk_key(x, z)
+    chunk = Valimc.Data.Grid.chunk_key(x, z)
     published = View.row(View.new(), chunk)
     assert ctx.pa != ctx.pb
     merge(ctx)

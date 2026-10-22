@@ -17,7 +17,7 @@ defmodule Valimc.RegionDirectoryTest do
 
   test "ready routing and item observations work while the cold directory is suspended", ctx do
     assert {:ok, {pid, epoch} = owner} = Valimc.TestWorld.owner(ctx.key)
-    size = Valimc.config(:region_size) * 16
+    size = Valimc.Data.Grid.region_size() * 16
     position = {elem(ctx.key, 0) * size, 64, elem(ctx.key, 1) * size}
     assert :ok = Valimc.TestBlocks.set(position, 1)
     {^pid, _, %{publication: table}} = Valimc.TestWorld.lookup(ctx.key)

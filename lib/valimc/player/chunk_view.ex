@@ -1,4 +1,4 @@
-defmodule Valimc.Session.ChunkView do
+defmodule Valimc.Player.ChunkView do
   @moduledoc """
   Which chunks a player tracks (VMC-070), as vanilla 26.3's `ChunkTrackingView`.
 
@@ -81,4 +81,20 @@ defmodule Valimc.Session.ChunkView do
 
   defp union({ax0, az0, ax1, az1}, {bx0, bz0, bx1, bz1}),
     do: {min(ax0, bx0), min(az0, bz0), max(ax1, bx1), max(az1, bz1)}
+
+  @doc "The sections (routing keys) holding any chunk of the view."
+  def regions({{cx, cz}, distance} = view, dimension) do
+    size = Valimc.Data.Grid.region_size()
+    {rx0, rz0} = Valimc.Data.Grid.region_key({cx - distance - 1, cz - distance - 1})
+    {rx1, rz1} = Valimc.Data.Grid.region_key({cx + distance + 1, cz + distance + 1})
+
+    for rx <- rx0..rx1,
+        rz <- rz0..rz1,
+        intersects?(
+          view,
+          {rx * size, rz * size, rx * size + size - 1, rz * size + size - 1}
+        ),
+        into: MapSet.new(),
+        do: {dimension, rx, rz}
+  end
 end

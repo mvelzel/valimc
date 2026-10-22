@@ -230,7 +230,7 @@ defmodule Valimc.Text.Codec do
   defp parse_selector(text) do
     reader = Valimc.Text.Reader.new(text)
 
-    case Valimc.Text.Error.catching(fn -> Valimc.Commands.Parser.Selector.parse(reader, true) end) do
+    case Valimc.Text.Error.catching(fn -> Valimc.Text.Selector.parse(reader, true) end) do
       {:ok, {_selector, after_selector}} ->
         if Valimc.Text.Reader.can_read?(after_selector),
           do: {:error, "Invalid selector component: #{text}"},

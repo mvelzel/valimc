@@ -1,4 +1,4 @@
-defmodule Valimc.Entity.ContainerSpills do
+defmodule Valimc.World.ContainerSpills do
   @moduledoc "A broken container's stacks scatter as item entities, in the same commit as its block change."
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Entity.ContainerScatter

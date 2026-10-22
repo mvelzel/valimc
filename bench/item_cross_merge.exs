@@ -46,7 +46,7 @@ defmodule Valimc.CrossMergeBench do
         owners =
           for {k, records} <- [{key, donors}, {target, recipients}] do
             :ok = RegionStorage.import(base, :overworld, k, %{items: records})
-            {:ok, owner} = World.item_owner(Valimc.World.section(:overworld, k, :section))
+            {:ok, owner} = World.item_owner(Valimc.Data.Grid.section(:overworld, k, :section))
             # Items simulate and merge only while a ticket makes the region tick.
             chunks = Valimc.World.RegionGeneration.chunks_of(k)
             :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
@@ -128,7 +128,7 @@ defmodule Valimc.CrossMergeBench do
         {pid, _} <-
           Registry.lookup(
             Valimc.RegionRegistry,
-            Valimc.World.section(:overworld, {x, z}, :section)
+            Valimc.Data.Grid.section(:overworld, {x, z}, :section)
           ),
         do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
@@ -140,7 +140,8 @@ defmodule Valimc.CrossMergeBench do
 
     times =
       Enum.reduce(groups, times, fn g, acc ->
-        for {_, view} <- World.item_snapshot(Valimc.World.section(:overworld, g.target, :section)),
+        for {_, view} <-
+              World.item_snapshot(Valimc.Data.Grid.section(:overworld, g.target, :section)),
             view.count == 5,
             reduce: acc do
           acc -> Map.put_new(acc, view.uuid, System.monotonic_time(:microsecond) - started)

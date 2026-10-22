@@ -20,7 +20,7 @@ owners =
             end
           end), make_ref()}}
 
-region = fn {x, _, z} -> Valimc.World.region_key(Valimc.World.chunk_key(x, z)) end
+region = fn {x, _, z} -> Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) end
 
 try do
   for {c, index} <- Enum.with_index(cases) do

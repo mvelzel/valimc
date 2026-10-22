@@ -1,6 +1,5 @@
 defmodule Valimc.Entity.ItemPickup do
   @moduledoc "Unmounted native pickup contact from an accepted player body and current owned item."
-  alias Valimc.Player.GameMode
   alias Valimc.Data.Box
 
   def query_box({x0, y0, z0, x1, y1, z1} = box) do
@@ -26,7 +25,7 @@ defmodule Valimc.Entity.ItemPickup do
         %{
           uuid: <<_::128>> = uuid,
           box: box,
-          game_mode: %GameMode{current: mode},
+          game_mode: %{current: mode},
           health: %{value: hp}
         } = actor,
         %{entity: %{x: x, y: y, z: z}} = entry

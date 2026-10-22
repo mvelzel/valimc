@@ -109,7 +109,7 @@ defmodule Valimc.RegionLoadingTest do
 
       try do
         assert {:ok, {:ok, {other, epoch}}} = Task.yield(healthy, 1000)
-        size = Valimc.config(:region_size) * 16
+        size = Valimc.Data.Grid.region_size() * 16
         position = {elem(independent, 0) * size, 64, elem(independent, 1) * size}
         assert :ok = Valimc.TestBlocks.set(position, 1)
 

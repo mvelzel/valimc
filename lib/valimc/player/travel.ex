@@ -114,7 +114,7 @@ defmodule Valimc.Player.Travel do
       for pid <- peers,
           pid != state.connection,
           do:
-            Valimc.Net.Connection.deliver(
+            Valimc.Player.PlayerList.deliver(
               pid,
               {:player_respawned, state.connection, player.entity_id}
             )

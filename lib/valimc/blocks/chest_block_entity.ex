@@ -1,4 +1,4 @@
-defmodule Valimc.Protocol.ChestBlockEntity do
+defmodule Valimc.Blocks.ChestBlockEntity do
   @moduledoc "Pinned chest presentation and chunk block-entity lists; stored items belong exclusively to container menus."
   import Bitwise
   alias Valimc.Protocol.{Packets, Wire}

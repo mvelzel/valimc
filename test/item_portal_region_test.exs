@@ -10,7 +10,6 @@ defmodule Valimc.ItemPortalRegionTest do
   alias Valimc.World.Portal.Access
   alias Valimc.Blocks.PortalBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.Entity.Store
   alias Valimc.World.Region
 
@@ -66,7 +65,7 @@ defmodule Valimc.ItemPortalRegionTest do
       motion: %ItemMotionState{velocity: {0.0, -0.2, 0.0}, age: 30, pickup_delay: 5}
     }
 
-    region = World.region_key(World.chunk_key(x, z))
+    region = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
 
     Valimc.TestDisk.write(Dimension.storage(ctx.base, dimension), region, :items, %{
       records: [record]
@@ -96,7 +95,7 @@ defmodule Valimc.ItemPortalRegionTest do
   # The item, searched in the regions around `position` of `dimension`.
   defp found(dimension, {x, _, z}) do
     Dimension.within(dimension, fn ->
-      World.region_key(World.chunk_key(x, z))
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
       |> TestScope.neighborhood()
       |> Enum.find_value(fn key ->
         {:ok, owner} = Valimc.TestWorld.item_owner(key)

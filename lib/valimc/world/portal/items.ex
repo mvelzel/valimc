@@ -65,7 +65,13 @@ defmodule Valimc.World.Portal.Items do
       true ->
         with :ok <- Access.commit([{request.position, EndPortal.with_eye(frame)}]) do
           {x, _, z} = request.position
-          key = World.section(Valimc.World.Dimension.current(), World.chunk_key(x, z))
+
+          key =
+            Valimc.Data.Grid.section(
+              Valimc.World.Dimension.current(),
+              Valimc.Data.Grid.chunk_key(x, z)
+            )
+
           World.publish(key, {:level_events, [{request.position, 1503, 0}]})
 
           opened =
@@ -149,10 +155,14 @@ defmodule Valimc.World.Portal.Items do
   defp correct(request, connection) do
     [request.position, Valimc.Blocks.Placement.adjacent(request)]
     |> Enum.uniq()
-    |> Enum.group_by(fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end)
+    |> Enum.group_by(fn {x, _, z} ->
+      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+    end)
     |> Enum.reduce_while({:ok, []}, fn {key, positions}, {:ok, packets} ->
       with {:ok, owner} <-
-             World.existing_owner(World.section(Valimc.World.Dimension.current(), key, :section)),
+             World.existing_owner(
+               Valimc.Data.Grid.section(Valimc.World.Dimension.current(), key, :section)
+             ),
            :ok <- Region.correct_blocks(owner, positions, connection) do
         {:cont, {:ok, packets}}
       else

@@ -205,7 +205,9 @@ defmodule Valimc.Player.Mining do
   # The block at `position` from its owner, the player's own group.
   defp observe(state, {x, _, z} = position) do
     with {:ok, owner} <-
-           World.existing_owner(World.section(state.player.dimension, World.chunk_key(x, z))),
+           World.existing_owner(
+             Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
+           ),
          {:ok, observed} <- Region.observe_blocks(owner, [position]),
          do: {:ok, owner, Map.fetch!(observed.blocks, position)}
   end
@@ -229,7 +231,9 @@ defmodule Valimc.Player.Mining do
   def correct_mining(state, {x, _, z} = position) do
     with true <- reachable?(state, position),
          {:ok, owner} <-
-           World.existing_owner(World.section(state.player.dimension, World.chunk_key(x, z))),
+           World.existing_owner(
+             Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
+           ),
          {:ok, observed} <- Region.observe_blocks(owner, [position]),
          {:ok, update} <- Region.block_entity_update(owner, position) do
       send_packets(state, [Packets.block(position, observed.blocks[position]) | List.wrap(update)])

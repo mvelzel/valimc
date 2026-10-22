@@ -612,7 +612,7 @@ defmodule Valimc.TestRegion do
   behind the edit (VMC-073).
   """
   def await_published({x, _, z} = position, block) do
-    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
     {:ok, owner} = Valimc.TestWorld.existing_owner(key)
     Valimc.TestWait.until(fn -> published_block(owner, position) == block end)
     :ok
@@ -780,7 +780,7 @@ defmodule Valimc.TestScope do
   (owner `owner`), so its chunks tick when stepped (VMC-077e).
   """
   def simulate(owner, {rx, rz} = key) do
-    size = Valimc.config(:region_size)
+    size = Valimc.Data.Grid.region_size()
     chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
     Valimc.World.Region.ticket(owner, key, :forced, nil, chunks)
   end
@@ -819,7 +819,6 @@ defmodule Valimc.TestPlayer do
   to join with a parked clock and `tick/2` for one owner tick.
   """
   import ExUnit.Assertions
-  alias Valimc.Net.Connection
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.TestClient, as: Client
@@ -833,7 +832,7 @@ defmodule Valimc.TestPlayer do
   def scope(prefix, {x_base, z}, opts \\ []) do
     nonce = System.unique_integer([:positive])
     name = prefix <> Integer.to_string(nonce)
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     Valimc.TestScope.isolate(uuid, player_ticks: :manual)
     base = Path.join(System.tmp_dir!(), "valimc-#{String.downcase(prefix)}-#{nonce}")
     key = {x_base + rem(nonce, 3_333) * 3, z}
@@ -1046,7 +1045,7 @@ defmodule Valimc.TestBlocks do
   end
 
   defp observe({x, _, z} = position) do
-    key = World.region_key(World.chunk_key(x, z))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
 
     Valimc.TestWait.until(
       fn ->

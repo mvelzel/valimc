@@ -14,7 +14,7 @@ encoded =
     actual_keys = Enum.map(actual.properties, &{&1.name, &1.value, &1.signature}) |> Enum.sort()
     expected_keys = Enum.map(expected["properties"], &AuthProfileCheck.key/1) |> Enum.sort()
     true = actual_keys == expected_keys
-    {_, info} = Valimc.Protocol.Packets.player_info(actual)
+    {_, info} = Valimc.Player.Packets.player_info(actual)
 
     login =
       IO.iodata_to_binary([

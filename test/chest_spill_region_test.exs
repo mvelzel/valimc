@@ -10,7 +10,7 @@ defmodule Valimc.ChestSpillRegionTest do
     key = {82_000 + rem(nonce, 3_333) * 3, 1990}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
-    span = Valimc.config(:region_size) * 16
+    span = Valimc.Data.Grid.region_size() * 16
     position = {rx * span + 40, 64, rz * span + 40}
     {:ok, chest} = Valimc.Blocks.ChestPlacement.single_state(0.0, 89)
 

@@ -65,10 +65,11 @@ defmodule Valimc.Session.Events do
         %{phase: :play} = state,
         {:chest_lid, owner, {x, _, z} = position, open, frame, sound}
       ) do
-    chunk = World.chunk_key(x, z)
+    chunk = Valimc.Data.Grid.chunk_key(x, z)
 
     if MapSet.member?(state.chunks, chunk) and
-         World.existing_owner(World.section(state.player.dimension, chunk)) == {:ok, owner} do
+         World.existing_owner(Valimc.Data.Grid.section(state.player.dimension, chunk)) ==
+           {:ok, owner} do
       lids = ChestLidReplication.observe(state.chest_lids, owner, position, open)
 
       sounds =
@@ -106,12 +107,12 @@ defmodule Valimc.Session.Events do
   end
 
   def view(%{phase: :play} = state, :spawn_position) do
-    send_packets(state, [Packets.spawn_position()])
+    send_packets(state, [Valimc.Player.Packets.spawn_position()])
     state
   end
 
   def view(%{phase: :play} = state, {:block, {x, _, z} = pos, block}) do
-    if MapSet.member?(state.chunks, World.chunk_key(x, z)),
+    if MapSet.member?(state.chunks, Valimc.Data.Grid.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
     state
@@ -141,7 +142,7 @@ defmodule Valimc.Session.Events do
   def view(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
     packets =
       for {{x, y, z} = position, type, data} <- events,
-          MapSet.member?(state.chunks, World.chunk_key(x, z)),
+          MapSet.member?(state.chunks, Valimc.Data.Grid.chunk_key(x, z)),
           (x - px) * (x - px) + (y - py) * (y - py) + (z - pz) * (z - pz) < 4096.0,
           do: Packets.level_event(type, position, data)
 
@@ -152,7 +153,9 @@ defmodule Valimc.Session.Events do
   # The tab list holds every online player, near or far; players themselves
   # come and go with the rows their groups publish (VMC-077i4).
   def view(%{phase: :play} = state, {:player_joined, player}) do
-    if player.pid != state.connection, do: send_packets(state, [Packets.player_info(player)])
+    if player.pid != state.connection,
+      do: send_packets(state, [Valimc.Player.Packets.player_info(player)])
+
     state
   end
 

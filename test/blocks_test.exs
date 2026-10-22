@@ -89,7 +89,7 @@ defmodule Valimc.World.BlocksTest do
 
   test "outside the region or world height reads the flat profile and rejects writes" do
     {:ok, blocks} = Blocks.new(@key)
-    size = Valimc.config(:region_size) * 16
+    size = Valimc.Data.Grid.region_size() * 16
     assert Blocks.get(blocks, {size, 63, 0}) == Data.block("grass_block")
     assert Blocks.get(blocks, {0, 400, 0}) == 0
     assert Blocks.put(blocks, %{{size, 70, 0} => 1}) == {:error, :out_of_region}

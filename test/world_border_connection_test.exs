@@ -5,7 +5,6 @@ defmodule Valimc.WorldBorderConnectionTest do
   # Drives sockets and changes the server's one overworld border and the app-wide
   # respawn radius (VMC-027b/c/e).
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
@@ -96,7 +95,7 @@ defmodule Valimc.WorldBorderConnectionTest do
     setup do
       nonce = System.unique_integer([:positive])
       name = "Outside#{nonce}"
-      uuid = Connection.offline_uuid(name)
+      uuid = Valimc.Data.UUID.offline(name)
       base = Path.join(System.tmp_dir!(), "valimc-border-#{nonce}")
       old = Valimc.config(:world_path)
       Application.put_env(:valimc, :world_path, base)

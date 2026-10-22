@@ -18,11 +18,9 @@ defmodule Valimc.Physics.Kernel do
   `Valimc.Physics.CollisionContext`s; `extra` is `{entity_boxes, border}` with
   the border a `Valimc.Physics.BorderSnapshot` or nil.
   """
-  import Bitwise
   alias Valimc.Native
   alias Valimc.Physics.{BorderSnapshot, CollisionContext}
   alias Valimc.Data.BlockFacts
-  alias Valimc.World.{Chunk, View}
 
   @none {[], nil}
 
@@ -318,88 +316,6 @@ defmodule Valimc.Physics.Kernel do
       {Enum.map(axes, fn a -> Enum.map(a, &(&1 * 1.0)) end), sizes,
        Base.decode16!(bits, case: :lower)}
 
-  @doc """
-  The box a player's move to `target` (or its rest, `target` nil) reads:
-  `{:ok, box}`, or `{:error, reason}` past the query bounds.
-  """
-  def player_query(player, target, flags \\ 0) do
-    BlockFacts.install!()
-
-    Native.physics_player_query(
-      player(player),
-      target && {target.x * 1.0, target.y * 1.0, target.z * 1.0},
-      flags
-    )
-  end
-
-  @doc """
-  Validate `player`'s move packet to `target` (`handleMovePlayer`) over
-  `view` (its query box `query`), in one call: the acceptance, pose, swimming, fluid, powder snow
-  and eye contact, the packet's and the tick's kinetics, the landing, the
-  exhaustion, and the motion after the packet and after the tick.
-  """
-  def player_move(view, query, player, target, flags) do
-    target = {target.x * 1.0, target.y * 1.0, target.z * 1.0}
-
-    Native.physics_player_move(native(view, query), player(player), target, flags, border())
-    |> error()
-  end
-
-  @doc "Sample a resting `player`'s tick over `view` (its query box `query`), in one call."
-  def player_rest(view, query, player),
-    do: Native.physics_player_rest(native(view, query), player(player), border()) |> error()
-
-  defp border do
-    case BorderSnapshot.bounds(Valimc.World.Clock.border_snapshot()) do
-      {:ok, bounds} -> bounds
-      _ -> nil
-    end
-  end
-
-  @doc "A player as the kernel takes it (installing the facts its poses come from)."
-  def player(player) do
-    BlockFacts.install!()
-    motion = Map.get(player, :motion, %Valimc.Player.Motion{})
-    input = Map.get(player, :input, %Valimc.Player.Input{})
-    effects = Map.get(player, :living, %Valimc.Living{}).effects
-    {slow, levitation} = Valimc.Living.Attributes.travel_signature(effects)
-    loaded = Valimc.Player.Input.loaded?(input)
-    abilities = Map.get(player, :abilities, %Valimc.Player.Abilities{})
-
-    %{
-      position:
-        {Map.get(player, :x, 0.0) * 1.0, Map.get(player, :y, 0.0) * 1.0,
-         Map.get(player, :z, 0.0) * 1.0},
-      yaw: Map.get(player, :yaw, 0.0) * 1.0,
-      pitch: Map.get(player, :pitch, 0.0) * 1.0,
-      pose: Valimc.Data.PlayerPose.id(Map.get(player, :pose, :standing)),
-      motion: %{
-        fall_distance: motion.fall_distance * 1.0,
-        velocity: floats(motion.velocity),
-        physical_ground: motion.physical_ground,
-        settled: motion.settled,
-        swimming: motion.swimming,
-        paths: motion.paths,
-        stuck_multiplier: floats(motion.stuck_multiplier),
-        known_movement: floats(motion.known_movement),
-        on_ground: motion.on_ground,
-        horizontal_collision: motion.horizontal_collision,
-        received: motion.received
-      },
-      shift: (input.shared_flags &&& 2) != 0,
-      sprint: (input.shared_flags &&& 8) != 0,
-      loaded: loaded,
-      jump: loaded and Valimc.Player.Input.pressed?(input, :jump),
-      sneak: loaded and Valimc.Player.Input.pressed?(input, :shift),
-      flying: abilities.flying,
-      mode: Map.get(player, :game_mode, Valimc.Player.GameMode.new(:survival)).current,
-      invulnerable: abilities.invulnerable,
-      jump_boost: Valimc.Living.Attributes.jump_boost_level(effects),
-      slow_falling: slow,
-      levitation: levitation
-    }
-  end
-
   @doc "`value` rounded to a 32-bit float (Java's `(float)` cast)."
   def f32(value) do
     <<rounded::float-32>> = <<value::float-32>>
@@ -415,32 +331,12 @@ defmodule Valimc.Physics.Kernel do
   @doc "The kernel's view of `view` for cells around `region` (installing the facts once)."
   def native(view, region) do
     BlockFacts.install!()
-    view_of(view, region)
+    Valimc.Physics.Cells.cells(view, region)
   end
 
-  defp view_of(%View{supplied: supplied}, _region) when supplied != nil do
-    {:states,
-     for(
-       {{x, y, z}, state} <- supplied,
-       into: <<>>,
-       do: <<x::32-signed, y::32-signed, z::32-signed, state::16>>
-     )}
-  end
-
-  defp view_of(%View{} = view, {x0, _, z0, x1, _, z1}) do
-    snapshots =
-      for cx <- chunk(floor(x0) - 2)..chunk(floor(x1) + 2)//1,
-          cz <- chunk(floor(z0) - 2)..chunk(floor(z1) + 2)//1,
-          (snapshot = View.row(view, {cx, cz})) != :unavailable,
-          do: snapshot
-
-    {:rows, snapshots, Chunk.base(Chunk.min_y() - 1)}
-  end
-
-  defp chunk(coordinate), do: coordinate >>> 4
-
-  defp error({:error, {:unreadable, position}}), do: {:error, {:missing_block, position}}
-  defp error(other), do: other
+  @doc "A kernel result, an unreadable cell reported as a missing block."
+  def error({:error, {:unreadable, position}}), do: {:error, {:missing_block, position}}
+  def error(other), do: other
 
   defp floats({x, y, z}), do: {x * 1.0, y * 1.0, z * 1.0}
   defp scale({x, y, z}, f), do: {x * f, y * f, z * f}

@@ -33,7 +33,7 @@ defmodule Bench.PlayersInOwners do
 
   # A survival player saved at `pose` before its first login.
   def seed(base, name, pose, inventory \\ %Inventory{}) do
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
 
     player =
       Map.merge(pose, %{
@@ -63,7 +63,7 @@ defmodule Bench.PlayersInOwners do
   end
 
   def owner(%{x: x, z: z}),
-    do: World.item_owner(World.section(:overworld, World.chunk_key(x, z)))
+    do: World.item_owner(Valimc.Data.Grid.section(:overworld, Valimc.Data.Grid.chunk_key(x, z)))
 
   def pickup(base) do
     pose = pose(0)
@@ -89,7 +89,7 @@ defmodule Bench.PlayersInOwners do
   def chest(base) do
     pose = pose(0)
     position = {floor(pose.x), 64, floor(pose.z) + 2}
-    key = World.region_key(World.chunk_key(pose.x, pose.z))
+    key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(pose.x, pose.z))
     seed(base, "ChestBench", pose)
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
     slots = put_elem(entry.slots, 0, ItemStack.new("diamond", 3))

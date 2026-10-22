@@ -19,7 +19,7 @@ File.mkdir_p!(base)
 Application.put_env(:valimc, :world_path, base)
 Application.put_env(:valimc, :region_ticks, :manual)
 Application.put_env(:valimc, :region_unload_delay_ms, 600_000)
-size = Valimc.config(:region_size)
+size = Valimc.Data.Grid.region_size()
 stone = Valimc.Data.Blocks.default_state("stone")
 median = fn list -> list |> Enum.sort() |> Enum.at(div(length(list), 2)) end
 
@@ -39,7 +39,7 @@ end
 # A section with content, once generated: an edited block per chunk and
 # `items` items, all of its chunks simulated.
 fill = fn key ->
-  {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
+  {:ok, owner} = World.owner(Valimc.Data.Grid.section(:overworld, key, :section))
   {rx, rz} = key
   chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   {pid, _} = owner
@@ -63,7 +63,7 @@ fill = fn key ->
 end
 
 group_of = fn key ->
-  elem(elem(World.owner(Valimc.World.section(:overworld, key, :section)), 1), 0)
+  elem(elem(World.owner(Valimc.Data.Grid.section(:overworld, key, :section)), 1), 0)
 end
 
 # A row of `n` sections from `{x, z}`: the regionizer makes them one group.
@@ -89,7 +89,7 @@ end
 
 # Tick time of a group of n sections: 10 samples of 5 steps, per step.
 tick_time = fn keys ->
-  {:ok, owner} = World.owner(Valimc.World.section(:overworld, hd(keys), :section))
+  {:ok, owner} = World.owner(Valimc.Data.Grid.section(:overworld, hd(keys), :section))
   quiet.(owner)
   {:ok, _} = Region.step(owner, 5)
 
@@ -148,8 +148,8 @@ pauses =
 # Two groups of 16 far apart, stepped one after the other and at once.
 a = row.({130_000, 3000}, 16)
 b = row.({130_000 + 400, 3000}, 16)
-{:ok, oa} = World.owner(Valimc.World.section(:overworld, hd(a), :section))
-{:ok, ob} = World.owner(Valimc.World.section(:overworld, hd(b), :section))
+{:ok, oa} = World.owner(Valimc.Data.Grid.section(:overworld, hd(a), :section))
+{:ok, ob} = World.owner(Valimc.Data.Grid.section(:overworld, hd(b), :section))
 step = fn owner -> {:ok, _} = Region.step(owner, 20) end
 _ = {quiet.(oa), quiet.(ob), step.(oa), step.(ob)}
 

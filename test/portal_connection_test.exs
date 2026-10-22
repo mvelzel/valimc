@@ -4,7 +4,6 @@ defmodule Valimc.PortalConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 240_000
-  alias Valimc.Net.Connection
   alias Valimc.World.Dimension
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
@@ -17,7 +16,7 @@ defmodule Valimc.PortalConnectionTest do
   setup do
     nonce = System.unique_integer([:positive])
     name = "Portal#{nonce}"
-    uuid = Connection.offline_uuid(name)
+    uuid = Valimc.Data.UUID.offline(name)
     base = Path.join(System.tmp_dir!(), "valimc-portal-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)

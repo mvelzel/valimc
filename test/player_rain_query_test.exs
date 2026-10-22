@@ -2,7 +2,6 @@ defmodule Valimc.PlayerRainQueryTest do
   use ExUnit.Case, async: false
   alias Valimc.Player.RainQuery
   alias Valimc.Data.PlayerPose
-  alias Valimc.World
   alias Valimc.World.{Clock, View}
 
   setup do
@@ -22,7 +21,7 @@ defmodule Valimc.PlayerRainQueryTest do
     %{owner: owner, x: 982 * 128 + 4, z: 800 * 128 + 4}
   end
 
-  defp view(x, z), do: View.load_chunks(View.new(), [World.chunk_key(x, z)])
+  defp view(x, z), do: View.load_chunks(View.new(), [Valimc.Data.Grid.chunk_key(x, z)])
 
   test "rain sees roofs, including transparent shelter, from the published column", ctx do
     position = {ctx.x + 0.5, 64.0, ctx.z + 0.5}
