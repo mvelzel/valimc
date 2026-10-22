@@ -1,6 +1,7 @@
 # VMC-018b — Region-owned stationary items and snapshot replication
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: VMC-077h's per-owner entity store and trackers replaced the stationary development items.
 Note: Done — stationary foundation validated. Updated: October 14, 2026. Depends on VMC-018a. Foundation for VMC-005b2d2/035; these parents remain incomplete.
 
 Historical scope below describes the ephemeral VMC-018b checkpoint. VMC-019a now

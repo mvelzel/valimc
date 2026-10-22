@@ -1,6 +1,7 @@
 # VMC-032a — Chest menu foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: Menus.Menu and Menus.Click (VMC-077i2) replaced the chest layout; single chests are live, double chests are VMC-032b.
 Note: Done within layout-foundation scope at `faee515`. Persistent chests are not live.
 
 Acceptance: native generic chest row/type/slot mapping and contents over container

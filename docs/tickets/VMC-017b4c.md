@@ -1,6 +1,7 @@
 # VMC-017b4c — Rain exposure and column observations
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: Player.RainQuery (VMC-077e) reads published heights and biomes with World.Climate for every biome.
 Note: **Done within flat-plains rain scope**, frozen `7423e59`;1,238 full tests (seed937151), production, full native integration/both TCP transports and all five required graphical scenarios pass. Foundation checkpoint `6875995`.
 
 Acceptance: native rain extinguishes outdoor burning, roofs shield players and

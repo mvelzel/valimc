@@ -1,6 +1,7 @@
 # VMC-034a — Furnace fuel foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): CookingFuel.resolve feeds the live regional cooking of VMC-034m.
 Note: Done within pure resolver scope at e219f43. No live furnace/cooking claim.
 
 Acceptance for this slice: stock 26.3 cooking-fuel defaults and contextual resolution

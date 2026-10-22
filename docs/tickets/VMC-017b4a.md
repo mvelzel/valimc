@@ -1,6 +1,7 @@
 # VMC-017b4a — Live lava and ongoing burning
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): lava and ongoing burning are live (Burning.lava, Burning.tick) and passed their client test.
 Note: **Done within live lava/ongoing-burning scope**, October 16,2026. Runtime `7b5b382`; integration-reader checkpoint `0372724`. Depends on the verified [fire foundations](VMC-017b4.md).
 
 Acceptance: the existing admitted player clock advances burning; at most one

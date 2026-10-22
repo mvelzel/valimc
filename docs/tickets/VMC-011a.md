@@ -1,6 +1,7 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: In progress
+Status: Done
+Resolved (VMC-079): superseded: groups host players (Player.Host, VMC-077i3) and the Rust kernel checks each move in that owner (VMC-077l2).
 Note: In progress — player poses and block-based movement validated. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications

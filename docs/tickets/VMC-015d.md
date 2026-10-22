@@ -1,6 +1,7 @@
 # VMC-015d — Player fluid travel
 
-Status: In progress
+Status: Done
+Resolved (VMC-079): superseded: VMC-077l2 ported fluid travel, currents and swimming into the Rust player kernel; the VMC-077 client run passed.
 Note: In progress; [default live composition](VMC-015d1.md) is validated (`2e66935`). October 15, 2026. Follows [dry travel](VMC-015b1.md) and [saved velocity](VMC-015b2.md).
 
 Build bounded water/lava observations and

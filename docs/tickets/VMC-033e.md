@@ -1,6 +1,7 @@
 # VMC-033e — Crafting-table recipe foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): live crafting tables (VMC-033f4) use Menus.Crafting for 3 × 3 recipes.
 Note: Done within ordinary recipe-foundation scope, `7779eaf`. October 16, 2026.
 Parent: VMC-033.
 

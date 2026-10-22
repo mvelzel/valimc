@@ -1,6 +1,7 @@
 # VMC-007c — Verified online identities
 
-Status: In progress
+Status: Parked
+Resolved (VMC-079): online admission and duplicate-session replacement are live (Net.LoginJobs, Auth.SessionService); signed chat, profile keys and proxy policy remain, with no ticket yet.
 Note: Partially implemented — real online identities validated. Updated: October 14, 2026.
 
 VMC-007a/b provide encrypted transport. Online mode must send authenticate=true,

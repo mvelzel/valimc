@@ -3,7 +3,7 @@
 Status: Planned
 Milestone: M3
 Depends on: [VMC-037o](VMC-037o.md), [VMC-015i](VMC-015i.md),
-[VMC-034n4c](VMC-034n4c.md) (orbs move),
+[VMC-034n4c](VMC-034n4c.md) (orb gaps),
 [VMC-026](VMC-026.md) (its M3 carry-overs).
 
 - **Eyes of ender.** Using one throws an `EyeOfEnder` toward the nearest

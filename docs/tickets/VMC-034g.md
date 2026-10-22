@@ -1,6 +1,7 @@
 # VMC-034g — Cooking menu presentation foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Menus.Menu and Menus.Packets serve live cooking menus (VMC-034k, VMC-077i2).
 Note: Done within unused presentation scope at `e9d7227`. Live menus belong to VMC-034k.
 
 Acceptance: native furnace/smoker/blast menu IDs, three storage addresses plus

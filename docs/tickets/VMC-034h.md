@@ -1,6 +1,7 @@
 # VMC-034h — Cooking menu item-transfer plans
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: the single Menus.Click engine handles furnace gestures (VMC-077i2).
 Note: Done within pure item-planner scope at `bb04210`. Live menu admission belongs to VMC-034k.
 
 Acceptance: pure drop-free pickup/split/merge, shift routing and number/offhand

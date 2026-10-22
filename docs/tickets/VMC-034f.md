@@ -1,6 +1,7 @@
 # VMC-034f — Empty processing-block lifecycle
 
-Status: Foundation
+Status: Parked
+Resolved (VMC-079): placement, facing, empty mining and loot are live; spilling an occupied furnace's slots and its stored XP on removal, and named furnaces, remain.
 Note: Done within empty physical lifecycle scope at `b68ca61`. No live cooking.
 
 Acceptance: placing a stock furnace, smoker or blast furnace creates one owned

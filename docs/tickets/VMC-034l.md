@@ -1,6 +1,7 @@
 # VMC-034l — Atomic owned cooking batches
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): World.CookingBatch is the live batch planner committed by RegionData.
 Note: Done within unused atomic-batch scope at `c10988f`/7cdb21e; accepted baseline `bfac2bb`.
 
 Acceptance: one bounded proposal advances owned furnace-family entries,

@@ -1,6 +1,7 @@
 # VMC-034e — Persistent cooking entries
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): CookingEntry persists live in the containers record.
 Note: Done within paused-storage scope at `2dbae91`, published through `4965f2b`. All storage gates are closed; no live cooking.
 
 Acceptance: persist each furnace/smoker/blast-furnace's exact three slots, bounded

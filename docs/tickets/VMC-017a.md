@@ -1,6 +1,7 @@
 # VMC-017a — Owned health and fall damage
 
-Status: In progress
+Status: Done
+Resolved (VMC-079): health, saving and fall damage run in Player.Vitals and Living.Landing; death and respawn are VMC-017a1 and 017a2.
 Note: Owned health/login/save validated (`18028cd`). Live death/respawn and accepted landing damage pass automated checks; graphical gates remain pending. October 15, 2026.
 
 Acceptance: player-owned finite health, persistent save/reconnect, current health

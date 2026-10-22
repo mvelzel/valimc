@@ -1,6 +1,7 @@
 # VMC-032a9b — Durable ordinary chest exchanges
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: single-chest exchanges are live through Region.container_click and ContainerClicks (VMC-077i3); breaking spills.
 Note: Done within ordinary single-chest exchange scope at `8503ab6`. Depends on checked source, region admission/receipt and joint-storage foundations; viewing has its own [client gate](VMC-032a9a.md).
 
 Acceptance: actual pickup/split/merge, shift transfer, number and offhand swaps

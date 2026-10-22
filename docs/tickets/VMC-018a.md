@@ -1,6 +1,7 @@
 # VMC-018a — Item entity wire and metadata foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Protocol.EntityPackets carries live item and orb replication from Entity.Store (VMC-077h).
 Note: Done — wire foundation validated. Updated: October 13, 2026. Dependency for VMC-005b2d2/035. Parent VMC-018 remains incomplete. This ticket provides packet primitives rather than enabling world drops before their authoritative owner exists.
 
 ## Scope and acceptance

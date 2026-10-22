@@ -1,6 +1,7 @@
 # VMC-034i — External cooking-slot state transitions
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Cooking.edit_slots runs on every live furnace slot change in World.ContainerClicks.
 Note: Done within pure external-edit hook scope at `c793348`. Live menu admission belongs to VMC-034k.
 
 Acceptance: after an admitted menu slot edit, replacing/removing an input resets

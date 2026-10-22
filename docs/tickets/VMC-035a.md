@@ -1,6 +1,7 @@
 # VMC-035a — Dropped-item launch and motion
 
-Status: In progress
+Status: Done
+Resolved (VMC-079): superseded: launch is live (Entity.ItemDrop) and motion moved to the Rust item tick (VMC-077l) in Entity.Store (VMC-077h).
 Note: Launch/motion kernels verified; live composition pending. October 16,2026.
 Parent: VMC-035.
 Related: VMC-018c3.

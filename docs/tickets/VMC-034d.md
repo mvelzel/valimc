@@ -1,6 +1,7 @@
 # VMC-034d — Furnace progress transitions
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Cooking.step is the live per-tick transition (VMC-034m).
 Note: Done within pure progress-kernel scope at `e4c41cd`. No live cooking.
 
 Acceptance: one bounded pure step matches pinned serverTick for fuel exhaustion/

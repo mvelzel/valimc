@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-079 Ticket hygiene](../tickets/VMC-079.md) | stale In progress and Foundation tickets resolved against the code (43 Done, 6 parked); backlog reduced to open work |
 | [VMC-077 Foundations II](../tickets/VMC-077.md) | `316a7452`; pre-M3 audit and rebuild: groups own everything that interacts, one striped log with per-tick frames, entity store, players in owners, Rust physics, block rules, light and generation scheduling, layered layout; lib 67.9k → 56.5k lines; final client run and rechecks |
 | [VMC-077j1](../tickets/VMC-077j1.md), [077j2](../tickets/VMC-077j2.md), [077j3](../tickets/VMC-077j3.md) Regionizer | group processes own 8 × 8 sections that merge and split by Folia's rule; dimension-explicit section keys; entities cross sections inside a group in one commit |
 | [VMC-077b Native scheduling](../tickets/VMC-077b.md) | `f3d92ed`; one capped generation pool, cost-based dispatch, parity NIFs behind a feature, owner checks; interim client run |

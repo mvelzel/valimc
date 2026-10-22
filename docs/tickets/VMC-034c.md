@@ -1,6 +1,7 @@
 # VMC-034c — Stock cooking recipes
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): CookingRecipes select recipes for live cooking and supply XP to CookingAwards.
 Note: Done within pure recipe resolver scope at `32bc5a1`. No live processing.
 
 Acceptance: indexed stock smelting/smoking/blasting selection, result components,

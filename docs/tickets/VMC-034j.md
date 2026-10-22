@@ -1,6 +1,7 @@
 # VMC-034j — Cooking transfer journal foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: VMC-077i deleted the transfer journal; furnace clicks are calls inside the owner.
 Note: Done within transfer-journal foundation scope at 5105393. Live menu admission belongs to VMC-034k.
 
 Acceptance: bounded v2 container requests carry cooking kind/three expected slots

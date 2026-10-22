@@ -1,6 +1,7 @@
 # VMC-014a — Cached block collision geometry
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: the cached shapes became valimc_core::physics with the block fact table (VMC-077d, VMC-077l), live for every move and item tick.
 Note: Done — cached geometry foundation validated. Updated: October 14, 2026.
 
 ## Scope and acceptance

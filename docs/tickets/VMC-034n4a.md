@@ -1,6 +1,7 @@
 # VMC-034n4a — Supplied XP orb motion kernels
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: the tick math moved to Rust orb.rs (VMC-077i); OrbMotion.launch is live for death orbs.
 Note: **Done within unused supplied-kernel scope**, checkpoint `7d0a946`. Part of [orb simulation](VMC-034n4.md). Basic output/pickup is complete in VMC-034n5 and must not be reimplemented. These kernel/baseline gates are closed.
 
 Slice: pure launch, acceleration, post-collision drag/bounce and age transition.

@@ -1,6 +1,7 @@
 # VMC-033a — Player crafting recipe foundation
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Menus.Crafting gives live 2 × 2 and 3 × 3 results through Menus.Inventory.
 Note: Done within recipe-foundation scope. October 16, 2026; `6cd6800`.
 Parent: VMC-033.
 

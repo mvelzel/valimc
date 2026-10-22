@@ -1,6 +1,7 @@
 # VMC-034n3a — Durable remote XP spawn protocol
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): superseded: orbs landing in another region use the entity store's one handoff (VMC-077h).
 Note: **Done within unused protocol/storage scope** at `4b09f6f`, with maximum ledger regression at `eb0e4aa`. Part of [orb ownership](VMC-034n3.md). Live owner-to-owner delivery and remote publication follow this slice.
 
 An award can belong to a processor's region while its spawn position belongs to

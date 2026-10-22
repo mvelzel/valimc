@@ -1,6 +1,7 @@
 # VMC-037a — Owned status-effect state
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): Living.Effects, its packets and persistence are live; potions arrived with VMC-037b.
 Note: Duration, map, wire, immunity and persistence foundations **Done within their stated scopes**. [Owned Fire Resistance](VMC-037a1.md) and [supported potion drinking](VMC-037b.md) are accepted at `fa0b320`.
 
 Acceptance: bounded immutable effect state supports native stronger/weaker refresh,

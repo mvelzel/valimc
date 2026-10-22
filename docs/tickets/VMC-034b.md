@@ -1,6 +1,7 @@
 # VMC-034b — Atomic furnace item transitions
 
-Status: Foundation
+Status: Done
+Resolved (VMC-079): CookingItems run inside live Cooking.step and CookingBatch (VMC-034m).
 Note: Done within pure slot-proposal scope at `372acd0`. VMC-034a owns contextual fuel resolution. No live cooking.
 
 Acceptance: a bounded pure three-slot proposal consumes one fuel/input, preserves
