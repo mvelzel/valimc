@@ -104,6 +104,10 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
+
+  def block_first_surviving(_region, _rules, _position, _states, _absent),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def rules_scene(_rules, _floor, _sets), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)

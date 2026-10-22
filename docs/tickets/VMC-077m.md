@@ -107,6 +107,20 @@ dirty), measured alone at about 1.5 ms for 4,096 updates at load 32, which set
 the budget. For scale, VMC-029c measured the deleted Elixir check at 0.09–0.37
 µs per neighbour check in isolation, without storage reads or the update order.
 
+Then placement asks the same survival (finding B of the VMC-077 interim client
+run: a creative ladder used on a ladder's free side placed a ladder with
+nothing behind it). `Rules.first_surviving/4` answers placement's `canSurvive`
+from the live survival facts, wire's floor and fire's support (a rule that
+reads past the region's border does not refuse). The region owner refuses a
+creative placement whose state cannot survive, and a creative block item
+without modelled placement offers its candidate states in order: a ladder
+follows `LadderBlock.getStateForPlacement` (never on a ladder's front, then
+the horizontal directions the player looks along, `Direction.orderedByNearest`
+with the clicked face first), any other block its default state. Obstruction
+already counted the placing player's own body; a test now covers it on this
+path. The creative stack count that rose from 16 to 17 in that run was not
+reproduced.
+
 Deviations (kept for M3 or later):
 
 - A commit's changes are all in storage before their updates run; vanilla runs

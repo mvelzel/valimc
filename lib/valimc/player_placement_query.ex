@@ -210,6 +210,7 @@ defmodule Valimc.PlayerPlacementQuery do
              observed.blocks[Placement.adjacent(request)],
              request
            ),
+         {:ok, candidate} <- surviving(owner, candidate),
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
          :ok <- isolated_chest(owner, key, candidate, observed.fence),
          {:ok, _} <- Region.observe_blocks(owner, [], observed.fence),
@@ -234,15 +235,28 @@ defmodule Valimc.PlayerPlacementQuery do
   end
 
   # A creative block item without modelled placement (VMC-077a): its block on
-  # a replaceable block beside the clicked face.
-  defp candidate({:block, block}, _clicked, adjacent, request) do
-    if Placement.replaceable?(adjacent),
-      do: {:ok, %{position: Placement.adjacent(request), state: block, replace_clicked: false}},
-      else: {:error, :occupied}
+  # a replaceable block beside the clicked face, in the first of its candidate
+  # states that can survive there (`Placement.creative_states/4`).
+  defp candidate({:block, block}, clicked, adjacent, request) do
+    with true <- Placement.replaceable?(adjacent) || {:error, :occupied},
+         [_ | _] = states <-
+           Placement.creative_states(block, clicked, adjacent, request) do
+      {:ok, %{position: Placement.adjacent(request), states: states, replace_clicked: false}}
+    else
+      [] -> {:error, :cannot_survive}
+      error -> error
+    end
   end
 
   defp candidate(item, clicked, adjacent, request),
     do: Placement.candidate(item, clicked, adjacent, request)
+
+  defp surviving(owner, %{states: states} = candidate) do
+    with {:ok, state} <- Region.placement_state(owner, candidate.position, states),
+         do: {:ok, candidate |> Map.delete(:states) |> Map.put(:state, state)}
+  end
+
+  defp surviving(_owner, candidate), do: {:ok, candidate}
 
   defp isolated_chest(owner, key, candidate, revision) do
     if Valimc.ChestAccess.single?(candidate.state) do

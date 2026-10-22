@@ -66,6 +66,24 @@ fn put_position(out: &mut Vec<u8>, pos: [i32; 3]) {
 
 type Updated<'a> = (Binary<'a>, Binary<'a>, Binary<'a>, u64, u64, u64);
 
+/// The first of `states` that can survive at `position` in the region
+/// (placement's `canSurvive`), or `nil`.
+#[rustler::nif]
+fn block_first_surviving(
+    region: ResourceArc<Region>,
+    rules: ResourceArc<BlockRules>,
+    position: (i32, i32, i32),
+    states: Vec<u16>,
+    absent: Vec<(i32, i32)>,
+) -> Result<Option<u16>, Atom> {
+    let (x, y, z) = position;
+    let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
+    with_store(&region, |store| {
+        valimc_core::rules::live::first_surviving(&rules.rules, store, &absent, [x, y, z], &states)
+            .map_err(|_| atoms::invalid_state())
+    })
+}
+
 /// Updates a normal-scheduler run may take: about 0.4 ms at the engine's
 /// slowest rate (redstone cascades, about 5 million a second), under 1 ms
 /// while a loaded host halves it.

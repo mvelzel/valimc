@@ -89,6 +89,59 @@ defmodule Valimc.CreativeItemsTest do
     assert Valimc.TestBlocks.get(position) == Valimc.Protocol.Data.block("stone")
   end
 
+  # `BlockItem.canPlace`: a placed state must survive and leave every body
+  # free, the placing player's own included (VMC-077 client run, finding B).
+  test "creative ladders attach as vanilla places them and never float or fill the player" do
+    username = name()
+    {_, client} = Client.login(username)
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
+    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+
+    use = fn client, position, face, sequence ->
+      Client.send_packet(client, :play, "use_item_on", [
+        <<0>>,
+        Wire.position(position),
+        <<face, 0::96, 0, 0, sequence>>
+      ])
+
+      {<<^sequence>>, client} = Client.await(client, :play, "block_changed_ack")
+      client
+    end
+
+    ladder = fn facing -> Valimc.Registry.Blocks.state("ladder", %{"facing" => facing}) end
+    stone = Valimc.Protocol.Data.block("stone")
+
+    for position <- [{3, 65, 2}, {5, 65, 2}], do: :ok = Valimc.TestBlocks.set(position, stone)
+
+    for position <- [{3, 65, 3}, {3, 65, 4}, {5, 65, 3}],
+        do: :ok = Valimc.TestBlocks.set(position, 0)
+
+    :ok = Valimc.TestBlocks.set({3, 65, 3}, ladder.("south"))
+    {_, _, client} = set_slot(client, 36, ItemStack.new("ladder", 16))
+
+    # Used on a ladder's free front: refused, as `LadderBlock` refuses it.
+    client = use.(client, {3, 65, 3}, 3, 21)
+    assert Valimc.TestBlocks.get({3, 65, 4}) == 0
+
+    # Used on a wall's south face: a ladder facing south against it.
+    client = use.(client, {5, 65, 2}, 3, 22)
+    assert Valimc.TestBlocks.get({5, 65, 3}) == ladder.("south")
+
+    # Nothing behind the cell above the floor: refused, not left floating.
+    :ok = Valimc.TestBlocks.set({7, 64, 3}, 0)
+    client = use.(client, {7, 63, 3}, 1, 23)
+    assert Valimc.TestBlocks.get({7, 64, 3}) == 0
+
+    # A pane's post would stand in the placing player's own cell: refused.
+    %{x: x, z: z} = :sys.get_state(player.pid).player
+    feet = {floor(x), 64, floor(z)}
+    {_, _, client} = set_slot(client, 36, ItemStack.new("glass_pane", 1))
+    _client = use.(client, {floor(x), 63, floor(z)}, 1, 24)
+    assert Valimc.TestBlocks.get(feet) == 0
+  end
+
   test "unsupported delimited components restore the prior authoritative slot and keep session alive" do
     username = name()
     {_, client} = Client.login(username)

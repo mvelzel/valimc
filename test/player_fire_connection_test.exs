@@ -34,7 +34,8 @@ defmodule Valimc.PlayerFireConnectionTest do
     above = if name == "fire", do: 0, else: id
 
     for {y, block} <- [{64, id}, {65, above}],
-        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, block)
+        do:
+          :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, block)
   end
 
   defp seed(ctx, opts) do

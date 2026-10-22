@@ -102,7 +102,7 @@ defmodule Valimc.Player.Placement do
         # owner commit as modelled placement (VMC-077a).
         block = creative_block(state, stack) ->
           %{
-            request: request,
+            request: Map.merge(request, %{yaw: state.player.yaw, pitch: state.player.pitch}),
             item: {:block, block},
             stack: stack,
             slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),

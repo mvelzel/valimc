@@ -53,6 +53,28 @@ defmodule Valimc.PlacementTest do
     refute Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor)
   end
 
+  test "a creative ladder tries the directions the player looks along, clicked face first" do
+    ladder = Valimc.Registry.Blocks.default_state("ladder")
+    stone = Data.block("stone")
+    facings = &for(s <- &1, do: Map.new(Valimc.Registry.Blocks.properties(s))["facing"])
+
+    # On a floor while looking west (`Direction.orderedByNearest`): the wall
+    # looked at first.
+    floor = Map.merge(request(1), %{yaw: 90.0, pitch: 0.0})
+
+    assert facings.(Placement.creative_states(ladder, stone, 0, floor)) ==
+             ~w(east south north west)
+
+    # On a wall's east face while looking down: that wall first, then the look.
+    wall = Map.merge(request(5), %{yaw: 0.0, pitch: 80.0})
+    assert hd(facings.(Placement.creative_states(ladder, stone, 0, wall))) == "east"
+
+    # On the front of a ladder: nothing, as `LadderBlock` refuses it.
+    front = Valimc.Registry.Blocks.state("ladder", %{"facing" => "east"})
+    assert Placement.creative_states(ladder, front, 0, wall) == []
+    assert Placement.creative_states(stone, stone, 0, wall) == [stone]
+  end
+
   test "replaceable clicked cells win over the adjacent cell, but solids require free adjacency" do
     stone = item("stone")
 

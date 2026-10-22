@@ -212,6 +212,17 @@ defmodule Valimc.World.Region do
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
+  @doc """
+  The first of `states` that can survive at `position` (a placement's choice
+  among its candidate states): `{:ok, state}` or `{:error, :cannot_survive}`.
+  """
+  def placement_state({pid, epoch}, position, states)
+      when is_pid(pid) and is_reference(epoch) and is_list(states) do
+    GenServer.call(pid, {:placement_state, epoch, position, states}, budget(pid, 1000))
+  catch
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+  end
+
   @doc "Internal creative placement commit; caller must freshly admit its player and held item."
   def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) and

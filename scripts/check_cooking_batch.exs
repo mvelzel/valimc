@@ -42,7 +42,14 @@ for row <- raw["cases"] do
   containers = %Containers{sequence: 1, entries: %{position => entry}, receipts: receipts}
 
   {:ok, result} =
-    CookingRuntime.plan(containers, Entities.new(), {0, 0}, %{position => block}, :all, MapSet.new())
+    CookingRuntime.plan(
+      containers,
+      Entities.new(),
+      {0, 0},
+      %{position => block},
+      :all,
+      MapSet.new()
+    )
 
   true = result.refused == %{}
   true = CookingBatch.awake?(entry, block) == (before != row["after"])

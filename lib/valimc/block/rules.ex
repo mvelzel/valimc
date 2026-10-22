@@ -92,6 +92,16 @@ defmodule Valimc.Block.Rules do
     }
   end
 
+  @doc """
+  The first of `states` that can survive at `position` in a region's storage
+  (placement's `canSurvive`, `BlockItem.canPlace`), or `nil`; `absent` lists
+  the region's chunks not generated yet.
+  """
+  def first_surviving(%Valimc.World.Blocks{ref: ref}, position, states, absent) do
+    {:ok, state} = Native.block_first_surviving(ref, native(), position, states, absent)
+    state
+  end
+
   defp pack(records),
     do:
       for(

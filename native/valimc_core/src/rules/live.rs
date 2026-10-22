@@ -161,6 +161,33 @@ pub fn run(
     }))
 }
 
+/// The first of `states` that can survive at `pos` (placement's
+/// `canSurvive`, `Rules::live_survives`). A rule that reads past the
+/// region's border is not refused: the neighbour region holds that cell.
+pub fn first_surviving(
+    rules: &Rules,
+    store: &ColumnStore,
+    absent: &HashSet<(i32, i32)>,
+    pos: [i32; 3],
+    states: &[u16],
+) -> Result<Option<u16>, String> {
+    let mut world = Live {
+        store,
+        absent,
+        air: rules.table.default_state("air")?,
+        overlay: HashMap::new(),
+        order: Vec::new(),
+        block_ticks: Vec::new(),
+        fluid_ticks: Vec::new(),
+        crossed: false,
+        rng: 1,
+    };
+    Ok(states.iter().copied().find(|&state| {
+        world.crossed = false;
+        rules.live_survives(&mut world, state, pos) || world.crossed
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

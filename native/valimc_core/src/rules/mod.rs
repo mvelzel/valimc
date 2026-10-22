@@ -199,6 +199,25 @@ impl Rules {
         }
     }
 
+    /// `state.canSurvive(level, pos)` as placement asks it in live play
+    /// (`BlockItem.canPlace`): live play's survival facts, wire's floor and
+    /// fire's support; the other rules in code (chorus, corals, vines,
+    /// speleothems, mossy carpets) are not checked yet and survive.
+    pub fn live_survives(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) -> bool {
+        let table = self.table.as_ref();
+        let mut read = |p: [i32; 3]| access.get(p);
+        if let Some(live) = self.live.as_ref().filter(|l| l.dependent(state)) {
+            return live.survives(state, pos, &mut read);
+        }
+        if table.block_of(state) == self.redstone.wire {
+            return self.redstone.can_survive_on(table, read(at(pos, 0)));
+        }
+        match self.fire.update_shape(table, &mut read, state, pos) {
+            Some(new_state) => !table.is_air(new_state),
+            None => true,
+        }
+    }
+
     /// At a dependent state's scheduled tick in live play: whether it breaks.
     pub fn live_breaks(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) -> bool {
         self.live

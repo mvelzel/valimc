@@ -1264,6 +1264,23 @@ defmodule Valimc.World.RegionData do
   def handle_call({:abort_box, token}, _from, state),
     do: {:reply, :ok, %{state | permits: Permits.release(state.permits, token)}}
 
+  def handle_call({:placement_state, epoch, {_, y, _} = position, states}, _from, state) do
+    cond do
+      epoch != state.epoch ->
+        {:reply, Error.retry(:stale_owner), state}
+
+      not (in_region?(state, position) and Chunk.valid_y?(y) and states != [] and
+             length(states) <= 6 and Enum.all?(states, &is_integer/1)) ->
+        {:reply, {:error, :invalid_placement}, state}
+
+      survivor = placement_survivor(state, position, states) ->
+        {:reply, {:ok, survivor}, state}
+
+      true ->
+        {:reply, {:error, :cannot_survive}, state}
+    end
+  end
+
   def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state) do
     now = System.monotonic_time(:millisecond)
 
@@ -1277,6 +1294,12 @@ defmodule Valimc.World.RegionData do
              deadline <= now + Valimc.Txn.Permits.window(250) and
                map_size(batch.edits) == 1) ->
         {:reply, {:error, :invalid_or_expired_placement}, state}
+
+      # `BlockItem.canPlace`: the placed state must survive where it goes.
+      not Enum.all?(batch.edits, fn {position, block} ->
+        placement_survivor(state, position, [block]) == block
+      end) ->
+        {:reply, {:error, :cannot_survive}, state}
 
       not container_metadata_affected?(state.containers, expected, batch.edits) ->
         handle_call({:set_blocks, epoch, revision, batch}, from, state)
@@ -1640,6 +1663,15 @@ defmodule Valimc.World.RegionData do
         Valimc.Registry.Blocks.block_id(cell) == block,
         do: {:schedule, position, cell, delay, 0}
   end
+
+  defp placement_survivor(state, position, states),
+    do:
+      Rules.first_surviving(
+        state.blocks,
+        position,
+        states,
+        MapSet.to_list(state.generation.absent)
+      )
 
   defp retry_rule_backlog(%{rule_backlog: []} = state), do: state
 

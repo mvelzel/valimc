@@ -117,6 +117,91 @@ defmodule Valimc.Physics.Placement do
   def supported_stack?(%Valimc.Protocol.ItemStack{item_id: item}), do: supported_item?(item)
   def supported_stack?(_), do: false
 
+  @directions ~w(down up north south west east)
+
+  @doc """
+  The states a creative block item without modelled placement tries beside
+  the clicked face, in order; the owner places the first that can survive
+  (`BlockItem.canPlace`). A ladder follows `LadderBlock.getStateForPlacement`:
+  never on the front of the ladder it was used on, else each horizontal
+  direction the player looks along, facing away from it (waterlogged in
+  water); any other block its default state. `[]` places nothing.
+  """
+  def creative_states(block, clicked, adjacent, %{face: face} = request) do
+    if Valimc.Registry.Blocks.class(block) == "LadderBlock" do
+      on_front =
+        Valimc.Registry.Blocks.block_id(clicked) == Valimc.Registry.Blocks.block_id(block) and
+          Map.new(Valimc.Registry.Blocks.properties(clicked))["facing"] ==
+            Enum.at(@directions, face)
+
+      water = BlockFacts.fluid(adjacent)
+      waterlogged = to_string(water.kind == :water and water.source)
+
+      if on_front,
+        do: [],
+        else:
+          for(
+            d <- nearest_looking(request),
+            d >= 2,
+            do:
+              Valimc.Registry.Blocks.state(
+                Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(block)),
+                %{
+                  "facing" => Enum.at(@directions, Bitwise.bxor(d, 1)),
+                  "waterlogged" => waterlogged
+                }
+              )
+          )
+    else
+      [block]
+    end
+  end
+
+  # `BlockPlaceContext.getNearestLookingDirections` beside the clicked face:
+  # `Direction.orderedByNearest(player)` with the face's opposite moved first.
+  defp nearest_looking(%{face: face} = request) do
+    opposite = Bitwise.bxor(face, 1)
+    [opposite | List.delete(ordered_by_nearest(request.yaw, request.pitch), opposite)]
+  end
+
+  # `Direction.orderedByNearest`, in float as vanilla computes it with `Mth`.
+  defp ordered_by_nearest(yaw, pitch) do
+    pitch = f32(pitch * f32(:math.pi() / 180.0))
+    yaw = f32(-yaw * f32(:math.pi() / 180.0))
+    {pitch_sin, pitch_cos} = {mth_sin(pitch), mth_cos(pitch)}
+    {yaw_sin, yaw_cos} = {mth_sin(yaw), mth_cos(yaw)}
+    {x_pos, y_pos, z_pos} = {yaw_sin > 0.0, pitch_sin < 0.0, yaw_cos > 0.0}
+    x_yaw = if x_pos, do: yaw_sin, else: -yaw_sin
+    y_mag = if y_pos, do: -pitch_sin, else: pitch_sin
+    z_yaw = if z_pos, do: yaw_cos, else: -yaw_cos
+    {x_mag, z_mag} = {f32(x_yaw * pitch_cos), f32(z_yaw * pitch_cos)}
+    # down, up, north, south, west, east
+    {ax, ay, az} =
+      {if(x_pos, do: 5, else: 4), if(y_pos, do: 1, else: 0), if(z_pos, do: 3, else: 2)}
+
+    [a, b, c] =
+      cond do
+        x_yaw > z_yaw and y_mag > x_mag -> [ay, ax, az]
+        x_yaw > z_yaw and z_mag > y_mag -> [ax, az, ay]
+        x_yaw > z_yaw -> [ax, ay, az]
+        y_mag > z_mag -> [ay, az, ax]
+        x_mag > y_mag -> [az, ax, ay]
+        true -> [az, ay, ax]
+      end
+
+    [a, b, c, Bitwise.bxor(c, 1), Bitwise.bxor(b, 1), Bitwise.bxor(a, 1)]
+  end
+
+  # `Mth.sin` and `Mth.cos`: a 65,536-entry table of float sines.
+  defp mth_sin(v), do: sine(trunc(f32(v * 10430.378)))
+  defp mth_cos(v), do: sine(trunc(f32(v * 10430.378 + 16384.0)))
+  defp sine(i), do: f32(:math.sin(Bitwise.band(i, 65535) * :math.pi() * 2.0 / 65536.0))
+
+  defp f32(v) do
+    <<f::float-32>> = <<v::float-32>>
+    f
+  end
+
   @doc "Validate a saved edit independently of transient player yaw; destination permissions still fence its exact block state."
   def saved_candidate(item, clicked, adjacent, request, edits)
       when item in @facing_items and is_map(edits) and is_map(request) do
