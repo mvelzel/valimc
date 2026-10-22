@@ -1080,6 +1080,31 @@ defmodule Valimc.World.Region do
     end
   end
 
+  # A record of several sections' and players' frames, acknowledged at once:
+  # one commit after all of them.
+  def handle_info({:storage_durable_all, acks}, state) when is_list(acks) do
+    acks
+    |> Enum.reduce({:noreply, state}, fn
+      {{:player, uuid}, seq}, {:noreply, acc} ->
+        {:noreply, Host.durable(acc, uuid, seq)}
+
+      {owner, seq}, {:noreply, acc} ->
+        info = {:storage_durable, owner, seq}
+
+        case acc.owners do
+          %{^owner => key} -> section_apply(acc, key, info)
+          _ -> elsewhere(acc, {:owner, owner}, {:info, info})
+        end
+
+      _, stop ->
+        stop
+    end)
+    |> case do
+      {:noreply, state} -> {:noreply, commit_frames(state)}
+      stop -> stop
+    end
+  end
+
   def handle_info({:storage_failed, _owner, _seq, reason}, state),
     do: {:stop, {:storage_failed, reason}, state}
 
@@ -1339,15 +1364,12 @@ defmodule Valimc.World.Region do
   # callback's changes to the world and to a player are durable together.
   # Only sections changed since the last cut (`touched`) can have any: a cut
   # costs what changed, not the group's size (VMC-077w); the commit timer
-  # sweeps every section once a second. `cut` true cuts everything now; `:players` (the
-  # commit timer) cuts the players' changes. A section or player whose frames
-  # are still in flight on another stripe (it moved here) holds the group's
-  # frames until they are durable.
+  # sweeps every section once a second. `cut` true cuts everything now;
+  # `:players` (the commit timer) cuts the players' changes. A section or
+  # player whose frames are still in flight on another stripe (it moved here)
+  # holds the group's frames until they are durable.
   defp commit_frames(state, cut \\ false) do
-    keys =
-      if cut == true,
-        do: Map.keys(state.sections),
-        else: Enum.filter(state.touched, &Map.has_key?(state.sections, &1))
+    keys = Enum.filter(state.touched, &Map.has_key?(state.sections, &1))
 
     pending? =
       cut == true or Enum.any?(keys, &(state.sections[&1].resource.storage.outbox != []))

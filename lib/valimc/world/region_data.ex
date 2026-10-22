@@ -2595,6 +2595,14 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # A worker without a monitor (a slot's, `Valimc.World.Jobs`) failed.
+  def handle_info({:job_down, kind, token, reason}, state) do
+    case Jobs.finish(state.jobs, kind, token) do
+      {:ok, job, jobs} -> job_failed(kind, job.data, {:down, reason}, %{state | jobs: jobs})
+      :stale -> {:noreply, state}
+    end
+  end
+
   def handle_info({:job_deadline, kind, token}, state) do
     case Jobs.expire(state.jobs, kind, token) do
       {:ok, job, jobs} -> job_failed(kind, job.data, :timeout, %{state | jobs: jobs})

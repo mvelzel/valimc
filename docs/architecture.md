@@ -93,9 +93,12 @@ the group runs each call on the section it names by epoch, chunk or key. One tic
 group's sections in key order under one tick number, the world clock's game
 time (`World.GameTick`), so groups merge without offsets. The group cuts all
 its sections' changes at once into one record of the write-ahead log, so a
-change that spans sections is durable whole or not at all. Inside a group the
-block rules read and write across section borders and stop only at its edge,
-light crosses by the group's own mailbox, and an entity crossing a section
+change that spans sections is durable whole or not at all; it cuts only the
+sections changed since its last cut, so a group's cost follows what changes
+in it, not how many sections it holds. Inside a group the block rules read
+and write across section borders and stop only at its edge, light crosses by
+the group's own mailbox (generated columns as sibling effects before the next
+cut), and an entity crossing a section
 line is withdrawn and adopted in the same group commit; between groups it
 goes by the durable entity handoff, whose ends and receipts are section keys.
 A group that crashes takes its sections down; each is admitted again from its
@@ -160,7 +163,7 @@ or player handed to it waits unread in its mailbox.
   `F_FULLFSYNC` on macOS). An owner
   adopts, publishes and answers every change at once and cuts one frame of
   keyed records every 50 ms (cells, entities by UUID, receipts, container
-  entries by position, scheduled ticks, block entities), a group all its
+  entries by position, scheduled ticks by chunk, block entities), a group all its
   sections' and hosted players' frames as one record on its own stripe; only
   an entity handoff's reply between groups (its receipt, the proof the other
   owner acts on) waits for its frame. A crash loses at most a suffix of an
@@ -301,9 +304,13 @@ sections of one group keep separate wants), each at its distance to the
 center of the ticket that wants it, whenever they change, and never generates
 on itself. A player's tickets change only where the chunks of a section they
 cover change, not with every chunk the player enters: at view distance 32 a
-view spans about 80 sections. It installs each full chunk as it arrives; its
-column image joins the next frame, and the scheduler forgets the chunk only
-once that frame is durable. Until then an absent chunk is like a chunk of an
+view spans about 80 sections. Full chunks come in deliveries with credit: a
+group has at most two unacknowledged, and what finishes meanwhile waits in the
+scheduler for the next, the players' own and nearest chunks first, so the
+group's mailbox stays bounded however fast generation runs. A group installs
+a delivery per section in one pass and gives its sibling sections their halo
+images at once; the column images join the next frame, and the scheduler
+forgets a chunk only once that frame is durable. Until then an absent chunk is like a chunk of an
 unloaded neighbour group: block reads in the group see nothing there, edits
 and observations are refused, published snapshots fail closed and the chunk
 stream skips it.

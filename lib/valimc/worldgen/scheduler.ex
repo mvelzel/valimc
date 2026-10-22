@@ -67,6 +67,8 @@ defmodule Valimc.Worldgen.Scheduler do
     # chunks waiting for its next (`[{requester, chunk, full}]`, newest first).
     outbox: %{},
     monitors: %{},
+    # A running job's monitor by its ref.
+    job_monitors: %{},
     calls: %{},
     waiting: false,
     dirty: false,
@@ -113,10 +115,16 @@ defmodule Valimc.Worldgen.Scheduler do
   @doc """
   `requester` (a region section, `{group pid, key}`, fenced by `epoch`) wants `wanted` (`chunk =>
   priority`, smaller first) made full, replacing what it wanted before:
-  `{:ok, scheduler}` for it to monitor.
+  `{:ok, scheduler}` for it to monitor. A requester that monitors the
+  scheduler already passes it as `known`, and nothing is looked up.
   """
-  def want(world, dimension, requester, epoch, wanted) do
-    with {:ok, pid} <- whereis(world, dimension) do
+  def want(world, dimension, requester, epoch, wanted, known \\ nil) do
+    found =
+      if is_pid(known) and Process.alive?(known),
+        do: {:ok, known},
+        else: whereis(world, dimension)
+
+    with {:ok, pid} <- found do
       GenServer.cast(pid, {:want, requester, epoch, wanted})
       {:ok, pid}
     end
@@ -423,14 +431,16 @@ defmodule Valimc.Worldgen.Scheduler do
   @impl true
   def handle_info({:job, ref, result}, state) do
     state =
-      case Enum.find(state.monitors, &match?({_, {:job, ^ref, _}}, &1)) do
-        {monitor, {:job, _, started}} ->
+      case Map.pop(state.job_monitors, ref) do
+        {nil, _} ->
+          state
+
+        {monitor, job_monitors} ->
+          {:job, _, started} = Map.fetch!(state.monitors, monitor)
           Process.demonitor(monitor, [:flush])
           Valimc.Data.Metrics.add(:worldgen_microseconds, now() - started)
-          %{state | monitors: Map.delete(state.monitors, monitor)}
-
-        nil ->
-          state
+          monitors = Map.delete(state.monitors, monitor)
+          %{state | monitors: monitors, job_monitors: job_monitors}
       end
 
     {frontier, events} = Frontier.done(state.frontier, ref, result)
@@ -442,7 +452,16 @@ defmodule Valimc.Worldgen.Scheduler do
       {{:job, ref, _}, monitors} ->
         Logger.warning("A generation job went down: #{inspect(reason)}")
         {frontier, events} = Frontier.lost(state.frontier, ref)
-        state = %{state | monitors: monitors, frontier: frontier, dirty: true}
+        job_monitors = Map.delete(state.job_monitors, ref)
+
+        state = %{
+          state
+          | monitors: monitors,
+            job_monitors: job_monitors,
+            frontier: frontier,
+            dirty: true
+        }
+
         noreply(deliver(state, events))
 
       {{:requester, requester}, monitors} ->
@@ -523,7 +542,12 @@ defmodule Valimc.Worldgen.Scheduler do
           {:ok, pid} ->
             Valimc.Data.Metrics.add(:"worldgen_#{job.kind}_jobs")
             monitor = Process.monitor(pid)
-            %{state | monitors: Map.put(state.monitors, monitor, {:job, ref, now()})}
+
+            %{
+              state
+              | monitors: Map.put(state.monitors, monitor, {:job, ref, now()}),
+                job_monitors: Map.put(state.job_monitors, ref, monitor)
+            }
 
           {:error, :busy} ->
             # Another user of the pool took the slot.

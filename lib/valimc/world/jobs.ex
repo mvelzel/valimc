@@ -12,7 +12,9 @@ defmodule Valimc.World.Jobs do
   its worker is spawned at once, without a call to a supervisor (VMC-077w: an
   owner's hot path never waits on another process), and frees its slot as it
   ends. Such a worker is never killed, so it always frees its slot: it takes
-  no deadline, and `stop_all/1` lets it finish.
+  no deadline, and `stop_all/1` lets it finish. It is not monitored either:
+  it reports its own failure, `{:job_down, kind, token, reason}`, so a job
+  costs its owner one message.
 
   The owner keeps what a job needs to adopt its result in the job's `data`;
   `monitors` maps each worker's monitor to its kind, so an owner can route a
@@ -25,7 +27,7 @@ defmodule Valimc.World.Jobs do
           kind: atom(),
           token: reference(),
           pid: pid(),
-          monitor: reference(),
+          monitor: reference() | nil,
           timer: reference() | nil,
           data: map()
         }
@@ -56,7 +58,9 @@ defmodule Valimc.World.Jobs do
         send(owner, wrap.({:job, kind, token, work.()}))
       end)
 
-    case if(slots, do: spawn_slot(slots, run), else: supervised(opts, run)) do
+    failed = &send(owner, wrap.({:job_down, kind, token, &1}))
+
+    case if(slots, do: spawn_slot(slots, run, failed), else: supervised(opts, run)) do
       {:ok, pid} ->
         timer =
           case Keyword.get(opts, :deadline) do
@@ -68,7 +72,7 @@ defmodule Valimc.World.Jobs do
           kind: kind,
           token: token,
           pid: pid,
-          monitor: Process.monitor(pid),
+          monitor: if(slots, do: nil, else: Process.monitor(pid)),
           timer: timer,
           kill: slots == nil,
           data: Keyword.get(opts, :data, %{})
@@ -78,7 +82,8 @@ defmodule Valimc.World.Jobs do
          %{
            jobs
            | entries: Map.put(jobs.entries, kind, job),
-             monitors: Map.put(jobs.monitors, job.monitor, kind)
+             monitors:
+               if(job.monitor, do: Map.put(jobs.monitors, job.monitor, kind), else: jobs.monitors)
          }, job}
 
       {:error, _} ->
@@ -89,7 +94,7 @@ defmodule Valimc.World.Jobs do
   defp supervised(opts, run),
     do: Task.Supervisor.start_child(Keyword.fetch!(opts, :supervisor), run)
 
-  defp spawn_slot(name, run) do
+  defp spawn_slot(name, run, failed) do
     {counter, max} = :persistent_term.get({__MODULE__, name})
 
     if :counters.get(counter, 1) >= max do
@@ -101,6 +106,8 @@ defmodule Valimc.World.Jobs do
        spawn(fn ->
          try do
            run.()
+         catch
+           kind, reason -> failed.(Exception.normalize(kind, reason, __STACKTRACE__))
          after
            :counters.sub(counter, 1, 1)
          end
@@ -157,7 +164,7 @@ defmodule Valimc.World.Jobs do
 
   defp close(job) do
     if job.timer, do: Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
+    if job.monitor, do: Process.demonitor(job.monitor, [:flush])
     job
   end
 

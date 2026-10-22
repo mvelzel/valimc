@@ -158,7 +158,16 @@ defmodule Valimc.World.RegionGeneration do
     if wanted == gen.sent and (gen.scheduler != nil or wanted == %{}) do
       state
     else
-      case Scheduler.want(gen.world, gen.dimension, {self(), state.key}, state.epoch, wanted) do
+      known = with {pid, _} <- gen.scheduler, do: pid
+
+      case Scheduler.want(
+             gen.world,
+             gen.dimension,
+             {self(), state.key},
+             state.epoch,
+             wanted,
+             known
+           ) do
         {:ok, pid} ->
           scheduler =
             case gen.scheduler do

@@ -18,7 +18,8 @@
 # `OUTRUN_SAMPLE` adds samplers (comma separated, VMC-077w): `groups` records
 # every region group every 2 s (sections, reductions, mailbox, memory) and how
 # often the largest is running or runnable (every 10 ms); `stacks` prints
-# where the largest group spends its busy time (its stack every 2 ms).
+# where the largest group spends its busy time (its stack every 2 ms);
+# `scheduler_stacks` the same for the generation scheduler.
 alias Valimc.Protocol.{Data, Wire}
 alias Valimc.Worldgen.Pool
 
@@ -326,9 +327,20 @@ util_sampler =
 
 sample = String.split(System.get_env("OUTRUN_SAMPLE", ""), ",", trim: true)
 
+# A mailbox message's kind.
+tag = fn
+  {:resource, _, inner} when is_tuple(inner) -> {:resource, elem(inner, 0)}
+  {:"$gen_call", _, request} when is_tuple(request) -> {:call, elem(request, 0)}
+  {:"$gen_call", _, request} -> {:call, request}
+  {:"$gen_cast", request} when is_tuple(request) -> {:cast, elem(request, 0)}
+  message when is_tuple(message) -> elem(message, 0)
+  message -> message
+end
+
 # Every group every 2 s: `{t, [{sections, reductions since the last row,
-# mailbox, memory bytes}]}` largest first, and the largest group's busy share
-# (running or runnable at a 10 ms sample) over those 2 s.
+# mailbox, memory bytes}]}` largest first, the largest group's busy share
+# (running or runnable at a 10 ms sample) over those 2 s, and what its mailbox
+# holds when it holds more than 50 messages.
 group_sampler =
   if "groups" in sample do
     spawn_link(fn ->
@@ -365,9 +377,22 @@ group_sampler =
                 |> Enum.sort(:desc)
 
               largest = with [{_, _, _, _, pid} | _] <- entries, do: pid, else: (_ -> nil)
+
+              tags =
+                with [{_, _, queue, _, pid} | _] when queue > 50 <- entries,
+                     {:messages, messages} <- Process.info(pid, :messages) do
+                  messages
+                  |> Enum.frequencies_by(&inspect(tag.(&1)))
+                  |> Enum.sort_by(&(-elem(&1, 1)))
+                  |> Enum.take(6)
+                  |> Map.new()
+                else
+                  _ -> %{}
+                end
+
               entries = Enum.map(entries, &Tuple.delete_at(&1, 4))
               last = Map.new(groups, fn {pid, _, info} -> {pid, info[:reductions]} end)
-              rows = [{now.(), entries, busy / n} | rows]
+              rows = [{now.(), entries, busy / n, tags} | rows]
               loop.(loop, rows, last, largest, 0, 1)
             end
         end
@@ -377,14 +402,18 @@ group_sampler =
     end)
   end
 
-# The largest group's stack every 2 ms: frames counted once per busy sample.
+# The largest group's (or the scheduler's) stack every 2 ms: frames counted
+# once per busy sample.
 stack_sampler =
-  if "stacks" in sample do
+  if "stacks" in sample or "scheduler_stacks" in sample do
     spawn_link(fn ->
       largest = fn ->
-        Valimc.World.Regionizer.groups(:overworld)
-        |> Enum.max_by(fn {_, keys} -> length(keys) end, fn -> {nil, []} end)
-        |> elem(0)
+        if "scheduler_stacks" in sample,
+          do: scheduler,
+          else:
+            Valimc.World.Regionizer.groups(:overworld)
+            |> Enum.max_by(fn {_, keys} -> length(keys) end, fn -> {nil, []} end)
+            |> elem(0)
       end
 
       loop = fn loop, counts, target, n ->
@@ -498,15 +527,6 @@ flown = now.()
   end)
   |> Enum.max(fn -> {0, nil} end)
 
-tag = fn
-  {:resource, _, inner} when is_tuple(inner) -> {:resource, elem(inner, 0)}
-  {:"$gen_call", _, request} when is_tuple(request) -> {:call, elem(request, 0)}
-  {:"$gen_call", _, request} -> {:call, request}
-  {:"$gen_cast", request} when is_tuple(request) -> {:cast, elem(request, 0)}
-  message when is_tuple(message) -> elem(message, 0)
-  message -> message
-end
-
 mailbox_tags =
   case largest && Process.info(largest, :messages) do
     {:messages, messages} ->
@@ -540,7 +560,7 @@ groups = if group_sampler, do: collect.(:groups), else: []
 if stack_sampler do
   receive do
     {:stacks, counts, n} ->
-      IO.puts("largest group stacks: #{n} samples, #{counts[:busy]} busy")
+      IO.puts("stacks: #{n} samples, #{counts[:busy]} busy")
 
       counts
       |> Map.delete(:busy)
@@ -586,7 +606,7 @@ mean = fn list -> if list == [], do: 0.0, else: Enum.sum(list) / length(list) en
 
 # The largest group at each 2 s row of the flight (VMC-077w).
 largest_rows =
-  for {t, [{sections, reductions, queue, memory} | _], busy} <- groups,
+  for {t, [{sections, reductions, queue, memory} | _], busy, _} <- groups,
       t > started and t <= flown,
       do: %{
         sections: sections,
@@ -676,8 +696,8 @@ record = %{
   wants: Enum.map(wants, fn {t, w, r, m} -> [div(t - started, 1000), w, r, m] end),
   utilization: Enum.map(util, fn {t, n, d} -> [div(t - started, 1000), n, d] end),
   groups:
-    Enum.map(groups, fn {t, entries, busy} ->
-      [div(t - started, 1000), Float.round(busy, 3), Enum.map(entries, &Tuple.to_list/1)]
+    Enum.map(groups, fn {t, entries, busy, tags} ->
+      [div(t - started, 1000), Float.round(busy, 3), Enum.map(entries, &Tuple.to_list/1), tags]
     end)
 }
 

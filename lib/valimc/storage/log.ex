@@ -101,7 +101,8 @@ defmodule Valimc.Storage.Log do
   Append `frames` (`[{owner, seq, frame}]`, several sections' frames of one
   commit) as one record on the stripe of `route` (a group's key), so they are
   durable together or not at all; `notify` receives `{:storage_durable, owner,
-  seq}` for each, or `{:storage_failed, owner, seq, reason}`. Returns the
+  seq}` for each (`{:storage_durable_all, [{owner, seq}]}` once when they are
+  several owners'), or `{:storage_failed, owner, seq, reason}`. Returns the
   stripe for the caller to monitor; a caller that monitors it already passes
   it as `stripe` and nothing is looked up (VMC-077w).
   """
@@ -366,9 +367,7 @@ defmodule Valimc.Storage.Log do
       # Each record's lsn and place are its RegionLog frame's.
       lsns = for {frame, place} <- Enum.zip(frames, located), _ <- frame, do: place
 
-      for {:commit, frames, notify} <- commits,
-          {owner, seq, _} <- frames,
-          do: send(notify, {:storage_durable, owner, seq})
+      for {:commit, frames, notify} <- commits, do: acknowledge(notify, frames)
 
       for from <- syncs, do: GenServer.reply(from, :ok)
 
@@ -405,6 +404,15 @@ defmodule Valimc.Storage.Log do
           _ -> reopen(state)
         end
     end
+  end
+
+  # One owner's frames are acknowledged one by one; a group's record of several
+  # owners' in one message (VMC-077w), so its mailbox does not grow with its
+  # sections.
+  defp acknowledge(notify, [{owner, _, _} | _] = frames) do
+    if Enum.all?(frames, &(elem(&1, 0) == owner)),
+      do: for({_, seq, _} <- frames, do: send(notify, {:storage_durable, owner, seq})),
+      else: send(notify, {:storage_durable_all, for({owner, seq, _} <- frames, do: {owner, seq})})
   end
 
   # A stripe whose segments will not open (its folder unwritable) keeps
