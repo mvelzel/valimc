@@ -49,7 +49,8 @@ defmodule Valimc.RegionizerTest do
     {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 0))
     {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 3))
     {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 8))
-    assert Valimc.TestWait.until(fn -> same_group?(at(ctx.origin, 0), at(ctx.origin, 3)) end)
+    :ok = Regionizer.settle(:overworld)
+    assert same_group?(at(ctx.origin, 0), at(ctx.origin, 3))
     assert separate?(at(ctx.origin, 0), at(ctx.origin, 8))
 
     # A section between them brings both groups into one; their state comes along.
@@ -59,8 +60,10 @@ defmodule Valimc.RegionizerTest do
     {:ok, owner} = Valimc.TestWorld.owner(at(ctx.origin, 8))
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{position => stone})
+    # Section 5 brings two groups into the largest, one after the other.
     {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 5))
-    assert Valimc.TestWait.until(fn -> same_group?(at(ctx.origin, 0), at(ctx.origin, 8)) end)
+    :ok = Regionizer.settle(:overworld)
+    assert same_group?(at(ctx.origin, 0), at(ctx.origin, 8))
 
     assert Region.sections(group(at(ctx.origin, 0))) ==
              Enum.sort(for dx <- [0, 3, 5, 8], do: at(ctx.origin, dx))
@@ -88,8 +91,18 @@ defmodule Valimc.RegionizerTest do
     end
 
     {:ok, _} = Valimc.TestWorld.owner(bridge)
-    assert Valimc.TestWait.until(fn -> same_group?(hd(ends), List.last(ends)) end)
-    assert Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(bridge) == nil end, 30_000)
-    assert Valimc.TestWait.until(fn -> separate?(hd(ends), List.last(ends)) end)
+    :ok = Regionizer.settle(:overworld)
+    assert same_group?(hd(ends), List.last(ends))
+
+    # The bridge unloads on its group's tick; the regionizer splits the group
+    # when it handles that report.
+    assert Valimc.TestWait.until(
+             fn ->
+               not Enum.any?(Regionizer.groups(:overworld), fn {_, keys} -> bridge in keys end)
+             end,
+             30_000
+           )
+
+    assert separate?(hd(ends), List.last(ends))
   end
 end

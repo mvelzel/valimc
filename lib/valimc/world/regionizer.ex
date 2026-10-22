@@ -40,6 +40,13 @@ defmodule Valimc.World.Regionizer do
   @doc "The groups of `dimension`: `%{pid => [{sx, sz}]}` (tests, measurements)."
   def groups(dimension), do: GenServer.call(name(dimension), :groups, 30_000)
 
+  @doc """
+  `:ok` once every load and unload of `dimension` reported before this call
+  is handled: its merges and splits are made and their routes moved. A
+  section's load is reported before `World.owner/1` first answers for it.
+  """
+  def settle(dimension), do: GenServer.call(name(dimension), :settle, 30_000)
+
   defp cast(dimension, message) do
     GenServer.cast(name(dimension), message)
   catch
@@ -82,6 +89,8 @@ defmodule Valimc.World.Regionizer do
   end
 
   @impl true
+  def handle_call(:settle, _from, state), do: {:reply, :ok, state}
+
   def handle_call(:groups, _from, state),
     do: {:reply, Map.new(state.groups, fn {pid, g} -> {pid, Enum.sort(g.keys)} end), state}
 
