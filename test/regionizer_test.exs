@@ -105,4 +105,61 @@ defmodule Valimc.RegionizerTest do
 
     assert separate?(hd(ends), List.last(ends))
   end
+
+  # The final VMC-077 client run: one tick unloads a bridge and a section of
+  # the piece that splits off; the split, decided on the first report, names
+  # the second section too.
+  test "a split decided before a second unload's report still splits", ctx do
+    TestScope.isolate(
+      for(dx <- 0..12, do: at(ctx.origin, dx)),
+      region_ticks: :timer,
+      region_unload_delay_ms: 0
+    )
+
+    kept = for dx <- [0, 1, 2, 8], do: at(ctx.origin, dx)
+    [bridge, far] = [at(ctx.origin, 5), at(ctx.origin, 9)]
+    regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
+    # The bridge's report must come first: hold the regionizer while both go.
+    :sys.suspend(regionizer)
+
+    try do
+      for key <- kept do
+        {:ok, owner} = Valimc.TestWorld.owner(key)
+        TestScope.simulate(owner, key)
+      end
+
+      for key <- [bridge, far], do: {:ok, _} = Valimc.TestWorld.owner(key)
+    after
+      :sys.resume(regionizer)
+    end
+
+    :ok = Regionizer.settle(:overworld)
+    assert same_group?(hd(kept), List.last(kept))
+    groups = Regionizer.groups(:overworld)
+    :sys.suspend(regionizer)
+
+    try do
+      assert Valimc.TestWait.until(
+               fn ->
+                 Valimc.TestWorld.lookup(bridge) == nil and Valimc.TestWorld.lookup(far) == nil
+               end,
+               30_000
+             )
+    after
+      :sys.resume(regionizer)
+    end
+
+    :ok = Regionizer.settle(:overworld)
+    assert separate?(at(ctx.origin, 0), at(ctx.origin, 8))
+    assert same_group?(at(ctx.origin, 0), at(ctx.origin, 2))
+
+    # Every group the regionizer knows holds exactly what it says, nothing
+    # unloaded among them, and no empty group was left behind.
+    for {pid, keys} <- Regionizer.groups(:overworld), Enum.any?(keys, &(&1 in kept)) do
+      assert Enum.sort(keys) == Region.sections(pid)
+      refute bridge in keys or far in keys
+    end
+
+    assert map_size(Regionizer.groups(:overworld)) <= map_size(groups) + 1
+  end
 end

@@ -70,12 +70,18 @@ defmodule Valimc.World.Region do
 
   @doc """
   Hand `keys` (all of `source`'s sections by default) to the group `target`,
-  at `source`'s next tick boundary: `:ok`, or `{:error, reason}`.
+  at `source`'s next tick boundary: `{:ok, moved}`, the keys it still held
+  and handed over (one it no longer holds unloaded after it was named), or
+  `{:error, reason}`.
   """
   def hand_over(source, target, keys \\ :all) when is_pid(source) and is_pid(target),
     do: GenServer.call(source, {:hand_over, target, keys}, 30_000)
 
-  @doc "Move `keys` (`{sx, sz}`) of group `pid` of `dimension` into a new group: `{:ok, new_pid}`."
+  @doc """
+  Move `keys` (`{sx, sz}`) of group `pid` of `dimension` into a new group:
+  `{:ok, new_pid, moved}`, or `{:ok, nil, []}` when `pid` holds none of them
+  any more (the new group then stops at once).
+  """
   def split(pid, dimension, keys) when is_pid(pid) and is_list(keys) do
     with {:ok, target} <-
            DynamicSupervisor.start_child(
@@ -86,9 +92,22 @@ defmodule Valimc.World.Region do
                restart: :temporary,
                shutdown: 20_000
              }
-           ),
-         :ok <- hand_over(pid, target, keys),
-         do: {:ok, target}
+           ) do
+      case safe_hand_over(pid, target, keys) do
+        {:ok, [_ | _] = moved} ->
+          {:ok, target, moved}
+
+        other ->
+          DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, target)
+          with {:ok, []} <- other, do: {:ok, nil, []}
+      end
+    end
+  end
+
+  defp safe_hand_over(source, target, keys) do
+    hand_over(source, target, keys)
+  catch
+    :exit, reason -> {:error, {:hand_over, reason}}
   end
 
   @doc """
@@ -641,13 +660,17 @@ defmodule Valimc.World.Region do
     {:reply, reply, state}
   end
 
+  # The regionizer names keys from reports that may be behind this group: a
+  # section unloaded since is simply not handed over.
   def handle_call({:hand_over, target, keys}, _from, state) do
-    keys = if keys == :all, do: Map.keys(state.sections), else: keys
+    keys =
+      if keys == :all,
+        do: Map.keys(state.sections),
+        else: Enum.filter(keys, &Map.has_key?(state.sections, &1))
 
     # A target that stopped meanwhile cannot adopt; the regionizer learns of
     # its exit through its own monitor.
-    if target == self() or not Process.alive?(target) or
-         not Enum.all?(keys, &Map.has_key?(state.sections, &1)) do
+    if target == self() or not Process.alive?(target) do
       {:reply, {:error, :invalid_handoff}, state}
     else
       started = System.monotonic_time(:microsecond)
@@ -659,7 +682,7 @@ defmodule Valimc.World.Region do
         System.monotonic_time(:microsecond) - started
       )
 
-      {:reply, :ok, state}
+      {:reply, {:ok, keys}, state}
     end
   end
 
@@ -991,6 +1014,9 @@ defmodule Valimc.World.Region do
     resource = RegionData.adopted(resource)
     state = put_section(state, key, token, resource)
     {:ok, _} = Registry.register(Valimc.RegionRegistry, section(state, key), nil)
+
+    if Valimc.config(:regionizer, key),
+      do: Valimc.World.Regionizer.adopted(state.dimension, key, self())
 
     Valimc.Data.Metrics.add(
       :region_adopt_microseconds,

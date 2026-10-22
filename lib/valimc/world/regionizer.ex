@@ -34,6 +34,12 @@ defmodule Valimc.World.Regionizer do
   @doc "Group `pid` loaded section `key` (`{sx, sz}`) of `dimension`."
   def loaded(dimension, key, pid), do: cast(dimension, {:loaded, key, pid, compatibility(key)})
 
+  @doc """
+  Group `pid` adopted section `key` of `dimension` from another group: the
+  section is its from now on, whatever earlier reports said.
+  """
+  def adopted(dimension, key, pid), do: cast(dimension, {:adopted, key, pid, compatibility(key)})
+
   @doc "Group `pid` unloaded section `key` (`{sx, sz}`) of `dimension`."
   def unloaded(dimension, key, pid), do: cast(dimension, {:unloaded, key, pid})
 
@@ -100,6 +106,9 @@ defmodule Valimc.World.Regionizer do
     {:noreply, merge_around(state, key)}
   end
 
+  def handle_cast({:adopted, key, pid, compat}, state),
+    do: {:noreply, add(state, key, pid, compat)}
+
   def handle_cast({:unloaded, key, pid}, state) do
     case state.sections do
       %{^key => {^pid, _}} -> {:noreply, state |> remove(key, pid) |> maybe_split(pid)}
@@ -121,7 +130,15 @@ defmodule Valimc.World.Regionizer do
 
   def handle_info(_, state), do: {:noreply, state}
 
+  # A section a report puts in `pid`'s group leaves the group it was in.
   defp add(state, key, pid, compat) do
+    state =
+      case state.sections do
+        %{^key => {^pid, _}} -> state
+        %{^key => {other, _}} -> leave(state, key, other)
+        _ -> state
+      end
+
     state =
       case state.groups do
         %{^pid => _} ->
@@ -190,7 +207,7 @@ defmodule Valimc.World.Regionizer do
       started = System.monotonic_time(:microsecond)
 
       case safe_hand_over(source, target, :all) do
-        :ok ->
+        {:ok, moved} ->
           Valimc.Data.Metrics.add(:regionizer_merges)
 
           Valimc.Data.Metrics.add(
@@ -198,7 +215,7 @@ defmodule Valimc.World.Regionizer do
             System.monotonic_time(:microsecond) - started
           )
 
-          move_all(acc, source, target)
+          transfer(acc, target, moved)
 
         {:error, reason} ->
           Logger.debug(
@@ -210,19 +227,38 @@ defmodule Valimc.World.Regionizer do
     end)
   end
 
-  defp move_all(state, source, target) do
-    {%{keys: keys, monitor: monitor}, groups} = Map.pop(state.groups, source)
-    Process.demonitor(monitor, [:flush])
-
-    sections =
-      Enum.reduce(keys, state.sections, fn key, acc ->
-        Map.update!(acc, key, fn {_, compat} -> {target, compat} end)
+  # The sections `source` handed over are `target`'s. Those the regionizer
+  # thought `source` had but it no longer held unloaded meanwhile: their
+  # reports, still on their way, take them off `source`.
+  defp transfer(state, target, moved) do
+    state =
+      Enum.reduce(moved, state, fn key, acc ->
+        case acc.sections do
+          %{^key => {_, compat}} -> add(acc, key, target, compat)
+          _ -> acc
+        end
       end)
 
-    t = groups[target]
-    t = %{t | keys: MapSet.union(t.keys, keys)}
-    t = %{t | since: MapSet.size(t.keys), gone: 0}
-    %{state | sections: sections, groups: Map.put(groups, target, t)}
+    t = state.groups[target]
+    %{state | groups: Map.put(state.groups, target, %{t | since: MapSet.size(t.keys), gone: 0})}
+  end
+
+  # `key` is no longer in `pid`'s group; a group left with none is forgotten.
+  defp leave(state, key, pid) do
+    case state.groups do
+      %{^pid => group} ->
+        keys = MapSet.delete(group.keys, key)
+
+        if MapSet.size(keys) == 0 do
+          Process.demonitor(group.monitor, [:flush])
+          %{state | groups: Map.delete(state.groups, pid)}
+        else
+          %{state | groups: Map.put(state.groups, pid, %{group | keys: keys})}
+        end
+
+      _ ->
+        state
+    end
   end
 
   defp safe_hand_over(source, target, keys) do
@@ -288,7 +324,10 @@ defmodule Valimc.World.Regionizer do
       keys = MapSet.to_list(piece)
 
       case safe_split(acc.dimension, pid, keys) do
-        {:ok, new} ->
+        {:ok, nil, []} ->
+          acc
+
+        {:ok, new, moved} ->
           Valimc.Data.Metrics.add(:regionizer_splits)
 
           Valimc.Data.Metrics.add(
@@ -296,17 +335,7 @@ defmodule Valimc.World.Regionizer do
             System.monotonic_time(:microsecond) - started
           )
 
-          group = acc.groups[pid]
-
-          acc = %{
-            acc
-            | groups:
-                Map.put(acc.groups, pid, %{group | keys: MapSet.difference(group.keys, piece)})
-          }
-
-          compats = Map.new(keys, &{&1, elem(acc.sections[&1], 1)})
-          acc = Enum.reduce(keys, acc, fn k, a -> add(a, k, new, compats[k]) end)
-          acc
+          Enum.reduce(moved, acc, fn k, a -> add(a, k, new, elem(a.sections[k], 1)) end)
 
         {:error, reason} ->
           Logger.debug("Splitting group #{inspect(pid)}: #{inspect(reason)}")
@@ -314,12 +343,16 @@ defmodule Valimc.World.Regionizer do
       end
     end)
     |> then(fn acc ->
-      group = acc.groups[pid]
+      case acc.groups do
+        %{^pid => group} ->
+          %{
+            acc
+            | groups: Map.put(acc.groups, pid, %{group | since: MapSet.size(group.keys), gone: 0})
+          }
 
-      %{
-        acc
-        | groups: Map.put(acc.groups, pid, %{group | since: MapSet.size(group.keys), gone: 0})
-      }
+        _ ->
+          acc
+      end
     end)
   end
 

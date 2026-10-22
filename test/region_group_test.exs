@@ -47,7 +47,7 @@ defmodule Valimc.RegionGroupTest do
   end
 
   defp merge(ctx) do
-    :ok = Region.hand_over(ctx.pb, ctx.pa)
+    {:ok, [_]} = Region.hand_over(ctx.pb, ctx.pa)
 
     Valimc.TestWait.until(fn ->
       match?({pid, _, _} when pid == ctx.pa, Valimc.TestWorld.lookup(ctx.b))
@@ -135,7 +135,7 @@ defmodule Valimc.RegionGroupTest do
     merge(ctx)
     stone = BlockRegistry.default_state("stone")
     set({ctx.pa, ctx.eb}, position(ctx.b), stone)
-    {:ok, pc} = Region.split(ctx.pa, :overworld, [ctx.b])
+    {:ok, pc, [_]} = Region.split(ctx.pa, :overworld, [ctx.b])
 
     Valimc.TestWait.until(fn ->
       match?({pid, _, _} when pid == pc, Valimc.TestWorld.lookup(ctx.b))
@@ -189,7 +189,7 @@ defmodule Valimc.RegionGroupTest do
     :ok = Region.flush(ctx.pb)
     # The adopter holds the section's state unread in its mailbox when it dies.
     :sys.suspend(ctx.pa)
-    :ok = Region.hand_over(ctx.pb, ctx.pa)
+    {:ok, [_]} = Region.hand_over(ctx.pb, ctx.pa)
     assert match?({pid, _, _} when pid == ctx.pa, Valimc.TestWorld.lookup(ctx.b))
     TestScope.kill(ctx.pa)
 
@@ -227,7 +227,7 @@ defmodule Valimc.RegionGroupTest do
 
     {:ok, {pc, ec}} = Valimc.TestWorld.owner(c)
     {:ok, {pd, ed}} = Valimc.TestWorld.owner(d)
-    :ok = Region.hand_over(pd, pc)
+    {:ok, [_]} = Region.hand_over(pd, pc)
 
     Valimc.TestWait.until(fn ->
       match?({pid, _, _} when pid == pc, Valimc.TestWorld.lookup(d))
@@ -309,8 +309,11 @@ defmodule Valimc.RegionGroupTest do
 
   defp c_key(ctx), do: {elem(ctx.b, 0) + 1, elem(ctx.b, 1)}
 
-  test "handing over refuses sections the group does not own", ctx do
-    assert Region.hand_over(ctx.pa, ctx.pb, [ctx.b]) == {:error, :invalid_handoff}
+  test "a hand-over moves only the sections the group still holds", ctx do
     assert Region.hand_over(ctx.pa, ctx.pa) == {:error, :invalid_handoff}
+    # Keys named from reports that are behind: a section the group no longer
+    # holds is not handed over, the others are.
+    assert Region.hand_over(ctx.pa, ctx.pb, [ctx.b]) == {:ok, []}
+    assert {:ok, nil, []} = Region.split(ctx.pa, :overworld, [ctx.b])
   end
 end

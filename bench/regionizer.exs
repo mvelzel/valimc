@@ -126,10 +126,10 @@ pauses =
         lone = {elem(origin, 0) + 100 + round * 10, 3000}
         fill.(lone)
         source = group_of.(lone)
-        {merge_us, :ok} = :timer.tc(fn -> Region.hand_over(source, group) end)
+        {merge_us, {:ok, _}} = :timer.tc(fn -> Region.hand_over(source, group) end)
         {adopt_us, _} = :timer.tc(fn -> {Region.sections(group), Region.sections(group)} end)
         wait.(fn -> group_of.(lone) == group end, 30_000)
-        {split_us, {:ok, new}} = :timer.tc(fn -> Region.split(group, :overworld, [lone]) end)
+        {split_us, {:ok, new, _}} = :timer.tc(fn -> Region.split(group, :overworld, [lone]) end)
         wait.(fn -> group_of.(lone) == new end, 30_000)
         {merge_us, adopt_us, split_us}
       end
