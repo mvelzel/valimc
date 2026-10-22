@@ -2240,6 +2240,21 @@ defmodule Valimc.World.RegionData do
 
   defp unpack_to_open(state, _, _), do: state
 
+  # A container set without its entry (`/setblock`, `/fill`, `/clone`, `/place`
+  # without loot) gets an empty one when first used, as its block entity
+  # exists in vanilla; loot still unpacks first.
+  defp ensure_container(state, position) do
+    with nil <- write_busy(state),
+         block = Blocks.get(state.blocks, position),
+         false <- LootChests.unrolled?(state.containers, state.block_entities, position, block),
+         {:ok, containers} <-
+           ContainerLifecycle.ensure(state.containers, state.key, position, block) do
+      %{state | containers: containers}
+    else
+      _ -> state
+    end
+  end
+
   defp unpack_to_break(state, position, block) do
     if Valimc.Blocks.Chest.single?(Valimc.Blocks.after_removal(block)),
       do: state,
@@ -2313,8 +2328,10 @@ defmodule Valimc.World.RegionData do
         %{cooking: _} = entry ->
           original = Blocks.get(state.blocks, position)
 
+          # Like an empty chest, an empty cooking block may be replaced by
+          # another kind of block; its entry goes with it.
           block != original and
-            not (retired[position] == entry and Valimc.World.CookingEntry.empty?(entry) and
+            not (Valimc.World.CookingEntry.empty?(entry) and
                    Valimc.Blocks.CookingBlocks.kind(original) == entry.kind and
                    Valimc.Blocks.CookingBlocks.kind(block) != entry.kind)
 
@@ -2343,6 +2360,11 @@ defmodule Valimc.World.RegionData do
   defp apply_blocks(state, batch, proposal, cooking, updates \\ true) do
     previous = Blocks.get_many(state.blocks, Map.keys(proposal.changes))
     :ok = Blocks.put(state.blocks, proposal.changes)
+
+    state = %{
+      state
+      | containers: ContainerLifecycle.retire_replaced(state.containers, proposal.changes)
+    }
 
     chunks =
       Enum.uniq(
@@ -2625,7 +2647,7 @@ defmodule Valimc.World.RegionData do
     state =
       if epoch == state.epoch and valid_block_query?([position], :any) and
            in_region?(state, position),
-         do: unpack_to_open(state, position, grant),
+         do: state |> unpack_to_open(position, grant) |> ensure_container(position),
          else: state
 
     decision =

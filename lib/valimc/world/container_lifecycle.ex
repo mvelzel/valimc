@@ -96,6 +96,57 @@ defmodule Valimc.World.ContainerLifecycle do
     end)
   end
 
+  @doc """
+  After a commit that did not plan its containers (box edits, raw sets), the
+  entries whose cell no longer holds that kind of container go, contents and
+  all, as vanilla's commands clear a replaced block entity
+  (`Clearable.tryClear`).
+  """
+  def retire_replaced(%Containers{} = containers, changes) do
+    Enum.reduce(changes, containers, fn {position, state}, current ->
+      case current.entries[position] do
+        %{revision: revision} = entry ->
+          if entry_kind(entry) == kind(state) and not MapSet.member?(@double, state),
+            do: current,
+            else: elem(Containers.remove(current, position, revision), 1)
+
+        nil ->
+          current
+      end
+    end)
+  end
+
+  @doc """
+  The empty entry a single chest or cooking block at `position` lacks, as
+  vanilla's block entity exists with the block however it was set
+  (`EntityBlock.newBlockEntity`): `{:ok, containers}`, or `:none` when the
+  state holds no container or its entry exists.
+  """
+  def ensure(%Containers{} = containers, key, position, state) do
+    result =
+      cond do
+        Map.has_key?(containers.entries, position) ->
+          :none
+
+        Valimc.Blocks.Chest.single?(state) ->
+          Containers.create(containers, key, position, 3)
+
+        cooking = Valimc.Blocks.CookingBlocks.kind(state) ->
+          Containers.create_cooking(containers, key, position, cooking)
+
+        true ->
+          :none
+      end
+
+    case result do
+      {:ok, next, _entry} -> {:ok, next}
+      _ -> :none
+    end
+  end
+
+  defp entry_kind(%{cooking: _, kind: kind}), do: kind
+  defp entry_kind(_chest), do: :chest
+
   defp kind(state), do: Valimc.Blocks.block_entity(state)
 
   defp retire_entry(current, position, entry, removed) do

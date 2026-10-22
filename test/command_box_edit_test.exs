@@ -115,6 +115,41 @@ defmodule Valimc.CommandBoxEditTest do
     assert read[{-511_872, @y + 1, 921}] == block("glass")
   end
 
+  defp grant({x, y, z}) do
+    %{
+      kind: :open,
+      mode: :creative,
+      eye: {x + 0.5, y + 1.5, z + 0.5},
+      hand: :main,
+      secondary: false,
+      main: false,
+      off: false,
+      expires: Valimc.TestRegion.grant_expires(200)
+    }
+  end
+
+  defp entry(owner, position), do: Valimc.TestRegion.section(owner).containers.entries[position]
+
+  # Vanilla's `/setblock` makes the block entity with the block
+  # (`EntityBlock.newBlockEntity`): containers set by commands open, and a
+  # command that replaces one clears it (VMC-077 final client run, failure E).
+  test "chests and furnaces set by commands open; a replaced one starts empty",
+       %{owners: owners} do
+    owner = owners[{-4000, 7}]
+    chest = {-511_874, @y, 902}
+    furnace = {-511_876, @y, 902}
+    run("setblock -511874 #{@y} 902 chest")
+    run("setblock -511876 #{@y} 902 furnace")
+    assert {:chest, _, view} = Region.menu(owner, self(), chest, grant(chest))
+    assert view.slots == Tuple.duplicate(nil, 27)
+    assert {:cooking, _, _} = Region.menu(owner, self(), furnace, grant(furnace))
+
+    run("fill -511876 #{@y} 902 -511874 #{@y} 902 stone")
+    assert entry(owner, chest) == nil and entry(owner, furnace) == nil
+    run("setblock -511874 #{@y} 902 chest")
+    assert {:chest, _, _} = Region.menu(owner, self(), chest, grant(chest))
+  end
+
   test "positions in regions that are not loaded are refused" do
     assert run("setblock 9000000 70 9000000 stone") =~ "That position is not loaded"
 
