@@ -207,4 +207,5 @@ October 22, 2026, Java 26.3 against a frozen release of 91413583, seed
 Found while building the portal frame, older than this ticket: a placement
 whose clicked block and target cell lie in different 8 × 8 sections is
 refused (`Player.Placement.plan/2`, `:cross_owner_placement`), even when one
-group holds both. Vanilla places across any boundary; this is a follow-up.
+group holds both. Vanilla places across any boundary; fixed by
+[VMC-077z](VMC-077z.md).

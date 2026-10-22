@@ -52,6 +52,7 @@ until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
+| [VMC-077z](tickets/VMC-077z.md) | A block placed against a block across an 8 × 8 section line |
 
 ## Retrieve and update
 

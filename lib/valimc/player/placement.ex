@@ -308,35 +308,62 @@ defmodule Valimc.Player.Placement do
       not Kernel.obstructs?(plan.candidate.state, plan.candidate.position, @placement, body.boxes)
   end
 
-  # The clicked neighbourhood at one owner, the candidate state that survives
-  # there, and a single chest only beside no other chest.
+  # The clicked neighbourhood in one group, the candidate state that survives
+  # there, and a single chest only beside no other chest. The two cells may
+  # lie in different sections of the group (VMC-077z): each is read at its
+  # own section and the block goes to the candidate's, whose survival check
+  # reads the clicked block across the line again as it commits. Cells in two
+  # groups are refused.
   defp plan(item, request) do
-    positions = Enum.uniq([request.position, Rules.adjacent(request)])
+    adjacent = Rules.adjacent(request)
 
-    groups =
-      Enum.group_by(positions, fn {x, _, z} ->
-        Grid.region_key(Grid.chunk_key(x, z))
-      end)
-
-    with [{key, positions}] <- Map.to_list(groups),
-         {:ok, owner} <- owner(hd(positions)),
-         {:ok, observed} <- Region.observe_blocks(owner, positions),
+    with {:ok, sections} <- observe([request.position, adjacent]),
+         blocks = sections |> Map.values() |> Enum.map(& &1.blocks) |> Enum.reduce(&Map.merge/2),
          {:ok, candidate} <-
-           candidate(
-             item,
-             observed.blocks[request.position],
-             observed.blocks[Rules.adjacent(request)],
-             request
-           ),
+           candidate(item, blocks[request.position], blocks[adjacent], request),
+         key = section_key(candidate.position),
+         %{owner: owner, fence: fence} = sections[key],
          {:ok, candidate} <- surviving(owner, candidate),
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
-         :ok <- single_chest(owner, key, candidate, request, observed.fence) do
-      {:ok, %{owner: owner, revision: observed.fence, candidate: candidate, batch: batch}}
+         :ok <- single_chest(owner, key, candidate, request, fence) do
+      {:ok, %{owner: owner, revision: fence, candidate: candidate, batch: batch}}
+    end
+  end
+
+  # `positions` read at their sections' owners, by section key, when one
+  # group holds them all.
+  defp observe(positions) do
+    owners =
+      positions
+      |> Enum.uniq()
+      |> Enum.group_by(&section_key/1)
+      |> Enum.reduce_while(%{}, fn {key, positions}, acc ->
+        case owner(hd(positions)) do
+          {:ok, owner} -> {:cont, Map.put(acc, key, {owner, positions})}
+          error -> {:halt, error}
+        end
+      end)
+
+    with %{} <- owners,
+         [_] <- owners |> Map.values() |> Enum.uniq_by(fn {{pid, _}, _} -> pid end) do
+      Enum.reduce_while(owners, {:ok, %{}}, fn {key, {owner, positions}}, {:ok, acc} ->
+        case Region.observe_blocks(owner, positions) do
+          {:ok, observed} ->
+            {:cont,
+             {:ok,
+              Map.put(acc, key, %{owner: owner, fence: observed.fence, blocks: observed.blocks})}}
+
+          error ->
+            {:halt, error}
+        end
+      end)
     else
-      groups when is_list(groups) -> {:error, :cross_owner_placement}
+      [_, _ | _] -> {:error, :cross_owner_placement}
       error -> error
     end
   end
+
+  defp section_key({x, _, z}), do: Grid.region_key(Grid.chunk_key(x, z))
 
   # A creative block item without modelled placement (VMC-077a): its block on
   # a replaceable block beside the clicked face, in the first of its candidate

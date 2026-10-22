@@ -190,6 +190,31 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
   end
 
+  test "a block places against a clicked block in the neighbouring section of its group", c do
+    {rx, rz} = c.key
+    line = (rx + 1) * Valimc.Data.Grid.region_size() * 16
+    c = %{c | pose: %{c.pose | x: line - 1.5}}
+    seed(c, :survival)
+    {_, _, z} = c.target
+    clicked = {line - 1, 64, z}
+    placed = {line, 64, z}
+    :ok = Valimc.TestBlocks.set(clicked, 1)
+    :ok = Valimc.TestBlocks.set(placed, 0)
+    {client, pid} = login(c)
+
+    wait(fn ->
+      match?(
+        {{:ok, {group, _}}, {:ok, {group, _}}},
+        {Valimc.TestWorld.existing_owner({rx, rz}), Valimc.TestWorld.existing_owner({rx + 1, rz})}
+      )
+    end)
+
+    send_place(client, clicked, 5)
+    _client = ack(client)
+    assert Valimc.TestBlocks.get(placed) == 1
+    assert Valimc.TestConn.state(pid).inventory.slots[36].count == 6
+  end
+
   test "unsupported block entities are corrected without a shell or item loss", c do
     # Default states the 26.3 client sent for a copper chest and a barrel; the owner
     # refuses them too (placement_owner_test).
