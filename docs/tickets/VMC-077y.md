@@ -184,3 +184,27 @@ group can retire, and `TestRegion.section/1` follows a section's route.
   orb picked up before the item: 2 loaded runs failed, 5 of 5 alone and on
   base). `PlayerStorageTest.Connection` removed its world while spawn groups
   still wrote to it (also on base, 2 of 8): its teardown now stops them.
+
+## Client
+
+October 22, 2026, Java 26.3 against a frozen release of 91413583, seed
+20261020, client render distance 4 (ignored
+`.local/client-tests/VMC-077y`): PASS.
+
+- Baseline: join at spawn, terrain renders, `/stats` answers.
+- Fast spectator flight, about 68 blocks/s for 66 s (about 4,480 blocks, 35
+  sections): no snap back, no loading screen, no disconnect; terrain keeps
+  arriving.
+- Leaving far out and joining twice more: each login lands at the far
+  position, with no "final save could not complete" and no "Player save
+  unavailable".
+- Twelve teleports between points 3,000 blocks apart (a player moving alone
+  between groups): every arrival renders; a block placed and broken at the
+  last two.
+- Nether portal travel there and back, twice: the inventory is unchanged.
+- The server log has no error or warning for the whole session.
+
+Found while building the portal frame, older than this ticket: a placement
+whose clicked block and target cell lie in different 8 × 8 sections is
+refused (`Player.Placement.plan/2`, `:cross_owner_placement`), even when one
+group holds both. Vanilla places across any boundary; this is a follow-up.
