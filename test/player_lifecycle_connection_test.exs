@@ -148,6 +148,8 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   test "a death drops orbs worth seven points a level and the respawned player starts without experience",
        ctx do
     [name | _] = ctx.names
+    # Orbs move: they fall and follow the nearest player (VMC-077i).
+    Valimc.TestScope.isolate(ctx.key, item_simulation: true)
     seed(ctx, name, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
     {client, pid} = login(name)
     experience = %Valimc.Player.Experience{level: 5, progress: 0.25, total: 57}
@@ -159,10 +161,19 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert Enum.sum(Enum.map(orbs, &(&1.value * &1.count))) == 35
     # Vanilla's greedy denominations (`getExperienceValue`): 17 + 17 + 1.
     assert Enum.sort(Enum.map(orbs, &{&1.value, &1.count})) == [{1, 1}, {17, 2}]
-    _client = respawn(client, pid)
+    client = respawn(client, pid)
     assert state(pid).player.progression.experience == %Valimc.Player.Experience{}
     {:ok, saved} = saved(ctx, name)
     assert saved.progression.experience == %Valimc.Player.Experience{}
+
+    # Three blocks from the death spot the orbs fly to the player, who
+    # collects every unit of every one.
+    _client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 3.0})
+    wait(fn -> state(pid).player.progression.experience.total == 35 end)
+
+    wait(fn ->
+      Valimc.TestWorld.item_snapshot(ctx.key) |> Enum.all?(fn {_, v} -> v.kind != :orb end)
+    end)
   end
 
   test "creative immunity and living/duplicate respawn requests cannot resurrect or mutate",

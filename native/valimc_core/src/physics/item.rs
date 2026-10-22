@@ -14,7 +14,7 @@ use super::support::{motion_at, on_pos, supporting};
 use super::table::Context;
 
 #[inline]
-fn f32r(v: f64) -> f64 {
+pub(super) fn f32r(v: f64) -> f64 {
     v as f32 as f64
 }
 
@@ -50,7 +50,7 @@ fn body(p: [f64; 3]) -> Aabb {
     }
 }
 
-fn context(bottom: f64) -> Context {
+pub(super) fn context(bottom: f64) -> Context {
     Context {
         entity: true,
         bottom,
@@ -59,15 +59,15 @@ fn context(bottom: f64) -> Context {
     }
 }
 
-fn bounded(v: [f64; 3]) -> bool {
+pub(super) fn bounded(v: [f64; 3]) -> bool {
     v.iter().all(|c| c.abs() <= 64.0)
 }
 
 /// The most cells one item's movement scan reads.
-const MAX_SCAN: u64 = 1024;
+pub(super) const MAX_SCAN: u64 = 1024;
 const MAX_HORIZONTAL: f64 = 30_000_000.0;
 
-fn position_ok(p: [f64; 3]) -> bool {
+pub(super) fn position_ok(p: [f64; 3]) -> bool {
     p[0].abs() <= MAX_HORIZONTAL && p[2].abs() <= MAX_HORIZONTAL && p[1].abs() <= 1_000_128.0
 }
 
@@ -209,7 +209,7 @@ pub fn step(
 
 /// `Entity.move`'s position update: a movement too small to register keeps
 /// the position.
-fn translated(position: [f64; 3], requested: [f64; 3], actual: [f64; 3]) -> [f64; 3] {
+pub(super) fn translated(position: [f64; 3], requested: [f64; 3], actual: [f64; 3]) -> [f64; 3] {
     let length = |v: [f64; 3]| v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
     if length(actual) > 1.0e-7 || length(requested) - length(actual) < 1.0e-7 {
         [

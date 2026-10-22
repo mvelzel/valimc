@@ -1101,17 +1101,20 @@ defmodule Valimc.World.Region do
   # standing in it with its entities (VMC-077i4).
   defp track_players(state) do
     {state, published} = Host.track(state)
+    targets = Host.targets(state)
 
     Enum.reduce(state.sections, state, fn {key, section}, acc ->
+      resource = section.resource
+
       case Map.fetch(published, key) do
         {:ok, players} ->
-          put_resource(acc, key, RegionData.players(section.resource, players))
+          put_resource(acc, key, RegionData.players(resource, players, targets))
 
-        :error when section.resource.player_views == %{} ->
+        :error when resource.player_views == %{} and resource.player_targets == targets ->
           acc
 
         :error ->
-          put_resource(acc, key, RegionData.players(section.resource, {%{}, %{}}))
+          put_resource(acc, key, RegionData.players(resource, {%{}, %{}}, targets))
       end
     end)
   end

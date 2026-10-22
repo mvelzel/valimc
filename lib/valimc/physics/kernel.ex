@@ -250,6 +250,31 @@ defmodule Valimc.Physics.Kernel do
     Native.dispatch(:physics_items, cells, [native(view, region), items, bounds, true])
   end
 
+  @doc """
+  One tick for each experience orb `{position, velocity, on_ground, target}`,
+  `target` the followed player's position at half its eye height or nil:
+  results as `items/3`'s.
+  """
+  def orbs(_view, [], _border), do: {:ok, []}
+
+  def orbs(view, orbs, border) do
+    region =
+      orbs
+      |> Enum.map(fn {{x, y, z}, velocity, _, _} ->
+        expand({x - 1.0, y - 2.0, z - 1.0, x + 1.0, y + 2.0, z + 1.0}, velocity)
+      end)
+      |> Enum.reduce(&union/2)
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    cells = Enum.reduce(orbs, 0, fn {_, velocity, _, _}, sum -> sum + scan_cells(velocity) end)
+    Native.dispatch(:physics_orbs, cells, [native(view, region), orbs, bounds])
+  end
+
   # The cells one item tick scans, about: its movement's (0.25 blocks plus the
   # velocity, and the scan's halo) and its fluid and clearance scans.
   defp scan_cells({x, y, z}),

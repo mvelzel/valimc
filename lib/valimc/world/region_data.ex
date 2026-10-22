@@ -85,6 +85,8 @@ defmodule Valimc.World.RegionData do
     # packets not yet in a frame.
     {:player_views, %{}},
     {:player_frame, %{}},
+    # The playing players of the group the orbs follow: `{feet, aim}`.
+    {:player_targets, []},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -505,24 +507,49 @@ defmodule Valimc.World.RegionData do
   # Store move in the items phase, all at once through the physics kernel over
   # published rows (VMC-077l); publishing the steps then starts merging.
   defp move_items(state, now) do
-    inputs =
-      for {id, %{kind: :item, entity: %{x: x, z: z}} = entry} <- state.entities.store.entries,
-          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)) do
-        %{
-          id: id,
-          revision: entry.revision,
-          position: {entry.entity.x, entry.entity.y, entry.entity.z},
-          motion: entry.motion,
-          physical_revision: entry.physical_revision
-        }
-      end
+    {items, orbs} =
+      state.entities.store.entries
+      |> Enum.filter(fn {_, %{entity: %{x: x, z: z}}} ->
+        Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
+      end)
+      |> Enum.split_with(fn {_, entry} -> entry.kind == :item end)
 
-    if inputs == [] do
+    inputs = Enum.map(items, fn {id, entry} -> step_input(id, entry) end)
+
+    # An orb follows the nearest playing player within eight blocks
+    # (`ExperienceOrb.followNearbyPlayer`), toward half its eye height.
+    orbs =
+      Enum.map(orbs, fn {id, entry} ->
+        step_input(id, entry) |> Map.put(:target, follow(state.player_targets, entry.entity))
+      end)
+
+    if inputs == [] and orbs == [] do
       start_item_merging(state, now)
     else
-      {:noreply, state} = commit_simulated_items(state, Valimc.World.ItemStep.steps(inputs))
+      steps = Valimc.World.ItemStep.steps(inputs) ++ Valimc.World.ItemStep.orb_steps(orbs)
+      {:noreply, state} = commit_simulated_items(state, steps)
       state
     end
+  end
+
+  defp step_input(id, entry) do
+    %{
+      id: id,
+      revision: entry.revision,
+      position: {entry.entity.x, entry.entity.y, entry.entity.z},
+      motion: entry.motion,
+      physical_revision: entry.physical_revision
+    }
+  end
+
+  defp follow(targets, %{x: x, y: y, z: z}) do
+    targets
+    |> Enum.map(fn {{px, py, pz}, aim} ->
+      {(px - x) * (px - x) + (py - y) * (py - y) + (pz - z) * (pz - z), aim}
+    end)
+    |> Enum.filter(fn {distance, _} -> distance <= 64.0 end)
+    |> Enum.min_by(&elem(&1, 0), fn -> {nil, nil} end)
+    |> elem(1)
   end
 
   def handle_call({:create_item, epoch, stack, position}, from, state) do
@@ -1919,9 +1946,9 @@ defmodule Valimc.World.RegionData do
   (`Valimc.Player.Host.track/1`): published with the entities' rows and
   frame.
   """
-  def players(state, {views, frame}) do
+  def players(state, {views, frame}, targets \\ []) do
     frame = Map.merge(state.player_frame, frame, fn _, earlier, later -> earlier ++ later end)
-    %{state | player_views: views, player_frame: frame}
+    %{state | player_views: views, player_frame: frame, player_targets: targets}
   end
 
   defp publish_item_views(state) do
@@ -2447,8 +2474,10 @@ defmodule Valimc.World.RegionData do
     Enum.all?(batch.edits, fn {position, block} ->
       if Valimc.Blocks.Chest.single?(block) and
            not Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) do
-        # A neighbour across a section line is read in its sibling, which the
-        # group holds; one outside the group refuses.
+        # The player's group decided the chest stays single
+        # (`ChestPlacement.joins?/5`); only half of a double chest beside it
+        # refuses. A neighbour across a section line is read in its sibling,
+        # which the group holds; one outside the group refuses.
         Enum.all?(Valimc.Blocks.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
           neighbor_state =
             case Grid.region_key(Grid.chunk_key(x, z)) do
@@ -2459,7 +2488,8 @@ defmodule Valimc.World.RegionData do
                 with %{blocks: blocks} <- state.siblings[key], do: Blocks.get(blocks, neighbor)
             end
 
-          neighbor_state != nil and not Valimc.Blocks.Chest.ordinary?(neighbor_state)
+          neighbor_state != nil and
+            not MapSet.member?(Valimc.Blocks.Chest.double_states(), neighbor_state)
         end)
       else
         true
@@ -2975,7 +3005,12 @@ defmodule Valimc.World.RegionData do
         Grid.section(state.dimension, Grid.chunk_key(x, z)) == route
       end)
 
+    # Items travel through portals; orbs do not yet.
+    {orbs, local} =
+      Enum.split_with(local, &match?(%{kind: :orb}, state.entities.store.entries[&1.id]))
+
     {local, state} = portal_contacts(state, local)
+    local = local ++ orbs
 
     # Motion waits while a plan holds the store; the tick's end publishes it.
     state =

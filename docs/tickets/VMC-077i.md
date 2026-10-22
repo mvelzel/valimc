@@ -98,3 +98,20 @@ player's records only when its state changed.
   neighbours across the line are read in the sibling section the group
   holds.
 
+Recheck (VMC-077-recheck) fixes:
+
+- Death orbs were collected only where the player touched their spawn point:
+  ValiMC's orbs did not move, while the client simulates vanilla's pull
+  toward the player and showed them arriving. Orbs now tick in the physics
+  kernel as `ExperienceOrb.tick` does (water drag or gravity 0.03, the pull
+  toward the nearest playing player within eight blocks at half its eye
+  height, collision, block speed and friction, the bounce off the ground) and
+  cross sections and owners as items do; their motion is in their records,
+  and they no longer tell clients they have no gravity. Death orbs start with
+  vanilla's random velocity. Merging nearby orbs and lava's random jump are
+  not modelled.
+- A chest beside a chest was refused everywhere: it now places single as
+  vanilla's `getStateForPlacement` decides, and only a placement vanilla would
+  join into a double chest (facing and sneaking) is refused, since double
+  chests are not modelled yet.
+

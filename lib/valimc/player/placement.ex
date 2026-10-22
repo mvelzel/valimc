@@ -91,7 +91,11 @@ defmodule Valimc.Player.Placement do
       Rules.supported_stack?(stack) ->
         %{
           kind: :place,
-          request: Map.put(request, :yaw, state.player.yaw),
+          request:
+            Map.merge(request, %{
+              yaw: state.player.yaw,
+              secondary: Valimc.Player.Input.pressed?(state.player.input, :shift)
+            }),
           item: stack.item_id,
           stack: stack,
           slot: slot,
@@ -326,7 +330,7 @@ defmodule Valimc.Player.Placement do
            ),
          {:ok, candidate} <- surviving(owner, candidate),
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
-         :ok <- isolated_chest(owner, key, candidate, observed.fence) do
+         :ok <- single_chest(owner, key, candidate, request, observed.fence) do
       {:ok, %{owner: owner, revision: observed.fence, candidate: candidate, batch: batch}}
     else
       groups when is_list(groups) -> {:error, :cross_owner_placement}
@@ -357,36 +361,43 @@ defmodule Valimc.Player.Placement do
 
   defp surviving(_owner, candidate), do: {:ok, candidate}
 
-  # Vanilla reads the four neighbours wherever they are: those in another
-  # section (a region line one block away) are read at their own owner, the
-  # player's group, which has them loaded.
-  defp isolated_chest(owner, key, candidate, revision) do
+  # A chest beside a chest stays single unless vanilla would join the two
+  # into a double chest, which is refused (not modelled yet). The four
+  # neighbours are read wherever they are: those in another section (a region
+  # line one block away) at their own owner, the player's group.
+  defp single_chest(owner, key, candidate, request, revision) do
     if Valimc.Blocks.Chest.single?(candidate.state) do
-      candidate.position
-      |> Valimc.Blocks.ChestPlacement.neighbors()
-      |> Enum.group_by(fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end)
-      |> Enum.reduce_while(:ok, fn {neighbor_key, positions}, :ok ->
-        observed =
-          if neighbor_key == key,
-            do: Region.observe_blocks(owner, positions, revision),
-            else:
-              with(
-                {:ok, other} <- owner(hd(positions)),
-                do: Region.observe_blocks(other, positions)
-              )
+      read =
+        candidate.position
+        |> Valimc.Blocks.ChestPlacement.neighbors()
+        |> Enum.group_by(fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end)
+        |> Enum.reduce_while({:ok, %{}}, fn {neighbor_key, positions}, {:ok, acc} ->
+          observed =
+            if neighbor_key == key,
+              do: Region.observe_blocks(owner, positions, revision),
+              else:
+                with(
+                  {:ok, other} <- owner(hd(positions)),
+                  do: Region.observe_blocks(other, positions)
+                )
 
-        case observed do
-          {:ok, observed} ->
-            if Enum.any?(observed.blocks, fn {_, state} ->
-                 Valimc.Blocks.Chest.ordinary?(state)
-               end),
-               do: {:halt, {:error, :adjacent_chest}},
-               else: {:cont, :ok}
+          case observed do
+            {:ok, observed} -> {:cont, {:ok, Map.merge(acc, observed.blocks)}}
+            error -> {:halt, error}
+          end
+        end)
 
-          error ->
-            {:halt, error}
-        end
-      end)
+      with {:ok, blocks} <- read do
+        if Valimc.Blocks.ChestPlacement.joins?(
+             candidate.state,
+             candidate.position,
+             request.face,
+             Map.get(request, :secondary, false),
+             &Map.get(blocks, &1)
+           ),
+           do: {:error, :unsupported_double_chest},
+           else: :ok
+      end
     else
       :ok
     end

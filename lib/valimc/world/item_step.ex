@@ -22,6 +22,29 @@ defmodule Valimc.World.ItemStep do
   end
 
   @doc """
+  The experience orbs a region owner's tick moves (VMC-077i): each orb
+  `%{position, motion, target}` stepped like `steps/1`'s items, pulled toward
+  its `target` (nil when it follows no player).
+  """
+  def orb_steps(orbs) do
+    for {:ok, orb} <-
+          run_orbs(Valimc.World.View.new(), orbs, Valimc.World.Clock.border_snapshot()),
+        ItemMotionState.valid?(orb.motion),
+        do: orb
+  end
+
+  @doc "The next state of each orb `%{position, motion, target}`, as `run/3`'s for items."
+  def run_orbs(view, orbs, border) do
+    inputs =
+      Enum.map(orbs, fn %{position: {x, y, z}, motion: m} = orb ->
+        {{x * 1.0, y * 1.0, z * 1.0}, m.velocity, m.on_ground, Map.get(orb, :target)}
+      end)
+
+    {:ok, results} = Kernel.orbs(view, inputs, border)
+    Enum.zip_with(orbs, results, &result(&1, &2, false))
+  end
+
+  @doc """
   The next state of each `%{position, motion: %ItemMotionState{}}` (other keys
   pass through): `{:ok, item}` or `{:error, reason}` per item, in order.
   """
@@ -33,29 +56,18 @@ defmodule Valimc.World.ItemStep do
 
     {:ok, results} = Kernel.items(view, inputs, border)
 
-    Enum.zip_with(items, results, fn item, result ->
-      case result do
-        {:ok, position, velocity, on_ground} ->
-          {:ok,
-           %{
-             item
-             | position: position,
-               motion: %{
-                 ItemMotionState.tick(item.motion)
-                 | velocity: velocity,
-                   on_ground: on_ground
-               }
-           }}
-
-        :inside ->
-          {:error, :item_inside_block}
-
-        :limit ->
-          {:error, :item_motion_limit}
-
-        {:unreadable, position} ->
-          {:error, {:missing_block, position}}
-      end
-    end)
+    Enum.zip_with(items, results, &result(&1, &2, true))
   end
+
+  # An item's counters tick with its motion; an orb's age is its owner's.
+  defp result(entity, {:ok, position, velocity, on_ground}, counters) do
+    motion = if counters, do: ItemMotionState.tick(entity.motion), else: entity.motion
+
+    {:ok,
+     %{entity | position: position, motion: %{motion | velocity: velocity, on_ground: on_ground}}}
+  end
+
+  defp result(_entity, :inside, _), do: {:error, :item_inside_block}
+  defp result(_entity, :limit, _), do: {:error, :item_motion_limit}
+  defp result(_entity, {:unreadable, position}, _), do: {:error, {:missing_block, position}}
 end

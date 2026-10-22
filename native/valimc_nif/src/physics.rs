@@ -23,6 +23,7 @@ use valimc_core::physics::border::Border;
 use valimc_core::physics::collide;
 use valimc_core::physics::facts::Facts;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
+use valimc_core::physics::orb::{self, OrbBody};
 use valimc_core::physics::source::{BlockSource, Rows, States};
 use valimc_core::physics::{Aabb, Context};
 
@@ -194,6 +195,90 @@ fn physics_border_clear(
         max_z,
     };
     subject.is_none_or(|(x, z)| border.collider(x, z, &aabb(body)).is_none())
+}
+
+type OrbT = (Vec3, Vec3, bool, Option<Vec3>);
+
+/// One tick for each orb `{position, velocity, on_ground, target}`
+/// (`ExperienceOrb.tick` with `Entity.move`, pulled toward `target` when it
+/// follows a player): results as `physics_items`'.
+#[rustler::nif]
+fn physics_orbs<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    orbs: Vec<OrbT>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    orbs_step(env, view_term, orbs, border)
+}
+
+/// `physics_orbs` for batches past the normal scheduler's budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_orbs_dirty<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    orbs: Vec<OrbT>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    orbs_step(env, view_term, orbs, border)
+}
+
+fn orbs_step<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    orbs: Vec<OrbT>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let bodies: Vec<(OrbBody, Option<[f64; 3]>)> = orbs
+        .into_iter()
+        .map(|(p, v, on_ground, target)| {
+            (
+                OrbBody {
+                    position: v3(p),
+                    velocity: v3(v),
+                    on_ground,
+                },
+                target.map(v3),
+            )
+        })
+        .collect();
+    let Some(region) = union(
+        &bodies
+            .iter()
+            .map(|(b, _)| {
+                let p = b.position;
+                Aabb::new(
+                    [p[0] - 1.0, p[1] - 2.0, p[2] - 1.0],
+                    [p[0] + 1.0, p[1] + 2.0, p[2] + 1.0],
+                )
+                .expand_towards(b.velocity)
+            })
+            .collect::<Vec<_>>(),
+    ) else {
+        return Ok(ok(env, Vec::<Term>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let border = border.map(|(min_x, min_z, max_x, max_z)| Border {
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+    });
+    let results: Vec<Term> = bodies
+        .iter()
+        .map(
+            |(b, target)| match orb::step(&view, facts, b, *target, border.as_ref()) {
+                Ok(n) => (atoms::ok(), t3(n.position), t3(n.velocity), n.on_ground).encode(env),
+                Err(ItemFault::Inside) => atoms::inside().encode(env),
+                Err(ItemFault::Limit) => atoms::limit().encode(env),
+                Err(ItemFault::Unreadable(p)) => {
+                    (atoms::unreadable(), (p[0], p[1], p[2])).encode(env)
+                }
+            },
+        )
+        .collect();
+    Ok(ok(env, results))
 }
 
 type ItemT = (Vec3, Vec3, bool, bool);

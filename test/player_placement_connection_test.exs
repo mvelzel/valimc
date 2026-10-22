@@ -116,10 +116,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestBlocks.get(wet) == wet_state
     assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
-    # Horizontal neighbors would need double-chest behavior, so refuse before spending a source sequence.
-    send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
+    # Beside it on its clockwise side and facing the same way, vanilla would
+    # join a double chest, which is refused before spending a source sequence.
+    :ok = Valimc.TestBlocks.set({x, y, z + 1}, 0)
+    send_place(client, {x, y, z + 1}, 1, 0.5, 0, 3)
     client = ack(client, 3)
-    assert Valimc.TestBlocks.get({x + 1, y, z}) == 0
+    assert Valimc.TestBlocks.get({x, y, z + 1}) == 0
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
 
     send_place(client, c.target, 1, 0.5, 0, 4)
@@ -141,6 +143,30 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
     assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
     assert Valimc.TestWorld.item_snapshot(c.key) == %{}
+  end
+
+  test "a chest beside a chest that would not join it places single, as vanilla's", c do
+    c = %{c | pose: %{c.pose | yaw: 90.0}}
+    seed(c, :survival, %{36 => ItemStack.new("chest", 3)})
+    {x, y, z} = c.target
+    for position <- [{x, y, z + 1}, {x + 1, y, z}], do: :ok = Valimc.TestBlocks.set(position, 0)
+    {client, pid} = login(c)
+    {:ok, east} = Valimc.Blocks.ChestPlacement.single_state(90.0, 0)
+    {:ok, north} = Valimc.Blocks.ChestPlacement.single_state(0.0, 0)
+    send_place(client, c.target)
+    client = ack(client)
+    assert Valimc.TestBlocks.get(c.target) == east
+
+    # Facing another way beside it, and behind it along its facing.
+    Valimc.TestConn.replace(pid, &put_in(&1.player.yaw, 0.0))
+    send_place(client, {x, y, z + 1}, 1, 0.5, 0, 2)
+    client = ack(client, 2)
+    assert Valimc.TestBlocks.get({x, y, z + 1}) == north
+    Valimc.TestConn.replace(pid, &put_in(&1.player.yaw, 90.0))
+    send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
+    _client = ack(client, 3)
+    assert Valimc.TestBlocks.get({x + 1, y, z}) == east
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
   end
 
   test "a chest places in the columns on either side of a region line", c do

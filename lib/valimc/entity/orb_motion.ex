@@ -1,8 +1,8 @@
 defmodule Valimc.Entity.OrbMotion do
   @moduledoc """
   An experience orb's launch (vanilla `ExperienceOrb` spawned by a block):
-  its position and velocity from three supplied uniform draws. Orbs do not
-  move after launch yet (VMC-077l defers their tick to the physics kernel).
+  its position and velocity from three supplied uniform draws. Their ticks
+  run in the physics kernel (`Valimc.World.ItemStep.orb_steps/1`, VMC-077i).
   """
 
   @doc "Three supplied native uniform double draws; spawn escape and cosmetic yaw are separate."

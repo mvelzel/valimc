@@ -118,9 +118,15 @@ defmodule Valimc.Entity.Store do
     record =
       entity
       |> Map.take([:uuid, :x, :y, :z])
-      |> Map.merge(%{kind: :orb, value: entry.value, count: entry.count, age: entry.age})
+      |> Map.merge(%{
+        kind: :orb,
+        value: entry.value,
+        count: entry.count,
+        age: entry.age,
+        motion: entry.motion
+      })
 
-    # An imported orb's saved motion, kept for export (orbs do not move yet).
+    # An imported orb's saved motion, kept for export.
     record = if entry.saved, do: Map.put(record, :saved, entry.saved), else: record
     if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
   end
@@ -188,7 +194,8 @@ defmodule Valimc.Entity.Store do
     valid_position?({x, y, z}) and valid_hops?(record) and
       Grid.region_key(Grid.chunk_key(x, z)) == key and
       is_integer(value) and value in 1..32_767 and is_integer(count) and count >= 1 and
-      is_integer(age) and age in -32_768..5_999 and saved?(Map.get(record, :saved))
+      is_integer(age) and age in -32_768..5_999 and saved?(Map.get(record, :saved)) and
+      valid_record_motion?(record)
   end
 
   def valid_record?(key, %{uuid: <<_::128>>, x: x, y: y, z: z, stack: stack} = record) do
@@ -216,15 +223,15 @@ defmodule Valimc.Entity.Store do
 
   defp build_record(state, id, %{kind: :orb} = record) do
     %{uuid: uuid, x: x, y: y, z: z, value: value} = record
-    entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
+    motion = orb_motion(record)
+    entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z, velocity: motion.velocity}
     hops = Map.get(record, :hops, 0)
-
-    metadata =
-      binary_packet(EntityPackets.metadata(id, no_gravity: true, experience_value: value))
+    # Orbs move (VMC-077i): gravity, and the pull toward the player they follow.
+    metadata = binary_packet(EntityPackets.metadata(id, experience_value: value))
 
     view =
       :orb
-      |> View.new(Map.put(entity, :on_ground, false), metadata, state.epoch, hops)
+      |> View.new(Map.put(entity, :on_ground, motion.on_ground), metadata, state.epoch, hops)
       |> Map.merge(%{revision: 1, physical_revision: 1, value: value, count: record.count})
       # The XP pickup request's fence (VMC-077i's protocol); an orb entity needs none.
       |> Map.put(:consumed, 0)
@@ -235,6 +242,7 @@ defmodule Valimc.Entity.Store do
       value: value,
       count: record.count,
       age: record.age,
+      motion: motion,
       saved: Map.get(record, :saved),
       revision: 1,
       physical_revision: 1,
@@ -440,7 +448,64 @@ defmodule Valimc.Entity.Store do
 
   def advance(_, _, _, _), do: {:error, :invalid_item_steps}
 
-  defp advance_one(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
+  # An item's step and an orb's (VMC-077i) change different fields.
+  defp advance_one(state, key, %{id: id} = step) do
+    case state.entries do
+      %{^id => %{kind: :orb}} -> advance_orb(state, key, step)
+      _ -> advance_item(state, key, step)
+    end
+  end
+
+  defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
+
+  defp advance_orb(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
+    with {:ok, entry} <- current(state, state.epoch, id, revision),
+         true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
+         true <- Grid.region_key(Grid.chunk_key(x, z)) == key do
+      entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
+
+      if entity == entry.entity and entry.motion == motion do
+        {:ok, state, {state.epoch, id, revision}}
+      else
+        physical_revision =
+          entry.physical_revision +
+            if(entity != entry.entity or motion.on_ground != entry.motion.on_ground,
+              do: 1,
+              else: 0
+            )
+
+        view = %{
+          state.views[id]
+          | revision: revision + 1,
+            physical_revision: physical_revision,
+            at: {x, y, z},
+            chunk: Grid.chunk_key(x, z),
+            velocity: motion.velocity,
+            on_ground: motion.on_ground
+        }
+
+        entry = %{
+          entry
+          | entity: entity,
+            motion: motion,
+            revision: revision + 1,
+            physical_revision: physical_revision
+        }
+
+        {:ok,
+         %{
+           state
+           | entries: Map.put(state.entries, id, entry),
+             views: Map.put(state.views, id, view)
+         }, {state.epoch, id, revision + 1}}
+      end
+    else
+      false -> {:error, :invalid_item_step}
+      error -> error
+    end
+  end
+
+  defp advance_item(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
     with {:ok, entry} <- current_item(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Grid.region_key(Grid.chunk_key(x, z)) == key do
@@ -504,8 +569,6 @@ defmodule Valimc.Entity.Store do
       error -> error
     end
   end
-
-  defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
 
   defp current_item(state, epoch, id, revision) do
     case current(state, epoch, id, revision) do
@@ -606,6 +669,14 @@ defmodule Valimc.Entity.Store do
     do: Enum.any?(records, &(&1.uuid == uuid))
 
   def reserved_uuid?(_, _), do: false
+
+  # An orb's motion: its record's, an imported orb's saved one, or at rest.
+  defp orb_motion(%{motion: %ItemMotionState{} = motion}), do: motion
+
+  defp orb_motion(%{saved: %{velocity: velocity, on_ground: on_ground}}),
+    do: %ItemMotionState{velocity: velocity, on_ground: on_ground}
+
+  defp orb_motion(_record), do: %ItemMotionState{}
 
   defp valid_record_motion?(record) do
     case Map.fetch(record, :motion) do

@@ -379,8 +379,8 @@ defmodule Valimc.Storage.Anvil.Import do
   end
 
   # XP orbs in stored order become orb entities (VMC-077h); a repeated UUID is
-  # skipped. Orbs do not move yet: they rest where they were saved, keeping the
-  # saved motion for export.
+  # skipped. An orb starts from its saved velocity and ground flag (VMC-077i),
+  # and keeps the saved motion for export.
   defp orbs(orbs, counts) do
     {records, _} =
       orbs

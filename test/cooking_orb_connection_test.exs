@@ -160,7 +160,8 @@ defmodule Valimc.CookingOrbConnectionTest do
             {entity, rest} = Wire.take_varint(body)
 
             if Map.has_key?(spawns, entity) do
-              <<5, 8, 1, 8, 1, rest::binary>> = rest
+              # The experience value alone: orbs have gravity (VMC-077i).
+              <<8, 1, rest::binary>> = rest
               {value, <<255>>} = Wire.take_varint(rest)
               {spawns, Map.put(values, entity, value)}
             else

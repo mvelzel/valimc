@@ -40,7 +40,9 @@ defmodule Valimc.Native do
     light_update: {15_625, :light_update_dirty},
     # Per cell an item tick scans (`Physics.Kernel.items/3` estimates them):
     # 110 µs for a scan of 1,024 cells of fences, walls and stairs (VMC-077l).
-    physics_items: {120, :physics_items_dirty}
+    physics_items: {120, :physics_items_dirty},
+    # An orb tick scans as an item tick does.
+    physics_orbs: {120, :physics_orbs_dirty}
   }
 
   @doc """
@@ -141,6 +143,8 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_orbs_dirty(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items_dirty(_view, _items, _border, _refresh),
     do: :erlang.nif_error(:nif_not_loaded)

@@ -62,8 +62,25 @@ defmodule Valimc.Entity.ExperienceOrbs do
   def drop({x, y, z}, points) when is_integer(points) and points > 0 do
     {:ok, split} = split(points)
 
-    for {value, count} <- Enum.sort(split, :desc),
-        do: %{kind: :orb, uuid: uuid(), x: x, y: y, z: z, value: value, count: count, age: 0}
+    # Each orb starts with vanilla's random velocity (`ExperienceOrb`'s
+    # constructor, no direction).
+    for {value, count} <- Enum.sort(split, :desc) do
+      draws = {:rand.uniform_real(), :rand.uniform_real(), :rand.uniform_real()}
+      {:ok, launch} = Valimc.Entity.OrbMotion.launch({x, y, z}, {0.0, 0.0, 0.0}, draws)
+      motion = %Valimc.Entity.ItemMotionState{velocity: launch.velocity}
+
+      %{
+        kind: :orb,
+        uuid: uuid(),
+        x: x,
+        y: y,
+        z: z,
+        value: value,
+        count: count,
+        age: 0,
+        motion: motion
+      }
+    end
   end
 
   # A version-4 UUID, as vanilla gives a new entity.

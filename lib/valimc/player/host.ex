@@ -201,6 +201,19 @@ defmodule Valimc.Player.Host do
     end)
   end
 
+  @doc """
+  The players orbs follow (VMC-077i): every living, non-spectator player in
+  this group's dimension, as `{feet, aim}`, `aim` at half its eye height.
+  """
+  def targets(state) do
+    for {_, %{session: %{player: player} = session}} <- state.players,
+        player.dimension == state.dimension and session.life_stage == :alive and
+          player.game_mode.current != :spectator do
+      {_, eye_y, _} = Valimc.Living.Interaction.eye(player)
+      {{player.x, player.y, player.z}, {player.x, (player.y + eye_y) / 2, player.z}}
+    end
+  end
+
   ## Durability (the group's commit)
 
   @doc """
