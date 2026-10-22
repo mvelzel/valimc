@@ -11,7 +11,8 @@
 # latency percentiles in microseconds.
 #
 #     VALIMC_PORT=0 MIX_ENV=bench mix run bench/dirty_capacity.exs OUT.json [N] [PASSES]
-alias Valimc.{Native, NBT}
+alias Valimc.Native
+alias Valimc.Data.NBT
 alias Valimc.World.RegionGeneration
 alias Valimc.Worldgen.Scheduler
 
@@ -135,7 +136,7 @@ run = fn pass ->
       "type" => "vanilla",
       "seed" => seed,
       "features" => true,
-      "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, true)
+      "settings" => Valimc.Worldgen.GenSettings.create("minecraft:normal", nil, seed, true)
     })
 
   # Each pass generates regions of its own, so the seed's shared caches do

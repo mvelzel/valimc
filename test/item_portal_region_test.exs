@@ -1,14 +1,18 @@
 defmodule Valimc.ItemPortalRegionTest do
-  # Entities through portals (VMC-026c) between live owners. Serial: the End's
+  # Store through portals (VMC-026c) between live owners. Serial: the End's
   # arrival platform is shared by every test that enters the End.
   use ExUnit.Case, async: false
   @moduletag :slow
   @moduletag timeout: 240_000
-  alias Valimc.{Dimension, ItemMotionState, TestScope}
-  alias Valimc.Portal.{Access, Blocks}
+  alias Valimc.World.Dimension
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.TestScope
+  alias Valimc.World.Portal.Access
+  alias Valimc.Blocks.PortalBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{Entities, Region}
+  alias Valimc.Entity.Store
+  alias Valimc.World.Region
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -87,7 +91,7 @@ defmodule Valimc.ItemPortalRegionTest do
   end
 
   defp holds?(owner, uuid),
-    do: match?({:ok, _}, Entities.find(resource(owner).entities.store, uuid))
+    do: match?({:ok, _}, Store.find(resource(owner).entities.store, uuid))
 
   # The item, searched in the regions around `position` of `dimension`.
   defp found(dimension, {x, _, z}) do
@@ -97,7 +101,7 @@ defmodule Valimc.ItemPortalRegionTest do
       |> Enum.find_value(fn key ->
         {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
-        case Entities.find(resource(owner).entities.store, <<7::128>>) do
+        case Store.find(resource(owner).entities.store, <<7::128>>) do
           {:ok, {_, id, _}} -> resource(owner).entities.store.entries[id]
           _ -> nil
         end
@@ -107,14 +111,14 @@ defmodule Valimc.ItemPortalRegionTest do
 
   defp frame({x, y, z}) do
     for dx <- -1..2, dy <- -1..3, dx in [-1, 2] or dy in [-1, 3] do
-      {{x + dx, y + dy, z}, Blocks.obsidian()}
+      {{x + dx, y + dy, z}, PortalBlocks.obsidian()}
     end
   end
 
   test "an item falling into a nether portal arrives in a new Nether portal, keeping its stack",
        ctx do
     {x, y, z} = ctx.origin
-    portal = for dx <- 0..1, dy <- 0..2, do: {{x + dx, y + dy, z}, Blocks.portal(:x)}
+    portal = for dx <- 0..1, dy <- 0..2, do: {{x + dx, y + dy, z}, PortalBlocks.portal(:x)}
     source = seed(ctx, {x + 1.0, y + 2.5, z + 0.5})
     :ok = Access.commit(frame(ctx.origin) ++ portal)
 
@@ -129,7 +133,7 @@ defmodule Valimc.ItemPortalRegionTest do
     assert abs(ax - elem(approx, 0)) < 17 and abs(az - elem(approx, 2)) < 17
     cell = {floor(ax), floor(ay), floor(az)}
     read = Dimension.within(:the_nether, fn -> Access.reader() end)
-    assert Blocks.portal?(Dimension.within(:the_nether, fn -> read.(cell) end))
+    assert PortalBlocks.portal?(Dimension.within(:the_nether, fn -> read.(cell) end))
     assert entry.stack == ItemStack.new("diamond", 2)
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 30
     assert entry.entity.uuid == <<7::128>>

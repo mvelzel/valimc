@@ -5,7 +5,7 @@
 # `world_gen_settings.dat` root equals vanilla's NBT, and ValiMC reads vanilla's
 # file back to the same settings.
 [cases_path] = System.argv()
-alias Valimc.World.GenSettings
+alias Valimc.Worldgen.GenSettings
 
 cases = cases_path |> File.read!() |> JSON.decode!() |> Map.fetch!("cases")
 
@@ -19,7 +19,7 @@ failures =
           String.to_integer(row["seed"]),
           row["generate_structures"]
         ),
-      {:ok, vanilla} = Valimc.NBT.read(Base.decode64!(row["nbt"])),
+      {:ok, vanilla} = Valimc.Data.NBT.read(Base.decode64!(row["nbt"])),
       want = row["json"],
       failure <- [
         if(ours != want, do: {:json, ours, want}),

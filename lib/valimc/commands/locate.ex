@@ -5,7 +5,8 @@ defmodule Valimc.Commands.Locate do
   with `LocateCommand`'s messages. Structure ids and tags are generated facts.
   """
   require Logger
-  alias Valimc.Command.{Error, Feedback}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.Feedback
   alias Valimc.Text
 
   @doc "`/locate structure <structure>` and `/locate biome <biome>`."
@@ -16,8 +17,8 @@ defmodule Valimc.Commands.Locate do
   defp structure(%{"structure" => target}, source) do
     {printable, members} =
       case target do
-        {:key, id} -> {id, if(MapSet.member?(Valimc.Command.Facts.structures(), id), do: [id])}
-        {:tag_key, id} -> {"#" <> id, Valimc.Command.Facts.structure_tags()[id]}
+        {:key, id} -> {id, if(MapSet.member?(Valimc.Commands.Facts.structures(), id), do: [id])}
+        {:tag_key, id} -> {"#" <> id, Valimc.Commands.Facts.structure_tags()[id]}
       end
 
     unless members, do: Error.fail!("commands.locate.structure.invalid", [printable])
@@ -42,7 +43,9 @@ defmodule Valimc.Commands.Locate do
 
     # A generation job (VMC-077b pool), never the command's own dirty call.
     search = fn ->
-      {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+      {:ok, state} =
+        Valimc.Worldgen.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+
       Valimc.Native.worldgen_structure_locate(state, spec.biome_source, members, pos, 100)
     end
 

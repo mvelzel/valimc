@@ -4,10 +4,10 @@
 # oracle then runs the pinned server on each export and checks that vanilla
 # keeps the generation settings and the spawn ValiMC wrote.
 [out] = System.argv()
-alias Valimc.World.Generator
+alias Valimc.Worldgen.Generator
 
 Valimc.Protocol.Data.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 
 # A flat world without structures (VMC-025f places them): vanilla generates its spawn chunks
 # from the exported settings, and they must hold ValiMC's flat column (VMC-028b).
@@ -37,7 +37,7 @@ for {name, make} <- cases do
 
   File.mkdir_p!(base)
   :ok = make.(base)
-  {:ok, _} = Valimc.Anvil.Export.run(base, Path.join(out, name))
+  {:ok, _} = Valimc.Storage.Anvil.Export.run(base, Path.join(out, name))
 
   # ValiMC's chunk (0, 0) for the oracle: each Y's state id and the biome.
   world = Valimc.World.Spec.fetch(base)
@@ -47,7 +47,7 @@ for {name, make} <- cases do
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, %{{0, 0} => image})
     states = for y <- -64..319, do: Valimc.World.Blocks.get(blocks, {5, y, 9})
     settings = world.settings
-    biome = Valimc.World.GenSettings.overworld(settings)["settings"]["biome"]
+    biome = Valimc.Worldgen.GenSettings.overworld(settings)["settings"]["biome"]
 
     File.write!(
       Path.join(out, name <> ".expected.json"),

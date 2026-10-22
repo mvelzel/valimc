@@ -18,7 +18,7 @@ defmodule Valimc.TestClient do
     {:ok, socket} =
       :gen_tcp.connect(
         {127, 0, 0, 1},
-        Valimc.Listener.port(),
+        Valimc.Net.Listener.port(),
         [:binary, active: false, packet: :raw],
         30_000
       )
@@ -36,7 +36,7 @@ defmodule Valimc.TestClient do
   end
 
   def teleport(client, pid, pose) do
-    :ok = Valimc.Connection.teleport(pid, pose)
+    :ok = Valimc.Net.Connection.teleport(pid, pose)
     {body, client} = await(client, :play, "player_position")
     client = auto_reply(client, :play, "player_position", body)
     await_teleport_ack(pid, 200)
@@ -295,9 +295,9 @@ defmodule Valimc.TestClient do
 
     client = Map.put(client, :pose, %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
     client = auto_reply(client, :play, "player_position", body)
-    # The position packet precedes the player's listing in `Players`; tests look the
+    # The position packet precedes the player's listing in `PlayerList`; tests look the
     # player up right after login (VMC-073).
-    Valimc.TestWait.until(fn -> Enum.any?(Valimc.Players.all(), &(&1.name == name)) end)
+    Valimc.TestWait.until(fn -> Enum.any?(Valimc.Player.PlayerList.all(), &(&1.name == name)) end)
     {uuid, client}
   end
 
@@ -351,7 +351,8 @@ defmodule Valimc.TestDisk do
   written as its checkpoint while the region does not run.
   """
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{Containers, Entities, RegionStorage}
+  alias Valimc.World.{Containers, RegionStorage}
+  alias Valimc.Entity.Store
 
   @junk "corrupt"
 
@@ -371,7 +372,7 @@ defmodule Valimc.TestDisk do
   defp encode(:blocks, _key, parts), do: parts.cells
 
   defp encode(:items, _key, parts) do
-    if parts.items == [] and parts.ledger == Entities.empty_ledger(),
+    if parts.items == [] and parts.ledger == Store.empty_ledger(),
       do: nil,
       else: %{records: parts.items, ledger: parts.ledger}
   end
@@ -415,8 +416,8 @@ defmodule Valimc.TestDisk do
     do: Map.new(cells, fn {pos, block} -> {{:cell, pos}, block} end)
 
   defp records(:items, key, data) do
-    ledger = Map.get(data, :ledger, Entities.empty_ledger())
-    {:ok, items} = Entities.restore(key, data.records, ledger)
+    ledger = Map.get(data, :ledger, Store.empty_ledger())
+    {:ok, items} = Store.restore(key, data.records, ledger)
 
     RegionStorage.part_records(:items, items)
   end
@@ -498,7 +499,7 @@ defmodule Valimc.TestDisk do
 end
 
 defmodule Valimc.TestConn do
-  @moduledoc "A connection's state for assertions; its asynchronous jobs live in `Valimc.Session.Jobs`."
+  @moduledoc "A connection's state for assertions; its asynchronous jobs live in `Valimc.Player.Jobs`."
 
   # Generous on a loaded host; a free owner answers at once (VMC-073).
   # A connection answers with its session merged in, wherever the session runs
@@ -517,12 +518,12 @@ defmodule Valimc.TestConn do
   end
 
   defp connection?(pid) when is_pid(pid),
-    do: match?({Valimc.Connection, :init, _}, :proc_lib.initial_call(pid))
+    do: match?({Valimc.Net.Connection, :init, _}, :proc_lib.initial_call(pid))
 
   defp connection?(_), do: false
 
   @doc "The connection's active job of `kind` (`:mining`, `:placement`, ...), or nil."
-  def job(state, kind), do: Valimc.Session.Jobs.get(state.jobs, kind)
+  def job(state, kind), do: Valimc.Player.Jobs.get(state.jobs, kind)
 end
 
 defmodule Valimc.TestRegion do
@@ -747,7 +748,7 @@ defmodule Valimc.TestScope do
   """
   def stop_players(base) do
     players =
-      for player <- Valimc.Players.all(),
+      for player <- Valimc.Player.PlayerList.all(),
           match?(%{storage: %{base: b}} when is_binary(b), state = safe_state(player.pid)),
           String.starts_with?(state.storage.base, base),
           do: player
@@ -818,7 +819,8 @@ defmodule Valimc.TestPlayer do
   to join with a parked clock and `tick/2` for one owner tick.
   """
   import ExUnit.Assertions
-  alias Valimc.{Connection, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.TestClient, as: Client
   alias Valimc.World.Clock
@@ -847,7 +849,7 @@ defmodule Valimc.TestPlayer do
     Application.put_env(:valimc, :world_path, base)
 
     ExUnit.Callbacks.on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -948,7 +950,7 @@ defmodule Valimc.TestPlayer do
   """
   def login(ctx, opts \\ []) do
     {_, client} = Client.login(ctx.name)
-    pid = Valimc.TestWait.until(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    pid = Valimc.TestWait.until(fn -> Enum.find(PlayerList.all(), &(&1.name == ctx.name)) end).pid
     park(pid)
     client = Keyword.get(opts, :before_load, fn client, _ -> client end).(client, pid)
     client = Client.load_world(client)
@@ -957,7 +959,7 @@ defmodule Valimc.TestPlayer do
 
     Valimc.TestWait.until(fn ->
       s = state(pid)
-      not s.teleport_pending and (not loaded or Valimc.PlayerInput.loaded?(s.player.input))
+      not s.teleport_pending and (not loaded or Valimc.Player.Input.loaded?(s.player.input))
     end)
 
     ExUnit.Callbacks.on_exit(fn -> Client.close(client) end)
@@ -1073,7 +1075,7 @@ defmodule Valimc.TestWorld do
   def section({dimension, {sx, sz}}) when is_atom(dimension), do: {dimension, sx, sz}
 
   def section({sx, sz}) when is_integer(sx) and is_integer(sz),
-    do: {Valimc.Dimension.current(), sx, sz}
+    do: {Valimc.World.Dimension.current(), sx, sz}
 
   def owner(key), do: World.owner(section(key))
   def existing_owner(key), do: World.existing_owner(section(key))
@@ -1083,8 +1085,8 @@ defmodule Valimc.TestWorld do
   def admit(key), do: World.Directory.admit(section(key))
   def registered(key), do: Registry.lookup(Valimc.RegionRegistry, section(key))
   def item_snapshot(key), do: World.item_snapshot(section(key))
-  def chunk(chunk), do: World.chunk(Valimc.Dimension.current(), chunk)
-  def sendable(keys, limit), do: World.sendable(Valimc.Dimension.current(), keys, limit)
+  def chunk(chunk), do: World.chunk(Valimc.World.Dimension.current(), chunk)
+  def sendable(keys, limit), do: World.sendable(Valimc.World.Dimension.current(), keys, limit)
 
   def subscribe(keys, previous),
     do: World.subscribe(MapSet.new(keys, &section/1), MapSet.new(previous, &section/1))
@@ -1094,16 +1096,16 @@ end
 
 defmodule Valimc.TestMenu do
   @moduledoc """
-  The click engine (`Valimc.MenuClick`) at inventory addresses, in the shape
+  The click engine (`Valimc.Menus.Click`) at inventory addresses, in the shape
   inventory tests use: `plan/4` gives `{:ok, inventory, drops}`, `click/4`
   `{:ok, inventory}` and refuses drops. The open grid picks the menu.
   """
-  alias Valimc.{Menu, MenuClick}
+  alias Valimc.Menus.{Menu, Click}
 
   def plan(inventory, action, address, button) do
     menu = Menu.crafting(inventory)
 
-    case MenuClick.plan(menu, nil, inventory, action, wire(menu, address), button) do
+    case Click.plan(menu, nil, inventory, action, wire(menu, address), button) do
       {:ok, nil, next, drops} -> {:ok, next, drops}
       error -> error
     end

@@ -7,7 +7,8 @@ defmodule Valimc.Commands.WorldBorder do
   (`Valimc.World.Clock.border_command/2`); feedback and return values follow
   vanilla, numbers formatted as `String.format(Locale.ROOT, ...)` does.
   """
-  alias Valimc.Command.{Error, Feedback}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.Feedback
   alias Valimc.Text
   alias Valimc.Text.Number
   alias Valimc.World.{Border, Clock}
@@ -16,7 +17,7 @@ defmodule Valimc.Commands.WorldBorder do
   def worldborder(arguments, source) do
     case kind(arguments.literals) do
       :get ->
-        {component, result} = query(Clock.border(Valimc.Dimension.name(source.dimension)))
+        {component, result} = query(Clock.border(Valimc.World.Dimension.name(source.dimension)))
         Feedback.success(source, component, false)
         result
 
@@ -35,7 +36,7 @@ defmodule Valimc.Commands.WorldBorder do
   defp change(kind, arguments, source) do
     operation = operation(kind, arguments, source.position)
 
-    case Clock.border_command(operation, Valimc.Dimension.name(source.dimension)) do
+    case Clock.border_command(operation, Valimc.World.Dimension.name(source.dimension)) do
       {:ok, outcome} ->
         {component, result} = success(operation, outcome)
         Feedback.success(source, component)

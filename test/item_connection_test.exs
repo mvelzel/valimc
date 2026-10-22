@@ -31,7 +31,7 @@ defmodule Valimc.ItemConnectionTest do
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     key = {0, 0}
     {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner(key)
     stone = ItemStack.new("stone", 7)
@@ -81,7 +81,7 @@ defmodule Valimc.ItemConnectionTest do
       id: id,
       revision: 1,
       position: {6.5, 64.5, 4.5},
-      motion: %Valimc.ItemMotionState{velocity: {0.1, 0.0, 0.0}, no_gravity: true}
+      motion: %Valimc.Entity.ItemMotionState{velocity: {0.1, 0.0, 0.0}, no_gravity: true}
     }
 
     assert {:ok, [handle]} = Region.advance_items(owner, [step])

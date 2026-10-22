@@ -1,4 +1,5 @@
-alias Valimc.{FoodItems, GameMode, PlayerFood}
+alias Valimc.Living.FoodItems
+alias Valimc.Player.{GameMode, Food}
 alias Valimc.Protocol.{ItemStack, ItemTypes, FoodProperties}
 [facts_path, input, output] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
@@ -54,7 +55,7 @@ for c <- cases["eligibility"] do
 
   unless FoodItems.eligible?(
            properties,
-           %PlayerFood{level: c["level"]},
+           %Food{level: c["level"]},
            GameMode.abilities(mode, false)
          ) == c["allowed"],
          do: raise("Native consumption eligibility differs #{inspect(c)}")

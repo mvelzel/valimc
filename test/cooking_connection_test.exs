@@ -1,7 +1,9 @@
 defmodule Valimc.CookingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
@@ -23,7 +25,7 @@ defmodule Valimc.CookingConnectionTest do
     uuid = Connection.offline_uuid(name)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -50,7 +52,7 @@ defmodule Valimc.CookingConnectionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp seed(ctx, kind, mode \\ :survival, cooking \\ %Valimc.Cooking{}, recipes \\ %{}) do
+  defp seed(ctx, kind, mode \\ :survival, cooking \\ %Valimc.Blocks.Cooking{}, recipes \\ %{}) do
     input = ItemStack.new(if(kind == :smoker, do: "cod", else: "raw_iron"), 3)
 
     inventory = %Inventory{
@@ -72,7 +74,7 @@ defmodule Valimc.CookingConnectionTest do
 
     {:ok, bytes} = Containers.encode(ctx.key, containers)
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
-    {:ok, block} = Valimc.CookingBlocks.placement(kind, 0.0)
+    {:ok, block} = Valimc.Blocks.CookingBlocks.placement(kind, 0.0)
     block = if cooking.burn_left > 0, do: block - 1, else: block
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => block})
 
@@ -83,7 +85,7 @@ defmodule Valimc.CookingConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode)
+        abilities: Valimc.Player.Abilities.for_mode(mode)
       })
 
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
@@ -95,9 +97,9 @@ defmodule Valimc.CookingConnectionTest do
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input) end)
+    wait(fn -> Valimc.Player.Input.loaded?(Valimc.TestConn.state(pid).player.input) end)
 
     on_exit(fn ->
       Client.close(client)
@@ -131,7 +133,7 @@ defmodule Valimc.CookingConnectionTest do
     {_, client} = Client.await(client, :play, "block_changed_ack")
     {body, client} = Client.await(client, :play, "open_screen")
     {id, body} = Wire.take_varint(body)
-    {:ok, type} = Valimc.Menu.cooking_type(kind)
+    {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
     assert {^type, _} = Wire.take_varint(body)
     client = content(client)
     assert client.inventory.container == id and length(client.inventory.items) == 39
@@ -204,7 +206,7 @@ defmodule Valimc.CookingConnectionTest do
        xp_action: "pickup"
   test "output clears uses, learns its recipe and collects durable XP", ctx do
     %{xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action} = ctx
-    cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new(item, 3)}}
+    cooking = %Valimc.Blocks.Cooking{slots: {nil, nil, ItemStack.new(item, 3)}}
     seed(ctx, kind, :survival, cooking, %{recipe => 3})
     {client, pid} = login(ctx)
     {client, _} = open(client, ctx, kind)
@@ -237,7 +239,7 @@ defmodule Valimc.CookingConnectionTest do
 
   test "owned timer observations refresh properties without invalidating content or accepting old sessions",
        ctx do
-    cooking = %Valimc.Cooking{burn_left: 67, burn_total: 1600, progress: 10, total: 200}
+    cooking = %Valimc.Blocks.Cooking{burn_left: 67, burn_total: 1600, progress: 10, total: 200}
     seed(ctx, :furnace, :survival, cooking)
     {client, pid} = login(ctx)
     {client, _} = open(client, ctx, :furnace)

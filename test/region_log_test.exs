@@ -1,7 +1,7 @@
 defmodule Valimc.World.RegionLogTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Valimc.World.RegionLog
+  alias Valimc.Storage.RegionLog
 
   @moduletag :tmp_dir
 

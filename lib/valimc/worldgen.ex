@@ -9,7 +9,7 @@ defmodule Valimc.Worldgen do
   """
   alias Valimc.Native
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.{BlockFacts, Blocks}
+  alias Valimc.Data.{BlockFacts, Blocks}
 
   @facts ~w(noises density_functions noise_settings biome_parameters material_rules
             material_conditions biomes carvers features placed_features block_state_providers
@@ -19,7 +19,7 @@ defmodule Valimc.Worldgen do
                  white_terracotta light_gray_terracotta)
 
   # Facts a data pack can change (VMC-028c): a world with packs reads them from
-  # its facts directory (`Valimc.World.Datapacks`), the rest from `priv`.
+  # its facts directory (`Valimc.Worldgen.Datapacks`), the rest from `priv`.
   @pack_facts @facts ++
                 ~w(processor_lists structures structure_sets template_pools structure_templates)
 
@@ -54,7 +54,7 @@ defmodule Valimc.Worldgen do
   end
 
   @doc "Vanilla's `priv/worldgen/NAME.json`, as the native registry reads it (at run time)."
-  def fact(name), do: Valimc.Facts.read!("worldgen/#{name}.json")
+  def fact(name), do: Valimc.Data.Facts.read!("worldgen/#{name}.json")
 
   defp fact(dir, name) do
     if dir && name in @pack_facts,

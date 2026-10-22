@@ -7,7 +7,7 @@
 # the Elixir reference), encode and deflate times, with p50/p95 over 20 passes
 # after 3 warmups, and the whole-set throughput. Each phase runs in a fresh
 # process holding only that phase's inputs, one at a time, like one importer.
-alias Valimc.NBT
+alias Valimc.Data.NBT
 
 [facts_path | rest] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

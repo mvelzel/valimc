@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{ComponentTypes, ItemStack, TooltipDisplay}
+alias Valimc.Data.ComponentTypes
+alias Valimc.Protocol.{ItemStack, TooltipDisplay}
 [path, output] = System.argv()
 facts = :json.decode(File.read!(path))
 true = ComponentTypes.names() == facts["registry"]

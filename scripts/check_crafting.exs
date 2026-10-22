@@ -1,4 +1,4 @@
-alias Valimc.Crafting
+alias Valimc.Menus.Crafting
 alias Valimc.Protocol.ItemStack
 [scope, facts_path, cases_path] = System.argv()
 

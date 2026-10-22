@@ -1,9 +1,10 @@
 defmodule Valimc.Protocol.ItemData do
   @moduledoc "Data-format component patches for server-authored item hovers."
   alias Valimc.Text.Codec
-  alias Valimc.Protocol.{EffectTypes, Enchantments, ItemStack, LootComponents, ItemTypes, Wire}
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Protocol.{Enchantments, ItemStack, LootComponents, ItemTypes, Wire}
 
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
 
   @colors ["white", "yellow", "aqua", "light_purple"]
   @transient ~w(minecraft:additional_trade_cost minecraft:creative_slot_lock minecraft:map_post_processing)
@@ -271,7 +272,7 @@ defmodule Valimc.Protocol.ItemData do
   end
 
   defp from_tag("minecraft:potion_contents", {:string, potion}),
-    do: %{Valimc.Protocol.PotionContents.empty() | potion: Valimc.Protocol.PotionTypes.id(potion)}
+    do: %{Valimc.Protocol.PotionContents.empty() | potion: Valimc.Data.PotionTypes.id(potion)}
 
   defp from_tag("minecraft:potion_contents", {:compound, fields}) do
     effects =
@@ -283,7 +284,7 @@ defmodule Valimc.Protocol.ItemData do
     %{
       potion:
         case fields["potion"] do
-          {:string, potion} -> Valimc.Protocol.PotionTypes.id(potion)
+          {:string, potion} -> Valimc.Data.PotionTypes.id(potion)
           nil -> nil
         end,
       color:
@@ -454,7 +455,7 @@ defmodule Valimc.Protocol.ItemData do
     fields =
       if value.potion == nil,
         do: fields,
-        else: Map.put(fields, "potion", {:string, Valimc.Protocol.PotionTypes.name(value.potion)})
+        else: Map.put(fields, "potion", {:string, Valimc.Data.PotionTypes.name(value.potion)})
 
     fields =
       if value.color == nil,

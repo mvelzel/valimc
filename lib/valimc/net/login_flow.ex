@@ -13,18 +13,10 @@ defmodule Valimc.Net.LoginFlow do
   alias Valimc.Player.ItemUse
   alias Valimc.Player.Vitals
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    GameMode,
-    Players,
-    PlayerFood,
-    PlayerInput,
-    PlayerKinetics,
-    PlayerLife,
-    PlayerMotion
-  }
+  alias Valimc.Player.{GameMode, PlayerList, Food, Input, Kinetics, Life, Motion}
 
   alias Valimc.World.TickClock
 
@@ -59,11 +51,11 @@ defmodule Valimc.Net.LoginFlow do
   # same profile is kicked ("You logged in from another location") and the
   # login continues once it has left, as vanilla waits for it.
   defp join(player, attempts) do
-    case Players.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
+    case PlayerList.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
       {:error, {:duplicate, old}} when attempts > 0 ->
         ref = Process.monitor(old)
         reason = Valimc.Text.translatable("multiplayer.disconnect.duplicate_login")
-        Valimc.Connection.deliver(old, {:kick, Valimc.Text.encode(reason)})
+        Valimc.Net.Connection.deliver(old, {:kick, Valimc.Text.encode(reason)})
 
         receive do
           {:DOWN, ^ref, :process, ^old, _} -> :ok
@@ -89,9 +81,9 @@ defmodule Valimc.Net.LoginFlow do
     player = %{
       pid: state.connection,
       name: name,
-      uuid: if(profile, do: profile.uuid, else: Valimc.Connection.offline_uuid(name)),
+      uuid: if(profile, do: profile.uuid, else: Valimc.Net.Connection.offline_uuid(name)),
       properties: if(profile, do: profile.properties, else: []),
-      entity_id: elem(Valimc.World.EntityIds.next(), 1),
+      entity_id: elem(Valimc.Entity.Ids.next(), 1),
       address: Valimc.Admin.Login.address(state.socket),
       x: Valimc.World.Spawn.pose().x,
       y: Valimc.World.Spawn.pose().y,
@@ -100,11 +92,11 @@ defmodule Valimc.Net.LoginFlow do
       pitch: Valimc.World.Spawn.pitch(),
       game_mode: mode,
       abilities: GameMode.abilities(mode, false),
-      input: %PlayerInput{},
-      motion: %PlayerMotion{},
+      input: %Input{},
+      motion: %Motion{},
       living: %Valimc.Living{},
-      progression: %Valimc.PlayerProgression{},
-      food: %PlayerFood{},
+      progression: %Valimc.Player.Progression{},
+      food: %Food{},
       use_flags: 0,
       equipment: %{},
       last_death: nil,
@@ -148,7 +140,7 @@ defmodule Valimc.Net.LoginFlow do
         {:ok, storage, snapshot} ->
           mode = snapshot.game_mode || player.game_mode
           abilities = GameMode.abilities(mode, snapshot.flying)
-          {:ok, velocity} = PlayerKinetics.restore_velocity(snapshot.velocity)
+          {:ok, velocity} = Kinetics.restore_velocity(snapshot.velocity)
 
           {:ok, living} = Valimc.Living.restore(snapshot)
 
@@ -168,8 +160,8 @@ defmodule Valimc.Net.LoginFlow do
               portal_cooldown: snapshot.portal_cooldown,
               seen_credits: snapshot.seen_credits,
               motion:
-                PlayerMotion.flight(
-                  %PlayerMotion{
+                Motion.flight(
+                  %Motion{
                     fall_distance: snapshot.fall_distance,
                     velocity: velocity
                   },
@@ -179,7 +171,7 @@ defmodule Valimc.Net.LoginFlow do
               food: snapshot.food
           }
 
-          player = if living.health.value <= 0, do: PlayerLife.dead(player), else: player
+          player = if living.health.value <= 0, do: Life.dead(player), else: player
 
           unless Enum.all?(player.living.effects, fn {id, _} -> id in @live_effects end),
             do: reject(state, "Saved status effect is not implemented in this preview")
@@ -192,8 +184,8 @@ defmodule Valimc.Net.LoginFlow do
       end
 
     # The connection works in its player's dimension from here on (VMC-026b).
-    Valimc.Dimension.put(player.dimension)
-    Players.update(state.connection, player)
+    Valimc.World.Dimension.put(player.dimension)
+    PlayerList.update(state.connection, player)
 
     # A dead player's drops (if a crash came before them) and a cursor or grid
     # left from a lost connection settle at its group once it plays (`:entered`).
@@ -211,7 +203,7 @@ defmodule Valimc.Net.LoginFlow do
   defp life_stage(player, inventory) do
     cond do
       player.living.health.value > 0 -> :alive
-      Valimc.Inventory.contents(inventory) == [] and inventory.carried == nil -> :dead
+      Valimc.Menus.Inventory.contents(inventory) == [] and inventory.carried == nil -> :dead
       true -> :sealing_death
     end
   end
@@ -241,7 +233,7 @@ defmodule Valimc.Net.LoginFlow do
     send_packets(state, [
       Packets.login(state.player),
       Packets.experience(state.player.progression.experience),
-      Valimc.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
+      Valimc.Blocks.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
       level.border,
       level.clock,
       level.difficulty,
@@ -250,9 +242,9 @@ defmodule Valimc.Net.LoginFlow do
       Packets.spawn_position(),
       Packets.permission_level(
         state.player.entity_id,
-        Valimc.Permissions.level(state.player)
+        Valimc.Admin.Permissions.level(state.player)
       ),
-      Packets.commands(Valimc.Permissions.level(state.player)),
+      Packets.commands(Valimc.Admin.Permissions.level(state.player)),
       Valimc.World.TickRate.state_packet(Valimc.World.TickRate.published()),
       Valimc.World.TickRate.step_packet(Valimc.World.TickRate.join_steps()),
       Packets.inventory(state.inventory),
@@ -284,8 +276,8 @@ defmodule Valimc.Net.LoginFlow do
       |> Movement.publish_absorption()
       |> Movement.publish_jump_boost()
 
-    existing = Players.ready(state.connection)
-    state = state |> Valimc.Session.Presence.joined() |> Replication.update_view()
+    existing = PlayerList.ready(state.connection)
+    state = state |> Valimc.Player.Presence.joined() |> Replication.update_view()
 
     state =
       Enum.reduce(existing, state, fn player, acc ->

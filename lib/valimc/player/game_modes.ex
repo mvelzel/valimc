@@ -5,22 +5,22 @@ defmodule Valimc.Player.GameModes do
   `change_game_mode` event and abilities, and every player's tab list the
   game-mode player-info update. Unchanged modes report `:unchanged`.
   """
-  alias Valimc.{GameMode, Players, PlayerAbilities, PlayerMotion}
+  alias Valimc.Player.{GameMode, PlayerList, Abilities, Motion}
   alias Valimc.Protocol.{Packets, Wire}
-  import Valimc.Net.Codec, only: [send_packets: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2]
 
   def set(state, mode) do
     if state.player.game_mode.current == mode do
       {:unchanged, state}
     else
       {:ok, game_mode} = GameMode.change(state.player.game_mode, mode)
-      abilities = PlayerAbilities.for_mode(mode, state.player.abilities)
+      abilities = Abilities.for_mode(mode, state.player.abilities)
 
       player = %{
         state.player
         | game_mode: game_mode,
           abilities: abilities,
-          motion: PlayerMotion.flight(state.player.motion, abilities.flying)
+          motion: Motion.flight(state.player.motion, abilities.flying)
       }
 
       state = %{
@@ -29,7 +29,7 @@ defmodule Valimc.Player.GameModes do
           inventory: %{state.inventory | infinite_materials: abilities.infinite_materials}
       }
 
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
 
       send_packets(state, [
         Packets.packet("game_event", <<3, GameMode.id(mode) * 1.0::float-32>>),
@@ -38,7 +38,7 @@ defmodule Valimc.Player.GameModes do
         info(player)
       ])
 
-      Players.broadcast({:player_info, info(player)}, state.connection)
+      PlayerList.broadcast({:player_info, info(player)}, state.connection)
 
       {:changed, state}
     end

@@ -10,24 +10,18 @@ defmodule Valimc.Player.Movement do
   alias Valimc.Living.Attributes
   import Bitwise, only: [&&&: 2]
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    Metrics,
-    Players,
-    PlayerInput,
-    PlayerMotion,
-    PlayerMotionQuery,
-    PlayerPoseQuery
-  }
+  alias Valimc.Data.Metrics
+  alias Valimc.Player.{PlayerList, Input, Motion, MotionQuery, PoseQuery}
 
   def update_player_input(state, input) do
     if input == state.player.input do
       state
     else
       player = %{state.player | input: input}
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
       publish_movement_speed(%{state | player: player})
     end
   end
@@ -81,7 +75,7 @@ defmodule Valimc.Player.Movement do
           do: packets ++ [Packets.player_absorption(state.player)],
           else: packets
 
-      Players.update(state.connection, state.player)
+      PlayerList.update(state.connection, state.player)
       send_packets(state, packets)
       %{state | absorption_view: view}
     end
@@ -105,10 +99,10 @@ defmodule Valimc.Player.Movement do
     state = count_motion_packet(state)
     rotation = Map.take(changes, [:yaw, :pitch])
     rotated = Map.merge(state.player, rotation)
-    Players.update(state.connection, rotated)
+    PlayerList.update(state.connection, rotated)
     state = %{state | player: rotated}
 
-    if Map.has_key?(changes, :x) or ((flags &&& 1) != 0 and PlayerMotion.distance(player) > 0) do
+    if Map.has_key?(changes, :x) or ((flags &&& 1) != 0 and Motion.distance(player) > 0) do
       %{first: first, packets: count} = state.motion_window
       position = Map.take(player, [:x, :y, :z])
 
@@ -135,10 +129,10 @@ defmodule Valimc.Player.Movement do
       end
     else
       motion =
-        PlayerMotion.accept(state.player.motion, {0.0, 0.0, 0.0}, flags, player.abilities.flying)
+        Motion.accept(state.player.motion, {0.0, 0.0, 0.0}, flags, player.abilities.flying)
 
       player = %{state.player | motion: motion}
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
       %{state | player: player}
     end
   end
@@ -159,7 +153,7 @@ defmodule Valimc.Player.Movement do
   # corrected, and so is one that "moved wrongly" from a clear box; a move the
   # kernel cannot read (chunks not loaded) is corrected too.
   defp validate(state, position, flags) do
-    case PlayerMotionQuery.run(state.player, position, flags) do
+    case MotionQuery.run(state.player, position, flags) do
       {:ok, %{accepted: true} = result} ->
         Metrics.add(:movement_validations)
         accept(state, position, result)
@@ -205,7 +199,7 @@ defmodule Valimc.Player.Movement do
 
   def correct_motion(state, metric) do
     Metrics.add(metric)
-    player = %{state.player | motion: PlayerMotion.corrected(state.player.motion)}
+    player = %{state.player | motion: Motion.corrected(state.player.motion)}
     relocate(state, player, false)
   end
 
@@ -216,11 +210,11 @@ defmodule Valimc.Player.Movement do
   def relocate(state, player, reset_motion \\ true, delta \\ {0.0, 0.0, 0.0}) do
     state = Valimc.Player.Mining.cancel_mining(state)
     state = Valimc.Player.Menus.close(state)
-    player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
+    player = if reset_motion, do: %{player | motion: %Motion{}}, else: player
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport, delta)])
-    Players.update(state.connection, player)
+    PlayerList.update(state.connection, player)
 
     # The connection's view follows the new pose (`Valimc.Session.Link`).
     %{
@@ -238,7 +232,7 @@ defmodule Valimc.Player.Movement do
   end
 
   def pose_signature(state),
-    do: {PlayerPoseQuery.signature(state.player), state.pose_generation}
+    do: {PoseQuery.signature(state.player), state.pose_generation}
 
   @doc """
   The pose, fluid, powder snow and kinetics of a resting or ticking player,
@@ -253,8 +247,8 @@ defmodule Valimc.Player.Movement do
         (Valimc.Living.environment_active?(state.player.living) or state.fire_damage_due or
            state.fire_contacts_active or not state.player.motion.settled)
 
-    if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
-      case PlayerPoseQuery.run(state.player) do
+    if Input.loaded?(state.player.input) and (signature != state.pose_checked or active) do
+      case PoseQuery.run(state.player) do
         {:ok, result} -> apply_pose(state, result)
         {:error, _} -> state
       end
@@ -326,10 +320,10 @@ defmodule Valimc.Player.Movement do
   def broadcast_player_packet(state, packet) do
     framed = {state.threshold, IO.iodata_to_binary(Packets.frame(packet, state.threshold))}
 
-    for pid <- Players.around(state.player),
+    for pid <- PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Connection.deliver(
+          Valimc.Net.Connection.deliver(
             pid,
             {:player_packet, state.connection, state.player.entity_id, packet, framed}
           )

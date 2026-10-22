@@ -8,7 +8,8 @@
 # chunk request did) and every install relights the region and its ring.
 #
 #     VALIMC_PORT=0 MIX_ENV=bench mix run bench/light_install.exs OUT.json [regions]
-alias Valimc.World.{Blocks, Generator}
+alias Valimc.World.Blocks
+alias Valimc.Worldgen.Generator
 
 [output | rest] = System.argv()
 regions = rest |> Enum.at(0, "4") |> String.to_integer()

@@ -2,9 +2,10 @@ defmodule Valimc.CookingBoundsTest do
   # Vanilla cooking facts are compared by the cooking_* oracle stages; these are
   # the refusals for player-supplied slots, edits and item patches.
   use ExUnit.Case, async: true
-  alias Valimc.{Cooking, Inventory, Menu}
-  alias Valimc.CookingBlocks
-  alias Valimc.CookingFuel
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Menus.{Inventory, Menu}
+  alias Valimc.Blocks.CookingBlocks
+  alias Valimc.Blocks.CookingFuel
   alias Valimc.Protocol.{Data, ItemStack}
 
   test "click sentinels, malformed edits and unsupported patches refuse whole" do

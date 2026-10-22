@@ -39,7 +39,7 @@ run = fn pass ->
       "type" => "vanilla",
       "seed" => seed,
       "features" => true,
-      "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, structures)
+      "settings" => Valimc.Worldgen.GenSettings.create("minecraft:normal", nil, seed, structures)
     })
 
   # Each pass generates regions of its own, so the seed's shared caches do
@@ -162,7 +162,7 @@ full_us =
         :timer.tc(fn ->
           for chunk <- inner do
             {:ok, _} =
-              Native.gen_full(warm, decorated[chunk], Valimc.World.Generator.protocol_biomes())
+              Native.gen_full(warm, decorated[chunk], Valimc.Worldgen.Generator.protocol_biomes())
           end
         end)
 

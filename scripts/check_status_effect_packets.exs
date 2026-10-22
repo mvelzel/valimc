@@ -1,5 +1,6 @@
 import Bitwise
-alias Valimc.Protocol.{EffectTypes, Packets, Wire}
+alias Valimc.Data.EffectTypes
+alias Valimc.Protocol.{Packets, Wire}
 [facts_path, path, output] = System.argv()
 facts = :json.decode(File.read!(facts_path))
 

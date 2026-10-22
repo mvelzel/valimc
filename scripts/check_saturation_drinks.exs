@@ -1,11 +1,11 @@
 alias Valimc.Living.Effects
-alias Valimc.{PlayerFood}
-alias Valimc.Protocol.EffectTypes
+alias Valimc.Player.Food
+alias Valimc.Data.EffectTypes
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
-  food = %PlayerFood{
+  food = %Food{
     level: row["level"],
     saturation: row["saturation"],
     exhaustion: 3.990000009536743,
@@ -15,7 +15,7 @@ for row <- rows do
   {:ok, {:eat, nutrition, saturation}} =
     Effects.instant(EffectTypes.id("saturation"), row["amplifier"])
 
-  next = PlayerFood.eat(food, nutrition, saturation)
+  next = Food.eat(food, nutrition, saturation)
 
   unless next.level == row["next_level"] and next.saturation == row["next_saturation"] and
            next.exhaustion == row["next_exhaustion"] and next.timer == row["next_timer"],

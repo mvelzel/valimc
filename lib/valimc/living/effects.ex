@@ -11,12 +11,13 @@ defmodule Valimc.Living.Effects do
   suppressed levels. Each rung is `{remaining ticks, amplifier, ambient,
   particles, icon}`; -1 ticks is infinite.
   """
-  use Valimc.Facts, "protocol/consume_status.json"
+  use Valimc.Data.Facts, "protocol/consume_status.json"
 
   import Bitwise
-  alias Valimc.FoodItems
+  alias Valimc.Living.FoodItems
   alias Valimc.Living.Health
-  alias Valimc.Protocol.{EffectTypes, ItemStack, ItemTypes}
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Protocol.{ItemStack, ItemTypes}
 
   @type rung :: {integer(), 0..255, boolean(), boolean(), boolean()}
   @type instance :: [rung()]

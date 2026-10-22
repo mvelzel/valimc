@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerRainQueryTest do
   use ExUnit.Case, async: false
-  alias Valimc.PlayerRainQuery
-  alias Valimc.Physics.PlayerPose
+  alias Valimc.Player.RainQuery
+  alias Valimc.Data.PlayerPose
   alias Valimc.World
   alias Valimc.World.{Clock, View}
 
@@ -28,29 +28,29 @@ defmodule Valimc.PlayerRainQueryTest do
     position = {ctx.x + 0.5, 64.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:standing, position)
 
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
+    assert RainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
              {:ok, true}
 
     roof = {ctx.x, 66, ctx.z}
     assert :ok = Valimc.TestBlocks.set(roof, 1)
 
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
+    assert RainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
              {:ok, false}
 
     assert :ok = Valimc.TestBlocks.remove(roof)
 
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
+    assert RainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
              {:ok, true}
 
     assert :ok = Valimc.TestBlocks.set(roof, Valimc.Protocol.Data.block("glass"))
 
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
+    assert RainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
              {:ok, false}
 
     assert :ok = Valimc.TestBlocks.remove(roof)
     high = {ctx.x + 0.5, 1024.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:standing, high)
-    assert PlayerRainQuery.sample(high, elem(geometry.box, 4), view(ctx.x, ctx.z)) == {:ok, false}
+    assert RainQuery.sample(high, elem(geometry.box, 4), view(ctx.x, ctx.z)) == {:ok, false}
   end
 
   test "unrelated block changes and a busy owner never stale or delay a rain answer", ctx do
@@ -59,14 +59,14 @@ defmodule Valimc.PlayerRainQueryTest do
     before = view(ctx.x, ctx.z)
     elsewhere = {ctx.x + 60, 70, ctx.z + 60}
     assert :ok = Valimc.TestBlocks.set(elsewhere, 1)
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), before) == {:ok, true}
+    assert RainQuery.sample(position, elem(geometry.box, 4), before) == {:ok, true}
 
     # An owner busy saving (here: stopped) is never asked.
     {pid, _} = ctx.owner
     :sys.suspend(pid)
 
     try do
-      assert PlayerRainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
+      assert RainQuery.sample(position, elem(geometry.box, 4), view(ctx.x, ctx.z)) ==
                {:ok, true}
     after
       :sys.resume(pid)
@@ -78,11 +78,11 @@ defmodule Valimc.PlayerRainQueryTest do
     {:ok, geometry} = PlayerPose.geometry(:swimming, position)
     empty = View.of(%{})
 
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), empty) ==
+    assert RainQuery.sample(position, elem(geometry.box, 4), empty) ==
              {:error, :rain_column_unavailable}
 
     weather(:clear)
-    assert PlayerRainQuery.sample(position, elem(geometry.box, 4), empty) == {:ok, false}
+    assert RainQuery.sample(position, elem(geometry.box, 4), empty) == {:ok, false}
   end
 
   # Rain at its final intensity at once, instead of the 20-tick native ramp.

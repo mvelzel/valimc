@@ -3,10 +3,13 @@ defmodule Valimc.PlayerUseConnectionTest do
   alias Valimc.Living.{Attributes, Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{Food, PlayerList}
   alias Valimc.Player.State, as: PlayerState
 
-  alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, PotionContents, UseItemOn, Wire}
+  alias Valimc.Data.PotionTypes
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, park: 1, state: 1, tick: 1, ticks: 2]
 
@@ -22,7 +25,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert_health(body, expected_health, expected_food)
 
     {pid, _} =
-      wait(fn -> Enum.find(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end) end)
+      wait(fn -> Enum.find(:ets.tab2list(PlayerList), fn {_, p} -> p.name == ctx.name end) end)
 
     park(pid)
     client = Client.load_world(client)
@@ -30,7 +33,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
     wait(fn ->
       not Valimc.TestConn.state(pid).teleport_pending and
-        Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input)
+        Valimc.Player.Input.loaded?(Valimc.TestConn.state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)
@@ -54,9 +57,9 @@ defmodule Valimc.PlayerUseConnectionTest do
       z: ctx.pose.z,
       yaw: 0.0,
       pitch: 0.0,
-      game_mode: Valimc.GameMode.new(mode),
-      abilities: Valimc.PlayerAbilities.for_mode(mode),
-      motion: %Valimc.PlayerMotion{},
+      game_mode: Valimc.Player.GameMode.new(mode),
+      abilities: Valimc.Player.Abilities.for_mode(mode),
+      motion: %Valimc.Player.Motion{},
       last_death: nil,
       food: food
     }
@@ -172,7 +175,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "block-targeted drinking waits for asynchronous block admission instead of rejecting the following use",
        ctx do
-    food = %PlayerFood{}
+    food = %Food{}
     drink = potion("fire_resistance")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
     {client, pid} = login(ctx, 20.0, food)
@@ -191,7 +194,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "both-hand potion completion grants only after native timing and saves effects with the bottle",
        ctx do
-    food = %PlayerFood{}
+    food = %Food{}
     fire = potion("fire_resistance")
     long = potion("long_fire_resistance")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => long}})
@@ -228,7 +231,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "cancelled potions and newly unsupported completion contents never grant or consume",
        ctx do
-    food = %PlayerFood{}
+    food = %Food{}
     fire = potion("fire_resistance")
     unsupported = potion("invisibility")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => unsupported}})
@@ -255,7 +258,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   end
 
   test "unsupported bottle overflow rejects potion effects and consumption together", ctx do
-    food = %PlayerFood{}
+    food = %Food{}
     drink = potion("fire_resistance")
 
     stacked = %{
@@ -276,7 +279,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "fatal harming dies with its bottle and one death drop, which a reconnect keeps",
        ctx do
-    food = %PlayerFood{level: 10, saturation: 0.0}
+    food = %Food{level: 10, saturation: 0.0}
     drink = custom_potion([{6, [{1, 0, false, true, true}]}, {5, [{1, 1, false, true, true}]}])
     seed(ctx, food, 5.0, inventory: %Inventory{slots: %{36 => drink}})
     {client, pid} = login(ctx, 5.0, food)
@@ -292,7 +295,7 @@ defmodule Valimc.PlayerUseConnectionTest do
              %{
                "translate" => {:string, "death.attack.indirectMagic"},
                "with" => {:list, {:string, names}}
-             }}, <<>>} = Valimc.NBT.take(message)
+             }}, <<>>} = Valimc.Data.NBT.take(message)
 
     assert names == [ctx.name, ctx.name]
     Valimc.TestPlayer.checkpointed(pid)
@@ -316,7 +319,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "Speed drinking, sprint, promotion, expiry and milk publish owned movement attributes",
        ctx do
-    food = %PlayerFood{}
+    food = %Food{}
 
     seed(ctx, food, 20.0,
       inventory: %Inventory{
@@ -373,7 +376,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   for {hand, slot} <- [{:off, 45}] do
     test "#{hand} milk clears hidden and unrelated statuses atomically even with full inventory",
          ctx do
-      food = %PlayerFood{}
+      food = %Food{}
       drink = ItemStack.new("milk_bucket")
       slots = Map.new(9..44, &{&1, ItemStack.new("stone", 64)}) |> Map.put(unquote(slot), drink)
       seed(ctx, food, 20.0, inventory: %Inventory{slots: slots})
@@ -382,7 +385,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       ids =
         Enum.map(
           ~w(regeneration fire_resistance water_breathing poison),
-          &Valimc.Protocol.EffectTypes.id/1
+          &Valimc.Data.EffectTypes.id/1
         )
 
       for id <- ids do
@@ -427,7 +430,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "native duration finishes each hand once, orders completion before inventory, and reconnects atomically",
        ctx do
-    food = %PlayerFood{level: 3, saturation: 0.0}
+    food = %Food{level: 3, saturation: 0.0}
     bread = ItemStack.new("bread", 2)
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread, 45 => bread}})
     {client, pid} = login(ctx, 20.0, food)
@@ -447,27 +450,27 @@ defmodule Valimc.PlayerUseConnectionTest do
     {_, client} = Client.await(client, :play, "container_set_content")
     assert state(pid).inventory.slots[36].count == 1
     assert state(pid).inventory.slots[45] == bread
-    assert state(pid).player.food == %PlayerFood{level: 8, saturation: 6.0}
+    assert state(pid).player.food == %Food{level: 8, saturation: 6.0}
     assert state(pid).active_use == nil and state(pid).player.use_flags == 0
     client = use_hand(client, pid, :off, 3)
     assert state(pid).player.use_flags == 3
     ticks(pid, 32)
     {<<^id::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
     assert state(pid).inventory.slots[45].count == 1 and state(pid).player.use_flags == 2
-    assert state(pid).player.food == %PlayerFood{level: 13, saturation: 12.0}
+    assert state(pid).player.food == %Food{level: 13, saturation: 12.0}
     ticks(pid, 3)
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.inventory.slots[36].count == 1 and saved.inventory.slots[45].count == 1
-    assert saved.food == %PlayerFood{level: 13, saturation: 12.0}
+    assert saved.food == %Food{level: 13, saturation: 12.0}
     {_client, owner} = login(ctx, 20.0, saved.food)
     assert state(owner).active_use == nil and state(owner).player.use_flags == 0
   end
 
   test "release, different item, changed main slot and swap cancel while offhand selection does not",
        ctx do
-    food = %PlayerFood{level: 5, saturation: 0.0}
+    food = %Food{level: 5, saturation: 0.0}
     bread = ItemStack.new("bread", 2)
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread, 37 => bread, 45 => bread}})
     {client, pid} = login(ctx, 20.0, food)
@@ -503,7 +506,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   end
 
   test "disconnect and fatal damage retire unfinished use without consuming", ctx do
-    food = %PlayerFood{level: 5, saturation: 0.0}
+    food = %Food{level: 5, saturation: 0.0}
     bread = ItemStack.new("bread", 2)
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread}})
     {client, pid} = login(ctx, 20.0, food)
@@ -522,7 +525,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   end
 
   test "unloaded requests and spectator use cannot begin a meal", ctx do
-    food = %PlayerFood{level: 5, saturation: 0.0}
+    food = %Food{level: 5, saturation: 0.0}
     bread = ItemStack.new("bread")
     seed(ctx, food, 20.0, mode: :spectator, inventory: %Inventory{slots: %{36 => bread}})
     {client, pid} = login(ctx, 20.0, food)
@@ -532,8 +535,8 @@ defmodule Valimc.PlayerUseConnectionTest do
     Valimc.TestConn.replace(pid, fn s ->
       player = %{
         s.player
-        | input: %Valimc.PlayerInput{},
-          game_mode: Valimc.GameMode.new(:survival)
+        | input: %Valimc.Player.Input{},
+          game_mode: Valimc.Player.GameMode.new(:survival)
       }
 
       %{s | player: player}

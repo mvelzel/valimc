@@ -5,7 +5,9 @@ defmodule Valimc.Commands.Chat do
   bound to the command's chat type and the sender's display name.
   """
   require Logger
-  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Targets}
+  alias Valimc.Commands.Parser.Dispatcher
+  alias Valimc.Text.{Error, Reader}
+  alias Valimc.Commands.{Feedback, Source, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Data, Packets, Wire}
 
@@ -110,7 +112,7 @@ defmodule Valimc.Commands.Chat do
     content = resolve(source, message)
     name = Source.display_name(source)
     packet = disguised(content, chat_type, name, nil)
-    Valimc.Players.broadcast({:packet, packet})
+    Valimc.Player.PlayerList.broadcast({:packet, packet})
     # The server logs the decorated message (`logChatMessage`).
     decoration =
       if chat_type == "minecraft:emote_command",
@@ -132,7 +134,7 @@ defmodule Valimc.Commands.Chat do
         disguised(content, "minecraft:msg_command_outgoing", sender, Source.display_name(target))
 
       if source.player,
-        do: Valimc.Connection.deliver(source.player.pid, {:packet, outgoing}),
+        do: Valimc.Net.Connection.deliver(source.player.pid, {:packet, outgoing}),
         else:
           Logger.info(
             Valimc.Text.Render.string(
@@ -145,7 +147,7 @@ defmodule Valimc.Commands.Chat do
 
       incoming = disguised(content, "minecraft:msg_command_incoming", sender, nil)
 
-      Valimc.Connection.deliver(target.pid, {:packet, incoming})
+      Valimc.Net.Connection.deliver(target.pid, {:packet, incoming})
     end
 
     length(targets)
@@ -201,13 +203,13 @@ defmodule Valimc.Commands.Chat do
     list_players(source, fn player ->
       Text.translatable("commands.list.nameAndId", [
         Text.literal(player.name),
-        Text.literal(Valimc.UUID.to_string(player.uuid))
+        Text.literal(Valimc.Data.UUID.to_string(player.uuid))
       ])
     end)
   end
 
   defp list_players(source, format) do
-    players = Valimc.Command.Targets.online() |> Enum.sort_by(& &1.entity_id)
+    players = Valimc.Commands.Targets.online() |> Enum.sort_by(& &1.entity_id)
 
     names = Text.join(Enum.map(players, format))
 

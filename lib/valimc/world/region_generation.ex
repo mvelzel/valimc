@@ -110,10 +110,10 @@ defmodule Valimc.World.RegionGeneration do
 
     cond do
       MapSet.member?(gen.failed, chunk) ->
-        {:reply, Valimc.Error.reject(:chunk_generation_failed), state}
+        {:reply, Valimc.Data.Error.reject(:chunk_generation_failed), state}
 
       gen.deferred_count >= @max_deferred ->
-        {:reply, Valimc.Error.retry(:chunk_generating), state}
+        {:reply, Valimc.Data.Error.retry(:chunk_generating), state}
 
       true ->
         deferred = Map.update(gen.deferred, chunk, [{message, from}], &[{message, from} | &1])
@@ -237,7 +237,7 @@ defmodule Valimc.World.RegionGeneration do
 
     for {_, list} <- calls,
         {_, from} <- list,
-        do: GenServer.reply(from, Valimc.Error.reject(:chunk_generation_failed))
+        do: GenServer.reply(from, Valimc.Data.Error.reject(:chunk_generation_failed))
 
     count = gen.deferred_count - Enum.sum(Enum.map(calls, fn {_, list} -> length(list) end))
 
@@ -308,7 +308,7 @@ defmodule Valimc.World.RegionGeneration do
     :ok =
       BlockSnapshot.publish_chunks(state.publication, state.blocks, chunks, state.revision)
 
-    Valimc.Metrics.add(:worldgen_chunks, length(chunks))
+    Valimc.Data.Metrics.add(:worldgen_chunks, length(chunks))
 
     # Served chunks next to the new ones were lit with them unknown.
     state = RegionData.light_changed(state, Blocks.changed_chunks(changes))

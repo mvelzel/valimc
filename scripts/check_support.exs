@@ -3,7 +3,7 @@
 # (VMC-077m, `valimc_core::rules::support`).
 [filename] = System.argv()
 cases = JSON.decode!(File.read!(filename))
-rules = Valimc.Block.Rules.native()
+rules = Valimc.World.BlockRules.native()
 
 updates =
   for [state, direction, _alive, _vanilla, cells] <- cases["updates"],
@@ -23,7 +23,7 @@ unless mismatches == [] do
 end
 
 for {[state, remains], true} <- Enum.zip(cases["remains"], dependent),
-    Valimc.Block.after_removal(state) != remains,
+    Valimc.Blocks.after_removal(state) != remains,
     do: raise("support remains mismatch: #{state}")
 
 unless Enum.all?(dependent), do: raise("a state with remains has no survival facts")

@@ -1,4 +1,5 @@
-alias Valimc.{GameMode, Protocol.Data, Protocol.Packets}
+alias Valimc.Player.GameMode
+alias Valimc.{Protocol.Data, Protocol.Packets}
 [input, output] = System.argv()
 Data.load!()
 native = input |> File.read!() |> JSON.decode!()

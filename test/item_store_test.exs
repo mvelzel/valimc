@@ -107,7 +107,7 @@ defmodule Valimc.ItemStoreTest do
     assert Valimc.TestRegion.section(owner).entities.store.entries[elem(current, 2)].stack ==
              stone
 
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   test "a corrupt checkpoint is preserved and prevents only its region from loading", ctx do

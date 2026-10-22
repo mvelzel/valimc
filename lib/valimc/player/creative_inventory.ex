@@ -8,9 +8,10 @@ defmodule Valimc.Player.CreativeInventory do
   alias Valimc.Protocol.{InventoryClick, ItemStack, Packets, Wire}
   alias Valimc.Player.{Items, Menus}
 
-  import Valimc.Net.Codec, only: [send_packets: 2, reject: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{CreativeInput, Inventory}
+  alias Valimc.Player.DropThrottle
+  alias Valimc.Menus.Inventory
 
   def creative_slot(state, <<slot::signed-16, payload::binary>>) do
     case ItemStack.decode(payload, :untrusted) do
@@ -38,7 +39,7 @@ defmodule Valimc.Player.CreativeInventory do
 
   # Vanilla's drop throttle admits a creative drop, which conjures the stack.
   defp creative_drop(state, stack) do
-    {result, input} = CreativeInput.charge(state.creative_input, creative_tick())
+    {result, input} = DropThrottle.charge(state.creative_input, creative_tick())
     state = %{state | creative_input: input}
 
     if result == :ok and stack != nil,
@@ -146,8 +147,8 @@ defmodule Valimc.Player.CreativeInventory do
       {:ok, %{container: 0} = click} ->
         # The vanilla listener applies actions to current owner state even when
         # the reported state ID is stale. Predictions only guide replication.
-        case Valimc.MenuClick.plan(
-               Valimc.Menu.inventory(),
+        case Valimc.Menus.Click.plan(
+               Valimc.Menus.Menu.inventory(),
                nil,
                state.inventory,
                click.action,

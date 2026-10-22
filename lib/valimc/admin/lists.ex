@@ -8,7 +8,7 @@ defmodule Valimc.Admin.Lists do
   written at most once a second. Logins and permission checks read the
   published ETS rows without calling the owner: `{:op, uuid}`,
   `{:white, uuid}`, `{:ban, uuid}` and `{:ip_ban, ip}`. A change writes its
-  file first (`Valimc.DurableFile`) and then updates only the rows it touches,
+  file first (`Valimc.Storage.DurableFile`) and then updates only the rows it touches,
   so a reader never sees a list half replaced nor a row the disk does not
   hold; a failed write leaves the lists as they were. The switches
   (`white-list`, `player-idle-timeout`) are world settings
@@ -290,13 +290,13 @@ defmodule Valimc.Admin.Lists do
             :unknown
 
           cache? ->
-            profile = %{uuid: Valimc.Connection.offline_uuid(key), name: key}
+            profile = %{uuid: Valimc.Net.Connection.offline_uuid(key), name: key}
             {:ok, profile, cache(state, profile)}
 
           true ->
             # Seeded operators keep their configured spelling, which is the name
             # the player logs in with.
-            {:ok, %{uuid: Valimc.Connection.offline_uuid(name), name: name}, state}
+            {:ok, %{uuid: Valimc.Net.Connection.offline_uuid(name), name: name}, state}
         end
     end
   end

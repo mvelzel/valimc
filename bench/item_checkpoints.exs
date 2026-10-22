@@ -1,13 +1,15 @@
-alias Valimc.{ItemMotionState, World}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.World
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{Entities, Region, RegionStorage}
+alias Valimc.Entity.Store
+alias Valimc.World.{Region, RegionStorage}
 
 [base] = System.argv()
 File.mkdir_p!(base)
 Application.put_env(:valimc, :port, 0)
 Application.put_env(:valimc, :world_path, Path.expand(base))
 {:ok, _} = Application.ensure_all_started(:valimc)
-metric = fn key -> Map.get(Valimc.Metrics.snapshot(), key, 0) end
+metric = fn key -> Map.get(Valimc.Data.Metrics.snapshot(), key, 0) end
 
 workloads =
   for mode <- [:durable, :coalesced],
@@ -81,7 +83,7 @@ results =
     {flush_us, :ok} = :timer.tc(fn -> Region.flush(pid) end)
     elapsed = System.monotonic_time(:microsecond) - started
     {:ok, disk} = RegionStorage.read(Path.expand(base), :overworld, key)
-    true = disk.items == Entities.records(:sys.get_state(pid).resource.entities.store)
+    true = disk.items == Store.records(:sys.get_state(pid).resource.entities.store)
     true = Enum.all?(disk.items, &(&1.motion.age == 100))
     sorted = Enum.sort(times)
 

@@ -1,5 +1,7 @@
 defmodule Valimc.CrossMergeBench do
-  alias Valimc.{ItemMotionState, Metrics, Protocol.ItemStack, World}
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Data.Metrics
+  alias Valimc.{Protocol.ItemStack, World}
   alias Valimc.World.{Region, RegionStorage}
 
   def run(base, boundaries, component_bytes) do

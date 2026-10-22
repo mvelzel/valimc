@@ -1,6 +1,6 @@
 defmodule Valimc.Session.JobsTest do
   use ExUnit.Case, async: true
-  alias Valimc.Session.Jobs
+  alias Valimc.Player.Jobs
 
   defp next_message do
     receive do

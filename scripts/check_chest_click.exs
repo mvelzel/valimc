@@ -1,4 +1,4 @@
-alias Valimc.{Inventory, Menu, MenuClick}
+alias Valimc.Menus.{Inventory, Menu, Click}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -44,7 +44,7 @@ for row <- facts["cases"] do
   action = Map.fetch!(%{0 => :pickup, 1 => :quick_move, 2 => :swap}, row["action"])
 
   {:ok, after_storage, after_inventory, []} =
-    MenuClick.plan(
+    Click.plan(
       Menu.chest(row["rows"]),
       storage,
       inventory,

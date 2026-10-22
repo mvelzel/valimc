@@ -7,7 +7,7 @@ if scatter or fluid do
   count = System.fetch_env!("VALIMC_BENCH_PLAYERS") |> String.to_integer()
 
   for index <- 0..(count - 1) do
-    uuid = Valimc.Connection.offline_uuid("Bench#{index}")
+    uuid = Valimc.Net.Connection.offline_uuid("Bench#{index}")
 
     pose = %{
       x: if(scatter, do: index * 128 + 64.5, else: 0.5),
@@ -17,7 +17,7 @@ if scatter or fluid do
       pitch: 0.0
     }
 
-    snapshot = Valimc.Player.State.capture(pose, Valimc.Inventory.new())
+    snapshot = Valimc.Player.State.capture(pose, Valimc.Menus.Inventory.new())
     {:ok, bytes} = Valimc.Player.State.encode(uuid, snapshot)
     target = Valimc.Player.Storage.path(Valimc.config(:world_path), uuid)
     File.mkdir_p!(Path.dirname(target))
@@ -50,7 +50,7 @@ end
 
 spawn_link(fn ->
   loop = fn loop ->
-    observed = Valimc.Players.all()
+    observed = Valimc.Player.PlayerList.all()
 
     players =
       Map.new(observed, fn player ->
@@ -69,7 +69,7 @@ spawn_link(fn ->
       end)
 
     sample =
-      Valimc.Metrics.snapshot()
+      Valimc.Data.Metrics.snapshot()
       |> Map.put(:time_ms, System.monotonic_time(:millisecond))
       |> Map.put(:accepted_positions, players)
 

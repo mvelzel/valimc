@@ -45,14 +45,14 @@ defmodule Valimc.MalformedPacketConnectionTest do
 
     for {packet, payload} <- cases() do
       {name, bad} = login()
-      pid = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
+      pid = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name)).pid
       ref = Process.monitor(pid)
       Client.send_packet(bad, :play, packet, payload)
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 30_000, packet
     end
 
     _healthy = Client.barrier(healthy)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   defp login do

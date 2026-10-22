@@ -7,12 +7,12 @@
 # Each workload runs 200 times; the median and fastest repetitions are kept, as a
 # loaded host preempts some of them.
 #   MIX_ENV=bench python3 scripts/heavy.py mix run --no-start bench/block_updates.exs OUT.json
-alias Valimc.Block.Rules
-alias Valimc.Registry.Blocks
+alias Valimc.World.BlockRules
+alias Valimc.Data.Blocks
 alias Valimc.World.Blocks, as: Store
 
 [output] = System.argv()
-Rules.native()
+BlockRules.native()
 {:ok, store} = Store.new({0, 0})
 
 {stone, wire, block} =
@@ -48,11 +48,11 @@ results =
     runs =
       case mode do
         :batched ->
-          [fn -> Rules.run(store, previous, [], []).updates end]
+          [fn -> BlockRules.run(store, previous, [], []).updates end]
 
         :per_position ->
           for {pos, old} <- previous,
-              do: fn -> Rules.run(store, %{pos => old}, [], []).updates end
+              do: fn -> BlockRules.run(store, %{pos => old}, [], []).updates end
       end
 
     {micros, fastest, updates, samples} = time.(runs)

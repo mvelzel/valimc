@@ -1,4 +1,4 @@
-alias Valimc.Physics.Box
+alias Valimc.Data.Box
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 

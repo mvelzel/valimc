@@ -1,4 +1,4 @@
-alias Valimc.Physics.OrbMotion
+alias Valimc.Entity.OrbMotion
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 true = data["version"] == "26.3"

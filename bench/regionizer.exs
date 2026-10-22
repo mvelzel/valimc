@@ -20,7 +20,7 @@ Application.put_env(:valimc, :world_path, base)
 Application.put_env(:valimc, :region_ticks, :manual)
 Application.put_env(:valimc, :region_unload_delay_ms, 600_000)
 size = Valimc.config(:region_size)
-stone = Valimc.Registry.Blocks.default_state("stone")
+stone = Valimc.Data.Blocks.default_state("stone")
 median = fn list -> list |> Enum.sort() |> Enum.at(div(length(list), 2)) end
 
 wait = fn condition, timeout ->

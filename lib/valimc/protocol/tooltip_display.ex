@@ -1,6 +1,7 @@
 defmodule Valimc.Protocol.TooltipDisplay do
   @moduledoc "Bounded vanilla tooltip presentation controls; hidden data remains owned item state."
-  alias Valimc.Protocol.{ComponentTypes, Wire}
+  alias Valimc.Data.ComponentTypes
+  alias Valimc.Protocol.Wire
   defstruct hide: false, hidden: MapSet.new()
   @max_entries 1024
 

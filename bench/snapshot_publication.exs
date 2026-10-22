@@ -30,7 +30,7 @@ File.mkdir_p!(base)
     "type" => "vanilla",
     "seed" => seed,
     "features" => true,
-    "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, true)
+    "settings" => Valimc.Worldgen.GenSettings.create("minecraft:normal", nil, seed, true)
   })
 
 {:ok, _} = Scheduler.whereis(base, :overworld)
@@ -74,8 +74,8 @@ memory = fn %{blocks: blocks, table: table} ->
   %{rust_bytes: rust, ets_bytes: ets, binary_bytes: binaries, total: rust + ets + binaries}
 end
 
-stone = Valimc.Registry.Blocks.default_state("stone")
-glass = Valimc.Registry.Blocks.default_state("glass")
+stone = Valimc.Data.Blocks.default_state("stone")
+glass = Valimc.Data.Blocks.default_state("glass")
 
 # One block per chunk at a fixed cell near the surface, toggled between two states.
 edit = fn chunks, state ->

@@ -1,6 +1,6 @@
 defmodule Valimc.NBTTest do
   use ExUnit.Case, async: true
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
   defp bytes(tag), do: IO.iodata_to_binary(NBT.encode(tag))
 
   test "all tag payloads, nested compounds/lists and dense primitive arrays round trip" do

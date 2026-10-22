@@ -1,6 +1,6 @@
 alias Valimc.Living.DamageSource
 alias Valimc.Protocol.{ItemData, ItemStack, Packets, Wire}
-alias Valimc.NBT
+alias Valimc.Data.NBT
 [input, output] = System.argv()
 rows = input |> File.read!() |> JSON.decode!()
 

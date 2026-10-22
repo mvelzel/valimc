@@ -191,9 +191,9 @@ defmodule Valimc.World.Regionizer do
 
       case safe_hand_over(source, target, :all) do
         :ok ->
-          Valimc.Metrics.add(:regionizer_merges)
+          Valimc.Data.Metrics.add(:regionizer_merges)
 
-          Valimc.Metrics.add(
+          Valimc.Data.Metrics.add(
             :regionizer_merge_microseconds,
             System.monotonic_time(:microsecond) - started
           )
@@ -289,9 +289,9 @@ defmodule Valimc.World.Regionizer do
 
       case safe_split(acc.dimension, pid, keys) do
         {:ok, new} ->
-          Valimc.Metrics.add(:regionizer_splits)
+          Valimc.Data.Metrics.add(:regionizer_splits)
 
-          Valimc.Metrics.add(
+          Valimc.Data.Metrics.add(
             :regionizer_split_microseconds,
             System.monotonic_time(:microsecond) - started
           )

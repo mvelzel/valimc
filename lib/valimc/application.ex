@@ -29,18 +29,18 @@ defmodule Valimc.Application do
     raise_open_files_limit()
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
-    Valimc.Registry.BlockFacts.install!()
-    Valimc.World.Generator.init!()
-    Valimc.LoginKeys.init!()
+    Valimc.Data.BlockFacts.install!()
+    Valimc.Worldgen.Generator.init!()
+    Valimc.Net.LoginKeys.init!()
     Valimc.Commands.init!()
-    Valimc.Metrics.init!()
-    Valimc.World.EntityIds.init!()
+    Valimc.Data.Metrics.init!()
+    Valimc.Entity.Ids.init!()
     Valimc.World.Saving.init!()
     Valimc.Worldgen.Pool.init!()
     Valimc.World.GameTick.init!()
     Valimc.Storage.Log.init!()
 
-    if not Valimc.GameMode.valid?(Valimc.config(:default_game_mode)),
+    if not Valimc.Player.GameMode.valid?(Valimc.config(:default_game_mode)),
       do: raise("Invalid default game mode")
 
     schedulers = max(System.schedulers_online(), 1)
@@ -82,14 +82,14 @@ defmodule Valimc.Application do
         # One regionizer per dimension decides which sections share a group
         # (VMC-077j2); one that restarts rebuilds from the routes.
         {Registry, keys: :unique, name: Valimc.Regionizers}
-        | Enum.map(Valimc.Dimension.ids(), &{Valimc.World.Regionizer, &1})
+        | Enum.map(Valimc.World.Dimension.ids(), &{Valimc.World.Regionizer, &1})
       ] ++ [{Valimc.World.ForcedChunks, []}]
 
     players = [
-      Valimc.Players,
-      {Valimc.KeyExchange, []},
-      {Valimc.Auth.DiscoverySupervisor, []},
-      {Valimc.Auth.SessionJobs, []},
+      Valimc.Player.PlayerList,
+      {Valimc.Net.KeyExchange, []},
+      {Valimc.Net.Auth.DiscoverySupervisor, []},
+      {Valimc.Net.Auth.SessionJobs, []},
       # Players' command jobs: at most one per connection (VMC-077a).
       {Task.Supervisor,
        name: Valimc.CommandWorkers, max_children: Valimc.config(:max_connections)},
@@ -99,9 +99,9 @@ defmodule Valimc.Application do
     # VMC-010f: the console reads standard input once the server listens.
     # VMC-010g: RCON, when enabled.
     network =
-      [Valimc.Listener] ++
-        if(Valimc.config(:console), do: [Valimc.Console], else: []) ++
-        if(Valimc.config(:rcon), do: [Valimc.Rcon], else: [])
+      [Valimc.Net.Listener] ++
+        if(Valimc.config(:console), do: [Valimc.Net.Console], else: []) ++
+        if(Valimc.config(:rcon), do: [Valimc.Net.Rcon], else: [])
 
     Supervisor.start_link(
       [

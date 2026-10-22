@@ -16,7 +16,7 @@ input =
 
 {:ok, outcomes} = Valimc.Native.worldgen_shape_cases(Valimc.Worldgen.registry(), input)
 
-name = fn id -> Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(id)) end
+name = fn id -> Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(id)) end
 
 vanilla_ticks = fn ticks ->
   ticks

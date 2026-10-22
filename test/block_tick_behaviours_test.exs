@@ -1,7 +1,7 @@
 defmodule Valimc.BlockTickBehavioursTest do
   use ExUnit.Case, async: true
-  alias Valimc.Block.BuddingAmethyst
-  alias Valimc.Registry.Blocks
+  alias Valimc.Blocks.BuddingAmethyst
+  alias Valimc.Data.Blocks
   alias Valimc.TestScope
   alias Valimc.World.Region
 

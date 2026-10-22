@@ -10,7 +10,8 @@ defmodule Valimc.Player.State do
 
   `game_mode` nil means the server's default.
   """
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerProgression}
+  alias Valimc.Player.{GameMode, Food, Progression}
+  alias Valimc.Menus.Inventory
 
   alias Valimc.Living
   alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
@@ -28,8 +29,8 @@ defmodule Valimc.Player.State do
             fire_ticks: 0,
             air_supply: 300,
             frozen_ticks: 0,
-            food: %PlayerFood{},
-            progression: %PlayerProgression{},
+            food: %Food{},
+            progression: %Progression{},
             fall_distance: 0.0,
             velocity: {0.0, 0.0, 0.0},
             last_death: nil,
@@ -63,8 +64,8 @@ defmodule Valimc.Player.State do
         inventory: inventory,
         game_mode: Map.get(player, :game_mode),
         flying: flying,
-        food: Map.get(player, :food, %PlayerFood{}),
-        progression: Map.get(player, :progression, %PlayerProgression{}),
+        food: Map.get(player, :food, %Food{}),
+        progression: Map.get(player, :progression, %Progression{}),
         fall_distance: if(motion, do: motion.fall_distance, else: 0.0),
         velocity: if(motion, do: motion.velocity, else: {0.0, 0.0, 0.0}),
         last_death: Map.get(player, :last_death),
@@ -175,11 +176,11 @@ defmodule Valimc.Player.State do
       invalid_fire_ticks: Burning.valid?(state.fire_ticks),
       invalid_air_supply: Air.valid?(state.air_supply),
       invalid_frozen_ticks: Freezing.valid_ticks?(state.frozen_ticks),
-      invalid_food: PlayerFood.valid?(state.food),
-      invalid_player_progression: PlayerProgression.valid?(state.progression),
-      invalid_fall_distance: Valimc.PlayerMotion.valid_distance?(state.fall_distance),
-      invalid_velocity: Valimc.PlayerKinetics.valid_velocity?(state.velocity),
-      invalid_last_death: Valimc.PlayerLife.valid_location?(state.last_death),
+      invalid_food: Food.valid?(state.food),
+      invalid_player_progression: Progression.valid?(state.progression),
+      invalid_fall_distance: Valimc.Player.Motion.valid_distance?(state.fall_distance),
+      invalid_velocity: Valimc.Player.Kinetics.valid_velocity?(state.velocity),
+      invalid_last_death: Valimc.Player.Life.valid_location?(state.last_death),
       invalid_portal_cooldown:
         is_integer(state.portal_cooldown) and state.portal_cooldown in 0..2_147_483_647,
       invalid_seen_credits: is_boolean(state.seen_credits)

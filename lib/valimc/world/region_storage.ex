@@ -46,7 +46,8 @@ defmodule Valimc.World.RegionStorage do
   """
   require Logger
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{BlockEntities, Blocks, Containers, Entities, ScheduledTicks}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, ScheduledTicks}
+  alias Valimc.Entity.Store
 
   @commit_ms 50
   @checkpoint_bytes 1024 * 1024
@@ -374,7 +375,7 @@ defmodule Valimc.World.RegionStorage do
           into: %{},
           do: {chunk, image}
         ),
-      sky: Valimc.Dimension.facts().sky_light
+      sky: Valimc.World.Dimension.facts().sky_light
     }
 
     # Changes not yet in a frame still go into the next one; the checkpoint
@@ -397,7 +398,7 @@ defmodule Valimc.World.RegionStorage do
 
       {:ok, _} =
         Task.start(
-          Valimc.Dimension.bind(fn ->
+          Valimc.World.Dimension.bind(fn ->
             send(owner, {:checkpointed, ref, job.seq, write_checkpoint(job)})
           end)
         )
@@ -414,7 +415,7 @@ defmodule Valimc.World.RegionStorage do
 
   defp covered(storage, _chunks, seq, :ok) do
     Log.covered(storage.base, storage.owner, seq)
-    Valimc.Metrics.add(:region_checkpoints)
+    Valimc.Data.Metrics.add(:region_checkpoints)
 
     %{
       storage
@@ -460,7 +461,7 @@ defmodule Valimc.World.RegionStorage do
 
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
-  `Valimc.World.Entities`), `containers`, `ticks` (a
+  `Valimc.Entity.Store`), `containers`, `ticks` (a
   `ScheduledTicks`), `block_entities` and `game_tick`.
   """
   def diff_parts(storage, parts) do
@@ -582,10 +583,10 @@ defmodule Valimc.World.RegionStorage do
   end
 
   @doc false
-  def part_records(:items, %Entities{} = items) do
+  def part_records(:items, %Store{} = items) do
     ledger = items.ledger
 
-    for(record <- Entities.records(items), into: %{}, do: {{:entity, record.uuid}, record})
+    for(record <- Store.records(items), into: %{}, do: {{:entity, record.uuid}, record})
     |> Map.merge(%{
       {:handoff, :sequence} => ledger.sequence,
       {:handoff, :outgoing} => stored_outgoing(ledger.outgoing)
@@ -645,7 +646,7 @@ defmodule Valimc.World.RegionStorage do
       cells: %{},
       post_processing: %{},
       items: [],
-      ledger: Entities.empty_ledger(),
+      ledger: Store.empty_ledger(),
       containers: %Containers{},
       ticks: [],
       block_entities: %{},
@@ -749,7 +750,10 @@ defmodule Valimc.World.RegionStorage do
                if(extra == %{},
                  do: :ok,
                  else:
-                   Valimc.DurableFile.write(Checkpoint.extra(path), :erlang.term_to_binary(extra))
+                   Valimc.Storage.DurableFile.write(
+                     Checkpoint.extra(path),
+                     :erlang.term_to_binary(extra)
+                   )
                )
     end
   end
@@ -759,7 +763,7 @@ defmodule Valimc.World.RegionStorage do
   and regions the log holds frames of. A world stored before VMC-077f is refused.
   """
   def keys(base, dimension) do
-    dir = Valimc.Dimension.storage(base, dimension)
+    dir = Valimc.World.Dimension.storage(base, dimension)
 
     names =
       case File.ls(dir),
@@ -818,7 +822,7 @@ defmodule Valimc.World.RegionStorage do
     for n <- 0..(Log.stripes() - 1),
         dir = Log.dir(base, n),
         File.dir?(dir),
-        {:ok, %{frames: frames}} <- [Valimc.World.RegionLog.read(dir)],
+        {:ok, %{frames: frames}} <- [Valimc.Storage.RegionLog.read(dir)],
         %{ops: ops} <- frames,
         {:frame, owner, s, frame} <- ops,
         do: {owner, s, frame}

@@ -2,7 +2,9 @@ defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -26,7 +28,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     Valimc.TestScope.isolate([uuid, Connection.offline_uuid(name <> "B")], player_ticks: :manual)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name in [name, name <> "B"],
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -48,10 +50,10 @@ defmodule Valimc.PlayerMiningConnectionTest do
       Map.merge(ctx.pose, %{
         living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
         game_mode: GameMode.new(:survival),
-        abilities: Valimc.PlayerAbilities.for_mode(:survival),
-        motion: %Valimc.PlayerMotion{},
+        abilities: Valimc.Player.Abilities.for_mode(:survival),
+        motion: %Valimc.Player.Motion{},
         last_death: nil,
-        food: %Valimc.PlayerFood{}
+        food: %Valimc.Player.Food{}
       })
 
     {:ok, bytes} =
@@ -112,7 +114,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
-    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    pid = wait(fn -> Enum.find(PlayerList.all(), &(&1.name == ctx.name)) end).pid
     park(pid)
     client = Client.load_world(client)
     on_exit(fn -> Client.close(client) end)
@@ -233,7 +235,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       | components: %{"minecraft:custom_name" => {:string, "Saved diamonds"}}
     }
 
-    {:ok, chest} = Valimc.ChestPlacement.single_state(0.0, 0)
+    {:ok, chest} = Valimc.Blocks.ChestPlacement.single_state(0.0, 0)
     {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.target, 3)
 
     {:ok, containers, _} =

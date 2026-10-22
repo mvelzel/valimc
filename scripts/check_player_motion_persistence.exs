@@ -8,13 +8,13 @@ Enum.each(data["cases"], fn c ->
   if bits.(original) != bits.(List.to_tuple(c["saved"])),
     do: raise("Native Motion save changed #{inspect(c)}")
 
-  {:ok, actual} = Valimc.PlayerKinetics.restore_velocity(original)
+  {:ok, actual} = Valimc.Player.Kinetics.restore_velocity(original)
 
   if bits.(actual) != bits.(List.to_tuple(c["loaded"])),
     do: raise("Native Motion load mismatch #{inspect(c)} #{inspect(actual)}")
 end)
 
-{:ok, zero} = Valimc.PlayerKinetics.restore_velocity({0.0, 0.0, 0.0})
+{:ok, zero} = Valimc.Player.Kinetics.restore_velocity({0.0, 0.0, 0.0})
 if zero != List.to_tuple(data["missing"]), do: raise("Native missing Motion default mismatch")
 
 IO.puts(

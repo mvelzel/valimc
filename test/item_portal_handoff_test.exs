@@ -1,9 +1,12 @@
 defmodule Valimc.ItemPortalHandoffTest do
   # Item handoffs across dimensions (VMC-026c): section keys as ends, separate receipts.
   use ExUnit.Case, async: true
-  alias Valimc.{Dimension, ItemMotionState, TestScope}
+  alias Valimc.World.Dimension
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{EntityHandoffs, Entities, Region}
+  alias Valimc.Entity.{Handoffs, Store}
+  alias Valimc.World.Region
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -48,7 +51,7 @@ defmodule Valimc.ItemPortalHandoffTest do
 
   # One step of `uuid` to `position`, as a portal's destination places it.
   defp step(owner, uuid, position, cooldown) do
-    {:ok, {_epoch, id, revision}} = Entities.find(resource(owner).entities.store, uuid)
+    {:ok, {_epoch, id, revision}} = Store.find(resource(owner).entities.store, uuid)
 
     %{
       id: id,
@@ -71,7 +74,7 @@ defmodule Valimc.ItemPortalHandoffTest do
   end
 
   defp holds?(owner, uuid),
-    do: match?({:ok, _}, Entities.find(resource(owner).entities.store, uuid))
+    do: match?({:ok, _}, Store.find(resource(owner).entities.store, uuid))
 
   test "an overworld item crosses into the Nether, durably, and survives both owners' restarts",
        ctx do
@@ -91,7 +94,7 @@ defmodule Valimc.ItemPortalHandoffTest do
     wait(fn -> holds?(target, <<1::128>>) end)
     refute holds?(source, <<1::128>>)
 
-    {:ok, {_, id, _}} = Entities.find(resource(target).entities.store, <<1::128>>)
+    {:ok, {_, id, _}} = Store.find(resource(target).entities.store, <<1::128>>)
     entry = resource(target).entities.store.entries[id]
     assert {entry.entity.x, entry.entity.y, entry.entity.z} == arrival
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 9
@@ -158,15 +161,15 @@ defmodule Valimc.ItemPortalHandoffTest do
       merge: nil
     }
 
-    assert {:ok, <<_::256>> = digest} = EntityHandoffs.digest(transfer)
+    assert {:ok, <<_::256>> = digest} = Handoffs.digest(transfer)
     # A network id is the VM's and never part of the digest.
     with_id = %{transfer | records: Enum.map(records, &Map.put(&1, :entity_id, 9))}
-    assert {:ok, ^digest} = EntityHandoffs.digest(with_id)
+    assert {:ok, ^digest} = Handoffs.digest(with_id)
 
     assert {:error, :invalid_item_handoff} =
-             EntityHandoffs.digest(%{transfer | destination: ctx.beside})
+             Handoffs.digest(%{transfer | destination: ctx.beside})
 
     assert {:error, :invalid_item_handoff} =
-             EntityHandoffs.digest(%{transfer | destination: transfer.source})
+             Handoffs.digest(%{transfer | destination: transfer.source})
   end
 end

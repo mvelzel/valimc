@@ -1,5 +1,5 @@
 alias Valimc.Living.Attributes
-alias Valimc.Protocol.EffectTypes
+alias Valimc.Data.EffectTypes
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
 

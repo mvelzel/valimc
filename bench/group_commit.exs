@@ -17,7 +17,7 @@ Application.put_env(:valimc, :port, 0)
 Application.put_env(:valimc, :world_path, Path.expand(base))
 Application.put_env(:valimc, :item_simulation, false)
 {:ok, _} = Application.ensure_all_started(:valimc)
-metric = fn key -> Map.get(Valimc.Metrics.snapshot(), key, 0) end
+metric = fn key -> Map.get(Valimc.Data.Metrics.snapshot(), key, 0) end
 
 region =
   for owners <- [1, 8, 64] do

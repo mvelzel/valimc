@@ -1,7 +1,7 @@
 defmodule Valimc.BlockSupportTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.ItemTypes
-  alias Valimc.Registry.Blocks
+  alias Valimc.Data.Blocks
   alias Valimc.TestScope
   alias Valimc.World.Region
 

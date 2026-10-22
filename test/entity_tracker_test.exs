@@ -2,7 +2,7 @@ defmodule Valimc.EntityTrackerTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.EntityPackets
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Entities, EntityTracker, EntityTracking}
+  alias Valimc.Entity.{Store, Tracker, Tracking}
 
   defp entity(x, velocity \\ {0.0, 0.0, 0.0}, on_ground \\ false),
     do: %{
@@ -19,13 +19,13 @@ defmodule Valimc.EntityTrackerTest do
 
   defp ticks(tracker, n, entity) do
     Enum.reduce(1..n, {tracker, []}, fn _, {tracker, sent} ->
-      {tracker, packets} = EntityTracker.tick(tracker, entity)
+      {tracker, packets} = Tracker.tick(tracker, entity)
       {tracker, sent ++ [packets]}
     end)
   end
 
   test "an item updates every 20 ticks with a relative move from the base the client has" do
-    tracker = EntityTracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false)
+    tracker = Tracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false)
     {tracker, sent} = ticks(tracker, 20, entity(0.75))
     # Tick 0 is an update tick; the next is tick 20.
     assert [[move] | rest] = sent
@@ -37,50 +37,50 @@ defmodule Valimc.EntityTrackerTest do
   end
 
   test "a sharp change of motion sends at once; a velocity change sends motion first" do
-    tracker = %{EntityTracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false) | tick: 5}
-    {_, []} = EntityTracker.tick(tracker, entity(0.5))
+    tracker = %{Tracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false) | tick: 5}
+    {_, []} = Tracker.tick(tracker, entity(0.5))
 
     {_, [motion, move]} =
-      EntityTracker.tick(tracker, entity(0.6, {0.0, 0.3, 0.0}), true)
+      Tracker.tick(tracker, entity(0.6, {0.0, 0.3, 0.0}), true)
 
     assert motion == packet(EntityPackets.motion(7, {0.0, 0.3, 0.0}))
     assert move == packet(EntityPackets.move(7, {410, 0, 0}, false))
   end
 
   test "landing, a long run of moves and a far jump become absolute syncs" do
-    tracker = EntityTracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false)
+    tracker = Tracker.new({0.5, 64.0, 0.5}, {0.0, 0.0, 0.0}, false)
     landed = entity(0.5, {0.0, 0.0, 0.0}, true)
-    assert {tracker, [sync]} = EntityTracker.tick(tracker, landed)
+    assert {tracker, [sync]} = Tracker.tick(tracker, landed)
     assert sync == packet(EntityPackets.position(landed))
     assert tracker.on_ground and tracker.teleport_delay == 0
 
     far = entity(20.0, {0.0, 0.0, 0.0}, true)
-    assert {_, [sync]} = EntityTracker.tick(%{tracker | tick: 20}, far)
+    assert {_, [sync]} = Tracker.tick(%{tracker | tick: 20}, far)
     assert sync == packet(EntityPackets.position(far))
 
-    {_, [sync]} = EntityTracker.tick(%{tracker | tick: 20, teleport_delay: 400}, landed)
+    {_, [sync]} = Tracker.tick(%{tracker | tick: 20, teleport_delay: 400}, landed)
     assert sync == packet(EntityPackets.position(landed))
   end
 
   test "a departing entity stays published, frozen, until its handoff clears; a returned one keeps its tracker" do
     {:ok, store, {epoch, id, revision}} =
-      Entities.create(Entities.new(), {0, 0}, ItemStack.new("stone"), {0.5, 64.0, 0.5})
+      Store.create(Store.new(), {0, 0}, ItemStack.new("stone"), {0.5, 64.0, 0.5})
 
-    tracking = EntityTracking.sync(%EntityTracking{}, store.views, nil)
-    {tracking, _frame} = EntityTracking.step(tracking, store.views, nil, 1)
-    {:ok, gone, [record]} = Entities.withdraw(store, [{epoch, id, revision}])
+    tracking = Tracking.sync(%Tracking{}, store.views, nil)
+    {tracking, _frame} = Tracking.step(tracking, store.views, nil, 1)
+    {:ok, gone, [record]} = Store.withdraw(store, [{epoch, id, revision}])
     outgoing = %{destination: {1, 0}, records: [record], merge: nil}
 
-    leaving = EntityTracking.sync(tracking, gone.views, outgoing)
-    assert %{^id => %{spawn: _, base: {0.5, 64.0, 0.5}}} = EntityTracking.published(leaving, %{})
-    assert {_, frame} = EntityTracking.step(leaving, gone.views, outgoing, 2)
+    leaving = Tracking.sync(tracking, gone.views, outgoing)
+    assert %{^id => %{spawn: _, base: {0.5, 64.0, 0.5}}} = Tracking.published(leaving, %{})
+    assert {_, frame} = Tracking.step(leaving, gone.views, outgoing, 2)
     assert frame == %{}
 
     # Back before the clear (a rejected merge): the same tracker goes on.
-    back = EntityTracking.sync(leaving, store.views, outgoing)
+    back = Tracking.sync(leaving, store.views, outgoing)
     assert back.trackers[id] == leaving.trackers[id] and back.departing == %{}
 
-    cleared = EntityTracking.sync(leaving, gone.views, nil)
-    assert EntityTracking.published(cleared, %{}) == %{} and cleared.trackers == %{}
+    cleared = Tracking.sync(leaving, gone.views, nil)
+    assert Tracking.published(cleared, %{}) == %{} and cleared.trackers == %{}
   end
 end

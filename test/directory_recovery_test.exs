@@ -4,9 +4,10 @@ defmodule Valimc.DirectoryRecoveryTest do
   # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.World.{Directory, Entities, Region}
+  alias Valimc.World.{Directory, Region}
+  alias Valimc.Entity.Store
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
 
@@ -49,11 +50,11 @@ defmodule Valimc.DirectoryRecoveryTest do
     :ok = Valimc.TestBlocks.set({2, 64, 2}, 1)
     {:ok, _handle} = Region.create_item(owner, ItemStack.new("stone", 7), {2.5, 64.5, 3.5})
     :ok = Region.flush(pid)
-    [record] = Entities.records(Valimc.TestRegion.section(owner).entities.store)
+    [record] = Store.records(Valimc.TestRegion.section(owner).entities.store)
     {^pid, admission, %{publication: publication}} = Valimc.TestWorld.lookup({0, 0})
     [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {:overworld, 0, 0})
     name = "DirRecovery"
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
 
     initial =
       PlayerState.capture(
@@ -68,7 +69,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     _client = Client.load_world(client)
 
     old_directory = Process.whereis(Directory)
-    old_listener = Process.whereis(Valimc.Listener)
+    old_listener = Process.whereis(Valimc.Net.Listener)
 
     old_owners =
       for {_, p, _, _} <- DynamicSupervisor.which_children(Valimc.RegionSupervisor), do: p
@@ -78,7 +79,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert wait_until(
              fn ->
                directory = Process.whereis(Directory)
-               listener = Process.whereis(Valimc.Listener)
+               listener = Process.whereis(Valimc.Net.Listener)
 
                is_pid(directory) and directory != old_directory and listener == old_listener and
                  Enum.all?(old_owners, &(not Process.alive?(&1)))
@@ -92,7 +93,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     {:ok, replacement = {next, next_epoch}} = Valimc.TestWorld.owner({0, 0})
     assert next != pid and next_epoch != epoch
     assert Valimc.TestBlocks.get({2, 64, 2}) == 1
-    recovered = Entities.records(Valimc.TestRegion.section(replacement).entities.store)
+    recovered = Store.records(Valimc.TestRegion.section(replacement).entities.store)
     assert Enum.map(recovered, & &1.uuid) == [record.uuid]
 
     assert {:error, :stale_admission} =

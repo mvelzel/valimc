@@ -4,7 +4,7 @@
 # material rule applied (`surface`, VMC-024b), then carved (`carve`, VMC-024c),
 # with the same fluid positions marked for post-processing. Arguments are
 # MODE PATH pairs, checked in order in one run (VMC-076d).
-alias Valimc.Registry.Blocks
+alias Valimc.Data.Blocks
 
 source = fn
   "minecraft:end" -> "minecraft:the_end"

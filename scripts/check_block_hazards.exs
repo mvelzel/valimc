@@ -1,6 +1,6 @@
 alias Valimc.Native
 [path] = System.argv()
-:ok = Valimc.Registry.BlockFacts.install!()
+:ok = Valimc.Data.BlockFacts.install!()
 
 rows = :json.decode(File.read!(path))
 

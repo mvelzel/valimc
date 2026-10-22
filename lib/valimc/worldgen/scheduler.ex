@@ -76,8 +76,8 @@ defmodule Valimc.Worldgen.Scheduler do
 
   @doc "The scheduler of `dimension` of the world at `world`, started if needed."
   def whereis(world, dimension) do
-    Valimc.Owners.ensure(
-      Valimc.Owners.registered(Valimc.Worldgen.Schedulers, {world, dimension}),
+    Valimc.World.Owners.ensure(
+      Valimc.World.Owners.registered(Valimc.Worldgen.Schedulers, {world, dimension}),
       fn ->
         DynamicSupervisor.start_child(
           Valimc.Worldgen.SchedulerSupervisor,
@@ -88,7 +88,7 @@ defmodule Valimc.Worldgen.Scheduler do
     )
   catch
     # The supervisor is stopping.
-    :exit, _ -> Valimc.Error.retry(:scheduler_unavailable)
+    :exit, _ -> Valimc.Data.Error.retry(:scheduler_unavailable)
   end
 
   @doc """
@@ -142,7 +142,7 @@ defmodule Valimc.Worldgen.Scheduler do
   @impl true
   def init({world, dimension}) do
     Process.flag(:trap_exit, true)
-    Valimc.Dimension.put(dimension)
+    Valimc.World.Dimension.put(dimension)
     {:ok, %__MODULE__{world: world, dimension: dimension}, {:continue, :load}}
   end
 
@@ -155,7 +155,7 @@ defmodule Valimc.Worldgen.Scheduler do
         frontier =
           Frontier.new(spec,
             decorated: Spec.decorated?(world, state.dimension),
-            sky: Valimc.Dimension.facts(state.dimension).sky_light,
+            sky: Valimc.World.Dimension.facts(state.dimension).sky_light,
             log: Application.get_env(:valimc, :generation_order_log, false)
           )
 
@@ -179,7 +179,7 @@ defmodule Valimc.Worldgen.Scheduler do
   defp snapshot_path(%{world: nil}), do: nil
 
   defp snapshot_path(state),
-    do: Path.join(Valimc.Dimension.storage(state.world, state.dimension), @snapshot)
+    do: Path.join(Valimc.World.Dimension.storage(state.world, state.dimension), @snapshot)
 
   # A snapshot's proto chunks go to the scratch file, not into memory.
   defp restore(frontier, state) do
@@ -216,7 +216,7 @@ defmodule Valimc.Worldgen.Scheduler do
       )
 
   defp scratch_path(state),
-    do: Path.join(Valimc.Dimension.storage(state.world, state.dimension), @scratch)
+    do: Path.join(Valimc.World.Dimension.storage(state.world, state.dimension), @scratch)
 
   defp open_scratch(%{scratch: %{file: nil, path: path}} = state) do
     File.mkdir_p!(Path.dirname(path))
@@ -243,8 +243,8 @@ defmodule Valimc.Worldgen.Scheduler do
       end
 
     frontier = Frontier.spilled(frontier, locations)
-    Valimc.Metrics.add(:worldgen_spills, length(locations))
-    Valimc.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
+    Valimc.Data.Metrics.add(:worldgen_spills, length(locations))
+    Valimc.Data.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
     stuck = if frontier.in_memory == n, do: n
     %{state | frontier: frontier, stuck: stuck}
   end
@@ -269,7 +269,7 @@ defmodule Valimc.Worldgen.Scheduler do
           }
       end
 
-    Valimc.Metrics.add(:worldgen_wants)
+    Valimc.Data.Metrics.add(:worldgen_wants)
     frontier = Frontier.want(state.frontier, requester, wanted)
     noreply(%{state | frontier: frontier, dirty: true})
   end
@@ -318,7 +318,7 @@ defmodule Valimc.Worldgen.Scheduler do
       case Enum.find(state.monitors, &match?({_, {:job, ^ref, _}}, &1)) do
         {monitor, {:job, _, started}} ->
           Process.demonitor(monitor, [:flush])
-          Valimc.Metrics.add(:worldgen_microseconds, now() - started)
+          Valimc.Data.Metrics.add(:worldgen_microseconds, now() - started)
           %{state | monitors: Map.delete(state.monitors, monitor)}
 
         nil ->
@@ -381,10 +381,10 @@ defmodule Valimc.Worldgen.Scheduler do
     if room == 0 do
       wait(state)
     else
-      if state.frontier.stale, do: Valimc.Metrics.add(:worldgen_refreshes)
+      if state.frontier.stale, do: Valimc.Data.Metrics.add(:worldgen_refreshes)
       started = now()
       {jobs, frontier} = Frontier.next(state.frontier, room, Pool.free(true))
-      Valimc.Metrics.add(:worldgen_dispatch_microseconds, now() - started)
+      Valimc.Data.Metrics.add(:worldgen_dispatch_microseconds, now() - started)
       scheduler = self()
 
       Enum.reduce(jobs, %{state | frontier: frontier}, fn job, state ->
@@ -395,7 +395,7 @@ defmodule Valimc.Worldgen.Scheduler do
 
         case started do
           {:ok, pid} ->
-            Valimc.Metrics.add(:"worldgen_#{job.kind}_jobs")
+            Valimc.Data.Metrics.add(:"worldgen_#{job.kind}_jobs")
             monitor = Process.monitor(pid)
             %{state | monitors: Map.put(state.monitors, monitor, {:job, ref, now()})}
 
@@ -508,11 +508,11 @@ defmodule Valimc.Worldgen.Scheduler do
     context = if f.worldgen, do: Valimc.Native.worldgen_memory(f.worldgen), else: 0
     starts = if f.starts, do: elem(Valimc.Native.gen_starts_stats(f.starts), 2), else: 0
     {:ok, protos} = Valimc.Native.gen_cells_bytes(Frontier.cells_in_memory(f))
-    Valimc.Metrics.put(:"worldgen_cells_#{d}", f.in_memory)
-    Valimc.Metrics.put(:"worldgen_proto_bytes_#{d}", protos)
-    Valimc.Metrics.put(:"worldgen_memory_bytes_#{d}", context + starts + protos)
-    Valimc.Metrics.put(:"worldgen_spilled_#{d}", Frontier.stats(f).spilled)
-    Valimc.Metrics.put(:"worldgen_scratch_bytes_#{d}", scratch_bytes(state))
+    Valimc.Data.Metrics.put(:"worldgen_cells_#{d}", f.in_memory)
+    Valimc.Data.Metrics.put(:"worldgen_proto_bytes_#{d}", protos)
+    Valimc.Data.Metrics.put(:"worldgen_memory_bytes_#{d}", context + starts + protos)
+    Valimc.Data.Metrics.put(:"worldgen_spilled_#{d}", Frontier.stats(f).spilled)
+    Valimc.Data.Metrics.put(:"worldgen_scratch_bytes_#{d}", scratch_bytes(state))
     %{state | gauged: now}
   end
 
@@ -529,7 +529,7 @@ defmodule Valimc.Worldgen.Scheduler do
     with path when is_binary(path) <- snapshot_path(state),
          true <- File.dir?(state.world),
          binary when is_binary(binary) <- Frontier.snapshot(state.frontier) do
-      case Valimc.DurableFile.write(path, binary) do
+      case Valimc.Storage.DurableFile.write(path, binary) do
         :ok -> :ok
         error -> Logger.error("Writing the generation snapshot #{path}: #{inspect(error)}")
       end

@@ -1,23 +1,15 @@
 defmodule Valimc.Player.Vitals do
   @moduledoc "Player vitals in the player's session: food, health, damage, death and respawn, burning, effects, environment and air (VMC-069)."
 
-  alias Valimc.Protocol.{
-    ClientTick,
-    EffectTypes,
-    Packets
-  }
+  alias Valimc.Protocol.{ClientTick, Packets}
+  alias Valimc.Data.EffectTypes
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2]
 
-  alias Valimc.{
-    Inventory,
-    Players,
-    PlayerFood,
-    PlayerInput,
-    PlayerLife,
-    World
-  }
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{PlayerList, Food, Input, Life}
+  alias Valimc.World
 
   alias Valimc.Living.{
     Air,
@@ -58,7 +50,7 @@ defmodule Valimc.Player.Vitals do
   end
 
   def apply_void_damage(%{life_stage: :alive} = state) do
-    {min_y, _height} = Valimc.Dimension.bounds()
+    {min_y, _height} = Valimc.World.Dimension.bounds()
     amount = Damage.void(state.player.y, min_y)
 
     if amount > 0 do
@@ -104,16 +96,16 @@ defmodule Valimc.Player.Vitals do
       do: state
 
   def apply_movement_exhaustion(state, %{jump: jump, travel: travel}) do
-    food = state.player.food |> PlayerFood.exhaust(jump) |> PlayerFood.exhaust(travel)
+    food = state.player.food |> Food.exhaust(jump) |> Food.exhaust(travel)
     player = %{state.player | food: food}
-    if food != state.player.food, do: Players.update(state.connection, player)
+    if food != state.player.food, do: PlayerList.update(state.connection, player)
     %{state | player: player}
   end
 
   def tick_food(%{life_stage: :alive} = state) do
     phase = rem(state.simulation_clock.tick - state.food_tick_origin, 20)
 
-    if PlayerFood.idle?(state.player.food, state.player.living.health, phase),
+    if Food.idle?(state.player.food, state.player.living.health, phase),
       do: state,
       else: advance_food(state, phase)
   end
@@ -126,16 +118,16 @@ defmodule Valimc.Player.Vitals do
     previous = before.living.health
 
     {food, peaceful_heal} =
-      PlayerFood.peaceful(before.food, previous, difficulty, regeneration, phase)
+      Food.peaceful(before.food, previous, difficulty, regeneration, phase)
 
     health = heal(previous, peaceful_heal)
-    {food, effect} = PlayerFood.tick(food, health, difficulty, regeneration)
+    {food, effect} = Food.tick(food, health, difficulty, regeneration)
     health = heal(health, effect.heal)
 
     state =
       if before.food != food or previous != health do
         player = %{before | food: food, living: %{before.living | health: health}}
-        Players.update(state.connection, player)
+        PlayerList.update(state.connection, player)
         %{state | player: player}
       else
         state
@@ -181,13 +173,13 @@ defmodule Valimc.Player.Vitals do
         invulnerable: player.abilities.invulnerable,
         immune:
           (source in [:fall, :stalagmite] and player.abilities.may_fly) or
-            not PlayerInput.loaded?(player.input),
+            not Input.loaded?(player.input),
         infinite: player.abilities.infinite_materials
       )
 
     case result do
       {:ok, %{living: living, equipment: worn, broken: broken, exhaustion: exhaustion}} ->
-        food = if exhaustion, do: PlayerFood.exhaust(player.food, exhaustion), else: player.food
+        food = if exhaustion, do: Food.exhaust(player.food, exhaustion), else: player.food
 
         inventory =
           if worn == equipment, do: inventory, else: Armor.put_equipment(inventory, worn)
@@ -250,7 +242,7 @@ defmodule Valimc.Player.Vitals do
         state =
           if health.value <= 0, do: Valimc.Player.Menus.close(state), else: state
 
-        Players.update(state.connection, state.player)
+        PlayerList.update(state.connection, state.player)
 
         if selected.notify do
           packet = Packets.damage_event(state.player.entity_id, source)
@@ -272,7 +264,7 @@ defmodule Valimc.Player.Vitals do
   def dead_state(state) do
     %{
       state
-      | player: PlayerLife.die(state.player),
+      | player: Life.die(state.player),
         motion_window: nil,
         pose_checked: nil,
         pose_generation: state.pose_generation + 1,
@@ -303,7 +295,7 @@ defmodule Valimc.Player.Vitals do
     # Vanilla's `broadcastSystemMessage` also prints the message to the console.
     if announce do
       Logger.info(Valimc.Text.Render.string(text_tag(message)))
-      Players.broadcast({:chat, message})
+      PlayerList.broadcast({:chat, message})
     end
 
     state
@@ -334,7 +326,7 @@ defmodule Valimc.Player.Vitals do
 
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
     spawn = Valimc.World.PlayerSpawn.find()
-    finish_respawn(state, PlayerLife.respawn(state.player, spawn))
+    finish_respawn(state, Life.respawn(state.player, spawn))
   end
 
   def continue_life(state), do: state
@@ -387,7 +379,7 @@ defmodule Valimc.Player.Vitals do
     player = %{state.player | living: %{living | fire_ticks: burning.ticks}}
     burning_now = burning.ticks > 0
     burning_before = living.fire_ticks > 0
-    if burning_now != burning_before, do: Players.update(state.connection, player)
+    if burning_now != burning_before, do: PlayerList.update(state.connection, player)
 
     %{
       state
@@ -425,7 +417,7 @@ defmodule Valimc.Player.Vitals do
           send_packets(next, [packet])
         end
 
-        Players.update(state.connection, player)
+        PlayerList.update(state.connection, player)
         {:ok, changed, publish_effect_attributes(next)}
 
       error ->
@@ -519,7 +511,7 @@ defmodule Valimc.Player.Vitals do
   def reset_effect_fall(%{life_stage: :alive} = state) do
     if Attributes.resets_fall?(state.player.living.effects) do
       player = %{state.player | motion: %{state.player.motion | fall_distance: 0.0}}
-      if player.motion != state.player.motion, do: Players.update(state.connection, player)
+      if player.motion != state.player.motion, do: PlayerList.update(state.connection, player)
       %{state | player: player}
     else
       state
@@ -534,9 +526,9 @@ defmodule Valimc.Player.Vitals do
     if state.player.abilities.invulnerable do
       state
     else
-      food = PlayerFood.exhaust(state.player.food, amount)
+      food = Food.exhaust(state.player.food, amount)
       player = %{state.player | food: food}
-      if food != state.player.food, do: Players.update(state.connection, player)
+      if food != state.player.food, do: PlayerList.update(state.connection, player)
       %{state | player: player}
     end
   end
@@ -549,7 +541,7 @@ defmodule Valimc.Player.Vitals do
     else
       state = put_living(state, health: health)
       player = state.player
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
       send_packets(state, [Packets.health(health, player.food), Packets.player_health(player)])
       state
     end
@@ -677,7 +669,7 @@ defmodule Valimc.Player.Vitals do
       send_packets(state, [Packets.player_environment(player)])
     end
 
-    Players.update(state.connection, player)
+    PlayerList.update(state.connection, player)
     state = %{state | simulation_due: false, mining_water: eye_water}
     state = if due, do: observe_air(state, submerged), else: state
 
@@ -711,7 +703,7 @@ defmodule Valimc.Player.Vitals do
 
     if air != previous do
       send_packets(state, [Packets.player_air(player)])
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
     end
 
     if damage > 0 do

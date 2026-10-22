@@ -3,8 +3,8 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   # rules. Their vanilla numbers are the vitals and effect oracle stages.
   use ExUnit.Case, async: true
   alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
-  alias Valimc.{FoodItems}
-  alias Valimc.{PlayerFood}
+  alias Valimc.Living.FoodItems
+  alias Valimc.Player.Food
   alias Valimc.Protocol.{FoodProperties, ItemStack, ItemTypes, PotionContents, Wire}
 
   @fire 11
@@ -40,11 +40,11 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   end
 
   test "bounded canonical state excludes damaged persistence and supports native eligibility" do
-    assert PlayerFood.valid?(%PlayerFood{})
-    assert PlayerFood.enough?(%PlayerFood{level: 7})
-    refute PlayerFood.enough?(%PlayerFood{level: 6})
-    assert PlayerFood.needs?(%PlayerFood{level: 19})
-    refute PlayerFood.needs?(%PlayerFood{})
+    assert Food.valid?(%Food{})
+    assert Food.enough?(%Food{level: 7})
+    refute Food.enough?(%Food{level: 6})
+    assert Food.needs?(%Food{level: 19})
+    refute Food.needs?(%Food{})
 
     for {key, value} <- [
           level: -1,
@@ -57,7 +57,7 @@ defmodule Valimc.PlayerVitalsBoundsTest do
           timer: -1,
           timer: 81
         ],
-        do: refute(PlayerFood.valid?(Map.put(%PlayerFood{}, key, value)))
+        do: refute(Food.valid?(Map.put(%Food{}, key, value)))
   end
 
   test "only an eye in water drains air; both bubble-column states replenish it" do

@@ -7,12 +7,12 @@ defmodule Valimc.Worldgen.FullChunk do
   to), block ticks at delay 0 where the block still matches, and, until fluids
   exist (VMC-031), post-processing marks and fluid ticks.
 
-  Block entities go through the import path (`Valimc.Anvil.BlockEntity`), so a
+  Block entities go through the import path (`Valimc.Storage.Anvil.BlockEntity`), so a
   generated dungeon chest is preserved with its loot table like an imported
   one.
   """
   require Logger
-  alias Valimc.Anvil.BlockEntity
+  alias Valimc.Storage.Anvil.BlockEntity
   alias Valimc.World.BlockEntities
 
   @doc """
@@ -88,7 +88,7 @@ defmodule Valimc.Worldgen.FullChunk do
   `exit` (`{position, exact}`), as the region keeps it (VMC-026b4).
   """
   def gateway_entry(position, exit) do
-    state = Valimc.Registry.Blocks.default_state("end_gateway")
+    state = Valimc.Data.Blocks.default_state("end_gateway")
     entity = %{position: position, kind: "minecraft:end_gateway", exit: exit, state: state}
 
     with {:ok, tag} <- block_entity_tag(entity),
@@ -114,7 +114,7 @@ defmodule Valimc.Worldgen.FullChunk do
   end
 
   defp kept(state) do
-    case Valimc.Physics.BlockEntities.type_id(state) do
+    case Valimc.Blocks.BlockEntityTypes.type_id(state) do
       nil -> {:error, :no_block_entity}
       type -> {:ok, type}
     end
@@ -142,7 +142,7 @@ defmodule Valimc.Worldgen.FullChunk do
   # A structure template's block entity (VMC-025f5): its NBT, with the loot
   # table and seed that placement wrote.
   defp fields(%{kind: kind, nbt: nbt} = entity) when is_binary(kind) and is_binary(nbt) do
-    {tag, _} = Valimc.Command.Snbt.parse_compound(Valimc.Command.Reader.new(nbt))
+    {tag, _} = Valimc.Text.Snbt.parse_compound(Valimc.Text.Reader.new(nbt))
     {:compound, fields} = tag
     {:ok, kind, fields |> Map.drop(~w(id x y z)) |> Map.merge(loot(entity))}
   rescue
@@ -159,7 +159,7 @@ defmodule Valimc.Worldgen.FullChunk do
   end
 
   defp fields(%{kind: "minecraft:beehive", bees: bees}) do
-    {:ok, "minecraft:beehive", %{"bees" => Valimc.NBT.list(Enum.map(bees, &bee/1))}}
+    {:ok, "minecraft:beehive", %{"bees" => Valimc.Data.NBT.list(Enum.map(bees, &bee/1))}}
   end
 
   # An end gateway with its exit (VMC-026b, `TheEndGatewayBlockEntity.saveAdditional`).
@@ -168,9 +168,9 @@ defmodule Valimc.Worldgen.FullChunk do
 
   # A pending block entity: its block's new one.
   defp fields(%{kind: nil, state: state}) do
-    case Valimc.Physics.BlockEntities.type_id(state) do
+    case Valimc.Blocks.BlockEntityTypes.type_id(state) do
       nil -> {:error, :no_block_entity}
-      type -> default(Valimc.Physics.BlockEntities.type_name(type))
+      type -> default(Valimc.Blocks.BlockEntityTypes.type_name(type))
     end
   end
 
@@ -216,7 +216,7 @@ defmodule Valimc.Worldgen.FullChunk do
       "MaxNearbyEntities" => {:short, 6},
       "RequiredPlayerRange" => {:short, 16},
       "SpawnRange" => {:short, 4},
-      "SpawnPotentials" => Valimc.NBT.list([])
+      "SpawnPotentials" => Valimc.Data.NBT.list([])
     })
   end
 
@@ -231,10 +231,10 @@ defmodule Valimc.Worldgen.FullChunk do
   end
 
   # New block entities of the types decoration leaves pending.
-  defp default("minecraft:beehive" = id), do: {:ok, id, %{"bees" => Valimc.NBT.list([])}}
+  defp default("minecraft:beehive" = id), do: {:ok, id, %{"bees" => Valimc.Data.NBT.list([])}}
 
   defp default(id) when id in ["minecraft:chest", "minecraft:trapped_chest"],
-    do: {:ok, id, %{"Items" => Valimc.NBT.list([])}}
+    do: {:ok, id, %{"Items" => Valimc.Data.NBT.list([])}}
 
   defp default("minecraft:brushable_block" = id), do: {:ok, id, %{}}
   defp default("minecraft:mob_spawner" = id), do: {:ok, id, spawner(nil)}
@@ -244,7 +244,7 @@ defmodule Valimc.Worldgen.FullChunk do
   defp default("minecraft:potent_sulfur" = id), do: {:ok, id, %{"countdown" => {:int, -1}}}
 
   defp default("minecraft:sculk_catalyst" = id),
-    do: {:ok, id, %{"cursors" => Valimc.NBT.list([])}}
+    do: {:ok, id, %{"cursors" => Valimc.Data.NBT.list([])}}
 
   defp default("minecraft:sculk_sensor" = id),
     do: {:ok, id, %{"last_vibration_frequency" => {:int, 0}, "listener" => listener()}}

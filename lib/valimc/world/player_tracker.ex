@@ -4,7 +4,7 @@ defmodule Valimc.World.PlayerTracker do
   `ServerEntity` for a player. Every second tick (a player's update
   interval), and whenever its data changed, the packets of what changed are
   encoded once for every observer and go into the frame of the section the
-  player stands in (`Valimc.World.EntityPublication`):
+  player stands in (`Valimc.Entity.Publication`):
 
   - a relative move (`Pos`, `PosRot` or `Rot`) with the player's rotation and
     ground flag, or an absolute sync when the ground flag changed, the move

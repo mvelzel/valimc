@@ -1,10 +1,10 @@
 defmodule Valimc.ImportedBlockEntitiesTest do
   @moduledoc "Imported block entities in a live region: owned chests, preserved signs (VMC-021e1)."
   use ExUnit.Case, async: true
-  alias Valimc.NBT
-  alias Valimc.Physics.BlockEntities, as: Types
+  alias Valimc.Data.NBT
+  alias Valimc.Blocks.BlockEntityTypes, as: Types
   alias Valimc.Protocol.{ItemStack, Wire}
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}

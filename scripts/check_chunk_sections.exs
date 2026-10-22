@@ -3,14 +3,14 @@
 # states and biomes vanilla loads (per-section digests from ChunkOracle). The
 # chunk packet sections ValiMC encodes for them are written for
 # `ChunkOracle verify`, which decodes them with vanilla's network reader.
-alias Valimc.Anvil.{Chunk, RegionFile}
-alias Valimc.NBT
+alias Valimc.Storage.Anvil.{Chunk, RegionFile}
+alias Valimc.Data.NBT
 alias Valimc.Protocol.Data
 alias Valimc.World.Blocks
 
 [facts_path, out_dir] = System.argv()
 File.mkdir_p!(out_dir)
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 names = Data.registries()["minecraft:worldgen/biome"] |> List.to_tuple()
 
@@ -63,13 +63,13 @@ end
     end
   end)
 
-# The whole import path: Valimc.Anvil.Import writes region logs, which load back
+# The whole import path: Valimc.Storage.Anvil.Import writes region logs, which load back
 # (as an owner loads them) to the same sections.
 world =
   facts["chunks"] |> hd() |> Map.fetch!("path") |> Path.join("../../../../..") |> Path.expand()
 
 imported = Path.join(out_dir, "imported-world")
-{:ok, report} = Valimc.Anvil.Import.run(world, imported)
+{:ok, report} = Valimc.Storage.Anvil.Import.run(world, imported)
 
 unless report.chunks == counts.full and report.error_count == 0,
   do: raise("import report differs: #{inspect(report)}")
@@ -99,5 +99,5 @@ loaded =
 IO.puts(
   "PASS: #{counts.full} full vanilla chunks import with vanilla's blocks and biomes in every section; " <>
     "#{counts.skipped} chunks of other statuses are skipped as vanilla's status says; " <>
-    "Valimc.Anvil.Import wrote #{map_size(loaded)} region logs that reload to the same sections"
+    "Valimc.Storage.Anvil.Import wrote #{map_size(loaded)} region logs that reload to the same sections"
 )

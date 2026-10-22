@@ -41,7 +41,7 @@ defmodule Valimc.World.Directory do
   def admit({_, _, _} = key) do
     GenServer.call(__MODULE__, {:admit, key}, 5000 * Valimc.config(:owner_call_scale))
   catch
-    :exit, _ -> Valimc.Error.retry(:directory_unavailable)
+    :exit, _ -> Valimc.Data.Error.retry(:directory_unavailable)
   end
 
   def publish({_, _, _} = key, token, publication),
@@ -163,15 +163,15 @@ defmodule Valimc.World.Directory do
 
     cond do
       Map.has_key?(state.retiring, key) ->
-        {:reply, Valimc.Error.retry(:region_restarting), state}
+        {:reply, Valimc.Data.Error.retry(:region_restarting), state}
 
       match?(%{until: until} when until > now, state.failures[key]) ->
         if state.failures[key].count >= @poison_after,
-          do: {:reply, Valimc.Error.reject({:region_load, :poisoned}), state},
-          else: {:reply, Valimc.Error.retry({:region_load, :backoff}), state}
+          do: {:reply, Valimc.Data.Error.reject({:region_load, :poisoned}), state},
+          else: {:reply, Valimc.Data.Error.retry({:region_load, :backoff}), state}
 
       sections(state) >= Valimc.config(:max_regions) ->
-        {:reply, Valimc.Error.retry(:max_children), state}
+        {:reply, Valimc.Data.Error.retry(:max_children), state}
 
       true ->
         start_owner(key, state)
@@ -198,7 +198,7 @@ defmodule Valimc.World.Directory do
 
       {:error, {:already_started, _}} ->
         # An existing name without our admission is never granted fresh authority.
-        {:reply, Valimc.Error.retry(:region_restarting), state}
+        {:reply, Valimc.Data.Error.retry(:region_restarting), state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}

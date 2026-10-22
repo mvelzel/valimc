@@ -18,7 +18,9 @@ defmodule Valimc.ServerConnectionTest do
     player = name("Save")
     {_, client} = Client.login(player)
     on_exit(fn -> Client.close(client) end)
-    {Client.load_world(client), Enum.find(Valimc.Players.all(), &(&1.name == player)).pid}
+
+    {Client.load_world(client),
+     Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == player)).pid}
   end
 
   test "save-off, save-on and save-all" do

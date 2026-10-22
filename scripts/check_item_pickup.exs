@@ -1,4 +1,5 @@
-alias Valimc.{Inventory, Protocol.ItemStack}
+alias Valimc.Menus.Inventory
+alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 
 decode = fn bytes ->

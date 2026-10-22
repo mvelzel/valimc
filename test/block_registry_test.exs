@@ -1,6 +1,6 @@
 defmodule Valimc.BlockRegistryTest do
   use ExUnit.Case, async: true
-  alias Valimc.Registry.Blocks
+  alias Valimc.Data.Blocks
 
   test "every state decodes to properties that encode back to it" do
     for state <- 0..(Blocks.state_count() - 1) do

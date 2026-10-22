@@ -24,7 +24,7 @@ end
 
 for c <- cases["intents"] do
   {:ok, intent} =
-    Valimc.PlayerInput.move_intent(%Valimc.PlayerInput{buttons: c["buttons"]}, c["yaw"])
+    Valimc.Player.Input.move_intent(%Valimc.Player.Input{buttons: c["buttons"]}, c["yaw"])
 
   check.(intent, c["intent"], c)
 end

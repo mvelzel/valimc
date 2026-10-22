@@ -1,9 +1,9 @@
 defmodule Valimc.AnvilChunkTest do
   @moduledoc "Chunk NBT to section storage (VMC-021b); the `chunk_sections` oracle checks vanilla worlds."
   use ExUnit.Case, async: true
-  alias Valimc.Anvil.Chunk
+  alias Valimc.Storage.Anvil.Chunk
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.Blocks
+  alias Valimc.Data.Blocks
   alias Valimc.World.Blocks, as: Storage
 
   @plains Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")

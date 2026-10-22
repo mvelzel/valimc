@@ -1,6 +1,6 @@
 defmodule Valimc.InventoryTest do
   use ExUnit.Case, async: true
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Protocol.ItemStack
 
   test "menu has exactly 46 slots; creative writes are bounded and empty slots are sparse" do

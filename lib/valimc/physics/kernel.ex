@@ -21,7 +21,7 @@ defmodule Valimc.Physics.Kernel do
   import Bitwise
   alias Valimc.Native
   alias Valimc.Physics.{BorderSnapshot, CollisionContext}
-  alias Valimc.Registry.BlockFacts
+  alias Valimc.Data.BlockFacts
   alias Valimc.World.{Chunk, View}
 
   @none {[], nil}
@@ -359,12 +359,12 @@ defmodule Valimc.Physics.Kernel do
   @doc "A player as the kernel takes it (installing the facts its poses come from)."
   def player(player) do
     BlockFacts.install!()
-    motion = Map.get(player, :motion, %Valimc.PlayerMotion{})
-    input = Map.get(player, :input, %Valimc.PlayerInput{})
+    motion = Map.get(player, :motion, %Valimc.Player.Motion{})
+    input = Map.get(player, :input, %Valimc.Player.Input{})
     effects = Map.get(player, :living, %Valimc.Living{}).effects
     {slow, levitation} = Valimc.Living.Attributes.travel_signature(effects)
-    loaded = Valimc.PlayerInput.loaded?(input)
-    abilities = Map.get(player, :abilities, %Valimc.PlayerAbilities{})
+    loaded = Valimc.Player.Input.loaded?(input)
+    abilities = Map.get(player, :abilities, %Valimc.Player.Abilities{})
 
     %{
       position:
@@ -372,7 +372,7 @@ defmodule Valimc.Physics.Kernel do
          Map.get(player, :z, 0.0) * 1.0},
       yaw: Map.get(player, :yaw, 0.0) * 1.0,
       pitch: Map.get(player, :pitch, 0.0) * 1.0,
-      pose: Valimc.Physics.PlayerPose.id(Map.get(player, :pose, :standing)),
+      pose: Valimc.Data.PlayerPose.id(Map.get(player, :pose, :standing)),
       motion: %{
         fall_distance: motion.fall_distance * 1.0,
         velocity: floats(motion.velocity),
@@ -389,10 +389,10 @@ defmodule Valimc.Physics.Kernel do
       shift: (input.shared_flags &&& 2) != 0,
       sprint: (input.shared_flags &&& 8) != 0,
       loaded: loaded,
-      jump: loaded and Valimc.PlayerInput.pressed?(input, :jump),
-      sneak: loaded and Valimc.PlayerInput.pressed?(input, :shift),
+      jump: loaded and Valimc.Player.Input.pressed?(input, :jump),
+      sneak: loaded and Valimc.Player.Input.pressed?(input, :shift),
       flying: abilities.flying,
-      mode: Map.get(player, :game_mode, Valimc.GameMode.new(:survival)).current,
+      mode: Map.get(player, :game_mode, Valimc.Player.GameMode.new(:survival)).current,
       invulnerable: abilities.invulnerable,
       jump_boost: Valimc.Living.Attributes.jump_boost_level(effects),
       slow_falling: slow,

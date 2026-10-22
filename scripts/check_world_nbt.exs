@@ -1,14 +1,14 @@
 # VMC-020: ValiMC decodes every vanilla world NBT payload to vanilla's value
 # (canonical digest, see WorldNbtOracle), agrees with vanilla's verdict on edge
 # cases, and writes its re-encodings for `WorldNbtOracle verify`.
-alias Valimc.NBT
-alias Valimc.World.Schema
+alias Valimc.Data.NBT
+alias Valimc.Storage.Schema
 
 [facts_path, out_dir] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 File.mkdir_p!(out_dir)
 
-unless facts["data_version"] == Valimc.Version.data_version(),
+unless facts["data_version"] == Valimc.Data.Version.data_version(),
   do: raise("Vanilla data version #{facts["data_version"]} is not the pinned one")
 
 # Vanilla accepts unpaired surrogates in modified UTF-8; ValiMC refuses them.

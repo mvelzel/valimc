@@ -2,7 +2,7 @@ alias Valimc.Living.{Attributes, Health}
 alias Valimc.Protocol.{EntityPackets, ItemStack, PackedVelocity, Packets, Wire}
 [input, output] = System.argv()
 fixtures = :json.decode(File.read!(input))
-Code.ensure_loaded!(Valimc.Physics.PlayerPose)
+Code.ensure_loaded!(Valimc.Data.PlayerPose)
 
 velocities =
   Enum.map(fixtures["velocities"], fn fixture ->
@@ -92,7 +92,7 @@ packets =
             if amp < 0,
               do: %{},
               else: %{
-                Valimc.Protocol.EffectTypes.id("jump_boost") => [{200, amp, false, true, true}]
+                Valimc.Data.EffectTypes.id("jump_boost") => [{200, amp, false, true, true}]
               }
 
           {:ok, derived} = Attributes.jump_boost(effects)
@@ -105,7 +105,7 @@ packets =
             if amp < 0,
               do: %{},
               else: %{
-                Valimc.Protocol.EffectTypes.id("absorption") => [{200, amp, false, true, true}]
+                Valimc.Data.EffectTypes.id("absorption") => [{200, amp, false, true, true}]
               }
 
           {:ok, derived} = Attributes.absorption(effects)

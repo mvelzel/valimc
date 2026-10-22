@@ -1,10 +1,10 @@
 defmodule Valimc.World.CookingEntry do
   @moduledoc "Bounded persistent cooking inventory/progress within the existing region container authority."
-  alias Valimc.Cooking
+  alias Valimc.Blocks.Cooking
   alias Valimc.Protocol.ItemStack
   @kinds [:furnace, :smoker, :blast_furnace]
-  @recipes List.to_tuple(Valimc.CookingRecipes.names())
-  @recipe_ids Valimc.CookingRecipes.ids()
+  @recipes List.to_tuple(Valimc.Blocks.CookingRecipes.names())
+  @recipe_ids Valimc.Blocks.CookingRecipes.ids()
   @max_bytes 524_288
 
   def new(kind) when kind in @kinds, do: {:ok, %{kind: kind, cooking: %Cooking{}, recipes: %{}}}

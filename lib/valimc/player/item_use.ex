@@ -1,29 +1,19 @@
 defmodule Valimc.Player.ItemUse do
   @moduledoc "Held-item use inside the connection: start, ticks, completion effects and equipment publication (VMC-069)."
 
-  alias Valimc.Protocol.{
-    EffectTypes,
-    ItemTypes,
-    Packets,
-    PotionContents,
-    UseItem
-  }
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Protocol.{ItemTypes, Packets, PotionContents, UseItem}
 
   alias Valimc.Player.Vitals
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, reject: 2]
 
   alias Valimc.Living.{Armor, Effects}
 
-  alias Valimc.{
-    FoodItems,
-    Inventory,
-    Players,
-    PlayerEquipment,
-    PlayerInput,
-    PlayerUse
-  }
+  alias Valimc.Living.FoodItems
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{PlayerList, Equipment, Input, Use}
 
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects Effects.live()
@@ -31,7 +21,7 @@ defmodule Valimc.Player.ItemUse do
   def use_item(state, payload) do
     case UseItem.decode(payload) do
       {:ok, request} ->
-        if PlayerInput.loaded?(state.player.input) do
+        if Input.loaded?(state.player.input) do
           send_packets(state, [Packets.ack(request.sequence)])
           # Native requests supply wrapped viewing angles before attempting use.
           player = %{
@@ -40,7 +30,7 @@ defmodule Valimc.Player.ItemUse do
               pitch: wrap_angle(request.pitch)
           }
 
-          Players.update(state.connection, player)
+          PlayerList.update(state.connection, player)
           begin_item_use(%{state | player: player}, request.hand)
         else
           state
@@ -61,7 +51,7 @@ defmodule Valimc.Player.ItemUse do
     end
   end
 
-  def begin_item_use(%{active_use: %PlayerUse{}} = state, _), do: state
+  def begin_item_use(%{active_use: %Use{}} = state, _), do: state
   def begin_item_use(%{player: %{game_mode: %{current: :spectator}}} = state, _), do: state
 
   def begin_item_use(state, hand) do
@@ -71,12 +61,12 @@ defmodule Valimc.Player.ItemUse do
 
     if props && match?({:ok, _}, item_use_effects(stack, props)) &&
          FoodItems.eligible?(props, state.player.food, state.player.abilities) do
-      use = PlayerUse.new(stack, hand, props)
+      use = Use.new(stack, hand, props)
       state = %{state | active_use: use}
 
       if use.remaining == 0,
         do: complete_item_use(state, false),
-        else: publish_item_use(state, PlayerUse.start_flags(state.player.use_flags, hand))
+        else: publish_item_use(state, Use.start_flags(state.player.use_flags, hand))
     else
       Valimc.Player.CreativeInventory.resync_inventory(state)
     end
@@ -103,7 +93,7 @@ defmodule Valimc.Player.ItemUse do
         effects = PotionContents.effects(contents)
 
         if Enum.all?(effects, fn {id, _} -> id in @live_effects or id in @instant_effects end) and
-             Valimc.PlayerConsumption.admitted_effects?(effects),
+             Valimc.Player.Consumption.admitted_effects?(effects),
            do: {:ok, effects},
            else: :unsupported
 
@@ -138,7 +128,7 @@ defmodule Valimc.Player.ItemUse do
 
   def publish_item_use(state, flags) do
     player = %{state.player | use_flags: flags}
-    Players.update(state.connection, player)
+    PlayerList.update(state.connection, player)
     state = %{state | player: player}
     # Observers get the flag from the player's tracker (VMC-077i4).
     send_packets(state, [Packets.player_use(player)])
@@ -152,14 +142,14 @@ defmodule Valimc.Player.ItemUse do
     if source == state.equipment_source do
       state
     else
-      equipment = PlayerEquipment.capture(state.inventory)
+      equipment = Equipment.capture(state.inventory)
 
       state =
-        if PlayerEquipment.changes(equipment, state.player.equipment) == [] do
+        if Equipment.changes(equipment, state.player.equipment) == [] do
           %{state | equipment_source: source}
         else
           player = %{state.player | equipment: equipment}
-          Players.update(state.connection, player)
+          PlayerList.update(state.connection, player)
           %{state | player: player, equipment_source: source}
         end
 
@@ -176,10 +166,10 @@ defmodule Valimc.Player.ItemUse do
   def stop_item_use(%{active_use: nil} = state), do: state
 
   def stop_item_use(state),
-    do: publish_item_use(%{state | active_use: nil}, PlayerUse.stop_flags(state.player.use_flags))
+    do: publish_item_use(%{state | active_use: nil}, Use.stop_flags(state.player.use_flags))
 
-  def tick_item_use(%{life_stage: :alive, active_use: %PlayerUse{} = use} = state) do
-    case PlayerUse.tick(use, Inventory.held(state.inventory, use.hand)) do
+  def tick_item_use(%{life_stage: :alive, active_use: %Use{} = use} = state) do
+    case Use.tick(use, Inventory.held(state.inventory, use.hand)) do
       {:using, next} -> %{state | active_use: next}
       {:finish, next} -> complete_item_use(%{state | active_use: next}, true)
       {:cancel, _} -> stop_item_use(state)
@@ -196,11 +186,17 @@ defmodule Valimc.Player.ItemUse do
     with {:ok, incoming} <- item_use_effects(stack, props) do
       incoming = resolve_item_use_effects(incoming)
 
-      case Valimc.PlayerConsumption.plan(state.player, state.inventory, use.hand, props, incoming) do
+      case Valimc.Player.Consumption.plan(
+             state.player,
+             state.inventory,
+             use.hand,
+             props,
+             incoming
+           ) do
         {:ok, transition} ->
           state = %{state | player: transition.player, inventory: transition.inventory}
           state = if transition.death, do: Vitals.dead_state(state), else: state
-          Players.update(state.connection, state.player)
+          PlayerList.update(state.connection, state.player)
           if notify, do: send_packets(state, [Packets.use_item_finished(state.player.entity_id)])
 
           effect_packets =

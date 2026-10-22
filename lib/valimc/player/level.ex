@@ -12,10 +12,10 @@ defmodule Valimc.Player.Level do
   experience, health and effects).
   """
   import Bitwise
-  import Valimc.Net.Codec, only: [send_packets: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2]
 
   alias Valimc.Living.Armor
-  alias Valimc.Players
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.{Movement, Travel}
   alias Valimc.Protocol.Packets
   alias Valimc.World.{BorderReplication, Clock, TickRate, WeatherReplication}
@@ -76,7 +76,7 @@ defmodule Valimc.Player.Level do
     send_packets(state, [
       Packets.respawn(player, player.last_death, keep),
       packets.difficulty,
-      Packets.permission_level(player.entity_id, Valimc.Permissions.level(player))
+      Packets.permission_level(player.entity_id, Valimc.Admin.Permissions.level(player))
     ])
 
     state =
@@ -144,10 +144,13 @@ defmodule Valimc.Player.Level do
           |> Movement.publish_absorption()
           |> Movement.publish_jump_boost()
 
-    for pid <- Players.around(state.player),
+    for pid <- PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
+          Valimc.Net.Connection.deliver(
+            pid,
+            {:player_respawned, state.connection, player.entity_id}
+          )
 
     state
   end

@@ -2,11 +2,17 @@ defmodule Valimc.CookingOrbConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.{Connection, CookingAwards, GameMode, Inventory, Players, World}
+  alias Valimc.Net.Connection
+  alias Valimc.Blocks.CookingAwards
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
+  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
 
-  alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
-  alias Valimc.World.{ExperienceOrbs, Region}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Data.EntityTypes
+  alias Valimc.Entity.ExperienceOrbs
+  alias Valimc.World.Region
   alias Valimc.TestClient, as: Client
 
   # The orbs were spawned by the neighbouring region, whose durable handoff
@@ -24,7 +30,7 @@ defmodule Valimc.CookingOrbConnectionTest do
     File.mkdir_p!(base)
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -41,7 +47,7 @@ defmodule Valimc.CookingOrbConnectionTest do
       player =
         Map.merge(pose, %{
           game_mode: GameMode.new(:survival),
-          abilities: Valimc.PlayerAbilities.for_mode(:survival)
+          abilities: Valimc.Player.Abilities.for_mode(:survival)
         })
 
       uuid = Connection.offline_uuid(name)
@@ -80,8 +86,8 @@ defmodule Valimc.CookingOrbConnectionTest do
     assert Enum.sort(Map.values(values)) == [1, 3]
     assert MapSet.new(Map.keys(spawns)) == MapSet.new(Map.keys(views))
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    player = Enum.find(Players.all(), &(&1.name == hd(names))).pid
-    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(player).player.input) end)
+    player = Enum.find(PlayerList.all(), &(&1.name == hd(names))).pid
+    wait(fn -> Valimc.Player.Input.loaded?(Valimc.TestConn.state(player).player.input) end)
     # Only the two orbs are tracked; there are no items.
     assert map_size(Valimc.TestConn.state(player).entity_replication.tracked) == 2
 

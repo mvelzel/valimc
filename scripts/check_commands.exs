@@ -2,7 +2,9 @@
 # commands packets per permission level for Mojang's decoder (VMC-053).
 #
 #   mix run --no-start scripts/check_commands.exs CASES.json OUT_DIR RESULTS.json
-alias Valimc.Command.{Dispatcher, Error, Reader, Source}
+alias Valimc.Commands.Parser.Dispatcher
+alias Valimc.Text.{Error, Reader}
+alias Valimc.Commands.Source
 alias Valimc.Text
 alias Valimc.Protocol.Wire
 
@@ -16,9 +18,9 @@ end
 
 # One suggestion reply for Mojang's packet decoder.
 {_id, body} =
-  Valimc.Command.Suggestions.packet(
+  Valimc.Commands.Suggestions.packet(
     7,
-    Valimc.Command.Suggestions.suggest("/time set n", Source.parse_only(4))
+    Valimc.Commands.Suggestions.suggest("/time set n", Source.parse_only(4))
   )
 
 File.write!(

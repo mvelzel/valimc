@@ -2,7 +2,8 @@ defmodule Valimc.ViewDistanceConnectionTest do
   # VMC-070: the client's requested view distance decides which chunks it gets.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Players, Protocol.Data, Protocol.Wire}
+  alias Valimc.Player.PlayerList
+  alias Valimc.{Protocol.Data, Protocol.Wire}
   alias Valimc.Session.ChunkView
   alias Valimc.TestClient, as: Client
 
@@ -47,7 +48,7 @@ defmodule Valimc.ViewDistanceConnectionTest do
   defp owner(uuid, _budget \\ nil),
     do:
       Valimc.TestWait.until(fn ->
-        Enum.find_value(Players.all(), &if(&1.uuid == uuid, do: &1.pid))
+        Enum.find_value(PlayerList.all(), &if(&1.uuid == uuid, do: &1.pid))
       end)
 
   defp floor_div(coordinate), do: Integer.floor_div(floor(coordinate), 16)

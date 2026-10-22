@@ -3,13 +3,13 @@ defmodule Mix.Tasks.Valimc.Export do
   @moduledoc """
       mix valimc.export VALIMC_WORLD VANILLA_WORLD
 
-  See `Valimc.Anvil.Export`. Run with the server stopped.
+  See `Valimc.Storage.Anvil.Export`. Run with the server stopped.
   """
   use Mix.Task
 
   @impl true
   def run(args) do
     Mix.Task.run("app.config")
-    Valimc.Anvil.Export.cli(args)
+    Valimc.Storage.Anvil.Export.cli(args)
   end
 end

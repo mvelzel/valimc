@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerMotionQueryTest do
   use ExUnit.Case, async: false
   alias Valimc.TestScope
-  alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerMotionQuery}
+  alias Valimc.Player.{GameMode, Abilities, Input, MotionQuery}
 
   setup do
     key = {6100, 6210}
@@ -12,8 +12,8 @@ defmodule Valimc.PlayerMotionQueryTest do
       y: 64.0,
       z: 794_890.5,
       pose: :standing,
-      input: PlayerInput.loaded(%PlayerInput{}),
-      abilities: PlayerAbilities.for_mode(:creative),
+      input: Input.loaded(%Input{}),
+      abilities: Abilities.for_mode(:creative),
       game_mode: GameMode.new(:creative),
       entity_id: 1
     }
@@ -26,7 +26,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     %{player: player, key: key}
   end
 
-  defp query(player, changes), do: PlayerMotionQuery.run(player, Map.merge(player, changes))
+  defp query(player, changes), do: MotionQuery.run(player, Map.merge(player, changes))
 
   test "a newly entered wall rejects creative, while spectator retains no-physics", %{
     player: p
@@ -40,7 +40,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     spectator = %{
       p
       | game_mode: GameMode.new(:spectator),
-        abilities: PlayerAbilities.for_mode(:spectator)
+        abilities: Abilities.for_mode(:spectator)
     }
 
     assert {:ok, %{accepted: true}} = query(spectator, %{x: p.x + 0.5})
@@ -71,7 +71,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     end
 
     assert {:ok, %{accepted: true}} = query(p, %{x: p.x + 0.2})
-    assert {:error, :movement_query_limit} = PlayerMotionQuery.run(p, %{p | x: p.x + 65})
+    assert {:error, :movement_query_limit} = MotionQuery.run(p, %{p | x: p.x + 65})
   end
 
   test "retained paths sample crossed material, fit the frame and remain owned until a tick commits",
@@ -79,7 +79,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     paths = [{{p.x - 3, p.y, p.z}, {p.x, p.y, p.z}, {3.0, 0.0, 0.0}}]
 
     :ok = Valimc.TestBlocks.set({floor(p.x) - 2, 64, floor(p.z)}, 2362)
-    p = Map.put(p, :motion, %Valimc.PlayerMotion{paths: paths})
+    p = Map.put(p, :motion, %Valimc.Player.Motion{paths: paths})
 
     assert {:ok, %{accepted: true, kinetics: %{packet: packet, tick: tick}}} =
              query(p, %{x: p.x + 0.2})
@@ -87,6 +87,6 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert length(packet.paths) == 2 and tick.paths == []
     assert elem(tick.stuck_multiplier, 0) == 0.25 and tick.reset_fall
     assert p.motion.paths == paths
-    assert {:error, :movement_query_limit} = PlayerMotionQuery.run(p, %{p | z: p.z + 64})
+    assert {:error, :movement_query_limit} = MotionQuery.run(p, %{p | z: p.z + 64})
   end
 end

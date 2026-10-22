@@ -7,8 +7,8 @@
 # data; every file at data version 4903. The chunks are listed for
 # DataFixOracle, which upgrades them as vanilla does.
 [facts_path, older, cases_path] = System.argv()
-alias Valimc.Anvil.{RegionFile, RegionWriter}
-alias Valimc.NBT
+alias Valimc.Storage.Anvil.{RegionFile, RegionWriter}
+alias Valimc.Data.NBT
 
 defmodule Older do
   @version 4903

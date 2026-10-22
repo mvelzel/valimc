@@ -2,7 +2,8 @@ defmodule Valimc.PhysicsBoundsTest do
   # Work and coordinate bounds of the collision kernels that client movement drives.
   # Their vanilla behaviour is compared by the physics oracle stages.
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
+  alias Valimc.Physics.{BlockScan, Kernel}
+  alias Valimc.Data.{Box, PlayerPose}
   alias Valimc.Living.FallDamage
 
   defp body(point) do

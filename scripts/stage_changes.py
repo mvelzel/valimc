@@ -26,7 +26,7 @@ GLOBAL = ['mix.exs', 'mix.lock', 'config/*', '.tool-versions', 'priv/version.jso
 # Stages that start the application also depend on its startup.
 APP = ['lib/valimc/application.ex']
 # The TCP stage drives a whole server: these modules and everything they reach.
-TCP_SEEDS = ['Valimc.Application', 'Valimc.Listener', 'Valimc.Connection']
+TCP_SEEDS = ['Valimc.Application', 'Valimc.Net.Listener', 'Valimc.Net.Connection']
 NATIVE_CORE = 'native/valimc_core/src'
 NATIVE_NIF = 'native/valimc_nif/src'
 

@@ -22,7 +22,7 @@ defmodule Valimc.World.Spawn do
 
     case Settings.put(spawn: spawn) do
       :ok ->
-        Valimc.Players.broadcast(:spawn_position)
+        Valimc.Player.PlayerList.broadcast(:spawn_position)
         :ok
 
       other ->

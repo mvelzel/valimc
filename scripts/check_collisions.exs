@@ -1,6 +1,6 @@
 alias Valimc.Native
 alias Valimc.Physics.{CollisionContext, Kernel}
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 [file] = System.argv()
 native = file |> File.read!() |> JSON.decode!()
 axes = %{"x" => 0, "y" => 1, "z" => 2}
@@ -30,7 +30,7 @@ for c <- native["queries"] do
 end
 
 for c <- native["intersections"] do
-  if Valimc.Physics.Box.intersects?(floats.(c["a"]), floats.(c["b"])) != c["intersects"],
+  if Valimc.Data.Box.intersects?(floats.(c["a"]), floats.(c["b"])) != c["intersects"],
     do: raise("Native box intersection differs")
 end
 

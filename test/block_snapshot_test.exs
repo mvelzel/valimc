@@ -6,8 +6,8 @@ defmodule Valimc.BlockSnapshotTest do
   """
   use ExUnit.Case, async: true
   alias Valimc.Native
-  alias Valimc.Registry.BlockFacts
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.BlockFacts
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.World.Blocks
 
   test "a snapshot reads as the store did when it was published" do

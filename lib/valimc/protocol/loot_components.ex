@@ -9,8 +9,9 @@ defmodule Valimc.Protocol.LootComponents do
   Values: stew effects are `[{effect, duration}]`, an instrument is its
   identifier, map decorations are `[{key, type, x, z, rotation}]` sorted by key.
   """
-  alias Valimc.NBT
-  alias Valimc.Protocol.{EffectTypes, Wire}
+  alias Valimc.Data.NBT
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Protocol.Wire
 
   @instruments Valimc.Protocol.Data.registries()["minecraft:instrument"]
   @instrument_ids @instruments |> Enum.with_index() |> Map.new()

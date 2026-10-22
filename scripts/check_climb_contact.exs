@@ -1,6 +1,7 @@
 alias Valimc.World.View
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Kernel, PlayerPose}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.PlayerPose
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})

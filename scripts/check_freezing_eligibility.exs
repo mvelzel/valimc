@@ -1,5 +1,6 @@
 alias Valimc.Living.{Armor, Freezing}
-alias Valimc.{GameMode, Inventory}
+alias Valimc.Player.GameMode
+alias Valimc.Menus.Inventory
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()

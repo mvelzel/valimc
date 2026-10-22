@@ -1,8 +1,9 @@
 defmodule Valimc.World.CookingBatch do
   @moduledoc "Bounded owned cooking proposals; only the enclosing durable commit publishes a result."
-  alias Valimc.Cooking
-  alias Valimc.CookingBlocks
-  alias Valimc.World.{Containers, ContainerSpills, CookingEntry, Entities}
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Blocks.CookingBlocks
+  alias Valimc.World.{Containers, CookingEntry}
+  alias Valimc.Entity.{ContainerSpills, Store}
   @limit 1024
 
   @doc "Whether an owned processor can change on its next logical tick."
@@ -18,7 +19,7 @@ defmodule Valimc.World.CookingBatch do
 
   def awake?(_, _), do: false
 
-  def plan(%Containers{} = containers, %Entities{} = items, key, blocks)
+  def plan(%Containers{} = containers, %Store{} = items, key, blocks)
       when is_map(blocks) and map_size(blocks) <= @limit do
     with {:ok, _} <- Containers.encode(key, containers),
          true <- Enum.all?(blocks, &consistent?(&1, containers)) do

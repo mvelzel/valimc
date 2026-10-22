@@ -4,12 +4,12 @@
 # were made from, and the 26.2 world imports as the 26.3 world does.
 [upgrade_path, content_path, older, out] = System.argv()
 Code.require_file("nbt_canon.exs", __DIR__)
-alias Valimc.Anvil.{Chunk, Import, RegionFile}
-alias Valimc.NBT
-alias Valimc.World.DataFix
+alias Valimc.Storage.Anvil.{Chunk, Import, RegionFile}
+alias Valimc.Data.NBT
+alias Valimc.Storage.DataFix
 
 Valimc.Protocol.Data.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 
 defmodule Diff do
   # The first path where two tags differ, with both values.

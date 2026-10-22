@@ -1,14 +1,15 @@
 defmodule Valimc.World.EntityHandoffDelivery do
   @moduledoc "One bounded destination I/O attempt; the source retains its durable intent until receipt."
   alias Valimc.World
-  alias Valimc.World.{EntityHandoffs, Region}
+  alias Valimc.Entity.Handoffs
+  alias Valimc.World.Region
 
   @doc "The owner job delivering region `key`'s outgoing intent once: `{:ok, sequence, digest, result}`."
   def work(key, ledger), do: fn -> deliver(key, ledger) end
 
   defp deliver(key, ledger) do
-    with {:ok, request} <- EntityHandoffs.request(%{ledger: ledger}, key),
-         {:ok, digest} <- EntityHandoffs.digest(request),
+    with {:ok, request} <- Handoffs.request(%{ledger: ledger}, key),
+         {:ok, digest} <- Handoffs.digest(request),
          {:ok, owner} <- owner(request.destination),
          {:ok, result} <- Region.apply_entity_handoff(owner, request),
          {:ok, result} <- outcome(result),

@@ -1,5 +1,6 @@
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.{Box, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
@@ -42,9 +43,9 @@ for c <- cases do
     {:ok, body} = PlayerPose.geometry(pose, point)
 
     player = %{
-      game_mode: Valimc.GameMode.new(:creative),
-      motion: %Valimc.PlayerMotion{velocity: vec.(c["initial"])},
-      input: %Valimc.PlayerInput{}
+      game_mode: Valimc.Player.GameMode.new(:creative),
+      motion: %Valimc.Player.Motion{velocity: vec.(c["initial"])},
+      input: %Valimc.Player.Input{}
     }
 
     {:ok, query} =

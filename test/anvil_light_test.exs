@@ -1,7 +1,7 @@
 defmodule Valimc.AnvilLightTest do
   @moduledoc "Light packets from light images (VMC-021e5, VMC-077c)."
   use ExUnit.Case, async: true
-  alias Valimc.Anvil.Light
+  alias Valimc.Storage.Anvil.Light
 
   # A light image: per section (y -5..20) sky then block, absent unless given.
   defp image(layers) do

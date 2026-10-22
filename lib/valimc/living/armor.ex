@@ -9,12 +9,13 @@ defmodule Valimc.Living.Armor do
   `:feet`, `:mainhand`, `:offhand`); `equipment/1` reads it from a player
   inventory and `put_equipment/2` writes worn armor back.
   """
-  use Valimc.Facts, "protocol/item_armor_wear.json"
-  alias Valimc.{Durability, Inventory}
+  use Valimc.Data.Facts, "protocol/item_armor_wear.json"
+  alias Valimc.Living.Durability
+  alias Valimc.Menus.Inventory
   alias Valimc.Living.{Attributes, DamageSource}
   alias Valimc.Protocol.ItemStack
 
-  use Valimc.Facts, file: "protocol/item_armor.json", as: :armor_facts
+  use Valimc.Data.Facts, file: "protocol/item_armor.json", as: :armor_facts
 
   @defaults Map.new(@armor_facts["defaults"], fn {id, slots} ->
               {String.to_integer(id),

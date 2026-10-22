@@ -8,7 +8,7 @@ lines = File.read!(path) |> String.split("\n", trim: true)
 encoded =
   for line <- lines do
     %{"body" => body, "expected" => expected} = :json.decode(line)
-    {:ok, actual} = Valimc.Auth.Profile.decode(body, "OracleOne")
+    {:ok, actual} = Valimc.Net.Auth.Profile.decode(body, "OracleOne")
     true = Base.encode16(actual.uuid, case: :lower) == expected["uuid"]
     true = actual.name == expected["name"]
     actual_keys = Enum.map(actual.properties, &{&1.name, &1.value, &1.signature}) |> Enum.sort()

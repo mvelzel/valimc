@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerPoseConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.TestClient, as: Client
@@ -17,7 +18,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     for {name, index} <- Enum.with_index(names) do
-      uuid = Valimc.Connection.offline_uuid(name)
+      uuid = Valimc.Net.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 256}
       path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
@@ -26,7 +27,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     end
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -47,7 +48,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     {_, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    player = Enum.find(Players.all(), &(&1.name == name))
+    player = Enum.find(PlayerList.all(), &(&1.name == name))
     Client.send_packet(client, :play, "player_loaded", <<>>)
     {client, player.pid}
   end
@@ -103,7 +104,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     assert state(pid).player.pose == :standing
     client = input(client, true) |> await_pose(entity, 5)
     assert state(pid).player.pose == :crouching
-    assert elem(Valimc.PlayerInteraction.eye(state(pid).player), 1) == 65.26999998092651
+    assert elem(Valimc.Living.Interaction.eye(state(pid).player), 1) == 65.26999998092651
     client = input(client, false) |> await_pose(entity, 0)
 
     roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
@@ -113,21 +114,21 @@ defmodule Valimc.PlayerPoseConnectionTest do
     :ok = Valimc.TestBlocks.set(roof, 1)
     client = await_pose(client, entity, 3)
     assert state(pid).player.pose == :swimming
-    assert elem(Valimc.PlayerInteraction.eye(state(pid).player), 1) == 64.40000000596046
+    assert elem(Valimc.Living.Interaction.eye(state(pid).player), 1) == 64.40000000596046
     :ok = Valimc.TestBlocks.set(roof, 0)
     _client = await_pose(client, entity, 0)
 
     p = %{state(pid).player | x: 0.5, z: 0.5}
 
-    assert Valimc.PlayerInteraction.within_block?(
+    assert Valimc.Living.Interaction.within_block?(
              :creative,
-             Valimc.PlayerInteraction.eye(p),
+             Valimc.Living.Interaction.eye(p),
              {3, 71, 0}
            )
 
-    refute Valimc.PlayerInteraction.within_block?(
+    refute Valimc.Living.Interaction.within_block?(
              :creative,
-             Valimc.PlayerInteraction.eye(%{p | pose: :crouching}),
+             Valimc.Living.Interaction.eye(%{p | pose: :crouching}),
              {3, 71, 0}
            )
   end

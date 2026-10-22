@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{ItemStack, ItemTypes, PotionContents, PotionTypes}
+alias Valimc.Protocol.{ItemStack, ItemTypes, PotionContents}
+alias Valimc.Data.PotionTypes
 [facts_path, cases_path, output_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 

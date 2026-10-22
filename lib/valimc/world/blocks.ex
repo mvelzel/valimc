@@ -33,7 +33,7 @@ defmodule Valimc.World.Blocks do
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
     # The owner's dimension may have no sky light (the Nether, VMC-026b).
-    unless Valimc.Dimension.facts().sky_light, do: :ok = Native.light_sky(ref, false)
+    unless Valimc.World.Dimension.facts().sky_light, do: :ok = Native.light_sky(ref, false)
     blocks = %__MODULE__{ref: ref, key: key}
 
     restored =
@@ -105,7 +105,7 @@ defmodule Valimc.World.Blocks do
   def changed_chunks(changes), do: for({chunk, _, _} <- changes, do: chunk)
 
   @doc """
-  A chunk's light image (`Valimc.Anvil.Light` layout), nil while light does
+  A chunk's light image (`Valimc.Storage.Anvil.Light` layout), nil while light does
   not know the chunk; with `sections` (`{sky_bits, block_bits}`, a bit per
   stored section) only those layers.
   """
@@ -148,7 +148,7 @@ defmodule Valimc.World.Blocks do
       cz,
       plains,
       Data.global_biome_bits(),
-      Valimc.Dimension.section_window()
+      Valimc.World.Dimension.section_window()
     )
   end
 
@@ -213,7 +213,7 @@ defmodule Valimc.World.Blocks do
            biome,
            Data.global_block_bits(),
            Data.global_biome_bits(),
-           Valimc.Dimension.section_window()
+           Valimc.World.Dimension.section_window()
          ) do
       {:ok, :flat} ->
         :flat
@@ -256,7 +256,7 @@ defmodule Valimc.World.Blocks do
   without data (end portals) as `position => block`.
   """
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
-    states = owned_states() ++ Valimc.Physics.BlockEntities.plain_states()
+    states = owned_states() ++ Valimc.Blocks.BlockEntityTypes.plain_states()
     {:ok, found} = Native.chunk_find(blocks.ref, cx, cz, states)
 
     for <<x::32-signed, y::32-signed, z::32-signed, block::16 <- found>>,
@@ -269,7 +269,7 @@ defmodule Valimc.World.Blocks do
       nil ->
         states =
           for state <- 0..(Data.block_state_count() - 1),
-              Valimc.Block.block_entity(state) != nil,
+              Valimc.Blocks.block_entity(state) != nil,
               do: state
 
         :persistent_term.put({__MODULE__, :owned_states}, states)

@@ -39,7 +39,7 @@ defmodule Valimc.World.Clock do
   (vanilla's `Level.canHaveWeather`), the others stay clear (VMC-026b).
   """
   def weather do
-    key = if Valimc.Dimension.current() == :overworld, do: :weather, else: :weather_clear
+    key = if Valimc.World.Dimension.current() == :overworld, do: :weather, else: :weather_clear
     [{^key, view}] = :ets.lookup(__MODULE__, key)
     view
   end
@@ -75,7 +75,7 @@ defmodule Valimc.World.Clock do
   @doc "The border collision observation (`Valimc.Physics.BorderSnapshot`)."
   def border_snapshot(dimension \\ here()), do: border_physics(dimension).snapshot
 
-  defp here, do: Valimc.Dimension.name(Valimc.Dimension.current())
+  defp here, do: Valimc.World.Dimension.name(Valimc.World.Dimension.current())
 
   @doc """
   Apply one `/worldborder` change atomically against the current border

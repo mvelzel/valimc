@@ -1,4 +1,4 @@
-alias Valimc.PlayerInput, as: Input
+alias Valimc.Player.Input, as: Input
 alias Valimc.Protocol.Packets
 [path] = System.argv()
 native = path |> File.read!() |> JSON.decode!()

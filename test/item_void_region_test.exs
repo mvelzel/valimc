@@ -2,7 +2,8 @@ defmodule Valimc.ItemVoidRegionTest do
   use ExUnit.Case, async: false
   # Serial: the fsync-wait assertion races a simulation tick that queued writes allow.
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack}
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
 
   setup do

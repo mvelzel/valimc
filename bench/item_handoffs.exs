@@ -1,6 +1,6 @@
-alias Valimc.ItemMotionState
+alias Valimc.Entity.ItemMotionState
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{EntityHandoffs, EntityReplication, EntityTracking, Entities}
+alias Valimc.Entity.{Handoffs, Observer, Tracking, Store}
 
 measure = fn run ->
   for _ <- 1..20, do: run.()
@@ -36,7 +36,7 @@ end
 
 handoffs =
   for {active, count, bytes} <- [{1, 1, 0}, {32, 32, 0}, {256, 32, 0}, {32, 32, 4096}] do
-    {:ok, initial} = Entities.restore({0, 0}, Enum.map(1..active, &record.(&1, bytes)))
+    {:ok, initial} = Store.restore({0, 0}, Enum.map(1..active, &record.(&1, bytes)))
 
     steps =
       initial.entries
@@ -47,7 +47,7 @@ handoffs =
 
     run = fn ->
       {:ok, source, transfer} =
-        EntityHandoffs.depart(
+        Handoffs.depart(
           initial,
           {:overworld, 0, 0},
           initial.epoch,
@@ -56,12 +56,12 @@ handoffs =
         )
 
       {:ok, destination, :applied} =
-        EntityHandoffs.accept(Entities.new(), {:overworld, 1, 0}, transfer)
+        Handoffs.accept(Store.new(), {:overworld, 1, 0}, transfer)
 
-      {:ok, digest} = EntityHandoffs.digest(transfer)
+      {:ok, digest} = Handoffs.digest(transfer)
 
       {:ok, source} =
-        EntityHandoffs.finish(source, {:overworld, 0, 0}, transfer.sequence, digest, :applied)
+        Handoffs.finish(source, {:overworld, 0, 0}, transfer.sequence, digest, :applied)
 
       true = map_size(source.entries) + map_size(destination.entries) == active
       true = Enum.all?(destination.entries, fn {_, entry} -> entry.hops == 1 end)
@@ -78,7 +78,7 @@ replication =
       for index <- 0..div(unique - 1, 256) do
         first = index * 256 + 1
         last = min(first + 255, unique)
-        {:ok, items} = Entities.restore({0, 0}, Enum.map(first..last, &record.(&1, 0)))
+        {:ok, items} = Store.restore({0, 0}, Enum.map(first..last, &record.(&1, 0)))
         items
       end
 
@@ -86,13 +86,13 @@ replication =
 
     views =
       if torn do
-        records = items |> hd() |> Entities.records() |> Enum.take(min(div(count, 2), 32))
+        records = items |> hd() |> Store.records() |> Enum.take(min(div(count, 2), 32))
 
         if records == [] do
           views
         else
           records = Enum.map(records, &Map.merge(&1, %{x: 128.5, hops: 1}))
-          {:ok, adopted} = Entities.restore({1, 0}, records)
+          {:ok, adopted} = Store.restore({1, 0}, records)
           Map.merge(views, adopted.views)
         end
       else
@@ -101,21 +101,21 @@ replication =
 
     # Published as an owner's tracker publishes them; no frames are pending.
     views =
-      %EntityTracking{}
-      |> EntityTracking.sync(views, nil)
-      |> EntityTracking.published(views)
+      %Tracking{}
+      |> Tracking.sync(views, nil)
+      |> Tracking.published(views)
       |> Map.new(fn {id, view} -> {id, Map.put(view, :tick, 0)} end)
 
     frames = fn _region, _last -> {:ok, 0, []} end
 
     tracked =
-      Enum.reduce(1..16, EntityReplication.new(), fn _, state ->
-        {next, _} = EntityReplication.reconcile(state, views, frames)
+      Enum.reduce(1..16, Observer.new(), fn _, state ->
+        {next, _} = Observer.reconcile(state, views, frames)
         next
       end)
 
     true = map_size(tracked.tracked) == unique
-    run = fn -> {^tracked, []} = EntityReplication.reconcile(tracked, views, frames) end
+    run = fn -> {^tracked, []} = Observer.reconcile(tracked, views, frames) end
     Map.merge(measure.(run), %{sampled_views: map_size(views), unique_items: unique, torn: torn})
   end
 

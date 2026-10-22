@@ -74,7 +74,7 @@ end
 alias Bench.Client
 
 {:ok, socket} =
-  :gen_tcp.connect({127, 0, 0, 1}, Valimc.Listener.port(), [:binary, active: false], 5000)
+  :gen_tcp.connect({127, 0, 0, 1}, Valimc.Net.Listener.port(), [:binary, active: false], 5000)
 
 name = "FreshBench"
 client = %{socket: socket, buffer: <<>>, threshold: nil}
@@ -109,7 +109,7 @@ client = Client.send(client, :configuration, "finish_configuration", <<>>)
 
 pid =
   Enum.find_value(1..1000, fn _ ->
-    Enum.find_value(Valimc.Players.all(), &if(&1.name == name, do: &1.pid)) ||
+    Enum.find_value(Valimc.Player.PlayerList.all(), &if(&1.name == name, do: &1.pid)) ||
       (Process.sleep(5) && nil)
   end) || raise "player did not register"
 
@@ -196,7 +196,7 @@ counters =
               worldgen_terrain_jobs worldgen_decorate_jobs worldgen_full_jobs worldgen_alone_jobs)a
 
 delta = fn before ->
-  snapshot = Valimc.Metrics.snapshot()
+  snapshot = Valimc.Data.Metrics.snapshot()
   Map.new(counters, &{&1, Map.get(snapshot, &1, 0) - Map.get(before, &1, 0)})
 end
 
@@ -207,7 +207,7 @@ gauges =
 # The gauges are put on the scheduler's next dispatch after five seconds.
 memory = fn ->
   stats = Valimc.Worldgen.Scheduler.stats(Valimc.config(:world_path), :overworld)
-  snapshot = Valimc.Metrics.snapshot()
+  snapshot = Valimc.Data.Metrics.snapshot()
 
   Map.merge(
     Map.new(gauges, &{&1, Map.get(snapshot, &1, 0)}),
@@ -217,7 +217,7 @@ end
 
 view_at = fn x, z -> MapSet.new(ChunkView.chunks({Valimc.World.chunk_key(x, z), distance})) end
 
-before = Valimc.Metrics.snapshot()
+before = Valimc.Data.Metrics.snapshot()
 started = now.()
 spawn_pose = :sys.get_state(pid).player
 
@@ -244,9 +244,9 @@ IO.puts(
   Enum.reduce(1..hops, {[join], client, have}, fn hop, {results, client, have} ->
     x = spawn_pose.x + hop * hop_blocks
     z = spawn_pose.z
-    before = Valimc.Metrics.snapshot()
+    before = Valimc.Data.Metrics.snapshot()
     started = now.()
-    :ok = Valimc.Connection.teleport(pid, %{x: x, y: 200.0, z: z, yaw: 0.0, pitch: 0.0})
+    :ok = Valimc.Net.Connection.teleport(pid, %{x: x, y: 200.0, z: z, yaw: 0.0, pitch: 0.0})
     {client, first, full, have} = fill.(fill, client, view_at.(x, z), have, started, nil)
     mailbox = peak.()
 

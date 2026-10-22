@@ -1,5 +1,5 @@
 alias Valimc.Living.Damage
-alias Valimc.Protocol.EffectTypes
+alias Valimc.Data.EffectTypes
 Code.ensure_loaded!(Damage)
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()

@@ -1,7 +1,7 @@
 defmodule Valimc.AuthProfileTest do
   # Untrusted session-server profiles and query construction; pure.
   use ExUnit.Case, async: true
-  alias Valimc.Auth.{HTTP, Profile, SessionService}
+  alias Valimc.Net.Auth.{HTTP, Profile, SessionService}
   @id "12345678123456781234567812345678"
   defp json(value), do: value |> :json.encode() |> IO.iodata_to_binary()
 
@@ -63,7 +63,7 @@ end
 defmodule Valimc.AuthSessionTest do
   # TLS deadlines must not compete with the suite's CPU-heavy native geometry checks.
   use ExUnit.Case, async: false
-  alias Valimc.Auth.HTTP
+  alias Valimc.Net.Auth.HTTP
   @id "12345678123456781234567812345678"
   defp json(value), do: value |> :json.encode() |> IO.iodata_to_binary()
   defp deadline(ms \\ 2000), do: System.monotonic_time(:millisecond) + ms

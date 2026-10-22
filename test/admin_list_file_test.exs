@@ -13,7 +13,7 @@ defmodule Valimc.AdminListFileTest do
   end
 
   test "UUIDs and dates round-trip" do
-    uuid = Valimc.Connection.offline_uuid("Steve")
+    uuid = Valimc.Net.Connection.offline_uuid("Steve")
     text = ListFile.uuid_string(uuid)
     assert text =~ ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-3[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
     assert ListFile.parse_uuid(text) == {:ok, uuid}

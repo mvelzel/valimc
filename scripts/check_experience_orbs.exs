@@ -1,7 +1,7 @@
 [input, output] = System.argv()
 raw = JSON.decode!(File.read!(input))
 alias Valimc.Protocol.{EntityPackets, Wire}
-alias Valimc.World.ExperienceOrbs
+alias Valimc.Entity.ExperienceOrbs
 true = raw["version"] == "26.3"
 true = raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
 true = length(raw["splits"]) == 16_458

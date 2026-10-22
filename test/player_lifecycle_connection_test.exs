@@ -3,7 +3,9 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   import Valimc.TestPlayer, only: [living: 1]
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,7 +21,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     on_exit(fn ->
-      for {pid, player} <- :ets.tab2list(Players),
+      for {pid, player} <- :ets.tab2list(PlayerList),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
 
@@ -39,9 +41,9 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}},
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil
       })
 
@@ -60,7 +62,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
   # An online player's file once it holds the live state.
   defp saved(ctx, name) do
-    with %{pid: pid} <- Enum.find(Players.all(), &(&1.name == name)),
+    with %{pid: pid} <- Enum.find(PlayerList.all(), &(&1.name == name)),
          do: Valimc.TestPlayer.checkpointed(pid)
 
     PlayerState.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
@@ -73,11 +75,11 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   defp login(name) do
     {_, client} = Client.login(name)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
     wait(fn ->
-      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
+      not state(pid).teleport_pending and Valimc.Player.Input.loaded?(state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)
@@ -102,7 +104,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
     wait(fn ->
-      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
+      not state(pid).teleport_pending and Valimc.Player.Input.loaded?(state(pid).player.input)
     end)
 
     client
@@ -127,7 +129,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     {_, client} = Client.login(name)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == name)).pid
     assert state(pid).life_stage == :dead and living(pid).health.value == 0
     assert state(pid).player.pose == :dying and state(pid).inventory.slots == %{}
     client = respawn(client, pid)
@@ -161,6 +163,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert state(pid).life_stage == :alive and living(pid).health == health
     Client.send_packet(client, :play, "client_command", <<0, 0>>)
     {_, _} = Client.await(client, :play, "disconnect")
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 end

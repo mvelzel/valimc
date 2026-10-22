@@ -4,11 +4,11 @@
 # their own ticks when their power changes; those are M3 and left out.
 [filename] = System.argv()
 facts = JSON.decode!(File.read!(filename))
-rules = Valimc.Block.Rules.native()
+rules = Valimc.World.BlockRules.native()
 %{"state" => stone, "y" => y, "min" => min, "max" => max} = facts["floor"]
 floor = for x <- min..max, z <- min..max, do: {x, y, z, stone}
 
-torches = MapSet.new(~w(redstone_torch redstone_wall_torch), &Valimc.Registry.Blocks.id/1)
+torches = MapSet.new(~w(redstone_torch redstone_wall_torch), &Valimc.Data.Blocks.id/1)
 
 vanilla_step = fn action ->
   {for([x, y, z, s] <- action["writes"], do: {x, y, z, s}),

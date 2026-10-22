@@ -1,8 +1,8 @@
 # Owned block-entity check (VMC-068): the two generated lookups callers used to
 # chain versus one class-keyed behaviour dispatch.
 #   mix run --no-start bench/block_behaviour.exs
-alias Valimc.CookingBlocks
-alias Valimc.Registry.Blocks
+alias Valimc.Blocks.CookingBlocks
+alias Valimc.Data.Blocks
 
 :rand.seed(:exsss, {68, 68, 68})
 chests = Enum.to_list(Blocks.states("chest"))
@@ -14,8 +14,8 @@ inputs = %{
     Enum.map(1..10_000, fn i -> Enum.at(chests ++ furnaces, rem(i, 32)) end)
 }
 
-old = fn state -> Valimc.Block.Chest.single?(state) or CookingBlocks.kind(state) != nil end
-new = fn state -> Valimc.Block.block_entity(state) != nil end
+old = fn state -> Valimc.Blocks.Chest.single?(state) or CookingBlocks.kind(state) != nil end
+new = fn state -> Valimc.Blocks.block_entity(state) != nil end
 
 for {_, states} <- inputs, do: true = Enum.map(states, old) == Enum.map(states, new)
 

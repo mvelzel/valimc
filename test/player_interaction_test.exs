@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerInteractionTest do
   use ExUnit.Case, async: true
-  alias Valimc.PlayerInteraction, as: Interaction
+  alias Valimc.Living.Interaction, as: Interaction
 
   test "hit locations use native tolerated boundaries in all three translated axes" do
     for block <- [{0, 64, -7}, {-12_345, 64, -7}, {30_000_000, 64, -7}] do

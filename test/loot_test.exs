@@ -1,6 +1,6 @@
 defmodule Valimc.LootTest do
   use ExUnit.Case, async: true
-  alias Valimc.Loot
+  alias Valimc.Blocks.Loot
   alias Valimc.Protocol.{ItemData, ItemStack}
 
   defp slots(fill),

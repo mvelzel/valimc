@@ -5,7 +5,9 @@ defmodule Valimc.WorldBorderConnectionTest do
   # Drives sockets and changes the server's one overworld border and the app-wide
   # respawn radius (VMC-027b/c/e).
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
@@ -103,7 +105,7 @@ defmodule Valimc.WorldBorderConnectionTest do
       pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
       on_exit(fn ->
-        for p <- Players.all(),
+        for p <- PlayerList.all(),
             p.name == name,
             do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -123,9 +125,9 @@ defmodule Valimc.WorldBorderConnectionTest do
             health: %Health{value: 20.0},
             air_supply: 300
           },
-          game_mode: Valimc.GameMode.new(:survival),
-          abilities: Valimc.PlayerAbilities.for_mode(:survival),
-          motion: %Valimc.PlayerMotion{},
+          game_mode: Valimc.Player.GameMode.new(:survival),
+          abilities: Valimc.Player.Abilities.for_mode(:survival),
+          motion: %Valimc.Player.Motion{},
           last_death: nil
         })
 
@@ -142,7 +144,7 @@ defmodule Valimc.WorldBorderConnectionTest do
       assert {:ok, _} = Clock.border_command({:set, 10.0, 0})
       {_, client} = Client.login(ctx.name)
       on_exit(fn -> Client.close(client) end)
-      pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+      pid = wait(fn -> Enum.find(PlayerList.all(), &(&1.name == ctx.name)) end).pid
       client = Client.load_world(client)
       Client.send_packet(client, :play, "player_loaded", <<>>)
 

@@ -3,7 +3,7 @@ defmodule Valimc.RegionLightTest do
   use ExUnit.Case, async: true
   import Bitwise
   alias Valimc.Protocol.{Data, Wire}
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.Region
@@ -131,7 +131,9 @@ defmodule Valimc.RegionLightTest do
 
     assert eventually(fn -> level(image(neighbour, across_chunk), :block, across) == 13 end)
     # A freshly joining player gets that light too, not a cached packet.
-    expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(image(neighbour, across_chunk)))
+    expected =
+      IO.iodata_to_binary(Valimc.Storage.Anvil.Light.packet(image(neighbour, across_chunk)))
+
     assert String.ends_with?(packet_light(across_chunk), expected)
 
     set(ctx.owner, %{lamp => 0})
@@ -252,7 +254,7 @@ defmodule Valimc.RegionLightTest do
     set(ctx.owner, %{lamp => BlockRegistry.default_state("glowstone")})
 
     for {role, chunk} <- [lamp_chunk: here, neighbour: east] do
-      expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(image(ctx.owner, chunk)))
+      expected = IO.iodata_to_binary(Valimc.Storage.Anvil.Light.packet(image(ctx.owner, chunk)))
 
       assert String.ends_with?(packet_light(chunk), expected),
              "stale light in the #{role} #{inspect(chunk)}"

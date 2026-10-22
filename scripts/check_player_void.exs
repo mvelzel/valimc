@@ -1,5 +1,5 @@
 alias Valimc.Living.Damage
-alias Valimc.{PlayerInput}
+alias Valimc.Player.Input
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 cases = data["boundaries"]
@@ -15,11 +15,11 @@ end
 
 for c <- data["loading"] do
   input =
-    Enum.reduce(List.duplicate(nil, c["ticks"]), %PlayerInput{}, fn _, input ->
-      PlayerInput.tick(input)
+    Enum.reduce(List.duplicate(nil, c["ticks"]), %Input{}, fn _, input ->
+      Input.tick(input)
     end)
 
-  loaded = PlayerInput.loaded?(input)
+  loaded = Input.loaded?(input)
 
   unless loaded == c["loaded"] and c["immune"] == not loaded and not c["marked_immune"],
     do: raise("Native void loading immunity differs #{inspect(c)}")

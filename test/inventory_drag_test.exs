@@ -1,6 +1,6 @@
 defmodule Valimc.InventoryDragTest do
   use ExUnit.Case, async: true
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Protocol.ItemStack
 
   defp click(inv, slot, button) do

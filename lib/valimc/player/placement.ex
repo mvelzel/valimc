@@ -9,18 +9,20 @@ defmodule Valimc.Player.Placement do
   the client predicted them.
 
   Creative players also destroy blocks at once (`destroy/4`). Items that make
-  portals light them in a task (`Valimc.Portal.Items`), since a portal's
+  portals light them in a task (`Valimc.World.Portal.Items`), since a portal's
   frame may span sections.
   """
   alias Valimc.Physics.{CollisionContext, Kernel}
-  alias Valimc.Physics.Placement, as: Rules
+  alias Valimc.Blocks.Placement, as: Rules
   alias Valimc.Protocol.{Data, Packets, UseItemOn}
-  alias Valimc.Session.Jobs
+  alias Valimc.Player.Jobs
   alias Valimc.Player.{CreativeInventory, ItemUse, Menus, Mining}
-  alias Valimc.{Inventory, PlayerInput, World}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.Input
+  alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
 
-  import Valimc.Net.Codec, only: [send_packets: 2, reject: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
 
   @placement %CollisionContext{kind: :entity, placement: true}
 
@@ -31,14 +33,14 @@ defmodule Valimc.Player.Placement do
           state.table_menu != nil or not Mining.inside_border?(request.position) ->
             Menus.acknowledge_table_use(state, request)
 
-          state.life_stage == :alive and PlayerInput.loaded?(state.player.input) and
+          state.life_stage == :alive and Input.loaded?(state.player.input) and
             not state.teleport_pending and
             MapSet.member?(
               near_chunks(state.player),
               World.chunk_key(elem(request.position, 0), elem(request.position, 2))
             ) and
             Mining.reachable?(state, request.position) and
-              Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) ->
+              Valimc.Living.Interaction.valid_hit?(request.position, request.cursor) ->
             Menus.use_block(state, request.position, request)
 
           true ->
@@ -53,7 +55,7 @@ defmodule Valimc.Player.Placement do
   @doc "Place the held item against `request`'s block (no menu opened there)."
   def execute_placement(state, request) do
     cond do
-      not Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) or
+      not Valimc.Living.Interaction.valid_hit?(request.position, request.cursor) or
           not Mining.reachable?(state, request.position) ->
         send_packets(state, [Packets.ack(request.sequence)])
         CreativeInventory.resync_inventory(state)
@@ -73,7 +75,7 @@ defmodule Valimc.Player.Placement do
 
     cond do
       # Flint and steel and fire charges set fire or open portals (VMC-026b2).
-      Valimc.Portal.Items.item?(stack) ->
+      Valimc.World.Portal.Items.item?(stack) ->
         %{
           kind: :ignite,
           request: Map.put(request, :yaw, state.player.yaw),
@@ -123,7 +125,7 @@ defmodule Valimc.Player.Placement do
     with %{item_id: item} <- stack,
          :creative <- state.player.game_mode.current,
          block when is_integer(block) <- Data.item_block(item),
-         false <- Valimc.Physics.BlockEntities.unsupported?(block),
+         false <- Valimc.Blocks.BlockEntityTypes.unsupported?(block),
          do: block,
          else: (_ -> nil)
   end
@@ -135,9 +137,9 @@ defmodule Valimc.Player.Placement do
     if state.life_stage == :alive and state.player.living.health.value > 0 and
          ((mode == :creative and state.inventory.infinite_materials) or
             (mode == :survival and not state.inventory.infinite_materials)) and
-         PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
+         Input.loaded?(state.player.input) and not state.teleport_pending and
          Mining.reachable?(state, request.position) and
-         Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) do
+         Valimc.Living.Interaction.valid_hit?(request.position, request.cursor) do
       %{boxes: [box(state.player) | peer_boxes(state)], chunks: near_chunks(state.player)}
     end
   end
@@ -152,16 +154,16 @@ defmodule Valimc.Player.Placement do
   # Placement is obstructed by every nearby living player that is not a
   # spectator (vanilla's `isUnobstructed`), the placing player included.
   defp peer_boxes(state) do
-    for pid <- Valimc.Players.around(state.player),
+    for pid <- Valimc.Player.PlayerList.around(state.player),
         pid != state.connection,
-        {:ok, peer} <- [Valimc.Players.get(pid)],
+        {:ok, peer} <- [Valimc.Player.PlayerList.get(pid)],
         peer.game_mode.current != :spectator and peer.living.health.value > 0,
         do: box(peer)
   end
 
   defp box(player) do
     {:ok, geometry} =
-      Valimc.Physics.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})
+      Valimc.Data.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})
 
     geometry.box
   end
@@ -172,7 +174,7 @@ defmodule Valimc.Player.Placement do
   end
 
   defp run(state, %{kind: :ignite} = command) do
-    case Valimc.Portal.Items.start(command, state.connection) do
+    case Valimc.World.Portal.Items.start(command, state.connection) do
       {:ok, task} ->
         {jobs, _job} =
           Jobs.track(state.jobs, :placement, task, timeout: 750, data: %{command: command})
@@ -203,9 +205,9 @@ defmodule Valimc.Player.Placement do
     acknowledge(state, command.request)
   end
 
-  @doc "The portal item's use ended (`Valimc.Portal.Items`): it wears and is acknowledged."
+  @doc "The portal item's use ended (`Valimc.World.Portal.Items`): it wears and is acknowledged."
   def ignited(state, command, outcome, after_ack) do
-    state = Valimc.Portal.Items.used(state, command, outcome)
+    state = Valimc.World.Portal.Items.used(state, command, outcome)
     send_packets(state, [Packets.ack(command.request.sequence) | after_ack])
     state
   end
@@ -248,7 +250,7 @@ defmodule Valimc.Player.Placement do
   def destroy(state, position, sequence, eye) do
     with {:ok, owner} <- owner(position),
          {:ok, observed} <- Region.observe_blocks(owner, [position]),
-         true <- Valimc.PlayerInteraction.within_block?(:creative, eye, position) do
+         true <- Valimc.Living.Interaction.within_block?(:creative, eye, position) do
       Region.destroy_block(owner, observed.fence, position, deadline())
     end
 
@@ -282,7 +284,8 @@ defmodule Valimc.Player.Placement do
   end
 
   defp owner({x, _, z}),
-    do: World.existing_owner(World.section(Valimc.Dimension.current(), World.chunk_key(x, z)))
+    do:
+      World.existing_owner(World.section(Valimc.World.Dimension.current(), World.chunk_key(x, z)))
 
   defp deadline, do: System.monotonic_time(:millisecond) + 250
 
@@ -343,13 +346,15 @@ defmodule Valimc.Player.Placement do
   defp surviving(_owner, candidate), do: {:ok, candidate}
 
   defp isolated_chest(owner, key, candidate, revision) do
-    if Valimc.Block.Chest.single?(candidate.state) do
-      neighbors = Valimc.ChestPlacement.neighbors(candidate.position)
+    if Valimc.Blocks.Chest.single?(candidate.state) do
+      neighbors = Valimc.Blocks.ChestPlacement.neighbors(candidate.position)
 
       if Enum.all?(neighbors, fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) == key end) do
         with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),
              false <-
-               Enum.any?(observed.blocks, fn {_, state} -> Valimc.Block.Chest.ordinary?(state) end),
+               Enum.any?(observed.blocks, fn {_, state} ->
+                 Valimc.Blocks.Chest.ordinary?(state)
+               end),
              do: :ok,
              else: (
                true -> {:error, :adjacent_chest}

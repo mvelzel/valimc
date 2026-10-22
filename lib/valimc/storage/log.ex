@@ -1,7 +1,7 @@
 defmodule Valimc.Storage.Log do
   @moduledoc """
   The world's write-ahead log (VMC-077f): #{8} stripes shared by every owner,
-  each a `Valimc.World.RegionLog` segment directory `log/wal.<n>/` under the
+  each a `Valimc.Storage.RegionLog` segment directory `log/wal.<n>/` under the
   world folder, written by one process. An owner always commits to the stripe
   its key hashes to, so its frames stay in order and a crash loses only a
   suffix of them.
@@ -39,7 +39,7 @@ defmodule Valimc.Storage.Log do
   use GenServer, restart: :temporary
   require Logger
   alias Valimc.Storage.Checkpoint
-  alias Valimc.World.RegionLog
+  alias Valimc.Storage.RegionLog
 
   @stripes 8
   @index Valimc.Storage.LogIndex
@@ -139,8 +139,8 @@ defmodule Valimc.Storage.Log do
   defp ensure(base, owner), do: ensure_stripe(base, stripe(owner))
 
   defp ensure_stripe(base, n) do
-    case Valimc.Owners.ensure(
-           Valimc.Owners.registered(Valimc.StorageRegistry, {base, n}),
+    case Valimc.World.Owners.ensure(
+           Valimc.World.Owners.registered(Valimc.StorageRegistry, {base, n}),
            fn ->
              DynamicSupervisor.start_child(Valimc.StorageSupervisor, {__MODULE__, {base, n}})
            end,
@@ -322,14 +322,14 @@ defmodule Valimc.Storage.Log do
       end)
 
     ops = Enum.concat(units)
-    Valimc.Metrics.add(:storage_batches)
-    Valimc.Metrics.add(:storage_records, length(ops))
+    Valimc.Data.Metrics.add(:storage_batches)
+    Valimc.Data.Metrics.add(:storage_records, length(ops))
     frames = batches(units)
 
     with {:ok, state} <- ensure_open(state),
          first = state.log.next_lsn,
          {:ok, log, last} <- RegionLog.append(state.log, frames) do
-      Valimc.Metrics.add(:storage_bytes, Enum.sum(Enum.map(ops, &op_bytes/1)))
+      Valimc.Data.Metrics.add(:storage_bytes, Enum.sum(Enum.map(ops, &op_bytes/1)))
 
       # Each record's lsn is its RegionLog frame's; owner frames come first.
       lsns = for {frame, lsn} <- Enum.zip(frames, first..last//1), _ <- frame, do: lsn

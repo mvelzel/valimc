@@ -3,7 +3,9 @@ defmodule Valimc.PlayerFoodConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{Food, PlayerList}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -22,7 +24,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert_health(body, expected_health, expected_food)
 
     {pid, _} =
-      wait(fn -> Enum.find(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end) end)
+      wait(fn -> Enum.find(:ets.tab2list(PlayerList), fn {_, p} -> p.name == ctx.name end) end)
 
     park(pid)
     client = Client.load_world(client)
@@ -30,7 +32,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
 
     wait(fn ->
       not Valimc.TestConn.state(pid).teleport_pending and
-        Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input)
+        Valimc.Player.Input.loaded?(Valimc.TestConn.state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)
@@ -52,9 +54,9 @@ defmodule Valimc.PlayerFoodConnectionTest do
       z: ctx.pose.z,
       yaw: 0.0,
       pitch: 0.0,
-      game_mode: Valimc.GameMode.new(mode),
-      abilities: Valimc.PlayerAbilities.for_mode(mode),
-      motion: %Valimc.PlayerMotion{},
+      game_mode: Valimc.Player.GameMode.new(mode),
+      abilities: Valimc.Player.Abilities.for_mode(mode),
+      motion: %Valimc.Player.Motion{},
       last_death: nil,
       food: food
     }
@@ -63,7 +65,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
   end
 
   test "saturated recovery is admitted once, replicates hearts and saves its exact timer", ctx do
-    food = %PlayerFood{}
+    food = %Food{}
     seed(ctx, food, 10.0)
     {client, pid} = login(ctx, 10.0, food)
     stale = tick(pid)
@@ -81,11 +83,11 @@ defmodule Valimc.PlayerFoodConnectionTest do
     tick(pid)
     expected = 10.833333015441895
     assert living(pid).health.value == expected
-    assert state(pid).player.food == %PlayerFood{exhaustion: 5.0}
+    assert state(pid).player.food == %Food{exhaustion: 5.0}
     {body, client} = Client.await(client, :play, "set_health")
     assert_health(body, expected, food)
     tick(pid)
-    saved_food = %PlayerFood{saturation: 4.0, exhaustion: 1.0, timer: 1}
+    saved_food = %Food{saturation: 4.0, exhaustion: 1.0, timer: 1}
     assert state(pid).player.food == saved_food
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
@@ -97,7 +99,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
 
   test "ordinary recovery, rule changes and stalled world owner use the published settings",
        ctx do
-    food = %PlayerFood{level: 18, saturation: 0.0, timer: 79}
+    food = %Food{level: 18, saturation: 0.0, timer: 79}
     seed(ctx, food, 10.0)
     {_client, pid} = login(ctx, 10.0, food)
     :sys.suspend(Valimc.World.Clock)
@@ -105,29 +107,29 @@ defmodule Valimc.PlayerFoodConnectionTest do
     try do
       tick(pid)
       assert living(pid).health.value == 11.0
-      assert state(pid).player.food == %PlayerFood{level: 18, saturation: 0.0, exhaustion: 6.0}
+      assert state(pid).player.food == %Food{level: 18, saturation: 0.0, exhaustion: 6.0}
     after
       :sys.resume(Valimc.World.Clock)
     end
 
     :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
     tick(pid)
-    assert state(pid).player.food == %PlayerFood{level: 17, saturation: 0.0, exhaustion: 2.0}
+    assert state(pid).player.food == %Food{level: 17, saturation: 0.0, exhaustion: 2.0}
     assert living(pid).health.value == 11.0
   end
 
   test "food 19 and 18 heal one point every 80 admitted ticks until food falls to 17", ctx do
-    food = %PlayerFood{level: 19, saturation: 0.0}
+    food = %Food{level: 19, saturation: 0.0}
     seed(ctx, food, 10.0)
     {client, pid} = login(ctx, 10.0, food)
     ticks(pid, 79)
     assert living(pid).health.value == 10.0 and state(pid).player.food.timer == 79
     tick(pid)
-    assert state(pid).player.food == %PlayerFood{level: 19, saturation: 0.0, exhaustion: 6.0}
+    assert state(pid).player.food == %Food{level: 19, saturation: 0.0, exhaustion: 6.0}
     {body, client} = Client.await(client, :play, "set_health")
     assert_health(body, 11.0, food)
     ticks(pid, 79)
-    food = %PlayerFood{level: 18, saturation: 0.0, exhaustion: 2.0, timer: 79}
+    food = %Food{level: 18, saturation: 0.0, exhaustion: 2.0, timer: 79}
     assert living(pid).health.value == 11.0 and state(pid).player.food == food
     tick(pid)
     # Food 18 reached the client a tick after the first heal, then the second heal.
@@ -137,13 +139,13 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert_health(body, 12.0, food)
     ticks(pid, 100)
     assert living(pid).health.value == 12.0
-    assert state(pid).player.food == %PlayerFood{level: 17, saturation: 0.0, exhaustion: 4.0}
+    assert state(pid).player.food == %Food{level: 17, saturation: 0.0, exhaustion: 4.0}
   end
 
   test "hard starvation uses durable death transfers and resets food on actual respawn command",
        ctx do
     :ok = Valimc.World.Clock.configure({:difficulty, 3, true})
-    food = %PlayerFood{level: 0, saturation: 0.0, timer: 79}
+    food = %Food{level: 0, saturation: 0.0, timer: 79}
     inventory = %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})}
     seed(ctx, food, 1.0, inventory: inventory)
     {client, pid} = login(ctx, 1.0, food)
@@ -158,16 +160,16 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {body, client} = Client.await(client, :play, "player_combat_kill")
     assert :binary.match(body, "death.attack.starve") != :nomatch
     ticks(pid, 10)
-    assert state(pid).player.food == %PlayerFood{level: 0, saturation: 0.0}
+    assert state(pid).player.food == %Food{level: 0, saturation: 0.0}
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, client} = Client.await(client, :play, "respawn")
     {body, _client} = Client.await(client, :play, "set_health")
-    assert_health(body, 20.0, %PlayerFood{})
-    assert state(pid).player.food == %PlayerFood{}
+    assert_health(body, 20.0, %Food{})
+    assert state(pid).player.food == %Food{}
     assert state(pid).food_tick_origin == state(pid).simulation_clock.tick
     Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.food == %PlayerFood{} and saved.health.value == 20.0
+    assert saved.food == %Food{} and saved.health.value == 20.0
     assert saved.inventory.slots == %{}
   end
 
@@ -178,7 +180,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
   end
 
   test "saved food reaches login/damage, reconnect and fresh-body respawn packets", ctx do
-    food = %PlayerFood{level: 7, saturation: 0.5, exhaustion: 3.5}
+    food = %Food{level: 7, saturation: 0.5, exhaustion: 3.5}
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
 
     player = %{
@@ -188,9 +190,9 @@ defmodule Valimc.PlayerFoodConnectionTest do
       z: ctx.pose.z,
       yaw: 0.0,
       pitch: 0.0,
-      game_mode: Valimc.GameMode.new(:survival),
-      abilities: Valimc.PlayerAbilities.for_mode(:survival),
-      motion: %Valimc.PlayerMotion{},
+      game_mode: Valimc.Player.GameMode.new(:survival),
+      abilities: Valimc.Player.Abilities.for_mode(:survival),
+      motion: %Valimc.Player.Motion{},
       last_death: nil,
       food: food
     }
@@ -211,11 +213,11 @@ defmodule Valimc.PlayerFoodConnectionTest do
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, client} = Client.await(client, :play, "respawn")
     {body, _client} = Client.await(client, :play, "set_health")
-    assert_health(body, 20.0, %PlayerFood{})
-    assert Valimc.TestConn.state(pid).player.food == %PlayerFood{}
+    assert_health(body, 20.0, %Food{})
+    assert Valimc.TestConn.state(pid).player.food == %Food{}
     Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.food == %PlayerFood{} and saved.air_supply == 300
+    assert saved.food == %Food{} and saved.air_supply == 300
     assert saved.inventory.slots == %{}
   end
 end

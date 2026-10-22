@@ -1,7 +1,8 @@
 defmodule Valimc.Protocol.EntityPackets do
   @moduledoc "Bounded entity packet primitives; authoritative simulation ownership is separate."
   import Bitwise
-  alias Valimc.Protocol.{EntityTypes, ItemStack, Packets, PackedVelocity, Wire}
+  alias Valimc.Data.EntityTypes
+  alias Valimc.Protocol.{ItemStack, Packets, PackedVelocity, Wire}
   @max_entity_id 2_147_483_647
   @max_removals 4096
 
@@ -205,8 +206,8 @@ defmodule Valimc.Protocol.EntityPackets do
           stack_bytes(value)
 
         :pose ->
-          check(match?({:ok, _}, Valimc.Physics.PlayerPose.dimensions(value)), "invalid pose")
-          Wire.varint(Valimc.Physics.PlayerPose.id(value))
+          check(match?({:ok, _}, Valimc.Data.PlayerPose.dimensions(value)), "invalid pose")
+          Wire.varint(Valimc.Data.PlayerPose.id(value))
 
         :frozen_ticks ->
           check(Valimc.Living.Freezing.valid_ticks?(value), "invalid frozen ticks")

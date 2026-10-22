@@ -1,6 +1,6 @@
 defmodule Valimc.EntityPublicationTest do
   use ExUnit.Case, async: true
-  alias Valimc.World.EntityPublication
+  alias Valimc.Entity.Publication
 
   defp view(id, kind, chunk), do: %{entity_id: id, kind: kind, chunk: chunk, uuid: <<id::128>>}
   defp stamp(table, chunk), do: :ets.lookup_element(table, {:entities, chunk}, 2)
@@ -11,7 +11,7 @@ defmodule Valimc.EntityPublicationTest do
     orb = view(3, :orb, {0, 0})
 
     :ok =
-      EntityPublication.publish(table, epoch, 7, %{
+      Publication.publish(table, epoch, 7, %{
         1 => view(1, :item, {0, 0}),
         2 => view(2, :item, {1, 0}),
         3 => orb
@@ -23,7 +23,7 @@ defmodule Valimc.EntityPublicationTest do
 
     # Moving item 1 to a new chunk rewrites {0, 0} and {2, 0}, not {1, 0}.
     :ok =
-      EntityPublication.publish(table, epoch, 7, %{
+      Publication.publish(table, epoch, 7, %{
         1 => view(1, :item, {2, 0}),
         2 => view(2, :item, {1, 0}),
         3 => orb
@@ -33,25 +33,25 @@ defmodule Valimc.EntityPublicationTest do
     assert [{_, _, %{3 => _}}] = :ets.lookup(table, {:entities, {0, 0}})
 
     :ok =
-      EntityPublication.publish(table, epoch, 7, %{
+      Publication.publish(table, epoch, 7, %{
         1 => view(1, :item, {2, 0}),
         2 => view(2, :item, {1, 0})
       })
 
     assert :ets.lookup(table, {:entities, {0, 0}}) == []
-    assert EntityPublication.source(table, :items) |> Map.keys() == [1, 2]
+    assert Publication.source(table, :items) |> Map.keys() == [1, 2]
   end
 
   test "frames ring: newer frames after a tick, a gap past the ring, none for a new reader" do
     table = :ets.new(:entities, [:set, :public])
     epoch = make_ref()
-    for tick <- 1..3, do: :ok = EntityPublication.publish(table, epoch, tick, %{}, %{1 => [tick]})
-    assert EntityPublication.frames(table, nil) == {:ok, 3, []}
-    assert EntityPublication.frames(table, 1) == {:ok, 3, [{2, %{1 => [2]}}, {3, %{1 => [3]}}]}
+    for tick <- 1..3, do: :ok = Publication.publish(table, epoch, tick, %{}, %{1 => [tick]})
+    assert Publication.frames(table, nil) == {:ok, 3, []}
+    assert Publication.frames(table, 1) == {:ok, 3, [{2, %{1 => [2]}}, {3, %{1 => [3]}}]}
     # An empty frame is not written; its tick is skipped.
-    :ok = EntityPublication.publish(table, epoch, 4, %{})
-    assert EntityPublication.frames(table, 3) == {:ok, 3, []}
-    :ok = EntityPublication.publish(table, epoch, 100, %{}, %{1 => [100]})
-    assert EntityPublication.frames(table, 3) == {:gap, 100}
+    :ok = Publication.publish(table, epoch, 4, %{})
+    assert Publication.frames(table, 3) == {:ok, 3, []}
+    :ok = Publication.publish(table, epoch, 100, %{}, %{1 => [100]})
+    assert Publication.frames(table, 3) == {:gap, 100}
   end
 end

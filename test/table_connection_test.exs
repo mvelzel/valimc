@@ -1,7 +1,9 @@
 defmodule Valimc.TableConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,7 +21,7 @@ defmodule Valimc.TableConnectionTest do
     uuid = Connection.offline_uuid(name)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -42,7 +44,7 @@ defmodule Valimc.TableConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode)
+        abilities: Valimc.Player.Abilities.for_mode(mode)
       })
 
     {:ok, bytes} =
@@ -62,10 +64,10 @@ defmodule Valimc.TableConnectionTest do
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
     client = Client.load_world(client)
-    owner = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    owner = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     on_exit(fn -> Client.close(client) end)
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(owner).player.input) end)
+    wait(fn -> Valimc.Player.Input.loaded?(Valimc.TestConn.state(owner).player.input) end)
     {client, owner}
   end
 
@@ -175,6 +177,6 @@ defmodule Valimc.TableConnectionTest do
 
   defp records(ctx) do
     {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
-    Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
+    Valimc.Entity.Store.records(Valimc.TestRegion.section(owner).entities.store)
   end
 end

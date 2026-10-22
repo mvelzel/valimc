@@ -5,8 +5,9 @@ defmodule Valimc.GenSettingsTest do
   written on export. Vanilla parity is stage `world_settings`.
   """
   use ExUnit.Case, async: true
-  alias Valimc.NBT
-  alias Valimc.World.{GenSettings, Generator, Settings, Spec}
+  alias Valimc.Data.NBT
+  alias Valimc.Worldgen.{GenSettings, Generator}
+  alias Valimc.World.{Settings, Spec}
 
   defp hashed(seed) do
     <<hashed::little-signed-64, _::binary>> = :crypto.hash(:sha256, <<seed::little-signed-64>>)
@@ -47,7 +48,7 @@ defmodule Valimc.GenSettingsTest do
     source = Path.join(ctx.dir, "vanilla")
     File.mkdir_p!(Path.join(source, "dimensions/minecraft/overworld/region"))
     File.mkdir_p!(Path.join(source, "data/minecraft"))
-    version = {:int, Valimc.Version.data_version()}
+    version = {:int, Valimc.Data.Version.data_version()}
 
     level =
       {:compound,
@@ -76,7 +77,7 @@ defmodule Valimc.GenSettingsTest do
     )
 
     imported = Path.join(ctx.dir, "imported")
-    {:ok, _} = Valimc.Anvil.Import.run(source, imported)
+    {:ok, _} = Valimc.Storage.Anvil.Import.run(source, imported)
     {:ok, meta} = imported |> Spec.path() |> File.read!() |> JSON.decode()
     assert meta["generator"] == %{"type" => "imported", "seed" => 777, "settings" => settings}
     # Imports keep flat terrain outside their chunks, but clients get the seed.
@@ -92,7 +93,7 @@ defmodule Valimc.GenSettingsTest do
     created = Path.join(ctx.dir, "created")
     :ok = Generator.create(created, 99, features: false)
     exported = Path.join(ctx.dir, "exported")
-    {:ok, _} = Valimc.Anvil.Export.run(created, exported)
+    {:ok, _} = Valimc.Storage.Anvil.Export.run(created, exported)
 
     {:ok, written} =
       exported

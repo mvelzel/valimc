@@ -1,5 +1,5 @@
-alias Valimc.Mining
-alias Valimc.PlayerMiningAttempt
+alias Valimc.Blocks.Mining
+alias Valimc.Player.MiningAttempt
 alias Valimc.Protocol.{Data, Packets}
 [input] = System.argv()
 facts = input |> File.read!() |> JSON.decode!()
@@ -15,7 +15,7 @@ end
 
 for row <- facts["traces"] do
   {:ok, rate} = Mining.rate(row["state"], row["speed"], row["correct"])
-  {:ok, attempt, events} = PlayerMiningAttempt.start({0, 0, 0}, row["state"], rate, 0)
+  {:ok, attempt, events} = MiningAttempt.start({0, 0, 0}, row["state"], rate, 0)
 
   unless events == native_events.(row["start_events"]),
     do: raise("Native mining start differs #{inspect(row)}")
@@ -25,7 +25,7 @@ for row <- facts["traces"] do
       Enum.reduce(if(row["stop"] == 0, do: [], else: 1..row["stop"]), {attempt, []}, fn tick,
                                                                                         {attempt,
                                                                                          events} ->
-        {:ok, attempt, next} = PlayerMiningAttempt.tick(attempt, row["state"], rate, tick)
+        {:ok, attempt, next} = MiningAttempt.tick(attempt, row["state"], rate, tick)
         {attempt, events ++ next}
       end)
 
@@ -36,7 +36,7 @@ for row <- facts["traces"] do
       |> Enum.dedup()
 
     unless events == native, do: raise("Native active mining ticks differ #{inspect(row)}")
-    {:ok, attempt, events} = PlayerMiningAttempt.stop(attempt, row["state"], rate, row["stop"])
+    {:ok, attempt, events} = MiningAttempt.stop(attempt, row["state"], rate, row["stop"])
 
     unless events == native_events.(row["stop_events"]) and
              attempt.phase == :finishing == row["delayed"],

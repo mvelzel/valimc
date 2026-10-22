@@ -1,4 +1,4 @@
-alias Valimc.Inventory
+alias Valimc.Menus.Inventory
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()

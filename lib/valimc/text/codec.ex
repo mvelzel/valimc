@@ -20,8 +20,8 @@ defmodule Valimc.Text.Codec do
     and write it on the wire.
   """
   import Bitwise
-  alias Valimc.Command.Snbt
-  alias Valimc.NBT
+  alias Valimc.Text.Snbt
+  alias Valimc.Data.NBT
   alias Valimc.Protocol.Wire
 
   @booleans ~w(bold italic underlined strikethrough obfuscated)
@@ -228,11 +228,11 @@ defmodule Valimc.Text.Codec do
   end
 
   defp parse_selector(text) do
-    reader = Valimc.Command.Reader.new(text)
+    reader = Valimc.Text.Reader.new(text)
 
-    case Valimc.Command.Error.catching(fn -> Valimc.Command.Selector.parse(reader, true) end) do
+    case Valimc.Text.Error.catching(fn -> Valimc.Commands.Parser.Selector.parse(reader, true) end) do
       {:ok, {_selector, after_selector}} ->
-        if Valimc.Command.Reader.can_read?(after_selector),
+        if Valimc.Text.Reader.can_read?(after_selector),
           do: {:error, "Invalid selector component: #{text}"},
           else: {:ok, text}
 

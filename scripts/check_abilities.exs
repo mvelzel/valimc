@@ -1,4 +1,4 @@
-alias Valimc.PlayerAbilities
+alias Valimc.Player.Abilities
 alias Valimc.Protocol.Packets
 import Bitwise
 [path] = System.argv()
@@ -14,7 +14,7 @@ modes = %{
 for c <- native["transitions"] do
   flags = c["initial"]
 
-  initial = %PlayerAbilities{
+  initial = %Abilities{
     invulnerable: (flags &&& 1) != 0,
     flying: (flags &&& 2) != 0,
     may_fly: (flags &&& 4) != 0,
@@ -24,7 +24,7 @@ for c <- native["transitions"] do
     walking_speed: 0.3
   }
 
-  result = PlayerAbilities.for_mode(Map.fetch!(modes, c["mode"]), initial)
+  result = Abilities.for_mode(Map.fetch!(modes, c["mode"]), initial)
   {_, bytes} = Packets.abilities(result)
 
   if bytes != Base.decode16!(c["payload"], case: :lower) or result.may_build != c["build"],
@@ -32,8 +32,8 @@ for c <- native["transitions"] do
 end
 
 for c <- native["requests"], permission <- [false, true] do
-  initial = %PlayerAbilities{flying: true, may_fly: permission}
-  {:ok, result} = PlayerAbilities.request_flight(initial, <<c["flags"]>>)
+  initial = %Abilities{flying: true, may_fly: permission}
+  {:ok, result} = Abilities.request_flight(initial, <<c["flags"]>>)
 
   if result.flying != (c["flying"] and permission) or
        c["canonical"] != if(c["flying"], do: 2, else: 0),

@@ -1,9 +1,9 @@
 Code.require_file("kernel_shapes.exs", __DIR__)
 alias Check.KernelShapes
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 [file] = System.argv()
 cases = file |> File.read!() |> JSON.decode!()
-powder_snow = Valimc.Registry.Blocks.default_state("powder_snow")
+powder_snow = Valimc.Data.Blocks.default_state("powder_snow")
 
 for c <- cases do
   position = c["position"] |> Enum.map(&trunc/1) |> List.to_tuple()

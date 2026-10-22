@@ -5,11 +5,11 @@
 #
 # `worlds` creates each world as a new world is created (`Generator.create/3`):
 # SCOPE `features` decorated (VMC-025d), `terrain` terrain only.
-alias Valimc.World.Generator
+alias Valimc.Worldgen.Generator
 
 Valimc.Protocol.Data.load!()
 Valimc.World.Chunk.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 
 {mode, path, features} =
   case System.argv() do

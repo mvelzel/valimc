@@ -1,7 +1,8 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
@@ -13,7 +14,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     Application.put_env(:valimc, :world_path, base)
     key = {70_000 + rem(nonce, 3_333) * 3, 400}
     name = "Gone" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 
@@ -44,7 +45,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     path = Valimc.Player.Storage.path(base, uuid)
 
     on_exit(fn ->
-      for {pid, p} <- :ets.tab2list(Players),
+      for {pid, p} <- :ets.tab2list(PlayerList),
           p.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
 
@@ -114,7 +115,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   end
 
   defp departed(ctx) do
-    wait(fn -> not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.uuid == ctx.uuid end) end)
+    wait(fn -> not Enum.any?(:ets.tab2list(PlayerList), fn {_, p} -> p.uuid == ctx.uuid end) end)
   end
 
   defp idle(ctx), do: wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
@@ -129,7 +130,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     {uuid, client} = Client.login(ctx.name)
     assert uuid == ctx.uuid
     client = Client.load_world(client)
-    p = Enum.find(Players.all(), &(&1.uuid == uuid))
+    p = Enum.find(PlayerList.all(), &(&1.uuid == uuid))
 
     Valimc.TestConn.replace(
       p.pid,

@@ -1,4 +1,4 @@
-alias Valimc.{PlayerUse}
+alias Valimc.Player.Use
 alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Packets, UseItem, Wire}
 [input, output] = System.argv()
 data = input |> File.read!() |> JSON.decode!()
@@ -39,7 +39,7 @@ for c <- data["ticks"] do
   hand = String.to_existing_atom(c["hand"])
 
   use =
-    PlayerUse.new(ItemStack.new("stone", 2), hand, %{consumable: %{"ticks" => c["remaining"]}})
+    Use.new(ItemStack.new("stone", 2), hand, %{consumable: %{"ticks" => c["remaining"]}})
 
   current =
     case c["change"] do
@@ -61,7 +61,7 @@ for c <- data["ticks"] do
         ItemStack.new("stone")
     end
 
-  {status, next} = PlayerUse.tick(use, current)
+  {status, next} = Use.tick(use, current)
 
   unless status == :cancel == (c["stopped"] == 1) and status == :finish == (c["completed"] == 1) and
            status == :using == c["active"],

@@ -16,7 +16,7 @@ end
 defmodule Valimc.DiscoveryTest do
   # Restarts the application's discovery owner.
   use ExUnit.Case, async: false
-  alias Valimc.Auth.{Discovery, DiscoveryDocument, DiscoverySupervisor, SessionService}
+  alias Valimc.Net.Auth.{Discovery, DiscoveryDocument, DiscoverySupervisor, SessionService}
   @url "https://sessionserver.mojang.com/session/minecraft/hasJoined"
   defp deadline(ms \\ 2000), do: System.monotonic_time(:millisecond) + ms
   defp json(value), do: :json.encode(value) |> IO.iodata_to_binary()

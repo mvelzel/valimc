@@ -3,9 +3,10 @@
 # (PortalOracle) over the oracle's levels.
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
-alias Valimc.Portal.{Fire, Forcer, Shape}
+alias Valimc.World.Portal.{Fire, Forcer}
+alias Valimc.Blocks.PortalShape
 
-air = Valimc.Registry.Blocks.default_state("air")
+air = Valimc.Data.Blocks.default_state("air")
 reader = fn blocks -> fn pos -> Map.get(blocks, pos, air) end end
 to_pos = fn [x, y, z] -> {x, y, z} end
 level = fn rows -> Map.new(rows, fn [x, y, z, state] -> {{x, y, z}, state} end) end
@@ -15,7 +16,7 @@ axis = fn
   "z" -> :z
 end
 
-shape_json = fn %Shape{} = s ->
+shape_json = fn %PortalShape{} = s ->
   {x, y, z} = s.bottom_left
 
   %{
@@ -24,7 +25,7 @@ shape_json = fn %Shape{} = s ->
     "width" => s.width,
     "height" => s.height,
     "portal_blocks" => s.portal_blocks,
-    "complete" => Shape.complete?(s)
+    "complete" => PortalShape.complete?(s)
   }
 end
 
@@ -45,11 +46,11 @@ failures =
       %{"pos" => pos, "axis" => preferred} = query <- queries,
       pos = to_pos.(pos),
       empty =
-        (case Shape.find_empty(read, pos, axis.(preferred), min_y) do
+        (case PortalShape.find_empty(read, pos, axis.(preferred), min_y) do
            {:ok, s} -> shape_json.(s)
            :none -> nil
          end),
-      any = shape_json.(Shape.find_any(read, pos, axis.(preferred), min_y)),
+      any = shape_json.(PortalShape.find_any(read, pos, axis.(preferred), min_y)),
       {empty, any} != {query["empty"], query["any"]},
       reduce: failures,
       do: (acc -> [{:shape, i, pos, {empty, query["empty"]}, {any, query["any"]}} | acc])
@@ -116,7 +117,7 @@ failures =
 motion_blocking = fn blocks, min_y, height ->
   tops =
     Enum.reduce(blocks, %{}, fn {{x, y, z}, state}, acc ->
-      if Valimc.Registry.BlockFacts.heightmap?(state, :motion_blocking),
+      if Valimc.Data.BlockFacts.heightmap?(state, :motion_blocking),
         do: Map.update(acc, {x, z}, y, &max(&1, y)),
         else: acc
     end)
@@ -180,7 +181,7 @@ failures =
       read = reader.(level.(c["blocks"])),
       %{"pos" => pos, "interior" => want} <- c["queries"],
       got =
-        (case Valimc.Portal.EndPortal.opening(read, to_pos.(pos)) do
+        (case Valimc.World.Portal.EndPortal.opening(read, to_pos.(pos)) do
            nil -> nil
            [{x, y, z} | _] -> [x, y, z]
          end),
@@ -193,7 +194,7 @@ failures =
       read = reader.(level.(c["blocks"])),
       got =
         for(
-          {{x, y, z}, s} <- Valimc.Portal.EndPortal.platform(read, to_pos.(c["origin"])),
+          {{x, y, z}, s} <- Valimc.World.Portal.EndPortal.platform(read, to_pos.(c["origin"])),
           do: [x, y, z, s]
         ),
       got != c["edits"],
@@ -201,7 +202,7 @@ failures =
       do: (acc -> [{:platform, i, length(got), length(c["edits"])} | acc])
 
 # Gateway exits: each step over the oracle's level as vanilla's changed it.
-alias Valimc.Portal.Gateway
+alias Valimc.World.Portal.Gateway
 
 failures =
   for {c, i} <- Enum.with_index(facts["gateways"]), reduce: failures do
@@ -263,7 +264,7 @@ failures =
   end
 
 # Arrival poses (VMC-026c): position, velocity turned with the rotation, yaw and pitch.
-alias Valimc.Portal.Motion
+alias Valimc.World.Portal.Motion
 vec = fn [x, y, z] -> {x, y, z} end
 
 failures =

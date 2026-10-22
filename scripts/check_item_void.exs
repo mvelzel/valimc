@@ -1,4 +1,5 @@
-alias Valimc.{ItemMotionState, Protocol.ItemStack, World.Entities}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.{Protocol.ItemStack, Entity.Store}
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
 
@@ -12,8 +13,8 @@ for row <- rows do
     motion: %ItemMotionState{age: -32768, pickup_delay: 32767, no_gravity: true}
   }
 
-  {:ok, items} = Entities.restore({0, 0}, [record])
-  {_, expired} = Entities.age(items, 1, row["minimum"])
+  {:ok, items} = Store.restore({0, 0}, [record])
+  {_, expired} = Store.age(items, 1, row["minimum"])
 
   unless expired != [] == row["removed"] and
            (not row["removed"] or row["reason"] == "DISCARDED"),

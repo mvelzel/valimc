@@ -1,6 +1,7 @@
 defmodule Valimc.Protocol.PotionContents do
   @moduledoc "Bounded potion component codec, native equality and pure scaled delivery."
-  alias Valimc.Protocol.{EffectTypes, PotionTypes, Wire}
+  alias Valimc.Data.{EffectTypes, PotionTypes}
+  alias Valimc.Protocol.Wire
   @max_custom 64
   @max_rungs 256
   @max_name_bytes 32_767

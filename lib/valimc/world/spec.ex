@@ -23,7 +23,7 @@ defmodule Valimc.World.Spec do
   End generate in every world type with the world's seed, decorated unless the
   overworld is noise terrain generated before decoration (VMC-026b).
   """
-  alias Valimc.World.{Datapacks, GenSettings, Generator}
+  alias Valimc.Worldgen.{Datapacks, GenSettings, Generator}
 
   @key {__MODULE__, :current}
 
@@ -34,7 +34,7 @@ defmodule Valimc.World.Spec do
 
   @doc "Write a new world's `generator` entry (creation and import only)."
   def write(base, generator) when is_map(generator),
-    do: Valimc.DurableFile.write(path(base), JSON.encode!(%{"generator" => generator}))
+    do: Valimc.Storage.DurableFile.write(path(base), JSON.encode!(%{"generator" => generator}))
 
   @doc "Load the configured world's spec at start; raises when it cannot be read."
   def load! do

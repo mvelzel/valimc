@@ -1,7 +1,10 @@
 defmodule Valimc.PlayerPickupConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, World}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
+  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.World.Region
@@ -21,7 +24,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     names = ["Pickup#{nonce}", "Race#{nonce}"]
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -50,7 +53,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     player =
       Map.merge(c.pose, %{
         game_mode: GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode)
+        abilities: Valimc.Player.Abilities.for_mode(mode)
       })
 
     {:ok, bytes} =
@@ -65,7 +68,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {_, client} = Client.login(c.name)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    pid = Enum.find(Players.all(), &(&1.name == c.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == c.name)).pid
     on_exit(fn -> Client.close(client) end)
     wait(fn -> Valimc.TestConn.state(pid).pose_checked != nil end)
     {client, pid}

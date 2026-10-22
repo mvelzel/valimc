@@ -1,7 +1,7 @@
 defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
   alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Wire}
-  alias Valimc.Registry.DamageTypes
+  alias Valimc.Data.DamageTypes
   import Bitwise
 
   def time(data) do
@@ -37,14 +37,14 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def inventory(inventory),
-    do: inventory_content(0, inventory, Valimc.Inventory.display_contents(inventory))
+    do: inventory_content(0, inventory, Valimc.Menus.Inventory.display_contents(inventory))
 
   def open_table(container) when container in 1..127 do
     open_screen(container, 12, "container.crafting")
   end
 
   def open_chest(container, rows) when container in 1..127 and rows in 1..6 do
-    {:ok, type} = Valimc.Menu.type(Valimc.Menu.chest(rows))
+    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.chest(rows))
 
     open_screen(
       container,
@@ -54,7 +54,7 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def open_cooking(container, kind) when container in 1..127 do
-    {:ok, type} = Valimc.Menu.cooking_type(kind)
+    {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
     open_screen(container, type, "container." <> Atom.to_string(kind))
   end
 
@@ -72,7 +72,7 @@ defmodule Valimc.Protocol.Packets do
     packet("open_screen", [
       Wire.varint(container),
       Wire.varint(type),
-      Valimc.NBT.encode({:compound, %{"translate" => {:string, title}}})
+      Valimc.Data.NBT.encode({:compound, %{"translate" => {:string, title}}})
     ])
   end
 
@@ -81,21 +81,23 @@ defmodule Valimc.Protocol.Packets do
       inventory_content(
         container,
         inventory,
-        elem(Valimc.Menu.contents(Valimc.Menu.table(), nil, inventory), 1)
+        elem(Valimc.Menus.Menu.contents(Valimc.Menus.Menu.table(), nil, inventory), 1)
       )
 
   def chest_inventory(container, rows, storage, inventory) when container in 1..127 do
-    {:ok, contents} = Valimc.Menu.contents(Valimc.Menu.chest(rows), storage, inventory)
+    {:ok, contents} =
+      Valimc.Menus.Menu.contents(Valimc.Menus.Menu.chest(rows), storage, inventory)
+
     inventory_content(container, inventory, contents)
   end
 
   def cooking_inventory(container, cooking, inventory) when container in 1..127 do
-    {:ok, contents} = Valimc.Menu.cooking_contents(cooking, inventory)
+    {:ok, contents} = Valimc.Menus.Menu.cooking_contents(cooking, inventory)
     inventory_content(container, inventory, contents)
   end
 
   def cooking_properties(container, cooking) when container in 1..127 do
-    {:ok, properties} = Valimc.Menu.properties(cooking)
+    {:ok, properties} = Valimc.Menus.Menu.properties(cooking)
 
     for {value, index} <- Enum.with_index(properties),
         do: packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])
@@ -148,12 +150,12 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def login(player) do
-    levels = Valimc.Dimension.ids()
+    levels = Valimc.World.Dimension.ids()
 
     packet("login", [
       <<player.entity_id::signed-32, 0>>,
       Wire.varint(length(levels)),
-      Enum.map(levels, &Wire.string(Valimc.Dimension.name(&1))),
+      Enum.map(levels, &Wire.string(Valimc.World.Dimension.name(&1))),
       Wire.varint(Valimc.config(:max_players)),
       Wire.varint(Valimc.Session.ChunkView.server_distance()),
       Wire.varint(Valimc.config(:simulation_distance)),
@@ -174,16 +176,18 @@ defmodule Valimc.Protocol.Packets do
   # Vanilla's `CommonPlayerSpawnInfo` of the player's level.
   defp spawn_info(player, last_death) do
     dimension = Map.get(player, :dimension, :overworld)
-    facts = Valimc.Dimension.facts(dimension)
+    facts = Valimc.World.Dimension.facts(dimension)
     {hashed_seed, flat?} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), dimension)
     overworld = dimension == :overworld
 
     [
       Wire.varint(facts.type_id),
-      Wire.string(Valimc.Dimension.name(dimension)),
+      Wire.string(Valimc.World.Dimension.name(dimension)),
       <<hashed_seed::signed-64>>,
-      Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
-      previous_mode(Map.get(player, :game_mode, %Valimc.GameMode{}).previous),
+      Wire.varint(
+        Valimc.Player.GameMode.id(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).current)
+      ),
+      previous_mode(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).previous),
       <<0, if(flat?, do: 1, else: 0)>>,
       death_location(last_death, Map.get(player, :death_dimension, :overworld)),
       Wire.varint(Map.get(player, :portal_cooldown, 0)),
@@ -196,7 +200,7 @@ defmodule Valimc.Protocol.Packets do
   defp death_location({x, y, z} = position, dimension)
        when is_integer(x) and abs(x) <= 29_999_984 and is_integer(z) and abs(z) <= 29_999_984 and
               is_integer(y) and abs(y) <= 1_000_000,
-       do: [<<1>>, Wire.string(Valimc.Dimension.name(dimension)), Wire.position(position)]
+       do: [<<1>>, Wire.string(Valimc.World.Dimension.name(dimension)), Wire.position(position)]
 
   defp death_location(_, _), do: raise(ArgumentError, "invalid death location")
 
@@ -215,28 +219,28 @@ defmodule Valimc.Protocol.Packets do
     packet("light_update", [
       Wire.varint(cx),
       Wire.varint(cz),
-      Valimc.Anvil.Light.packet(image)
+      Valimc.Storage.Anvil.Light.packet(image)
     ])
   end
 
   def spawn_position do
     packet("set_default_spawn_position", [
-      Wire.string(Valimc.Dimension.name(Valimc.World.Spawn.dimension())),
+      Wire.string(Valimc.World.Dimension.name(Valimc.World.Spawn.dimension())),
       Wire.position(Valimc.World.Spawn.position()),
       <<Valimc.World.Spawn.yaw()::float-32, Valimc.World.Spawn.pitch()::float-32>>
     ])
   end
 
-  def abilities(abilities \\ Valimc.PlayerAbilities.for_mode(:creative)) do
+  def abilities(abilities \\ Valimc.Player.Abilities.for_mode(:creative)) do
     packet(
       "player_abilities",
-      <<Valimc.PlayerAbilities.flags(abilities), abilities.flying_speed::float-32,
+      <<Valimc.Player.Abilities.flags(abilities), abilities.flying_speed::float-32,
         abilities.walking_speed::float-32>>
     )
   end
 
-  def experience(%Valimc.PlayerExperience{} = xp) do
-    true = Valimc.PlayerExperience.valid?(xp)
+  def experience(%Valimc.Player.Experience{} = xp) do
+    true = Valimc.Player.Experience.valid?(xp)
 
     packet("set_experience", [
       <<xp.progress::float-32>>,
@@ -245,8 +249,8 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def health(health \\ %Valimc.Living.Health{}, food \\ %Valimc.PlayerFood{}) do
-    unless Valimc.Living.Health.valid?(health) and Valimc.PlayerFood.valid?(food),
+  def health(health \\ %Valimc.Living.Health{}, food \\ %Valimc.Player.Food{}) do
+    unless Valimc.Living.Health.valid?(health) and Valimc.Player.Food.valid?(food),
       do: raise(ArgumentError, "invalid health/food")
 
     packet("set_health", [
@@ -261,7 +265,7 @@ defmodule Valimc.Protocol.Packets do
   def update_effect(entity_id, effect_id, {ticks, level, ambient, particles, icon} = rung, blend) do
     life_entity_id!(entity_id)
 
-    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id) and
+    unless Valimc.Data.EffectTypes.valid_id?(effect_id) and
              Valimc.Living.Effects.valid_instance?([rung]) and
              is_boolean(blend),
            do: raise(ArgumentError, "invalid effect packet")
@@ -282,7 +286,7 @@ defmodule Valimc.Protocol.Packets do
   def remove_effect(entity_id, effect_id) do
     life_entity_id!(entity_id)
 
-    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id),
+    unless Valimc.Data.EffectTypes.valid_id?(effect_id),
       do: raise(ArgumentError, "invalid effect packet")
 
     packet("remove_mob_effect", [Wire.varint(entity_id), Wire.varint(effect_id)])
@@ -362,7 +366,7 @@ defmodule Valimc.Protocol.Packets do
   @doc "The entity event that sets the client's permission level (24..28)."
   def permission_level(entity_id, level) do
     life_entity_id!(entity_id)
-    packet("entity_event", <<entity_id::signed-32, Valimc.Permissions.entity_event(level)>>)
+    packet("entity_event", <<entity_id::signed-32, Valimc.Admin.Permissions.entity_event(level)>>)
   end
 
   @doc "`ClientboundChunksBiomesPacket`: per chunk its packed position and biome containers."
@@ -413,16 +417,18 @@ defmodule Valimc.Protocol.Packets do
       player.uuid,
       Wire.string(player.name),
       properties(Map.get(player, :properties, [])),
-      Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
+      Wire.varint(
+        Valimc.Player.GameMode.id(Map.get(player, :game_mode, %Valimc.Player.GameMode{}).current)
+      ),
       <<1, 0>>
     ])
   end
 
   defp previous_mode(nil), do: <<0>>
-  defp previous_mode(mode), do: Wire.varint(Valimc.GameMode.id(mode) + 1)
+  defp previous_mode(mode), do: Wire.varint(Valimc.Player.GameMode.id(mode) + 1)
 
   def interaction_attributes(player) do
-    attributes = Valimc.PlayerInteraction.attributes(player.game_mode.current)
+    attributes = Valimc.Living.Interaction.attributes(player.game_mode.current)
     attribute_packet(player.entity_id, attributes)
   end
 
@@ -490,7 +496,7 @@ defmodule Valimc.Protocol.Packets do
     do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
 
   def player_equipment(player, previous \\ %{}) do
-    case Valimc.PlayerEquipment.changes(Map.get(player, :equipment, %{}), previous) do
+    case Valimc.Player.Equipment.changes(Map.get(player, :equipment, %{}), previous) do
       [] -> []
       changes -> [EntityPackets.equipment(player.entity_id, changes)]
     end
@@ -515,9 +521,9 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def shared_flags(player) do
-    flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(17)
+    flags = Map.get(player, :input, %Valimc.Player.Input{}).shared_flags &&& bnot(17)
     flags = if living(player).fire_ticks > 0, do: flags ||| 1, else: flags
-    if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
+    if Map.get(player, :motion, %Valimc.Player.Motion{}).swimming, do: flags ||| 16, else: flags
   end
 
   defp angle(value), do: round(value * 256 / 360) &&& 255

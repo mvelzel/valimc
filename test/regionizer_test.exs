@@ -5,7 +5,7 @@ defmodule Valimc.RegionizerTest do
   enough of its sections unloaded and the rest fell apart.
   """
   use ExUnit.Case, async: true
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World.{Region, Regionizer}
 

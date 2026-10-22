@@ -2,7 +2,7 @@ defmodule Valimc.NbtNativeParityTest do
   @moduledoc "The native disk NBT reader returns exactly what the Elixir reader returns (VMC-020)."
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
 
   defp scalar do
     one_of([

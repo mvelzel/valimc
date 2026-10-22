@@ -1,4 +1,4 @@
-# Players in owners (VMC-077i): item pickup and chest-click latency over real
+# PlayerList in owners (VMC-077i): item pickup and chest-click latency over real
 # sockets, group tick time with 1, 10 and 50 players moving in one group, and
 # memory per connection.
 #
@@ -14,7 +14,9 @@
 Code.require_file("test/support/client.ex")
 
 defmodule Bench.PlayersInOwners do
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -36,7 +38,7 @@ defmodule Bench.PlayersInOwners do
     player =
       Map.merge(pose, %{
         game_mode: GameMode.new(:survival),
-        abilities: Valimc.PlayerAbilities.for_mode(:survival)
+        abilities: Valimc.Player.Abilities.for_mode(:survival)
       })
 
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
@@ -50,14 +52,14 @@ defmodule Bench.PlayersInOwners do
     {_, client} = Client.login(name)
     client = Client.load_world(client)
     client = Client.send_packet(client, :play, "player_loaded", <<>>)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == name)).pid
     Process.sleep(300)
     {client, pid}
   end
 
   def logout(client, name) do
     Client.close(client)
-    Valimc.TestWait.until(fn -> Enum.all?(Players.all(), &(&1.name != name)) end, 30_000)
+    Valimc.TestWait.until(fn -> Enum.all?(PlayerList.all(), &(&1.name != name)) end, 30_000)
   end
 
   def owner(%{x: x, z: z}),

@@ -1,5 +1,5 @@
-alias Valimc.PlayerLanding
-alias Valimc.Registry.BlockFacts
+alias Valimc.Living.Landing
+alias Valimc.Data.BlockFacts
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 coverage = MapSet.new(cases, &{&1["id"], &1["shift"]})
@@ -8,9 +8,9 @@ unless MapSet.size(coverage) == 2 * BlockFacts.count(),
   do: raise("Incomplete landing state/shift coverage")
 
 for c <- cases do
-  {:ok, actual} = PlayerLanding.call(c["id"], c["distance"], c["shift"])
+  {:ok, actual} = Landing.call(c["id"], c["distance"], c["shift"])
 
-  unless PlayerLanding.holds_y?(c["id"]) == c["holds_y"],
+  unless Landing.holds_y?(c["id"]) == c["holds_y"],
     do: raise("Native legacy supporting-block rule differs #{c["id"]}")
 
   encoded =

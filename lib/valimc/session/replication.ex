@@ -6,7 +6,7 @@ defmodule Valimc.Session.Replication do
     Wire
   }
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, send_frames: 2]
 
   alias Valimc.World

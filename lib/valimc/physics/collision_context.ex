@@ -65,7 +65,7 @@ defmodule Valimc.Physics.CollisionContext do
 
     bottom
     |> entity(shift)
-    |> with_entity(Valimc.PlayerMotion.distance(player), false, false)
+    |> with_entity(Valimc.Player.Motion.distance(player), false, false)
   end
 
   def valid?(%__MODULE__{kind: :empty, bottom: bottom, descending: false, placement: false} = c),

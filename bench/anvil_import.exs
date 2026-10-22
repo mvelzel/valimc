@@ -3,15 +3,16 @@
 #   python3 scripts/java_tool.py ChunkOracle generate <dir> <dir>/chunks.json
 #   MIX_ENV=prod mix run --no-start bench/anvil_import.exs <dir>/universe/w <scratch> [results.json]
 #
-# Five whole imports (Valimc.Anvil.Import.run, parallel per region file, durable
+# Five whole imports (Valimc.Storage.Anvil.Import.run, parallel per region file, durable
 # region-log writes) after one warmup, then a one-process phase breakdown per full
 # chunk: region slot read and inflate, NBT decode, palette conversion, column image.
-alias Valimc.Anvil.{Chunk, Import, RegionFile}
-alias Valimc.{NBT, Native}
+alias Valimc.Storage.Anvil.{Chunk, Import, RegionFile}
+alias Valimc.Data.NBT
+alias Valimc.Native
 
 [world, scratch | rest] = System.argv()
 Valimc.Protocol.Data.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 File.rm_rf!(scratch)
 
 import_once = fn n ->

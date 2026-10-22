@@ -42,7 +42,7 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert Valimc.TestRegion.section(owner).containers == containers
     assert :ok = Region.mine_block(owner, ctx.position, @chest, [])
-    assert Valimc.TestBlocks.get(ctx.position) == Valimc.Registry.BlockFacts.fluid_remains(@chest)
+    assert Valimc.TestBlocks.get(ctx.position) == Valimc.Data.BlockFacts.fluid_remains(@chest)
     assert :ok = Region.flush(pid)
 
     assert disk(ctx) == nil or

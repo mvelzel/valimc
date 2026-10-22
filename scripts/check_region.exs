@@ -3,8 +3,8 @@
 # errors and the same missing or dropped slots, for deflate and LZ4 worlds,
 # external chunks and damaged files.
 Code.require_file("nbt_canon.exs", __DIR__)
-alias Valimc.Anvil.RegionFile
-alias Valimc.NBT
+alias Valimc.Storage.Anvil.RegionFile
+alias Valimc.Data.NBT
 
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

@@ -17,6 +17,6 @@ defmodule Valimc.TextNumberTest do
     assert Number.java(tenth, 32) == "0.1"
     assert Number.java(123.0, 64) == "123.0"
     assert Number.java(1.0e-4, 64) == "1.0E-4"
-    assert Valimc.Command.Snbt.to_string({:float, <<1.0e7::float-32>>}) == "1.0E7f"
+    assert Valimc.Text.Snbt.to_string({:float, <<1.0e7::float-32>>}) == "1.0E7f"
   end
 end

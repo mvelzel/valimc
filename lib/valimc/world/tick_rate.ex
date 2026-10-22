@@ -219,7 +219,7 @@ defmodule Valimc.World.TickRate do
         Valimc.Text.Number.fixed(mspt, 2)
       ])
 
-    Valimc.Command.Feedback.console(report)
+    Valimc.Commands.Feedback.console(report)
     %{state | sprint: nil, frozen: sprint.previous_frozen} |> publish() |> broadcast_state()
   end
 
@@ -238,7 +238,7 @@ defmodule Valimc.World.TickRate do
   defp broadcast_state(state), do: broadcast(state, state_packet(published()))
 
   defp broadcast(state, packet) do
-    Valimc.Players.broadcast({:packet, packet})
+    Valimc.Player.PlayerList.broadcast({:packet, packet})
     state
   end
 end

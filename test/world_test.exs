@@ -52,7 +52,7 @@ defmodule Valimc.WorldTest do
 
   test "concurrent encodes share a binary and mutations invalidate the cache" do
     key = {800, 800}
-    before_count = Valimc.Metrics.snapshot()[:chunks_encoded] || 0
+    before_count = Valimc.Data.Metrics.snapshot()[:chunks_encoded] || 0
 
     frames =
       1..64
@@ -63,7 +63,7 @@ defmodule Valimc.WorldTest do
       |> Enum.map(fn {:ok, frame} -> frame end)
 
     assert length(Enum.uniq(frames)) == 1
-    assert (Valimc.Metrics.snapshot()[:chunks_encoded] || 0) - before_count == 1
+    assert (Valimc.Data.Metrics.snapshot()[:chunks_encoded] || 0) - before_count == 1
     assert :ok = Valimc.TestBlocks.set({12801, 64, 12801}, 1)
     changed = Valimc.TestWorld.chunk(key)
     refute changed == hd(frames)

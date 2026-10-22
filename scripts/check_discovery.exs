@@ -5,15 +5,16 @@ for row <- rows do
   case row["type"] do
     "route" ->
       expected = if row["route"] == :null, do: nil, else: row["route"]
-      {:ok, actual} = Valimc.Auth.DiscoveryDocument.decode(row["body"])
+      {:ok, actual} = Valimc.Net.Auth.DiscoveryDocument.decode(row["body"])
       true = actual == expected
 
     "retry" ->
       true =
-        Valimc.Auth.DiscoveryDocument.retry_delay(row["loaded"], row["failures"]) == row["delay"]
+        Valimc.Net.Auth.DiscoveryDocument.retry_delay(row["loaded"], row["failures"]) ==
+          row["delay"]
 
     "invalid" ->
-      {:error, :invalid_discovery} = Valimc.Auth.DiscoveryDocument.decode(row["body"])
+      {:error, :invalid_discovery} = Valimc.Net.Auth.DiscoveryDocument.decode(row["body"])
   end
 end
 

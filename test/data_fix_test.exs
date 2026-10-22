@@ -5,7 +5,7 @@ defmodule Valimc.DataFixTest do
   `world_upgrade`.
   """
   use ExUnit.Case, async: true
-  alias Valimc.World.{DataFix, Schema}
+  alias Valimc.Storage.{DataFix, Schema}
 
   defp s(value), do: {:string, value}
   defp c(fields), do: {:compound, fields}

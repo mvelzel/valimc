@@ -1,14 +1,14 @@
 defmodule Valimc.Commands.Text do
   @moduledoc """
   Text and presentation commands (VMC-053i): `tellraw` and `title`, with text
-  resolved per recipient (`Valimc.Command.ComponentResolver`).
+  resolved per recipient (`Valimc.Commands.ComponentResolver`).
   """
-  alias Valimc.Command.{ComponentResolver, Feedback, Targets}
+  alias Valimc.Commands.{ComponentResolver, Feedback, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   defp deliver(%{pid: pid}, packets),
-    do: for(packet <- packets, do: Valimc.Connection.deliver(pid, {:packet, packet}))
+    do: for(packet <- packets, do: Valimc.Net.Connection.deliver(pid, {:packet, packet}))
 
   defp component_packet(name, component),
     do: Packets.packet(name, Wire.text_component(Text.encode(component)))

@@ -5,11 +5,14 @@ defmodule Valimc.Commands.Players do
   classes. Each target applies its change in its own connection, all at once
   (`Valimc.Commands.Remote`); messages follow `CommandResponseTracker`.
   """
-  alias Valimc.Command.{Coordinates, Error, Feedback, Names, Source, Targets}
+  alias Valimc.Commands.Parser.Coordinates
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Names, Source, Targets}
   alias Valimc.Text
   alias Valimc.Commands.Remote
   alias Valimc.Player.CommandOps
-  alias Valimc.Protocol.{EffectTypes, ItemStack}
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Protocol.ItemStack
 
   # ---- tracker ----
 
@@ -59,7 +62,7 @@ defmodule Valimc.Commands.Players do
             on_targets(targets, fn target ->
               notice =
                 if not Source.self?(source, target) and
-                     Valimc.GameRules.get(:send_command_feedback),
+                     Valimc.World.GameRules.get(:send_command_feedback),
                    do: Text.encode(Text.translatable("gameMode.changed", [mode_name]))
 
               {:game_mode, mode, notice}
@@ -384,7 +387,7 @@ defmodule Valimc.Commands.Players do
   defp live_effect!(effect) do
     id = EffectTypes.id(effect)
 
-    if id in Valimc.Connection.live_effects(),
+    if id in Valimc.Net.Connection.live_effects(),
       do: id,
       else:
         Error.throw!(%Error{message: Text.literal("The effect #{effect} is not supported yet")})
@@ -466,7 +469,7 @@ defmodule Valimc.Commands.Players do
     total
   end
 
-  defp f32(value), do: Valimc.Command.Reader.to_float32(value)
+  defp f32(value), do: Valimc.Text.Reader.to_float32(value)
 
   # `Mth.wrapDegrees` for floats.
   defp wrap(degrees) do

@@ -1,14 +1,14 @@
-alias Valimc.PlayerExperience
+alias Valimc.Player.Experience
 rows = System.argv() |> hd() |> File.read!() |> JSON.decode!()
 
 Enum.each(rows, fn row ->
   xp =
     struct!(
-      PlayerExperience,
+      Experience,
       Map.new(row["before"], fn {k, v} -> {String.to_existing_atom(k), v} end)
     )
 
-  {:ok, actual} = PlayerExperience.give(xp, row["amount"])
+  {:ok, actual} = Experience.give(xp, row["amount"])
   expected = Map.from_struct(actual) |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
   if expected != row["after"], do: raise("XP mismatch: #{inspect(row)} => #{inspect(actual)}")
   {_, payload} = Valimc.Protocol.Packets.experience(actual)
@@ -23,7 +23,7 @@ contacts = System.argv() |> hd() |> Kernel.<>(".contact.json") |> File.read!() |
 
 Enum.each(contacts, fn row ->
   box = {-0.3, 64.0, -0.3, 0.3, 64 + row["height"], 0.3}
-  actual = Valimc.World.ExperienceOrbs.contact?(box, List.to_tuple(row["at"]))
+  actual = Valimc.Entity.ExperienceOrbs.contact?(box, List.to_tuple(row["at"]))
   if actual != row["contact"], do: raise("XP contact differs: #{inspect(row)}")
 end)
 

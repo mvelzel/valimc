@@ -102,14 +102,16 @@ defmodule Valimc.PlayerInputConnectionTest do
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     {client, player}
   end
 
   defp current(player), do: Valimc.TestConn.state(player.pid).player
 
   defp relocate(client, player, x) do
-    :ok = Valimc.Connection.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
+    :ok =
+      Valimc.Net.Connection.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
+
     {body, client} = Client.await(client, :play, "player_position")
     client |> Client.auto_reply(:play, "player_position", body) |> barrier()
   end

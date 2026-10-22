@@ -2,7 +2,7 @@ defmodule Valimc.GeneratorPoolTest do
   @moduledoc "Concurrent generations share the seed's context, in batches, with unchanged chunks (VMC-071, VMC-077n)."
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
-  alias Valimc.World.Generator
+  alias Valimc.Worldgen.Generator
 
   @seed 70_071
 

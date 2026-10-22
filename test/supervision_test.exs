@@ -18,7 +18,7 @@ defmodule Valimc.SupervisionTest do
     test = self()
     started = System.monotonic_time(:millisecond)
 
-    assert Valimc.Listener.accept_loop(accept, &send(test, {:started, &1})) == :ok
+    assert Valimc.Net.Listener.accept_loop(accept, &send(test, {:started, &1})) == :ok
     assert_received {:started, :socket}
     # 10 + 20 + 40 + 80 ms of back-off.
     assert System.monotonic_time(:millisecond) - started >= 150
@@ -28,7 +28,7 @@ defmodule Valimc.SupervisionTest do
     others = Enum.map([Valimc.ConnectionSupervisor, Valimc.RegionSupervisor], &Process.whereis/1)
 
     # Four crashes within seconds stopped the application under the old flat root (3 in 5 s).
-    for name <- [Valimc.Listener, Valimc.World.Stopwatches], _ <- 1..4 do
+    for name <- [Valimc.Net.Listener, Valimc.World.Stopwatches], _ <- 1..4 do
       pid = Process.whereis(name)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
@@ -39,6 +39,6 @@ defmodule Valimc.SupervisionTest do
     assert Enum.map([Valimc.ConnectionSupervisor, Valimc.RegionSupervisor], &Process.whereis/1) ==
              others
 
-    assert is_integer(Valimc.Listener.port())
+    assert is_integer(Valimc.Net.Listener.port())
   end
 end

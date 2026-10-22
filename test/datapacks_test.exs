@@ -5,7 +5,7 @@ defmodule Valimc.DatapacksTest do
   `worldgen_datapack`.
   """
   use ExUnit.Case, async: true
-  alias Valimc.World.{Datapacks, Generator}
+  alias Valimc.Worldgen.{Datapacks, Generator}
 
   setup do
     base = Path.join(System.tmp_dir!(), "valimc-packs-#{System.unique_integer([:positive])}")

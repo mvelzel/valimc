@@ -1,9 +1,10 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.World.Entities
+  alias Valimc.Entity.Store
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -27,7 +28,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
   defp player(name),
     do:
-      Enum.find_value(:ets.tab2list(Players), fn {_, player} ->
+      Enum.find_value(:ets.tab2list(PlayerList), fn {_, player} ->
         if player.name == name, do: player
       end)
 
@@ -83,7 +84,7 @@ defmodule Valimc.InventoryPersistenceTest do
   test "owned storage survives reconnect/shutdown while cursor/grid drop once; drag and authority reset",
        %{base: base} do
     username = name()
-    uuid = Valimc.Connection.offline_uuid(username)
+    uuid = Valimc.Net.Connection.offline_uuid(username)
     key = {60_000 + rem(System.unique_integer([:positive]), 3_333) * 3, 400}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
@@ -124,7 +125,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
     expected = %{original | slots: Map.drop(original.slots, [1]), carried: nil}
     {:ok, region} = Valimc.TestWorld.item_owner(key)
-    records = Entities.records(Valimc.TestRegion.section(region).entities.store)
+    records = Store.records(Valimc.TestRegion.section(region).entities.store)
 
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([stone, ItemStack.new("egg", 3)])
@@ -146,7 +147,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert third.inventory.items == Inventory.contents(expected) and
              third.inventory.carried == nil
 
-    assert Entities.records(Valimc.TestRegion.section(region).entities.store) == records
+    assert Store.records(Valimc.TestRegion.section(region).entities.store) == records
 
     close(third, username, uuid)
     other = name()
@@ -189,7 +190,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
   test "a player file from before M1 refuses the login and stays as it was", %{base: base} do
     username = name()
-    uuid = Valimc.Connection.offline_uuid(username)
+    uuid = Valimc.Net.Connection.offline_uuid(username)
 
     payload =
       <<"VMCPOSE", 1, uuid::binary-size(16), -3.25::float-64, 64.0::float-64, 0.5::float-64,

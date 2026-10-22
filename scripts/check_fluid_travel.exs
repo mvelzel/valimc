@@ -1,5 +1,7 @@
-alias Valimc.{Native, PlayerInput, PlayerMotion}
-alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
+alias Valimc.Native
+alias Valimc.Player.{Input, Motion}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.{Box, PlayerPose}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 
@@ -51,10 +53,10 @@ check = fn c ->
     {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, c["old_y"], 0.5})
 
     player = %{
-      motion: %PlayerMotion{velocity: initial},
-      input: %PlayerInput{},
+      motion: %Motion{velocity: initial},
+      input: %Input{},
       yaw: 0.0,
-      game_mode: Valimc.GameMode.new(:creative)
+      game_mode: Valimc.Player.GameMode.new(:creative)
     }
 
     {:ok, envelope} =

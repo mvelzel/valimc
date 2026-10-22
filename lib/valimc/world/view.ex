@@ -26,7 +26,7 @@ defmodule Valimc.World.View do
   defstruct dimension: :overworld, chunks: %{}, owners: %{}, supplied: nil
 
   @doc "An empty view of `dimension` (the calling process's by default)."
-  def new(dimension \\ Valimc.Dimension.current()), do: %__MODULE__{dimension: dimension}
+  def new(dimension \\ Valimc.World.Dimension.current()), do: %__MODULE__{dimension: dimension}
 
   @doc "A view of `states` (`position => state`) only: other positions cannot be read."
   def of(states) when is_map(states), do: %__MODULE__{supplied: states}

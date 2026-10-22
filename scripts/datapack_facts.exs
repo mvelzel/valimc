@@ -3,7 +3,7 @@
 # fails if ValiMC cannot generate them, or if the sample pack's changes (sea
 # level 70, emerald ore in plains) do not reach the facts and the terrain.
 [world] = System.argv()
-alias Valimc.World.{Datapacks, GenSettings, Generator}
+alias Valimc.Worldgen.{Datapacks, GenSettings, Generator}
 Mix.Tasks.Valimc.WorldgenPacks.run([world])
 {:ok, dir} = Datapacks.facts(world)
 read = &(dir |> Path.join("#{&1}.json") |> File.read!() |> JSON.decode!())

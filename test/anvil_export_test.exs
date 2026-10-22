@@ -1,10 +1,10 @@
 defmodule Valimc.AnvilExportTest do
   @moduledoc "Region files and chunks written for vanilla (VMC-021e3), read back by the importer's readers."
   use ExUnit.Case, async: true
-  alias Valimc.Anvil.{Chunk, RegionFile, RegionWriter}
-  alias Valimc.NBT
+  alias Valimc.Storage.Anvil.{Chunk, RegionFile, RegionWriter}
+  alias Valimc.Data.NBT
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.World.Blocks
 
   setup do

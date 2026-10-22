@@ -1,5 +1,6 @@
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Kernel, PlayerPose}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.PlayerPose
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
@@ -34,10 +35,10 @@ for c <- cases do
       x: (a + d) * 0.5,
       y: y,
       z: (b + f) * 0.5,
-      game_mode: Valimc.GameMode.new(:creative),
-      abilities: Valimc.PlayerAbilities.for_mode(:creative),
-      input: %Valimc.PlayerInput{shared_flags: 2},
-      motion: %Valimc.PlayerMotion{on_ground: c["ground"], fall_distance: c["fall"]}
+      game_mode: Valimc.Player.GameMode.new(:creative),
+      abilities: Valimc.Player.Abilities.for_mode(:creative),
+      input: %Valimc.Player.Input{shared_flags: 2},
+      motion: %Valimc.Player.Motion{on_ground: c["ground"], fall_distance: c["fall"]}
     }
 
     target = %{player | x: player.x + dx, y: y + dy, z: player.z + dz}

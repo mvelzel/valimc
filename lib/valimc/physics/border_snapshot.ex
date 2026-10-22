@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.BorderSnapshot do
   @moduledoc "Pure stationary border observations; no border owner, resizing or gameplay authority."
-  alias Valimc.Physics.Box
+  alias Valimc.Data.Box
   defstruct center_x: 0.0, center_z: 0.0, diameter: 59_999_968.0, absolute_max: 29_999_984
   @corner_epsilon 9.999999747378752e-6
 

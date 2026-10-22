@@ -3,13 +3,13 @@ defmodule Mix.Tasks.Valimc.Import do
   @moduledoc """
       mix valimc.import VANILLA_WORLD VALIMC_WORLD
 
-  See `Valimc.Anvil.Import`. Run with the server stopped.
+  See `Valimc.Storage.Anvil.Import`. Run with the server stopped.
   """
   use Mix.Task
 
   @impl true
   def run(args) do
     Mix.Task.run("app.config")
-    Valimc.Anvil.Import.cli(args)
+    Valimc.Storage.Anvil.Import.cli(args)
   end
 end

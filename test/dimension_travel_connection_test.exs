@@ -5,7 +5,10 @@ defmodule Valimc.DimensionTravelConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 180_000
-  alias Valimc.{Connection, Dimension, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.World.Dimension
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -23,7 +26,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -60,9 +63,9 @@ defmodule Valimc.DimensionTravelConnectionTest do
           health: %Health{value: 13.0},
           air_supply: 300
         },
-        game_mode: Valimc.GameMode.new(:creative),
-        abilities: Valimc.PlayerAbilities.for_mode(:creative),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(:creative),
+        abilities: Valimc.Player.Abilities.for_mode(:creative),
+        motion: %Valimc.Player.Motion{},
         last_death: nil
       })
 
@@ -77,7 +80,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     {_uuid, client} = Client.configure_session(Client.begin_login(ctx.name), ctx.name)
     client = Client.send_packet(client, :configuration, "finish_configuration", <<>>)
     {login, client} = Client.await(client, :play, "login")
-    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    pid = wait(fn -> Enum.find(PlayerList.all(), &(&1.name == ctx.name)) end).pid
     on_exit(fn -> Client.close(client) end)
     {login, client, pid}
   end
@@ -214,10 +217,10 @@ defmodule Valimc.DimensionTravelConnectionTest do
 
     # Block changes in the Nether reach the client there.
     client = Client.load_world(client, 48)
-    stone = Valimc.Registry.Blocks.default_state("stone")
+    stone = Valimc.Data.Blocks.default_state("stone")
 
     Dimension.within(:the_nether, fn ->
-      :ok = Valimc.Portal.Access.commit([{{9, 118, 9}, stone}])
+      :ok = Valimc.World.Portal.Access.commit([{{9, 118, 9}, stone}])
     end)
 
     # A committed batch reaches the client as a section update.
@@ -256,7 +259,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     {position, client} = Client.await(client, :play, "player_position")
     _client = Client.auto_reply(client, :play, "player_position", position)
     assert context(pid) == :overworld
-    wait(fn -> match?({:ok, %{dimension: :overworld}}, Players.get(pid)) end)
+    wait(fn -> match?({:ok, %{dimension: :overworld}}, PlayerList.get(pid)) end)
     Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert Map.get(saved, :dimension, :overworld) == :overworld
@@ -316,7 +319,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     File.write!(Valimc.Player.Storage.path(ctx.base, other_uuid), other_bytes)
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name == other,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
     end)

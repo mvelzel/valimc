@@ -1,23 +1,24 @@
 defmodule Valimc.World.ItemPortals do
   @moduledoc """
-  Entities in portals (VMC-026c), as vanilla's `ItemEntity` uses them, for the
+  Store in portals (VMC-026c), as vanilla's `ItemEntity` uses them, for the
   region owner that simulates them:
 
-  - A simulated step that meets a portal on its way (`Valimc.Portal.Contact`,
+  - A simulated step that meets a portal on its way (`Valimc.World.Portal.Contact`,
     over the owner's own blocks) renews the item's portal cooldown when it
     runs (300 ticks, `getDimensionChangingDelay`). Off cooldown the item
     travels at once (non-players have no portal time), one item per owner at
     a time: its cooldown starts and its destination is found in a pooled job.
-  - The job runs `Valimc.Portal.Destination`, `EndPortal` or
+  - The job runs `Valimc.World.Portal.Destination`, `EndPortal` or
     `GatewayDestination` with the item's size (0.25 × 0.25), creating exit
     portals and gateways and the End's platform as vanilla's do.
   - Its target becomes the item's step at the arrival: a handoff to another
     dimension (tagged) or region (plain), or a local move. The arrival keeps
     the item's stack, age and pickup delay, with a fresh cooldown.
   """
-  alias Valimc.{ItemMotionState, World}
-  alias Valimc.Portal.{Contact, Destination, EndPortal, GatewayDestination}
-  alias Valimc.World.Entities
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.World
+  alias Valimc.World.Portal.{Contact, Destination, EndPortal, GatewayDestination}
+  alias Valimc.Entity.Store
 
   @cooldown 300
   @size {0.25, 0.25}
@@ -85,7 +86,7 @@ defmodule Valimc.World.ItemPortals do
   the item no longer exists.
   """
   def arrival(items, key, uuid, target) do
-    case Entities.find(items, uuid) do
+    case Store.find(items, uuid) do
       {:ok, {_epoch, id, revision}} ->
         entry = items.entries[id]
         motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})

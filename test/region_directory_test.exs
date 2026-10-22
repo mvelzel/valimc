@@ -30,7 +30,7 @@ defmodule Valimc.RegionDirectoryTest do
       assert Valimc.TestWorld.existing_owner(ctx.key) == {:ok, owner}
 
       assert Valimc.TestWorld.item_snapshot(ctx.key) ==
-               Valimc.World.EntityPublication.source(table, :items)
+               Valimc.Entity.Publication.source(table, :items)
 
       assert Valimc.TestBlocks.get(position) == 1
       assert :ok = Valimc.TestBlocks.set(position, 0)

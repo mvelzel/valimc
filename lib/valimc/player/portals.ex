@@ -12,15 +12,15 @@ defmodule Valimc.Player.Portals do
     a nether portal in survival, the game rules' delays; none for creative
     players and end portals and gateways); a tick outside takes 4 off, and at
     0 the process ends. At its time the player starts its cooldown and the
-    destination is found in a job (`Valimc.Portal.Destination`); its target
+    destination is found in a job (`Valimc.World.Portal.Destination`); its target
     becomes a travel (`Valimc.Player.Travel`).
 
   Spectators touch no blocks (vanilla's `noPhysics`), so never travel.
   """
-  alias Valimc.GameRules
-  alias Valimc.Physics.PlayerPose
+  alias Valimc.World.GameRules
+  alias Valimc.Data.PlayerPose
   alias Valimc.Player.Travel
-  alias Valimc.Session.Jobs
+  alias Valimc.Player.Jobs
   alias Valimc.World.View
 
   @cooldown Travel.cooldown()
@@ -28,7 +28,7 @@ defmodule Valimc.Player.Portals do
   @retry 20
 
   @doc "The portal kind of a block state, or nil."
-  defdelegate kind(state), to: Valimc.Portal.Contact
+  defdelegate kind(state), to: Valimc.World.Portal.Contact
 
   @doc "One player tick of portal contact, cooldown and process."
   def tick(%{life_stage: :alive, phase: :play, player: %{won_game: true}} = state), do: state
@@ -44,7 +44,7 @@ defmodule Valimc.Player.Portals do
         else: touched(player, portal.last || position)
 
     # An end portal in the End shows a player the credits once (`showEndCredits`).
-    if match?({:end_portal, _}, touch) and Valimc.Dimension.current() == :the_end and
+    if match?({:end_portal, _}, touch) and Valimc.World.Dimension.current() == :the_end and
          not Map.get(player, :seen_credits, false) do
       credits(%{state | portal: %{portal | last: position}})
     else
@@ -59,9 +59,9 @@ defmodule Valimc.Player.Portals do
     retry = max(Map.get(portal, :retry, 0) - 1, 0)
     state = %{state | player: player, portal: %{process: process, last: position, retry: retry}}
 
-    # A process that starts has its destination's regions admitted (`Valimc.Portal.Warm`).
+    # A process that starts has its destination's regions admitted (`Valimc.World.Portal.Warm`).
     if process && (portal.process == nil or portal.process.kind != process.kind),
-      do: Valimc.Portal.Warm.start(process.kind, process.entry)
+      do: Valimc.World.Portal.Warm.start(process.kind, process.entry)
 
     if due and retry == 0 do
       player = %{state.player | portal_cooldown: @cooldown}
@@ -109,16 +109,19 @@ defmodule Valimc.Player.Portals do
   defp credits(state) do
     player = state.player |> Map.put(:seen_credits, true) |> Map.put(:won_game, true)
 
-    Valimc.Net.Codec.send_packets(state, [
+    Valimc.Protocol.Codec.send_packets(state, [
       Valimc.Protocol.Packets.packet("game_event", <<4, 0.0::float-32>>)
     ])
 
-    Valimc.Players.update(state.connection, player)
+    Valimc.Player.PlayerList.update(state.connection, player)
 
-    for pid <- Valimc.Players.around(state.player),
+    for pid <- Valimc.Player.PlayerList.around(state.player),
         pid != state.connection,
         do:
-          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
+          Valimc.Net.Connection.deliver(
+            pid,
+            {:player_respawned, state.connection, player.entity_id}
+          )
 
     %{state | player: player}
   end
@@ -131,7 +134,7 @@ defmodule Valimc.Player.Portals do
     state = %{state | player: Map.put(state.player, :won_game, false)}
 
     target =
-      Valimc.Portal.EndPortal.respawn_target()
+      Valimc.World.Portal.EndPortal.respawn_target()
       |> Map.merge(%{portal: false, keep: 1})
 
     Travel.request(state, target)
@@ -204,7 +207,7 @@ defmodule Valimc.Player.Portals do
       task =
         Task.Supervisor.async_nolink(
           Valimc.TransferWorkers,
-          Valimc.Dimension.bind(fn ->
+          Valimc.World.Dimension.bind(fn ->
             try do
               destination(entry)
             rescue
@@ -224,11 +227,14 @@ defmodule Valimc.Player.Portals do
     :exit, _ -> state
   end
 
-  defp destination(%{kind: :nether_portal} = entry), do: Valimc.Portal.Destination.nether(entry)
-  defp destination(%{kind: :end_portal} = entry), do: Valimc.Portal.EndPortal.destination(entry)
+  defp destination(%{kind: :nether_portal} = entry),
+    do: Valimc.World.Portal.Destination.nether(entry)
+
+  defp destination(%{kind: :end_portal} = entry),
+    do: Valimc.World.Portal.EndPortal.destination(entry)
 
   defp destination(%{kind: :end_gateway} = entry),
-    do: Valimc.Portal.GatewayDestination.destination(entry)
+    do: Valimc.World.Portal.GatewayDestination.destination(entry)
 
   defp destination(_entry), do: :none
 
@@ -242,7 +248,7 @@ defmodule Valimc.Player.Portals do
       dimension == :the_nether and not GameRules.get(:allow_entering_nether_using_portals) ->
         state
 
-      dimension == Valimc.Dimension.current() ->
+      dimension == Valimc.World.Dimension.current() ->
         player = state.player
 
         player = %{
@@ -280,7 +286,7 @@ defmodule Valimc.Player.Portals do
       box
     end
 
-    Valimc.Portal.Contact.touched(box_at, from, {player.x, player.y, player.z}, &read/1)
+    Valimc.World.Portal.Contact.touched(box_at, from, {player.x, player.y, player.z}, &read/1)
   end
 
   # States at `positions` from the loaded owners' published snapshots.

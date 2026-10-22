@@ -1,4 +1,4 @@
-alias Valimc.Physics.Placement
+alias Valimc.Blocks.Placement
 alias Valimc.Protocol.UseItemOn
 [facts_path, cases_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
@@ -47,7 +47,7 @@ for row <- cases["nonfinite"] do
   {:ok, %{cursor: :nonfinite, sequence: 1} = decoded} =
     UseItemOn.decode(Base.decode16!(row["wire"], case: :lower))
 
-  if Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor),
+  if Valimc.Living.Interaction.valid_hit?(decoded.position, decoded.cursor),
     do: raise("Nonfinite hit gained authority")
 end
 

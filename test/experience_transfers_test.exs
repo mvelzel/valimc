@@ -4,10 +4,12 @@ defmodule Valimc.ExperienceTransfersTest do
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
-  alias Valimc.{Connection, GameMode, Inventory, PlayerProgression}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, Progression}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
 
-  alias Valimc.World.{Entities, ExperienceOrbs}
+  alias Valimc.Entity.{Store, ExperienceOrbs}
 
   setup :scope
 
@@ -29,7 +31,7 @@ defmodule Valimc.ExperienceTransfersTest do
     end)
 
     {:ok, award} =
-      Valimc.CookingAwards.plan(%{"minecraft:gold_ingot_from_smelting_gold_ore" => 6}, %{})
+      Valimc.Blocks.CookingAwards.plan(%{"minecraft:gold_ingot_from_smelting_gold_ore" => 6}, %{})
 
     # Six XP from one recipe: one orb entity of value 3, count 2.
     [%{uuid: orb, value: 3, count: 2} = record] = ExperienceOrbs.award(at, award)
@@ -44,11 +46,11 @@ defmodule Valimc.ExperienceTransfersTest do
       yaw: 0.0,
       pitch: 0.0,
       game_mode: GameMode.new(:survival),
-      abilities: Valimc.PlayerAbilities.for_mode(:survival),
-      food: %Valimc.PlayerFood{},
-      motion: %Valimc.PlayerMotion{},
+      abilities: Valimc.Player.Abilities.for_mode(:survival),
+      food: %Valimc.Player.Food{},
+      motion: %Valimc.Player.Motion{},
       last_death: nil,
-      progression: %PlayerProgression{}
+      progression: %Progression{}
     }
 
     snapshot = PlayerState.capture(player, %Inventory{})
@@ -93,19 +95,19 @@ defmodule Valimc.ExperienceTransfersTest do
     on_exit(fn ->
       Valimc.TestClient.close(client)
 
-      for p <- Valimc.Players.all(),
+      for p <- Valimc.Player.PlayerList.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
     end)
 
     Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name)).pid
     wait(fn -> Valimc.TestConn.state(player).player.progression.experience.total == 6 end, 300)
-    assert Entities.find(resource(ctx.owner).entities.store, ctx.orb) == {:error, :missing_item}
+    assert Store.find(resource(ctx.owner).entities.store, ctx.orb) == {:error, :missing_item}
     assert Valimc.TestConn.state(player).inventory.slots == %{}
     {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
     Valimc.TestClient.close(client)
-    wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
+    wait(fn -> Enum.all?(Valimc.Player.PlayerList.all(), &(&1.name != name)) end)
     wait(fn -> Registry.lookup(Valimc.PlayerRegistry, uuid) == [] end)
     {:ok, disk} = PlayerState.decode(File.read!(path), uuid)
     assert disk.progression.experience.total == 6

@@ -1,28 +1,30 @@
 # The physics kernel's costs (VMC-077l), matched across revisions: the same
 # workloads run against the Elixir physics (a revision before the kernel) and
 # the kernel. Per move: one player move packet's validation and observations
-# (`PlayerMotionQuery`), sequentially (wall and VM CPU per move) and with 16
+# (`MotionQuery`), sequentially (wall and VM CPU per move) and with 16
 # moves in flight. Per item: one item tick over the region's published rows.
 #
 #   MIX_ENV=bench python3 scripts/heavy.py mix run --no-start bench/physics_kernel.exs OUT.json
 Code.require_file("blocks.exs", __DIR__)
-alias Valimc.{GameMode, ItemMotionState, PlayerInput, PlayerMotionQuery, World}
+alias Valimc.Player.{GameMode, Input, MotionQuery}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.World
 alias Valimc.World.View
 
 [output] = System.argv()
 Application.put_env(:valimc, :port, 0)
 Application.put_env(:valimc, :world_path, nil)
 {:ok, _} = Application.ensure_all_started(:valimc)
-kernel? = function_exported?(PlayerMotionQuery, :run, 3)
+kernel? = function_exported?(MotionQuery, :run, 3)
 
 # One move: synchronous in the connection with the kernel; before it, a pooled
 # task whose result the connection awaited (busy pools retried after 1 ms).
 move =
   if kernel? do
-    fn player -> PlayerMotionQuery.run(player, player.target) end
+    fn player -> MotionQuery.run(player, player.target) end
   else
     fn player ->
-      Stream.repeatedly(fn -> apply(PlayerMotionQuery, :start, [player, player.target]) end)
+      Stream.repeatedly(fn -> apply(MotionQuery, :start, [player, player.target]) end)
       |> Enum.find_value(fn
         {:ok, task} -> Task.await(task, 1000)
         {:error, :collision_workers_busy} -> Process.sleep(1) && nil
@@ -57,7 +59,7 @@ players =
       game_mode: GameMode.new(:creative),
       abilities: GameMode.abilities(GameMode.new(:creative), false),
       input: %{
-        PlayerInput.loaded(%PlayerInput{})
+        Input.loaded(%Input{})
         | shared_flags: if(scenario == 3, do: 2, else: 0)
       },
       expected: scenario != 1,
@@ -160,7 +162,7 @@ items =
 
 step =
   if kernel? do
-    fn inputs -> Valimc.Physics.ItemStep.run(View.new(), inputs, nil) end
+    fn inputs -> Valimc.World.ItemStep.run(View.new(), inputs, nil) end
   else
     fn inputs ->
       Enum.map(inputs, &apply(Valimc.Physics.ItemTravel, :sample, [&1, View.new(), true]))

@@ -46,7 +46,7 @@ defmodule Valimc.World.Region do
   }
 
   alias Valimc.Storage.Log
-  alias Valimc.Session.Host
+  alias Valimc.Player.Host
 
   @forward_ms 120_000
 
@@ -93,11 +93,11 @@ defmodule Valimc.World.Region do
 
   @doc """
   A call to a group. Inside one of this group's session callbacks
-  (`Valimc.Session.Host`) a call to the group itself runs inline, as a plain
+  (`Valimc.Player.Host`) a call to the group itself runs inline, as a plain
   call inside the owner.
   """
   def call(pid, message, timeout) when pid == self() do
-    case Valimc.Session.Host.inline(&inline_call(&1, message)) do
+    case Valimc.Player.Host.inline(&inline_call(&1, message)) do
       {:ok, reply} -> reply
       :none -> GenServer.call(pid, message, timeout)
     end
@@ -134,8 +134,8 @@ defmodule Valimc.World.Region do
   def await_chunks({pid, _epoch}, chunks, timeout) do
     call(pid, {:await_chunks, chunks}, max(timeout, 0))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:chunk_generating)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:chunk_generating)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
@@ -149,8 +149,8 @@ defmodule Valimc.World.Region do
   def block_entity({pid, epoch}, position) when is_pid(pid) and is_reference(epoch) do
     call(pid, {:block_entity, epoch, position}, 1000)
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc """
@@ -161,8 +161,8 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) and is_map(entries) do
     call(pid, {:put_block_entities, epoch, entries}, 7000)
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_entity_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_entity_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Read one owner-local block revision; this observation does not authorize later mutations."
@@ -180,8 +180,8 @@ defmodule Valimc.World.Region do
       {:error, :invalid_block_query}
     end
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
@@ -195,16 +195,16 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) do
     call(pid, {:fill_biomes, epoch, chunks, box, biome, filter}, budget(pid, 2000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:biome_fill_timeout)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:biome_fill_timeout)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Column images of this region's `chunks` for `/place` (VMC-053)."
   def column_images({pid, epoch}, chunks) when is_pid(pid) and is_reference(epoch) do
     call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:column_query_timeout)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:column_query_timeout)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Retire only the specified connection's current view in this owner incarnation."
@@ -218,23 +218,23 @@ defmodule Valimc.World.Region do
   def read_box({pid, epoch}, min, max) when is_pid(pid) and is_reference(epoch) do
     call(pid, {:read_box, epoch, min, max}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Check and lock a box edit's part in this owner (`Valimc.World.BoxEdit`)."
   def prepare_box({pid, epoch}, token, edits, expected, entries) when is_pid(pid) do
     call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
   catch
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Commit a prepared box edit part (`:retry` while a write is in flight)."
   def commit_box({pid, epoch}, token, entries) when is_pid(pid) do
     call(pid, {:commit_box, epoch, token, entries}, budget(pid, 7000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Release a prepared box edit part."
@@ -254,8 +254,8 @@ defmodule Valimc.World.Region do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          do: call(pid, {:set_blocks, epoch, revision, batch}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   def set_blocks(_, _, _), do: {:error, :invalid_block_batch}
@@ -275,8 +275,8 @@ defmodule Valimc.World.Region do
              budget(pid, 1000)
            )
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc """
@@ -287,7 +287,7 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) and is_list(states) do
     call(pid, {:placement_state, epoch, position, states}, budget(pid, 1000))
   catch
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc "Internal creative placement commit; caller must freshly admit its player and held item."
@@ -296,8 +296,8 @@ defmodule Valimc.World.Region do
              is_integer(deadline) do
     call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
@@ -305,8 +305,8 @@ defmodule Valimc.World.Region do
   def destroy_block({pid, epoch}, revision, position, deadline) do
     call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   @doc """
@@ -324,7 +324,7 @@ defmodule Valimc.World.Region do
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
     call(pid, {:correct_blocks, epoch, positions, connection}, budget(pid, 250))
   catch
-    :exit, _ -> Valimc.Error.retry(:region_unavailable)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
   # Scene-only API: these operations never consume a player inventory.
@@ -339,7 +339,7 @@ defmodule Valimc.World.Region do
 
   @doc """
   A block menu's grant for the player whose connection is `viewer`
-  (VMC-077i3, `Valimc.MenuAccess`): the decision, at once.
+  (VMC-077i3, `Valimc.Menus.MenuAccess`): the decision, at once.
   """
   def menu({pid, epoch}, viewer, position, grant),
     do: call(pid, {:menu, epoch, viewer, position, grant}, budget(pid, 1000))
@@ -424,14 +424,14 @@ defmodule Valimc.World.Region do
   @impl true
   def init({:empty, dimension}) do
     Process.flag(:trap_exit, true)
-    Valimc.Dimension.put(dimension)
+    Valimc.World.Dimension.put(dimension)
     {:ok, new_state(dimension, nil)}
   end
 
   def init({{dimension, sx, sz}, token}) do
     Process.flag(:trap_exit, true)
     # The group, and everything it routes, works in its sections' dimension.
-    Valimc.Dimension.put(dimension)
+    Valimc.World.Dimension.put(dimension)
     key = {sx, sz}
     {:ok, new_state(dimension, key), {:continue, {:load, key, token}}}
   end
@@ -462,7 +462,7 @@ defmodule Valimc.World.Region do
       commit_timer: nil,
       commit_ms: RegionStorage.commit_ms(),
       forward_timer: nil,
-      # Players this group hosts (`Valimc.Session.Host`): uuid => entry.
+      # Players this group hosts (`Valimc.Player.Host`): uuid => entry.
       players: %{},
       # Players handed to other groups: uuid => {pid, until}.
       player_moves: %{},
@@ -478,8 +478,12 @@ defmodule Valimc.World.Region do
   def handle_continue({:load, key, token}, state) do
     started = System.monotonic_time(:microsecond)
     resource = state.dimension |> RegionData.load(key) |> Valimc.World.LightHalo.hello()
-    Valimc.Metrics.add(:region_loads)
-    Valimc.Metrics.add(:region_load_microseconds, System.monotonic_time(:microsecond) - started)
+    Valimc.Data.Metrics.add(:region_loads)
+
+    Valimc.Data.Metrics.add(
+      :region_load_microseconds,
+      System.monotonic_time(:microsecond) - started
+    )
 
     case Valimc.World.Directory.publish(section(state, key), token, %{
            publication: resource.publication,
@@ -587,7 +591,7 @@ defmodule Valimc.World.Region do
     end
   end
 
-  # A connection's player enters play here (`Valimc.Session.Host`).
+  # A connection's player enters play here (`Valimc.Player.Host`).
   def handle_call({:host_player, session}, _from, state),
     do: {:reply, :ok, host_player(state, session)}
 
@@ -648,9 +652,9 @@ defmodule Valimc.World.Region do
     else
       started = System.monotonic_time(:microsecond)
       state = Enum.reduce(keys, commit_frames(state), &give(&2, &1, target))
-      Valimc.Metrics.add(:region_handoffs, length(keys))
+      Valimc.Data.Metrics.add(:region_handoffs, length(keys))
 
-      Valimc.Metrics.add(
+      Valimc.Data.Metrics.add(
         :region_handoff_microseconds,
         System.monotonic_time(:microsecond) - started
       )
@@ -760,12 +764,12 @@ defmodule Valimc.World.Region do
   defp inline_call(state, {:owner, key}) do
     case state.sections do
       %{^key => %{resource: resource}} -> {{:ok, {self(), resource.epoch}}, state}
-      _ -> {Valimc.Error.retry(:stale_owner), state}
+      _ -> {Valimc.Data.Error.retry(:stale_owner), state}
     end
   end
 
   defp inline_call(state, message) do
-    dimension = Valimc.Dimension.put(state.dimension)
+    dimension = Valimc.World.Dimension.put(state.dimension)
 
     try do
       case target(message, state) do
@@ -785,10 +789,10 @@ defmodule Valimc.World.Region do
           end
 
         _ ->
-          {Valimc.Error.retry(:stale_owner), state}
+          {Valimc.Data.Error.retry(:stale_owner), state}
       end
     after
-      Valimc.Dimension.put(dimension)
+      Valimc.World.Dimension.put(dimension)
     end
   end
 
@@ -807,7 +811,7 @@ defmodule Valimc.World.Region do
     case moved_to(state, target) do
       nil ->
         case message do
-          {:call, from, _} -> GenServer.reply(from, Valimc.Error.retry(:stale_owner))
+          {:call, from, _} -> GenServer.reply(from, Valimc.Data.Error.retry(:stale_owner))
           _ -> :ok
         end
 
@@ -859,7 +863,7 @@ defmodule Valimc.World.Region do
     end
   end
 
-  # A session's job timer or task reply (`Valimc.Session.Jobs`) comes to the
+  # A session's job timer or task reply (`Valimc.Player.Jobs`) comes to the
   # group that started it.
   def handle_info({:job_timeout, _, _} = message, state), do: claim(state, message)
   def handle_info({ref, _} = message, state) when is_reference(ref), do: claim(state, message)
@@ -880,8 +884,8 @@ defmodule Valimc.World.Region do
         # A frozen game (`/tick freeze`) runs only the steps it is granted.
         case Valimc.World.TickRate.run?(state.tick_steps) do
           {true, steps} ->
-            Valimc.Metrics.add(:region_ticks)
-            Valimc.Metrics.add(:region_late_milliseconds, late)
+            Valimc.Data.Metrics.add(:region_ticks)
+            Valimc.Data.Metrics.add(:region_late_milliseconds, late)
             started = System.monotonic_time(:nanosecond)
             state = run_tick(%{state | tick_clock: clock, tick_steps: steps}, clock.tick, now)
             Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started)
@@ -987,7 +991,11 @@ defmodule Valimc.World.Region do
     resource = RegionData.adopted(resource)
     state = put_section(state, key, token, resource)
     {:ok, _} = Registry.register(Valimc.RegionRegistry, section(state, key), nil)
-    Valimc.Metrics.add(:region_adopt_microseconds, System.monotonic_time(:microsecond) - started)
+
+    Valimc.Data.Metrics.add(
+      :region_adopt_microseconds,
+      System.monotonic_time(:microsecond) - started
+    )
 
     # The section continues at this group's tick and wants its chunks from here.
     state =
@@ -1110,7 +1118,7 @@ defmodule Valimc.World.Region do
 
     case Valimc.World.Directory.retire(route, entry.admission) do
       :ok ->
-        Valimc.Metrics.add(:region_unloads)
+        Valimc.Data.Metrics.add(:region_unloads)
         state = commit_frames(state, true)
         RegionData.terminate(:normal, state.sections[key].resource)
         :ets.delete(entry.resource.publication)
@@ -1187,7 +1195,7 @@ defmodule Valimc.World.Region do
   end
 
   @doc false
-  # A hosted player moving on (`Valimc.Session.Host`) first sends what changed.
+  # A hosted player moving on (`Valimc.Player.Host`) first sends what changed.
   def commit_now(state), do: commit_frames(state, true)
 
   # One record per world folder: one in play; tests give owners their own.

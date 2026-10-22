@@ -1,7 +1,7 @@
 defmodule Valimc.Protocol.ChestSounds do
   @moduledoc "Pinned ordinary chest sound bodies and native float32 pitch; delivery belongs to viewer ownership."
   alias Valimc.Protocol.{Packets, Wire}
-  use Valimc.Facts, "protocol/chest_sounds.json"
+  use Valimc.Data.Facts, "protocol/chest_sounds.json"
   @source @facts["blocks_source"]
   @open @facts["sounds"]["minecraft:block.chest.open"]
   @close @facts["sounds"]["minecraft:block.chest.close"]

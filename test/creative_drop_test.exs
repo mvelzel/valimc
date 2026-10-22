@@ -1,10 +1,11 @@
 defmodule Valimc.CreativeDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
-  alias Valimc.World.Entities
+  alias Valimc.Entity.Store
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -14,7 +15,7 @@ defmodule Valimc.CreativeDropTest do
     Application.put_env(:valimc, :world_path, base)
     key = {40_000 + rem(nonce, 3_333) * 3, 500}
     name = "Creative" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 
@@ -50,14 +51,14 @@ defmodule Valimc.CreativeDropTest do
 
   defp wait(ctx, predicate, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
-      player = Enum.find(Players.all(), &(&1.name == ctx.name))
+      player = Enum.find(PlayerList.all(), &(&1.name == ctx.name))
       state = if player, do: Valimc.TestConn.state(player.pid)
       if state && predicate.(state), do: {player.pid, state}
     end)
   end
 
   defp depart(ctx, client) do
-    p = Enum.find(Players.all(), &(&1.name == ctx.name))
+    p = Enum.find(PlayerList.all(), &(&1.name == ctx.name))
     ref = if p, do: Process.monitor(p.pid)
     Client.close(client)
     if ref, do: assert_receive({:DOWN, ^ref, :process, _, :normal})
@@ -70,7 +71,7 @@ defmodule Valimc.CreativeDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = Valimc.TestWorld.item_owner(ctx.key)
-    Entities.records(Valimc.TestRegion.section(pid).entities.store)
+    Store.records(Valimc.TestRegion.section(pid).entities.store)
   end
 
   defp frame(client, slot, stack),

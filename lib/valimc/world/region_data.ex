@@ -2,9 +2,7 @@ defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
     BlockEntities,
-    Generator,
     LootChests,
-    EntityPublication,
     ScheduledTicks,
     TickBehaviours,
     BlockBatch,
@@ -15,26 +13,33 @@ defmodule Valimc.World.RegionData do
     ContainerViewers,
     ContainerClicks,
     ContainerLifecycle,
-    ContainerSpills,
-    Entities,
-    ExperienceOrbs,
     Jobs,
     RegionEntities,
-    EntityHandoffs,
     EntityHandoffDelivery,
-    EntityTracking,
     ItemPortals,
-    ItemMerges,
     ItemCrossMergeQuery,
     RegionGeneration,
     RegionStorage,
     Tickets
   }
 
-  alias Valimc.{Error, Inventory}
+  alias Valimc.Worldgen.Generator
+
+  alias Valimc.Entity.{
+    Publication,
+    ContainerSpills,
+    Store,
+    ExperienceOrbs,
+    Handoffs,
+    Tracking,
+    ItemMerges
+  }
+
+  alias Valimc.Data.Error
+  alias Valimc.Menus.Inventory
   alias Valimc.Protocol.Packets
   alias Valimc.Txn.Permits
-  alias Valimc.Block.Rules
+  alias Valimc.World.BlockRules
 
   defstruct [
     # The section's dimension and coordinates `{sx, sz}`; its routing key is
@@ -50,7 +55,7 @@ defmodule Valimc.World.RegionData do
     :container_viewers,
     :cooking_progress,
     :cooking,
-    # Entities and the item work the owner schedules (`RegionEntities`).
+    # Store and the item work the owner schedules (`RegionEntities`).
     :entities,
     :permits,
     :blocks,
@@ -81,7 +86,7 @@ defmodule Valimc.World.RegionData do
     {:siblings, %{}},
     {:sibling_effects, []},
     # The players standing in the section, as their group's trackers last
-    # published them (`Valimc.Session.Host.track/1`): their rows, and the
+    # published them (`Valimc.Player.Host.track/1`): their rows, and the
     # packets not yet in a frame.
     {:player_views, %{}},
     {:player_frame, %{}},
@@ -119,7 +124,7 @@ defmodule Valimc.World.RegionData do
       end
 
     items =
-      case Entities.restore(key, loaded.items, loaded.ledger) do
+      case Store.restore(key, loaded.items, loaded.ledger) do
         {:ok, items} -> items
         {:error, reason} -> exit({:item_load_failed, reason})
       end
@@ -160,7 +165,7 @@ defmodule Valimc.World.RegionData do
       publication: publication,
       entities: %RegionEntities{
         store: items,
-        tracking: %EntityTracking{tick: loaded.game_tick},
+        tracking: %Tracking{tick: loaded.game_tick},
         persistent: loaded.persistent,
         simulate: Valimc.config(:item_simulation, key)
       },
@@ -233,7 +238,7 @@ defmodule Valimc.World.RegionData do
 
     {items, expired} =
       if state.entities.simulate and not planning?(state),
-        do: Entities.age(state.entities.store, ticks),
+        do: Store.age(state.entities.store, ticks),
         else: {nil, []}
 
     if items != nil and (expired == [] or write_busy(state) == nil) do
@@ -244,7 +249,7 @@ defmodule Valimc.World.RegionData do
       else
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
-            {:ok, next} = Entities.remove(acc, epoch, id, revision)
+            {:ok, next} = Store.remove(acc, epoch, id, revision)
             next
           end)
 
@@ -293,11 +298,11 @@ defmodule Valimc.World.RegionData do
            data: %{containers: containers, items: items}
          ) do
       {:ok, state} ->
-        Valimc.Metrics.add(:cooking_batches)
+        Valimc.Data.Metrics.add(:cooking_batches)
         state
 
       {:error, _} ->
-        Valimc.Metrics.add(:cooking_busy)
+        Valimc.Data.Metrics.add(:cooking_busy)
         %{state | cooking: %{state.cooking | seen: nil, retry_at: now + 100}}
     end
   end
@@ -321,7 +326,7 @@ defmodule Valimc.World.RegionData do
         end)
 
     with true <- current,
-         {:ok, items} <- Entities.merge_created(state.entities.store, job.items, plan.items) do
+         {:ok, items} <- Store.merge_created(state.entities.store, job.items, plan.items) do
       plan = %{plan | items: items}
 
       if plan.changes == %{},
@@ -329,7 +334,7 @@ defmodule Valimc.World.RegionData do
         else: commit_cooking(state, plan)
     else
       _ ->
-        Valimc.Metrics.add(:cooking_stale)
+        Valimc.Data.Metrics.add(:cooking_stale)
         state
     end
   end
@@ -346,7 +351,7 @@ defmodule Valimc.World.RegionData do
 
     case result do
       {:ok, proposal} ->
-        Valimc.Metrics.add(:cooking_commits)
+        Valimc.Data.Metrics.add(:cooking_commits)
 
         # Lit blocks, items and containers are adopted together; the next frame
         # holds them (VMC-077f).
@@ -361,7 +366,7 @@ defmodule Valimc.World.RegionData do
         finish_cooking(state, plan)
 
       {:error, _} ->
-        Valimc.Metrics.add(:cooking_plan_failures)
+        Valimc.Data.Metrics.add(:cooking_plan_failures)
 
         %{
           state
@@ -452,7 +457,7 @@ defmodule Valimc.World.RegionData do
             else
               case plan_item_change(:item_merge_out, request, nil, state) do
                 {:noreply, next} ->
-                  Valimc.Metrics.add(:item_cross_merges)
+                  Valimc.Data.Metrics.add(:item_cross_merges)
                   next
 
                 {:reply, _, next} ->
@@ -481,11 +486,11 @@ defmodule Valimc.World.RegionData do
       else
         case plan_item_change(:item_merge_auto, {nil, now + 250}, nil, state) do
           {:noreply, next} ->
-            Valimc.Metrics.add(:item_merge_jobs)
+            Valimc.Data.Metrics.add(:item_merge_jobs)
             %{next | entities: %{next.entities | merge_stamp: stamp}}
 
           {:reply, _, next} ->
-            Valimc.Metrics.add(:item_merge_busy)
+            Valimc.Data.Metrics.add(:item_merge_busy)
             next
         end
       end
@@ -502,7 +507,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Entities move in the items phase, all at once through the physics kernel over
+  # Store move in the items phase, all at once through the physics kernel over
   # published rows (VMC-077l); publishing the steps then starts merging.
   defp move_items(state, now) do
     inputs =
@@ -520,27 +525,27 @@ defmodule Valimc.World.RegionData do
     if inputs == [] do
       start_item_merging(state, now)
     else
-      {:noreply, state} = commit_simulated_items(state, Valimc.Physics.ItemStep.steps(inputs))
+      {:noreply, state} = commit_simulated_items(state, Valimc.World.ItemStep.steps(inputs))
       state
     end
   end
 
   def handle_call({:create_item, epoch, stack, position}, from, state) do
     item_request(epoch, from, state, fn ->
-      Entities.create(state.entities.store, state.key, stack, position)
+      Store.create(state.entities.store, state.key, stack, position)
     end)
   end
 
   def handle_call({:replace_item, epoch, id, revision, stack}, from, state),
     do:
       item_request(epoch, from, state, fn ->
-        Entities.replace(state.entities.store, epoch, id, revision, stack)
+        Store.replace(state.entities.store, epoch, id, revision, stack)
       end)
 
   def handle_call({:remove_item, epoch, id, revision}, from, state),
     do:
       item_request(epoch, from, state, fn ->
-        Entities.remove(state.entities.store, epoch, id, revision)
+        Store.remove(state.entities.store, epoch, id, revision)
       end)
 
   def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
@@ -556,13 +561,13 @@ defmodule Valimc.World.RegionData do
   def handle_call({:container_click, epoch, viewer, ref, position, actor, click}, _from, state) do
     now = System.monotonic_time(:millisecond)
     block = if valid_block_query?([position], :any), do: Blocks.get(state.blocks, position)
-    menu = Valimc.MenuAccess.menu(block)
+    menu = Valimc.Menus.MenuAccess.menu(block)
 
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          true <- in_region?(state, position) or {:error, :wrong_region},
          nil <- write_busy(state),
          true <- menu in [:chest, :cooking] or {:error, :missing_container},
-         :ok <- Valimc.MenuAccess.authorize_action(menu, block, position, actor, now),
+         :ok <- Valimc.Menus.MenuAccess.authorize_action(menu, block, position, actor, now),
          {:ok, containers, inventory, orbs, learned} <-
            ContainerClicks.apply(
              state.containers,
@@ -602,7 +607,7 @@ defmodule Valimc.World.RegionData do
          # Breaking a chest drops its contents, which unpacks loot with no
          # player (luck 0), as `Containers.dropContents` does.
          state = unpack_to_break(state, position, expected),
-         {:ok, batch} <- BlockBatch.prepare(%{position => Valimc.Block.after_removal(expected)}),
+         {:ok, batch} <- BlockBatch.prepare(%{position => Valimc.Blocks.after_removal(expected)}),
          {:ok, plan} <-
            block_container_metadata(
              %{expected: %{position => expected}, batch: batch, items: state.entities.store},
@@ -643,9 +648,9 @@ defmodule Valimc.World.RegionData do
 
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          nil <- write_busy(state),
-         {:ok, {epoch, id, revision}} <- Entities.find(store, uuid),
+         {:ok, {epoch, id, revision}} <- Store.find(store, uuid),
          %{kind: :item, stack: stack} = entry <- store.entries[id],
-         true <- Valimc.Physics.ItemPickup.eligible?(actor, entry) or {:error, :not_eligible},
+         true <- Valimc.Entity.ItemPickup.eligible?(actor, entry) or {:error, :not_eligible},
          {:ok, inventory, remainder, _} <- Inventory.pickup_stack(inventory, stack),
          true <- remainder != stack or {:error, :inventory_full},
          {:ok, items} <- take(store, epoch, id, revision, remainder) do
@@ -672,10 +677,10 @@ defmodule Valimc.World.RegionData do
 
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          nil <- write_busy(state),
-         {:ok, {_, id, _}} <- Entities.find(store, uuid),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
          %{kind: :orb, value: ^value, entity: %{x: x, y: y, z: z}} <- store.entries[id],
          true <- ExperienceOrbs.contact?(actor.box, {x, y, z}) or {:error, :not_eligible},
-         {:ok, items, id} <- Entities.take_orb(store, uuid, value) do
+         {:ok, items, id} <- Store.take_orb(store, uuid, value) do
       state = publish_item_views(%{state | entities: %{state.entities | store: items}})
 
       Valimc.World.publish(
@@ -713,7 +718,7 @@ defmodule Valimc.World.RegionData do
   def handle_call({:advance_items, epoch, steps, deadline}, from, state) do
     item_request(epoch, from, state, fn ->
       if is_integer(deadline) and System.monotonic_time(:millisecond) < deadline,
-        do: Entities.advance(state.entities.store, state.key, epoch, steps),
+        do: Store.advance(state.entities.store, state.key, epoch, steps),
         else: {:error, :expired_item_step}
     end)
   end
@@ -730,7 +735,7 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :expired_item_step}, state}
 
       true ->
-        case Entities.advance(state.entities.store, state.key, epoch, steps) do
+        case Store.advance(state.entities.store, state.key, epoch, steps) do
           {:ok, items, handles} ->
             handles =
               Enum.map(handles, fn {epoch, id, revision} -> {self(), epoch, id, revision} end)
@@ -782,7 +787,7 @@ defmodule Valimc.World.RegionData do
   def handle_call({:find_item, epoch, uuid}, _from, state) do
     result =
       if epoch == state.epoch,
-        do: Entities.find(state.entities.store, uuid),
+        do: Store.find(state.entities.store, uuid),
         else: Error.retry(:stale_owner)
 
     reply =
@@ -1014,7 +1019,7 @@ defmodule Valimc.World.RegionData do
       case handle_call({:observe_blocks, epoch, positions, :any}, from, state) do
         {:reply, {:ok, observed}, state} ->
           for {position, block} <- observed.blocks,
-              do: Valimc.Connection.deliver(connection, {:block, position, block})
+              do: Valimc.Net.Connection.deliver(connection, {:block, position, block})
 
           {:reply, :ok, state}
 
@@ -1252,14 +1257,14 @@ defmodule Valimc.World.RegionData do
 
   defp remove_block(state, position, from) do
     block = Blocks.get(state.blocks, position)
-    replacement = Valimc.Block.after_removal(block)
+    replacement = Valimc.Blocks.after_removal(block)
 
     state =
       if in_region?(state, position) and write_busy(state) == nil,
         do: unpack_loot(state, position, 0.0),
         else: state
 
-    if Valimc.Block.block_entity(block) != nil and
+    if Valimc.Blocks.block_entity(block) != nil and
          Map.has_key?(state.containers.entries, position) do
       if busy = write_busy(state) do
         {:reply, {:error, busy}, state}
@@ -1276,11 +1281,11 @@ defmodule Valimc.World.RegionData do
   defp serve_chunk(state, key, from) do
     cond do
       Map.has_key?(state.cache, key) ->
-        Valimc.Metrics.add(:chunk_cache_hits)
+        Valimc.Data.Metrics.add(:chunk_cache_hits)
         {:reply, state.cache[key], state}
 
       Map.has_key?(state.encodes, key) ->
-        Valimc.Metrics.add(:chunk_requests_coalesced)
+        Valimc.Data.Metrics.add(:chunk_requests_coalesced)
         {:noreply, %{state | encodes: Map.update!(state.encodes, key, &[from | &1])}}
 
       true ->
@@ -1508,7 +1513,7 @@ defmodule Valimc.World.RegionData do
   defp rule_updates(state, previous, ticks) do
     siblings = Map.delete(state.siblings, state.key)
     {stores, absent} = rule_reach(state)
-    parts = state.blocks |> Rules.run(stores, previous, ticks, absent) |> by_section(state)
+    parts = state.blocks |> BlockRules.run(stores, previous, ticks, absent) |> by_section(state)
 
     busy =
       Enum.any?(parts, fn {key, part} ->
@@ -1569,8 +1574,8 @@ defmodule Valimc.World.RegionData do
   def apply_sibling(state, {:entities, source, records}) do
     {store, refused} =
       Enum.reduce(records, {state.entities.store, []}, fn record, {store, refused} ->
-        with false <- Entities.reserved_uuid?(store, record.uuid),
-             {:ok, next, _} <- Entities.create_record(store, state.key, record) do
+        with false <- Store.reserved_uuid?(store, record.uuid),
+             {:ok, next, _} <- Store.create_record(store, state.key, record) do
           {next, refused}
         else
           _ -> {store, [record | refused]}
@@ -1613,15 +1618,15 @@ defmodule Valimc.World.RegionData do
       match?(%{busy: false}, state.siblings[{sx, sz}]) and {sx, sz} != state.key
   end
 
-  # Entities moving to a section of this group go there in the same group
+  # Store moving to a section of this group go there in the same group
   # commit (VMC-077j): withdrawn here, their hops counted as a handoff counts
   # them, and adopted there once this call returns, with a fresh tracker
   # (observers resync to the new epoch); no intent, no receipt.
   defp move_to_sibling(state, {_, sx, sz}, steps) do
     with {:ok, moved, handles} <-
-           Entities.advance(state.entities.store, {sx, sz}, state.entities.store.epoch, steps),
-         {:ok, store, records} <- Entities.withdraw(moved, handles) do
-      Valimc.Metrics.add(:item_section_moves, length(records))
+           Store.advance(state.entities.store, {sx, sz}, state.entities.store.epoch, steps),
+         {:ok, store, records} <- Store.withdraw(moved, handles) do
+      Valimc.Data.Metrics.add(:item_section_moves, length(records))
       effect = {{sx, sz}, {:entities, state.key, records}}
 
       %{
@@ -1637,9 +1642,9 @@ defmodule Valimc.World.RegionData do
   # A cross-section merge inside the group: the donor leaves here and merges
   # into `target` there, or comes back.
   defp merge_into_sibling(state, {_, sx, sz}, {id, revision}, target) do
-    case Entities.withdraw(state.entities.store, [{state.entities.store.epoch, id, revision}]) do
+    case Store.withdraw(state.entities.store, [{state.entities.store.epoch, id, revision}]) do
       {:ok, store, [donor]} ->
-        Valimc.Metrics.add(:item_cross_merges)
+        Valimc.Data.Metrics.add(:item_cross_merges)
         effect = {{sx, sz}, {:merge, state.key, target, donor}}
 
         %{
@@ -1680,13 +1685,13 @@ defmodule Valimc.World.RegionData do
 
     for {position, block, delay} <- ticks,
         cell = Map.get(changes, position) || Map.fetch!(stored, position),
-        Valimc.Registry.Blocks.block_id(cell) == block,
+        Valimc.Data.Blocks.block_id(cell) == block,
         do: {:schedule, position, cell, delay, 0}
   end
 
   defp placement_survivor(state, position, states) do
     {stores, absent} = rule_reach(state)
-    Rules.first_surviving(state.blocks, stores, position, states, absent)
+    BlockRules.first_surviving(state.blocks, stores, position, states, absent)
   end
 
   defp retry_rule_backlog(%{rule_backlog: []} = state), do: state
@@ -1739,7 +1744,7 @@ defmodule Valimc.World.RegionData do
   # 0.25 height, launched at (±0.1, 0.2, ±0.1) with a 10-tick pickup delay.
   defp add_support_drops(items, key, {{x, y, z}, block}) do
     stacks =
-      case Valimc.MiningLoot.drops(block, nil, true) do
+      case Valimc.Blocks.MiningLoot.drops(block, nil, true) do
         {:ok, stacks} -> stacks
         {:error, _} -> []
       end
@@ -1753,13 +1758,13 @@ defmodule Valimc.World.RegionData do
         y: y + 0.5 + (dy * 0.5 - 0.25) - 0.125,
         z: z + 0.5 + (dz * 0.5 - 0.25),
         stack: stack,
-        motion: %Valimc.ItemMotionState{
+        motion: %Valimc.Entity.ItemMotionState{
           velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
           pickup_delay: 10
         }
       }
 
-      case Entities.create_record(acc, key, record) do
+      case Store.create_record(acc, key, record) do
         {:ok, next, _} -> next
         {:error, _} -> acc
       end
@@ -1854,7 +1859,7 @@ defmodule Valimc.World.RegionData do
 
   defp item_result({:error, _} = error, _from, state), do: {:reply, error, state}
 
-  # Entities are adopted at once and the caller is answered at
+  # Store are adopted at once and the caller is answered at
   # once (D2); the next frame holds their records (VMC-077f).
   defp commit_items(items, reply, from, state) do
     state = publish_item_views(%{state | entities: %{state.entities | store: items}})
@@ -1881,7 +1886,7 @@ defmodule Valimc.World.RegionData do
     do: RegionGeneration.handed_over(state, chunks)
 
   defp release_effect(state, {:deliver, pid, message}) do
-    Valimc.Connection.deliver(pid, message)
+    Valimc.Net.Connection.deliver(pid, message)
     state
   end
 
@@ -1902,7 +1907,7 @@ defmodule Valimc.World.RegionData do
         )
 
     Valimc.World.LightHalo.forward(state, %{position => block})
-    Valimc.Metrics.add(:block_edits)
+    Valimc.Data.Metrics.add(:block_edits)
     state
   end
 
@@ -1918,7 +1923,7 @@ defmodule Valimc.World.RegionData do
   # here, so the spawn observers read and the frames that follow agree.
   @doc """
   The players standing in the section and their packets of this tick
-  (`Valimc.Session.Host.track/1`): published with the entities' rows and
+  (`Valimc.Player.Host.track/1`): published with the entities' rows and
   frame.
   """
   def players(state, {views, frame}) do
@@ -1928,11 +1933,11 @@ defmodule Valimc.World.RegionData do
 
   defp publish_item_views(state) do
     store = state.entities.store
-    tracking = EntityTracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
-    views = Map.merge(EntityTracking.published(tracking, store.views), state.player_views)
+    tracking = Tracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
+    views = Map.merge(Tracking.published(tracking, store.views), state.player_views)
 
     :ok =
-      EntityPublication.publish(
+      Publication.publish(
         state.publication,
         state.epoch,
         tracking.tick,
@@ -1950,18 +1955,18 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     {tracking, frame} =
-      EntityTracking.step(
+      Tracking.step(
         state.entities.tracking,
         store.views,
         store.ledger.outgoing,
         state.game_tick
       )
 
-    views = Map.merge(EntityTracking.published(tracking, store.views), state.player_views)
+    views = Map.merge(Tracking.published(tracking, store.views), state.player_views)
     frame = Map.merge(frame, state.player_frame)
 
     :ok =
-      EntityPublication.publish(
+      Publication.publish(
         state.publication,
         state.epoch,
         tracking.tick,
@@ -1970,7 +1975,11 @@ defmodule Valimc.World.RegionData do
         store.views
       )
 
-    Valimc.Metrics.add(:entity_frame_packets, Enum.sum(Enum.map(frame, &length(elem(&1, 1)))))
+    Valimc.Data.Metrics.add(
+      :entity_frame_packets,
+      Enum.sum(Enum.map(frame, &length(elem(&1, 1))))
+    )
+
     %{state | entities: %{state.entities | tracking: tracking}, player_frame: %{}}
   end
 
@@ -1979,7 +1988,7 @@ defmodule Valimc.World.RegionData do
   defp adopt_drops(state, records) do
     items =
       Enum.reduce(records, state.entities.store, fn record, items ->
-        case Entities.create_record(items, state.key, record) do
+        case Store.create_record(items, state.key, record) do
           {:ok, next, _} ->
             next
 
@@ -1993,10 +2002,10 @@ defmodule Valimc.World.RegionData do
     publish_item_views(%{state | entities: %{state.entities | store: items}})
   end
 
-  defp take(items, epoch, id, revision, nil), do: Entities.remove(items, epoch, id, revision)
+  defp take(items, epoch, id, revision, nil), do: Store.remove(items, epoch, id, revision)
 
   defp take(items, epoch, id, revision, remainder) do
-    with {:ok, next, _} <- Entities.replace(items, epoch, id, revision, remainder),
+    with {:ok, next, _} <- Store.replace(items, epoch, id, revision, remainder),
          do: {:ok, next}
   end
 
@@ -2046,7 +2055,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan(:item_handoff_in, items, key, transfer) do
-    case EntityHandoffs.accept(items, key, transfer) do
+    case Handoffs.accept(items, key, transfer) do
       {:ok, next, result} when result in [:applied, :rejected] ->
         {:write, next, {:ok, result}}
 
@@ -2060,18 +2069,18 @@ defmodule Valimc.World.RegionData do
 
   defp item_plan(:item_handoff_out, items, key, {destination, steps, _}) do
     with {:ok, next, request} <-
-           EntityHandoffs.depart(items, key, items.epoch, destination, steps),
+           Handoffs.depart(items, key, items.epoch, destination, steps),
          do: {:write, next, {:ok, request.sequence}}
   end
 
   defp item_plan(:item_merge_out, items, key, {donor, destination, target, _}) do
     with {:ok, next, request} <-
-           EntityHandoffs.depart_merge(items, key, items.epoch, donor, destination, target),
+           Handoffs.depart_merge(items, key, items.epoch, donor, destination, target),
          do: {:write, next, {:ok, request.sequence}}
   end
 
   defp item_plan(:item_handoff_clear, items, key, {sequence, digest, result}) do
-    with {:ok, next} <- EntityHandoffs.finish(items, key, sequence, digest, result),
+    with {:ok, next} <- Handoffs.finish(items, key, sequence, digest, result),
          do: {:write, next, {:ok, result}}
   end
 
@@ -2094,8 +2103,8 @@ defmodule Valimc.World.RegionData do
 
   defp container_metadata_affected?(containers, expected, edits) do
     Enum.any?(edits, fn {position, block} ->
-      Map.has_key?(containers.entries, position) or Valimc.Block.block_entity(block) != nil or
-        Valimc.Block.block_entity(expected[position]) != nil
+      Map.has_key?(containers.entries, position) or Valimc.Blocks.block_entity(block) != nil or
+        Valimc.Blocks.block_entity(expected[position]) != nil
     end)
   end
 
@@ -2160,7 +2169,7 @@ defmodule Valimc.World.RegionData do
       # Without an owned record the block would be an empty, invisible shell,
       # unless the caller writes its record next.
       Enum.any?(batch.edits, fn {position, block} ->
-        Valimc.Physics.BlockEntities.unsupported?(block) and
+        Valimc.Blocks.BlockEntityTypes.unsupported?(block) and
             not MapSet.member?(entities, position)
       end) ->
         {:error, :unsupported_block_entity}
@@ -2191,7 +2200,7 @@ defmodule Valimc.World.RegionData do
            biome: biome
          ) do
       {:ok, containers, entities, _entry} ->
-        Valimc.Metrics.add(:loot_unpacks)
+        Valimc.Data.Metrics.add(:loot_unpacks)
         %{state | containers: containers, block_entities: entities}
 
       :error ->
@@ -2212,7 +2221,15 @@ defmodule Valimc.World.RegionData do
       above = Blocks.get(state.blocks, {x, y + 1, z})
       now = System.monotonic_time(:millisecond)
 
-      case Valimc.MenuAccess.authorize(:chest, block, provisional, above, position, grant, now) do
+      case Valimc.Menus.MenuAccess.authorize(
+             :chest,
+             block,
+             provisional,
+             above,
+             position,
+             grant,
+             now
+           ) do
         {:chest, _, _} -> unpack_loot(state, position, 0.0)
         _ -> state
       end
@@ -2224,7 +2241,7 @@ defmodule Valimc.World.RegionData do
   defp unpack_to_open(state, _, _), do: state
 
   defp unpack_to_break(state, position, block) do
-    if Valimc.Block.Chest.single?(Valimc.Block.after_removal(block)),
+    if Valimc.Blocks.Chest.single?(Valimc.Blocks.after_removal(block)),
       do: state,
       else: unpack_loot(state, position, 0.0)
   end
@@ -2239,7 +2256,7 @@ defmodule Valimc.World.RegionData do
   # than placing against the block (VMC-021e1).
   defp preserved_use?(state, position, block),
     do:
-      Valimc.Physics.BlockEntities.interactive?(block) and
+      Valimc.Blocks.BlockEntityTypes.interactive?(block) and
         BlockEntities.live(state.block_entities, position, block) != nil
 
   # The update packet of a live imported block entity with an update tag, or nil.
@@ -2298,15 +2315,15 @@ defmodule Valimc.World.RegionData do
 
           block != original and
             not (retired[position] == entry and Valimc.World.CookingEntry.empty?(entry) and
-                   Valimc.CookingBlocks.kind(original) == entry.kind and
-                   Valimc.CookingBlocks.kind(block) != entry.kind)
+                   Valimc.Blocks.CookingBlocks.kind(original) == entry.kind and
+                   Valimc.Blocks.CookingBlocks.kind(block) != entry.kind)
 
         %{slots: slots} = entry ->
           block != Blocks.get(state.blocks, position) and
             Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
             not (retired[position] == entry and
-                   Valimc.Block.Chest.single?(Blocks.get(state.blocks, position)) and
-                   not Valimc.Block.Chest.single?(block))
+                   Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) and
+                   not Valimc.Blocks.Chest.single?(block))
 
         nil ->
           false
@@ -2399,7 +2416,7 @@ defmodule Valimc.World.RegionData do
     # relight their ring from the changed blocks.
     Valimc.World.publish(route_key(state), {:block_batch, effects.batch.frames ++ light})
     Valimc.World.LightHalo.forward(state, effects.batch.edits)
-    Valimc.Metrics.add(:block_edits, map_size(effects.batch.edits))
+    Valimc.Data.Metrics.add(:block_edits, map_size(effects.batch.edits))
     state
   end
 
@@ -2415,11 +2432,11 @@ defmodule Valimc.World.RegionData do
 
   defp isolated_chest_changes?(state, batch) do
     Enum.all?(batch.edits, fn {position, block} ->
-      if Valimc.Block.Chest.single?(block) and
-           not Valimc.Block.Chest.single?(Blocks.get(state.blocks, position)) do
-        Enum.all?(Valimc.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
+      if Valimc.Blocks.Chest.single?(block) and
+           not Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) do
+        Enum.all?(Valimc.Blocks.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
           Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
-            not Valimc.Block.Chest.ordinary?(
+            not Valimc.Blocks.Chest.ordinary?(
               Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
             )
         end)
@@ -2455,9 +2472,9 @@ defmodule Valimc.World.RegionData do
             else: Chunk.packet(encoded, entities, preserved, light)
 
         frame = Packets.frame(packet, threshold)
-        Valimc.Metrics.add(:chunks_encoded)
+        Valimc.Data.Metrics.add(:chunks_encoded)
 
-        Valimc.Metrics.add(
+        Valimc.Data.Metrics.add(
           :chunk_encode_microseconds,
           sections_microseconds + System.monotonic_time(:microsecond) - started
         )
@@ -2628,9 +2645,9 @@ defmodule Valimc.World.RegionData do
           now = System.monotonic_time(:millisecond)
 
           cond do
-            Valimc.CookingBlocks.kind(block) != nil or
+            Valimc.Blocks.CookingBlocks.kind(block) != nil or
                 (is_map(grant) and grant[:menu] == :cooking) ->
-              Valimc.MenuAccess.authorize(
+              Valimc.Menus.MenuAccess.authorize(
                 :cooking,
                 block,
                 state.containers.entries[position],
@@ -2640,10 +2657,10 @@ defmodule Valimc.World.RegionData do
                 now
               )
 
-            Valimc.Block.Chest.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
+            Valimc.Blocks.Chest.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
               {x, y, z} = position
 
-              Valimc.MenuAccess.authorize(
+              Valimc.Menus.MenuAccess.authorize(
                 :chest,
                 block,
                 state.containers.entries[position],
@@ -2654,10 +2671,10 @@ defmodule Valimc.World.RegionData do
               )
 
             preserved_use?(state, position, block) ->
-              Valimc.MenuAccess.refuse_use(block, position, grant, now)
+              Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
             true ->
-              Valimc.MenuAccess.authorize(:table, block, nil, nil, position, grant, now)
+              Valimc.Menus.MenuAccess.authorize(:table, block, nil, nil, position, grant, now)
           end
       end
 
@@ -2747,7 +2764,7 @@ defmodule Valimc.World.RegionData do
 
         for {pid, ref, revision} <- notices,
             do:
-              Valimc.Connection.deliver(
+              Valimc.Net.Connection.deliver(
                 pid,
                 {:container_changed, {self(), state.epoch}, ref, position, revision}
               )
@@ -2768,7 +2785,7 @@ defmodule Valimc.World.RegionData do
 
     for view <- retired,
         do:
-          Valimc.Connection.deliver(
+          Valimc.Net.Connection.deliver(
             view.pid,
             {:container_closed, {self(), state.epoch}, view.ref}
           )
@@ -2894,7 +2911,7 @@ defmodule Valimc.World.RegionData do
   # Writes are acknowledged in queue order (the writer is FIFO). Release the
   # head write's effects, then everything that waited on it.
   defp reply_item(nil, _), do: :ok
-  defp reply_item({:deliver, pid}, message), do: Valimc.Connection.deliver(pid, message)
+  defp reply_item({:deliver, pid}, message), do: Valimc.Net.Connection.deliver(pid, message)
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
 
   defp finish_item_reply(state, from, reply) do
@@ -2941,7 +2958,7 @@ defmodule Valimc.World.RegionData do
         state
       else
         Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
-          case Entities.advance(acc.entities.store, acc.key, acc.epoch, batch) do
+          case Store.advance(acc.entities.store, acc.key, acc.epoch, batch) do
             {:ok, items, _} -> %{acc | entities: %{acc.entities | store: items}}
             {:error, _} -> acc
           end
@@ -2978,7 +2995,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Entities in portals (VMC-026c): local steps meeting a portal renew their
+  # Store in portals (VMC-026c): local steps meeting a portal renew their
   # cooldown; one off cooldown starts this owner's single destination job.
   defp portal_contacts(state, local) do
     read = fn cells ->
@@ -3115,7 +3132,7 @@ defmodule Valimc.World.RegionData do
     do: {:noreply, accept_cooking_plan(state, job, plan)}
 
   defp job_done(:cooking, _job, {:error, _}, state) do
-    Valimc.Metrics.add(:cooking_plan_failures)
+    Valimc.Data.Metrics.add(:cooking_plan_failures)
     {:noreply, retry_cooking(state, 1000)}
   end
 
@@ -3194,7 +3211,7 @@ defmodule Valimc.World.RegionData do
       :ets.insert(state.publication, {{:frame, key}, frame})
       {:noreply, %{state | encodes: encodes, cache: Map.put(state.cache, key, frame)}}
     else
-      Valimc.Metrics.add(:stale_chunk_results_discarded)
+      Valimc.Data.Metrics.add(:stale_chunk_results_discarded)
       {:noreply, start_encode(state, key)}
     end
   end
@@ -3203,7 +3220,7 @@ defmodule Valimc.World.RegionData do
     do: {:noreply, schedule_handoff_clear(state, {sequence, digest, result}, 0)}
 
   defp job_done(:handoff, _job, {:error, _}, state) do
-    Valimc.Metrics.add(:item_handoff_retries)
+    Valimc.Data.Metrics.add(:item_handoff_retries)
     {:noreply, schedule_handoff_retry(state, 250)}
   end
 
@@ -3215,7 +3232,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp job_failed(:handoff, _job, _reason, state) do
-    Valimc.Metrics.add(:item_handoff_retries)
+    Valimc.Data.Metrics.add(:item_handoff_retries)
     {:noreply, schedule_handoff_retry(state, 250)}
   end
 
@@ -3232,7 +3249,10 @@ defmodule Valimc.World.RegionData do
   end
 
   defp job_failed(:cooking, _job, reason, state) do
-    Valimc.Metrics.add(if reason == :timeout, do: :cooking_timeouts, else: :cooking_plan_failures)
+    Valimc.Data.Metrics.add(
+      if reason == :timeout, do: :cooking_timeouts, else: :cooking_plan_failures
+    )
+
     {:noreply, retry_cooking(state, 100)}
   end
 

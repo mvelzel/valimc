@@ -3,9 +3,9 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   Cross-owner merge discovery over published snapshots (observations, no
   authority): this owner's border items that could merge into a neighbour's.
   The owner then hands the donor over to merge on arrival
-  (`Valimc.World.EntityHandoffs`), and the neighbour decides.
+  (`Valimc.Entity.Handoffs`), and the neighbour decides.
   """
-  alias Valimc.{Physics.ItemMerge, World}
+  alias Valimc.{Entity.ItemMerge, World}
 
   @fields [:entity_id, :uuid, :at, :merge_key, :count, :merge_max, :physical_revision]
 

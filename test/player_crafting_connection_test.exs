@@ -1,7 +1,9 @@
 defmodule Valimc.PlayerCraftingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,7 +21,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     uuid = Connection.offline_uuid(name)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -42,7 +44,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(:survival),
-        abilities: Valimc.PlayerAbilities.for_mode(:survival)
+        abilities: Valimc.Player.Abilities.for_mode(:survival)
       })
 
     {:ok, bytes} =
@@ -56,7 +58,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
     client = Client.load_world(client)
-    owner = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    owner = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     on_exit(fn -> Client.close(client) end)
     {client, owner}
   end

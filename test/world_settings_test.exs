@@ -78,7 +78,7 @@ defmodule Valimc.WorldSettingsTest.Serial do
   @moduledoc "Commands that change the running world's settings or read every region."
   # The spawn, the default game mode and the region registry are global.
   use ExUnit.Case, async: false
-  alias Valimc.Command.Source
+  alias Valimc.Commands.Source
   alias Valimc.World.{Settings, Spawn}
 
   # An RCON source in `dimension`: its collected output is the command's feedback text.
@@ -106,7 +106,9 @@ defmodule Valimc.WorldSettingsTest.Serial do
   test "save-all from the Nether saves every dimension's regions and starts none" do
     {overworld, nether} = {{-31_001, 9}, {-31_002, 9}}
     {:ok, _} = Valimc.TestWorld.owner(overworld)
-    {:ok, _} = Valimc.Dimension.within(:the_nether, fn -> Valimc.TestWorld.owner(nether) end)
+
+    {:ok, _} =
+      Valimc.World.Dimension.within(:the_nether, fn -> Valimc.TestWorld.owner(nether) end)
 
     scoped = [
       Valimc.TestWorld.section(overworld),

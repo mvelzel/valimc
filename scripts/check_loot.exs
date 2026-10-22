@@ -1,12 +1,12 @@
 # Container loot parity (VMC-072a): every LootOracle case (each container
 # table over many seeds, luck values, biomes and origins, and synthetic tables
 # for the entry kinds and nesting the pack's container tables leave out)
-# filled by `Valimc.Loot` equals vanilla's container, slot for slot, compared
+# filled by `Valimc.Blocks.Loot` equals vanilla's container, slot for slot, compared
 # through the persistent item codec (enchantment maps compare as maps, since
 # their network order follows a hash map).
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.Loot
+alias Valimc.Blocks.Loot
 alias Valimc.Protocol.ItemData
 
 defmodule CheckLoot do

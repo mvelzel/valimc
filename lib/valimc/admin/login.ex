@@ -2,7 +2,7 @@ defmodule Valimc.Admin.Login do
   @moduledoc """
   Vanilla's `PlayerList.canPlayerLogin` checks (VMC-010a), read from the
   published admin lists in the connection process: a banned profile, the
-  whitelist, a banned IP, then (in `Valimc.Players.join/2`) a full server that
+  whitelist, a banned IP, then (in `Valimc.Player.PlayerList.join/2`) a full server that
   only operators with `bypassesPlayerLimit` may still join.
   """
   alias Valimc.Admin.Lists
@@ -18,7 +18,7 @@ defmodule Valimc.Admin.Login do
           ban
         )
 
-      Valimc.World.Settings.get(:white_list) and not Valimc.Permissions.operator?(player) and
+      Valimc.World.Settings.get(:white_list) and not Valimc.Admin.Permissions.operator?(player) and
           not Lists.whitelisted?(uuid) ->
         Text.translatable("multiplayer.disconnect.not_whitelisted")
 

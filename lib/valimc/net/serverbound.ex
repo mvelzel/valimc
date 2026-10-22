@@ -21,17 +21,11 @@ defmodule Valimc.Net.Serverbound do
   alias Valimc.Player.ItemUse
   alias Valimc.Player.Vitals
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    Inventory,
-    Players,
-    PlayerAbilities,
-    PlayerInput,
-    PlayerMotion,
-    PlayerUse
-  }
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{PlayerList, Abilities, Input, Motion, Use}
 
   def handle_packet(%{phase: :handshake} = state, 0, payload) do
     {version, payload} = Wire.take_varint(payload)
@@ -70,7 +64,7 @@ defmodule Valimc.Net.Serverbound do
     response =
       :json.encode(%{
         version: %{name: "ValiMC #{Valimc.version()}", protocol: Valimc.protocol_version()},
-        players: %{max: Valimc.config(:max_players), online: Players.count(), sample: []},
+        players: %{max: Valimc.config(:max_players), online: PlayerList.count(), sample: []},
         description: %{text: Valimc.config(:motd)},
         enforcesSecureChat: false
       })
@@ -92,7 +86,7 @@ defmodule Valimc.Net.Serverbound do
       do: reject(state, "Invalid player name")
 
     if state.encryption_requested do
-      pair = Valimc.LoginKeys.pair()
+      pair = Valimc.Net.LoginKeys.pair()
       challenge = Encryption.challenge()
       send_packets(state, [Encryption.hello(pair, challenge, state.online_mode)])
 
@@ -113,11 +107,11 @@ defmodule Valimc.Net.Serverbound do
     if byte_size(payload) > 266, do: reject(state, "Invalid login encryption response")
     token = make_ref()
 
-    case Valimc.KeyExchange.start(self(), token, state.key_pair, state.key_challenge, payload) do
+    case Valimc.Net.KeyExchange.start(self(), token, state.key_pair, state.key_challenge, payload) do
       {:ok, job} ->
         timeout = max(job.deadline - System.monotonic_time(:millisecond), 0)
         job = Map.put(job, :timer, Process.send_after(self(), {:key_deadline, token}, timeout))
-        Valimc.KeyExchange.activate(job)
+        Valimc.Net.KeyExchange.activate(job)
 
         %{state | step: :key_job, key_job: job, key_pair: nil, key_challenge: nil}
 
@@ -202,7 +196,7 @@ defmodule Valimc.Net.Serverbound do
   defp action?(name, _before, _after) when name in @actions, do: true
 
   defp action?("player_input", before, _after),
-    do: Valimc.PlayerInput.loaded?(before.player.input)
+    do: Valimc.Player.Input.loaded?(before.player.input)
 
   defp action?(name, before, after_packet)
        when name in ["move_player_pos", "move_player_pos_rot"] do
@@ -315,8 +309,8 @@ defmodule Valimc.Net.Serverbound do
 
       "client_tick_end" ->
         <<>> = payload
-        player = %{state.player | motion: PlayerMotion.finish_tick(state.player.motion)}
-        Players.update(state.connection, player)
+        player = %{state.player | motion: Motion.finish_tick(state.player.motion)}
+        PlayerList.update(state.connection, player)
         %{state | client_tick: ClientTick.finish(state.client_tick), player: player}
 
       "chunk_batch_received" ->
@@ -326,28 +320,28 @@ defmodule Valimc.Net.Serverbound do
         state |> client_information(payload) |> Replication.update_view()
 
       "player_abilities" ->
-        {:ok, abilities} = PlayerAbilities.request_flight(state.player.abilities, payload)
+        {:ok, abilities} = Abilities.request_flight(state.player.abilities, payload)
 
         player = %{
           state.player
           | abilities: abilities,
-            motion: PlayerMotion.flight(state.player.motion, abilities.flying)
+            motion: Motion.flight(state.player.motion, abilities.flying)
         }
 
-        Players.update(state.connection, player)
+        PlayerList.update(state.connection, player)
         %{state | player: player}
 
       "player_input" ->
-        {:ok, input} = PlayerInput.receive_input(state.player.input, payload)
+        {:ok, input} = Input.receive_input(state.player.input, payload)
         Movement.update_player_input(state, input)
 
       "player_command" ->
-        {:ok, input} = PlayerInput.receive_command(state.player.input, payload)
+        {:ok, input} = Input.receive_command(state.player.input, payload)
         Movement.update_player_input(state, input)
 
       "player_loaded" ->
         <<>> = payload
-        Movement.update_player_input(state, PlayerInput.loaded(state.player.input))
+        Movement.update_player_input(state, Input.loaded(state.player.input))
 
       "change_game_mode" ->
         {_requested_id, <<>>} = Wire.take_varint(payload)
@@ -366,7 +360,7 @@ defmodule Valimc.Net.Serverbound do
 
             state =
               if slot != state.inventory.selected and
-                   match?(%PlayerUse{hand: :main}, state.active_use),
+                   match?(%Use{hand: :main}, state.active_use),
                  do: ItemUse.stop_item_use(state),
                  else: state
 
@@ -397,7 +391,7 @@ defmodule Valimc.Net.Serverbound do
         {message, _metadata} = Wire.take_string(payload, 256)
         legal!(state, message)
         state = Commands.throttle_chat(state)
-        Players.broadcast({:chat, "<#{state.player.name}> #{message}"})
+        PlayerList.broadcast({:chat, "<#{state.player.name}> #{message}"})
         state
 
       "command_suggestion" ->

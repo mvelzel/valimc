@@ -1,7 +1,8 @@
 defmodule Valimc.FlightConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerAbilities}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{PlayerList, Abilities}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -13,7 +14,7 @@ defmodule Valimc.FlightConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     key = {70_000 + rem(nonce, 3_333) * 3, 500}
     name = "Flight" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 70.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}, selected: 0}
@@ -23,7 +24,7 @@ defmodule Valimc.FlightConnectionTest do
     File.write!(path, bytes)
 
     on_exit(fn ->
-      for {pid, player} <- :ets.tab2list(Players),
+      for {pid, player} <- :ets.tab2list(PlayerList),
           player.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
 
@@ -44,7 +45,8 @@ defmodule Valimc.FlightConnectionTest do
     Client.load_world(client)
   end
 
-  defp state(ctx), do: Valimc.TestConn.state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
+  defp state(ctx),
+    do: Valimc.TestConn.state(Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid)
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -101,14 +103,14 @@ defmodule Valimc.FlightConnectionTest do
     pid = state(ctx).player.pid
 
     Valimc.TestConn.replace(pid, fn s ->
-      %{s | player: %{s.player | abilities: PlayerAbilities.for_mode(:survival)}}
+      %{s | player: %{s.player | abilities: Abilities.for_mode(:survival)}}
     end)
 
     client = toggle(client, 255) |> barrier()
-    assert state(ctx).player.abilities == PlayerAbilities.for_mode(:survival)
+    assert state(ctx).player.abilities == Abilities.for_mode(:survival)
 
     Valimc.TestConn.replace(pid, fn s ->
-      %{s | player: %{s.player | abilities: PlayerAbilities.for_mode(:creative)}}
+      %{s | player: %{s.player | abilities: Abilities.for_mode(:creative)}}
     end)
 
     ref = Process.monitor(pid)

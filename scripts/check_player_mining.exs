@@ -1,4 +1,5 @@
-alias Valimc.{Inventory, PlayerMining}
+alias Valimc.Menus.Inventory
+alias Valimc.Player.MiningSpeed
 alias Valimc.Protocol.{Data, ItemStack}
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -8,7 +9,7 @@ bits = fn
   value -> Base.encode16(<<value::float-32>>, case: :lower)
 end
 
-unless Map.new(PlayerMining.attributes(%Inventory{}), fn {k, v} -> {Atom.to_string(k), v} end) ==
+unless Map.new(MiningSpeed.attributes(%Inventory{}), fn {k, v} -> {Atom.to_string(k), v} end) ==
          facts["baseline"],
        do: raise("Native player mining defaults differ")
 
@@ -25,7 +26,7 @@ for row <- facts["equipment"] do
   inventory = %{inventory | slots: Map.put(inventory.slots, row["slot"], stack)}
 
   attributes =
-    Map.new(PlayerMining.attributes(inventory), fn {k, v} -> {Atom.to_string(k), v} end)
+    Map.new(MiningSpeed.attributes(inventory), fn {k, v} -> {Atom.to_string(k), v} end)
 
   unless attributes == row["attributes"],
     do: raise("Native mining equipment differs #{inspect(row)}")
@@ -34,7 +35,7 @@ for row <- facts["equipment"] do
     for name <- ["stone", "dirt"],
         water <- [false, true],
         ground <- [false, true],
-        do: bits.(PlayerMining.speed(inventory, Data.block(name), water, ground))
+        do: bits.(MiningSpeed.speed(inventory, Data.block(name), water, ground))
 
   unless actual == row["speed_bits"],
     do: raise("Native geared mining speed differs #{inspect(row)}")
@@ -63,13 +64,13 @@ for row <- facts["speeds"] do
       inventory
     end
 
-  actual = PlayerMining.speed(inventory, row["state"], row["water"], row["ground"])
+  actual = MiningSpeed.speed(inventory, row["state"], row["water"], row["ground"])
 
   unless bits.(actual) == row["speed_bits"] and
-           PlayerMining.harvest?(inventory, row["state"]) == row["correct"],
+           MiningSpeed.harvest?(inventory, row["state"]) == row["correct"],
          do: raise("Native stock player mining differs #{inspect({row, actual})}")
 
-  {:ok, rate} = PlayerMining.rate(inventory, row["state"], row["water"], row["ground"])
+  {:ok, rate} = MiningSpeed.rate(inventory, row["state"], row["water"], row["ground"])
 
   unless bits.(rate) == row["rate_bits"],
     do: raise("Native composed mining rate differs #{inspect(row)}")

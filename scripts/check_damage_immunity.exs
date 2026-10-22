@@ -1,5 +1,5 @@
 alias Valimc.Living.{Armor, Damage}
-alias Valimc.{Inventory}
+alias Valimc.Menus.Inventory
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = :json.decode(File.read!(path))

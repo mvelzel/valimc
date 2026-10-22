@@ -2,8 +2,8 @@ defmodule Valimc.WorldNbtTest do
   @moduledoc "Disk NBT framing, compression bounds and world schemas (VMC-020)."
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Valimc.NBT
-  alias Valimc.World.Schema
+  alias Valimc.Data.NBT
+  alias Valimc.Storage.Schema
 
   @root {:compound,
          %{

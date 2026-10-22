@@ -5,8 +5,8 @@ defmodule Valimc.RegionLifecycleTest do
   alias Valimc.World
   alias Valimc.World.Region
 
-  @coral Valimc.Registry.Blocks.default_state("tube_coral_block")
-  @dead Valimc.Registry.Blocks.default_state("dead_tube_coral_block")
+  @coral Valimc.Data.Blocks.default_state("tube_coral_block")
+  @dead Valimc.Data.Blocks.default_state("dead_tube_coral_block")
 
   setup do
     nonce = System.unique_integer([:positive])

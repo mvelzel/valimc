@@ -20,8 +20,8 @@ defmodule Valimc.Protocol.ChestBlockEntity do
     owned =
       for {{x, _, z} = position, block} <- edits,
           Integer.floor_div(x, 16) == cx and Integer.floor_div(z, 16) == cz,
-          Valimc.Block.block_entity(block) != nil or Valimc.Physics.BlockEntities.plain?(block),
-          do: {position, Valimc.Physics.BlockEntities.type_id(block), nil}
+          Valimc.Blocks.block_entity(block) != nil or Valimc.Blocks.BlockEntityTypes.plain?(block),
+          do: {position, Valimc.Blocks.BlockEntityTypes.type_id(block), nil}
 
     # A plain block entity with a preserved entry (a gateway's exit) is listed once.
     kept = MapSet.new(preserved, &elem(&1, 0))

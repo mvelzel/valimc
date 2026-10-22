@@ -14,13 +14,14 @@ defmodule Valimc.CommandConnectionTest do
     client
   end
 
-  defp pid(player_name), do: Enum.find(Valimc.Players.all(), &(&1.name == player_name)).pid
+  defp pid(player_name),
+    do: Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == player_name)).pid
 
   defp count(pid, item) do
     id = Valimc.Protocol.ItemTypes.id(item)
 
     Valimc.TestConn.state(pid).inventory
-    |> Valimc.Inventory.contents()
+    |> Valimc.Menus.Inventory.contents()
     |> Enum.filter(&(&1 && &1.item_id == id))
     |> Enum.map(& &1.count)
     |> Enum.sum()
@@ -63,7 +64,7 @@ defmodule Valimc.CommandConnectionTest do
 
     swords =
       for %Valimc.Protocol.ItemStack{} = stack <-
-            Valimc.Inventory.contents(Valimc.TestConn.state(pid).inventory),
+            Valimc.Menus.Inventory.contents(Valimc.TestConn.state(pid).inventory),
           stack.item_id == Valimc.Protocol.ItemTypes.id("diamond_sword"),
           do: stack.components
 
@@ -95,7 +96,7 @@ defmodule Valimc.CommandConnectionTest do
 
     [blade] =
       for %Valimc.Protocol.ItemStack{} = stack <-
-            Valimc.Inventory.contents(Valimc.TestConn.state(pid).inventory),
+            Valimc.Menus.Inventory.contents(Valimc.TestConn.state(pid).inventory),
           stack.item_id == Valimc.Protocol.ItemTypes.id("iron_sword"),
           do: stack.components
 
@@ -127,7 +128,7 @@ defmodule Valimc.CommandConnectionTest do
 
     assert Map.has_key?(
              Valimc.TestConn.state(pid).player.living.effects,
-             Valimc.Protocol.EffectTypes.id("speed")
+             Valimc.Data.EffectTypes.id("speed")
            )
 
     client = command(client, "effect clear @s", "commands.effect.clear.everything.success.single")
@@ -189,7 +190,7 @@ defmodule Valimc.CommandConnectionTest do
 
     # The command waits in its job; the connection keeps answering meanwhile.
     Valimc.TestWait.until(fn ->
-      Valimc.Session.Jobs.active?(Valimc.TestConn.state(pid, 1000).jobs, :command)
+      Valimc.Player.Jobs.active?(Valimc.TestConn.state(pid, 1000).jobs, :command)
     end)
 
     # The owner call exits (5 s); before VMC-077a that exit ended the session.
@@ -264,15 +265,15 @@ defmodule Valimc.CommandConnectionTest do
 
   test "setblock and fill change blocks through their region owners" do
     {client, _pid} = join()
-    stone = Valimc.Registry.Blocks.default_state("stone")
-    glass = Valimc.Registry.Blocks.default_state("glass")
+    stone = Valimc.Data.Blocks.default_state("stone")
+    glass = Valimc.Data.Blocks.default_state("glass")
     client = command(client, "setblock 40 100 40 stone", "commands.setblock.success")
     assert Valimc.TestBlocks.get({40, 100, 40}) == stone
     client = command(client, "setblock 40 100 40 stone", "commands.setblock.failed")
     client = command(client, "setblock 40 100 40 glass keep", "commands.setblock.failed")
     client = command(client, "fill 40 101 40 42 103 42 glass hollow", "commands.fill.success")
     assert Valimc.TestBlocks.get({40, 101, 40}) == glass
-    assert Valimc.TestBlocks.get({41, 102, 41}) == Valimc.Registry.Blocks.default_state("air")
+    assert Valimc.TestBlocks.get({41, 102, 41}) == Valimc.Data.Blocks.default_state("air")
 
     client =
       command(client, "fill 40 101 40 42 103 42 stone replace glass", "commands.fill.success")

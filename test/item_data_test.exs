@@ -3,7 +3,7 @@ defmodule Valimc.Protocol.ItemDataTest do
   alias Valimc.Living.DamageSource
   alias Valimc.Text.Codec
   alias Valimc.Protocol.{ItemStack, Packets, ServerText}
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
 
   test "composed hover exceeds input budgets without widening client text admission" do
     stack = %{

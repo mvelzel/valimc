@@ -1,8 +1,8 @@
 defmodule Valimc.Physics.ItemStepTest do
   use ExUnit.Case, async: true
   alias Valimc.World.View
-  alias Valimc.ItemMotionState
-  alias Valimc.Physics.ItemStep
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.World.ItemStep
 
   defp frame(floor_state \\ 1) do
     View.of(

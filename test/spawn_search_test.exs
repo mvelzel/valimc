@@ -1,7 +1,8 @@
 defmodule Valimc.SpawnSearchTest do
   use ExUnit.Case, async: true
-  alias Valimc.Registry.Blocks
-  alias Valimc.World.{Border, PlayerSpawn, SpawnSearch}
+  alias Valimc.Data.Blocks
+  alias Valimc.World.{Border, PlayerSpawn}
+  alias Valimc.Worldgen.SpawnSearch
 
   # A column from the world's bottom: `layers` as `{block, count}` runs, then air.
   defp column(layers) do

@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerDropsTest do
   use ExUnit.Case, async: true
-  alias Valimc.{ItemMotionState, PlayerDrops}
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Player.Drops
   alias Valimc.Protocol.ItemStack
 
   defp player(pose \\ :standing),
@@ -13,10 +14,10 @@ defmodule Valimc.PlayerDropsTest do
     }
 
     eye = 1.2699999809265137
-    assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(:crouching), [stack], :directed)
+    assert {:ok, {0, 0}, [record]} = Drops.records(player(:crouching), [stack], :directed)
     assert record.stack == stack and record.x == 7.5 and record.z == 3.5
     assert record.y == 64.0 + eye - 0.30000001192092896
-    assert PlayerDrops.at_source?(record, player())
+    assert Drops.at_source?(record, player())
     assert ItemMotionState.valid?(record.motion)
     assert record.motion.pickup_delay == 40 and not record.motion.no_gravity
     {x, y, z} = record.motion.velocity
@@ -25,9 +26,9 @@ defmodule Valimc.PlayerDropsTest do
 
   test "death uses scattered upward launches while thrown stacks use directed motion" do
     stone = ItemStack.new("stone", 3)
-    assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(), [stone], :scattered)
+    assert {:ok, {0, 0}, [record]} = Drops.records(player(), [stone], :scattered)
     assert record.stack == stone and elem(record.motion.velocity, 1) == 0.20000000298023224
-    assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(), [stone], :directed)
+    assert {:ok, {0, 0}, [record]} = Drops.records(player(), [stone], :directed)
     assert elem(record.motion.velocity, 2) >= 0.28 and record.motion.pickup_delay == 40
   end
 
@@ -40,11 +41,11 @@ defmodule Valimc.PlayerDropsTest do
           {player(), [nil], :directed},
           {player(), [stone], :invalid}
         ],
-        do: assert({:error, :invalid_player_drop} = PlayerDrops.records(pose, stacks, kind))
+        do: assert({:error, :invalid_player_drop} = Drops.records(pose, stacks, kind))
 
-    assert {:ok, {0, 0}, []} = PlayerDrops.records(player(), [], :directed)
-    assert {:ok, _, [record]} = PlayerDrops.records(%{player() | x: 0, z: 0}, [stone], :directed)
-    assert PlayerDrops.at_source?(record, %{player() | x: 0, z: 0})
-    refute PlayerDrops.at_source?(%{record | x: 1.0}, %{player() | x: 0, z: 0})
+    assert {:ok, {0, 0}, []} = Drops.records(player(), [], :directed)
+    assert {:ok, _, [record]} = Drops.records(%{player() | x: 0, z: 0}, [stone], :directed)
+    assert Drops.at_source?(record, %{player() | x: 0, z: 0})
+    refute Drops.at_source?(%{record | x: 1.0}, %{player() | x: 0, z: 0})
   end
 end

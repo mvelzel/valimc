@@ -1,4 +1,4 @@
-alias Valimc.{Inventory, Menu, MenuClick}
+alias Valimc.Menus.{Inventory, Menu, Click}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 
@@ -30,7 +30,7 @@ Enum.each(cases, fn [creative, before, cursor, [[action, slot, button]], expecte
   initial = %Inventory{infinite_materials: creative, slots: slots, carried: stack.(cursor)}
 
   observed =
-    case MenuClick.plan(Menu.inventory(), nil, initial, Enum.at(actions, action), slot, button) do
+    case Click.plan(Menu.inventory(), nil, initial, Enum.at(actions, action), slot, button) do
       {:ok, nil, result, stacks} -> {:ok, result, stacks}
       other -> other
     end

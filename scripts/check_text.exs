@@ -1,6 +1,6 @@
 alias Valimc.Text.Codec
 alias Valimc.Protocol.ItemStack
-alias Valimc.NBT
+alias Valimc.Data.NBT
 [path, output] = System.argv()
 facts = :json.decode(File.read!(path))
 

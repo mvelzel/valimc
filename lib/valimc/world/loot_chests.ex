@@ -12,7 +12,8 @@ defmodule Valimc.World.LootChests do
   As vanilla, a looted chest's stored `Items` are ignored and a table the
   server does not know fills nothing.
   """
-  alias Valimc.{Loot, NBT}
+  alias Valimc.Blocks.Loot
+  alias Valimc.Data.NBT
   alias Valimc.World.{BlockEntities, Containers}
 
   @fields ~w(id x y z keepPacked Items LootTable LootTableSeed)
@@ -55,7 +56,7 @@ defmodule Valimc.World.LootChests do
   end
 
   defp unrolled_at(containers, entities, position, block) do
-    with true <- Valimc.Block.Chest.single?(block),
+    with true <- Valimc.Blocks.Chest.single?(block),
          false <- Map.has_key?(containers.entries, position),
          %{nbt: nbt} <- BlockEntities.live(entities, position, block) do
       unrolled(nbt)

@@ -1,5 +1,5 @@
-alias Valimc.{Inventory, Menu, MenuClick}
-alias Valimc.CookingBlocks
+alias Valimc.Menus.{Inventory, Menu, Click}
+alias Valimc.Blocks.CookingBlocks
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -60,7 +60,7 @@ kinds = {:furnace, :smoker, :blast_furnace}
     action = Map.fetch!(%{0 => :pickup, 1 => :quick_move, 2 => :swap}, row["action"])
 
     result =
-      MenuClick.plan(Menu.cooking(block), storage, inventory, action, row["slot"], row["button"])
+      Click.plan(Menu.cooking(block), storage, inventory, action, row["slot"], row["button"])
 
     if row["overflow"] do
       unless result == {:error, :unsupported_click},

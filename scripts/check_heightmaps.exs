@@ -1,5 +1,5 @@
 import Bitwise
-alias Valimc.Registry.BlockFacts
+alias Valimc.Data.BlockFacts
 alias Valimc.World.Chunk
 [trace_path] = System.argv()
 

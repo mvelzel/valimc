@@ -1,6 +1,6 @@
 defmodule Valimc.PlacementTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.Placement
+  alias Valimc.Blocks.Placement
   alias Valimc.Protocol.{Data, ItemStack, UseItemOn, Wire}
 
   defp request(face \\ 1, y \\ 0.5),
@@ -44,19 +44,19 @@ defmodule Valimc.PlacementTest do
     for bits <- [0x7FC00000, 0x7F800000, 0xFF800000] do
       raw = binary_part(body, 0, 10) <> <<bits::32>> <> binary_part(body, 14, 11)
       assert {:ok, %{cursor: :nonfinite, sequence: 127} = decoded} = UseItemOn.decode(raw)
-      refute Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor)
+      refute Valimc.Living.Interaction.valid_hit?(decoded.position, decoded.cursor)
     end
 
     # Native booleans accept any nonzero byte; coordinate validity belongs to admission.
     odd = <<0, 0::64, 1, 5::float-32, 0.5::float-32, 0.5::float-32, 2, 255, 0>>
     assert {:ok, %{inside: true, border: true} = decoded} = UseItemOn.decode(odd)
-    refute Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor)
+    refute Valimc.Living.Interaction.valid_hit?(decoded.position, decoded.cursor)
   end
 
   test "a creative ladder tries the directions the player looks along, clicked face first" do
-    ladder = Valimc.Registry.Blocks.default_state("ladder")
+    ladder = Valimc.Data.Blocks.default_state("ladder")
     stone = Data.block("stone")
-    facings = &for(s <- &1, do: Map.new(Valimc.Registry.Blocks.properties(s))["facing"])
+    facings = &for(s <- &1, do: Map.new(Valimc.Data.Blocks.properties(s))["facing"])
 
     # On a floor while looking west (`Direction.orderedByNearest`): the wall
     # looked at first.
@@ -70,7 +70,7 @@ defmodule Valimc.PlacementTest do
     assert hd(facings.(Placement.creative_states(ladder, stone, 0, wall))) == "east"
 
     # On the front of a ladder: nothing, as `LadderBlock` refuses it.
-    front = Valimc.Registry.Blocks.state("ladder", %{"facing" => "east"})
+    front = Valimc.Data.Blocks.state("ladder", %{"facing" => "east"})
     assert Placement.creative_states(ladder, front, 0, wall) == []
     assert Placement.creative_states(stone, stone, 0, wall) == [stone]
   end

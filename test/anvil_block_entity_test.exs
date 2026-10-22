@@ -1,11 +1,11 @@
 defmodule Valimc.AnvilBlockEntityTest do
   @moduledoc "Vanilla block entity compounds and item tags as ValiMC holds them (VMC-021e1)."
   use ExUnit.Case, async: true
-  alias Valimc.Anvil.BlockEntity
-  alias Valimc.NBT
-  alias Valimc.Physics.BlockEntities, as: Types
+  alias Valimc.Storage.Anvil.BlockEntity
+  alias Valimc.Data.NBT
+  alias Valimc.Blocks.BlockEntityTypes, as: Types
   alias Valimc.Protocol.{ItemData, ItemStack}
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.World.BlockEntities
 
   @chest BlockRegistry.default_state("chest")

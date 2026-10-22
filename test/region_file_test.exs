@@ -2,8 +2,8 @@ defmodule Valimc.RegionFileTest do
   @moduledoc "Anvil region file reading (VMC-021a); the oracle stage `region_files` checks vanilla's view."
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias Valimc.Anvil.RegionFile
-  alias Valimc.NBT
+  alias Valimc.Storage.Anvil.RegionFile
+  alias Valimc.Data.NBT
   import Bitwise
 
   @tag_bytes IO.iodata_to_binary(NBT.write({:compound, %{"DataVersion" => {:int, 5023}}}))

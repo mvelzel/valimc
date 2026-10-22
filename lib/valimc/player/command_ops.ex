@@ -6,9 +6,10 @@ defmodule Valimc.Player.CommandOps do
   command's job (`Valimc.Commands.Remote`), so feedback reports what the
   target did.
   """
-  alias Valimc.{Inventory, PlayerExperience}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.Experience
   alias Valimc.Living.{Effects, Health}
-  alias Valimc.Command.ItemPredicate
+  alias Valimc.Commands.Parser.ItemPredicate
 
   alias Valimc.Player.{
     CreativeInventory,
@@ -19,7 +20,7 @@ defmodule Valimc.Player.CommandOps do
   }
 
   alias Valimc.Protocol.{ItemStack, Packets}
-  import Valimc.Net.Codec, only: [send_packets: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2]
   import Kernel, except: [apply: 2]
 
   def apply(state, {:game_mode, mode, notice}) do
@@ -143,22 +144,22 @@ defmodule Valimc.Player.CommandOps do
     {reply, next} =
       case operation do
         {:add, amount, :points} ->
-          {:ok, PlayerExperience.add_points(xp, amount)}
+          {:ok, Experience.add_points(xp, amount)}
 
         {:add, amount, :levels} ->
-          {:ok, PlayerExperience.add_levels(xp, amount)}
+          {:ok, Experience.add_levels(xp, amount)}
 
         {:set, amount, :levels} ->
-          {true, PlayerExperience.set_levels(xp, amount)}
+          {true, Experience.set_levels(xp, amount)}
 
         {:set, amount, :points} ->
-          case PlayerExperience.set_points(xp, amount) do
+          case Experience.set_points(xp, amount) do
             {:ok, next} -> {true, next}
             :error -> {false, xp}
           end
 
         {:query, :points} ->
-          {PlayerExperience.points(xp), xp}
+          {Experience.points(xp), xp}
 
         {:query, :levels} ->
           {xp.level, xp}
@@ -168,7 +169,7 @@ defmodule Valimc.Player.CommandOps do
       {reply, state}
     else
       player = %{state.player | progression: %{state.player.progression | experience: next}}
-      Valimc.Players.update(state.connection, player)
+      Valimc.Player.PlayerList.update(state.connection, player)
       send_packets(state, [Packets.experience(next)])
       {reply, %{state | player: player}}
     end

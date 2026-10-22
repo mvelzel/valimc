@@ -5,13 +5,15 @@ defmodule Valimc.Commands.Blocks do
   `forceload` over `Valimc.World.ForcedChunks`. A clone is one box edit over
   its source and destination, all or nothing (`Valimc.World.BoxEdit`).
   """
-  alias Valimc.Command.{BlockInput, Error, Feedback, Source}
+  alias Valimc.Commands.Parser.BlockInput
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source}
   alias Valimc.Text
-  alias Valimc.Registry.Blocks
+  alias Valimc.Data.Blocks
   alias Valimc.World.ForcedChunks
 
   # The source's dimension, as forceload messages name it.
-  defp here(source), do: Valimc.Dimension.name(source.dimension)
+  defp here(source), do: Valimc.World.Dimension.name(source.dimension)
   @limit 32_768
 
   # ---- clone ----
@@ -55,7 +57,7 @@ defmodule Valimc.Commands.Blocks do
             filter.(state),
             do: {position, state}
 
-      if Enum.any?(entries, fn {_, state} -> Valimc.Block.block_entity(state) != nil end),
+      if Enum.any?(entries, fn {_, state} -> Valimc.Blocks.block_entity(state) != nil end),
         do: Error.refuse!("Cloning block entities is not supported yet")
 
       placed =
@@ -102,7 +104,7 @@ defmodule Valimc.Commands.Blocks do
   defp dimension!(_source, nil), do: :ok
 
   defp dimension!(source, id) do
-    if Valimc.Dimension.parse(id) == {:ok, source.dimension},
+    if Valimc.World.Dimension.parse(id) == {:ok, source.dimension},
       do: :ok,
       else: Error.fail!("argument.dimension.invalid", [id])
   end

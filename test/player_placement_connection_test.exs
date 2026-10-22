@@ -1,7 +1,9 @@
 defmodule Valimc.PlayerPlacementConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,7 +21,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     uuid = Connection.offline_uuid(name)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -47,7 +49,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     player =
       Map.merge(c.pose, %{
         game_mode: GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode)
+        abilities: Valimc.Player.Abilities.for_mode(mode)
       })
 
     inventory = %Inventory{
@@ -73,7 +75,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {_, client} = Client.login(c.name)
     client = Client.load_world(client)
     if loaded, do: Client.send_packet(client, :play, "player_loaded", <<>>)
-    pid = Enum.find(Players.all(), &(&1.name == c.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == c.name)).pid
     on_exit(fn -> Client.close(client) end)
     {client, pid}
   end
@@ -103,7 +105,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {client, pid} = login(c)
     send_place(client, c.target)
     client = ack(client)
-    {:ok, dry} = Valimc.ChestPlacement.single_state(90.0, 0)
+    {:ok, dry} = Valimc.Blocks.ChestPlacement.single_state(90.0, 0)
     assert Valimc.TestBlocks.get(c.target) == dry
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
     {x, y, z} = c.target
@@ -111,7 +113,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     :ok = Valimc.TestBlocks.set(wet, 89)
     send_place(client, wet, 1, 0.5, 1, 2)
     client = ack(client, 2)
-    {:ok, wet_state} = Valimc.ChestPlacement.single_state(90.0, 89)
+    {:ok, wet_state} = Valimc.Blocks.ChestPlacement.single_state(90.0, 89)
     assert Valimc.TestBlocks.get(wet) == wet_state
     assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
@@ -238,7 +240,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
         x: tx + 0.5,
         z: tz + 0.5,
         game_mode: GameMode.new(:survival),
-        abilities: Valimc.PlayerAbilities.for_mode(:survival)
+        abilities: Valimc.Player.Abilities.for_mode(:survival)
       })
 
     {:ok, bytes} = PlayerState.encode(other_uuid, PlayerState.capture(peer, %Inventory{}))
@@ -248,7 +250,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {_, peer_client} = Client.login(other)
     on_exit(fn -> Client.close(peer_client) end)
     Client.load_world(peer_client)
-    wait(fn -> Enum.any?(Players.all(), &(&1.name == other)) end)
+    wait(fn -> Enum.any?(PlayerList.all(), &(&1.name == other)) end)
     {client, pid} = login(c)
     before = Valimc.TestConn.state(pid).inventory.slots
     send_place(client, c.target)

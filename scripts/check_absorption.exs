@@ -1,5 +1,5 @@
 alias Valimc.Living.{Attributes, Effects, Health}
-alias Valimc.Protocol.EffectTypes
+alias Valimc.Data.EffectTypes
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 id = EffectTypes.id("absorption")

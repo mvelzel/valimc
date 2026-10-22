@@ -1,5 +1,5 @@
 alias Valimc.Living.Health
-alias Valimc.GameMode
+alias Valimc.Player.GameMode
 alias Valimc.Protocol.{ClientCommand, Packets, Wire}
 [input, output] = System.argv()
 cases = input |> File.read!() |> JSON.decode!()
@@ -25,7 +25,7 @@ packets =
         ["health", health, food, saturation] ->
           Packets.health(
             %Health{value: String.to_float(health)},
-            %Valimc.PlayerFood{
+            %Valimc.Player.Food{
               level: String.to_integer(food),
               saturation: String.to_float(saturation)
             }

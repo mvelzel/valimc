@@ -1,7 +1,7 @@
 Code.require_file("kernel_shapes.exs", __DIR__)
 alias Check.KernelShapes
 alias Valimc.Physics.CollisionContext
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 [file] = System.argv()
 cases = file |> File.read!() |> JSON.decode!()
 bits = fn value -> Base.encode16(<<value::float-64>>, case: :lower) end

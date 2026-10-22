@@ -1,4 +1,4 @@
-alias Valimc.Physics.ItemPickup
+alias Valimc.Entity.ItemPickup
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
 

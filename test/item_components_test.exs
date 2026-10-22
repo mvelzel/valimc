@@ -5,7 +5,7 @@ defmodule Valimc.Protocol.ItemComponentsTest do
   use ExUnit.Case, async: true
   alias Valimc.Text.Codec
   alias Valimc.Protocol.{Enchantments, ItemStack, ItemTypes, TooltipDisplay, Wire}
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
 
   defp literal(value), do: {:compound, %{"text" => {:string, value}}}
 

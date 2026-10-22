@@ -1,20 +1,20 @@
 defmodule Valimc.EntityReplicationTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Wire}
-  alias Valimc.World.{EntityReplication, EntityTracking, Entities}
+  alias Valimc.Entity.{Observer, Tracking, Store}
 
   # Views as an owner publishes them at tracking tick `tick`.
   defp views(count, tick \\ 0) do
     store =
-      Enum.reduce(1..count, Entities.new(), fn _, state ->
-        {:ok, next, _} = Entities.create(state, {0, 0}, ItemStack.new("stone"), {0.5, 64, 0.5})
+      Enum.reduce(1..count, Store.new(), fn _, state ->
+        {:ok, next, _} = Store.create(state, {0, 0}, ItemStack.new("stone"), {0.5, 64, 0.5})
         next
       end)
 
-    tracking = EntityTracking.sync(%EntityTracking{tick: tick}, store.views, nil)
+    tracking = Tracking.sync(%Tracking{tick: tick}, store.views, nil)
 
     tracking
-    |> EntityTracking.published(store.views)
+    |> Tracking.published(store.views)
     |> Map.new(fn {id, view} -> {id, Map.put(view, :tick, tick)} end)
   end
 
@@ -36,17 +36,17 @@ defmodule Valimc.EntityReplicationTest do
     [{id, _}] = Map.to_list(desired)
     {packet_id, payload} = EntityPackets.move(id, {4096, 0, 0}, false)
     move = {packet_id, IO.iodata_to_binary(payload)}
-    {state, packets} = EntityReplication.reconcile(EntityReplication.new(), desired, ring([]))
+    {state, packets} = Observer.reconcile(Observer.new(), desired, ring([]))
     assert names(packets) == ["add_entity", "set_entity_data"]
 
     # Tick 5 is already in the spawn; tick 6 is forwarded, once.
     frames = ring([{5, %{id => [move]}}, {6, %{id => [move]}}])
     state = %{state | regions: %{{0, 0} => 4}}
-    {state, packets} = EntityReplication.reconcile(state, desired, frames)
+    {state, packets} = Observer.reconcile(state, desired, frames)
     assert packets == [move]
-    assert {^state, []} = EntityReplication.reconcile(state, desired, frames)
+    assert {^state, []} = Observer.reconcile(state, desired, frames)
 
-    {state, packets} = EntityReplication.reconcile(state, %{}, frames)
+    {state, packets} = Observer.reconcile(state, %{}, frames)
     assert names(packets) == ["remove_entities"] and state.tracked == %{}
     {1, rest} = Wire.take_varint(elem(hd(packets), 1))
     assert {^id, <<>>} = Wire.take_varint(rest)
@@ -55,19 +55,19 @@ defmodule Valimc.EntityReplicationTest do
   test "an entity under another owner or tracker, or behind a gap, resyncs and is never respawned" do
     desired = views(1)
     [{id, view}] = Map.to_list(desired)
-    {state, _} = EntityReplication.reconcile(EntityReplication.new(), desired, ring([]))
+    {state, _} = Observer.reconcile(Observer.new(), desired, ring([]))
 
     # Handed back to its section: same owner, a new tracker.
     returned = %{id => %{view | tracker: view.tracker + 1}}
-    {_, packets} = EntityReplication.reconcile(state, returned, ring([]))
+    {_, packets} = Observer.reconcile(state, returned, ring([]))
     assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
     handed = %{id => %{view | epoch: make_ref(), base: {3.5, 64.0, 0.5}, tick: 9}}
-    {state, packets} = EntityReplication.reconcile(state, handed, ring([]))
+    {state, packets} = Observer.reconcile(state, handed, ring([]))
     assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
     assert state.tracked[id].since == 9
 
     gap = fn _, _ -> {:gap, 100} end
-    {state, packets} = EntityReplication.reconcile(state, handed, gap)
+    {state, packets} = Observer.reconcile(state, handed, gap)
     assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
     assert state.regions == %{{0, 0} => 100}
   end
@@ -77,16 +77,16 @@ defmodule Valimc.EntityReplicationTest do
     assert map_size(desired) == 1024
 
     state =
-      Enum.reduce(1..16, EntityReplication.new(), fn _, state ->
-        {next, packets} = EntityReplication.reconcile(state, desired, ring([]))
+      Enum.reduce(1..16, Observer.new(), fn _, state ->
+        {next, packets} = Observer.reconcile(state, desired, ring([]))
         assert length(packets) == 128
         next
       end)
 
     assert map_size(state.tracked) == 1024
-    {cleared, [packet]} = EntityReplication.reconcile(state, %{}, ring([]))
+    {cleared, [packet]} = Observer.reconcile(state, %{}, ring([]))
     assert cleared.tracked == %{}
-    assert Valimc.World.EntityView.packet_bytes(packet) < 262_144
+    assert Valimc.Entity.View.packet_bytes(packet) < 262_144
     assert {1024, _} = Wire.take_varint(elem(packet, 1))
   end
 end

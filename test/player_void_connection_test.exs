@@ -2,7 +2,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -26,9 +26,9 @@ defmodule Valimc.PlayerVoidConnectionTest do
           air_supply: 300
         },
         y: Keyword.get(opts, :y, -129.0),
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil
       })
 

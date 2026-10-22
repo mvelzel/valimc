@@ -1,6 +1,6 @@
 defmodule Valimc.InventoryCollectTest do
   use ExUnit.Case, async: true
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Protocol.ItemStack
 
   defp put(inv, slot, stack) do

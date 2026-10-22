@@ -1,5 +1,6 @@
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Box, CollisionContext, Kernel}
+alias Valimc.Physics.{BlockScan, CollisionContext, Kernel}
+alias Valimc.Data.Box
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 bits = fn t -> for n <- Tuple.to_list(t), do: <<n::float-64>> end

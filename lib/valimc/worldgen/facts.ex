@@ -6,12 +6,12 @@ defmodule Valimc.Worldgen.Facts do
   pools and templates). The native registry gets the files themselves at run
   time (`Valimc.Worldgen`), so these terms stay small.
   """
-  use Valimc.Facts, "worldgen/biomes.json"
-  use Valimc.Facts, file: "worldgen/features.json", as: :features
-  use Valimc.Facts, file: "worldgen/structures.json", as: :structures
-  use Valimc.Facts, file: "worldgen/structure_sets.json", as: :structure_sets
-  use Valimc.Facts, file: "worldgen/template_pools.json", as: :pools
-  use Valimc.Facts, file: "worldgen/structure_templates.json", as: :templates
+  use Valimc.Data.Facts, "worldgen/biomes.json"
+  use Valimc.Data.Facts, file: "worldgen/features.json", as: :features
+  use Valimc.Data.Facts, file: "worldgen/structures.json", as: :structures
+  use Valimc.Data.Facts, file: "worldgen/structure_sets.json", as: :structure_sets
+  use Valimc.Data.Facts, file: "worldgen/template_pools.json", as: :pools
+  use Valimc.Data.Facts, file: "worldgen/structure_templates.json", as: :templates
 
   @biome_names @facts |> Map.keys() |> Enum.sort()
   @climates for name <- @biome_names,

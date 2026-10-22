@@ -73,7 +73,7 @@ defmodule Valimc.InventoryConnectionTest do
     client = snapshot(client)
     assert client.inventory.state_id == 4
     assert Enum.at(client.inventory.items, 0) == nil
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     assert map_size(Valimc.TestConn.state(player.pid).inventory.slots) == 2
   end
 
@@ -115,7 +115,7 @@ defmodule Valimc.InventoryConnectionTest do
     assert Enum.at(client.inventory.items, 9).count == 4
     {cursor, client} = Client.await(client, :play, "set_cursor_item")
     assert ItemStack.decode(cursor) == {:ok, %{eggs | count: 5}}
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     ref = Process.monitor(player.pid)
     Client.send_packet(client, :play, "container_click", <<0, 0, 9::16, 0, 0, 0, 0, 99>>)
     {body, _} = Client.await(client, :play, "disconnect")
@@ -123,7 +123,7 @@ defmodule Valimc.InventoryConnectionTest do
     assert_receive {:DOWN, ^ref, :process, _, :normal}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
     {_, _} = Client.await_stats(healthy)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   test "close returns owned cursor, cleans grid and ignores reported container ID without touching peers" do

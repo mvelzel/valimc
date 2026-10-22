@@ -2,7 +2,7 @@ defmodule Valimc.Session.Commands do
   @moduledoc """
   Chat throttling and chat commands (VMC-069, VMC-053, VMC-077a).
 
-  A command runs as the connection's `:command` job (`Valimc.Session.Jobs`): a
+  A command runs as the connection's `:command` job (`Valimc.Player.Jobs`): a
   task of `Valimc.CommandWorkers` with a snapshot of the player as its source
   (`Valimc.Commands.run/2`), so an owner that is slow or gone never blocks or
   kills the connection. The connection keeps handling packets meanwhile; the
@@ -16,11 +16,11 @@ defmodule Valimc.Session.Commands do
   the latest request waits: the client keeps only the answer to its latest id.
   """
 
-  import Valimc.Net.Codec, only: [reject: 2]
-  alias Valimc.ChatThrottle
-  alias Valimc.Command.{Feedback, Source}
+  import Valimc.Protocol.Codec, only: [reject: 2]
+  alias Valimc.Session.ChatThrottle
+  alias Valimc.Commands.{Feedback, Source}
   alias Valimc.Text
-  alias Valimc.Session.Jobs
+  alias Valimc.Player.Jobs
 
   @queue 8
   @deadline 60_000
@@ -72,9 +72,9 @@ defmodule Valimc.Session.Commands do
 
         task =
           Task.Supervisor.async_nolink(Valimc.CommandWorkers, fn ->
-            Valimc.Command.Suggestions.packet(
+            Valimc.Commands.Suggestions.packet(
               id,
-              Valimc.Command.Suggestions.suggest(text, source)
+              Valimc.Commands.Suggestions.suggest(text, source)
             )
           end)
 
@@ -90,7 +90,7 @@ defmodule Valimc.Session.Commands do
 
   @doc "The suggestion `job` ended with `packet` (nil when it failed); the latest waiting one starts."
   def suggested(state, job, packet) do
-    if packet, do: Valimc.Net.Codec.send_packets(state, [packet])
+    if packet, do: Valimc.Protocol.Codec.send_packets(state, [packet])
 
     case job.next do
       nil -> state

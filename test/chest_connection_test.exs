@@ -1,7 +1,9 @@
 defmodule Valimc.ChestConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
@@ -24,7 +26,7 @@ defmodule Valimc.ChestConnectionTest do
     uuid = Connection.offline_uuid(name)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -57,7 +59,7 @@ defmodule Valimc.ChestConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode)
+        abilities: Valimc.Player.Abilities.for_mode(mode)
       })
 
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
@@ -84,9 +86,9 @@ defmodule Valimc.ChestConnectionTest do
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input) end)
+    wait(fn -> Valimc.Player.Input.loaded?(Valimc.TestConn.state(pid).player.input) end)
 
     on_exit(fn ->
       Client.close(client)
@@ -118,7 +120,7 @@ defmodule Valimc.ChestConnectionTest do
   defp open(client, ctx, hand \\ 0) do
     use_chest(client, ctx, hand)
     {_, client} = Client.await(client, :play, "block_changed_ack")
-    pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     assert Valimc.TestConn.state(pid).table_menu != nil
     {body, client} = Client.await(client, :play, "open_screen")
     {id, body} = Wire.take_varint(body)

@@ -4,7 +4,9 @@ defmodule Valimc.PlayerLandingConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerMotion, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{Motion, PlayerList}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -22,7 +24,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     pose = %{x: rx * 128 + 40.5, y: 72.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -60,9 +62,9 @@ defmodule Valimc.PlayerLandingConnectionTest do
           effects: Keyword.get(opts, :effects, %{})
         },
         y: Keyword.get(opts, :y, ctx.pose.y),
-        motion: %PlayerMotion{fall_distance: Keyword.get(opts, :distance, 0.0)},
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
+        motion: %Motion{fall_distance: Keyword.get(opts, :distance, 0.0)},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
         last_death: nil
       })
 
@@ -75,11 +77,11 @@ defmodule Valimc.PlayerLandingConnectionTest do
   defp login(ctx) do
     {_, client} = Client.login(ctx.name)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
     wait(fn ->
-      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
+      not state(pid).teleport_pending and Valimc.Player.Input.loaded?(state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)

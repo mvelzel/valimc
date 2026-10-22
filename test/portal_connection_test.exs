@@ -4,10 +4,13 @@ defmodule Valimc.PortalConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 240_000
-  alias Valimc.{Connection, Dimension, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.World.Dimension
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
 
-  alias Valimc.Portal.Blocks
+  alias Valimc.Blocks.PortalBlocks
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -23,7 +26,7 @@ defmodule Valimc.PortalConnectionTest do
     origin = {rx * 128 + 40, 64, rz * 128 + 40}
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -74,9 +77,9 @@ defmodule Valimc.PortalConnectionTest do
       z: z + 0.5,
       yaw: 0.0,
       pitch: 0.0,
-      game_mode: Valimc.GameMode.new(mode),
-      abilities: Valimc.PlayerAbilities.for_mode(mode),
-      motion: %Valimc.PlayerMotion{},
+      game_mode: Valimc.Player.GameMode.new(mode),
+      abilities: Valimc.Player.Abilities.for_mode(mode),
+      motion: %Valimc.Player.Motion{},
       last_death: nil
     }
 
@@ -88,7 +91,7 @@ defmodule Valimc.PortalConnectionTest do
 
   defp enter(ctx) do
     {_, client} = Client.login(ctx.name)
-    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    pid = wait(fn -> Enum.find(PlayerList.all(), &(&1.name == ctx.name)) end).pid
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
     wait(fn -> not state(pid).teleport_pending end)
@@ -99,25 +102,25 @@ defmodule Valimc.PortalConnectionTest do
   # An obsidian frame with a 2 × 3 opening from `{x, y, z}` along X.
   defp frame({x, y, z}) do
     for dx <- -1..2, dy <- -1..3, dx in [-1, 2] or dy in [-1, 3], into: %{} do
-      {{x + dx, y + dy, z}, Blocks.obsidian()}
+      {{x + dx, y + dy, z}, PortalBlocks.obsidian()}
     end
   end
 
   # Owners still generating answer late; the portal commits retry them.
-  defp set(edits), do: :ok = Valimc.Portal.Access.commit(Map.to_list(edits))
+  defp set(edits), do: :ok = Valimc.World.Portal.Access.commit(Map.to_list(edits))
 
   # The destination's regions a lit or opened portal admits ahead of the player.
   defp warmed?(kind, position) do
-    {dimension, area} = Valimc.Portal.Warm.area(kind, position)
+    {dimension, area} = Valimc.World.Portal.Warm.area(kind, position)
 
     Dimension.within(dimension, fn ->
-      Enum.all?(Valimc.Portal.Warm.regions(area), &Valimc.TestWorld.lookup/1)
+      Enum.all?(Valimc.World.Portal.Warm.regions(area), &Valimc.TestWorld.lookup/1)
     end)
   end
 
   defp blocks(positions, dimension \\ :overworld) do
     Dimension.within(dimension, fn ->
-      read = Valimc.Portal.Access.reader()
+      read = Valimc.World.Portal.Access.reader()
       Map.new(positions, &{&1, read.(&1)})
     end)
   end
@@ -157,7 +160,7 @@ defmodule Valimc.PortalConnectionTest do
     ])
 
     opening = for dx <- 0..1, dy <- 0..2, do: {x + dx, y + dy, z}
-    wait(fn -> Enum.all?(blocks(opening), fn {_, s} -> s == Blocks.portal(:x) end) end)
+    wait(fn -> Enum.all?(blocks(opening), fn {_, s} -> s == PortalBlocks.portal(:x) end) end)
     assert state(pid).inventory.slots[36] == ItemStack.new("flint_and_steel", 1)
     # The Nether's regions around the scaled position start loading before anyone steps in.
     wait(fn -> warmed?(:nether_portal, bottom) end)
@@ -169,7 +172,7 @@ defmodule Valimc.PortalConnectionTest do
     assert state(pid).player.dimension == :the_nether
     assert abs(nx - (x + 1.0) / 8) < 17 and abs(nz - (z + 0.5) / 8) < 17
     arrival = {floor(nx), floor(ny), floor(nz)}
-    assert Blocks.portal?(blocks([arrival], :the_nether)[arrival])
+    assert PortalBlocks.portal?(blocks([arrival], :the_nether)[arrival])
     # On cooldown in the new portal, the player stays.
     ticks(pid, 20)
     assert state(pid).player.dimension == :the_nether
@@ -191,13 +194,13 @@ defmodule Valimc.PortalConnectionTest do
 
     # Breaking the frame puts the portal out.
     _client = move(client, pid, {x + 6.5, y * 1.0, z + 0.5})
-    set(%{{x - 1, y + 1, z} => Valimc.Registry.Blocks.default_state("air")})
-    wait(fn -> Enum.all?(blocks(opening), fn {_, s} -> Blocks.air?(s) end) end)
+    set(%{{x - 1, y + 1, z} => Valimc.Data.Blocks.default_state("air")})
+    wait(fn -> Enum.all?(blocks(opening), fn {_, s} -> PortalBlocks.air?(s) end) end)
   end
 
   defp ring({ix, y, iz}, eyes) do
     frame = fn facing, eye ->
-      Valimc.Registry.Blocks.state("end_portal_frame", %{
+      Valimc.Data.Blocks.state("end_portal_frame", %{
         "facing" => facing,
         "eye" => to_string(eye)
       })
@@ -243,18 +246,18 @@ defmodule Valimc.PortalConnectionTest do
     ])
 
     cells = for dx <- 0..2, dz <- 0..2, do: {x + dx, y, z + dz}
-    portal = Valimc.Registry.Blocks.default_state("end_portal")
+    portal = Valimc.Data.Blocks.default_state("end_portal")
     wait(fn -> Enum.all?(blocks(cells), fn {_, s} -> s == portal end) end)
     assert state(pid).inventory.slots[36] == ItemStack.new("ender_eye", 3)
     wait(fn -> warmed?(:end_portal, interior) end)
 
     # A gateway with an exit in the platform's space is cleared like any block.
-    gateway = Valimc.Registry.Blocks.default_state("end_gateway")
+    gateway = Valimc.Data.Blocks.default_state("end_gateway")
     {:ok, exit} = Valimc.Worldgen.FullChunk.gateway_entry({98, 50, -2}, {{1000, 80, 0}, false})
 
     Dimension.within(:the_end, fn ->
       set(%{{98, 50, -2} => gateway})
-      :ok = Valimc.Portal.Access.put_block_entities(%{{98, 50, -2} => exit})
+      :ok = Valimc.World.Portal.Access.put_block_entities(%{{98, 50, -2} => exit})
     end)
 
     client = move(client, pid, {x + 1.5, y + 0.0, z + 1.5})
@@ -263,9 +266,9 @@ defmodule Valimc.PortalConnectionTest do
     assert {ex, ey, ez} == {100.5, 49.0, 0.5}
     assert state(pid).player.yaw == 90.0
     floor = for dx <- -2..2, dz <- -2..2, do: {100 + dx, 48, dz}
-    assert Enum.all?(blocks(floor, :the_end), fn {_, s} -> s == Blocks.obsidian() end)
+    assert Enum.all?(blocks(floor, :the_end), fn {_, s} -> s == PortalBlocks.obsidian() end)
     room = for dx <- -2..2, dz <- -2..2, dy <- 49..51, do: {100 + dx, dy, dz}
-    assert Enum.all?(blocks(room, :the_end), fn {_, s} -> Blocks.air?(s) end)
+    assert Enum.all?(blocks(room, :the_end), fn {_, s} -> PortalBlocks.air?(s) end)
 
     # An end portal in the End rolls the credits once, then respawns at the world spawn.
     Dimension.within(:the_end, fn -> set(%{{102, 49, 2} => portal}) end)

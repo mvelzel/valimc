@@ -2,7 +2,9 @@ defmodule Valimc.PlayerHealthConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -16,7 +18,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     Application.put_env(:valimc, :world_path, base)
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -36,7 +38,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     {_, client} = Client.await(client, :play, "login")
     {<<health::float-32, rest::binary>>, client} = Client.await(client, :play, "set_health")
     assert {20, <<5.0::float-32>>} = Wire.take_varint(rest)
-    {pid, _} = Enum.find(:ets.tab2list(Players), fn {_, player} -> player.name == name end)
+    {pid, _} = Enum.find(:ets.tab2list(PlayerList), fn {_, player} -> player.name == name end)
     _ = Valimc.TestConn.state(pid)
     {health, client, pid}
   end
@@ -44,7 +46,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
   defp departed(ctx, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
       Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] and
-        not Enum.any?(Players.all(), &(&1.name == ctx.name))
+        not Enum.any?(PlayerList.all(), &(&1.name == ctx.name))
     end)
   end
 
@@ -61,9 +63,9 @@ defmodule Valimc.PlayerHealthConnectionTest do
       z: 0.5,
       yaw: 0.0,
       pitch: 0.0,
-      game_mode: Valimc.GameMode.new(:survival),
-      abilities: Valimc.PlayerAbilities.for_mode(:survival),
-      motion: %Valimc.PlayerMotion{},
+      game_mode: Valimc.Player.GameMode.new(:survival),
+      abilities: Valimc.Player.Abilities.for_mode(:survival),
+      motion: %Valimc.Player.Motion{},
       last_death: nil
     }
 

@@ -20,12 +20,12 @@ defmodule Valimc.Admin.ListFile do
   end
 
   @doc "Writes entries (lists of `{key, value}` in field order) pretty-printed: `:ok` or `{:error, _}`."
-  def write(path, entries), do: Valimc.DurableFile.write(path, pretty(entries))
+  def write(path, entries), do: Valimc.Storage.DurableFile.write(path, pretty(entries))
 
   @doc "Writes entries on one line, as vanilla's name cache does."
   def write_compact(path, entries) do
     body = Enum.map_join(entries, ",", &object(&1, ","))
-    Valimc.DurableFile.write(path, "[" <> body <> "]")
+    Valimc.Storage.DurableFile.write(path, "[" <> body <> "]")
   end
 
   def pretty([]), do: "[]"
@@ -92,8 +92,8 @@ defmodule Valimc.Admin.ListFile do
 
   # ---- UUIDs ----
 
-  defdelegate uuid_string(uuid), to: Valimc.UUID, as: :to_string
-  defdelegate parse_uuid(text), to: Valimc.UUID, as: :parse
+  defdelegate uuid_string(uuid), to: Valimc.Data.UUID, as: :to_string
+  defdelegate parse_uuid(text), to: Valimc.Data.UUID, as: :parse
 
   # ---- dates ----
 

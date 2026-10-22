@@ -3,16 +3,18 @@ defmodule Valimc.World.ContainerClicks do
   A click in a chest's or a furnace's menu (VMC-077i3): the container's owner
   applies it to the container and the player's inventory together, as a
   plain call from the player's group. The gestures are the menu click
-  engine's (`Valimc.MenuClick`) that move nothing into the world and no drag:
+  engine's (`Valimc.Menus.Click`) that move nothing into the world and no drag:
   pick up, shift-click and number swaps.
 
   Taking a furnace's earned output (its result while recipes are credited)
   awards the experience vanilla's `AbstractFurnaceBlockEntity` spawns as orbs
   at the player, and the player learns those recipes.
   """
-  alias Valimc.{Cooking, CookingAwards, CookingBlocks, Inventory, Menu, MenuClick}
+  alias Valimc.Blocks.{Cooking, CookingAwards, CookingBlocks}
+  alias Valimc.Menus.{Inventory, Menu, Click}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, ExperienceOrbs}
+  alias Valimc.World.Containers
+  alias Valimc.Entity.ExperienceOrbs
 
   @actions [:pickup, :quick_move, :swap]
 
@@ -30,7 +32,7 @@ defmodule Valimc.World.ContainerClicks do
   def plan(%{slots: _} = view, %Inventory{drag: drag} = inventory, action, slot, button)
       when drag == nil and action in @actions do
     with {:ok, menu} <- menu(view),
-         do: MenuClick.plan_without_drops(menu, view.slots, inventory, action, slot, button)
+         do: Click.plan_without_drops(menu, view.slots, inventory, action, slot, button)
   end
 
   def plan(_view, _inventory, _action, _slot, _button), do: {:error, :unsupported_container_click}

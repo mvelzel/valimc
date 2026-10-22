@@ -3,20 +3,20 @@
 #   python3 scripts/java_tool.py ChunkOracle generate <dir> <dir>/chunks.json
 #   MIX_ENV=prod mix run --no-start bench/anvil_export.exs <dir>/universe/w <scratch>
 #
-# Imports the world once, then five whole exports (Valimc.Anvil.Export.run,
+# Imports the world once, then five whole exports (Valimc.Storage.Anvil.Export.run,
 # parallel per vanilla region, crash-safe writes) after one warmup, then a
 # one-process phase breakdown per chunk: column dump, chunk NBT, NBT write, zlib,
 # and block palette packing in Rust against its Elixir reference.
 # Finally every imported chunk's packet with its light (each chunk's own, stored
 # at import, then lit across the faces, VMC-077c) against the full-bright packet: bytes before and after network compression, and encode time.
-alias Valimc.Anvil.{Chunk, Export, Import}
-alias Valimc.NBT
+alias Valimc.Storage.Anvil.{Chunk, Export, Import}
+alias Valimc.Data.NBT
 alias Valimc.Protocol.Packets
 alias Valimc.World.{Blocks, RegionStorage}
 
 [world, scratch | _] = System.argv()
 Valimc.Protocol.Data.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 File.rm_rf!(scratch)
 imported = Path.join(scratch, "imported")
 {:ok, report} = Import.run(world, imported)

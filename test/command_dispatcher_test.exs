@@ -1,7 +1,8 @@
 defmodule Valimc.CommandDispatcherTest do
   use ExUnit.Case, async: true
   # Parsing is pure; the commands oracle stage compares it with vanilla's dispatcher.
-  alias Valimc.Command.{Error, Reader, Source}
+  alias Valimc.Text.{Error, Reader}
+  alias Valimc.Commands.Source
   alias Valimc.Text
 
   defp parse(input, level \\ 4), do: Valimc.Commands.parse(input, Source.parse_only(level))
@@ -30,14 +31,14 @@ defmodule Valimc.CommandDispatcherTest do
 
   test "server suggestions answer ask_server time markers and timelines" do
     source = Source.parse_only(4)
-    assert {10, 0, markers} = Valimc.Command.Suggestions.suggest("/time set ", source)
+    assert {10, 0, markers} = Valimc.Commands.Suggestions.suggest("/time set ", source)
     assert markers == ~w(minecraft:day minecraft:midnight minecraft:night minecraft:noon)
 
     assert {10, 1, ["minecraft:night", "minecraft:noon"]} =
-             Valimc.Command.Suggestions.suggest("/time set n", source)
+             Valimc.Commands.Suggestions.suggest("/time set n", source)
 
     assert {12, 11, ["minecraft:day"]} =
-             Valimc.Command.Suggestions.suggest("/time query minecraft:d", source)
+             Valimc.Commands.Suggestions.suggest("/time query minecraft:d", source)
 
     assert {12, 0,
             [
@@ -48,12 +49,12 @@ defmodule Valimc.CommandDispatcherTest do
               "minecraft:villager_schedule",
               "time"
             ]} =
-             Valimc.Command.Suggestions.suggest("/time query ", source)
+             Valimc.Commands.Suggestions.suggest("/time query ", source)
 
     assert {_, _, []} =
-             Valimc.Command.Suggestions.suggest("/time of minecraft:the_end set ", source)
+             Valimc.Commands.Suggestions.suggest("/time of minecraft:the_end set ", source)
 
-    assert {1, 4, ["time"]} = Valimc.Command.Suggestions.suggest("/time", source)
-    assert Valimc.Command.Suggestions.matches_sub_str?("sch", "villager_schedule")
+    assert {1, 4, ["time"]} = Valimc.Commands.Suggestions.suggest("/time", source)
+    assert Valimc.Commands.Suggestions.matches_sub_str?("sch", "villager_schedule")
   end
 end

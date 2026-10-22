@@ -1,8 +1,8 @@
 defmodule Valimc.AnvilEntityTest do
   @moduledoc "Vanilla entity compounds as ValiMC holds them (VMC-021e2)."
   use ExUnit.Case, async: true
-  alias Valimc.Anvil.Entity
-  alias Valimc.NBT
+  alias Valimc.Storage.Anvil.Entity
+  alias Valimc.Data.NBT
   alias Valimc.Protocol.{ItemData, ItemStack}
 
   @uuid <<1::32, 2::32, 3::32, 4::32>>

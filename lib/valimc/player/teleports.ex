@@ -4,7 +4,7 @@ defmodule Valimc.Player.Teleports do
   absolute position; vanilla's relative flags end at the same pose. Motion stops,
   flight continues and dead players stay where they are.
   """
-  alias Valimc.PlayerMotion
+  alias Valimc.Player.Motion
 
   # Another dimension's pose travels there (VMC-026b): vanilla's cross-level
   # `teleportTo` arrives at rest and starts no portal cooldown.
@@ -38,10 +38,10 @@ defmodule Valimc.Player.Teleports do
 
     player = %{
       state.player
-      | motion: PlayerMotion.flight(state.player.motion, player.abilities.flying)
+      | motion: Motion.flight(state.player.motion, player.abilities.flying)
     }
 
-    Valimc.Players.update(state.connection, player)
+    Valimc.Player.PlayerList.update(state.connection, player)
     %{state | player: player}
   end
 

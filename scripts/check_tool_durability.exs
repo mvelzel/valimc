@@ -1,4 +1,4 @@
-alias Valimc.Durability
+alias Valimc.Living.Durability
 alias Valimc.Protocol.{ItemStack, ItemTypes}
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()

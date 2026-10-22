@@ -13,10 +13,12 @@ defmodule Valimc.Player.Menus do
   """
   alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
   alias Valimc.Player.{CreativeInventory, Items, ItemUse, Mining}
-  alias Valimc.{Inventory, Menu, MenuClick, PlayerInput, World}
+  alias Valimc.Menus.{Inventory, Menu, Click}
+  alias Valimc.Player.Input
+  alias Valimc.World
   alias Valimc.World.Region
 
-  import Valimc.Net.Codec, only: [send_packets: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2]
 
   # A crafting gesture repeats while its result stays the same (vanilla's
   # `quickMoveStack` loop), at most this often per click.
@@ -52,15 +54,15 @@ defmodule Valimc.Player.Menus do
     CreativeInventory.resync_inventory(state)
   end
 
-  # What a grant tells the owner of the player (`Valimc.MenuAccess`).
+  # What a grant tells the owner of the player (`Valimc.Menus.MenuAccess`).
   defp grant(state, kind, hand \\ :main) do
     grant = %{
       kind: kind,
       mode: state.player.game_mode.current,
-      eye: Valimc.PlayerInteraction.eye(state.player),
+      eye: Valimc.Living.Interaction.eye(state.player),
       expires: System.monotonic_time(:millisecond) + 250,
       hand: hand,
-      secondary: PlayerInput.pressed?(state.player.input, :shift),
+      secondary: Input.pressed?(state.player.input, :shift),
       main: Inventory.held(state.inventory, :main) != nil,
       off: Inventory.held(state.inventory, :off) != nil
     }
@@ -169,12 +171,12 @@ defmodule Valimc.Player.Menus do
       if menu.kind == :table, do: Data.item_block(Data.item("crafting_table")), else: menu.block
 
     state.life_stage == :alive and not state.teleport_pending and
-      PlayerInput.loaded?(state.player.input) and
-      Valimc.MenuAccess.valid_view?(
+      Input.loaded?(state.player.input) and
+      Valimc.Menus.MenuAccess.valid_view?(
         menu.kind,
         block,
         state.player.game_mode.current,
-        Valimc.PlayerInteraction.eye(state.player),
+        Valimc.Living.Interaction.eye(state.player),
         menu.position
       )
   end
@@ -275,7 +277,7 @@ defmodule Valimc.Player.Menus do
   end
 
   defp menu_click(%{table_menu: %{kind: :table}} = state, click) do
-    case MenuClick.plan(
+    case Click.plan(
            Menu.table(),
            nil,
            state.inventory,
@@ -302,7 +304,7 @@ defmodule Valimc.Player.Menus do
   defp menu_click(%{table_menu: menu} = state, click) do
     actor = %{
       mode: state.player.game_mode.current,
-      eye: Valimc.PlayerInteraction.eye(state.player),
+      eye: Valimc.Living.Interaction.eye(state.player),
       position: {state.player.x, state.player.y, state.player.z},
       health: state.player.living.health.value,
       expires: System.monotonic_time(:millisecond) + 250
@@ -331,12 +333,12 @@ defmodule Valimc.Player.Menus do
   defp learn(state, []), do: state
 
   defp learn(state, recipes) do
-    case Valimc.PlayerProgression.learn(state.player.progression, recipes) do
+    case Valimc.Player.Progression.learn(state.player.progression, recipes) do
       {:ok, progression} ->
         learned = MapSet.difference(progression.recipes, state.player.progression.recipes)
 
         if MapSet.size(learned) > 0,
-          do: send_packets(state, [Valimc.CookingRecipeBook.packet(learned, false, true)])
+          do: send_packets(state, [Valimc.Blocks.CookingRecipeBook.packet(learned, false, true)])
 
         put_in(state.player.progression, progression)
 
@@ -373,7 +375,7 @@ defmodule Valimc.Player.Menus do
   defp repeat(state, click, repeats) do
     menu = if state.table_menu, do: Menu.table(), else: Menu.inventory()
 
-    case MenuClick.plan(menu, nil, state.inventory, click.action, 0, click.button) do
+    case Click.plan(menu, nil, state.inventory, click.action, 0, click.button) do
       {:ok, nil, inventory, []} ->
         CreativeInventory.resync_inventory(%{state | inventory: inventory})
 

@@ -1,11 +1,11 @@
 defmodule Valimc.Commands.Preview do
   @moduledoc "ValiMC's own commands beside vanilla's: `/stats` and `/spawn` (VMC-002)."
-  alias Valimc.Command.{Feedback, Source}
+  alias Valimc.Commands.{Feedback, Source}
   alias Valimc.Text
   alias Valimc.Commands.Remote
 
   def stats(_arguments, source) do
-    stats = Valimc.Metrics.snapshot()
+    stats = Valimc.Data.Metrics.snapshot()
 
     Feedback.success(
       source,
@@ -32,7 +32,7 @@ defmodule Valimc.Commands.Preview do
       })
 
     # Dead players stay where they are.
-    if Valimc.Command.Targets.alive?(player) and Remote.run!(player, {:teleport, pose}) == :ok,
+    if Valimc.Commands.Targets.alive?(player) and Remote.run!(player, {:teleport, pose}) == :ok,
       do: 1,
       else: 0
   end

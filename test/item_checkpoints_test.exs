@@ -1,9 +1,10 @@
 defmodule Valimc.ItemCheckpointsTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.ItemMotionState
+  alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Entities, Region}
+  alias Valimc.Entity.Store
+  alias Valimc.World.Region
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -79,6 +80,6 @@ defmodule Valimc.ItemCheckpointsTest do
     assert {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
 
     assert [%{motion: %{age: 1}}] =
-             Entities.records(Valimc.TestRegion.section(owner).entities.store)
+             Store.records(Valimc.TestRegion.section(owner).entities.store)
   end
 end

@@ -4,8 +4,8 @@ defmodule Valimc.PortalTest do
 
   defp player(mode, cooldown \\ 0),
     do: %{
-      game_mode: Valimc.GameMode.new(mode),
-      abilities: Valimc.PlayerAbilities.for_mode(mode),
+      game_mode: Valimc.Player.GameMode.new(mode),
+      abilities: Valimc.Player.Abilities.for_mode(mode),
       portal_cooldown: cooldown
     }
 
@@ -55,7 +55,7 @@ defmodule Valimc.PortalTest do
   end
 
   test "a portal warms its destination's regions: the scaled square, or the End's platform" do
-    alias Valimc.Portal.Warm
+    alias Valimc.World.Portal.Warm
     assert {:the_nether, {82, -28, 118, 8} = square} = Warm.area(:nether_portal, {800, 64, -80})
     assert Warm.regions(square) == [{0, -1}, {0, 0}]
     assert Warm.regions({-18, -18, 18, 18}) == [{-1, -1}, {-1, 0}, {0, -1}, {0, 0}]

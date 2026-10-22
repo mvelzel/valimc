@@ -3,7 +3,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -26,9 +26,9 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
           freezing: %Freezing{frozen_ticks: 140},
           health: %Health{value: Keyword.get(opts, :health, 20.0)}
         },
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil
       })
 

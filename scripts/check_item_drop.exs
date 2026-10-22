@@ -1,4 +1,4 @@
-alias Valimc.Physics.ItemDrop
+alias Valimc.Entity.ItemDrop
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 unless length(cases) == 720, do: raise("Incomplete native item launch observations")

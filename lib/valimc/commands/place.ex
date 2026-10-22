@@ -14,7 +14,8 @@ defmodule Valimc.Commands.Place do
   require Logger
   import Bitwise, only: [<<<: 2]
   alias Valimc.World.BoxEdit
-  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source}
   alias Valimc.Text
   alias Valimc.Native
 
@@ -169,7 +170,7 @@ defmodule Valimc.Commands.Place do
       {:ok, %{kind: :noise} = spec} ->
         {:ok, state} =
           generate!(fn ->
-            Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+            Valimc.Worldgen.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
           end)
 
         {state, spec.biome_source}
@@ -182,11 +183,11 @@ defmodule Valimc.Commands.Place do
       # A jigsaw needs the structure registry, which fixed biome sources lack;
       # it reads the overworld's only for template pools and level bounds.
       _flat when kind == "jigsaw" ->
-        {:ok, state} = generate!(fn -> Valimc.World.Generator.worldgen(0) end)
+        {:ok, state} = generate!(fn -> Valimc.Worldgen.Generator.worldgen(0) end)
         {state, "minecraft:overworld"}
 
       _flat ->
-        {:ok, state} = generate!(fn -> Valimc.World.Generator.worldgen(0) end)
+        {:ok, state} = generate!(fn -> Valimc.Worldgen.Generator.worldgen(0) end)
         {state, "fixed:minecraft:plains"}
     end
   end

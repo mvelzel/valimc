@@ -2,7 +2,8 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.TestClient, as: Client
@@ -18,7 +19,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 
     for {name, index} <- Enum.with_index(names) do
-      uuid = Valimc.Connection.offline_uuid(name)
+      uuid = Valimc.Net.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 2}
       path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
@@ -27,7 +28,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     end
 
     on_exit(fn ->
-      for player <- Players.all(),
+      for player <- PlayerList.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
@@ -48,7 +49,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     {_, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    player = Enum.find(Players.all(), &(&1.name == name))
+    player = Enum.find(PlayerList.all(), &(&1.name == name))
     Client.send_packet(client, :play, "player_loaded", <<>>)
     {client, player.pid}
   end
@@ -58,16 +59,16 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp seed(ctx, name, inventory, mode \\ :creative) do
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
 
     player =
       Map.merge(ctx.pos, %{
         living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil,
-        food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
+        food: %Valimc.Player.Food{level: 5, saturation: 0.0}
       })
 
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
@@ -116,11 +117,11 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     assert state(pid).player.equipment == %{0 => bowl, 1 => patched}
     # Departing observers remove their cached view with the existing player lifecycle.
     Client.close(receiver)
-    wait(fn -> Enum.all?(Players.all(), &(&1.name != second)) end)
+    wait(fn -> Enum.all?(PlayerList.all(), &(&1.name != second)) end)
     Client.close(sender)
 
     wait(fn ->
-      Registry.lookup(Valimc.PlayerRegistry, Valimc.Connection.offline_uuid(first)) == []
+      Registry.lookup(Valimc.PlayerRegistry, Valimc.Net.Connection.offline_uuid(first)) == []
     end)
 
     {_sender, fresh} = login(first)
@@ -134,7 +135,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
        ctx do
     [first, second] = ctx.names
     # The eater's ticks come only from this test, not 32 real ticks of eating.
-    Valimc.TestScope.isolate(Valimc.Connection.offline_uuid(first), player_ticks: :manual)
+    Valimc.TestScope.isolate(Valimc.Net.Connection.offline_uuid(first), player_ticks: :manual)
     soup = ItemStack.new("mushroom_stew")
     seed(ctx, first, %Inventory{slots: %{45 => soup}}, :survival)
     {sender, pid} = login(first)

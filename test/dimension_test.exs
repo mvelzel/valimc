@@ -1,7 +1,7 @@
 defmodule Valimc.DimensionTest do
   use ExUnit.Case, async: true
-  alias Valimc.Dimension
-  alias Valimc.Anvil.Light
+  alias Valimc.World.Dimension
+  alias Valimc.Storage.Anvil.Light
   alias Valimc.Protocol.Wire
 
   test "the context is per process and bound into tasks" do
@@ -67,7 +67,8 @@ defmodule Valimc.DimensionTest do
   end
 
   test "the Nether's and the End's generators follow the world's recorded settings" do
-    alias Valimc.World.{GenSettings, Spec}
+    alias Valimc.Worldgen.GenSettings
+    alias Valimc.World.Spec
     base = Path.join(System.tmp_dir!(), "valimc-dimgen-#{System.unique_integer([:positive])}")
     File.mkdir_p!(base)
     on_exit(fn -> File.rm_rf!(base) end)

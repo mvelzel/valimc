@@ -1,7 +1,9 @@
 defmodule Valimc.InteractionRangeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, World}
+  alias Valimc.Player.{GameMode, PlayerList}
+  alias Valimc.Menus.Inventory
+  alias Valimc.World
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -12,13 +14,13 @@ defmodule Valimc.InteractionRangeConnectionTest do
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
     name = "Range" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     key = {100_000 + rem(nonce, 3_333) * 3, 800}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 
     player =
-      Map.merge(pose, %{game_mode: GameMode.new(:creative), abilities: %Valimc.PlayerAbilities{}})
+      Map.merge(pose, %{game_mode: GameMode.new(:creative), abilities: %Valimc.Player.Abilities{}})
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
@@ -28,7 +30,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
     {_, client} = Client.login(name)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = Enum.find(PlayerList.all(), &(&1.name == name)).pid
 
     on_exit(fn ->
       Client.close(client)

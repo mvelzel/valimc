@@ -52,7 +52,7 @@ defmodule Valimc.CreativeItemsTest do
     }
 
     {^rich, _, client} = set_slot(client, 37, rich)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     assert Valimc.TestConn.state(player.pid).inventory.slots[37] == rich
 
     stack = %{
@@ -97,7 +97,7 @@ defmodule Valimc.CreativeItemsTest do
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
 
     use = fn client, position, face, sequence ->
       Client.send_packet(client, :play, "use_item_on", [
@@ -110,7 +110,7 @@ defmodule Valimc.CreativeItemsTest do
       client
     end
 
-    ladder = fn facing -> Valimc.Registry.Blocks.state("ladder", %{"facing" => facing}) end
+    ladder = fn facing -> Valimc.Data.Blocks.state("ladder", %{"facing" => facing}) end
     stone = Valimc.Protocol.Data.block("stone")
 
     for position <- [{3, 65, 2}, {5, 65, 2}], do: :ok = Valimc.TestBlocks.set(position, stone)
@@ -158,8 +158,8 @@ defmodule Valimc.CreativeItemsTest do
     ])
 
     {^stone, 2, client} = slot_reply(client, 36)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert Valimc.Inventory.get(Valimc.TestConn.state(player.pid).inventory, 36) == stone
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
+    assert Valimc.Menus.Inventory.get(Valimc.TestConn.state(player.pid).inventory, 36) == stone
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, _} = Client.await_stats(client)
   end

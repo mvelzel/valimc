@@ -3,7 +3,8 @@ defmodule Valimc.Commands.PostEffects do
   `/posteffect` (VMC-053i): changes each target's post-effect list in its own
   connection (`Valimc.Player.PostEffects`).
   """
-  alias Valimc.Command.{Error, Feedback, Source, Targets}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source, Targets}
   alias Valimc.Text
   alias Valimc.Commands.Remote
 

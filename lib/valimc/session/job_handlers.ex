@@ -1,15 +1,15 @@
 defmodule Valimc.Session.JobHandlers do
   @moduledoc """
   Results, failures and deadlines of a session's worker jobs
-  (`Valimc.Session.Jobs`, VMC-069): commands and suggestions, a portal's
+  (`Valimc.Player.Jobs`, VMC-069): commands and suggestions, a portal's
   destination, and a portal item's use.
   """
 
-  import Valimc.Net.Codec, only: [reject: 2]
+  import Valimc.Protocol.Codec, only: [reject: 2]
 
-  # A portal item's use (`Valimc.Portal.Items`): it wears and is acknowledged.
+  # A portal item's use (`Valimc.World.Portal.Items`): it wears and is acknowledged.
   def job_result(:placement, job, result, state) do
-    Valimc.Connection.guard_connection(state, fn ->
+    Valimc.Net.Connection.guard_connection(state, fn ->
       case result do
         {:ok, outcome, after_ack} ->
           {:noreply, Valimc.Player.Placement.ignited(state, job.command, outcome, after_ack)}
@@ -23,7 +23,7 @@ defmodule Valimc.Session.JobHandlers do
   # A portal's destination (VMC-026b2): travel there.
   def job_result(:portal, _job, result, state),
     do:
-      Valimc.Connection.guard_connection(state, fn ->
+      Valimc.Net.Connection.guard_connection(state, fn ->
         {:noreply, Valimc.Player.Portals.arrived(state, result)}
       end)
 
@@ -33,7 +33,7 @@ defmodule Valimc.Session.JobHandlers do
 
   def job_result(:suggestion, job, packet, state),
     do:
-      Valimc.Connection.guard_connection(state, fn ->
+      Valimc.Net.Connection.guard_connection(state, fn ->
         {:noreply, Valimc.Session.Commands.suggested(state, job, packet)}
       end)
 
@@ -45,7 +45,7 @@ defmodule Valimc.Session.JobHandlers do
 
   def job_down(:placement, _job, _reason, state),
     do:
-      Valimc.Connection.guard_connection(state, fn ->
+      Valimc.Net.Connection.guard_connection(state, fn ->
         reject(state, "Block interaction failed; please reconnect")
       end)
 
@@ -54,7 +54,7 @@ defmodule Valimc.Session.JobHandlers do
 
   def job_timeout(:placement, _job, state),
     do:
-      Valimc.Connection.guard_connection(state, fn ->
+      Valimc.Net.Connection.guard_connection(state, fn ->
         reject(state, "Block interaction timed out; please reconnect")
       end)
 

@@ -1,4 +1,4 @@
-alias Valimc.{Inventory, Menu, MenuClick}
+alias Valimc.Menus.{Inventory, Menu, Click}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -72,7 +72,7 @@ Enum.each(facts["cases"], fn row ->
       current = Inventory.crafting_result(inv)
 
       if current != nil and ItemStack.same_item?(current, original) do
-        {:ok, nil, next, batch} = MenuClick.plan(Menu.crafting(inv), nil, inv, :throw, 0, 1)
+        {:ok, nil, next, batch} = Click.plan(Menu.crafting(inv), nil, inv, :throw, 0, 1)
         unless length(batch) <= 5, do: raise("Unbounded bulk plan")
         if batch == [], do: {:halt, {next, drops}}, else: {:cont, {next, drops ++ batch}}
       else

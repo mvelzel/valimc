@@ -1,9 +1,9 @@
 defmodule Valimc.Physics.BlockScan do
   @moduledoc "Bounded native block candidates; callers obtain fenced states and resolve geometry separately."
-  alias Valimc.Physics.Box
+  alias Valimc.Data.Box
   @epsilon 1.0e-7
   @max_cells 512
-  alias Valimc.Registry.{BlockFacts, Blocks}
+  alias Valimc.Data.{BlockFacts, Blocks}
   @state_count BlockFacts.count()
   @moving Blocks.id("moving_piston")
 

@@ -1,14 +1,8 @@
 defmodule Valimc.EntityPacketsTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.Protocol.{
-    Data,
-    EntityPackets,
-    EntityTypes,
-    PackedVelocity,
-    Packets,
-    Wire
-  }
+  alias Valimc.Protocol.{Data, EntityPackets, PackedVelocity, Packets, Wire}
+  alias Valimc.Data.EntityTypes
 
   defp entity,
     do: %{

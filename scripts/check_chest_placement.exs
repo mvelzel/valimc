@@ -1,6 +1,6 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.ChestPlacement
+alias Valimc.Blocks.ChestPlacement
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"

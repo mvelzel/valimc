@@ -40,7 +40,7 @@ defmodule Valimc.World.Jobs do
 
     case Task.Supervisor.start_child(
            Keyword.fetch!(opts, :supervisor),
-           Valimc.Dimension.bind(fn ->
+           Valimc.World.Dimension.bind(fn ->
              if link, do: Process.link(owner)
              send(owner, wrap.({:job, kind, token, work.()}))
            end)

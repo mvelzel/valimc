@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.EntityCollisions do
   @moduledoc "Pure player collider policy over complete supplied entity observations, never live authority."
-  alias Valimc.Physics.Box
+  alias Valimc.Data.Box
   @epsilon 1.0e-7
   @max_candidates 256
 

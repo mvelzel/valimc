@@ -10,7 +10,8 @@ defmodule Valimc.DecoratedWorldTest do
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{BlockSnapshot, Generator, Region, RegionGeneration}
+  alias Valimc.World.{BlockSnapshot, Region, RegionGeneration}
+  alias Valimc.Worldgen.Generator
   alias Valimc.World.{RegionStorage, ScheduledTicks}
   alias Valimc.Worldgen.{FullChunk, Scheduler}
 
@@ -158,7 +159,7 @@ defmodule Valimc.DecoratedWorldTest do
     # A restart serves the same chunks, edits included, without generating them again.
     {cx, cz} = List.last(RegionGeneration.chunks_of(@key))
     position = {cx * 16 + 3, 70, cz * 16 + 3}
-    glass = Valimc.Registry.Blocks.default_state("glass")
+    glass = Valimc.Data.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(position, glass)
     restart(@key)
     assert Valimc.TestBlocks.get(position) == glass

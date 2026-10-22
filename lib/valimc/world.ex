@@ -33,7 +33,7 @@ defmodule Valimc.World do
   def split_section({dimension, sx, sz}), do: {dimension, {sx, sz}}
 
   def region({_, _, _} = key) do
-    Valimc.Owners.ensure(
+    Valimc.World.Owners.ensure(
       # A dead owner's row is the Directory's to replace: admit at once.
       fn ->
         case Directory.lookup(key) do
@@ -126,10 +126,10 @@ defmodule Valimc.World do
       {pid, _, %{epoch: epoch}} ->
         if Process.alive?(pid),
           do: {:ok, {pid, epoch}},
-          else: Valimc.Error.retry(:region_unavailable)
+          else: Valimc.Data.Error.retry(:region_unavailable)
 
       _ ->
-        Valimc.Error.retry(:region_unavailable)
+        Valimc.Data.Error.retry(:region_unavailable)
     end
   end
 
@@ -147,24 +147,24 @@ defmodule Valimc.World do
         {other, _, %{epoch: epoch}} ->
           if Process.alive?(other),
             do: {:ok, {other, epoch}},
-            else: Valimc.Error.retry(:region_restarting)
+            else: Valimc.Data.Error.retry(:region_restarting)
 
         _ ->
-          Valimc.Error.retry(:region_restarting)
+          Valimc.Data.Error.retry(:region_restarting)
       end
     else
       {:error, _} = error -> error
     end
   catch
     # The owner died or overran while finishing its load.
-    :exit, {_reason, {GenServer, :call, _}} -> Valimc.Error.retry(:region_restarting)
+    :exit, {_reason, {GenServer, :call, _}} -> Valimc.Data.Error.retry(:region_restarting)
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.
   def item_snapshot({_, _, _} = key) do
     case Directory.lookup(key) do
       {_, _, %{publication: table}} ->
-        Valimc.World.EntityPublication.source(table, :items)
+        Valimc.Entity.Publication.source(table, :items)
 
       _ ->
         %{}
@@ -200,7 +200,7 @@ defmodule Valimc.World do
   copied only when its stamp changed. Returns `{views, cache}`.
   """
   def visible_entities(regions, chunks, cache \\ %{}) do
-    limit = Valimc.World.EntityReplication.max_visible()
+    limit = Valimc.Entity.Observer.max_visible()
     regions = regions |> Enum.sort() |> Enum.take(64) |> MapSet.new()
 
     tables =
@@ -241,11 +241,11 @@ defmodule Valimc.World do
 
   @doc """
   The entity frames of section `key` after tick `last`
-  (`Valimc.World.EntityPublication.frames/2`); none while it is not loaded.
+  (`Valimc.Entity.Publication.frames/2`); none while it is not loaded.
   """
   def entity_frames({_, _, _} = key, last) do
     case Directory.lookup(key) do
-      {_, _, %{publication: table}} -> Valimc.World.EntityPublication.frames(table, last)
+      {_, _, %{publication: table}} -> Valimc.Entity.Publication.frames(table, last)
       _ -> {:ok, last || 0, []}
     end
   rescue
@@ -284,7 +284,7 @@ defmodule Valimc.World do
     event = if dimension == :overworld, do: event, else: {:in_dimension, dimension, event}
 
     Registry.dispatch(Valimc.VisibilityRegistry, key, fn entries ->
-      for {pid, _} <- entries, do: Valimc.Connection.deliver(pid, event)
+      for {pid, _} <- entries, do: Valimc.Net.Connection.deliver(pid, event)
     end)
   end
 

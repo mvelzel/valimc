@@ -10,12 +10,14 @@ defmodule Valimc.Commands do
   reader and RCON's in its client. Owner calls happen there; players are
   changed through their connections (`Valimc.Commands.Remote`). A handler is
   `{module, function}` called with the parsed arguments and the
-  `Valimc.Command.Source`; it returns its result or throws a command syntax
-  error (`Valimc.Command.Error`). Any other exception or exit is vanilla's
+  `Valimc.Commands.Source`; it returns its result or throws a command syntax
+  error (`Valimc.Text.Error`). Any other exception or exit is vanilla's
   `command.failed`, and the source's session lives on.
   """
   require Logger
-  alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Tree}
+  alias Valimc.Commands.Parser.{Arguments, Dispatcher, Tree}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source}
   alias Valimc.Text
 
   @doc """

@@ -1,7 +1,8 @@
 defmodule Valimc.GameModeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities}
+  alias Valimc.Player.{GameMode, PlayerList, Abilities}
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -13,7 +14,7 @@ defmodule Valimc.GameModeConnectionTest do
     old_mode = Valimc.World.Settings.get(:default_game_mode)
     Application.put_env(:valimc, :world_path, base)
     name = "Mode" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     key = {90_000 + rem(nonce, 3_333) * 3, 500}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
@@ -26,7 +27,7 @@ defmodule Valimc.GameModeConnectionTest do
     File.mkdir_p!(Path.dirname(path))
 
     on_exit(fn ->
-      for {pid, p} <- :ets.tab2list(Players),
+      for {pid, p} <- :ets.tab2list(PlayerList),
           p.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
 
@@ -44,7 +45,7 @@ defmodule Valimc.GameModeConnectionTest do
   end
 
   defp seed(ctx, mode, flying \\ true) do
-    player = Map.merge(ctx.pose, %{game_mode: mode, abilities: %PlayerAbilities{flying: flying}})
+    player = Map.merge(ctx.pose, %{game_mode: mode, abilities: %Abilities{flying: flying}})
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, ctx.inventory))
     File.write!(ctx.path, bytes)
   end
@@ -54,7 +55,8 @@ defmodule Valimc.GameModeConnectionTest do
     Client.load_world(client)
   end
 
-  defp state(ctx), do: Valimc.TestConn.state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
+  defp state(ctx),
+    do: Valimc.TestConn.state(Enum.find(PlayerList.all(), &(&1.name == ctx.name)).pid)
 
   defp wait(fun, _budget \\ nil) do
     Valimc.TestWait.until(fun)
@@ -103,9 +105,9 @@ defmodule Valimc.GameModeConnectionTest do
       s = state(ctx)
       assert s.player.game_mode == saved_mode
       assert s.player.abilities == GameMode.abilities(saved_mode, true)
-      assert client.abilities.flags == PlayerAbilities.flags(s.player.abilities)
+      assert client.abilities.flags == Abilities.flags(s.player.abilities)
 
-      for {id, base, modifiers} <- Valimc.PlayerInteraction.attributes(mode) do
+      for {id, base, modifiers} <- Valimc.Living.Interaction.attributes(mode) do
         assert client.attributes[{s.player.entity_id, id}] == {base, modifiers}
       end
 

@@ -1,6 +1,6 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.CookingFuel
+alias Valimc.Blocks.CookingFuel
 alias Valimc.Protocol.ItemStack
 
 true =

@@ -8,10 +8,12 @@ defmodule Valimc.Player.Mining do
   """
   alias Valimc.Protocol.{Data, ItemTypes, Packets, Wire}
   alias Valimc.Player.{CreativeInventory, Items, ItemUse, Movement}
-  alias Valimc.{Inventory, PlayerInput, PlayerMining, PlayerMiningAttempt, World}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{Input, MiningSpeed, MiningAttempt}
+  alias Valimc.World
   alias Valimc.World.Region
 
-  import Valimc.Net.Codec, only: [send_packets: 2, reject: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
 
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @slab_blocks Data.tags()["minecraft:block"]["minecraft:slabs"] |> MapSet.new()
@@ -20,9 +22,9 @@ defmodule Valimc.Player.Mining do
     p = state.player
 
     World.Chunk.valid_y?(y) and
-      Valimc.PlayerInteraction.within_block?(
+      Valimc.Living.Interaction.within_block?(
         p.game_mode.current,
-        Valimc.PlayerInteraction.eye(p),
+        Valimc.Living.Interaction.eye(p),
         {x, y, z}
       )
   end
@@ -120,17 +122,18 @@ defmodule Valimc.Player.Mining do
   end
 
   defp supported?(block) do
-    block in @basic_mining or Valimc.Block.block_entity(block) != nil or
-      Valimc.MiningLoot.ordinary_mining?(block) or Valimc.RandomMiningLoot.supported?(block) or
-      MapSet.member?(@slab_blocks, Valimc.MiningTools.block_id(block))
+    block in @basic_mining or Valimc.Blocks.block_entity(block) != nil or
+      Valimc.Blocks.MiningLoot.ordinary_mining?(block) or
+      Valimc.Blocks.RandomMiningLoot.supported?(block) or
+      MapSet.member?(@slab_blocks, Valimc.Blocks.MiningTools.block_id(block))
   end
 
   def mining_allowed?(state, position) do
     state.phase == :play and state.life_stage == :alive and
       state.player.game_mode.current == :survival and state.player.living.health.value > 0 and
-      PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
+      Input.loaded?(state.player.input) and not state.teleport_pending and
       reachable?(state, position) and inside_border?(position) and
-      Valimc.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
+      Valimc.Blocks.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
   end
 
   @doc "Vanilla's `mayInteract`: blocks outside the world border cannot be broken or used."
@@ -170,17 +173,17 @@ defmodule Valimc.Player.Mining do
     block = mining.block
 
     {:ok, rate} =
-      PlayerMining.rate(state.inventory, block, state.mining_water, state.player.motion.on_ground)
+      MiningSpeed.rate(state.inventory, block, state.mining_water, state.player.motion.on_ground)
 
     {:ok, attempt, events} =
       if mining.attempt == nil,
-        do: PlayerMiningAttempt.start(mining.position, block, rate, mining.started),
-        else: PlayerMiningAttempt.tick(mining.attempt, block, rate, state.simulation_clock.tick)
+        do: MiningAttempt.start(mining.position, block, rate, mining.started),
+        else: MiningAttempt.tick(mining.attempt, block, rate, state.simulation_clock.tick)
 
     {attempt, events} =
       if mining.stopped and attempt.phase == :active do
         {:ok, attempt, next} =
-          PlayerMiningAttempt.stop(attempt, block, rate, state.simulation_clock.tick)
+          MiningAttempt.stop(attempt, block, rate, state.simulation_clock.tick)
 
         {attempt, events ++ next}
       else
@@ -241,9 +244,9 @@ defmodule Valimc.Player.Mining do
     before = Inventory.held(state.inventory, :main)
 
     {:ok, drops} =
-      Valimc.MiningLoot.drops(block, before, PlayerMining.harvest?(state.inventory, block))
+      Valimc.Blocks.MiningLoot.drops(block, before, MiningSpeed.harvest?(state.inventory, block))
 
-    {after_tool, _broken} = Valimc.Durability.mine(before, block, false)
+    {after_tool, _broken} = Valimc.Living.Durability.mine(before, block, false)
 
     records =
       Enum.map(drops, fn stack ->
@@ -292,7 +295,7 @@ defmodule Valimc.Player.Mining do
         state,
         position,
         sequence,
-        Valimc.PlayerInteraction.eye(state.player)
+        Valimc.Living.Interaction.eye(state.player)
       )
     else
       send_packets(state, [Packets.ack(sequence)])

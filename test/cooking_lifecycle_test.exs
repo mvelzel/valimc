@@ -1,9 +1,10 @@
 defmodule Valimc.CookingLifecycleTest do
   use ExUnit.Case, async: true
-  alias Valimc.Cooking
-  alias Valimc.CookingBlocks
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Blocks.CookingBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ContainerLifecycle, Containers, ContainerSpills, Entities}
+  alias Valimc.World.{ContainerLifecycle, Containers}
+  alias Valimc.Entity.{ContainerSpills, Store}
 
   test "items, remaining heat, progress and recipe uses independently block processor removal" do
     pos = {0, 64, 0}
@@ -22,12 +23,12 @@ defmodule Valimc.CookingLifecycleTest do
                ContainerLifecycle.plan(occupied, {0, 0}, %{pos => block}, %{pos => 0})
 
       assert {:error, :occupied_cooking_entry} =
-               ContainerSpills.add(Entities.new(), {0, 0}, [
+               ContainerSpills.add(Store.new(), {0, 0}, [
                  %{position: pos, entry: occupied.entries[pos]}
                ])
     end
 
-    {:ok, recipe} = Valimc.CookingRecipes.find(ItemStack.new("raw_iron"), block)
+    {:ok, recipe} = Valimc.Blocks.CookingRecipes.find(ItemStack.new("raw_iron"), block)
 
     {:ok, used, _} =
       Containers.replace_cooking(containers, pos, entry.revision, %Cooking{}, %{recipe.key => 1})

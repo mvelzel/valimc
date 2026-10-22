@@ -1,12 +1,12 @@
 alias Valimc.Living.{Effects, Health}
-alias Valimc.{PlayerFood}
+alias Valimc.Player.Food
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
   before = row["before"]
 
-  food = %PlayerFood{
+  food = %Food{
     level: before["level"],
     saturation: before["saturation"],
     exhaustion: before["exhaustion"],
@@ -16,8 +16,8 @@ for row <- rows do
   {:ok, {:exhaust, amount}} = Effects.hunger([{1, row["amplifier"], false, true, true}])
 
   {next, action} =
-    PlayerFood.tick(
-      PlayerFood.exhaust(food, amount),
+    Food.tick(
+      Food.exhaust(food, amount),
       %Health{value: row["health"]},
       row["difficulty"],
       row["regeneration"]

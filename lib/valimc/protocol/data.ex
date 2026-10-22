@@ -1,9 +1,9 @@
 defmodule Valimc.Protocol.Data do
   @moduledoc "Pinned official protocol facts; immutable across connections."
-  alias Valimc.Registry.Blocks
-  use Valimc.Facts, file: "protocol/packets.json", as: :packets
-  use Valimc.Facts, file: "protocol/registries.json", as: :registries
-  use Valimc.Facts, file: "protocol/tags.json", as: :tags
+  alias Valimc.Data.Blocks
+  use Valimc.Data.Facts, file: "protocol/packets.json", as: :packets
+  use Valimc.Data.Facts, file: "protocol/registries.json", as: :registries
+  use Valimc.Data.Facts, file: "protocol/tags.json", as: :tags
 
   # Packet ids and names compile to function clauses (binary/integer pattern
   # dispatch). A runtime lookup through the nested JSON maps cost ~5 µs per packet.
@@ -87,7 +87,7 @@ defmodule Valimc.Protocol.Data do
   def block(name), do: Blocks.default_state(name)
   def item(name), do: Valimc.Protocol.ItemTypes.id(name)
   def item_block(id), do: Map.get(@item_blocks, id)
-  def player_type, do: Valimc.Protocol.EntityTypes.id("player")
+  def player_type, do: Valimc.Data.EntityTypes.id("player")
   def global_block_bits, do: @global_block_bits
 
   @global_biome_bits (length(@registries["minecraft:worldgen/biome"]) - 1)

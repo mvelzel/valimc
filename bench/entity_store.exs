@@ -9,7 +9,7 @@
 # calls into `Valimc.Protocol.EntityPackets` (every entity packet built), per
 # 50 ms tick.
 defmodule Bench.EntityStore do
-  alias Valimc.ItemMotionState
+  alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
   alias Valimc.World.{Region, RegionStorage}
@@ -104,7 +104,7 @@ defmodule Bench.EntityStore do
     :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
     Process.sleep(500)
     owner_only = count(fn -> Process.sleep(2000) end)
-    replication = Valimc.World.EntityReplication.new()
+    replication = Valimc.Entity.Observer.new()
     states = for _ <- 1..observers, do: {replication, %{}}
 
     {total, observer_us} =
@@ -121,7 +121,7 @@ defmodule Bench.EntityStore do
                   )
 
                 {replication, _packets} =
-                  Valimc.World.EntityReplication.reconcile(
+                  Valimc.Entity.Observer.reconcile(
                     replication,
                     desired,
                     &World.entity_frames/2

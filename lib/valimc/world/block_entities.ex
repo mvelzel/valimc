@@ -11,9 +11,9 @@ defmodule Valimc.World.BlockEntities do
   block change. The set grows only by import and generation, which persist it
   whole; an unpacked loot chest (VMC-072b) leaves it by a dropped position.
   """
-  alias Valimc.Anvil.BlockEntity
-  alias Valimc.NBT
-  alias Valimc.Physics.BlockEntities, as: Types
+  alias Valimc.Storage.Anvil.BlockEntity
+  alias Valimc.Data.NBT
+  alias Valimc.Blocks.BlockEntityTypes, as: Types
 
   @max_entries 32_768
   @max_bytes 32 * 1024 * 1024

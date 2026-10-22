@@ -1,8 +1,8 @@
 alias Valimc.Native
-alias Valimc.Physics.PlayerPose
+alias Valimc.Data.PlayerPose
 import Bitwise
 [path] = System.argv()
-:ok = Valimc.Registry.BlockFacts.install!()
+:ok = Valimc.Data.BlockFacts.install!()
 native = path |> File.read!() |> JSON.decode!()
 
 for c <- native["poses"] do

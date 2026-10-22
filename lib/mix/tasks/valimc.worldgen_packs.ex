@@ -5,13 +5,13 @@ defmodule Mix.Tasks.Valimc.WorldgenPacks do
 
   Runs the fact oracles that give `priv/worldgen` with the world's data packs
   (`WORLD/datapacks`, folders and zips, after vanilla's in name order) into
-  `WORLD/worldgen/DIGEST/` (`Valimc.World.Datapacks`, VMC-028c), and checks that
+  `WORLD/worldgen/DIGEST/` (`Valimc.Worldgen.Datapacks`, VMC-028c), and checks that
   ValiMC can generate them. Needs the research toolchain (Java 25 and the pinned
   jar, `scripts/java_tool.py`); run it whenever the packs change, with the
   server stopped.
   """
   use Mix.Task
-  alias Valimc.World.Datapacks
+  alias Valimc.Worldgen.Datapacks
 
   @worldgen ~w(noises density_functions noise_settings biome_parameters material_rules
                material_conditions biomes carvers features placed_features block_state_providers
@@ -87,7 +87,7 @@ defmodule Mix.Tasks.Valimc.WorldgenPacks do
               digest: digest,
               packs: Enum.map(Datapacks.packs(world), &Path.basename/1),
               version: Datapacks.facts_version(),
-              server_sha1: Valimc.Version.server_sha1()
+              server_sha1: Valimc.Data.Version.server_sha1()
             })
           )
 

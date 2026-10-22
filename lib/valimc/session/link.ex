@@ -1,7 +1,7 @@
 defmodule Valimc.Session.Link do
   @moduledoc """
   The connection's half of a playing session (VMC-077i3). At the end of
-  login the connection hands the session (`Valimc.Session.Host`) to the group
+  login the connection hands the session (`Valimc.Player.Host`) to the group
   that owns the player's section and keeps the socket, framing, encryption,
   compression, keepalive, the chunk view and streaming, and the replication
   that reads publications: peers, entities, clocks, weather, border and
@@ -14,11 +14,12 @@ defmodule Valimc.Session.Link do
   `{:player_out, items}`: frames to write and view changes (the player's
   pose and teleport state, a view reset on respawn or travel), in order.
   """
-  alias Valimc.Net.Codec
+  alias Valimc.Protocol.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
   alias Valimc.Session.{ChunkSender, Events, Messages, Replication}
   alias Valimc.World
-  alias Valimc.World.{ChestLidReplication, EntityReplication}
+  alias Valimc.World.ChestLidReplication
+  alias Valimc.Entity.Observer
 
   # What only the connection keeps; the session keeps the rest.
   @link_keys [
@@ -113,11 +114,12 @@ defmodule Valimc.Session.Link do
   (`unload`), and the clock, difficulty, weather and border views the session
   sends with the respawn.
   """
-  def reset_view(%{socket: nil}, reset), do: Valimc.Session.Host.out({:reset, reset})
+  def reset_view(%{socket: nil}, reset), do: Valimc.Player.Host.out({:reset, reset})
 
   @doc "A message to a connection whose session its group hosts."
   def info({:player_out, items}, state),
-    do: Valimc.Connection.guard_connection(state, fn -> {:noreply, apply_out(state, items)} end)
+    do:
+      Valimc.Net.Connection.guard_connection(state, fn -> {:noreply, apply_out(state, items)} end)
 
   def info({:player_owner, uuid, pid}, %{player: %{uuid: uuid}} = state) do
     if pid == state.owner do
@@ -129,13 +131,13 @@ defmodule Valimc.Session.Link do
   end
 
   def info({:player_stop, reason}, state) do
-    if reason != nil, do: Valimc.Session.Presence.record(reason)
+    if reason != nil, do: Valimc.Player.Presence.record(reason)
     Process.demonitor(state.owner_monitor, [:flush])
     {:stop, :normal, %{state | owner: nil, owner_monitor: nil}}
   end
 
   def info({:DOWN, ref, :process, _, _}, %{owner_monitor: ref} = state) do
-    Valimc.Connection.guard_connection(%{state | owner: nil, owner_monitor: nil}, fn ->
+    Valimc.Net.Connection.guard_connection(%{state | owner: nil, owner_monitor: nil}, fn ->
       Codec.reject(%{state | owner: nil}, "World owner restarted; please reconnect")
     end)
   end
@@ -160,14 +162,14 @@ defmodule Valimc.Session.Link do
   def info(:publish_movement, state) do
     forward(state, :publish_movement)
 
-    Valimc.Connection.guard_connection(state, fn ->
+    Valimc.Net.Connection.guard_connection(state, fn ->
       Process.send_after(self(), :publish_movement, 50)
       {:noreply, replicate(state)}
     end)
   end
 
   def info({:event, {:in_dimension, dimension, event}}, state) do
-    if dimension == Valimc.Dimension.current(),
+    if dimension == Valimc.World.Dimension.current(),
       do: event(state, event, {:event, {:in_dimension, dimension, event}}),
       else: {:noreply, state}
   end
@@ -198,7 +200,7 @@ defmodule Valimc.Session.Link do
   # session's part at the owner.
   defp event(state, event, message) do
     if is_tuple(event) and elem(event, 0) in @session_events, do: forward(state, message)
-    Valimc.Connection.guard_connection(state, fn -> {:noreply, Events.view(state, event)} end)
+    Valimc.Net.Connection.guard_connection(state, fn -> {:noreply, Events.view(state, event)} end)
   end
 
   defp apply_out(state, items) do
@@ -217,7 +219,7 @@ defmodule Valimc.Session.Link do
 
   # The player's pose and teleport state, as the owner last saw them.
   defp apply_view(state, view) do
-    if view.dimension != state.player.dimension, do: Valimc.Dimension.put(view.dimension)
+    if view.dimension != state.player.dimension, do: Valimc.World.Dimension.put(view.dimension)
     confirmed = state.teleport_pending and not view.teleport_pending
 
     state = %{
@@ -243,7 +245,7 @@ defmodule Valimc.Session.Link do
     regions =
       if reset.dimension != state.player.dimension do
         World.subscribe(MapSet.new(), state.regions)
-        Valimc.Dimension.put(reset.dimension)
+        Valimc.World.Dimension.put(reset.dimension)
         MapSet.new()
       else
         state.regions
@@ -258,7 +260,7 @@ defmodule Valimc.Session.Link do
         pending: [],
         chunk_sender: ChunkSender.reset(state.chunk_sender),
         chest_lids: %ChestLidReplication{},
-        entity_replication: EntityReplication.new(),
+        entity_replication: Observer.new(),
         entity_cache: %{},
         clock_version: reset.clock_version,
         difficulty_view: reset.difficulty,
@@ -269,9 +271,9 @@ defmodule Valimc.Session.Link do
 
   # Vanilla tracking ranges, in chunks, of the entity kinds groups own (VMC-070).
   @tracking_ranges %{
-    item: Valimc.Protocol.EntityTypes.tracking_range("item"),
-    orb: Valimc.Protocol.EntityTypes.tracking_range("experience_orb"),
-    player: Valimc.Protocol.EntityTypes.tracking_range("player")
+    item: Valimc.Data.EntityTypes.tracking_range("item"),
+    orb: Valimc.Data.EntityTypes.tracking_range("experience_orb"),
+    player: Valimc.Data.EntityTypes.tracking_range("player")
   }
   @entity_range @tracking_ranges |> Map.values() |> Enum.max()
 
@@ -298,7 +300,7 @@ defmodule Valimc.Session.Link do
           do: entry
 
     {replication, packets} =
-      EntityReplication.reconcile(state.entity_replication, desired, fn region, last ->
+      Observer.reconcile(state.entity_replication, desired, fn region, last ->
         World.entity_frames(World.section(state.player.dimension, region, :section), last)
       end)
 
@@ -314,7 +316,7 @@ defmodule Valimc.Session.Link do
   # `ServerPlayer.broadcastToPlayer`. A player whose connection is gone may
   # stay published until its group's next tick.
   defp shows?(state, view) do
-    view.entity_id != state.player.entity_id and :ets.member(Valimc.Players, view.pid) and
+    view.entity_id != state.player.entity_id and :ets.member(Valimc.Player.PlayerList, view.pid) and
       (not view.spectator or Map.get(state.player, :spectator, false))
   end
 end

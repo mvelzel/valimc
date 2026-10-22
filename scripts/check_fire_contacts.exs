@@ -23,7 +23,8 @@ for row <- rows do
       {:ok, operations} = Burning.plan(steps)
       operations
     else
-      alias Valimc.Physics.{CollisionContext, Kernel, PlayerPose}
+      alias Valimc.Physics.{CollisionContext, Kernel}
+      alias Valimc.Data.PlayerPose
       states = Map.new(row["blocks"], fn [x, y, z, id] -> {{x, y, z}, id} end)
       vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 

@@ -5,7 +5,11 @@ defmodule Valimc.RconTest do
 
   defp connect do
     {:ok, socket} =
-      :gen_tcp.connect({127, 0, 0, 1}, Valimc.Rcon.port(), [:binary, packet: :raw, active: false])
+      :gen_tcp.connect({127, 0, 0, 1}, Valimc.Net.Rcon.port(), [
+        :binary,
+        packet: :raw,
+        active: false
+      ])
 
     socket
   end
@@ -29,7 +33,7 @@ defmodule Valimc.RconTest do
   end
 
   setup do
-    start_supervised!({Valimc.Rcon, port: 0, password: "secret"})
+    start_supervised!({Valimc.Net.Rcon, port: 0, password: "secret"})
     :ok
   end
 

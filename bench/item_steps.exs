@@ -1,5 +1,6 @@
-alias Valimc.{ItemMotionState, World.EntityReplication, World.Entities, World.EntityTracking}
-alias Valimc.World.EntityView
+alias Valimc.Entity.ItemMotionState
+alias Valimc.{Entity.Observer, Entity.Store, Entity.Tracking}
+alias Valimc.Entity.View
 alias Valimc.Protocol.ItemStack
 
 rich = %{
@@ -15,12 +16,12 @@ rows =
     owners =
       for rx <- 0..3 do
         items =
-          Enum.reduce(1..count, Entities.new(), fn n, items ->
-            {:ok, next, _} = Entities.create(items, {rx, 0}, stack, {rx * 128 + n / 4, 64.5, 0.5})
+          Enum.reduce(1..count, Store.new(), fn n, items ->
+            {:ok, next, _} = Store.create(items, {rx, 0}, stack, {rx * 128 + n / 4, 64.5, 0.5})
             next
           end)
 
-        tracking = EntityTracking.sync(%EntityTracking{}, items.views, nil)
+        tracking = Tracking.sync(%Tracking{}, items.views, nil)
         {{rx, 0}, items, Enum.sort(Map.keys(items.entries)), tracking, %{}}
       end
 
@@ -28,7 +29,7 @@ rows =
     views = fn owners ->
       Enum.reduce(owners, %{}, fn {_, items, _, tracking, _}, all ->
         tracking
-        |> EntityTracking.published(items.views)
+        |> Tracking.published(items.views)
         |> Map.new(fn {id, view} -> {id, Map.put(view, :tick, tracking.tick)} end)
         |> Map.merge(all)
       end)
@@ -45,8 +46,8 @@ rows =
     end
 
     initial =
-      Enum.reduce_while(1..(4 * count), EntityReplication.new(), fn _, observer ->
-        {next, _} = EntityReplication.reconcile(observer, views.(owners), frames.(owners))
+      Enum.reduce_while(1..(4 * count), Observer.new(), fn _, observer ->
+        {next, _} = Observer.reconcile(observer, views.(owners), frames.(owners))
         if map_size(next.tracked) == 4 * count, do: {:halt, next}, else: {:cont, next}
       end)
 
@@ -85,19 +86,19 @@ rows =
                     }
                   end)
 
-                {:ok, next, _} = Entities.advance(items, key, items.epoch, steps)
-                {tracking, frame} = EntityTracking.step(tracking, next.views, nil, tick)
+                {:ok, next, _} = Store.advance(items, key, items.epoch, steps)
+                {tracking, frame} = Tracking.step(tracking, next.views, nil, tick)
                 {key, next, ids, tracking, frame}
               end)
 
             {observer, emitted} =
-              EntityReplication.reconcile(observer, views.(owners), frames.(owners))
+              Observer.reconcile(observer, views.(owners), frames.(owners))
 
             {owners, observer, emitted}
           end)
 
         {owners, observer, [elapsed | times], packets + length(emitted),
-         bytes + Enum.sum(Enum.map(emitted, &EntityView.packet_bytes/1))}
+         bytes + Enum.sum(Enum.map(emitted, &View.packet_bytes/1))}
       end)
 
     :erlang.garbage_collect()

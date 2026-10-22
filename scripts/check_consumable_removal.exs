@@ -1,5 +1,5 @@
 alias Valimc.Living.Effects
-alias Valimc.{FoodItems}
+alias Valimc.Living.FoodItems
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()

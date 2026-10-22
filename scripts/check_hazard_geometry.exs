@@ -1,7 +1,8 @@
 alias Valimc.Living.Burning
 alias Valimc.Native
 alias Valimc.World.View
-alias Valimc.Physics.{CollisionContext, Kernel, PlayerPose}
+alias Valimc.Physics.{CollisionContext, Kernel}
+alias Valimc.Data.PlayerPose
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
 

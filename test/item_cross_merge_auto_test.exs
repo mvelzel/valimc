@@ -1,8 +1,10 @@
 defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack}
-  alias Valimc.World.{EntityHandoffs, Entities, Region}
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Protocol.ItemStack
+  alias Valimc.Entity.{Handoffs, Store}
+  alias Valimc.World.Region
 
   setup do
     n = System.unique_integer([:positive])
@@ -96,7 +98,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert total(c) == 5
 
     assert [%{uuid: uuid, stack: %{count: 5}, motion: motion}] =
-             Entities.records(state(c.target).entities.store)
+             Store.records(state(c.target).entities.store)
 
     assert uuid == c.recipient.uuid and motion.age < 90
     assert disk(c, c.key).records == [] and disk(c, c.key).ledger.sequence == 1
@@ -107,15 +109,15 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     {:ok, restarted} = Valimc.TestWorld.item_owner(c.target_key)
 
     assert [%{uuid: ^uuid, stack: %{count: 5}}] =
-             Entities.records(state(restarted).entities.store)
+             Store.records(state(restarted).entities.store)
   end
 
   test "a donor whose target is gone is rejected and comes back with its network id", c do
-    {:ok, source} = Entities.restore(c.key, [c.donor])
-    {:ok, {epoch, id, revision}} = Entities.find(source, c.donor.uuid)
+    {:ok, source} = Store.restore(c.key, [c.donor])
+    {:ok, {epoch, id, revision}} = Store.find(source, c.donor.uuid)
 
     assert {:ok, departed, transfer} =
-             EntityHandoffs.depart_merge(
+             Handoffs.depart_merge(
                source,
                section(c.key),
                epoch,
@@ -125,22 +127,22 @@ defmodule Valimc.ItemCrossMergeAutoTest do
              )
 
     assert departed.entries == %{} and transfer.merge == <<1::128>>
-    assert {:ok, digest} = EntityHandoffs.digest(transfer)
-    {:ok, target} = Entities.restore(c.target_key, [c.recipient])
+    assert {:ok, digest} = Handoffs.digest(transfer)
+    {:ok, target} = Store.restore(c.target_key, [c.recipient])
 
     assert {:ok, target, :rejected} =
-             EntityHandoffs.accept(target, section(c.target_key), transfer)
+             Handoffs.accept(target, section(c.target_key), transfer)
 
     assert {:ok, ^target, :already_rejected} =
-             EntityHandoffs.accept(target, section(c.target_key), transfer)
+             Handoffs.accept(target, section(c.target_key), transfer)
 
-    assert Entities.records(target) ==
-             Entities.records(elem(Entities.restore(c.target_key, [c.recipient]), 1))
+    assert Store.records(target) ==
+             Store.records(elem(Store.restore(c.target_key, [c.recipient]), 1))
 
     assert {:ok, back} =
-             EntityHandoffs.finish(departed, section(c.key), transfer.sequence, digest, :rejected)
+             Handoffs.finish(departed, section(c.key), transfer.sequence, digest, :rejected)
 
     assert back.ledger.outgoing == nil
-    assert {:ok, {_, ^id, _}} = Entities.find(back, c.donor.uuid)
+    assert {:ok, {_, ^id, _}} = Store.find(back, c.donor.uuid)
   end
 end

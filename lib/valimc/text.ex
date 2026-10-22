@@ -10,7 +10,7 @@ defmodule Valimc.Text do
   (`translatableEscape`: strings and numbers stay primitive arguments), `empty/0`,
   `append/2` (siblings) and `style/2`.
   """
-  alias Valimc.NBT
+  alias Valimc.Data.NBT
 
   def literal(text) when is_binary(text), do: {:compound, %{"text" => {:string, text}}}
   def empty, do: literal("")

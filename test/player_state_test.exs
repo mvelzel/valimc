@@ -1,6 +1,7 @@
 defmodule Valimc.Player.StateTest do
   use ExUnit.Case, async: true
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerProgression}
+  alias Valimc.Player.{GameMode, Food, Progression}
+  alias Valimc.Menus.Inventory
   alias Valimc.Living
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
@@ -43,15 +44,15 @@ defmodule Valimc.Player.StateTest do
       yaw: 123.5,
       pitch: -25.0,
       game_mode: GameMode.new(:survival),
-      abilities: %Valimc.PlayerAbilities{flying: false},
+      abilities: %Valimc.Player.Abilities{flying: false},
       living:
         Map.merge(
           elem(Living.restore(%{health: %{value: 13.5, hurt_ticks: 4, death_ticks: 0}}), 1),
           %{absorption: 4.0, fire_ticks: 80, air_supply: 120}
         ),
-      food: %PlayerFood{level: 17, saturation: 1.5, exhaustion: 0.25, timer: 12},
-      progression: %PlayerProgression{},
-      motion: %Valimc.PlayerMotion{fall_distance: 2.5, velocity: {0.0, -0.0784, 0.0}},
+      food: %Food{level: 17, saturation: 1.5, exhaustion: 0.25, timer: 12},
+      progression: %Progression{},
+      motion: %Valimc.Player.Motion{fall_distance: 2.5, velocity: {0.0, -0.0784, 0.0}},
       last_death: {4, 63, -2},
       dimension: :the_nether,
       death_dimension: :overworld,
@@ -105,7 +106,7 @@ defmodule Valimc.Player.StateTest do
           {%{base | inventory: %{base.inventory | selected: 9}}, :invalid_inventory},
           {%{base | inventory: %{base.inventory | slots: %{1 => huge}}}, :invalid_inventory},
           {%{base | health: %{value: -1.0, hurt_ticks: 0, death_ticks: 0}}, :invalid_health},
-          {%{base | food: %PlayerFood{level: 99}}, :invalid_food},
+          {%{base | food: %Food{level: 99}}, :invalid_food},
           {%{base | dimension: :moon}, :invalid_dimension}
         ] do
       assert PlayerState.encode(@uuid, state) == {:error, reason}

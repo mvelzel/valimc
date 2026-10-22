@@ -36,10 +36,10 @@ features =
 {:ok, _} = Application.ensure_all_started(:crypto)
 
 names = fn id ->
-  "minecraft:" <> Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(id))
+  "minecraft:" <> Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(id))
 end
 
-block_names = fn id -> "minecraft:" <> Valimc.Registry.Blocks.name(id) end
+block_names = fn id -> "minecraft:" <> Valimc.Data.Blocks.name(id) end
 
 expand = fn runs ->
   for [id, count] <- Enum.chunk_every(runs, 2), into: <<>>, do: :binary.copy(<<id::16>>, count)

@@ -22,9 +22,10 @@ defmodule Valimc.World.PlayerSpawn do
   deadline, after which the suggestion's block centre is used.
   """
   alias Valimc.Physics.{CollisionContext, Kernel}
-  alias Valimc.Registry.BlockFacts
+  alias Valimc.Data.BlockFacts
   alias Valimc.World
-  alias Valimc.World.{Border, Chunk, Clock, Spawn, SpawnSearch, View}
+  alias Valimc.World.{Border, Chunk, Clock, Spawn, View}
+  alias Valimc.Worldgen.SpawnSearch
 
   # The standing player's box: 0.6F wide, 1.8F high, both widened to doubles.
   @half_width 0.30000001192092896
@@ -42,7 +43,9 @@ defmodule Valimc.World.PlayerSpawn do
 
     {x, y, z} =
       try do
-        Valimc.Dimension.within(dimension, fn -> search(suggestion(deadline), mode, deadline) end)
+        Valimc.World.Dimension.within(dimension, fn ->
+          search(suggestion(deadline), mode, deadline)
+        end)
       catch
         :deadline -> Spawn.position()
       end

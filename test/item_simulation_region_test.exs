@@ -1,7 +1,7 @@
 defmodule Valimc.ItemSimulationRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.ItemMotionState
+  alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
 

@@ -1,8 +1,9 @@
 defmodule Valimc.CookingRegionRuntimeTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{Cooking, ItemMotionState}
-  alias Valimc.CookingBlocks
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Blocks.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Blocks, Containers, RegionData}
 
@@ -94,8 +95,9 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
   # Serial: waits on the owner's real game ticks, which concurrent load can starve.
   import Valimc.CookingRegionRuntimeTest, only: [seed: 2, progress: 0, eventually: 1, disk: 1]
   alias Valimc.TestScope
-  alias Valimc.{Cooking, ItemMotionState}
-  alias Valimc.CookingBlocks
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Blocks.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Blocks, Containers, RegionData}
 

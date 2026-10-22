@@ -8,7 +8,7 @@ defmodule Valimc.Commands.Remote do
   that is gone, not playing or late is `:unavailable`, and a target that
   refuses with a command error reports it as `{:error, error}`.
   """
-  alias Valimc.Command.Error
+  alias Valimc.Text.Error
 
   @timeout 1000
 

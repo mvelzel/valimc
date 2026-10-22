@@ -3,10 +3,10 @@ defmodule Valimc.MiningTest do
   # mining, mining_tool, player_mining, mining_loot, random_mining_loot and
   # mining_attempt oracle stages; these tests cover ValiMC's own boundaries.
   use ExUnit.Case, async: true
-  alias Valimc.PlayerMiningAttempt
-  alias Valimc.Mining
-  alias Valimc.MiningLoot
-  alias Valimc.RandomMiningLoot
+  alias Valimc.Player.MiningAttempt
+  alias Valimc.Blocks.Mining
+  alias Valimc.Blocks.MiningLoot
+  alias Valimc.Blocks.RandomMiningLoot
   alias Valimc.Protocol.{Data, ItemStack}
 
   test "progress thresholds hold and malformed inputs are explicit errors" do
@@ -40,36 +40,36 @@ defmodule Valimc.MiningTest do
   test "early stop finishes by elapsed owner ticks and abort consumes its callback identity" do
     stone = Data.block("stone")
     {:ok, rate} = Mining.rate(stone, 1, true)
-    {:ok, attempt, [{:crack, 0}]} = PlayerMiningAttempt.start({0, 64, 0}, stone, rate, 123)
+    {:ok, attempt, [{:crack, 0}]} = MiningAttempt.start({0, 64, 0}, stone, rate, 123)
     token = attempt.token
-    {:ok, finishing, []} = PlayerMiningAttempt.stop(attempt, stone, rate, 128)
+    {:ok, finishing, []} = MiningAttempt.stop(attempt, stone, rate, 128)
     assert finishing.phase == :finishing
-    assert PlayerMiningAttempt.current?(finishing, token)
-    {:ok, waiting, _} = PlayerMiningAttempt.tick(finishing, stone, rate, 166)
+    assert MiningAttempt.current?(finishing, token)
+    {:ok, waiting, _} = MiningAttempt.tick(finishing, stone, rate, 166)
     assert waiting.phase == :finishing
-    {:ok, ready, [{:crack, -1}, :ready]} = PlayerMiningAttempt.tick(waiting, stone, rate, 167)
+    {:ok, ready, [{:crack, -1}, :ready]} = MiningAttempt.tick(waiting, stone, rate, 167)
     assert ready.phase == :ready
-    assert {:ok, ^ready, []} = PlayerMiningAttempt.tick(ready, stone, rate, 168)
-    {:ok, cancelled, [{:crack, -1}]} = PlayerMiningAttempt.cancel(finishing)
-    refute PlayerMiningAttempt.current?(cancelled, token)
-    assert {:ok, ^cancelled, []} = PlayerMiningAttempt.tick(cancelled, stone, rate, 1000)
-    assert {:ok, ^cancelled, []} = PlayerMiningAttempt.cancel(cancelled)
+    assert {:ok, ^ready, []} = MiningAttempt.tick(ready, stone, rate, 168)
+    {:ok, cancelled, [{:crack, -1}]} = MiningAttempt.cancel(finishing)
+    refute MiningAttempt.current?(cancelled, token)
+    assert {:ok, ^cancelled, []} = MiningAttempt.tick(cancelled, stone, rate, 1000)
+    assert {:ok, ^cancelled, []} = MiningAttempt.cancel(cancelled)
   end
 
   test "active progress cannot finish itself; changed state and stale work never complete a replacement" do
     stone = Data.block("stone")
     {:ok, rate} = Mining.rate(stone, 1, true)
-    {:ok, attempt, _} = PlayerMiningAttempt.start({0, 64, 0}, stone, rate, 0)
-    {:ok, attempt, [{:crack, -1}]} = PlayerMiningAttempt.tick(attempt, stone, rate, 100)
+    {:ok, attempt, _} = MiningAttempt.start({0, 64, 0}, stone, rate, 0)
+    {:ok, attempt, [{:crack, -1}]} = MiningAttempt.tick(attempt, stone, rate, 100)
     assert attempt.phase == :active
-    assert {:ok, ^attempt, []} = PlayerMiningAttempt.tick(attempt, stone, :infinity, 99)
-    {:ok, ready, [{:crack, -1}, :ready]} = PlayerMiningAttempt.stop(attempt, stone, rate, 100)
+    assert {:ok, ^attempt, []} = MiningAttempt.tick(attempt, stone, :infinity, 99)
+    {:ok, ready, [{:crack, -1}, :ready]} = MiningAttempt.stop(attempt, stone, rate, 100)
     assert ready.phase == :ready
-    {:ok, replacement, _} = PlayerMiningAttempt.start(attempt.position, stone, rate, 101)
-    refute PlayerMiningAttempt.current?(replacement, attempt.token)
+    {:ok, replacement, _} = MiningAttempt.start(attempt.position, stone, rate, 101)
+    refute MiningAttempt.current?(replacement, attempt.token)
 
     {:ok, cancelled, [{:crack, -1}]} =
-      PlayerMiningAttempt.tick(replacement, Data.block("dirt"), rate, 102)
+      MiningAttempt.tick(replacement, Data.block("dirt"), rate, 102)
 
     assert cancelled.phase == :cancelled
   end

@@ -61,9 +61,9 @@ defmodule Valimc.CommandPresentationConnectionTest do
 
   test "clone copies blocks within the overworld" do
     client = join()
-    stone = Valimc.Registry.Blocks.default_state("stone")
-    glass = Valimc.Registry.Blocks.default_state("glass")
-    air = Valimc.Registry.Blocks.default_state("air")
+    stone = Valimc.Data.Blocks.default_state("stone")
+    glass = Valimc.Data.Blocks.default_state("glass")
+    air = Valimc.Data.Blocks.default_state("air")
     client = command(client, "fill 60 100 60 61 101 61 stone", "commands.fill.success")
     client = command(client, "setblock 60 100 60 glass", "commands.setblock.success")
     client = command(client, "clone 60 100 60 61 101 61 70 100 70", "commands.clone.success")

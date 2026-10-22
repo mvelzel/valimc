@@ -347,7 +347,7 @@ defmodule Valimc.Player.Storage do
 
     with :ok <- Checkpoint.write(storage.path, storage.seq, records) do
       Log.covered(storage.base, storage.owner, storage.seq)
-      Valimc.Metrics.add(:player_saves)
+      Valimc.Data.Metrics.add(:player_saves)
       :ok
     end
   rescue

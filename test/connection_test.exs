@@ -21,7 +21,7 @@ defmodule Valimc.ConnectionTest do
     username = name("Login")
     {uuid, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
-    assert uuid == Valimc.Connection.offline_uuid(username)
+    assert uuid == Valimc.Net.Connection.offline_uuid(username)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {body, _} = Client.await_stats(client)
@@ -82,7 +82,7 @@ defmodule Valimc.ConnectionTest do
     {_, client} = Client.login(name("Frames"))
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    assert Valimc.Connection.frame_limit(%{phase: :play}) == Valimc.config(:max_packet_bytes)
+    assert Valimc.Net.Connection.frame_limit(%{phase: :play}) == Valimc.config(:max_packet_bytes)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_body, _} = Client.await_stats(client)
   end
@@ -139,7 +139,7 @@ defmodule Valimc.ConnectionTest do
     Client.send_raw(sender, frames)
     # Peers get the latest position per publication, not one packet per input:
     # relative moves, or a sync where the ground flag changed (VMC-077i4).
-    entity = Enum.find(Valimc.Players.all(), &(&1.name == sender_name)).entity_id
+    entity = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == sender_name)).entity_id
     {x, packets} = coalesced_moves(receiver, entity, 0.5 + 20 * 0.015)
     assert_in_delta x, 0.8, 0.0005
     assert packets < 20
@@ -176,10 +176,10 @@ defmodule Valimc.ConnectionTest do
     on_exit(fn -> Client.close(slow) end)
     {_, healthy} = Client.login(name("Fast"))
     on_exit(fn -> Client.close(healthy) end)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
     ref = Process.monitor(player.pid)
     :sys.suspend(player.pid)
-    for _ <- 1..300, do: Valimc.Connection.deliver(player.pid, {:chat, "load"})
+    for _ <- 1..300, do: Valimc.Net.Connection.deliver(player.pid, {:chat, "load"})
     # A stuck (here: suspended) connection cannot handle the graceful signal and is
     # killed by the fallback timer.
     assert_receive {:DOWN, ^ref, :process, _, :killed}
@@ -207,7 +207,7 @@ defmodule Valimc.ConnectionTest do
     on_exit(fn ->
       Client.close(client)
 
-      for player <- Valimc.Players.all(),
+      for player <- Valimc.Player.PlayerList.all(),
           player.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
     end)
@@ -219,7 +219,7 @@ defmodule Valimc.ConnectionTest do
 
     owner =
       Valimc.TestWait.until(fn ->
-        Enum.find_value(Valimc.Players.all(), &if(&1.uuid == uuid, do: &1.pid))
+        Enum.find_value(Valimc.Player.PlayerList.all(), &if(&1.uuid == uuid, do: &1.pid))
       end)
 
     # Force the pending stream event while a real TCP peer withholds its play ack.

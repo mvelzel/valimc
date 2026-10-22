@@ -61,7 +61,7 @@ defmodule Valimc.Protocol.Wire do
     do: Valimc.Protocol.ServerText.encode(component)
 
   def text_component(text) when is_binary(text),
-    do: Valimc.NBT.encode({:compound, %{"text" => {:string, text}}})
+    do: Valimc.Data.NBT.encode({:compound, %{"text" => {:string, text}}})
 
   def text_component(tag), do: Valimc.Text.Codec.encode(tag)
 

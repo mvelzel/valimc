@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerStorageTest do
   use ExUnit.Case, async: true
   alias Valimc.Player.Storage
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.Storage.{Checkpoint, Log}
@@ -139,7 +139,9 @@ defmodule Valimc.PlayerStorageTest.Connection do
 
   defp wait_for_departure(name, uuid) do
     Valimc.TestWait.until(fn ->
-      not Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) and
+      not Enum.any?(:ets.tab2list(Valimc.Player.PlayerList), fn {_, player} ->
+        player.name == name
+      end) and
         Registry.lookup(Valimc.PlayerRegistry, uuid) == []
     end)
   end
@@ -149,7 +151,7 @@ defmodule Valimc.PlayerStorageTest.Connection do
     {uuid, client} = Client.login(name)
     client = Client.load_world(client)
     assert client.pose == %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name))
     client = Client.teleport(client, player.pid, pose())
     ref = Process.monitor(player.pid)
     Client.close(client)
@@ -163,7 +165,7 @@ defmodule Valimc.PlayerStorageTest.Connection do
     assert second.pose == pose()
     second = Client.load_world(second)
     next = %{pose() | x: -19.5, yaw: -80.0}
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name))
     Client.teleport(second, player.pid, next)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
     Client.close(second)
@@ -183,7 +185,7 @@ defmodule Valimc.PlayerStorageTest.Connection do
 
   test "bad save rejects only that login; healthy listener and identity still work", %{base: base} do
     name = username()
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     path = Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "broken")
@@ -210,14 +212,14 @@ defmodule Valimc.PlayerStorageTest.Connection do
     {_, _} = Client.await_stats(healthy)
     Client.close(healthy)
     wait_for_departure(healthy_name, healthy_uuid)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   test "a failed checkpoint keeps the player playing and its frames durable", %{base: base} do
     name = username()
     {uuid, client} = Client.login(name)
     client = Client.load_world(client)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name))
     path = Storage.path(base, uuid)
     File.mkdir_p!(path)
 
@@ -246,7 +248,7 @@ defmodule Valimc.PlayerStorageTest.Connection do
     name = username()
     {uuid, client} = Client.login(name)
     client = Client.load_world(client)
-    pid = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
+    pid = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name)).pid
     stone = ItemStack.new("stone", 5)
 
     Valimc.TestConn.replace(pid, fn s ->

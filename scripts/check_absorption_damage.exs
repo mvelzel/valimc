@@ -1,5 +1,5 @@
 alias Valimc.Living.Health
-alias Valimc.{PlayerFood}
+alias Valimc.Player.Food
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
@@ -16,8 +16,8 @@ for row <- rows do
 
   food =
     if next.damage > 0,
-      do: PlayerFood.exhaust(%PlayerFood{}, row["food_cost"]),
-      else: %PlayerFood{}
+      do: Food.exhaust(%Food{}, row["food_cost"]),
+      else: %Food{}
 
   unless row["armor_input"] == row["amount"] and row["magic_input"] == armored and
            next.pool == row["after_pool"] and next.damage == row["recorded_damage"] and

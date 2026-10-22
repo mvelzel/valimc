@@ -1,12 +1,12 @@
 alias Valimc.Living.Effects
-alias Valimc.{PlayerFood}
+alias Valimc.Player.Food
 [path, timing_path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
   {:ok, {:exhaust, amount}} = Effects.hunger([{-1, row["amplifier"], false, true, true}])
-  food = %PlayerFood{exhaustion: row["before"]}
-  next = if row["invulnerable"], do: food, else: PlayerFood.exhaust(food, amount)
+  food = %Food{exhaustion: row["before"]}
+  next = if row["invulnerable"], do: food, else: Food.exhaust(food, amount)
 
   unless next.exhaustion == row["after"] and row["applied"],
     do: raise("Native Hunger exhaustion differs #{inspect(row)}: #{inspect(next)}")

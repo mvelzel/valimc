@@ -1,13 +1,13 @@
 defmodule Valimc.Living.DamageSource do
   @moduledoc """
   A damage source (vanilla `DamageSource`): its damage type, decided by the
-  generated `damage_type` registry and tags (`Valimc.Registry.DamageTypes`),
+  generated `damage_type` registry and tags (`Valimc.Data.DamageTypes`),
   and the entities that caused it once combat exists. Rules ask its tags
   (`bypasses_armor`, `is_fire`, ...) rather than listing types; the food
   exhaustion and death message keys come from the pinned facts.
   """
-  use Valimc.Facts, "protocol/damage_messages.json"
-  alias Valimc.Registry.DamageTypes
+  use Valimc.Data.Facts, "protocol/damage_messages.json"
+  alias Valimc.Data.DamageTypes
   @exhaustion Valimc.Living.Armor.exhaustion()
   @messages @facts["keys"]
   unless map_size(@messages) == 18, do: raise("Wrong native death message keys")
@@ -54,7 +54,7 @@ defmodule Valimc.Living.DamageSource do
             {:compound,
              %{
                "translate" => {:string, "death.attack.indirectMagic.item"},
-               "with" => Valimc.NBT.list([{:string, name}, {:string, name}, display])
+               "with" => Valimc.Data.NBT.list([{:string, name}, {:string, name}, display])
              }}
         }
     end

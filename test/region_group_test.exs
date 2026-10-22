@@ -6,10 +6,11 @@ defmodule Valimc.RegionGroupTest do
   and epoch.
   """
   use ExUnit.Case, async: true
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.Storage.Log
   alias Valimc.TestScope
-  alias Valimc.World.{Region, RegionLog, View}
+  alias Valimc.World.{Region, View}
+  alias Valimc.Storage.RegionLog
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -250,19 +251,19 @@ defmodule Valimc.RegionGroupTest do
   defp store(group, epoch), do: Valimc.TestRegion.section({group, epoch}).entities.store
 
   defp holds?(group, epoch, uuid),
-    do: match?({:ok, _}, Valimc.World.Entities.find(store(group, epoch), uuid))
+    do: match?({:ok, _}, Valimc.Entity.Store.find(store(group, epoch), uuid))
 
   test "an item crossing into another section of the group moves there in one commit", ctx do
     # An item at c's east edge, moving east into d.
     uuid = <<7::128>>
     {cx, z} = c_key(ctx)
-    east = %Valimc.ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}
+    east = %Valimc.Entity.ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}
     moving = item(uuid, cx * 128 + 127.85, z * 128 + 4.5, 3, east)
     {c, d, pc, ec, ed} = item_group(ctx, [{fn c, _ -> c end, [moving]}])
 
     Valimc.TestWait.until(fn -> holds?(pc, ed, uuid) or (Region.step({pc, ec}, 1) && false) end)
     refute holds?(pc, ec, uuid)
-    {:ok, {_, id, _}} = Valimc.World.Entities.find(store(pc, ed), uuid)
+    {:ok, {_, id, _}} = Valimc.Entity.Store.find(store(pc, ed), uuid)
     assert store(pc, ed).entries[id].hops == 1
     # No intent or receipt: the move is the group's own.
     assert store(pc, ec).ledger.outgoing == nil and store(pc, ed).ledger.incoming == %{}
@@ -290,7 +291,7 @@ defmodule Valimc.RegionGroupTest do
 
   test "a border item merges into its neighbour section's stack inside the group", ctx do
     {cx, z} = c_key(ctx)
-    still = %Valimc.ItemMotionState{age: 30, no_gravity: true}
+    still = %Valimc.Entity.ItemMotionState{age: 30, no_gravity: true}
     donor = item(<<8::128>>, (cx + 1) * 128 - 0.1, z * 128 + 7.5, 2, still)
     recipient = item(<<9::128>>, (cx + 1) * 128 + 0.1, z * 128 + 7.5, 3, %{still | age: 100})
 
@@ -301,7 +302,7 @@ defmodule Valimc.RegionGroupTest do
       not holds?(pc, ec, donor.uuid) or (Region.step({pc, ec}, 1) && false)
     end)
 
-    {:ok, {_, id, _}} = Valimc.World.Entities.find(store(pc, ed), recipient.uuid)
+    {:ok, {_, id, _}} = Valimc.Entity.Store.find(store(pc, ed), recipient.uuid)
     assert store(pc, ed).entries[id].stack.count == 5
     assert store(pc, ec).ledger.outgoing == nil and store(pc, ed).ledger.incoming == %{}
   end

@@ -1,6 +1,6 @@
-alias Valimc.Mining
+alias Valimc.Blocks.Mining
 [cases_path, ticks_path] = System.argv()
-count = Valimc.Registry.BlockFacts.count()
+count = Valimc.Data.BlockFacts.count()
 
 bits = fn
   :nan -> <<0x7FC00000::32>>

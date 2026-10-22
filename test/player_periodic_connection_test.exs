@@ -2,7 +2,8 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -39,11 +40,11 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
           fire_ticks: Keyword.get(opts, :fire, 0),
           effects: Keyword.get(opts, :effects, %{})
         },
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil,
-        food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
+        food: %Valimc.Player.Food{level: 5, saturation: 0.0}
       })
 
     Valimc.TestPlayer.save(ctx, player, Keyword.get(opts, :inventory, %Inventory{}))
@@ -63,7 +64,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   end
 
   defp effect(pid, name, duration, amplifier \\ 0) do
-    id = Valimc.Protocol.EffectTypes.id(name)
+    id = Valimc.Data.EffectTypes.id(name)
     {:ok, incoming} = Effects.new(duration, amplifier)
     assert {:ok, true} = Connection.add_effect(pid, id, incoming)
     id
@@ -104,7 +105,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     {_entity, message} = Wire.take_varint(body)
 
     assert {:ok, {:compound, %{"translate" => {:string, "death.attack.wither"}}}, <<>>} =
-             Valimc.NBT.take(message)
+             Valimc.Data.NBT.take(message)
 
     Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)

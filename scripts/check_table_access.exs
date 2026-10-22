@@ -1,4 +1,5 @@
-alias Valimc.{MenuAccess, PlayerInteraction}
+alias Valimc.Menus.MenuAccess
+alias Valimc.Living.Interaction
 alias Valimc.Protocol.Data
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -13,7 +14,7 @@ unless facts["version"] == "26.3" and
 for [mode, secondary, main, off, hand, table, opens, consumes] <- facts["uses"] do
   mode = String.to_existing_atom(mode)
   hand = if hand == "MAIN_HAND", do: :main, else: :off
-  actual = table and PlayerInteraction.opens_block_menu?(mode, hand, secondary, main, off)
+  actual = table and Interaction.opens_block_menu?(mode, hand, secondary, main, off)
 
   unless actual == (opens == 1) and actual == consumes,
     do:

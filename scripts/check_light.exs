@@ -2,11 +2,12 @@
 # `LevelLightEngine` computes (LightOracle) in every cell of every full chunk of a
 # vanilla world whose eight neighbours are full (light travels at most 15 blocks,
 # so those decide it).
-alias Valimc.Anvil.{Chunk, RegionFile}
-alias Valimc.{NBT, Native}
+alias Valimc.Storage.Anvil.{Chunk, RegionFile}
+alias Valimc.Data.NBT
+alias Valimc.Native
 
 [facts_path, light_path, light_bin] = System.argv()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 
 images =

@@ -1,8 +1,10 @@
 defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack}
-  alias Valimc.World.{Entities, Region}
+  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Protocol.ItemStack
+  alias Valimc.Entity.Store
+  alias Valimc.World.Region
 
   setup :scope
 
@@ -46,8 +48,8 @@ defmodule Valimc.ItemMergeRegionTest do
 
   def pairs(owner) do
     items = state(owner).entities.store
-    {:ok, {_, a, ar}} = Entities.find(items, <<1::128>>)
-    {:ok, {_, b, br}} = Entities.find(items, <<2::128>>)
+    {:ok, {_, a, ar}} = Store.find(items, <<1::128>>)
+    {:ok, {_, b, br}} = Store.find(items, <<2::128>>)
     [%{a: {a, ar}, b: {b, br}}]
   end
 
@@ -58,7 +60,7 @@ defmodule Valimc.ItemMergeRegionTest do
     proposal = pairs(ctx.owner)
     assert {:ok, [_]} = Region.merge_items(ctx.owner, proposal)
     s = state(ctx.owner)
-    assert map_size(Valimc.World.EntityPublication.source(s.publication, :items)) == 1
+    assert map_size(Valimc.Entity.Publication.source(s.publication, :items)) == 1
     assert {:error, :stale_item} = Region.merge_items(ctx.owner, proposal)
 
     {pid, _} = ctx.owner
@@ -73,6 +75,6 @@ defmodule Valimc.ItemMergeRegionTest do
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
     assert {:ok, next} = Valimc.TestWorld.item_owner(ctx.key)
-    assert Entities.records(state(next).entities.store) == [record]
+    assert Store.records(state(next).entities.store) == [record]
   end
 end

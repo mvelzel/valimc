@@ -1,7 +1,9 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players}
+  alias Valimc.Net.Connection
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, PackedVelocity, Wire}
   alias Valimc.TestClient, as: Client
@@ -26,7 +28,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end
 
     on_exit(fn ->
-      for p <- Players.all(),
+      for p <- PlayerList.all(),
           p.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
@@ -57,7 +59,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
   defp owner(name) do
     wait(fn ->
-      case Enum.find(Players.all(), &(&1.name == name)) do
+      case Enum.find(PlayerList.all(), &(&1.name == name)) do
         nil -> nil
         player -> player.pid
       end
@@ -90,7 +92,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       current = state(pid)
 
       refute current.teleport_pending,
-             inspect({current.player.motion, Valimc.Metrics.snapshot()})
+             inspect({current.player.motion, Valimc.Data.Metrics.snapshot()})
 
       current.player.x == moved.x
     end)
@@ -190,7 +192,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       state(pid).player.x == ctx.pos.x + 0.2 and state(pid).inventory.slots[36] == nil
     end)
 
-    [record] = Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
+    [record] = Valimc.Entity.Store.records(Valimc.TestRegion.section(owner).entities.store)
     assert record.x == ctx.pos.x + 0.2 and record.z == ctx.pos.z
   end
 

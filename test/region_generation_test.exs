@@ -8,7 +8,8 @@ defmodule Valimc.RegionGenerationTest do
   alias Valimc.{Native, TestScope}
   alias Valimc.World
 
-  alias Valimc.World.{BlockSnapshot, Generator, Region, RegionGeneration, RegionStorage, View}
+  alias Valimc.World.{BlockSnapshot, Region, RegionGeneration, RegionStorage, View}
+  alias Valimc.Worldgen.Generator
 
   @seed 20_261_020
 
@@ -152,7 +153,7 @@ defmodule Valimc.RegionGenerationTest do
 
       top =
         Enum.find(319..-64//-1, -65, fn y ->
-          Valimc.Registry.BlockFacts.heightmap?(
+          Valimc.Data.BlockFacts.heightmap?(
             World.Blocks.get(blocks, {x, y, z}),
             :motion_blocking
           )
@@ -168,7 +169,7 @@ defmodule Valimc.RegionGenerationTest do
     {cx, cz} = ctx.origin
     chunk = {cx + 6, cz + 6}
     position = inside(chunk, 100)
-    glass = Valimc.Registry.Blocks.default_state("glass")
+    glass = Valimc.Data.Blocks.default_state("glass")
 
     assert Region.set_blocks(owner, 0, %{position => glass}) ==
              {:error, {:retry, :chunk_generating}}
@@ -200,7 +201,7 @@ defmodule Valimc.RegionGenerationTest do
     # A withdrawn ticket generates nothing more; an edit over generated terrain is kept.
     Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, [])
     edited = inside({cx + 2, cz + 2}, 20)
-    glass = Valimc.Registry.Blocks.default_state("glass")
+    glass = Valimc.Data.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(edited, glass)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, _} = Valimc.TestWorld.owner(ctx.key)

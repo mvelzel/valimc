@@ -1,7 +1,8 @@
-alias Valimc.ItemMotionState
+alias Valimc.Entity.ItemMotionState
 alias Valimc.Protocol.ItemStack
 alias Valimc.World
-alias Valimc.World.{Entities, Region, RegionStorage}
+alias Valimc.Entity.Store
+alias Valimc.World.{Region, RegionStorage}
 
 [base] = System.argv()
 base = Path.expand(base)
@@ -68,7 +69,7 @@ rows =
     :ok = RegionStorage.import(base, :overworld, a_key, %{items: records})
     {:ok, a} = World.item_owner(Valimc.World.section(:overworld, a_key, :section))
     {:ok, b} = World.item_owner(Valimc.World.section(:overworld, b_key, :section))
-    frames = Map.get(Valimc.Metrics.snapshot(), :storage_records, 0)
+    frames = Map.get(Valimc.Data.Metrics.snapshot(), :storage_records, 0)
 
     samples =
       for turn <- 1..60 do
@@ -119,7 +120,7 @@ rows =
             wait.(fn ->
               {:ok, saved} = RegionStorage.read(base, :overworld, key)
 
-              uncounted.(saved.items) == uncounted.(Entities.records(expected)) and
+              uncounted.(saved.items) == uncounted.(Store.records(expected)) and
                 saved.ledger == expected.ledger
             end)
         end
@@ -136,7 +137,7 @@ rows =
       samples: 50,
       withdrawal: percentiles.(Enum.map(measured, & &1.withdrawal)),
       settled: percentiles.(Enum.map(measured, & &1.settled)),
-      log_frames: Map.get(Valimc.Metrics.snapshot(), :storage_records, 0) - frames,
+      log_frames: Map.get(Valimc.Data.Metrics.snapshot(), :storage_records, 0) - frames,
       last_hops:
         :sys.get_state(elem(a, 0)).resource.entities.store.entries
         |> Enum.map(fn {_, entry} -> entry.hops end)

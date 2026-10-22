@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockScan, Box, Kernel}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.Box
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 

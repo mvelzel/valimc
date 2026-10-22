@@ -9,7 +9,9 @@
 # append to the log. Latency is the owner call a player's group makes for it
 # (VMC-077i3: a pickup and a click are plain calls in the player's owner).
 defmodule Bench.StorageActions do
-  alias Valimc.{GameMode, Inventory, World}
+  alias Valimc.Player.GameMode
+  alias Valimc.Menus.Inventory
+  alias Valimc.World
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Containers, Region, RegionStorage}
 
@@ -35,7 +37,7 @@ defmodule Bench.StorageActions do
             y: 64.0,
             z: oz + 2.5 + div(i, 32) * 3,
             stack: ItemStack.new("stone", 1 + rem(i, 60)),
-            motion: %Valimc.ItemMotionState{no_gravity: true}
+            motion: %Valimc.Entity.ItemMotionState{no_gravity: true}
           }
 
     positions = for i <- 0..63, do: {ox + 4 + rem(i, 16) * 6, 70, oz + 40 + div(i, 16) * 6}

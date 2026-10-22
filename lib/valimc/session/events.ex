@@ -14,7 +14,7 @@ defmodule Valimc.Session.Events do
   alias Valimc.Player.Menus
   alias Valimc.Player.Mining
 
-  import Valimc.Net.Codec,
+  import Valimc.Protocol.Codec,
     only: [send_packets: 2, send_frames: 2]
 
   alias Valimc.World
@@ -97,7 +97,8 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def view(%{phase: :play} = state, {:kick, reason}), do: Valimc.Net.Codec.reject(state, reason)
+  def view(%{phase: :play} = state, {:kick, reason}),
+    do: Valimc.Protocol.Codec.reject(state, reason)
 
   def view(%{phase: :play} = state, {:packet, packet}) do
     send_packets(state, [packet])
@@ -205,8 +206,7 @@ defmodule Valimc.Session.Events do
 
       %{
         state
-        | entity_replication:
-            Valimc.World.EntityReplication.untrack(state.entity_replication, entity)
+        | entity_replication: Valimc.Entity.Observer.untrack(state.entity_replication, entity)
       }
     else
       state

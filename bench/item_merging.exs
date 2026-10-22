@@ -1,5 +1,7 @@
-alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-alias Valimc.World.{Entities, Region, RegionStorage}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.{Protocol.ItemStack, World}
+alias Valimc.Entity.Store
+alias Valimc.World.{Region, RegionStorage}
 [base] = System.argv()
 base = Path.expand(base)
 false = File.exists?(base)
@@ -54,10 +56,10 @@ results =
       :ok = RegionStorage.import(base, :overworld, key, %{items: records})
     end
 
-    before = Valimc.Metrics.snapshot()
+    before = Valimc.Data.Metrics.snapshot()
     started = System.monotonic_time(:microsecond)
 
-    # Entities simulate and merge only while a ticket makes the region tick.
+    # Store simulate and merge only while a ticket makes the region tick.
     owners =
       for key <- keys,
           do:
@@ -73,22 +75,22 @@ results =
         s = :sys.get_state(pid).resource
 
         not Valimc.World.RegionData.planning?(s) and
-          Valimc.World.ItemMerges.candidates(s.entities.store) == []
+          Valimc.Entity.ItemMerges.candidates(s.entities.store) == []
       end)
     end)
 
     elapsed = System.monotonic_time(:microsecond) - started
     # Allow the one final changed signature to discover no further pairs.
     Process.sleep(450)
-    idle = Valimc.Metrics.snapshot()
+    idle = Valimc.Data.Metrics.snapshot()
     Process.sleep(600)
-    after_idle = Valimc.Metrics.snapshot()
+    after_idle = Valimc.Data.Metrics.snapshot()
 
     rows =
       for {pid, _} <- owners do
         :ok = Region.flush(pid)
         s = :sys.get_state(pid).resource
-        records = Entities.records(s.entities.store)
+        records = Store.records(s.entities.store)
         ^count = Enum.sum(Enum.map(records, & &1.stack.count))
         {:ok, disk} = RegionStorage.read(base, :overworld, s.key)
 

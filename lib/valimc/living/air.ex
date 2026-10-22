@@ -4,8 +4,8 @@ defmodule Valimc.Living.Air do
   contact with water, Respiration, the breathing effects, drowning and
   refilling. The owner supplies fresh contact, ticks and random draws.
   """
-  alias Valimc.Protocol.EffectTypes
-  alias Valimc.Registry.Blocks
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Data.Blocks
   @maximum 300
   @bubble_column Blocks.id("bubble_column")
   @water_breathing EffectTypes.id("water_breathing")

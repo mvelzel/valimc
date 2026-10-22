@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerPoseTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.PlayerPose, as: Pose
+  alias Valimc.Data.PlayerPose, as: Pose
 
   test "unknown poses and positions outside the world fail explicitly" do
     assert Pose.dimensions(:unknown) == {:error, :unknown_pose}

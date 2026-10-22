@@ -1,9 +1,10 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.Cooking
-alias Valimc.CookingBlocks
+alias Valimc.Blocks.Cooking
+alias Valimc.Blocks.CookingBlocks
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{Containers, CookingBatch, CookingRuntime, Entities}
+alias Valimc.World.{Containers, CookingBatch, CookingRuntime}
+alias Valimc.Entity.Store
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
@@ -43,7 +44,7 @@ for row <- raw["cases"] do
   {:ok, result} =
     CookingRuntime.plan(
       containers,
-      Entities.new(),
+      Store.new(),
       {0, 0},
       %{position => block},
       :all,
@@ -55,7 +56,7 @@ for row <- raw["cases"] do
   actual = result.containers.entries[position]
   true = actual.cooking == state.(row["after"]) and actual.recipes == row["after"]["recipes"]
   true = Map.get(result.changes, position, block) == row["after"]["state"]
-  true = Enum.map(Entities.records(result.items), & &1.stack) == Enum.map(row["drops"], stack)
+  true = Enum.map(Store.records(result.items), & &1.stack) == Enum.map(row["drops"], stack)
   content_changed = entry.cooking.slots != actual.cooking.slots or entry.recipes != actual.recipes
   true = actual.revision == if(content_changed, do: 2, else: 1)
 

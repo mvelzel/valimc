@@ -1,9 +1,10 @@
 defmodule Valimc.CookingRuntimeTest do
   use ExUnit.Case, async: true
-  alias Valimc.Cooking
-  alias Valimc.CookingBlocks
+  alias Valimc.Blocks.Cooking
+  alias Valimc.Blocks.CookingBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, CookingRuntime, Entities}
+  alias Valimc.World.{Containers, CookingRuntime}
+  alias Valimc.Entity.Store
   @key {0, 0}
   @pos {4, 64, 4}
 
@@ -19,7 +20,7 @@ defmodule Valimc.CookingRuntimeTest do
 
   test "stable processors sleep and an external slot edit wakes them" do
     {containers, edits} = seed(:furnace, %Cooking{})
-    items = Entities.new()
+    items = Store.new()
     runtime = %CookingRuntime{}
     assert CookingRuntime.due?(runtime, containers, edits, items, -1000)
     {:ok, plan} = CookingRuntime.plan(containers, items, @key, edits, :all, MapSet.new())

@@ -4,7 +4,7 @@
 # encoding); every other block entity is preserved with exactly vanilla's stored
 # compound. The chunk packets ValiMC builds from the imported regions are written
 # for `AnvilContentOracle verify`, which requires vanilla's block entity list.
-alias Valimc.Anvil.Import
+alias Valimc.Storage.Anvil.Import
 alias Valimc.Protocol.{Data, ItemStack}
 alias Valimc.World.{BlockEntities, Blocks, Chunk, RegionStorage}
 
@@ -14,7 +14,7 @@ Code.require_file("nbt_canon.exs", __DIR__)
 File.rm_rf!(out_dir)
 File.mkdir_p!(out_dir)
 Data.load!()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 imported = Path.join(out_dir, "imported-world")
 
@@ -86,9 +86,9 @@ counts =
         Map.update(counts, :owned, 1, &(&1 + 1))
 
       {nil, %{type: type, nbt: nbt}} ->
-        {:ok, tag} = Valimc.NBT.read(nbt)
+        {:ok, tag} = Valimc.Data.NBT.read(nbt)
 
-        unless Valimc.Physics.BlockEntities.type_name(type) == row["type"],
+        unless Valimc.Blocks.BlockEntityTypes.type_name(type) == row["type"],
           do: raise("#{inspect(position)}: type #{type}, vanilla #{row["type"]}")
 
         unless NbtCanon.digest(tag) == row["stored"],
@@ -97,7 +97,7 @@ counts =
               "#{inspect(position)} (#{row["type"]}): preserved compound differs from vanilla's"
             )
 
-        kind = if Valimc.Block.block_entity(block), do: :locked, else: :preserved
+        kind = if Valimc.Blocks.block_entity(block), do: :locked, else: :preserved
         Map.update(counts, kind, 1, &(&1 + 1))
 
       other ->
@@ -125,7 +125,7 @@ records =
 preserved_entities =
   for key <- entity_regions,
       {_chunk, nbt} <- RegionStorage.extra(imported, :overworld, key).entities,
-      {:ok, {:compound, %{"Entities" => list}}} = Valimc.NBT.read(nbt),
+      {:ok, {:compound, %{"Entities" => list}}} = Valimc.Data.NBT.read(nbt),
       {:list, {:compound, entries}} = list,
       entry <- entries,
       do: NbtCanon.digest({:compound, entry})
@@ -219,7 +219,7 @@ updates =
 unless updates >= 10, do: raise("too few update packets: #{updates}")
 
 # The imported world exports back to Anvil files for `AnvilContentOracle export`.
-{:ok, exported} = Valimc.Anvil.Export.run(imported, Path.join(out_dir, "exported-world"))
+{:ok, exported} = Valimc.Storage.Anvil.Export.run(imported, Path.join(out_dir, "exported-world"))
 
 IO.puts(
   "PASS: #{length(facts["block_entities"])} vanilla block entities import as vanilla loads them " <>

@@ -2,7 +2,7 @@ defmodule Valimc.PlayerFireConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Inventory
+  alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -51,11 +51,11 @@ defmodule Valimc.PlayerFireConnectionTest do
           fire_ticks: Keyword.get(opts, :fire, 0),
           effects: Keyword.get(opts, :effects, %{})
         },
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil,
-        food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
+        food: %Valimc.Player.Food{level: 5, saturation: 0.0}
       })
 
     Valimc.TestPlayer.save(ctx, player, Keyword.get(opts, :inventory, %Inventory{}))
@@ -128,7 +128,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     material(ctx, "lava")
 
     Valimc.TestConn.replace(pid, fn s ->
-      %{s | player: %{s.player | input: %Valimc.PlayerInput{load_ticks: 60}}}
+      %{s | player: %{s.player | input: %Valimc.Player.Input{load_ticks: 60}}}
     end)
 
     tick(pid, false)

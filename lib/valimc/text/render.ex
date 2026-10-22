@@ -12,7 +12,7 @@ defmodule Valimc.Text.Render do
   defp strings do
     case :persistent_term.get(@key, nil) do
       nil ->
-        strings = Valimc.Facts.read!("lang/en_us.json")
+        strings = Valimc.Data.Facts.read!("lang/en_us.json")
 
         :persistent_term.put(@key, strings)
         strings
@@ -33,7 +33,7 @@ defmodule Valimc.Text.Render do
 
     case fields["extra"] do
       nil -> own
-      list -> own <> Enum.map_join(Valimc.NBT.items(list), &string/1)
+      list -> own <> Enum.map_join(Valimc.Data.NBT.items(list), &string/1)
     end
   end
 
@@ -51,7 +51,7 @@ defmodule Valimc.Text.Render do
     args =
       case fields["with"] do
         nil -> []
-        list -> Valimc.NBT.items(list)
+        list -> Valimc.Data.NBT.items(list)
       end
 
     case decompose(format, args) do

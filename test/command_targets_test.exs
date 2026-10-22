@@ -6,7 +6,9 @@ defmodule Valimc.CommandTargetsTest do
   """
   # Writes rows into the global player table.
   use ExUnit.Case, async: false
-  alias Valimc.Command.{Reader, Selector, Source, Targets}
+  alias Valimc.Text.Reader
+  alias Valimc.Commands.Parser.Selector
+  alias Valimc.Commands.{Source, Targets}
 
   setup do
     rows =
@@ -31,11 +33,11 @@ defmodule Valimc.CommandTargetsTest do
           yaw: 0.0,
           pitch: 0.0,
           living: %Valimc.Living{health: %Valimc.Living.Health{value: health}},
-          game_mode: %Valimc.GameMode{current: :survival},
-          progression: %Valimc.PlayerProgression{}
+          game_mode: %Valimc.Player.GameMode{current: :survival},
+          progression: %Valimc.Player.Progression{}
         }
 
-        :ets.insert(Valimc.Players, {pid, player})
+        :ets.insert(Valimc.Player.PlayerList, {pid, player})
         section = Valimc.World.section(dimension, Valimc.World.chunk_key(x, 0.5))
         :ets.insert(Valimc.SpatialIndex, {section, pid})
         pid
@@ -43,7 +45,7 @@ defmodule Valimc.CommandTargetsTest do
 
     on_exit(fn ->
       for pid <- rows do
-        :ets.delete(Valimc.Players, pid)
+        :ets.delete(Valimc.Player.PlayerList, pid)
         :ets.match_delete(Valimc.SpatialIndex, {:_, pid})
       end
     end)

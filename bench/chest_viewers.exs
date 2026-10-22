@@ -1,5 +1,6 @@
 Code.require_file("blocks.exs", __DIR__)
-alias Valimc.{MenuAccess, World}
+alias Valimc.Menus.MenuAccess
+alias Valimc.World
 alias Valimc.World.{Containers, Region, RegionStorage}
 [output] = System.argv()
 dataset = Path.join(System.tmp_dir!(), "valimc-viewer-bench-#{System.os_time(:nanosecond)}")

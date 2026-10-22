@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerInputTest do
   use ExUnit.Case, async: true
-  alias Valimc.PlayerInput, as: Input
+  alias Valimc.Player.Input, as: Input
   alias Valimc.Protocol.Wire
 
   test "commands use current ordinals and affect only their sender regardless of declared ID/data" do

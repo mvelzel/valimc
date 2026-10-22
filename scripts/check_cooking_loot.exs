@@ -1,6 +1,6 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.MiningLoot
+alias Valimc.Blocks.MiningLoot
 alias Valimc.Protocol.ItemStack
 
 true =

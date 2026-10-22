@@ -1,4 +1,4 @@
-alias Valimc.ItemMotionState
+alias Valimc.Entity.ItemMotionState
 alias Valimc.Protocol.ItemStack
 alias Valimc.World
 alias Valimc.World.{Region, RegionStorage}
@@ -56,12 +56,12 @@ rows =
 
     Process.sleep(500)
     before = snapshot.(regions)
-    metrics = Valimc.Metrics.snapshot()
+    metrics = Valimc.Data.Metrics.snapshot()
     started = System.monotonic_time(:microsecond)
     Process.sleep(2000)
     after_snapshot = snapshot.(regions)
     elapsed = System.monotonic_time(:microsecond) - started
-    after_metrics = Valimc.Metrics.snapshot()
+    after_metrics = Valimc.Data.Metrics.snapshot()
 
     rates =
       Enum.zip(before, after_snapshot)

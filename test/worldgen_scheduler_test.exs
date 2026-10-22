@@ -11,7 +11,8 @@ defmodule Valimc.WorldgenSchedulerTest do
   @moduletag :slow
   @moduletag timeout: 300_000
   alias Valimc.Native
-  alias Valimc.World.{Blocks, Generator}
+  alias Valimc.World.Blocks
+  alias Valimc.Worldgen.Generator
   alias Valimc.Worldgen.{Frontier, Scheduler}
 
   @seed 20_261_020

@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockScan, Box}
+alias Valimc.Physics.BlockScan
+alias Valimc.Data.Box
 [file] = System.argv()
 facts = file |> File.read!() |> JSON.decode!()
 

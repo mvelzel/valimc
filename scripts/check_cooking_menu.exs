@@ -1,4 +1,5 @@
-alias Valimc.{Cooking, Inventory, Menu}
+alias Valimc.Blocks.Cooking
+alias Valimc.Menus.{Inventory, Menu}
 alias Valimc.Protocol.{ItemStack, Packets}
 [path] = System.argv()
 facts = JSON.decode!(File.read!(path))

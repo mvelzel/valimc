@@ -7,7 +7,7 @@ defmodule Valimc.CommandBoxEditTest do
   unloaded positions are refused.
   """
   use ExUnit.Case, async: true
-  alias Valimc.Command.Source
+  alias Valimc.Commands.Source
   alias Valimc.World
   alias Valimc.World.Region
 
@@ -37,7 +37,7 @@ defmodule Valimc.CommandBoxEditTest do
     Source.collect(source)
   end
 
-  defp block(name), do: Valimc.Registry.Blocks.default_state(name)
+  defp block(name), do: Valimc.Data.Blocks.default_state(name)
 
   # Lock one cell of the eastern region as another box edit would.
   defp lock(owners, position) do

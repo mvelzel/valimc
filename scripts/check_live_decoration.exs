@@ -36,8 +36,8 @@ dimension =
     "end" -> :the_end
   end
 
-Valimc.Dimension.put(dimension)
-{min_y, height} = Valimc.Dimension.bounds()
+Valimc.World.Dimension.put(dimension)
+{min_y, height} = Valimc.World.Dimension.bounds()
 
 if {facts["min_y"] || -64, facts["height"] || 384} != {min_y, height},
   do: raise("dimension bounds differ from the oracle's")
@@ -52,10 +52,10 @@ end
 position = fn {x, y, z} -> "#{x},#{y},#{z}" end
 
 names = fn id ->
-  "minecraft:" <> Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(id))
+  "minecraft:" <> Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(id))
 end
 
-block_names = fn id -> "minecraft:" <> Valimc.Registry.Blocks.name(id) end
+block_names = fn id -> "minecraft:" <> Valimc.Data.Blocks.name(id) end
 # Random: the fresh VMs of parallel stages repeat `System.unique_integer`, and
 # one run's cleanup would remove another's worlds.
 root =
@@ -86,7 +86,7 @@ root =
         end
 
       settings =
-        Valimc.World.GenSettings.create(level_type, nil, seed, facts["structures"] == true)
+        Valimc.Worldgen.GenSettings.create(level_type, nil, seed, facts["structures"] == true)
 
       :ok =
         Valimc.World.Spec.write(base, %{
@@ -147,7 +147,7 @@ root =
                 "case" => index,
                 "pos" => position.(entity.position),
                 "state" => entity.state,
-                "nbt" => Base.encode64(IO.iodata_to_binary(Valimc.NBT.write(tag)))
+                "nbt" => Base.encode64(IO.iodata_to_binary(Valimc.Data.NBT.write(tag)))
               }
               | Process.get(:ours, [])
             ])
@@ -166,7 +166,7 @@ root =
                 [x, y, z, encoded] = String.split(line, ",", parts: 4),
                 not MapSet.member?(templated, "#{x},#{y},#{z}"),
                 into: %{} do
-              {:ok, tag} = Valimc.NBT.read(Base.decode64!(encoded))
+              {:ok, tag} = Valimc.Data.NBT.read(Base.decode64!(encoded))
               {"#{x},#{y},#{z}", tag}
             end
 
@@ -233,19 +233,19 @@ if ours_path, do: File.write!(ours_path, JSON.encode!(Enum.reverse(Process.get(:
 default_failures =
   for line <- facts["defaults"],
       [label, encoded] = String.split(line, ",", parts: 2),
-      {:ok, want} = Valimc.NBT.read(Base.decode64!(encoded)),
+      {:ok, want} = Valimc.Data.NBT.read(Base.decode64!(encoded)),
       entity =
         (case String.split(label, " ") do
            ["minecraft:" <> block] ->
              %{kind: nil}
-             |> Map.put(:state, Valimc.Registry.Blocks.default_state(block))
+             |> Map.put(:state, Valimc.Data.Blocks.default_state(block))
 
            ["minecraft:bee_nest", "bees", bees] ->
              %{
                kind: "minecraft:beehive",
                bees: Enum.map(String.split(bees, "/"), &String.to_integer/1)
              }
-             |> Map.put(:state, Valimc.Registry.Blocks.default_state("bee_nest"))
+             |> Map.put(:state, Valimc.Data.Blocks.default_state("bee_nest"))
 
            ["minecraft:suspicious_sand", "loot", table, seed] ->
              %{
@@ -253,7 +253,7 @@ default_failures =
                loot_table: table,
                loot_seed: String.to_integer(seed)
              }
-             |> Map.put(:state, Valimc.Registry.Blocks.default_state("suspicious_sand"))
+             |> Map.put(:state, Valimc.Data.Blocks.default_state("suspicious_sand"))
          end),
       entity =
         Map.merge(

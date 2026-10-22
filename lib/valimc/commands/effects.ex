@@ -3,13 +3,14 @@ defmodule Valimc.Commands.Effects do
   Sound, particle and dialog commands (VMC-053i): `particle`, `playsound`,
   `stopsound` and `dialog`, sending vanilla's packets to the players concerned.
   """
-  alias Valimc.Command.{Error, Feedback, Source, Targets}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source, Targets}
   alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   @sources ~w(master music record weather block hostile neutral player ambient voice ui)
 
-  defp deliver(%{pid: pid}, packet), do: Valimc.Connection.deliver(pid, {:packet, packet})
+  defp deliver(%{pid: pid}, packet), do: Valimc.Net.Connection.deliver(pid, {:packet, packet})
 
   # ---- particle ----
 

@@ -12,8 +12,8 @@ defmodule Valimc.Player.Travel do
   (`leave/2`).
   """
 
-  alias Valimc.Players
-  alias Valimc.Session.Jobs
+  alias Valimc.Player.PlayerList
+  alias Valimc.Player.Jobs
 
   @typedoc "Where a travel ends: a dimension and a pose, with the arrival velocity."
   @type target :: %{
@@ -106,15 +106,15 @@ defmodule Valimc.Player.Travel do
     if from == to do
       state
     else
-      peers = Players.around(state.player)
-      Valimc.Dimension.put(to)
+      peers = PlayerList.around(state.player)
+      Valimc.World.Dimension.put(to)
       # The index moves the player first, so the old peers' refresh finds it gone.
-      Players.update(state.connection, player)
+      PlayerList.update(state.connection, player)
 
       for pid <- peers,
           pid != state.connection,
           do:
-            Valimc.Connection.deliver(
+            Valimc.Net.Connection.deliver(
               pid,
               {:player_respawned, state.connection, player.entity_id}
             )

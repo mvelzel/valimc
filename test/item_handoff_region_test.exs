@@ -1,9 +1,10 @@
 defmodule Valimc.ItemHandoffRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.ItemMotionState
+  alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Entities, Region}
+  alias Valimc.Entity.Store
+  alias Valimc.World.Region
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -66,7 +67,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     {rx, rz} = destination
 
     Enum.map(uuids, fn uuid ->
-      {:ok, {epoch, id, revision}} = Entities.find(state.entities.store, uuid)
+      {:ok, {epoch, id, revision}} = Store.find(state.entities.store, uuid)
       assert epoch == elem(owner, 1)
 
       %{
@@ -111,7 +112,7 @@ defmodule Valimc.ItemHandoffRegionTest do
 
   test "both directions and owner recovery conserve one item and its network id",
        ctx do
-    {:ok, {_, id, _}} = Entities.find(resource(ctx.owner).entities.store, ctx.uuid)
+    {:ok, {_, id, _}} = Store.find(resource(ctx.owner).entities.store, ctx.uuid)
 
     assert {:ok, 1} =
              Region.handoff_items(
@@ -124,7 +125,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     refute published(ctx.owner, ctx.uuid)
     assert published(ctx.other, ctx.uuid)
     assert hops(ctx, ctx.destination, ctx.uuid) == 1
-    assert {:ok, {_, ^id, _}} = Entities.find(resource(ctx.other).entities.store, ctx.uuid)
+    assert {:ok, {_, ^id, _}} = Store.find(resource(ctx.other).entities.store, ctx.uuid)
 
     assert {:ok, 1} =
              Region.handoff_items(

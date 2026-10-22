@@ -2,7 +2,7 @@ defmodule Valimc.ImportedRegionTest do
   @moduledoc "Imported column images persist in the region log; edits on top survive restarts (VMC-021c)."
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World.{Blocks, Region, RegionStorage}
 

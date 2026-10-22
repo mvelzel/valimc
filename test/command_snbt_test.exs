@@ -1,7 +1,8 @@
 defmodule Valimc.CommandSnbtTest do
   use ExUnit.Case, async: true
   # SNBT values and item predicates; the commands oracle stage compares parse errors.
-  alias Valimc.Command.{ItemPredicate, Reader, Snbt}
+  alias Valimc.Commands.Parser.ItemPredicate
+  alias Valimc.Text.{Reader, Snbt}
   alias Valimc.Protocol.ItemStack
 
   defp snbt(text), do: text |> Reader.new() |> Snbt.parse() |> elem(0)

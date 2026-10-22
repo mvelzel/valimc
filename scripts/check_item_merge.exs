@@ -1,4 +1,5 @@
-alias Valimc.{ItemMotionState, Physics.ItemMerge, Protocol.ItemStack}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.{Entity.ItemMerge, Protocol.ItemStack}
 [path] = System.argv()
 data = :json.decode(File.read!(path))
 

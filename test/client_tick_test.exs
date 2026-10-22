@@ -38,14 +38,17 @@ defmodule Valimc.ClientTickTest do
     Client.send_packet(client, :play, "move_player_pos", position(4.5))
     assert_receive {:DOWN, ^ref, :process, _, :normal}
     _healthy = barrier(healthy)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   test "duplicate position is rejected while initial teleport and client load are pending" do
     name = username()
     {_, client} = Client.configure(name)
     on_exit(fn -> Client.close(client) end)
-    [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
+
+    [{pid, _}] =
+      Enum.filter(:ets.tab2list(Valimc.Player.PlayerList), fn {_, p} -> p.name == name end)
+
     ref = Process.monitor(pid)
 
     Client.send_raw(client, [
@@ -65,7 +68,7 @@ defmodule Valimc.ClientTickTest do
     body = await_disconnect(client)
     assert :binary.match(body, "Invalid player movement") != :nomatch
     assert_receive {:DOWN, ^ref, :process, _, :normal}
-    assert Process.alive?(Process.whereis(Valimc.Listener))
+    assert Process.alive?(Process.whereis(Valimc.Net.Listener))
   end
 
   defp username, do: "Tick" <> Integer.to_string(System.unique_integer([:positive]))
@@ -74,7 +77,7 @@ defmodule Valimc.ClientTickTest do
     {_, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == name))
     {client, player}
   end
 

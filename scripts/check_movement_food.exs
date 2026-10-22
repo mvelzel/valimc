@@ -1,5 +1,5 @@
 alias Valimc.Native
-alias Valimc.{GameMode, PlayerFood}
+alias Valimc.Player.{GameMode, Food}
 import Bitwise
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
@@ -30,8 +30,8 @@ for c <- data["gates"] do
 
   food =
     if GameMode.abilities(mode, false).invulnerable,
-      do: %PlayerFood{},
-      else: PlayerFood.exhaust(%PlayerFood{}, c["amount"])
+      do: %Food{},
+      else: Food.exhaust(%Food{}, c["amount"])
 
   unless food.exhaustion == c["exhaustion"],
     do: raise("Native exhaustion ability gate differs #{inspect(c)}")

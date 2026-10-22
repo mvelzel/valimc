@@ -1,6 +1,6 @@
 defmodule Valimc.Protocol.ItemTypes do
   @moduledoc "Indexed item and component facts from the pinned Mojang 26.3 runtime."
-  use Valimc.Facts, "protocol/items.json"
+  use Valimc.Data.Facts, "protocol/items.json"
 
   @items @facts["items"]
   @by_id Map.new(@items, fn {name, facts} -> {facts["id"], Map.put(facts, "name", name)} end)
@@ -9,7 +9,7 @@ defmodule Valimc.Protocol.ItemTypes do
   @input_names Map.new(~w(pickup quick_move swap clone throw quick_craft pickup_all), fn name ->
                  {Map.fetch!(@inputs, name), String.to_atom(name)}
                end)
-  use Valimc.Facts, file: "protocol/item_defaults.json", as: :default_facts
+  use Valimc.Data.Facts, file: "protocol/item_defaults.json", as: :default_facts
 
   @defaults @default_facts["items"]
             |> Map.new(fn {id, facts} ->
@@ -31,8 +31,8 @@ defmodule Valimc.Protocol.ItemTypes do
                         Valimc.Text.Codec.lore_key(lines)
 
                       "minecraft:custom_data" ->
-                        {:ok, tag} = Valimc.NBT.decode(bytes)
-                        Valimc.NBT.identity_key(tag)
+                        {:ok, tag} = Valimc.Data.NBT.decode(bytes)
+                        Valimc.Data.NBT.identity_key(tag)
 
                       "minecraft:tooltip_display" ->
                         {value, <<>>} = Valimc.Protocol.TooltipDisplay.take(bytes)
@@ -60,9 +60,9 @@ defmodule Valimc.Protocol.ItemTypes do
   def item(id), do: @by_id[id]
   def count, do: unquote(map_size(@by_id))
   def id(name), do: Map.fetch!(@items, qualified(name))["id"]
-  def component(id), do: Valimc.Protocol.ComponentTypes.name(id)
-  def component_id(name), do: Valimc.Protocol.ComponentTypes.id(name)
-  def component_count, do: Valimc.Protocol.ComponentTypes.count()
+  def component(id), do: Valimc.Data.ComponentTypes.name(id)
+  def component_id(name), do: Valimc.Data.ComponentTypes.id(name)
+  def component_count, do: Valimc.Data.ComponentTypes.count()
   def defaults(id), do: Map.fetch!(@defaults, id)
   def action_id(name), do: Map.fetch!(@actions, name)
   def input_id(name), do: Map.fetch!(@inputs, name)

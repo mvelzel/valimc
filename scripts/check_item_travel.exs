@@ -1,6 +1,8 @@
 alias Valimc.World.View
-alias Valimc.{ItemMotionState}
-alias Valimc.Physics.{BlockScan, Box, ItemStep}
+alias Valimc.Entity.ItemMotionState
+alias Valimc.Physics.BlockScan
+alias Valimc.Data.Box
+alias Valimc.World.ItemStep
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 unless length(cases) == 12960, do: raise("Incomplete native travel traces")

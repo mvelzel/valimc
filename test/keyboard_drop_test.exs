@@ -1,9 +1,10 @@
 defmodule Valimc.KeyboardDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.World.Entities
+  alias Valimc.Entity.Store
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -14,7 +15,7 @@ defmodule Valimc.KeyboardDropTest do
     Application.put_env(:valimc, :world_path, base)
     key = {20_000 + rem(nonce, 3_333) * 3, 400}
     name = "Drop" <> Integer.to_string(nonce)
-    uuid = Valimc.Connection.offline_uuid(name)
+    uuid = Valimc.Net.Connection.offline_uuid(name)
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 
@@ -53,7 +54,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp await_state(ctx, predicate, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
-      player = Enum.find(Players.all(), &(&1.name == ctx.name))
+      player = Enum.find(PlayerList.all(), &(&1.name == ctx.name))
       state = if player, do: Valimc.TestConn.state(player.pid)
       if state && predicate.(state), do: {player.pid, state}
     end)
@@ -63,7 +64,7 @@ defmodule Valimc.KeyboardDropTest do
     Valimc.TestWait.until(fn ->
       not Enum.any?(Registry.lookup(Valimc.PlayerRegistry, ctx.uuid), fn {_, v} ->
         v != :closing
-      end) and not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end)
+      end) and not Enum.any?(:ets.tab2list(PlayerList), fn {_, p} -> p.name == ctx.name end)
     end)
   end
 
@@ -83,7 +84,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = Valimc.TestWorld.item_owner(ctx.key)
-    Entities.records(Valimc.TestRegion.section(pid).entities.store)
+    Store.records(Valimc.TestRegion.section(pid).entities.store)
   end
 
   # The drops are in the owner once the session took them, in the callback

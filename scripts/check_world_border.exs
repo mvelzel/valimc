@@ -3,7 +3,8 @@
 #
 #   mix run --no-start scripts/check_world_border.exs kernel KERNEL.json
 #   mix run --no-start scripts/check_world_border.exs commands COMMANDS.json
-alias Valimc.Command.{Error, Source}
+alias Valimc.Text.Error
+alias Valimc.Commands.Source
 alias Valimc.Text
 alias Valimc.Commands.WorldBorder, as: Command
 alias Valimc.Protocol.{Packets, Wire}
@@ -65,7 +66,7 @@ defmodule Check do
   def chat(hex) do
     bytes = Base.decode16!(hex, case: :lower)
     {:ok, id, rest} = Wire.read_varint(bytes)
-    {:ok, tag, overlay} = Valimc.NBT.take(rest)
+    {:ok, tag, overlay} = Valimc.Data.NBT.take(rest)
     {id, tag, overlay}
   end
 

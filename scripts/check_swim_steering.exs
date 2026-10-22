@@ -1,5 +1,6 @@
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.{Box, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
@@ -26,9 +27,9 @@ for c <- cases do
     do: raise("Native swim steering mismatch #{inspect(c)} #{inspect(actual)}")
 
   player = %{
-    game_mode: Valimc.GameMode.new(:creative),
-    motion: %Valimc.PlayerMotion{velocity: vec.(c["initial"]), swimming: c["swimming"]},
-    input: %Valimc.PlayerInput{shared_flags: 8}
+    game_mode: Valimc.Player.GameMode.new(:creative),
+    motion: %Valimc.Player.Motion{velocity: vec.(c["initial"]), swimming: c["swimming"]},
+    input: %Valimc.Player.Input{shared_flags: 8}
   }
 
   {:ok, standing} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})

@@ -7,7 +7,7 @@ defmodule Valimc.WorldPresetsTest do
   """
   use ExUnit.Case, async: true
   alias Valimc.{TestScope, World}
-  alias Valimc.World.{GenSettings, Generator}
+  alias Valimc.Worldgen.{GenSettings, Generator}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -71,7 +71,7 @@ defmodule Valimc.WorldPresetsTest do
     {:ok, _} = owner!(key)
     {rx, rz} = key
     {x, z} = {rx * 128 + 37, rz * 128 + 90}
-    block = &Valimc.Registry.Blocks.default_state/1
+    block = &Valimc.Data.Blocks.default_state/1
     assert Valimc.TestBlocks.get({x, -64, z}) == block.("bedrock")
     assert Valimc.TestBlocks.get({x, -63, z}) == block.("clay")
     assert Valimc.TestBlocks.get({x, -62, z}) == block.("clay")

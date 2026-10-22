@@ -47,7 +47,8 @@ defmodule Valimc.Worldgen.Frontier do
   cell is the chunk itself.
   """
   alias Valimc.Native
-  alias Valimc.World.{Blocks, Generator}
+  alias Valimc.World.Blocks
+  alias Valimc.Worldgen.Generator
 
   defstruct [
     :kind,
@@ -827,7 +828,7 @@ defmodule Valimc.Worldgen.Frontier do
   end
 
   defp apply_result(f, %{chunk: chunk}, {:error, reason}) do
-    Valimc.Metrics.add(:worldgen_errors)
+    Valimc.Data.Metrics.add(:worldgen_errors)
     f = freeze(%{f | failed: Map.put(f.failed, chunk, reason)}, chunk)
 
     affected =

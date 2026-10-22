@@ -35,7 +35,7 @@ defmodule Valimc.WireTest do
   test "text components use modified UTF-8 for supplementary Unicode and NUL" do
     text = "Hello 😀" <> <<0>>
     bytes = IO.iodata_to_binary(Wire.text_component(text))
-    assert Valimc.NBT.decode(bytes) == {:ok, {:compound, %{"text" => {:string, text}}}}
+    assert Valimc.Data.NBT.decode(bytes) == {:ok, {:compound, %{"text" => {:string, text}}}}
     assert :binary.match(bytes, <<0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80>>) != :nomatch
   end
 

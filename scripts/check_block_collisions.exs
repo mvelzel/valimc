@@ -1,8 +1,9 @@
 Code.require_file("kernel_shapes.exs", __DIR__)
 alias Check.KernelShapes
 alias Valimc.Native
-alias Valimc.Physics.{BlockScan, Box, Kernel}
-Valimc.Registry.BlockFacts.install!()
+alias Valimc.Physics.{BlockScan, Kernel}
+alias Valimc.Data.Box
+Valimc.Data.BlockFacts.install!()
 
 [file] = System.argv()
 cases = file |> File.read!() |> JSON.decode!()

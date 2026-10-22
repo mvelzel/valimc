@@ -1,6 +1,7 @@
 alias Valimc.Living.{Armor, Damage, DamageSource}
-alias Valimc.{Inventory}
-alias Valimc.Protocol.{EffectTypes, ItemStack, ItemTypes}
+alias Valimc.Menus.Inventory
+alias Valimc.Data.EffectTypes
+alias Valimc.Protocol.{ItemStack, ItemTypes}
 Code.ensure_loaded!(Damage)
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()

@@ -1,6 +1,6 @@
 defmodule Valimc.ChatThrottleTest do
   use ExUnit.Case, async: true
-  alias Valimc.ChatThrottle
+  alias Valimc.Session.ChatThrottle
 
   test "a burst of nine messages passes and the tenth within one tick is spam" do
     throttle = ChatThrottle.new(0)

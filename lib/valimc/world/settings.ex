@@ -7,7 +7,7 @@ defmodule Valimc.World.Settings do
   (`/setidletimeout`); vanilla keeps the last three in `server.properties`.
 
   One owner serialises changes. It writes the whole file crash-safely
-  (`Valimc.DurableFile`) and only then publishes the new values in
+  (`Valimc.Storage.DurableFile`) and only then publishes the new values in
   `:persistent_term`, so a reader never sees a value the disk does not hold
   and a failed write changes nothing. Values never set come from the
   configuration. A file that does not read stops the start, as does the
@@ -80,7 +80,7 @@ defmodule Valimc.World.Settings do
   def write(nil, _values), do: :ok
 
   def write(base, values),
-    do: Valimc.DurableFile.write(Path.join(base, @file_name), encode(values))
+    do: Valimc.Storage.DurableFile.write(Path.join(base, @file_name), encode(values))
 
   @impl true
   def init(opts) do
@@ -124,7 +124,8 @@ defmodule Valimc.World.Settings do
 
   defp valid?(:spawn, %{dimension: dimension, position: {x, y, z}, yaw: yaw, pitch: pitch}),
     do:
-      dimension in Valimc.Dimension.ids() and is_integer(x) and is_integer(y) and is_integer(z) and
+      dimension in Valimc.World.Dimension.ids() and is_integer(x) and is_integer(y) and
+        is_integer(z) and
         is_float(yaw) and is_float(pitch)
 
   defp valid?(:default_game_mode, mode), do: mode in @modes
@@ -140,7 +141,7 @@ defmodule Valimc.World.Settings do
 
         {"spawn",
          %{
-           "dimension" => Valimc.Dimension.name(spawn.dimension),
+           "dimension" => Valimc.World.Dimension.name(spawn.dimension),
            "pos" => [x, y, z],
            "yaw" => spawn.yaw,
            "pitch" => spawn.pitch
@@ -171,7 +172,7 @@ defmodule Valimc.World.Settings do
   defp decode("spawn", %{"dimension" => name, "pos" => [x, y, z], "yaw" => yaw, "pitch" => pitch})
        when is_integer(x) and is_integer(y) and is_integer(z) and is_number(yaw) and
               is_number(pitch) do
-    with {:ok, dimension} <- Valimc.Dimension.parse(name),
+    with {:ok, dimension} <- Valimc.World.Dimension.parse(name),
          do:
            {:ok, :spawn,
             %{dimension: dimension, position: {x, y, z}, yaw: yaw * 1.0, pitch: pitch * 1.0}}

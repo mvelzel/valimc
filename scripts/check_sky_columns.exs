@@ -1,6 +1,6 @@
 alias Valimc.World.Blocks
 [trace_path] = System.argv()
-Valimc.Registry.BlockFacts.install!()
+Valimc.Data.BlockFacts.install!()
 rows = :json.decode(File.read!(trace_path))
 
 for row <- rows do

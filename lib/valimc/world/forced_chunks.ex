@@ -9,7 +9,7 @@ defmodule Valimc.World.ForcedChunks do
   every few seconds.
   """
   use GenServer
-  alias Valimc.Dimension
+  alias Valimc.World.Dimension
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 

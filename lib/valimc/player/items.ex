@@ -2,21 +2,25 @@ defmodule Valimc.Player.Items do
   @moduledoc """
   A player's items and the world's (VMC-077i3): drops, pickups and XP pickups
   are plain calls to the owner of the player's section, which is the group
-  the session runs in (`Valimc.Session.Host`), so the inventory and the
+  the session runs in (`Valimc.Player.Host`), so the inventory and the
   entities change in one process, in one callback.
 
   A drop is thrown from the eyes (`:directed`) or scattered (`:scattered`, a
-  death), as `Valimc.PlayerDrops` launches it. A pickup takes what fits of an
+  death), as `Valimc.Player.Drops` launches it. A pickup takes what fits of an
   item the player touches; an XP pickup takes one unit of an orb at most
   every 100 ms (vanilla's `takeXpDelay` of two ticks).
   """
-  alias Valimc.{Inventory, PlayerDrops, PlayerExperience, PlayerInput, World}
-  alias Valimc.Physics.{ItemPickup, PlayerPose}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.{Drops, Experience, Input}
+  alias Valimc.World
+  alias Valimc.Entity.ItemPickup
+  alias Valimc.Data.PlayerPose
   alias Valimc.Player.Movement
   alias Valimc.Protocol.Packets
-  alias Valimc.World.{ExperienceOrbs, Region}
+  alias Valimc.Entity.ExperienceOrbs
+  alias Valimc.World.Region
 
-  import Valimc.Net.Codec, only: [send_packets: 2]
+  import Valimc.Protocol.Codec, only: [send_packets: 2]
 
   @doc """
   Drop `stacks` that `inventory` (the player's next inventory) no longer
@@ -28,7 +32,7 @@ defmodule Valimc.Player.Items do
 
   def drop(state, inventory, stacks, kind) do
     with {:ok, owner} <- owner(state),
-         {:ok, _key, records} <- PlayerDrops.records(state.player, stacks, kind),
+         {:ok, _key, records} <- Drops.records(state.player, stacks, kind),
          :ok <- Region.drop_items(owner, records) do
       {:ok, %{state | inventory: inventory}}
     else
@@ -78,7 +82,7 @@ defmodule Valimc.Player.Items do
            |> Enum.min_by(fn {id, _} -> id end, fn -> nil end),
          false <- mending_pending?(state.inventory),
          {:ok, experience} <-
-           PlayerExperience.give(state.player.progression.experience, view.value),
+           Experience.give(state.player.progression.experience, view.value),
          {:ok, owner} <- owner_of(state, view),
          :ok <- Region.take_orb(owner, actor, view.uuid, view.value) do
       send_packets(state, [Packets.experience(experience)])
@@ -95,7 +99,7 @@ defmodule Valimc.Player.Items do
     state.phase == :play and state.life_stage == :alive and
       state.player.living.health.value > 0 and
       state.player.game_mode.current in [:survival, :adventure, :creative] and
-      PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
+      Input.loaded?(state.player.input) and not state.teleport_pending and
       state.pose_checked == Movement.pose_signature(state)
   end
 

@@ -26,7 +26,7 @@ for row <- raw["cases"] do
     end)
 
   {:ok, records} =
-    Valimc.Physics.ContainerScatter.plan(
+    Valimc.Entity.ContainerScatter.plan(
       List.to_tuple(row["origin"]),
       row["count"],
       {x, y, z},

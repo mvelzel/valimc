@@ -7,8 +7,8 @@ defmodule Valimc.Living.Damage do
   damage source's tags. Pure: the owner commits, replicates and runs death.
   """
   alias Valimc.Living.{Armor, DamageSource, Health}
-  alias Valimc.Protocol.EffectTypes
-  alias Valimc.Registry.EnchantmentEffects
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Data.EnchantmentEffects
   @float_max 3.4028234663852886e38
   @resistance EffectTypes.id("resistance")
   @fire_resistance EffectTypes.id("fire_resistance")

@@ -7,7 +7,9 @@ defmodule Valimc.Commands.World do
   changes are box edits, all or nothing across region owners
   (`Valimc.World.BoxEdit`).
   """
-  alias Valimc.Command.{BlockInput, Error, Facts, Feedback, Names, Source}
+  alias Valimc.Commands.Parser.BlockInput
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Facts, Feedback, Names, Source}
   alias Valimc.World.BoxEdit
   alias Valimc.Text
   alias Valimc.World.Clock
@@ -20,7 +22,7 @@ defmodule Valimc.Commands.World do
 
   # The source dimension's default clock; the Nether has none (VMC-026b).
   defp clock_id(_, source) do
-    facts = Valimc.Dimension.facts(source.dimension)
+    facts = Valimc.World.Dimension.facts(source.dimension)
     facts.default_clock || Error.fail!("commands.time.no_default_clock", [facts.type])
   end
 
@@ -59,7 +61,7 @@ defmodule Valimc.Commands.World do
   @doc "`/time` markers (suggested ones) and timelines of the clock in use."
   def suggest(path, arguments, source) do
     clock =
-      arguments["clock"] || Valimc.Dimension.facts(source.dimension).default_clock ||
+      arguments["clock"] || Valimc.World.Dimension.facts(source.dimension).default_clock ||
         "minecraft:overworld"
 
     case List.last(path) do
@@ -279,7 +281,7 @@ defmodule Valimc.Commands.World do
 
   # ---- game rules ----
 
-  def live_rules, do: Map.keys(Valimc.GameRules.stored())
+  def live_rules, do: Map.keys(Valimc.World.GameRules.stored())
 
   @doc "The `/gamerule` paths ValiMC runs: each live rule, short and namespaced, queried or set."
   def gamerule_paths do
@@ -319,7 +321,7 @@ defmodule Valimc.Commands.World do
     if rule_value(rule) == value,
       do: Error.fail!("commands.gamerule.not_set", [rule, to_string(value)])
 
-    operation = Map.fetch!(Valimc.GameRules.stored(), rule)
+    operation = Map.fetch!(Valimc.World.GameRules.stored(), rule)
     configure!({operation, value})
     Feedback.success(source, Text.translatable("commands.gamerule.set", [rule, to_string(value)]))
     if(value, do: 1, else: 0)
@@ -389,7 +391,7 @@ defmodule Valimc.Commands.World do
 
   @air ~w(air cave_air void_air)
   defp air?(state),
-    do: Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(state)) in @air
+    do: Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(state)) in @air
 
   @doc """
   `/fill <from> <to> <block> [mode]`: one box edit, all or nothing across the
@@ -418,7 +420,7 @@ defmodule Valimc.Commands.World do
       end)
 
     filter = arguments["filter"]
-    air = Valimc.Registry.Blocks.default_state("air")
+    air = Valimc.Data.Blocks.default_state("air")
 
     # The state each cell gets (`Mode.filter`), nil for an outline's interior.
     target = fn {x, y, z} ->
@@ -473,7 +475,7 @@ defmodule Valimc.Commands.World do
     {yaw, pitch} =
       case arguments do
         %{"rotation" => rotation} ->
-          Valimc.Command.Coordinates.rotation_of(rotation, source.rotation)
+          Valimc.Commands.Parser.Coordinates.rotation_of(rotation, source.rotation)
 
         _ ->
           {0.0, 0.0}
@@ -495,7 +497,7 @@ defmodule Valimc.Commands.World do
         z,
         {:float, yaw},
         {:float, pitch},
-        Valimc.Dimension.name(source.dimension)
+        Valimc.World.Dimension.name(source.dimension)
       ])
     )
 

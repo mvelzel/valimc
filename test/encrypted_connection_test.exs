@@ -3,7 +3,8 @@ defmodule Valimc.EncryptedConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Encryption, Wire}
-  alias Valimc.{Connection, KeyExchange, LoginKeys, Players}
+  alias Valimc.Net.{Connection, KeyExchange, LoginKeys}
+  alias Valimc.Player.PlayerList
 
   setup do
     previous = Valimc.config(:encrypt_login)
@@ -42,7 +43,7 @@ defmodule Valimc.EncryptedConnectionTest do
   defp owner(name), do: Client.connection(name)
 
   defp assert_no_lease(pid, name) do
-    assert Players.get(pid) == :error
+    assert PlayerList.get(pid) == :error
     assert Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid(name)) == []
   end
 
@@ -220,7 +221,7 @@ defmodule Valimc.KeyExchangeTest do
   # Socket-free, but the key-exchange pool is global.
   use ExUnit.Case, async: false
   alias Valimc.Protocol.{Encryption, Wire}
-  alias Valimc.{KeyExchange, LoginKeys}
+  alias Valimc.Net.{KeyExchange, LoginKeys}
 
   defp response(pair, nonce, secret) do
     for value <- [secret, nonce], into: <<>> do

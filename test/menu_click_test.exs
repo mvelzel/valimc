@@ -3,7 +3,8 @@ defmodule Valimc.MenuClickTest do
   # table_menu_click and player_crafting stages; these are the refusals and the
   # menu descriptions they rely on.
   use ExUnit.Case, async: true
-  alias Valimc.{CookingBlocks, Inventory, Menu, MenuClick}
+  alias Valimc.Blocks.CookingBlocks
+  alias Valimc.Menus.{Inventory, Menu, Click}
   alias Valimc.Protocol.ItemStack
 
   defp furnace do
@@ -25,12 +26,12 @@ defmodule Valimc.MenuClickTest do
 
     assert Menu.contents(Menu.chest(3), {}, %Inventory{}) == {:error, :invalid_menu_contents}
 
-    assert MenuClick.plan(Menu.table(), nil, Inventory.new(), :pickup, 1, 0) ==
+    assert Click.plan(Menu.table(), nil, Inventory.new(), :pickup, 1, 0) ==
              {:error, :table_not_open}
 
     table_open = %Inventory{table_inputs: Tuple.duplicate(nil, 9)}
 
-    assert MenuClick.plan(furnace(), {nil, nil, nil}, table_open, :pickup, 0, 0) ==
+    assert Click.plan(furnace(), {nil, nil, nil}, table_open, :pickup, 0, 0) ==
              {:error, :unsupported_click}
   end
 
@@ -39,17 +40,17 @@ defmodule Valimc.MenuClickTest do
     inventory = %Inventory{slots: %{36 => ItemStack.new("diamond", 3)}}
     bundle = put_elem(storage, 0, ItemStack.new("bundle"))
 
-    assert MenuClick.plan(Menu.chest(3), bundle, inventory, :pickup, 0, 0) ==
+    assert Click.plan(Menu.chest(3), bundle, inventory, :pickup, 0, 0) ==
              {:error, :unsupported_click}
 
     oversized = put_elem(storage, 0, ItemStack.new("diamond_sword", 2))
 
-    assert MenuClick.plan(Menu.chest(3), oversized, inventory, :swap, 0, 0) ==
+    assert Click.plan(Menu.chest(3), oversized, inventory, :swap, 0, 0) ==
              {:error, :unsupported_click}
 
     # A shift-click into a full chest leaves both sides exact.
     assert {:ok, ^storage, next, []} =
-             MenuClick.plan(Menu.chest(3), storage, inventory, :quick_move, 54, 0)
+             Click.plan(Menu.chest(3), storage, inventory, :quick_move, 54, 0)
 
     assert next.slots == inventory.slots
   end

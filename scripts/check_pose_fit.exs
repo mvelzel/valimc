@@ -1,13 +1,7 @@
 alias Valimc.Native
 
-alias Valimc.Physics.{
-  BlockScan,
-  BorderSnapshot,
-  CollisionContext,
-  EntityCollisions,
-  Kernel,
-  PlayerPose
-}
+alias Valimc.Physics.{BlockScan, BorderSnapshot, CollisionContext, EntityCollisions, Kernel}
+alias Valimc.Data.PlayerPose
 
 import Bitwise
 [path] = System.argv()

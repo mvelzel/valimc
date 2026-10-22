@@ -2,12 +2,12 @@ defmodule Valimc.Storage.Checkpoint do
   @moduledoc """
   An owner's checkpoint file (VMC-077f): its records as of its `seq`-th
   frame, `"VMCREG01" <> <<seq::64>> <> term <> sha256`, replaced crash-safely
-  (`Valimc.DurableFile`). A region's is `r.X.Z.vmc` in its dimension's folder,
+  (`Valimc.Storage.DurableFile`). A region's is `r.X.Z.vmc` in its dimension's folder,
   with its export-only imported data beside it in `r.X.Z.extra`; a player's
   is `players/<uuid>.pose` (`Valimc.Player.State`, VMC-077i1). The header alone
   tells the log what a checkpoint covers.
   """
-  alias Valimc.Dimension
+  alias Valimc.World.Dimension
 
   @magic "VMCREG01"
 
@@ -23,7 +23,7 @@ defmodule Valimc.Storage.Checkpoint do
   def extra(path), do: Path.rootname(path) <> ".extra"
 
   def write(path, seq, records) when is_integer(seq) and is_map(records),
-    do: Valimc.DurableFile.write(path, encode(seq, records))
+    do: Valimc.Storage.DurableFile.write(path, encode(seq, records))
 
   @doc "A checkpoint's bytes (iodata): its records as of its `seq`-th frame."
   def encode(seq, records) when is_integer(seq) and is_map(records) do

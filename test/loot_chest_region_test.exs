@@ -1,8 +1,8 @@
 defmodule Valimc.LootChestRegionTest do
   @moduledoc "Unrolled loot chests unpack on open and break, once, durably (VMC-072b)."
   use ExUnit.Case, async: true
-  alias Valimc.Physics.BlockEntities, as: Types
-  alias Valimc.Registry.Blocks, as: BlockRegistry
+  alias Valimc.Blocks.BlockEntityTypes, as: Types
+  alias Valimc.Data.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}
 

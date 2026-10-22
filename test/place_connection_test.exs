@@ -19,7 +19,7 @@ defmodule Valimc.PlaceConnectionTest do
     {_, client} = Client.login(name("Place"))
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    air = Valimc.Registry.Blocks.default_state("air")
+    air = Valimc.Data.Blocks.default_state("air")
 
     client =
       command(
@@ -39,7 +39,7 @@ defmodule Valimc.PlaceConnectionTest do
     client =
       command(client, "place feature minecraft:oak 20 64 4", "commands.place.feature.success")
 
-    assert Valimc.TestBlocks.get({20, 64, 4}) == Valimc.Registry.Blocks.default_state("oak_log")
+    assert Valimc.TestBlocks.get({20, 64, 4}) == Valimc.Data.Blocks.default_state("oak_log")
     client = command(client, "place structure minecraft:igloo", "not supported yet")
     # A town centre holds a bell and other block entities ValiMC keeps as data.
     client =

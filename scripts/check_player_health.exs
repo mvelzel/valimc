@@ -1,5 +1,5 @@
 alias Valimc.Living.Health
-alias Valimc.{GameMode}
+alias Valimc.Player.GameMode
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 

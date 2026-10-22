@@ -13,7 +13,7 @@ defmodule Valimc.FullChunkTest do
   defp entity(block, kind, nbt, loot \\ nil) do
     %{
       position: {1, 64, 2},
-      state: Valimc.Registry.Blocks.default_state(block),
+      state: Valimc.Data.Blocks.default_state(block),
       kind: kind,
       nbt: nbt,
       loot_table: loot,

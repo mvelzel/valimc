@@ -7,10 +7,10 @@ defmodule Valimc.Living.Attributes do
   `{id, base, modifiers}` for replication. Only active (head) amplifiers matter,
   never durations.
   """
-  use Valimc.Facts, "protocol/attributes.json"
+  use Valimc.Data.Facts, "protocol/attributes.json"
   import Bitwise
   alias Valimc.Living.Effects
-  alias Valimc.Protocol.EffectTypes
+  alias Valimc.Data.EffectTypes
 
   @movement @facts["minecraft:movement_speed"]
   @safe_fall @facts["minecraft:safe_fall_distance"]

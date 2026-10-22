@@ -2,7 +2,8 @@ defmodule Valimc.MovementFoodConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerFood}
+  alias Valimc.Menus.Inventory
+  alias Valimc.Player.Food
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -18,11 +19,11 @@ defmodule Valimc.MovementFoodConnectionTest do
     player =
       Map.merge(ctx.pose, %{
         living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
-        game_mode: Valimc.GameMode.new(mode),
-        abilities: Valimc.PlayerAbilities.for_mode(mode),
-        motion: %Valimc.PlayerMotion{},
+        game_mode: Valimc.Player.GameMode.new(mode),
+        abilities: Valimc.Player.Abilities.for_mode(mode),
+        motion: %Valimc.Player.Motion{},
         last_death: nil,
-        food: Keyword.get(opts, :food, %PlayerFood{})
+        food: Keyword.get(opts, :food, %Food{})
       })
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
@@ -61,14 +62,14 @@ defmodule Valimc.MovementFoodConnectionTest do
 
   test "accepted sprint consumes the native amount once, drains food on tick and survives reconnect",
        ctx do
-    food = %PlayerFood{saturation: 0.0, exhaustion: 3.9375}
+    food = %Food{saturation: 0.0, exhaustion: 3.9375}
     seed(ctx, food: food)
     {client, pid} = login(ctx)
     command(client, pid, true)
     target = %{ctx.pose | x: ctx.pose.x + 1.0}
     move(client, target)
     moved(pid, target)
-    exhausted = PlayerFood.exhaust(food, 0.10000000149011612)
+    exhausted = Food.exhaust(food, 0.10000000149011612)
     assert state(pid).player.food == exhausted
     tick(pid)
     assert state(pid).player.food.level == 19 and state(pid).player.food.saturation == 0.0
@@ -92,7 +93,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     Client.send_packet(client, :play, "player_command", <<0, 2, 0>>)
     moved(pid, target)
     wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) == 0 end)
-    expected = PlayerFood.exhaust(%PlayerFood{}, 0.019999999552965164)
+    expected = Food.exhaust(%Food{}, 0.019999999552965164)
     assert state(pid).player.food == expected
     next = %{target | x: target.x + 0.2}
     move(client, next)
@@ -108,12 +109,12 @@ defmodule Valimc.MovementFoodConnectionTest do
     {body, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
-    assert state(pid).player.food == %PlayerFood{}
+    assert state(pid).player.food == %Food{}
     :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x) + 1, 64, floor(ctx.pose.z)}, 1)
     move(client, %{ctx.pose | x: ctx.pose.x + 0.4})
     {body, client} = Client.await(client, :play, "player_position")
     _client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
-    assert state(pid).player.food == %PlayerFood{}
+    assert state(pid).player.food == %Food{}
   end
 end

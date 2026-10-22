@@ -10,7 +10,7 @@ alias Valimc.Native
 
 {:ok, state} = Valimc.Worldgen.new(20_261_020)
 source = "minecraft:overworld"
-protocol_biomes = Valimc.World.Generator.protocol_biomes()
+protocol_biomes = Valimc.Worldgen.Generator.protocol_biomes()
 base = for _ <- 1..384, do: 0
 
 columns = :ets.new(:columns, [:set])

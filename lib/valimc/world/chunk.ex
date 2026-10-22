@@ -2,7 +2,7 @@ defmodule Valimc.World.Chunk do
   @moduledoc "Deterministic flat terrain and 26.3 paletted sections; sparse persisted edits."
   import Bitwise
   alias Valimc.Protocol.{Data, Packets, Wire}
-  alias Valimc.Registry.BlockFacts
+  alias Valimc.Data.BlockFacts
   @min_y -64
   @max_y 319
   def min_y, do: @min_y
@@ -10,7 +10,7 @@ defmodule Valimc.World.Chunk do
   @doc "Whether `y` is inside the caller's dimension's build height (VMC-026b)."
   def valid_y?(y) do
     y >= @min_y and y <= @max_y and
-      (Valimc.Dimension.current() == :overworld or Valimc.Dimension.in_height?(y))
+      (Valimc.World.Dimension.current() == :overworld or Valimc.World.Dimension.in_height?(y))
   end
 
   @doc """
@@ -20,7 +20,7 @@ defmodule Valimc.World.Chunk do
   def base(y) do
     cond do
       not valid_y?(y) -> Data.block("air")
-      Valimc.Dimension.current() != :overworld -> Data.block("air")
+      Valimc.World.Dimension.current() != :overworld -> Data.block("air")
       y == -64 -> Data.block("bedrock")
       y < 60 -> Data.block("stone")
       y < 63 -> Data.block("dirt")
@@ -35,7 +35,7 @@ defmodule Valimc.World.Chunk do
   def load! do
     {_id, payload} = encode_full({0, 0}, %{})
     <<_coordinates::binary-size(8), tail::binary>> = IO.iodata_to_binary(payload)
-    light = IO.iodata_length(Valimc.Anvil.Light.packet(nil, :overworld))
+    light = IO.iodata_length(Valimc.Storage.Anvil.Light.packet(nil, :overworld))
     # The flat chunk's heightmaps, sections and (no) block entities; light follows.
     :persistent_term.put({__MODULE__, :flat_body}, binary_part(tail, 0, byte_size(tail) - light))
   end
@@ -50,7 +50,7 @@ defmodule Valimc.World.Chunk do
     Packets.packet("level_chunk_with_light", [
       <<cx::signed-32, cz::signed-32>>,
       :persistent_term.get({__MODULE__, :flat_body}),
-      Valimc.Anvil.Light.packet(light)
+      Valimc.Storage.Anvil.Light.packet(light)
     ])
   end
 
@@ -84,14 +84,14 @@ defmodule Valimc.World.Chunk do
   # One above the column's top state the heightmap counts, else the bottom.
   defp height(edits, {x, z}, type) do
     Enum.find_value(@max_y..@min_y//-1, @min_y, fn y ->
-      if Valimc.Registry.BlockFacts.heightmap?(block_at(edits, {x, y, z}), type), do: y + 1
+      if Valimc.Data.BlockFacts.heightmap?(block_at(edits, {x, y, z}), type), do: y + 1
     end)
   end
 
   @doc """
   A chunk packet from encoded sections/heightmaps; owned block entities come from
   `edits`, imported ones from `preserved` (see `ChestBlockEntity.chunk_entries/3`);
-  `light` is the chunk's light image (`Valimc.Anvil.Light` layout), else full sky.
+  `light` is the chunk's light image (`Valimc.Storage.Anvil.Light` layout), else full sky.
   """
   def packet(
         %{chunk: {cx, cz} = key, sections: data, surface: surface, motion: motion},
@@ -110,7 +110,7 @@ defmodule Valimc.World.Chunk do
       Wire.varint(IO.iodata_length(data)),
       data,
       Valimc.Protocol.ChestBlockEntity.chunk_entries(key, edits, preserved),
-      Valimc.Anvil.Light.packet(light)
+      Valimc.Storage.Anvil.Light.packet(light)
     ])
   end
 

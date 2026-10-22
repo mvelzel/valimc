@@ -3,7 +3,7 @@ defmodule Valimc.World.ContainerLifecycle do
   alias Valimc.World
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
-  @double Valimc.Block.Chest.double_states()
+  @double Valimc.Blocks.Chest.double_states()
 
   def plan(%Containers{} = containers, key, expected, edits)
       when is_map(expected) and is_map(edits) and map_size(edits) in 1..4096 and
@@ -96,7 +96,7 @@ defmodule Valimc.World.ContainerLifecycle do
     end)
   end
 
-  defp kind(state), do: Valimc.Block.block_entity(state)
+  defp kind(state), do: Valimc.Blocks.block_entity(state)
 
   defp retire_entry(current, position, entry, removed) do
     case Containers.remove(current, position, entry.revision) do

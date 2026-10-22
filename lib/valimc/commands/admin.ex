@@ -4,25 +4,26 @@ defmodule Valimc.Commands.Admin do
   `version`, `kick` and `stop`. Operator, ban and whitelist commands wait for
   VMC-010.
   """
-  alias Valimc.Command.{Error, Feedback, Source, Targets}
+  alias Valimc.Text.Error
+  alias Valimc.Commands.{Feedback, Source, Targets}
   alias Valimc.Text
 
   @doc "`/version`: ten system lines, as vanilla's `VersionCommand`."
   def version(_arguments, source) do
     built =
-      Valimc.Command.Facts.server_version()["build_time_ms"]
+      Valimc.Commands.Facts.server_version()["build_time_ms"]
       |> DateTime.from_unix!(:millisecond)
       |> Calendar.strftime("%a %b %d %H:%M:%S UTC %Y")
 
-    protocol = Valimc.Command.Facts.server_version()["protocol"]
+    protocol = Valimc.Commands.Facts.server_version()["protocol"]
 
     lines = [
       Text.translatable("commands.version.header"),
-      Text.translatable("commands.version.id", [Valimc.Command.Facts.server_version()["id"]]),
-      Text.translatable("commands.version.name", [Valimc.Command.Facts.server_version()["name"]]),
-      Text.translatable("commands.version.data", [Valimc.Command.Facts.server_version()["data"]]),
+      Text.translatable("commands.version.id", [Valimc.Commands.Facts.server_version()["id"]]),
+      Text.translatable("commands.version.name", [Valimc.Commands.Facts.server_version()["name"]]),
+      Text.translatable("commands.version.data", [Valimc.Commands.Facts.server_version()["data"]]),
       Text.translatable("commands.version.series", [
-        Valimc.Command.Facts.server_version()["series"]
+        Valimc.Commands.Facts.server_version()["series"]
       ]),
       Text.translatable("commands.version.protocol", [
         protocol,
@@ -30,13 +31,13 @@ defmodule Valimc.Commands.Admin do
       ]),
       Text.translatable("commands.version.build_time", [Text.literal(built)]),
       Text.translatable("commands.version.pack.resource", [
-        Valimc.Command.Facts.server_version()["resource_pack"]
+        Valimc.Commands.Facts.server_version()["resource_pack"]
       ]),
       Text.translatable("commands.version.pack.data", [
-        Valimc.Command.Facts.server_version()["data_pack"]
+        Valimc.Commands.Facts.server_version()["data_pack"]
       ]),
       Text.translatable(
-        if(Valimc.Command.Facts.server_version()["stable"],
+        if(Valimc.Commands.Facts.server_version()["stable"],
           do: "commands.version.stable.yes",
           else: "commands.version.stable.no"
         )
@@ -61,7 +62,7 @@ defmodule Valimc.Commands.Admin do
 
     # `KickCommand`: the disconnect, then the feedback (which a kicked source misses).
     for target <- targets do
-      Valimc.Connection.deliver(target.pid, {:kick, Text.encode(reason)})
+      Valimc.Net.Connection.deliver(target.pid, {:kick, Text.encode(reason)})
 
       Feedback.success(
         source,
