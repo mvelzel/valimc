@@ -17,7 +17,18 @@ defmodule Valimc.Net.LoginFlow do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{GameMode, Players, PlayerFood, PlayerInput, PlayerKinetics, PlayerLife, PlayerMotion, PlayerStore, PlayerTransfers}
+  alias Valimc.{
+    GameMode,
+    Players,
+    PlayerFood,
+    PlayerInput,
+    PlayerKinetics,
+    PlayerLife,
+    PlayerMotion,
+    PlayerStore,
+    PlayerTransfers
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.TickClock
@@ -64,7 +75,7 @@ defmodule Valimc.Net.LoginFlow do
       ref = make_ref()
 
       recovery = %{
-        Transfers.new_recovery(:login, :prepare, nil)
+        Transfers.new_recovery(state, :login, :prepare, nil)
         | ref: ref,
           plan: %{key: key, records: records, inventory: after_snapshot.inventory}
       }
@@ -120,7 +131,7 @@ defmodule Valimc.Net.LoginFlow do
     mode = GameMode.new(Valimc.World.Settings.get(:default_game_mode))
 
     player = %{
-      pid: self(),
+      pid: state.connection,
       name: name,
       uuid: if(profile, do: profile.uuid, else: Valimc.Connection.offline_uuid(name)),
       properties: if(profile, do: profile.properties, else: []),
@@ -229,7 +240,7 @@ defmodule Valimc.Net.LoginFlow do
 
     # The connection works in its player's dimension from here on (VMC-026b).
     Valimc.Dimension.put(player.dimension)
-    Players.update(self(), player)
+    Players.update(state.connection, player)
 
     state = %{
       state
@@ -242,7 +253,7 @@ defmodule Valimc.Net.LoginFlow do
     }
 
     if pending do
-      recovery = Transfers.new_recovery(:login, :delivery, pending)
+      recovery = Transfers.new_recovery(state, :login, :delivery, pending)
 
       Transfers.deliver_recovery(%{state | step: :recover, recovery: recovery})
     else
@@ -330,7 +341,7 @@ defmodule Valimc.Net.LoginFlow do
       |> Movement.publish_absorption()
       |> Movement.publish_jump_boost()
 
-    existing = Players.ready(self())
+    existing = Players.ready(state.connection)
     state = state |> Valimc.Session.Presence.joined() |> Replication.update_view()
 
     state =
@@ -340,10 +351,10 @@ defmodule Valimc.Net.LoginFlow do
 
     clock = TickClock.new(make_ref(), System.monotonic_time(:millisecond))
     ticks = Valimc.config(:player_ticks, state.player.uuid)
-    if ticks == :timer, do: Process.send_after(self(), {:player_tick, clock.token}, 50)
+    if ticks == :timer, do: Process.send_after(state.connection, {:player_tick, clock.token}, 50)
     state = %{state | simulation_clock: clock, player_ticks: ticks}
-    Process.send_after(self(), :publish_movement, 50)
-    Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
+    Process.send_after(state.connection, :publish_movement, 50)
+    Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
     if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
   end
 end

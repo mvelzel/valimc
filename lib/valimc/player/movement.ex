@@ -28,7 +28,7 @@ defmodule Valimc.Player.Movement do
       state
     else
       player = %{state.player | input: input}
-      Players.update(self(), player)
+      Players.update(state.connection, player)
       publish_movement_speed(%{state | player: player})
     end
   end
@@ -82,7 +82,7 @@ defmodule Valimc.Player.Movement do
           do: packets ++ [Packets.player_absorption(state.player)],
           else: packets
 
-      Players.update(self(), state.player)
+      Players.update(state.connection, state.player)
       send_packets(state, packets)
       Enum.each(packets, &broadcast_player_packet(state, &1))
       %{state | absorption_view: view}
@@ -104,7 +104,7 @@ defmodule Valimc.Player.Movement do
     state = count_motion_packet(state)
     rotation = Map.take(changes, [:yaw, :pitch])
     rotated = Map.merge(state.player, rotation)
-    Players.update(self(), rotated)
+    Players.update(state.connection, rotated)
     state = %{state | player: rotated}
 
     if Map.has_key?(changes, :x) or ((flags &&& 1) != 0 and PlayerMotion.distance(player) > 0) do
@@ -137,7 +137,7 @@ defmodule Valimc.Player.Movement do
         PlayerMotion.accept(state.player.motion, {0.0, 0.0, 0.0}, flags, player.abilities.flying)
 
       player = %{state.player | motion: motion}
-      Players.update(self(), player)
+      Players.update(state.connection, player)
       %{state | player: player}
     end
   end
@@ -228,7 +228,7 @@ defmodule Valimc.Player.Movement do
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport, delta)])
-    Players.update(self(), player)
+    Players.update(state.connection, player)
     send(self(), :drain)
 
     Valimc.Session.Replication.update_view(%{
@@ -335,11 +335,11 @@ defmodule Valimc.Player.Movement do
     framed = {state.threshold, IO.iodata_to_binary(Packets.frame(packet, state.threshold))}
 
     for pid <- Players.nearby(state.regions),
-        pid != self(),
+        pid != state.connection,
         do:
           Valimc.Connection.deliver(
             pid,
-            {:player_packet, self(), state.player.entity_id, packet, framed}
+            {:player_packet, state.connection, state.player.entity_id, packet, framed}
           )
 
     state

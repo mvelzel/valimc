@@ -2,7 +2,15 @@ defmodule Valimc.PlayerContainerStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
 
-  alias Valimc.{GameMode, Inventory, PlayerContainerIntent, PlayerFood, PlayerStore, TransferDelivery}
+  alias Valimc.{
+    GameMode,
+    Inventory,
+    PlayerContainerIntent,
+    PlayerFood,
+    PlayerStore,
+    TransferDelivery
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack

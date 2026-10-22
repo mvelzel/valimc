@@ -77,7 +77,7 @@ defmodule Valimc.Session.JobHandlers do
         intent = %{job.intent | request: request}
 
         recovery = %{
-          Transfers.new_recovery(:play, :prepare, nil)
+          Transfers.new_recovery(state, :play, :prepare, nil)
           | ref: ref,
             plan: %{
               key: intent.key,

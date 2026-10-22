@@ -25,7 +25,17 @@ defmodule Valimc.Session.Messages do
   import Valimc.Net.Codec,
     only: [send_packets: 2, crypt_bytes: 3, reject: 2, reset_window: 1]
 
-  alias Valimc.{Metrics, Players, PlayerContainerQuery, PlayerInput, PlayerPickupIntent, PlayerStore, TransferDelivery, World}
+  alias Valimc.{
+    Metrics,
+    Players,
+    PlayerContainerQuery,
+    PlayerInput,
+    PlayerPickupIntent,
+    PlayerStore,
+    TransferDelivery,
+    World
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.TickClock
@@ -314,7 +324,7 @@ defmodule Valimc.Session.Messages do
         end)
 
   def info(:save_player, state) do
-    Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
+    Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
     info(:save_player_now, state)
   end
 
@@ -330,7 +340,7 @@ defmodule Valimc.Session.Messages do
         ref
       )
 
-      Process.send_after(self(), {:save_deadline, ref}, 5000)
+      Process.send_after(state.connection, {:save_deadline, ref}, 5000)
       {:noreply, %{state | save_ref: ref}}
     else
       {:noreply, state}
@@ -734,7 +744,7 @@ defmodule Valimc.Session.Messages do
   def info(:publish_movement, state) do
     Valimc.Connection.guard_connection(state, fn ->
       if state.phase == :play do
-        Process.send_after(self(), :publish_movement, 50)
+        Process.send_after(state.connection, :publish_movement, 50)
 
         state =
           Movement.update_player_input(
@@ -909,8 +919,8 @@ defmodule Valimc.Session.Messages do
   # Manual clocks (tests) tick only on explicit messages.
   defp schedule_player_tick(%{player_ticks: :manual}, _next, _delay), do: :ok
 
-  defp schedule_player_tick(_state, next, delay),
-    do: Process.send_after(self(), {:player_tick, next.token}, delay)
+  defp schedule_player_tick(state, next, delay),
+    do: Process.send_after(state.connection, {:player_tick, next.token}, delay)
 
   defp down(state, ref, pid) do
     {lids, closed} = ChestLidReplication.down(state.chest_lids, ref, pid)

@@ -16,7 +16,16 @@ defmodule Valimc.Player.ItemUse do
 
   alias Valimc.Living.{Armor, Effects}
 
-  alias Valimc.{FoodItems, Inventory, Players, PlayerEquipment, PlayerInput, PlayerStore, PlayerUse}
+  alias Valimc.{
+    FoodItems,
+    Inventory,
+    Players,
+    PlayerEquipment,
+    PlayerInput,
+    PlayerStore,
+    PlayerUse
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
@@ -43,7 +52,7 @@ defmodule Valimc.Player.ItemUse do
               pitch: wrap_angle(request.pitch)
           }
 
-          Players.update(self(), player)
+          Players.update(state.connection, player)
           begin_item_use(%{state | player: player}, request.hand)
         else
           state
@@ -144,14 +153,18 @@ defmodule Valimc.Player.ItemUse do
 
   def publish_item_use(state, flags) do
     player = %{state.player | use_flags: flags}
-    Players.update(self(), player)
+    Players.update(state.connection, player)
     state = %{state | player: player}
     packet = Packets.player_use(player)
     send_packets(state, [packet])
 
     for pid <- Players.nearby(state.regions),
-        pid != self(),
-        do: Valimc.Connection.deliver(pid, {:player_use_packet, self(), player.entity_id, packet})
+        pid != state.connection,
+        do:
+          Valimc.Connection.deliver(
+            pid,
+            {:player_use_packet, state.connection, player.entity_id, packet}
+          )
 
     state
   end
@@ -170,7 +183,7 @@ defmodule Valimc.Player.ItemUse do
           %{state | equipment_source: source}
         else
           player = %{state.player | equipment: equipment}
-          Players.update(self(), player)
+          Players.update(state.connection, player)
           %{state | player: player, equipment_source: source}
         end
 
@@ -233,8 +246,8 @@ defmodule Valimc.Player.ItemUse do
             ref
           )
 
-          Process.send_after(self(), {:save_deadline, ref}, 5000)
-          Players.update(self(), state.player)
+          Process.send_after(state.connection, {:save_deadline, ref}, 5000)
+          Players.update(state.connection, state.player)
           if notify, do: send_packets(state, [Packets.use_item_finished(state.player.entity_id)])
 
           effect_packets =

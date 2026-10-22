@@ -24,7 +24,16 @@ defmodule Valimc.Connection do
   import Valimc.Net.Codec,
     only: [reject: 2, reset_window: 1]
 
-  alias Valimc.{ChatThrottle, CreativeInput, Inventory, Metrics, Players, PlayerKinetics, PlayerStore}
+  alias Valimc.{
+    ChatThrottle,
+    CreativeInput,
+    Inventory,
+    Metrics,
+    Players,
+    PlayerKinetics,
+    PlayerStore
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.{ChestLidReplication, EntityReplication}
@@ -215,6 +224,8 @@ defmodule Valimc.Connection do
     {:ok,
      %{
        socket: socket,
+       # The player's stable address: timers, replies and deliveries come here.
+       connection: self(),
        phase: :handshake,
        step: nil,
        threshold: nil,

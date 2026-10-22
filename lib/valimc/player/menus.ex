@@ -100,7 +100,7 @@ defmodule Valimc.Player.Menus do
         else
           ref = make_ref()
           monitor = Process.monitor(pid)
-          timer = Process.send_after(self(), {:table_deadline, ref}, 300)
+          timer = Process.send_after(state.connection, {:table_deadline, ref}, 300)
 
           job = %{
             ref: ref,
@@ -119,7 +119,7 @@ defmodule Valimc.Player.Menus do
 
           state = %{state | table_job: job}
 
-          case Valimc.World.Region.request_table(owner, self(), ref, position, grant) do
+          case Valimc.World.Region.request_table(owner, state.connection, ref, position, grant) do
             :ok -> state
             _ -> fail_table_query(state)
           end
@@ -273,7 +273,7 @@ defmodule Valimc.Player.Menus do
         state
 
       menu.opener != opener ->
-        Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
+        Valimc.World.Region.unsubscribe_container(menu.owner, state.connection, menu.view_ref)
 
         menu = %{
           menu
@@ -398,7 +398,7 @@ defmodule Valimc.Player.Menus do
         owner: menu.owner,
         menu: menu.id,
         monitor: Process.monitor(elem(menu.owner, 0)),
-        timer: Process.send_after(self(), {:table_deadline, ref}, 300),
+        timer: Process.send_after(state.connection, {:table_deadline, ref}, 300),
         signature: container_signature(state),
         task: nil,
         intent: nil,
@@ -503,7 +503,7 @@ defmodule Valimc.Player.Menus do
     snapshot = PlayerState.capture(state.player, state.inventory)
 
     recovery = %{
-      Transfers.new_recovery(:play, :prepare, nil)
+      Transfers.new_recovery(state, :play, :prepare, nil)
       | ref: ref,
         plan: %{
           key: intent.key,
@@ -518,9 +518,9 @@ defmodule Valimc.Player.Menus do
     CreativeInventory.resync_inventory(%{state | recovery: recovery})
   end
 
-  def retire_container_view(%{table_menu: %{kind: kind} = menu})
+  def retire_container_view(%{table_menu: %{kind: kind} = menu} = state)
       when kind in [:chest, :cooking] do
-    Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
+    Valimc.World.Region.unsubscribe_container(menu.owner, state.connection, menu.view_ref)
     Process.demonitor(menu.monitor, [:flush])
   end
 

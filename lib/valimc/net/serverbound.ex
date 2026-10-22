@@ -293,7 +293,7 @@ defmodule Valimc.Net.Serverbound do
       "client_tick_end" ->
         <<>> = payload
         player = %{state.player | motion: PlayerMotion.finish_tick(state.player.motion)}
-        Players.update(self(), player)
+        Players.update(state.connection, player)
         %{state | client_tick: ClientTick.finish(state.client_tick), player: player}
 
       "chunk_batch_received" ->
@@ -311,7 +311,7 @@ defmodule Valimc.Net.Serverbound do
             motion: PlayerMotion.flight(state.player.motion, abilities.flying)
         }
 
-        Players.update(self(), player)
+        Players.update(state.connection, player)
         %{state | player: player}
 
       "player_input" ->

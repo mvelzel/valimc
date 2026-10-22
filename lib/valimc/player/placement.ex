@@ -169,7 +169,7 @@ defmodule Valimc.Player.Placement do
   # spectator (vanilla's `isUnobstructed`), the placing player included.
   defp peer_bodies(state) do
     for pid <- Valimc.Players.nearby(state.regions),
-        pid != self(),
+        pid != state.connection,
         {:ok, peer} <- [Valimc.Players.get(pid)],
         peer.game_mode.current != :spectator and peer.living.health.value > 0,
         do: body(peer)
@@ -271,7 +271,7 @@ defmodule Valimc.Player.Placement do
       ref = make_ref()
 
       recovery = %{
-        Transfers.new_recovery(:play, :prepare, nil)
+        Transfers.new_recovery(state, :play, :prepare, nil)
         | ref: ref,
           plan: %{
             key: reservation.key,

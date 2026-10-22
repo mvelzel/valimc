@@ -124,7 +124,7 @@ defmodule Valimc.Player.CreativeInventory do
     do: resync_inventory(%{state | creative_input: CreativeInput.clear(state.creative_input)})
 
   def drain_creative(state, 0) do
-    if not state.creative_drain_scheduled, do: send(self(), :drain_creative)
+    if not state.creative_drain_scheduled, do: send(state.connection, :drain_creative)
     %{state | creative_drain_scheduled: true}
   end
 
@@ -142,7 +142,7 @@ defmodule Valimc.Player.CreativeInventory do
         ref = make_ref()
 
         recovery = %{
-          Transfers.new_recovery(:play, :prepare, nil)
+          Transfers.new_recovery(state, :play, :prepare, nil)
           | ref: ref,
             plan: %{
               kind: :creative_creation,

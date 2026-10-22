@@ -41,7 +41,7 @@ defmodule Valimc.Player.Teleports do
       | motion: PlayerMotion.flight(state.player.motion, player.abilities.flying)
     }
 
-    Valimc.Players.update(self(), player)
+    Valimc.Players.update(state.connection, player)
     %{state | player: player}
   end
 

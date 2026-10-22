@@ -27,7 +27,7 @@ defmodule Valimc.Player.Transfers do
     token = make_ref()
 
     case TransferDelivery.start(
-           self(),
+           state.connection,
            token,
            state.player.uuid,
            state.recovery.intent,
@@ -48,7 +48,7 @@ defmodule Valimc.Player.Transfers do
   end
 
   @doc false
-  def new_recovery(mode, stage, intent) do
+  def new_recovery(state, mode, stage, intent) do
     id = make_ref()
 
     %{
@@ -62,7 +62,7 @@ defmodule Valimc.Player.Transfers do
       retry_timer: nil,
       retry_token: nil,
       attempts: 0,
-      timer: Process.send_after(self(), {:recovery_deadline, id}, 10_000)
+      timer: Process.send_after(state.connection, {:recovery_deadline, id}, 10_000)
     }
   end
 
@@ -70,7 +70,9 @@ defmodule Valimc.Player.Transfers do
     if TransferDelivery.retryable?(result) and state.recovery.attempts < 20 do
       token = make_ref()
       delay = min(50 * (state.recovery.attempts + 1), 500)
-      timer = Process.send_after(self(), {:retry_recovery, state.recovery.id, token}, delay)
+
+      timer =
+        Process.send_after(state.connection, {:retry_recovery, state.recovery.id, token}, delay)
 
       recovery = %{
         state.recovery
@@ -265,7 +267,7 @@ defmodule Valimc.Player.Transfers do
         ref = make_ref()
 
         recovery = %{
-          new_recovery(:play, :prepare, nil)
+          new_recovery(state, :play, :prepare, nil)
           | ref: ref,
             plan: %{
               key: reservation.key,
@@ -308,7 +310,7 @@ defmodule Valimc.Player.Transfers do
     ref = make_ref()
 
     recovery = %{
-      new_recovery(:play, :prepare, nil)
+      new_recovery(state, :play, :prepare, nil)
       | ref: ref,
         plan: %{key: key, records: records, inventory: inventory}
     }

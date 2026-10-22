@@ -113,11 +113,12 @@ defmodule Valimc.Player.Portals do
       Valimc.Protocol.Packets.packet("game_event", <<4, 0.0::float-32>>)
     ])
 
-    Valimc.Players.update(self(), player)
+    Valimc.Players.update(state.connection, player)
 
     for pid <- Valimc.Players.nearby(state.regions),
-        pid != self(),
-        do: Valimc.Connection.deliver(pid, {:player_respawned, self(), player.entity_id})
+        pid != state.connection,
+        do:
+          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
 
     %{state | player: player}
   end

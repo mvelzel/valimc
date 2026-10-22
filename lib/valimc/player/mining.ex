@@ -15,7 +15,16 @@ defmodule Valimc.Player.Mining do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{Inventory, PlayerInput, PlayerMining, PlayerMiningAttempt, PlayerMiningQuery, PlayerStore, World}
+  alias Valimc.{
+    Inventory,
+    PlayerInput,
+    PlayerMining,
+    PlayerMiningAttempt,
+    PlayerMiningQuery,
+    PlayerStore,
+    World
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
@@ -408,7 +417,7 @@ defmodule Valimc.Player.Mining do
     ref = make_ref()
 
     recovery = %{
-      Valimc.Player.Transfers.new_recovery(:play, :prepare, nil)
+      Valimc.Player.Transfers.new_recovery(state, :play, :prepare, nil)
       | ref: ref,
         plan: %{key: reservation.key, records: records, inventory: inventory, intent: intent}
     }

@@ -25,7 +25,7 @@ defmodule Valimc.Player.PostEffects do
       {false, state}
     else
       player = Map.put(state.player, :post_effects, next)
-      Valimc.Players.update(self(), player)
+      Valimc.Players.update(state.connection, player)
       Valimc.Net.Codec.send_packets(state, [packet(next)])
       {true, %{state | player: player}}
     end

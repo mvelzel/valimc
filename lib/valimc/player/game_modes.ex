@@ -29,7 +29,7 @@ defmodule Valimc.Player.GameModes do
           inventory: %{state.inventory | infinite_materials: abilities.infinite_materials}
       }
 
-      Players.update(self(), player)
+      Players.update(state.connection, player)
 
       send_packets(state, [
         Packets.packet("game_event", <<3, GameMode.id(mode) * 1.0::float-32>>),
@@ -38,7 +38,11 @@ defmodule Valimc.Player.GameModes do
         info(player)
       ])
 
-      Players.broadcast({:player_packet, self(), player.entity_id, info(player)}, self())
+      Players.broadcast(
+        {:player_packet, state.connection, player.entity_id, info(player)},
+        state.connection
+      )
+
       {:changed, state}
     end
   end

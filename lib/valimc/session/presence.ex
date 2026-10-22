@@ -31,7 +31,7 @@ defmodule Valimc.Session.Presence do
     Logger.info(Render.string(message))
     packet = Packets.chat(Text.encode(message))
     Valimc.Net.Codec.send_packets(state, [packet])
-    Valimc.Players.broadcast({:packet, packet}, self())
+    Valimc.Players.broadcast({:packet, packet}, state.connection)
     state
   end
 

@@ -179,8 +179,9 @@ defmodule Valimc.Player.Travel do
     )
 
     for pid <- Players.nearby(state.regions),
-        pid != self(),
-        do: Valimc.Connection.deliver(pid, {:player_respawned, self(), player.entity_id})
+        pid != state.connection,
+        do:
+          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
 
     state
   end
@@ -208,11 +209,15 @@ defmodule Valimc.Player.Travel do
       World.subscribe(MapSet.new(), state.regions)
       Valimc.Dimension.put(to)
       # The index moves the player first, so the old peers' refresh finds it gone.
-      Players.update(self(), player)
+      Players.update(state.connection, player)
 
       for pid <- peers,
-          pid != self(),
-          do: Valimc.Connection.deliver(pid, {:player_respawned, self(), player.entity_id})
+          pid != state.connection,
+          do:
+            Valimc.Connection.deliver(
+              pid,
+              {:player_respawned, state.connection, player.entity_id}
+            )
 
       %{state | regions: MapSet.new()}
     end

@@ -170,7 +170,7 @@ defmodule Valimc.Player.CommandOps do
       {reply, state}
     else
       player = %{state.player | progression: %{state.player.progression | experience: next}}
-      Valimc.Players.update(self(), player)
+      Valimc.Players.update(state.connection, player)
       send_packets(state, [Packets.experience(next)])
       {reply, %{state | player: player}}
     end
