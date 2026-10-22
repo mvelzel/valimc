@@ -122,8 +122,12 @@ defmodule Valimc.Net.Connection do
        # Since when the client lacks the chunk the player is in (`Link`).
        own_chunk_missing: nil,
        regions: MapSet.new(),
-       # Region => owner told which chunks the view wants (VMC-075).
+       # Section => the owner told which chunks the view wants (VMC-075) and
+       # those chunks, loading and simulated (VMC-077u).
        wanted: %{},
+       # The dimension, chunk and position the generation scheduler was last
+       # told the player is at (VMC-077u).
+       generation_focus: nil,
        pending: [],
        # Vanilla refills the quota in the tick a player joins (VMC-070).
        chunk_sender: Valimc.Session.ChunkSender.tick(%Valimc.Session.ChunkSender{}),

@@ -4,7 +4,8 @@ defmodule Valimc.WorldgenSchedulerTest do
   chunks it numbered, in that order, structures included, whatever requests
   overlap; a graceful restart resumes from the snapshot, starts included; a
   chunk lost after it was handed over is made again alone; terrain-only worlds
-  are final after terrain; a failed job fails its chunk instead of retrying.
+  are final after terrain; a failed job fails its chunk instead of retrying; a
+  chunk on its way to a region is not sent again (VMC-077u).
   """
   # Serial: the scheduler's jobs fill the generation pool.
   use ExUnit.Case, async: false
@@ -152,6 +153,27 @@ defmodule Valimc.WorldgenSchedulerTest do
     want = Blocks.lit_images(Generator.columns({:vanilla, @seed}, chunks), true)
     assert Enum.map(ours, & &1.image) == Enum.map(chunks, &want[&1])
     assert Scheduler.stats(base, :overworld).decorated == 0
+  end
+
+  test "a chunk still on its way to a region is not sent twice", ctx do
+    base = ctx.base <> "-flight"
+    :ok = Valimc.World.Spec.write(base, %{"type" => "vanilla", "seed" => @seed})
+
+    on_exit(fn ->
+      stop(base)
+      File.rm_rf(base)
+    end)
+
+    requester = {self(), {0, 0}}
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
+    assert_receive {:resource, 1, {:generated_full, _, %{x: 3, z: 3}}}, 60_000
+
+    # Wanted again before the region read it (its mailbox lags its tickets):
+    # it is on its way. A section loaded again (a new epoch) gets it again.
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
+    assert Scheduler.stats(base, :overworld).wanted == 0
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 2, %{{3, 3} => 0})
+    assert_receive {:resource, 2, {:generated_full, _, %{x: 3, z: 3}}}, 60_000
   end
 
   test "with few proto chunks in memory, dropped and spilled ones change nothing", ctx do

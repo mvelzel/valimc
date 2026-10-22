@@ -47,6 +47,7 @@ defmodule Valimc.Net.Link do
     :own_chunk_missing,
     :regions,
     :wanted,
+    :generation_focus,
     :pending,
     :chunk_sender,
     :requested_view_distance,

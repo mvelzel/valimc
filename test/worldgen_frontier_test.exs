@@ -2,7 +2,7 @@ defmodule Valimc.WorldgenFrontierTest do
   @moduledoc """
   Bounded proto memory (VMC-077q): past the cap, cells work does not need
   soon go least recently used first; terrain no decoration wrote into is
-  dropped, any other cell spills.
+  dropped, any other cell spills. Players' focus orders the work (VMC-077u).
   """
   use ExUnit.Case, async: true
   alias Valimc.Worldgen.Frontier
@@ -60,5 +60,35 @@ defmodule Valimc.WorldgenFrontierTest do
     chunks = for x <- 0..9, into: %{}, do: {{x * 10, 0}, entry(:decorated, x)}
     {_f, spills} = Frontier.evictions(frontier(chunks, 1), 3)
     assert Enum.map(spills, &elem(&1, 0)) == [{0, 0}, {10, 0}, {20, 0}]
+  end
+
+  # The chunks of the jobs `next/3` starts, in order (a flat world: one job
+  # per wanted chunk, by priority; the jobs' closures never run).
+  defp order(f, n) do
+    {jobs, _f} = Frontier.next(f, n)
+    Enum.map(jobs, & &1.chunk)
+  end
+
+  test "a player's own chunk goes first, then the chunks ahead of it" do
+    f = %Frontier{kind: :flat, final_after_terrain: true, flat: %{}}
+    chunks = [{0, 0}, {3, 0}, {-3, 0}, {0, 5}, {40, 40}]
+    # The region's tickets still name an old center far behind.
+    f =
+      Frontier.want(
+        f,
+        :region,
+        Map.new(chunks, fn {x, z} -> {{x, z}, (x - 40) ** 2 + (z - 40) ** 2} end)
+      )
+
+    assert order(f, 5) == [{40, 40}, {0, 5}, {3, 0}, {0, 0}, {-3, 0}]
+
+    f = Frontier.focus(f, :player, {0, 0}, {1.0, 0.0})
+    assert order(f, 5) == [{0, 0}, {3, 0}, {-3, 0}, {0, 5}, {40, 40}]
+
+    # A call that waits stays first; a forgotten player orders nothing.
+    f = Frontier.want(f, :call, %{{40, 40} => -1})
+    assert hd(order(f, 5)) == {40, 40}
+    f = Frontier.focus(f, :player, nil, nil)
+    assert order(f, 5) == [{40, 40}, {0, 5}, {3, 0}, {0, 0}, {-3, 0}]
   end
 end

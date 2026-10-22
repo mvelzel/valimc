@@ -298,12 +298,15 @@ no column for are absent (VMC-075). Loading tickets say which of its chunks are
 wanted and how far from their center; the section tells its dimension's
 generation scheduler which absent chunks it wants (as `{group, key}`, so
 sections of one group keep separate wants), each at its distance to the
-nearest player that wants it, whenever that changes, and never generates on
-itself. It installs each full chunk as it arrives; its column image joins the
-next frame, and the scheduler forgets the chunk only once that frame is
-durable. Until then an absent chunk is like a chunk of an unloaded neighbour
-group: block reads in the group see nothing there, edits and observations are
-refused, published snapshots fail closed and the chunk stream skips it.
+center of the ticket that wants it, whenever they change, and never generates
+on itself. A player's tickets change only where the chunks of a section they
+cover change, not with every chunk the player enters: at view distance 32 a
+view spans about 80 sections. It installs each full chunk as it arrives; its
+column image joins the next frame, and the scheduler forgets the chunk only
+once that frame is durable. Until then an absent chunk is like a chunk of an
+unloaded neighbour group: block reads in the group see nothing there, edits
+and observations are refused, published snapshots fail closed and the chunk
+stream skips it.
 
 One scheduler per dimension owns every chunk's generation (VMC-077n): its
 status (terrain, decorated, final once its 3 × 3 is decorated, handed over
@@ -317,7 +320,14 @@ conflicting decorations run in number order, so a chunk depends only on the
 order of requests. Work waits in priority queues (wanted final chunks,
 decorations that can run, needed terrain) whose priorities the work inherits
 from the wanted chunks; a finished job updates them around its chunk, and
-they are rebuilt only when wants change. Nothing answers busy or polls; a full
+they are rebuilt only when wants or players' positions change. Each player's
+connection tells the scheduler which chunk the player entered and which way
+they move (`Scheduler.focus/5`), so the order does not wait for the regions'
+tickets. While a player is in the dimension, the player's own chunk goes
+first, then the chunks ahead of them before those beside and behind; calls
+that wait for a chunk go before all of these. The scheduler does not send a
+region a chunk again that it already sent to that section at the same epoch:
+the section's mailbox may still hold it. Nothing answers busy or polls; a full
 pool wakes the scheduler when a job ends. Terrain-only worlds are final after
 terrain; flat-layer worlds are full at once.
 

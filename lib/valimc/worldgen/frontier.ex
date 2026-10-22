@@ -21,10 +21,16 @@ defmodule Valimc.Worldgen.Frontier do
   requests. Everything else runs in parallel.
 
   Wants carry a priority per chunk (smaller first: the squared distance to the
-  player that wants it, -1 for calls that wait); the work a wanted chunk needs
-  inherits it, including the earlier decorations it waits for. Work waits in
+  player that wants it, -1 for calls that wait). Players also tell the
+  scheduler which chunk they are in and which way they move (`focus/4`,
+  VMC-077u), straight from their connection rather than through the regions'
+  tickets, which arrive later. While any player is in the dimension, a wanted
+  chunk's priority is its score from the nearest player: their own chunk
+  first, then the chunks ahead of them before those beside and behind; calls
+  that wait stay first. The work a wanted chunk needs inherits its priority,
+  including the earlier decorations it waits for. Work waits in
   priority queues that a job's result updates around its chunk and that are
-  rebuilt only when wants change; `next/3` returns the jobs that can start
+  rebuilt only when wants or players' focus change; `next/3` returns the jobs that can start
   (final chunks, then decorations, then terrain), as closures for the caller
   to run, and `done/3` takes their results. Nothing here polls or answers
   busy: what cannot start yet is simply not returned until what it waits for
@@ -63,6 +69,9 @@ defmodule Valimc.Worldgen.Frontier do
     seqs: %{},
     next_seq: 0,
     wants: %{},
+    # Where players are and which way they move (`focus/4`): while any
+    # player is here, it sets the priorities.
+    focus: %{},
     # Rebuilt from the wants when they change (`refresh/1`): each wanted
     # chunk's smallest priority, each numbered decoration's (inherited from
     # the wanted chunks and the later decorations that wait for it).
@@ -158,6 +167,31 @@ defmodule Valimc.Worldgen.Frontier do
     f |> number(added) |> find_alone(added)
   end
 
+  @doc """
+  Player `holder` is in `chunk`, moving along `heading` (`{x, z}` of unit
+  length, or nil when it stands or jumped); a nil chunk forgets it.
+  """
+  def focus(%__MODULE__{} = f, holder, nil, _heading),
+    do: %{f | focus: Map.delete(f.focus, holder), stale: f.stale or Map.has_key?(f.focus, holder)}
+
+  def focus(%__MODULE__{} = f, holder, {_, _} = chunk, heading),
+    do: %{f | focus: Map.put(f.focus, holder, {chunk, heading}), stale: true}
+
+  @doc """
+  A chunk's score from a player in `center` moving along `heading`: 0 for the
+  player's own chunk, then four times the squared distance, weighted by
+  direction: a quarter of it straight ahead, seven quarters straight behind.
+  """
+  def score({x, z}, {{cx, cz}, heading}) do
+    {dx, dz} = {x - cx, z - cz}
+    d2 = dx * dx + dz * dz
+
+    case heading do
+      {hx, hz} when d2 > 0 -> round(d2 * (4 - 3 * (dx * hx + dz * hz) / :math.sqrt(d2)))
+      _ -> 4 * d2
+    end
+  end
+
   defp within(chunks, r), do: chunks |> Enum.flat_map(&around(&1, r)) |> Enum.uniq()
 
   # Decoration numbers for the undecorated chunks within 1 of `added` that have
@@ -188,6 +222,7 @@ defmodule Valimc.Worldgen.Frontier do
         end)
       end)
 
+    priority = if f.focus == %{}, do: priority, else: Map.new(priority, &focused(f, &1))
     f = %{f | priority: priority, stale: false}
     needs = needs(f)
     f = %{f | needs: needs}
@@ -205,6 +240,11 @@ defmodule Valimc.Worldgen.Frontier do
         alone: MapSet.filter(f.alone, &Map.has_key?(priority, &1))
     }
   end
+
+  defp focused(_f, {_chunk, p} = entry) when p < 0, do: entry
+
+  defp focused(f, {chunk, _}),
+    do: {chunk, f.focus |> Map.values() |> Enum.map(&score(chunk, &1)) |> Enum.min()}
 
   # Each numbered decoration's priority: the smallest of the wanted chunks
   # it writes into and of the later decorations within 2 (which wait for it),

@@ -47,6 +47,11 @@ defmodule Valimc.Worldgen.Scheduler do
     :dimension,
     :frontier,
     requesters: %{},
+    # Focused players' monitors.
+    focused: %{},
+    # Per requester, the chunks sent to it at its current epoch that its
+    # wants may still name: its mailbox holds them (VMC-077u).
+    in_flight: %{},
     monitors: %{},
     calls: %{},
     waiting: false,
@@ -100,6 +105,19 @@ defmodule Valimc.Worldgen.Scheduler do
     with {:ok, pid} <- whereis(world, dimension) do
       GenServer.cast(pid, {:want, requester, epoch, wanted})
       {:ok, pid}
+    end
+  end
+
+  @doc """
+  Player `holder` (its connection) is in `chunk` of `dimension`, moving along
+  `heading` (VMC-077u): its own chunk and the chunks ahead of it go first. A
+  nil chunk forgets it. Only a running scheduler is told: one that starts
+  later hears at the player's next chunk.
+  """
+  def focus(world, dimension, holder, chunk, heading) do
+    case Registry.lookup(Valimc.Worldgen.Schedulers, {world, dimension}) do
+      [{pid, _}] -> GenServer.cast(pid, {:focus, holder, chunk, heading})
+      [] -> :ok
     end
   end
 
@@ -270,7 +288,40 @@ defmodule Valimc.Worldgen.Scheduler do
       end
 
     Valimc.Data.Metrics.add(:worldgen_wants)
+    {wanted, state} = in_flight(state, requester, epoch, wanted)
     frontier = Frontier.want(state.frontier, requester, wanted)
+    noreply(%{state | frontier: frontier, dirty: true})
+  end
+
+  def handle_cast({:focus, holder, chunk, heading}, state) do
+    state =
+      case {state.focused, chunk} do
+        {%{^holder => monitor}, nil} ->
+          Process.demonitor(monitor, [:flush])
+
+          %{
+            state
+            | focused: Map.delete(state.focused, holder),
+              monitors: Map.delete(state.monitors, monitor)
+          }
+
+        {%{^holder => _}, _} ->
+          state
+
+        {_, nil} ->
+          state
+
+        _ ->
+          monitor = Process.monitor(holder)
+
+          %{
+            state
+            | focused: Map.put(state.focused, holder, monitor),
+              monitors: Map.put(state.monitors, monitor, {:focus, holder})
+          }
+      end
+
+    frontier = Frontier.focus(state.frontier, holder, chunk, heading)
     noreply(%{state | frontier: frontier, dirty: true})
   end
 
@@ -279,6 +330,25 @@ defmodule Valimc.Worldgen.Scheduler do
 
   def handle_cast({:present, chunks}, state),
     do: noreply(%{state | frontier: Frontier.present(state.frontier, chunks), dirty: true})
+
+  # A region that wants chunks again before it read them (its mailbox lags
+  # behind its tickets) is not sent them twice: messages to it arrive in
+  # order, and a section loaded again has a new epoch. A chunk sent that it no
+  # longer wants is done with, so wanting it later sends it again.
+  defp in_flight(state, requester, epoch, wanted) do
+    case state.in_flight do
+      %{^requester => {^epoch, sent}} ->
+        {pending, wanted} = Map.split(wanted, MapSet.to_list(sent))
+        sent = MapSet.new(Map.keys(pending))
+        {wanted, %{state | in_flight: Map.put(state.in_flight, requester, {epoch, sent})}}
+
+      %{^requester => _} ->
+        {wanted, %{state | in_flight: Map.delete(state.in_flight, requester)}}
+
+      _ ->
+        {wanted, state}
+    end
+  end
 
   @impl true
   def handle_call({:full_chunks, chunks}, from, state) do
@@ -340,7 +410,20 @@ defmodule Valimc.Worldgen.Scheduler do
       {{:requester, requester}, monitors} ->
         frontier = Frontier.want(state.frontier, requester, %{})
         requesters = Map.delete(state.requesters, requester)
-        noreply(%{state | monitors: monitors, requesters: requesters, frontier: frontier})
+        in_flight = Map.delete(state.in_flight, requester)
+
+        noreply(%{
+          state
+          | monitors: monitors,
+            requesters: requesters,
+            in_flight: in_flight,
+            frontier: frontier
+        })
+
+      {{:focus, holder}, monitors} ->
+        frontier = Frontier.focus(state.frontier, holder, nil, nil)
+        focused = Map.delete(state.focused, holder)
+        noreply(%{state | monitors: monitors, focused: focused, frontier: frontier})
 
       {nil, _} ->
         noreply(state)
@@ -385,6 +468,8 @@ defmodule Valimc.Worldgen.Scheduler do
       started = now()
       {jobs, frontier} = Frontier.next(state.frontier, room, Pool.free(true))
       Valimc.Data.Metrics.add(:worldgen_dispatch_microseconds, now() - started)
+      # Chunks wanted and not sent yet: the pool should be busy while any are.
+      Valimc.Data.Metrics.put(:"worldgen_wanted_#{state.dimension}", map_size(frontier.priority))
       scheduler = self()
 
       Enum.reduce(jobs, %{state | frontier: frontier}, fn job, state ->
@@ -432,7 +517,14 @@ defmodule Valimc.Worldgen.Scheduler do
         case state.requesters do
           %{^requester => %{epoch: epoch}} ->
             send(requester_pid(requester), {:resource, epoch, {:generated_full, self(), full}})
-            state
+
+            in_flight =
+              Map.update(state.in_flight, requester, {epoch, MapSet.new([chunk])}, fn
+                {^epoch, sent} -> {epoch, MapSet.put(sent, chunk)}
+                _ -> {epoch, MapSet.new([chunk])}
+              end)
+
+            %{state | in_flight: in_flight}
 
           _ ->
             state

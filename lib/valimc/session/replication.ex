@@ -23,6 +23,7 @@ defmodule Valimc.Session.Replication do
 
   alias Valimc.Session.ChunkSender
   alias Valimc.Player.ChunkView
+  alias Valimc.Worldgen.Scheduler
 
   @doc """
   Track the chunks of the player's current view (VMC-070): its chunk and the
@@ -71,7 +72,48 @@ defmodule Valimc.Session.Replication do
           pending: pending,
           chunk_sender: ChunkSender.forget(state.chunk_sender, leaving)
       }
+      |> focus()
       |> want_chunks()
+    end
+  end
+
+  # The generation scheduler hears the player's chunk and heading straight
+  # from here at every chunk it enters (VMC-077u): its own chunk and the
+  # chunks ahead go first, and the regions' tickets, which wait in their
+  # owners' mailboxes, need not change to reorder anything.
+  @jump 64.0
+  defp focus(%{view: {center, _}, player: player} = state) do
+    dimension = player.dimension
+    position = {player.x, player.z}
+
+    case Map.get(state, :generation_focus) do
+      {^dimension, ^center, _} ->
+        state
+
+      previous ->
+        world = fn chunk -> Valimc.config(:world_path, Grid.region_key(chunk)) end
+
+        heading =
+          case previous do
+            {^dimension, old, {x, z}} ->
+              # Another world's scheduler only in tests' private worlds.
+              if world.(old) != world.(center),
+                do: Scheduler.focus(world.(old), dimension, self(), nil, nil)
+
+              {dx, dz} = {player.x - x, player.z - z}
+              length = :math.sqrt(dx * dx + dz * dz)
+              if length > 0 and length <= @jump, do: {dx / length, dz / length}
+
+            {other, old, _} ->
+              Scheduler.focus(world.(old), other, self(), nil, nil)
+              nil
+
+            nil ->
+              nil
+          end
+
+        Scheduler.focus(world.(center), dimension, self(), center, heading)
+        Map.put(state, :generation_focus, {dimension, center, position})
     end
   end
 
@@ -100,12 +142,21 @@ defmodule Valimc.Session.Replication do
             simulated =
               Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
 
-            entries = [
-              {key, :player_simulation, center, simulated},
-              {key, :player_loading, center, chunks}
-            ]
+            told = {pid, MapSet.new(chunks), MapSet.new(simulated)}
 
-            {{section, pid}, Map.update(tickets, pid, entries, &(entries ++ &1))}
+            # Only a section whose chunks changed is told again: the center
+            # alone orders nothing since the player's focus does (VMC-077u),
+            # and a view of distance 32 spans about 80 sections.
+            if Map.get(state.wanted, section) == told do
+              {{section, told}, tickets}
+            else
+              entries = [
+                {key, :player_simulation, center, simulated},
+                {key, :player_loading, center, chunks}
+              ]
+
+              {{section, told}, Map.update(tickets, pid, entries, &(entries ++ &1))}
+            end
 
           _ ->
             {{section, nil}, tickets}
@@ -118,8 +169,7 @@ defmodule Valimc.Session.Replication do
     # (VMC-077j): only sections the view left (or of the dimension the player
     # left) are told to drop them.
     tickets =
-      for {section, pid} <- state.wanted,
-          pid != nil,
+      for {section, {pid, _, _}} <- state.wanted,
           not Map.has_key?(wanted, section),
           reduce: tickets do
         acc ->
@@ -145,9 +195,11 @@ defmodule Valimc.Session.Replication do
       end
     end
 
-    if Enum.all?(state.wanted, fn {key, pid} -> pid != nil and current.(key) == pid end),
-      do: state,
-      else: want_chunks(state)
+    if Enum.all?(state.wanted, fn {key, told} ->
+         told != nil and current.(key) == elem(told, 0)
+       end),
+       do: state,
+       else: want_chunks(state)
   end
 
   defp refresh_wants(state), do: state
