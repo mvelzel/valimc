@@ -90,6 +90,31 @@ paths); all 95 passed, the vitals, damage, effect, armor, durability, air,
 fire and freezing oracles among them. `mix test --stale` on the tree rebased
 onto VMC-077o: 706 passed (697 tests, 9 properties), no failures.
 
+Interim client run (VMC-077, release b8646a33): the tester saw no natural
+regeneration at food 19 with health at 6–8 hearts. It does not reproduce on
+main. A new connection test drives manual ticks from food 19 at timer 0. It
+heals at the 80th tick, falls to food 18 on the next one, and heals again 80
+ticks later. Each heal reaches the client as `set_health`. Regeneration stops
+at food 17, as vanilla's `FoodData.tick` does. Scratch runs found the same
+timing in every condition from the run:
+- a wall-clock tick with idle or status-only move packets;
+- a 10-block fall landed through move packets;
+- burning;
+- switching creative to survival;
+- after a respawn;
+- with Speed active.
+
+VMC-077k left the food path unchanged: `PlayerFood` only renamed its health
+alias, and `Vitals.advance_food` reads `living.health` instead of `health`.
+The most likely reading is a hunger bar at 8.5 (food 17), where vanilla also
+stops. A later client run should record the server-side food level.
+
+The same run showed that death messages were missing from the server log.
+Vanilla's `broadcastSystemMessage` prints them to the console, so
+`Vitals.death_notice/3` now logs the announced message's English text.
+The starvation test asserts the log line. `check_vanilla.py --changed` ran
+10 of 209 stages and all passed; all 5 food connection tests pass.
+
 Next: a mob equipment model that `Living.Armor` reads directly; entity-agnostic
 death messages (they name a player today); the living entity metadata packets
 (`Packets.player_health`, `player_environment`, the burning flag) as living

@@ -115,6 +115,30 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert living(pid).health.value == 11.0
   end
 
+  test "food 19 and 18 heal one point every 80 admitted ticks until food falls to 17", ctx do
+    food = %PlayerFood{level: 19, saturation: 0.0}
+    seed(ctx, food, 10.0)
+    {client, pid} = login(ctx, 10.0, food)
+    ticks(pid, 79)
+    assert living(pid).health.value == 10.0 and state(pid).player.food.timer == 79
+    tick(pid)
+    assert state(pid).player.food == %PlayerFood{level: 19, saturation: 0.0, exhaustion: 6.0}
+    {body, client} = Client.await(client, :play, "set_health")
+    assert_health(body, 11.0, food)
+    ticks(pid, 79)
+    food = %PlayerFood{level: 18, saturation: 0.0, exhaustion: 2.0, timer: 79}
+    assert living(pid).health.value == 11.0 and state(pid).player.food == food
+    tick(pid)
+    # Food 18 reached the client a tick after the first heal, then the second heal.
+    {body, client} = Client.await(client, :play, "set_health")
+    assert_health(body, 11.0, food)
+    {body, _client} = Client.await(client, :play, "set_health")
+    assert_health(body, 12.0, food)
+    ticks(pid, 100)
+    assert living(pid).health.value == 12.0
+    assert state(pid).player.food == %PlayerFood{level: 17, saturation: 0.0, exhaustion: 4.0}
+  end
+
   test "hard starvation uses durable death transfers and resets food on actual respawn command",
        ctx do
     :ok = Valimc.World.Clock.configure({:difficulty, 3, true})
@@ -122,7 +146,14 @@ defmodule Valimc.PlayerFoodConnectionTest do
     inventory = %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})}
     seed(ctx, food, 1.0, inventory: inventory)
     {client, pid} = login(ctx, 1.0, food)
-    tick(pid)
+    level = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: level) end)
+    # The death message also reaches the server console, as vanilla prints it.
+    assert ExUnit.CaptureLog.capture_log([level: :info], fn -> tick(pid) end) =~
+             "#{ctx.name} starved to death"
+
+    Logger.configure(level: level)
     {body, client} = Client.await(client, :play, "player_combat_kill")
     assert :binary.match(body, "death.attack.starve") != :nomatch
     ticks(pid, 10)

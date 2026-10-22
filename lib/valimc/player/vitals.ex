@@ -36,6 +36,7 @@ defmodule Valimc.Player.Vitals do
   }
 
   alias Valimc.World.{BorderReplication, EntityReplication, WeatherReplication}
+  require Logger
   import Bitwise
   @hunger EffectTypes.id("hunger")
   @absorption EffectTypes.id("absorption")
@@ -320,9 +321,17 @@ defmodule Valimc.Player.Vitals do
       Packets.death_animation(state.player.entity_id)
     )
 
-    if announce, do: Players.broadcast({:chat, message})
+    # Vanilla's `broadcastSystemMessage` also prints the message to the console.
+    if announce do
+      Logger.info(Valimc.Text.Render.string(text_tag(message)))
+      Players.broadcast({:chat, message})
+    end
+
     state
   end
+
+  defp text_tag(%Valimc.Protocol.ServerText{tag: tag}), do: tag
+  defp text_tag(tag), do: tag
 
   def checkpoint_life(state, kind, snapshot, player \\ nil) do
     ref = make_ref()
