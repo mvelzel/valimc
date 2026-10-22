@@ -1,7 +1,7 @@
 defmodule Valimc.ChestConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
   alias Valimc.TestClient, as: Client
@@ -66,7 +66,7 @@ defmodule Valimc.ChestConnectionTest do
     File.write!(path, bytes)
 
     # A live owner keeps its loaded region; durable fixtures only seed a cold one.
-    unless match?({:ok, _}, World.existing_owner(ctx.key)) do
+    unless match?({:ok, _}, Valimc.TestWorld.existing_owner(ctx.key)) do
       if present do
         {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.position, 3)
         slots = put_elem(entry.slots, 0, stock)
@@ -317,7 +317,7 @@ defmodule Valimc.ChestConnectionTest do
   end
 
   defp viewer_state(ctx) do
-    {:ok, owner} = World.existing_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(ctx.key)
     Valimc.TestRegion.section(owner).container_viewers
   end
 
@@ -347,8 +347,8 @@ defmodule Valimc.ChestConnectionTest do
     {second, second_pid} = login(other)
     spectator = second_actor(ctx, :spectator)
     {spectator_client, spectator_pid} = login(spectator)
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    {:ok, owner} = World.existing_owner(ctx.key)
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    {:ok, owner} = Valimc.TestWorld.existing_owner(ctx.key)
     position = ctx.position
 
     first = open(first, ctx)

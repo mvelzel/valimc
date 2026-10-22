@@ -72,7 +72,7 @@ defmodule Valimc.PlayerPlacementQuery do
          {x, _, z} = position
          key = World.region_key(World.chunk_key(x, z))
 
-         with {:ok, owner} <- World.existing_owner(key),
+         with {:ok, owner} <- World.existing_owner(section(key)),
               {:ok, observed} <- Region.observe_blocks(owner, [position]) do
            outcome =
              if now() < expires and
@@ -171,6 +171,9 @@ defmodule Valimc.PlayerPlacementQuery do
   defp unobstructed?(%{state: state, position: position}, bodies),
     do: not Kernel.obstructs?(state, position, @placement, bodies)
 
+  # The routing key of section `key` of the dimension this task was bound to.
+  defp section(key), do: World.section(Valimc.Dimension.current(), key, :section)
+
   # Corrections go out now; imported block entity data (VMC-021e1) is returned
   # to follow the acknowledgement, since the client drops block entity data that
   # arrives while its prediction for the sequence is pending.
@@ -179,7 +182,7 @@ defmodule Valimc.PlayerPlacementQuery do
     |> Enum.uniq()
     |> Enum.group_by(fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end)
     |> Enum.reduce_while({:ok, []}, fn {key, positions}, {:ok, packets} ->
-      with {:ok, owner} <- World.existing_owner(key),
+      with {:ok, owner} <- World.existing_owner(section(key)),
            :ok <- Region.correct_blocks(owner, positions, connection) do
         updates =
           for position <- positions,
@@ -201,7 +204,7 @@ defmodule Valimc.PlayerPlacementQuery do
     # The first write lane deliberately covers one block owner. Cross-owner plans
     # require a separate consistency contract before they can become mutations.
     with [{key, positions}] <- Map.to_list(groups),
-         {:ok, owner} <- World.existing_owner(key),
+         {:ok, owner} <- World.existing_owner(section(key)),
          {:ok, observed} <- Region.observe_blocks(owner, positions),
          {:ok, candidate} <-
            candidate(
@@ -214,7 +217,7 @@ defmodule Valimc.PlayerPlacementQuery do
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
          :ok <- isolated_chest(owner, key, candidate, observed.fence),
          {:ok, _} <- Region.observe_blocks(owner, [], observed.fence),
-         true <- World.existing_owner(key) == {:ok, owner} and now() < deadline do
+         true <- World.existing_owner(section(key)) == {:ok, owner} and now() < deadline do
       {:ok,
        %{
          owner: owner,

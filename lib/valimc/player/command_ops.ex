@@ -204,9 +204,8 @@ defmodule Valimc.Player.CommandOps do
   # The give overflow drops at the player's eyes (vanilla tosses it forward).
   defp drop_item(state, stack) do
     %{x: x, y: y, z: z} = state.player
-    key = World.region_key(World.chunk_key(x, z))
 
-    with {:ok, owner} <- World.owner(key),
+    with {:ok, owner} <- World.owner(World.section(state.player.dimension, World.chunk_key(x, z))),
          do: Valimc.World.Region.create_item(owner, stack, {x, y + 1.62 - 0.3, z})
   end
 

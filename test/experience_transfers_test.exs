@@ -11,8 +11,7 @@ defmodule Valimc.ExperienceTransfersTest do
     PlayerExperience,
     PlayerProgression,
     PlayerSnapshot,
-    PlayerStore,
-    World
+    PlayerStore
   }
 
   alias Valimc.World.{Entities, ExperienceOrbs}
@@ -30,7 +29,7 @@ defmodule Valimc.ExperienceTransfersTest do
     uuid = :crypto.strong_rand_bytes(16)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: Valimc.TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -42,7 +41,7 @@ defmodule Valimc.ExperienceTransfersTest do
     # Six XP from one recipe: one orb entity of value 3, count 2.
     [%{uuid: orb, value: 3, count: 2} = record] = ExperienceOrbs.award(at, award)
     Valimc.TestDisk.write(base, key, :items, %{records: [record]})
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     player = %{
       living: %Valimc.Living{health: %Health{}, freezing: %Freezing{}, air_supply: 300},

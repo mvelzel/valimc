@@ -1,7 +1,7 @@
 defmodule Valimc.FlightConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -29,7 +29,7 @@ defmodule Valimc.FlightConnectionTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -141,7 +141,7 @@ defmodule Valimc.FlightConnectionTest do
   test "late transfer completion cannot roll back flight accepted while the destination is stalled",
        ctx do
     client = login(ctx) |> toggle(2) |> barrier()
-    {:ok, _} = World.item_owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
     :sys.suspend(writer)
 
@@ -176,7 +176,7 @@ defmodule Valimc.FlightConnectionTest do
 
   test "disconnect preserves newer flight while keeping a pending transfer fenced", ctx do
     client = login(ctx)
-    {:ok, _} = World.item_owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
     :sys.suspend(writer)
 

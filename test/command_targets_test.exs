@@ -36,8 +36,8 @@ defmodule Valimc.CommandTargetsTest do
         }
 
         :ets.insert(Valimc.Players, {pid, player})
-        region = Valimc.World.region_key(Valimc.World.chunk_key(x, 0.5))
-        :ets.insert(Valimc.SpatialIndex, {Valimc.Dimension.scope(dimension, region), pid})
+        section = Valimc.World.section(dimension, Valimc.World.chunk_key(x, 0.5))
+        :ets.insert(Valimc.SpatialIndex, {section, pid})
         pid
       end
 

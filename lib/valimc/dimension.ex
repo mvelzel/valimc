@@ -3,15 +3,15 @@ defmodule Valimc.Dimension do
   The normal world preset's dimensions (VMC-026b): the overworld, the Nether
   and the End, with their dimension types from `priv/worldgen/dimensions.json`.
 
-  Each dimension is its own world: its own region owners, stores, generation
-  scheduler and generator, with region keys `{rx, rz}` unchanged inside it.
-  Durable records name regions of the dimension whose store holds them. A
-  process works in one dimension at a time, its *context*: region owners, their
-  stores and schedulers take theirs when they start, a connection takes its
-  player's. World routing (`Valimc.World`, the directory and registries,
-  spatial topics, the player index) scopes keys by the caller's context, so
-  equal keys of two dimensions never meet. The overworld's scoped keys are the
-  plain keys, as before dimensions existed.
+  Each dimension is its own world: its own sections, stores, generation
+  scheduler and generator. World routing (`Valimc.World`, the directory and
+  registries, spatial topics, the player index) names a section by the
+  dimension-explicit key `{dimension, sx, sz}` (VMC-077j), so equal coordinates
+  of two dimensions never meet. Durable records name sections of the dimension
+  whose store holds them. A process still works in one dimension at a time,
+  its *context*, for the dimension's facts (build height, base profile, sky
+  light): group processes and schedulers take theirs when they start, a
+  connection takes its player's, and tasks carry it with `bind/1`.
 
   Every dimension's chunks are stored in the overworld's 24 sections (y −64
   to 319); the Nether's and the End's blocks (y 0 to 255) fill sections 4 to
@@ -67,22 +67,6 @@ defmodule Valimc.Dimension do
     dimension = current()
     fn a -> within(dimension, fn -> fun.(a) end) end
   end
-
-  @doc """
-  A key scoped by the caller's context (`scope/2`); an address
-  (`{dimension, key}`, `address?/1`) names its dimension itself, so a scoped
-  key of another dimension is never scoped again (VMC-077o).
-  """
-  def scope({dimension, {_, _} = key}) when dimension in @ids, do: scope(dimension, key)
-  def scope(key), do: scope(current(), key)
-
-  @doc "A routing key of `dimension`: the plain key in the overworld."
-  def scope(:overworld, key), do: key
-  def scope(dimension, key) when dimension in [:the_nether, :the_end], do: {dimension, key}
-
-  @doc "The dimension and plain key of a scoped key."
-  def unscope({dimension, key}) when dimension in [:the_nether, :the_end], do: {dimension, key}
-  def unscope(key), do: {:overworld, key}
 
   @doc "The dimension's resource name, e.g. `minecraft:the_nether`."
   def name(dimension) when dimension in @ids, do: "minecraft:#{dimension}"

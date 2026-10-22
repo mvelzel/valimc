@@ -14,14 +14,14 @@ defmodule Valimc.World.ForcedChunks do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "Adds or removes chunks in one save; returns the chunks that changed."
-  def change(operation, chunks, dimension \\ Dimension.current())
+  def change(operation, chunks, dimension)
       when operation in [:add, :remove],
       do: GenServer.call(__MODULE__, {operation, dimension, chunks}, 30_000)
 
-  def remove_all(dimension \\ Dimension.current()),
+  def remove_all(dimension),
     do: GenServer.call(__MODULE__, {:remove_all, dimension})
 
-  def all(dimension \\ Dimension.current()), do: GenServer.call(__MODULE__, {:all, dimension})
+  def all(dimension), do: GenServer.call(__MODULE__, {:all, dimension})
 
   @impl true
   def init(_opts) do
@@ -74,13 +74,11 @@ defmodule Valimc.World.ForcedChunks do
   # The `:forced` ticket of every region with chunks in `chunks` (the old or
   # new set) over its chunks in `forced`; empty withdraws it.
   defp ticket(dimension, chunks, forced) do
-    Dimension.within(dimension, fn ->
-      for key <- chunks |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
-          {:ok, pid} <- [Valimc.World.region(key)] do
-        held = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
-        Valimc.World.Region.ticket(pid, key, :forced, List.first(held), held)
-      end
-    end)
+    for key <- chunks |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
+        {:ok, pid} <- [Valimc.World.region(Valimc.World.section(dimension, key, :section))] do
+      held = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
+      Valimc.World.Region.ticket(pid, key, :forced, List.first(held), held)
+    end
   end
 
   defp save(sets, dimension, chunks) when :erlang.map_get(dimension, sets) == chunks, do: sets

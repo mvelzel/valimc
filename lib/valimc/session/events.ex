@@ -161,7 +161,7 @@ defmodule Valimc.Session.Events do
     chunk = World.chunk_key(x, z)
 
     if MapSet.member?(state.chunks, chunk) and
-         World.existing_owner(World.region_key(chunk)) == {:ok, owner} do
+         World.existing_owner(World.section(state.player.dimension, chunk)) == {:ok, owner} do
       lids = ChestLidReplication.observe(state.chest_lids, owner, position, open)
 
       sounds =

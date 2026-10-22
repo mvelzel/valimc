@@ -44,7 +44,7 @@ defmodule Valimc.Session.Replication do
           Enum.map(forgotten, &Packets.unload/1)
       )
 
-      regions = regions(view)
+      regions = regions(view, state.player.dimension)
       World.subscribe(regions, state.regions)
       chunks = MapSet.difference(state.chunks, MapSet.new(forgotten))
       leaving = MapSet.new(leaving)
@@ -88,23 +88,27 @@ defmodule Valimc.Session.Replication do
         (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
       end)
       |> Map.new(fn {key, chunks} ->
-        case World.region(key) do
+        section = World.section(state.player.dimension, key, :section)
+
+        case World.region(section) do
           {:ok, pid} ->
             simulated =
               Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
 
             Region.ticket(pid, key, :player_loading, center, chunks)
             Region.ticket(pid, key, :player_simulation, center, simulated)
-            {key, pid}
+            {section, pid}
 
           _ ->
-            {key, nil}
+            {section, nil}
         end
       end)
 
     # A section that moved to another group took the tickets with it
-    # (VMC-077j): only sections the view left are told to drop them.
-    for {key, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, key) do
+    # (VMC-077j): only sections the view left (or of the dimension the player
+    # left) are told to drop them.
+    for {section, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, section) do
+      {_, key} = World.split_section(section)
       Region.ticket(pid, key, :player_loading, nil, [])
       Region.ticket(pid, key, :player_simulation, nil, [])
     end
@@ -128,8 +132,8 @@ defmodule Valimc.Session.Replication do
 
   defp refresh_wants(state), do: state
 
-  # The regions holding any chunk of the view.
-  defp regions({{cx, cz}, distance} = view) do
+  # The sections (routing keys) holding any chunk of the view.
+  defp regions({{cx, cz}, distance} = view, dimension) do
     size = Valimc.config(:region_size)
     {rx0, rz0} = World.region_key({cx - distance - 1, cz - distance - 1})
     {rx1, rz1} = World.region_key({cx + distance + 1, cz + distance + 1})
@@ -141,7 +145,7 @@ defmodule Valimc.Session.Replication do
           {rx * size, rz * size, rx * size + size - 1, rz * size + size - 1}
         ),
         into: MapSet.new(),
-        do: {rx, rz}
+        do: {dimension, rx, rz}
   end
 
   @doc "A 50 ms tick of the chunk stream: refill the send quota, then stream."
@@ -166,7 +170,7 @@ defmodule Valimc.Session.Replication do
         # The nearest chunks that are ready, as vanilla sends from loaded ones.
         {ready, sender} =
           state.pending
-          |> World.sendable(size)
+          |> then(&World.sendable(state.player.dimension, &1, size))
           |> Enum.reduce({[], state.chunk_sender}, fn
             {chunk, {:frame, frame}}, {ready, sender} ->
               {[{chunk, frame} | ready], sender}
@@ -203,7 +207,7 @@ defmodule Valimc.Session.Replication do
   defp send_batch(state, ready) do
     {chunk_frames, lids} =
       Enum.map_reduce(ready, state.chest_lids, fn {chunk, frame}, lids ->
-        case World.chest_lid_snapshot(chunk) do
+        case World.chest_lid_snapshot(state.player.dimension, chunk) do
           {:ok, owner, positions, lid_frame} ->
             lids = Enum.reduce(positions, lids, &ChestLidReplication.observe(&2, owner, &1, true))
             accepted = Enum.filter(positions, &(lids.positions[&1] == owner))

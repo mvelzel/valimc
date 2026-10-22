@@ -1,7 +1,7 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.World.Entities
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -122,7 +122,7 @@ defmodule Valimc.InventoryPersistenceTest do
     close(client, username, uuid)
 
     expected = %{original | slots: Map.drop(original.slots, [1]), carried: nil}
-    {:ok, region} = World.item_owner(key)
+    {:ok, region} = Valimc.TestWorld.item_owner(key)
     records = Entities.records(Valimc.TestRegion.section(region).entities.store)
 
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==

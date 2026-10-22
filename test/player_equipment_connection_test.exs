@@ -37,7 +37,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)

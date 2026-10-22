@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{Data, ItemStack, PackedVelocity, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -35,7 +35,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -177,7 +177,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     ])
 
     {_, client} = Client.await(client, :play, "container_set_slot")
-    {:ok, owner} = World.existing_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(ctx.key)
     move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
 
     Client.send_packet(client, :play, "player_action", [

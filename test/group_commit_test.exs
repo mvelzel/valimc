@@ -6,7 +6,6 @@ defmodule Valimc.GroupCommitTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog, only: [with_log: 1]
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.World.Region
 
   setup do
@@ -18,7 +17,7 @@ defmodule Valimc.GroupCommitTest do
     {rx, rz} = key
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
@@ -33,13 +32,14 @@ defmodule Valimc.GroupCommitTest do
     }
   end
 
-  defp uuids(key), do: MapSet.new(for {_, view} <- World.item_snapshot(key), do: view.uuid)
+  defp uuids(key),
+    do: MapSet.new(for {_, view} <- Valimc.TestWorld.item_snapshot(key), do: view.uuid)
 
   test "changes are observable at once while their frame waits for the disk", ctx do
-    {:ok, owner} = World.item_owner(ctx.key)
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     {cx, _, cz} = ctx.block
-    chunk = World.chunk({div(cx, 16), div(cz, 16)})
+    chunk = Valimc.TestWorld.chunk({div(cx, 16), div(cz, 16)})
     stripe = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
     :sys.suspend(stripe)
 
@@ -48,8 +48,8 @@ defmodule Valimc.GroupCommitTest do
       assert :ok = Valimc.TestBlocks.set(ctx.block, 1)
       wait(fn -> Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner)) end)
       assert_receive {:event, {:block_batch, _}}
-      assert World.chunk({div(cx, 16), div(cz, 16)}) != chunk
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert Valimc.TestWorld.chunk({div(cx, 16), div(cz, 16)}) != chunk
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       assert Valimc.TestRegion.published_block(owner, ctx.block) == 1
     after
       :sys.resume(stripe)
@@ -60,7 +60,7 @@ defmodule Valimc.GroupCommitTest do
     base = Valimc.config(:world_path)
 
     for round <- 1..5 do
-      {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+      {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
       :ok = Region.flush(pid)
       before = uuids(ctx.key)
       stripe = Valimc.TestDisk.stripe(base, ctx.key)
@@ -88,7 +88,7 @@ defmodule Valimc.GroupCommitTest do
   defp create_until_down(owner, ctx, left, acc) do
     case Region.create_item(owner, ItemStack.new("stone"), ctx.position) do
       {:ok, handle} ->
-        uuid = World.item_snapshot(ctx.key)[elem(handle, 2)].uuid
+        uuid = Valimc.TestWorld.item_snapshot(ctx.key)[elem(handle, 2)].uuid
         create_until_down(owner, ctx, left - 1, [uuid | acc])
 
       {:error, {:retry, :item_storage_busy}} ->
@@ -105,7 +105,7 @@ defmodule Valimc.GroupCommitTest do
 
   defp await_owner(key, old, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
-      case World.item_owner(key) do
+      case Valimc.TestWorld.item_owner(key) do
         {:ok, {pid, _} = owner} when pid != old -> {:ok, owner}
         _ -> nil
       end

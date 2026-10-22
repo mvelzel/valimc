@@ -121,7 +121,7 @@ defmodule Valimc.PortalConnectionTest do
     {dimension, area} = Valimc.Portal.Warm.area(kind, position)
 
     Dimension.within(dimension, fn ->
-      Enum.all?(Valimc.Portal.Warm.regions(area), &Directory.lookup/1)
+      Enum.all?(Valimc.Portal.Warm.regions(area), &Valimc.TestWorld.lookup/1)
     end)
   end
 

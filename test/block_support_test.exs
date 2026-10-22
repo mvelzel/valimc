@@ -3,7 +3,6 @@ defmodule Valimc.BlockSupportTest do
   alias Valimc.Protocol.ItemTypes
   alias Valimc.Registry.Blocks
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   # Survival and update rules are compared by the support oracle stage and run in
@@ -24,7 +23,7 @@ defmodule Valimc.BlockSupportTest do
       TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
 
       on_exit(fn ->
-        for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+        for {pid, _} <- Valimc.TestWorld.registered(key),
             do: TestScope.kill(pid)
 
         File.rm_rf(base)
@@ -32,7 +31,7 @@ defmodule Valimc.BlockSupportTest do
 
       {rx, rz} = key
       span = Valimc.config(:region_size) * 16
-      {:ok, owner} = World.owner(key)
+      {:ok, owner} = Valimc.TestWorld.owner(key)
       TestScope.simulate(owner, key)
       %{owner: owner, key: key, base: base, origin: {rx * span + 40, 100, rz * span + 40}}
     end
@@ -135,10 +134,10 @@ defmodule Valimc.BlockSupportTest do
       set(owner, %{soil => @air})
       settle(owner)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
-      {:ok, owner} = World.owner(key)
+      {:ok, owner} = Valimc.TestWorld.owner(key)
       assert blocks(owner, [soil, flower]) == [@air, @air]
       assert items(owner) == [{ItemTypes.id("poppy"), 1}]
       assert File.dir?(dir)

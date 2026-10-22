@@ -1,7 +1,6 @@
 defmodule Valimc.BlockObservationTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   setup do
@@ -13,10 +12,10 @@ defmodule Valimc.BlockObservationTest do
 
     key = {-310, -310}
     TestScope.isolate(TestScope.neighborhood(key), world_path: path)
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf!(path)
@@ -129,7 +128,7 @@ defmodule Valimc.BlockObservationTest do
     assert :ok = Valimc.TestBlocks.set(c.pos, 1)
     assert :ok = Region.flush(pid)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert {:ok, {replacement, new_epoch} = fresh} = World.owner(c.key)
+    assert {:ok, {replacement, new_epoch} = fresh} = Valimc.TestWorld.owner(c.key)
     refute replacement == pid or new_epoch == epoch
     assert {:error, {:retry, :stale_owner}} = Region.observe_blocks({replacement, epoch}, [c.pos])
     assert {:ok, snapshot} = Region.observe_blocks(fresh, [c.pos], 0)
@@ -141,7 +140,7 @@ defmodule Valimc.BlockObservationTest do
     key = {-309, -310}
     # Another group: the regionizer would make the neighbour this one's.
     TestScope.isolate(key, regionizer: false)
-    {:ok, {other, _} = neighbour} = World.owner(key)
+    {:ok, {other, _} = neighbour} = Valimc.TestWorld.owner(key)
 
     on_exit(fn ->
       if Process.alive?(other),
@@ -161,13 +160,13 @@ defmodule Valimc.BlockObservationTest do
                  {-39551.5, 64.0, -39679.5}
                )
 
-      items = World.item_snapshot(key)
+      items = Valimc.TestWorld.item_snapshot(key)
       assert map_size(items) == 1
 
       assert {:ok, ^first} =
                Region.observe_blocks(neighbour, [{-39552, 64, -39680}], first.revision)
 
-      assert World.item_snapshot(key) == items
+      assert Valimc.TestWorld.item_snapshot(key) == items
     after
       :sys.resume(pid)
     end

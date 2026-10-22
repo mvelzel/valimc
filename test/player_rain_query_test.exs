@@ -7,7 +7,7 @@ defmodule Valimc.PlayerRainQueryTest do
 
   setup do
     key = {982, 800}
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
     assert :ok = Clock.configure({:advance_weather, false})
     weather(:rain)
 
@@ -15,7 +15,7 @@ defmodule Valimc.PlayerRainQueryTest do
       weather(:clear)
       Clock.configure({:advance_weather, true})
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     end)
 

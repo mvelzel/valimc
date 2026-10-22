@@ -10,7 +10,7 @@ defmodule Valimc.DecoratedWorldTest do
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionGeneration}
+  alias Valimc.World.{BlockSnapshot, Generator, Region, RegionGeneration}
   alias Valimc.World.{RegionStorage, ScheduledTicks}
   alias Valimc.Worldgen.{FullChunk, Scheduler}
 
@@ -46,7 +46,7 @@ defmodule Valimc.DecoratedWorldTest do
 
   defp stop(keys) do
     for key <- keys,
-        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+        {pid, _} <- Valimc.TestWorld.registered(key),
         do: TestScope.kill(pid)
   end
 
@@ -82,7 +82,7 @@ defmodule Valimc.DecoratedWorldTest do
 
   # Under load a region's start can take longer than a call's default timeout.
   defp owner!(key, attempts \\ 600) do
-    case World.owner(key) do
+    case Valimc.TestWorld.owner(key) do
       {:ok, owner} ->
         {:ok, owner}
 
@@ -98,7 +98,7 @@ defmodule Valimc.DecoratedWorldTest do
     {:ok, {pid, _}} = owner!(key)
     {cx, cz} = hd(RegionGeneration.chunks_of(key))
     Valimc.World.Region.ticket(pid, key, :forced, {cx, cz}, RegionGeneration.chunks_of(key))
-    {_, _, %{publication: table}} = Directory.lookup(key)
+    {_, _, %{publication: table}} = Valimc.TestWorld.lookup(key)
 
     Valimc.TestWait.until(
       fn -> not Enum.any?(RegionGeneration.chunks_of(key), &BlockSnapshot.absent?(table, &1)) end,

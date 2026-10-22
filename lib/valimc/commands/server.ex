@@ -44,15 +44,11 @@ defmodule Valimc.Commands.Server do
     1
   end
 
-  # The registry holds scoped keys (VMC-026b); each is looked up in its own
-  # dimension, never admitted.
+  # The registry holds section keys (VMC-077j); each is looked up, never admitted.
   @doc false
   def owners do
-    for scoped <- Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}]),
-        {dimension, key} = Valimc.Dimension.unscope(scoped),
-        {:ok, owner} <- [
-          Valimc.Dimension.within(dimension, fn -> Valimc.World.existing_owner(key) end)
-        ],
+    for section <- Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}]),
+        {:ok, owner} <- [Valimc.World.existing_owner(section)],
         do: owner
   end
 

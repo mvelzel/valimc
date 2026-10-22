@@ -10,7 +10,7 @@ defmodule Valimc.World.Regionizer do
   had at its last recalculation have unloaded (Folia's dead-section ratio).
 
   The regionizer only decides; groups move sections with `Region.hand_over/3`
-  and `Region.split/2`, each at its own tick boundary (a group finishes the
+  and `Region.split/3`, each at its own tick boundary (a group finishes the
   tick it is running first), one change at a time. Groups report sections
   they load and unload; the regionizer watches them and forgets the sections
   of one that stops. Sections merge only within one world folder and tick
@@ -31,18 +31,17 @@ defmodule Valimc.World.Regionizer do
 
   defp name(dimension), do: {:via, Registry, {Valimc.Regionizers, dimension}}
 
-  @doc "Group `pid` loaded section `key` of the caller's dimension."
-  def loaded(key, pid), do: cast({:loaded, key, pid, compatibility(key)})
+  @doc "Group `pid` loaded section `key` (`{sx, sz}`) of `dimension`."
+  def loaded(dimension, key, pid), do: cast(dimension, {:loaded, key, pid, compatibility(key)})
 
-  @doc "Group `pid` unloaded section `key` of the caller's dimension."
-  def unloaded(key, pid), do: cast({:unloaded, key, pid})
+  @doc "Group `pid` unloaded section `key` (`{sx, sz}`) of `dimension`."
+  def unloaded(dimension, key, pid), do: cast(dimension, {:unloaded, key, pid})
 
-  @doc "The groups of the caller's dimension: `%{pid => [key]}` (tests, measurements)."
-  def groups(dimension \\ Valimc.Dimension.current()),
-    do: GenServer.call(name(dimension), :groups, 30_000)
+  @doc "The groups of `dimension`: `%{pid => [{sx, sz}]}` (tests, measurements)."
+  def groups(dimension), do: GenServer.call(name(dimension), :groups, 30_000)
 
-  defp cast(message) do
-    GenServer.cast(name(Valimc.Dimension.current()), message)
+  defp cast(dimension, message) do
+    GenServer.cast(name(dimension), message)
   catch
     :exit, _ -> :ok
   end
@@ -53,8 +52,6 @@ defmodule Valimc.World.Regionizer do
 
   @impl true
   def init(dimension) do
-    Valimc.Dimension.put(dimension)
-
     state = %{
       dimension: dimension,
       # key => {pid, compatibility}
@@ -76,7 +73,7 @@ defmodule Valimc.World.Regionizer do
       end
 
     for {scoped, pid, _, _, %{}} <- rows,
-        {dimension, key} = Valimc.Dimension.unscope(scoped),
+        {dimension, key} = Valimc.World.split_section(scoped),
         dimension == state.dimension,
         Valimc.config(:regionizer, key),
         reduce: state do
@@ -281,7 +278,7 @@ defmodule Valimc.World.Regionizer do
       started = System.monotonic_time(:microsecond)
       keys = MapSet.to_list(piece)
 
-      case safe_split(pid, keys) do
+      case safe_split(acc.dimension, pid, keys) do
         {:ok, new} ->
           Valimc.Metrics.add(:regionizer_splits)
 
@@ -317,8 +314,8 @@ defmodule Valimc.World.Regionizer do
     end)
   end
 
-  defp safe_split(pid, keys) do
-    Region.split(pid, keys)
+  defp safe_split(dimension, pid, keys) do
+    Region.split(pid, dimension, keys)
   catch
     :exit, reason -> {:error, reason}
   end

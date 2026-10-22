@@ -18,7 +18,7 @@ results =
     {x, _, z} = position
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
     :ok = RegionStorage.import(dataset, :overworld, key, %{containers: containers})
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
     :ok = Bench.Blocks.set(position, block)
     parent = self()
 
@@ -89,7 +89,7 @@ results =
 
     round = fn ->
       for {pid, view_ref} <- clients do
-        {:ok, ^owner} = World.existing_owner(key)
+        {:ok, ^owner} = World.existing_owner(Valimc.World.section(:overworld, key, :section))
 
         true =
           ChestOpening.authorize(

@@ -3,11 +3,16 @@ defmodule Valimc.TransferDelivery do
   alias Valimc.Txn.Operation
   alias Valimc.World
 
-  def start(owner, token, uuid, intent) do
+  @doc """
+  Deliver `intent`'s pending outbox for player `uuid` to its destination
+  section of `dimension` (the player's: it changes dimension only with no
+  transfer pending, VMC-026b).
+  """
+  def start(owner, token, uuid, intent, dimension) do
     case Valimc.Txn.Delivery.start(
            owner,
            fn worker, token, result -> {:transfer_delivered, worker, token, result} end,
-           fn -> deliver(uuid, intent) end,
+           fn -> deliver(uuid, intent, dimension) end,
            token: token
          ) do
       {:ok, job} -> {:ok, job}
@@ -22,12 +27,12 @@ defmodule Valimc.TransferDelivery do
   # One generic attempt: rebuild the pinned request, refuse an ephemeral
   # destination, deliver. The region may commit before this job sees its reply,
   # so an exit only ever leads to redelivering the same pinned intent.
-  defp deliver(uuid, snapshot) do
+  defp deliver(uuid, snapshot, dimension) do
     operation = Operation.of(snapshot)
 
     try do
       with {:ok, key, request, _digest} <- operation.request(uuid, snapshot),
-           {:ok, owner} <- World.item_owner(key),
+           {:ok, owner} <- World.item_owner(World.section(dimension, key, :section)),
            :ok <- persistent_destination(operation, owner, uuid) do
         operation.apply(owner, request)
       end

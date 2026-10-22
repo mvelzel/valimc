@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerOutboxTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, TestScope, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, TestScope}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
   import ExUnit.CaptureLog
@@ -76,7 +76,7 @@ defmodule Valimc.PlayerOutboxTest do
 
   defp deliver(ctx, snapshot) do
     {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, snapshot)
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
     Region.apply_item_transfer(owner, request)
   end
 
@@ -136,7 +136,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:ok, loaded, _} = GenServer.call(ctx.writer, :load)
     assert loaded.outbox == nil and loaded.transfer_sequence == 0
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     :sys.replace_state(ctx.writer, &%{&1 | path: nil})
     assert {:error, :transfer_storage_disabled} = create(ctx, authorized, record)
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
@@ -167,7 +167,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:ok, :applied} = deliver(next, recovered)
     assert {:ok, :already_applied} = deliver(next, recovered)
     assert {:ok, _, cleared} = complete(next, fence)
-    assert cleared.outbox == nil and map_size(World.item_snapshot(ctx.key)) == 1
+    assert cleared.outbox == nil and map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
   end
 
   test "prepare/complete fence old saves and retain the sequence in ordinary checkpoints", ctx do
@@ -247,7 +247,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:ok, :applied} = deliver(next, recovered)
     assert {:ok, _, cleared} = complete(next, fence)
     assert cleared.outbox == nil and cleared.transfer_sequence == 1
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
   end
 
   test "pending disconnect keeps latest health/food without restoring spent inventory", ctx do
@@ -273,7 +273,7 @@ defmodule Valimc.PlayerOutboxTest do
         food: %Valimc.PlayerFood{level: 3, saturation: 0.0, exhaustion: 3.5, timer: 79}
     }
 
-    {:ok, {region, _} = owner} = World.item_owner(ctx.key)
+    {:ok, {region, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     :sys.suspend(region)
 
     {recovered, recovered_fence} =
@@ -300,7 +300,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert cleared.food == latest.food
 
     assert cleared.inventory == ctx.after.inventory and
-             map_size(World.item_snapshot(ctx.key)) == 1
+             map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
 
     assert :ok = PlayerStore.close(ctx.writer, next_fence, cleared)
   end
@@ -309,7 +309,7 @@ defmodule Valimc.PlayerOutboxTest do
     {fence, pending} = prepare(ctx)
     {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     [record] = request.records
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     assert {:ok, :applied} =
              Region.apply_item_transfer(owner, %{
@@ -358,7 +358,7 @@ defmodule Valimc.PlayerOutboxTest do
     File.rename!(path <> ".saved", path)
     {:ok, _, recovered, _} = PlayerStore.open(ctx.uuid)
     assert recovered.inventory == ctx.before.inventory and recovered.outbox == nil
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
   end
 
   test "foreign callers, disabled storage and queued stale checkpoints cannot replace an intent",
@@ -419,7 +419,7 @@ defmodule Valimc.PlayerOutboxTest do
 
   test "an ephemeral destination receipt cannot clear a durable source outbox", ctx do
     TestScope.isolate(ctx.key, world_path: nil)
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     {fence, pending} = prepare(ctx)
     {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
@@ -505,7 +505,7 @@ defmodule Valimc.PlayerOutboxTest do
     Valimc.TestDisk.repair(ctx.base, ctx.key)
     # The failed load backs off before the region is admitted again (VMC-077e).
     Valimc.TestWait.until(fn ->
-      World.region(ctx.key) != {:error, {:retry, {:region_load, :backoff}}}
+      Valimc.TestWorld.region(ctx.key) != {:error, {:retry, {:region_load, :backoff}}}
     end)
 
     assert {:ok, :applied} = deliver(ctx, pending)

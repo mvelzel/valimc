@@ -38,7 +38,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
       for {writer, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, writer)
 
-      for {owner, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {owner, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
 
       Application.put_env(:valimc, :world_path, old)
@@ -91,10 +91,10 @@ defmodule Valimc.InteractionRangeConnectionTest do
   test "remote placement and break are acknowledged without allocating a region", ctx do
     pos = {-30_000_000, 65, -30_000_000}
     key = World.region_key(World.chunk_key(elem(pos, 0), elem(pos, 2)))
-    assert Registry.lookup(Valimc.RegionRegistry, key) == []
+    assert Valimc.TestWorld.registered(key) == []
     client = place(ctx.client, pos, 1, {0.5, 1.0, 0.5})
     _client = break(client, pos)
-    assert Registry.lookup(Valimc.RegionRegistry, key) == []
+    assert Valimc.TestWorld.registered(key) == []
     assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
   end
 end

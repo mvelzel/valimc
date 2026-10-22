@@ -8,15 +8,7 @@ defmodule Valimc.RegionGenerationTest do
   alias Valimc.{Native, TestScope}
   alias Valimc.World
 
-  alias Valimc.World.{
-    BlockSnapshot,
-    Directory,
-    Generator,
-    Region,
-    RegionGeneration,
-    RegionStorage,
-    View
-  }
+  alias Valimc.World.{BlockSnapshot, Generator, Region, RegionGeneration, RegionStorage, View}
 
   @seed 20_261_020
 
@@ -42,7 +34,7 @@ defmodule Valimc.RegionGenerationTest do
   defp stop(keys), do: Enum.each(keys, &TestScope.stop_neighbourhood/1)
 
   defp table(key) do
-    {_, _, %{publication: table}} = Directory.lookup(key)
+    {_, _, %{publication: table}} = Valimc.TestWorld.lookup(key)
     table
   end
 
@@ -110,13 +102,13 @@ defmodule Valimc.RegionGenerationTest do
 
   # The columns a running owner has made durable.
   defp durable_columns(ctx) do
-    for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key), do: :ok = Region.flush(pid)
+    for {pid, _} <- Valimc.TestWorld.registered(ctx.key), do: :ok = Region.flush(pid)
     {:ok, parts} = RegionStorage.read(ctx.base, :overworld, ctx.key)
     parts.columns
   end
 
   test "a region loads without generating and generates the chunk a call needs", ctx do
-    {:ok, _} = World.owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 3, cz + 5}
     position = inside(chunk)
@@ -135,13 +127,13 @@ defmodule Valimc.RegionGenerationTest do
     assert block == generated_block(chunk, position)
 
     # A chunk packet waits for its chunk as well.
-    frame = World.chunk({cx + 7, cz})
+    frame = Valimc.TestWorld.chunk({cx + 7, cz})
     assert IO.iodata_length(frame) > 0
     assert Map.has_key?(durable_columns(ctx), {cx + 7, cz})
   end
 
   test "a generated chunk's published heightmap and biomes read as its owner's blocks", ctx do
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 2, cz + 2}
     :ok = Region.await_chunks(owner, [chunk], 120_000)
@@ -172,7 +164,7 @@ defmodule Valimc.RegionGenerationTest do
   end
 
   test "an absent chunk refuses edits and observations until it is generated", ctx do
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 6, cz + 6}
     position = inside(chunk, 100)
@@ -192,7 +184,7 @@ defmodule Valimc.RegionGenerationTest do
 
   test "a view's ticket generates its chunks; a restart keeps them and the rest stay absent",
        ctx do
-    {:ok, {pid, _}} = World.owner(ctx.key)
+    {:ok, {pid, _}} = Valimc.TestWorld.owner(ctx.key)
     {cx, cz} = ctx.origin
     wanted = for x <- cx..(cx + 2), z <- cz..(cz + 2), do: {x, z}
     Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, wanted)
@@ -211,7 +203,7 @@ defmodule Valimc.RegionGenerationTest do
     glass = Valimc.Registry.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(edited, glass)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, _} = World.owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.owner(ctx.key)
     assert Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 5, cz + 5})
     position = inside({cx + 1, cz + 1})
@@ -251,12 +243,12 @@ defmodule Valimc.RegionGenerationTest do
   test "a served chunk's light is corrected when its neighbours generate", ctx do
     TestScope.isolate([@light_key], world_path: ctx.base, region_ticks: :manual)
     on_exit(fn -> stop([@light_key]) end)
-    World.subscribe(MapSet.new([@light_key]), MapSet.new())
-    {:ok, owner} = World.owner(@light_key)
+    Valimc.TestWorld.subscribe(MapSet.new([@light_key]), MapSet.new())
+    {:ok, owner} = Valimc.TestWorld.owner(@light_key)
     {rx, rz} = @light_key
     size = Valimc.config(:region_size)
     chunk = {rx * size + 1, rz * size + 1}
-    _ = World.chunk(chunk)
+    _ = Valimc.TestWorld.chunk(chunk)
     before = Region.light_image(owner, chunk)
     {cx, cz} = chunk
 

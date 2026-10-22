@@ -31,7 +31,7 @@ move =
   end
 
 key = {870, 870}
-{:ok, _} = World.owner(key)
+{:ok, _} = World.owner(Valimc.World.section(:overworld, key, :section))
 
 players =
   for scenario <- 0..3 do
@@ -145,7 +145,7 @@ call =
 # Items: 256 on a stone floor (dry) or in water, stepped over published rows.
 n = 870 * 128
 item_key = {870, 871}
-{:ok, _} = World.owner(item_key)
+{:ok, _} = World.owner(Valimc.World.section(:overworld, item_key, :section))
 m = 871 * 128
 
 items =

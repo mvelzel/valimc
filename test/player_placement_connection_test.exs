@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerPlacementConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -27,7 +27,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
@@ -138,12 +138,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert :sys.get_state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
     assert :sys.get_state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-    {:ok, owner} = World.existing_owner(c.key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     containers = Valimc.TestRegion.section(owner).containers
     assert containers.sequence == 2 and containers.receipts == %{}
     assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
     assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
-    assert World.item_snapshot(c.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(c.key) == %{}
   end
 
   test "unsupported block entities are corrected without a shell or item loss", c do
@@ -165,7 +165,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     assert Valimc.TestBlocks.get(c.target) == 0
     assert Map.take(Valimc.TestConn.state(pid).inventory.slots, [36, 45]) == held
-    {:ok, owner} = World.existing_owner(c.key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     assert Valimc.TestRegion.section(owner).containers.entries == %{}
   end
 
@@ -196,7 +196,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestBlocks.get(c.target) == 15_182
     assert Valimc.TestConn.state(pid).inventory.slots[45].count == 9
     assert saved(c).transfer_sequence == 3 and saved(c).outbox == nil
-    assert World.item_snapshot(c.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(c.key) == %{}
     Client.close(client)
 
     wait(fn ->
@@ -272,7 +272,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
        c do
     seed(c, :survival)
     {client, pid} = login(c)
-    {:ok, owner} = World.existing_owner(c.key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     writer = Valimc.TestDisk.stripe(c.base, c.key)
     :sys.suspend(writer)
 

@@ -7,7 +7,6 @@ defmodule Valimc.RegionizerTest do
   use ExUnit.Case, async: true
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{Region, Regionizer}
 
   setup do
@@ -20,7 +19,7 @@ defmodule Valimc.RegionizerTest do
 
     on_exit(fn ->
       for key <- keys,
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -33,7 +32,7 @@ defmodule Valimc.RegionizerTest do
 
   # The group of `key`, or nil while its route changes.
   defp group(key) do
-    case World.owner(key) do
+    case Valimc.TestWorld.owner(key) do
       {:ok, {pid, _}} -> pid
       {:error, {:retry, _}} -> nil
     end
@@ -47,9 +46,9 @@ defmodule Valimc.RegionizerTest do
   defp same(a, b, equal), do: a == b == equal
 
   test "sections within three of each other share a group; farther ones do not", ctx do
-    {:ok, _} = World.owner(at(ctx.origin, 0))
-    {:ok, _} = World.owner(at(ctx.origin, 3))
-    {:ok, _} = World.owner(at(ctx.origin, 8))
+    {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 0))
+    {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 3))
+    {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 8))
     assert Valimc.TestWait.until(fn -> same_group?(at(ctx.origin, 0), at(ctx.origin, 3)) end)
     assert separate?(at(ctx.origin, 0), at(ctx.origin, 8))
 
@@ -57,10 +56,10 @@ defmodule Valimc.RegionizerTest do
     stone = BlockRegistry.default_state("stone")
     {x, z} = at(ctx.origin, 8)
     position = {x * 128 + 3, 70, z * 128 + 3}
-    {:ok, owner} = World.owner(at(ctx.origin, 8))
+    {:ok, owner} = Valimc.TestWorld.owner(at(ctx.origin, 8))
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{position => stone})
-    {:ok, _} = World.owner(at(ctx.origin, 5))
+    {:ok, _} = Valimc.TestWorld.owner(at(ctx.origin, 5))
     assert Valimc.TestWait.until(fn -> same_group?(at(ctx.origin, 0), at(ctx.origin, 8)) end)
 
     assert Region.sections(group(at(ctx.origin, 0))) ==
@@ -68,7 +67,7 @@ defmodule Valimc.RegionizerTest do
 
     assert Valimc.TestBlocks.get(position) == stone
 
-    groups = Regionizer.groups()
+    groups = Regionizer.groups(:overworld)
     assert Enum.count(groups, fn {_, keys} -> at(ctx.origin, 0) in keys end) == 1
   end
 
@@ -84,13 +83,13 @@ defmodule Valimc.RegionizerTest do
 
     # The ends stay wanted; the bridge only for a moment.
     for key <- ends do
-      {:ok, owner} = World.owner(key)
+      {:ok, owner} = Valimc.TestWorld.owner(key)
       TestScope.simulate(owner, key)
     end
 
-    {:ok, _} = World.owner(bridge)
+    {:ok, _} = Valimc.TestWorld.owner(bridge)
     assert Valimc.TestWait.until(fn -> same_group?(hd(ends), List.last(ends)) end)
-    assert Valimc.TestWait.until(fn -> Valimc.World.Directory.lookup(bridge) == nil end, 30_000)
+    assert Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(bridge) == nil end, 30_000)
     assert Valimc.TestWait.until(fn -> separate?(hd(ends), List.last(ends)) end)
   end
 end

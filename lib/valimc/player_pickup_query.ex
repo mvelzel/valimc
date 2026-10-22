@@ -44,7 +44,8 @@ defmodule Valimc.PlayerPickupQuery do
        Valimc.Dimension.bind(fn ->
          key = World.region_key(view.chunk)
 
-         with {:ok, {_, epoch} = owner} <- World.existing_owner(key),
+         with {:ok, {_, epoch} = owner} <-
+                World.existing_owner(World.section(Valimc.Dimension.current(), key, :section)),
               true <- epoch == view.epoch,
               {:ok, grant} <- Region.reserve_pickup(owner, actor, view.uuid) do
            {:ok, %{key: key, owner: owner, grant: grant}}

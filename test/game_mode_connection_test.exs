@@ -1,7 +1,7 @@
 defmodule Valimc.GameModeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -32,7 +32,7 @@ defmodule Valimc.GameModeConnectionTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -178,7 +178,7 @@ defmodule Valimc.GameModeConnectionTest do
     assert s.recovery == nil
     saved = :sys.get_state(s.player_store).snapshot
     assert saved.game_mode == mode and saved.transfer_sequence == 1 and saved.outbox == nil
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     close(ctx, client)
   end
 
@@ -205,7 +205,7 @@ defmodule Valimc.GameModeConnectionTest do
     assert s.inventory.slots == initial.inventory.slots and s.inventory.carried == nil
     assert s.recovery == nil and s.creative_input.queued == 0
     assert :sys.get_state(s.player_store).snapshot.transfer_sequence == 0
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     close(ctx, client)
   end
 

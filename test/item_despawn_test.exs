@@ -2,7 +2,6 @@ defmodule Valimc.ItemDespawnTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   setup do
@@ -18,7 +17,7 @@ defmodule Valimc.ItemDespawnTest do
 
     on_exit(fn ->
       for k <- TestScope.neighborhood(key),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
+          {pid, _} <- Valimc.TestWorld.registered(k),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -30,13 +29,13 @@ defmodule Valimc.ItemDespawnTest do
   test "a dropped item despawns after 6000 ticks even while item planning keeps the owner busy",
        ctx do
     {rx, rz} = ctx.key
-    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     Valimc.TestScope.simulate(owner, ctx.key)
 
     {:ok, _} =
       Region.create_item(owner, ItemStack.new("dirt"), {rx * 128 + 8.5, 64.0, rz * 128 + 8.5})
 
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
 
     # A busy planning slot (e.g. a nearby player's repeated pickup queries)
     # must not stall the despawn clock.
@@ -50,7 +49,7 @@ defmodule Valimc.ItemDespawnTest do
     )
 
     {:ok, _} = Region.step(owner, 1)
-    wait(fn -> World.item_snapshot(ctx.key) == %{} end)
+    wait(fn -> Valimc.TestWorld.item_snapshot(ctx.key) == %{} end)
   end
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)

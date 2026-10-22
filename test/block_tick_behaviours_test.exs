@@ -3,7 +3,6 @@ defmodule Valimc.BlockTickBehavioursTest do
   alias Valimc.Block.BuddingAmethyst
   alias Valimc.Registry.Blocks
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
 
   @air Blocks.default_state("air")
@@ -50,7 +49,7 @@ defmodule Valimc.BlockTickBehavioursTest do
       TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
 
       on_exit(fn ->
-        for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+        for {pid, _} <- Valimc.TestWorld.registered(key),
             do: TestScope.kill(pid)
 
         File.rm_rf(base)
@@ -58,7 +57,7 @@ defmodule Valimc.BlockTickBehavioursTest do
 
       {rx, rz} = key
       span = Valimc.config(:region_size) * 16
-      {:ok, owner} = World.owner(key)
+      {:ok, owner} = Valimc.TestWorld.owner(key)
       TestScope.simulate(owner, key)
       %{owner: owner, origin: {rx * span + 40, 64, rz * span + 40}}
     end
@@ -98,7 +97,7 @@ defmodule Valimc.BlockTickBehavioursTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 4096)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -107,7 +106,7 @@ defmodule Valimc.BlockTickBehavioursTest do
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     {x, y, z} = position = {rx * span + 40, 64, rz * span + 40}
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
     TestScope.simulate(owner, key)
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{position => @budding})

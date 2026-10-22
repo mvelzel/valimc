@@ -2,7 +2,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, login: 1, state: 1, tick: 1, ticks: 2]
@@ -112,7 +112,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     inventory = %Inventory{slots: %{5 => gear}}
     seed(ctx, inventory: inventory)
     {_client, pid} = login(ctx)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
     Valimc.TestRegionGate.stall(region)
 
     try do
@@ -163,11 +163,11 @@ defmodule Valimc.PlayerVoidConnectionTest do
       {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.health.value == 20.0 and saved.transfer_sequence == 2 and saved.outbox == nil
       assert saved.last_death == {floor(ctx.pose.x), -129, floor(ctx.pose.z)}
-      records = World.item_snapshot(ctx.key)
+      records = Valimc.TestWorld.item_snapshot(ctx.key)
       assert map_size(records) == 8
       ticks(pid, 12)
       assert living(pid).health.value == 20.0
-      assert World.item_snapshot(ctx.key) == records
+      assert Valimc.TestWorld.item_snapshot(ctx.key) == records
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end

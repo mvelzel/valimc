@@ -2,7 +2,6 @@ defmodule Valimc.ChestSpillRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.World.{Containers, Entities, MiningTransfers, Region}
 
   setup do
@@ -37,7 +36,7 @@ defmodule Valimc.ChestSpillRegionTest do
     Valimc.TestDisk.write(base, key, :blocks, %{position => chest})
 
     Valimc.TestDisk.write(base, key, :items, nil)
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
     {:ok, permit} = Region.reserve_mining(owner, [position])
     {x, y, z} = position
 
@@ -52,7 +51,7 @@ defmodule Valimc.ChestSpillRegionTest do
     transfer = Map.merge(permit, %{source: source, sequence: 1, records: [self_loot]})
 
     on_exit(fn ->
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {live, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(live)
 
       File.rm_rf(base)
@@ -111,7 +110,7 @@ defmodule Valimc.ChestSpillRegionTest do
 
       # Adopted and shown at once (D2); the reply, the player's proof, waits.
       assert Valimc.TestRegion.published_block(c.owner, c.position) == 89 and
-               World.item_snapshot(c.key) != %{}
+               Valimc.TestWorld.item_snapshot(c.key) != %{}
 
       assert Task.yield(task, 10) == nil
       :sys.resume(stripe)
@@ -129,7 +128,7 @@ defmodule Valimc.ChestSpillRegionTest do
 
     assert {:ok, :already_applied} = Region.apply_mining_transfer(c.owner, c.transfer)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, c.pid)
-    {:ok, owner} = World.item_owner(c.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(c.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, c.transfer)
     assert audit(c, true) == saved
   end

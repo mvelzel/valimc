@@ -3,8 +3,8 @@ alias Valimc.Protocol.Data
 alias Valimc.World
 alias Valimc.World.Region
 [output] = System.argv()
-{:ok, owner} = World.owner({700, 700})
-World.subscribe(MapSet.new([{700, 700}]), MapSet.new())
+{:ok, owner} = World.owner(Valimc.World.section(:overworld, {700, 700}, :section))
+World.subscribe(MapSet.new([{:overworld, 700, 700}]), MapSet.new())
 
 measure = fn edits, mode ->
   {:ok, initial} = Region.observe_blocks(owner, [])

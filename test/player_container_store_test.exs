@@ -9,8 +9,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     PlayerFood,
     PlayerSnapshot,
     PlayerStore,
-    TransferDelivery,
-    World
+    TransferDelivery
   }
 
   alias Valimc.Protocol.ItemStack
@@ -139,7 +138,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert sealed.outbox == nil and sealed.transfer_sequence == 1 and
              sealed.health == ctx.snapshot.health
 
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert {:ok, {key, receipt}} = Region.container_transfer_receipt(owner, ctx.uuid)
     assert key == ctx.key and receipt == decision.containers.receipts[ctx.uuid]
 
@@ -147,7 +146,7 @@ defmodule Valimc.PlayerContainerStoreTest do
              Region.container_transfer_receipt({elem(owner, 0), make_ref()}, ctx.uuid)
 
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
-    assert {:ok, replacement_owner} = World.item_owner(ctx.key)
+    assert {:ok, replacement_owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert replacement_owner != owner
 
     assert {:ok, {^key, ^receipt}} =
@@ -168,7 +167,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
     :ok = Valimc.TestBlocks.set(ctx.intent.request.position, block)
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     {x, y, z} = ctx.intent.request.position
     # The player's 250 ms grant starts now: not while the owner still writes the block.
     quiescent(owner)
@@ -191,7 +190,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {owner, ctx, _actor} = admit(ctx)
     {writer, fence, pending} = prepare(ctx)
     token = make_ref()
-    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
+    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending, :overworld)
     assert_receive {:transfer_delivered, _, ^token, {:ok, :applied}}
     Process.demonitor(job.monitor, [:flush])
     ref = make_ref()

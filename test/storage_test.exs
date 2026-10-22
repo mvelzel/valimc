@@ -11,7 +11,6 @@ defmodule Valimc.StorageTest do
   import ExUnit.CaptureLog
   alias Valimc.Storage.{Checkpoint, Log}
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{BlockEntities, Containers, Entities, Region, RegionLog, RegionStorage}
   alias Valimc.World.ScheduledTicks
 
@@ -22,7 +21,7 @@ defmodule Valimc.StorageTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key), do: TestScope.kill(pid)
+      for {pid, _} <- Valimc.TestWorld.registered(key), do: TestScope.kill(pid)
       File.rm_rf(base)
     end)
 
@@ -31,7 +30,7 @@ defmodule Valimc.StorageTest do
   end
 
   defp owner(ctx) do
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     owner
   end
 
@@ -67,7 +66,7 @@ defmodule Valimc.StorageTest do
     assert Log.frames(ctx.base, {:region, :overworld, ctx.key}, seq) == []
 
     TestScope.kill(elem(owner, 0))
-    {:ok, reloaded} = World.owner(ctx.key)
+    {:ok, reloaded} = Valimc.TestWorld.owner(ctx.key)
     assert reloaded != owner
     assert Valimc.TestBlocks.get(put_elem(ctx.position, 1, 79)) == 1
   end
@@ -80,7 +79,7 @@ defmodule Valimc.StorageTest do
     assert :ok = Log.sync(ctx.base, {:region, :overworld, ctx.key})
     TestScope.kill(elem(owner, 0))
 
-    {:ok, _} = World.owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.owner(ctx.key)
     assert Valimc.TestBlocks.get(ctx.position) == 1
   end
 
@@ -97,7 +96,7 @@ defmodule Valimc.StorageTest do
       assert_receive {:DOWN, ^ref, :process, ^pid, {:storage_failed, {:log_down, :killed}}}
     end)
 
-    {:ok, _} = World.owner(ctx.key)
+    {:ok, _} = Valimc.TestWorld.owner(ctx.key)
   end
 
   test "an append whose segment will not open waits and lands once", ctx do
@@ -190,7 +189,7 @@ defmodule Valimc.StorageTest do
     File.mkdir_p!(Path.join(ctx.base, "r.#{rx}.#{rz}"))
 
     capture_log(fn ->
-      assert {:error, _} = World.owner(ctx.key)
+      assert {:error, _} = Valimc.TestWorld.owner(ctx.key)
     end)
 
     assert {:error, {:old_region_format, _}} = RegionStorage.keys(ctx.base, :overworld)

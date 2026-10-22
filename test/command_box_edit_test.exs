@@ -18,13 +18,13 @@ defmodule Valimc.CommandBoxEditTest do
   setup do
     owners =
       Map.new(@keys, fn key ->
-        {:ok, owner} = World.owner(key)
+        {:ok, owner} = Valimc.TestWorld.owner(key)
         {key, owner}
       end)
 
     on_exit(fn ->
       for key <- @keys,
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          {pid, _} <- Valimc.TestWorld.registered(key),
           do: Valimc.TestScope.kill(pid)
     end)
 
@@ -121,6 +121,6 @@ defmodule Valimc.CommandBoxEditTest do
     assert run("fill 9000000 70 9000000 9000001 70 9000000 stone") =~
              "That position is not loaded"
 
-    refute Enum.any?(Registry.lookup(Valimc.RegionRegistry, {70_312, 70_312}))
+    refute Enum.any?(Valimc.TestWorld.registered({70_312, 70_312}))
   end
 end

@@ -28,10 +28,10 @@ defmodule Valimc.ItemPortalRegionTest do
 
     on_exit(fn ->
       for k <- TestScope.neighborhood(key),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
+          {pid, _} <- Valimc.TestWorld.registered(k),
           do: TestScope.kill(pid)
 
-      elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
+      elsewhere = [{{{:"$1", :_, :_}, :"$2", :_}, [{:"=/=", :"$1", :overworld}], [:"$2"]}]
 
       for pid <- Registry.select(Valimc.RegionRegistry, elsewhere),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -68,7 +68,7 @@ defmodule Valimc.ItemPortalRegionTest do
       records: [record]
     })
 
-    Dimension.within(dimension, fn -> elem(World.item_owner(region), 1) end)
+    Dimension.within(dimension, fn -> elem(Valimc.TestWorld.item_owner(region), 1) end)
   end
 
   defp resource(owner), do: Valimc.TestRegion.section(owner)
@@ -95,7 +95,7 @@ defmodule Valimc.ItemPortalRegionTest do
       World.region_key(World.chunk_key(x, z))
       |> TestScope.neighborhood()
       |> Enum.find_value(fn key ->
-        {:ok, owner} = World.item_owner(key)
+        {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
         case Entities.find(resource(owner).entities.store, <<7::128>>) do
           {:ok, {_, id, _}} -> resource(owner).entities.store.entries[id]

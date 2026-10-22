@@ -11,7 +11,6 @@ defmodule Valimc.DimensionTest do
     assert Dimension.current() == :overworld
 
     Dimension.within(:the_nether, fn ->
-      assert Dimension.scope({0, 0}) == {:the_nether, {0, 0}}
       task = Task.async(Dimension.bind(fn -> Dimension.current() end))
       assert Task.await(task) == :the_nether
       assert Task.await(Task.async(fn -> Dimension.current() end)) == :overworld

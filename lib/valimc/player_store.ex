@@ -367,9 +367,13 @@ defmodule Valimc.PlayerStore do
         {:deliver_close, id},
         %{closing: %{id: id, job: nil, retry_timer: nil} = closing} = state
       ) do
-    case Valimc.Dimension.within(dimension(state.snapshot), fn ->
-           TransferDelivery.start(self(), make_ref(), state.uuid, state.snapshot)
-         end) do
+    case TransferDelivery.start(
+           self(),
+           make_ref(),
+           state.uuid,
+           state.snapshot,
+           dimension(state.snapshot)
+         ) do
       {:ok, job} -> {:noreply, %{state | closing: %{closing | job: job}}}
       error -> closing_failure(state, error)
     end
@@ -596,7 +600,7 @@ defmodule Valimc.PlayerStore do
 
   # What the destination's durable receipt proves about the pending outbox.
   defp destination_proof(%{snapshot: %{outbox: outbox} = snapshot} = state) when outbox != nil,
-    do: Valimc.Dimension.within(dimension(snapshot), fn -> proof(snapshot, state) end)
+    do: proof(snapshot, state)
 
   defp destination_proof(_state), do: {:error, :no_pending_transfer}
 
@@ -604,7 +608,7 @@ defmodule Valimc.PlayerStore do
     operation = Valimc.Txn.Operation.of(snapshot)
 
     with {:ok, key, request, digest} <- operation.request(state.uuid, snapshot),
-         {:ok, owner} <- World.item_owner(key),
+         {:ok, owner} <- World.item_owner(World.section(dimension(snapshot), key, :section)),
          {:ok, {^key, receipt}} <- operation.receipt(owner, state.uuid) do
       # A reserved slot (sequence 0) records capacity, not this transfer.
       if receipt.sequence == 0,

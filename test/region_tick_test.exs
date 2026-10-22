@@ -1,6 +1,5 @@
 defmodule Valimc.RegionTickTest do
   use ExUnit.Case, async: true
-  alias Valimc.World
   alias Valimc.World.{Region, TickClock}
 
   test "owner incarnations and one-use timers reject foreign and replayed ticks" do
@@ -16,7 +15,7 @@ defmodule Valimc.RegionTickTest do
 
   test "real region ignores raw/foreign ticks and reschedules an early current token" do
     key = {-650, -650}
-    {:ok, {pid, epoch}} = World.owner(key)
+    {:ok, {pid, epoch}} = Valimc.TestWorld.owner(key)
     on_exit(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid) end)
 
     # Hold the due time far ahead so ordinary scheduler timing cannot race assertions.

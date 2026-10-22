@@ -49,20 +49,20 @@ defmodule Valimc.World.Region do
 
   @forward_ms 120_000
 
-  # `scoped` is the first section's key scoped by its dimension (`Valimc.Dimension`).
+  # A group starts with its first section, by key `{dimension, sx, sz}`, or empty.
   def start_link({:empty, dimension}),
     do: GenServer.start_link(__MODULE__, {:empty, dimension})
 
-  def start_link({scoped, token}),
+  def start_link({{_, _, _} = section, token}),
     do:
-      GenServer.start_link(__MODULE__, {scoped, token},
-        name: {:via, Registry, {Valimc.RegionRegistry, scoped}}
+      GenServer.start_link(__MODULE__, {section, token},
+        name: {:via, Registry, {Valimc.RegionRegistry, section}}
       )
 
-  def child_spec({scoped, token}),
+  def child_spec({section, token}),
     do: %{
-      id: {__MODULE__, scoped},
-      start: {__MODULE__, :start_link, [{scoped, token}]},
+      id: {__MODULE__, section},
+      start: {__MODULE__, :start_link, [{section, token}]},
       restart: :temporary,
       shutdown: 20_000
     }
@@ -74,14 +74,14 @@ defmodule Valimc.World.Region do
   def hand_over(source, target, keys \\ :all) when is_pid(source) and is_pid(target),
     do: GenServer.call(source, {:hand_over, target, keys}, 30_000)
 
-  @doc "Move `keys` of group `pid` into a new group: `{:ok, new_pid}`."
-  def split(pid, keys) when is_pid(pid) and is_list(keys) do
+  @doc "Move `keys` (`{sx, sz}`) of group `pid` of `dimension` into a new group: `{:ok, new_pid}`."
+  def split(pid, dimension, keys) when is_pid(pid) and is_list(keys) do
     with {:ok, target} <-
            DynamicSupervisor.start_child(
              Valimc.RegionSupervisor,
              %{
                id: make_ref(),
-               start: {__MODULE__, :start_link, [{:empty, Valimc.Dimension.current()}]},
+               start: {__MODULE__, :start_link, [{:empty, dimension}]},
                restart: :temporary,
                shutdown: 20_000
              }
@@ -455,11 +455,11 @@ defmodule Valimc.World.Region do
     {:ok, new_state(dimension, nil)}
   end
 
-  def init({scoped, token}) do
+  def init({{dimension, sx, sz}, token}) do
     Process.flag(:trap_exit, true)
     # The group, and everything it routes, works in its sections' dimension.
-    {dimension, key} = Valimc.Dimension.unscope(scoped)
     Valimc.Dimension.put(dimension)
+    key = {sx, sz}
     {:ok, new_state(dimension, key), {:continue, {:load, key, token}}}
   end
 
@@ -492,19 +492,24 @@ defmodule Valimc.World.Region do
     }
   end
 
+  # The routing key of this group's section `{sx, sz}`.
+  defp section(state, {sx, sz}), do: {state.dimension, sx, sz}
+
   @impl true
   def handle_continue({:load, key, token}, state) do
     started = System.monotonic_time(:microsecond)
-    resource = key |> RegionData.load() |> Valimc.World.LightHalo.hello()
+    resource = state.dimension |> RegionData.load(key) |> Valimc.World.LightHalo.hello()
     Valimc.Metrics.add(:region_loads)
     Valimc.Metrics.add(:region_load_microseconds, System.monotonic_time(:microsecond) - started)
 
-    case Valimc.World.Directory.publish(key, token, %{
+    case Valimc.World.Directory.publish(section(state, key), token, %{
            publication: resource.publication,
            epoch: resource.epoch
          }) do
       :ok ->
-        if Valimc.config(:regionizer, key), do: Valimc.World.Regionizer.loaded(key, self())
+        if Valimc.config(:regionizer, key),
+          do: Valimc.World.Regionizer.loaded(state.dimension, key, self())
+
         {:noreply, state |> put_section(key, token, resource) |> start_clock()}
 
       {:error, reason} ->
@@ -897,7 +902,7 @@ defmodule Valimc.World.Region do
     started = System.monotonic_time(:microsecond)
     resource = RegionData.adopted(resource)
     state = put_section(state, key, token, resource)
-    {:ok, _} = Registry.register(Valimc.RegionRegistry, Valimc.Dimension.scope(key), nil)
+    {:ok, _} = Registry.register(Valimc.RegionRegistry, section(state, key), nil)
     Valimc.Metrics.add(:region_adopt_microseconds, System.monotonic_time(:microsecond) - started)
 
     # The section continues at this group's tick and wants its chunks from here.
@@ -985,17 +990,21 @@ defmodule Valimc.World.Region do
   end
 
   defp unload(state, key) do
-    section = state.sections[key]
+    entry = state.sections[key]
+    route = section(state, key)
 
-    case Valimc.World.Directory.retire(key, section.admission) do
+    case Valimc.World.Directory.retire(route, entry.admission) do
       :ok ->
         Valimc.Metrics.add(:region_unloads)
         state = commit_frames(state, true)
         RegionData.terminate(:normal, state.sections[key].resource)
-        :ets.delete(section.resource.publication)
-        Registry.unregister(Valimc.RegionRegistry, Valimc.Dimension.scope(key))
-        Valimc.World.Directory.retired(key)
-        if Valimc.config(:regionizer, key), do: Valimc.World.Regionizer.unloaded(key, self())
+        :ets.delete(entry.resource.publication)
+        Registry.unregister(Valimc.RegionRegistry, route)
+        Valimc.World.Directory.retired(route)
+
+        if Valimc.config(:regionizer, key),
+          do: Valimc.World.Regionizer.unloaded(state.dimension, key, self())
+
         drop_section(state, key)
 
       {:error, _} ->
@@ -1066,11 +1075,11 @@ defmodule Valimc.World.Region do
     %{resource: resource, admission: token} = state.sections[key]
     :ok = Native.region_give(resource.blocks.ref, target)
     true = :ets.give_away(resource.publication, target, {:section, key})
-    Registry.unregister(Valimc.RegionRegistry, Valimc.Dimension.scope(key))
+    Registry.unregister(Valimc.RegionRegistry, section(state, key))
     send(target, {:adopt, key, token, %{resource | siblings: %{}}, state.tick_clock.tick})
 
     :ok =
-      Valimc.World.Directory.move(key, token, target, %{
+      Valimc.World.Directory.move(section(state, key), token, target, %{
         publication: resource.publication,
         epoch: resource.epoch
       })

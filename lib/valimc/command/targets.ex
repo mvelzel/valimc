@@ -115,7 +115,7 @@ defmodule Valimc.Command.Targets do
       for rx <- rx0..rx1,
           rz <- rz0..rz1,
           {_, pid} <-
-            :ets.lookup(Valimc.SpatialIndex, Valimc.Dimension.scope(source.dimension, {rx, rz})),
+            :ets.lookup(Valimc.SpatialIndex, {source.dimension, rx, rz}),
           into: MapSet.new(),
           do: pid
 

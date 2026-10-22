@@ -3,7 +3,7 @@ defmodule Valimc.PlayerAirConnectionTest do
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerSnapshot, World}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot}
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -135,7 +135,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.air_supply == 0
     assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     ticks(pid, 2)
     assert living(pid).air_supply == 0
     Client.send_packet(client, :play, "client_command", <<0>>)

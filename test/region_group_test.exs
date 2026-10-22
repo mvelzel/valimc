@@ -9,8 +9,7 @@ defmodule Valimc.RegionGroupTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.Storage.Log
   alias Valimc.TestScope
-  alias Valimc.World
-  alias Valimc.World.{Directory, Region, RegionLog}
+  alias Valimc.World.{Region, RegionLog}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -28,14 +27,14 @@ defmodule Valimc.RegionGroupTest do
 
     on_exit(fn ->
       for key <- [a, b],
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
     end)
 
-    {:ok, {pa, ea}} = World.owner(a)
-    {:ok, {pb, eb}} = World.owner(b)
+    {:ok, {pa, ea}} = Valimc.TestWorld.owner(a)
+    {:ok, {pb, eb}} = Valimc.TestWorld.owner(b)
     %{a: a, b: b, base: base, pa: pa, ea: ea, pb: pb, eb: eb}
   end
 
@@ -50,7 +49,7 @@ defmodule Valimc.RegionGroupTest do
     :ok = Region.hand_over(ctx.pb, ctx.pa)
 
     Valimc.TestWait.until(fn ->
-      match?({pid, _, _} when pid == ctx.pa, Directory.lookup(ctx.b))
+      match?({pid, _, _} when pid == ctx.pa, Valimc.TestWorld.lookup(ctx.b))
     end)
   end
 
@@ -62,7 +61,7 @@ defmodule Valimc.RegionGroupTest do
     merge(ctx)
 
     # The route names the group that adopted it; the section is the same one.
-    assert {:ok, {pa, eb}} = World.owner(ctx.b)
+    assert {:ok, {pa, eb}} = Valimc.TestWorld.owner(ctx.b)
     assert pa == ctx.pa and eb == ctx.eb
     assert Region.sections(ctx.pa) == Enum.sort([ctx.a, ctx.b])
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
@@ -104,12 +103,12 @@ defmodule Valimc.RegionGroupTest do
            end)
 
     TestScope.kill(ctx.pa)
-    Valimc.TestWait.until(fn -> Directory.lookup(ctx.b) == nil end)
+    Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(ctx.b) == nil end)
     assert Valimc.TestBlocks.get(position(ctx.a)) == stone
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
     # Each comes back in a group of its own.
-    {:ok, {qa, _}} = World.owner(ctx.a)
-    {:ok, {qb, _}} = World.owner(ctx.b)
+    {:ok, {qa, _}} = Valimc.TestWorld.owner(ctx.a)
+    {:ok, {qb, _}} = Valimc.TestWorld.owner(ctx.b)
     assert qa != qb
   end
 
@@ -117,11 +116,15 @@ defmodule Valimc.RegionGroupTest do
     merge(ctx)
     stone = BlockRegistry.default_state("stone")
     set({ctx.pa, ctx.eb}, position(ctx.b), stone)
-    {:ok, pc} = Region.split(ctx.pa, [ctx.b])
-    Valimc.TestWait.until(fn -> match?({pid, _, _} when pid == pc, Directory.lookup(ctx.b)) end)
+    {:ok, pc} = Region.split(ctx.pa, :overworld, [ctx.b])
+
+    Valimc.TestWait.until(fn ->
+      match?({pid, _, _} when pid == pc, Valimc.TestWorld.lookup(ctx.b))
+    end)
+
     assert Region.sections(ctx.pa) == [ctx.a]
     assert Region.sections(pc) == [ctx.b]
-    assert {:ok, {^pc, eb}} = World.owner(ctx.b)
+    assert {:ok, {^pc, eb}} = Valimc.TestWorld.owner(ctx.b)
     assert eb == ctx.eb
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
     on_exit(fn -> if Process.alive?(pc), do: TestScope.kill(pc) end)
@@ -168,16 +171,16 @@ defmodule Valimc.RegionGroupTest do
     # The adopter holds the section's state unread in its mailbox when it dies.
     :sys.suspend(ctx.pa)
     :ok = Region.hand_over(ctx.pb, ctx.pa)
-    assert match?({pid, _, _} when pid == ctx.pa, Directory.lookup(ctx.b))
+    assert match?({pid, _, _} when pid == ctx.pa, Valimc.TestWorld.lookup(ctx.b))
     TestScope.kill(ctx.pa)
 
     # The route went with the adopter; the group it left, now empty, stops
     # rather than forward there.
-    Valimc.TestWait.until(fn -> Directory.lookup(ctx.b) == nil end)
+    Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(ctx.b) == nil end)
     Valimc.TestWait.until(fn -> not Process.alive?(ctx.pb) end)
     assert {:error, {:retry, _}} = Region.observe_blocks({ctx.pb, ctx.eb}, [position(ctx.b)])
 
-    {:ok, {pid, epoch}} = World.owner(ctx.b)
+    {:ok, {pid, epoch}} = Valimc.TestWorld.owner(ctx.b)
     assert pid not in [ctx.pa, ctx.pb] and epoch != ctx.eb
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
   end

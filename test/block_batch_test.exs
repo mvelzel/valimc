@@ -1,7 +1,6 @@
 defmodule Valimc.BlockBatchTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
-  alias Valimc.World
   alias Valimc.World.{BlockBatch, Blocks, Region}
 
   test "preparation bounds positions, registry states, count and one-region scope" do
@@ -46,10 +45,10 @@ defmodule Valimc.BlockBatchTest do
           {div(x, 16) + 1, div(z, 16)},
           {div(x, 16) + 2, div(z, 16)}
         ],
-        do: World.chunk(key)
+        do: Valimc.TestWorld.chunk(key)
 
     before = Valimc.TestRegion.section(owner)
-    World.subscribe(MapSet.new([{400, 401}]), MapSet.new())
+    Valimc.TestWorld.subscribe(MapSet.new([{400, 401}]), MapSet.new())
     assert {:ok, revision} = Region.set_blocks(owner, before.revision, changes)
     assert revision == before.revision + 1
 
@@ -115,7 +114,7 @@ defmodule Valimc.BlockBatchTest do
       Path.join(System.tmp_dir!(), "valimc-block-batch-#{System.unique_integer([:positive])}")
 
     Valimc.TestScope.isolate(key, world_path: base)
-    {:ok, {pid, _} = owner} = World.owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.owner(key)
 
     on_exit(fn ->
       Valimc.TestScope.kill(pid)
@@ -150,7 +149,6 @@ defmodule Valimc.BlockBatchTest.Connection do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.Protocol.{Data, Wire}
-  alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
   alias Valimc.TestClient, as: Client
 
@@ -159,7 +157,7 @@ defmodule Valimc.BlockBatchTest.Connection do
     {_, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    {:ok, owner} = World.owner({0, 0})
+    {:ok, owner} = Valimc.TestWorld.owner({0, 0})
     # Chunk 4 lies outside the minimum view distance 2 (VMC-070).
     changes = %{{0, 64, 2} => 1, {1, 65, 2} => 2, {16, 64, 2} => 3, {64, 64, 2} => 4}
     {:ok, before} = Region.observe_blocks(owner, Map.keys(changes))

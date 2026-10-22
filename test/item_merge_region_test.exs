@@ -1,7 +1,7 @@
 defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
+  alias Valimc.{ItemMotionState, Protocol.ItemStack}
   alias Valimc.World.{Entities, Region}
 
   setup :scope
@@ -33,10 +33,10 @@ defmodule Valimc.ItemMergeRegionTest do
     receipts = %{<<99::128>> => %{sequence: 4, digest: :crypto.hash(:sha256, "birth")}}
 
     Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key), do: TestScope.kill(pid)
+      for {pid, _} <- Valimc.TestWorld.registered(key), do: TestScope.kill(pid)
 
       File.rm_rf(base)
     end)
@@ -74,7 +74,7 @@ defmodule Valimc.ItemMergeRegionTest do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
-    assert {:ok, next} = World.item_owner(ctx.key)
+    assert {:ok, next} = Valimc.TestWorld.item_owner(ctx.key)
     assert Entities.records(state(next).entities.store) == [record]
     assert state(next).entities.receipts == ctx.receipts
   end

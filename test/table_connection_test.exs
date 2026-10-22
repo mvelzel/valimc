@@ -1,7 +1,7 @@
 defmodule Valimc.TableConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -27,7 +27,7 @@ defmodule Valimc.TableConnectionTest do
 
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
@@ -201,7 +201,7 @@ defmodule Valimc.TableConnectionTest do
   end
 
   defp records(ctx) do
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
   end
 end

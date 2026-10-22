@@ -1,7 +1,7 @@
 defmodule Valimc.ItemCheckpointsTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, World}
+  alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Entities, Region}
 
@@ -10,7 +10,7 @@ defmodule Valimc.ItemCheckpointsTest do
     base = Path.join(System.tmp_dir!(), "valimc-item-checkpoints-#{nonce}")
     key = {20_000 + rem(nonce, 3_333) * 3, 320}
     TestScope.isolate(key, world_path: base)
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
     {rx, rz} = key
     position = {rx * 128 + 8.5, 65.5, rz * 128 + 8.5}
     {x, y, z} = position
@@ -29,7 +29,7 @@ defmodule Valimc.ItemCheckpointsTest do
     assert {:ok, handle} = Region.find_item(owner, record.uuid)
 
     on_exit(fn ->
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {live, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(live)
 
       File.rm_rf(base)
@@ -71,14 +71,14 @@ defmodule Valimc.ItemCheckpointsTest do
     _first = advance(ctx, ctx.handle, 1)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
     assert [%{motion: %{age: 1}}] = read(ctx).records
-    assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    assert {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     fresh = %{ctx | pid: pid, owner: owner}
     assert {:ok, handle} = Region.find_item(owner, <<71::128>>)
     _second = advance(fresh, handle, 2)
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-    assert {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
 
     assert [%{motion: %{age: 1}}] =
              Entities.records(Valimc.TestRegion.section(owner).entities.store)

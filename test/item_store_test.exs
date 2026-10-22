@@ -1,7 +1,6 @@
 defmodule Valimc.ItemStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.Region
   alias Valimc.Protocol.ItemStack
   import ExUnit.CaptureLog
@@ -13,10 +12,10 @@ defmodule Valimc.ItemStoreTest do
     base = Path.join(System.tmp_dir!(), "valimc-items-#{nonce}")
     key = {230 + rem(nonce, 3_333) * 3, 230}
     TestScope.isolate(key, world_path: base)
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {live, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(live)
 
       File.rm_rf(base)
@@ -41,7 +40,7 @@ defmodule Valimc.ItemStoreTest do
     }
 
     {:ok, handle} = Region.create_item(ctx.owner, stone, ctx.position)
-    view = World.item_snapshot(ctx.key)[elem(handle, 2)]
+    view = Valimc.TestWorld.item_snapshot(ctx.key)[elem(handle, 2)]
     {handle, view.uuid, stone}
   end
 
@@ -55,7 +54,7 @@ defmodule Valimc.ItemStoreTest do
       else: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
 
     assert_receive {:DOWN, ^ref, :process, _, _}
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     owner
   end
 
@@ -79,7 +78,7 @@ defmodule Valimc.ItemStoreTest do
     assert :ok = Region.remove_item(current)
     next = replace_owner(%{ctx | pid: elem(owner, 0)}, :shutdown)
     assert {:error, :missing_item} = Region.find_item(next, uuid)
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
   end
 
   test "a log failure stops the owner, which reloads the durable state", ctx do
@@ -102,7 +101,7 @@ defmodule Valimc.ItemStoreTest do
     end)
 
     assert disk(ctx) == old
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     {:ok, current} = Region.find_item(owner, uuid)
 
     assert Valimc.TestRegion.section(owner).entities.store.entries[elem(current, 2)].stack ==
@@ -117,12 +116,12 @@ defmodule Valimc.ItemStoreTest do
     Valimc.TestDisk.corrupt(ctx.base, ctx.key)
 
     capture_log(fn ->
-      assert {:error, _} = World.item_owner(ctx.key)
+      assert {:error, _} = Valimc.TestWorld.item_owner(ctx.key)
     end)
 
-    assert World.item_snapshot(ctx.key) == %{} and disk(ctx) == :corrupt
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{} and disk(ctx) == :corrupt
     {rx, rz} = ctx.key
-    {:ok, healthy} = World.item_owner({rx + 1, rz})
+    {:ok, healthy} = Valimc.TestWorld.item_owner({rx + 1, rz})
 
     assert {:ok, _} =
              Region.create_item(healthy, ItemStack.new("stone"), {(rx + 1) * 128, 64, rz * 128})

@@ -8,14 +8,14 @@ defmodule Bench.Blocks do
   alias Valimc.World.Region
 
   def set({x, _, z} = position, block) do
-    {:ok, owner} = World.owner(World.region_key(World.chunk_key(x, z)))
+    {:ok, owner} = World.owner(World.section(:overworld, World.chunk_key(x, z)))
     {:ok, view} = Region.observe_blocks(owner, [position])
     {:ok, _} = Region.set_blocks(owner, view.fence, %{position => block}, MapSet.new([position]))
     :ok
   end
 
   def get({x, _, z} = position) do
-    {:ok, owner} = World.owner(World.region_key(World.chunk_key(x, z)))
+    {:ok, owner} = World.owner(World.section(:overworld, World.chunk_key(x, z)))
     {:ok, view} = Region.observe_blocks(owner, [position])
     view.blocks[position]
   end

@@ -109,7 +109,7 @@ defmodule Valimc.Portal.Access do
     key = World.region_key(World.chunk_key(x, z))
 
     retry(fn ->
-      with {:ok, owner} <- World.owner(key), do: Region.block_entity(owner, position)
+      with {:ok, owner} <- World.owner(section(key)), do: Region.block_entity(owner, position)
     end)
   end
 
@@ -120,7 +120,7 @@ defmodule Valimc.Portal.Access do
     |> Enum.reduce_while(:ok, fn {key, entries}, :ok ->
       result =
         retry(fn ->
-          with {:ok, owner} <- World.owner(key),
+          with {:ok, owner} <- World.owner(section(key)),
                {:ok, :applied} <- Region.put_block_entities(owner, Map.new(entries)),
                do: {:ok, :ok}
         end)
@@ -131,6 +131,9 @@ defmodule Valimc.Portal.Access do
       end
     end)
   end
+
+  # The routing key of section `key` of the dimension this work runs in.
+  defp section(key), do: World.section(Valimc.Dimension.current(), key, :section)
 
   defp retry(fun, deadline \\ nil) do
     deadline = deadline || now() + @deadline
@@ -160,7 +163,7 @@ defmodule Valimc.Portal.Access do
     |> Enum.group_by(&World.region_key/1)
     |> Enum.filter(fn {key, _} -> stored?(key) end)
     |> Enum.flat_map(fn {key, chunks} ->
-      case World.owner(key) do
+      case World.owner(section(key)) do
         {:ok, _} ->
           view = View.load_chunks(View.new(), chunks)
           Enum.flat_map(chunks, &View.find(View.row(view, &1), &1, states))
@@ -172,7 +175,7 @@ defmodule Valimc.Portal.Access do
   end
 
   defp stored?(key) do
-    case Directory.lookup(key) do
+    case Directory.lookup(section(key)) do
       {_pid, _, _} ->
         true
 
@@ -207,7 +210,7 @@ defmodule Valimc.Portal.Access do
 
   defp commit_region(key, edits, deadline) do
     result =
-      with {:ok, owner} <- World.owner(key),
+      with {:ok, owner} <- World.owner(section(key)),
            {:ok, observed} <- Region.observe_blocks(owner, Map.keys(edits)),
            {:ok, _revision} <- Region.set_blocks(owner, observed.fence, edits),
            do: :ok

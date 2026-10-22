@@ -39,7 +39,7 @@ end
 # A section with content, once generated: an edited block per chunk and
 # `items` items, all of its chunks simulated.
 fill = fn key ->
-  {:ok, owner} = World.owner(key)
+  {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
   {rx, rz} = key
   chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   {pid, _} = owner
@@ -62,7 +62,9 @@ fill = fn key ->
   owner
 end
 
-group_of = fn key -> elem(elem(World.owner(key), 1), 0) end
+group_of = fn key ->
+  elem(elem(World.owner(Valimc.World.section(:overworld, key, :section)), 1), 0)
+end
 
 # A row of `n` sections from `{x, z}`: the regionizer makes them one group.
 row = fn {x, z}, n ->
@@ -87,7 +89,7 @@ end
 
 # Tick time of a group of n sections: 10 samples of 5 steps, per step.
 tick_time = fn keys ->
-  {:ok, owner} = World.owner(hd(keys))
+  {:ok, owner} = World.owner(Valimc.World.section(:overworld, hd(keys), :section))
   quiet.(owner)
   {:ok, _} = Region.step(owner, 5)
 
@@ -127,7 +129,7 @@ pauses =
         {merge_us, :ok} = :timer.tc(fn -> Region.hand_over(source, group) end)
         {adopt_us, _} = :timer.tc(fn -> {Region.sections(group), Region.sections(group)} end)
         wait.(fn -> group_of.(lone) == group end, 30_000)
-        {split_us, {:ok, new}} = :timer.tc(fn -> Region.split(group, [lone]) end)
+        {split_us, {:ok, new}} = :timer.tc(fn -> Region.split(group, :overworld, [lone]) end)
         wait.(fn -> group_of.(lone) == new end, 30_000)
         {merge_us, adopt_us, split_us}
       end
@@ -146,8 +148,8 @@ pauses =
 # Two groups of 16 far apart, stepped one after the other and at once.
 a = row.({130_000, 3000}, 16)
 b = row.({130_000 + 400, 3000}, 16)
-{:ok, oa} = World.owner(hd(a))
-{:ok, ob} = World.owner(hd(b))
+{:ok, oa} = World.owner(Valimc.World.section(:overworld, hd(a), :section))
+{:ok, ob} = World.owner(Valimc.World.section(:overworld, hd(b), :section))
 step = fn owner -> {:ok, _} = Region.step(owner, 20) end
 _ = {quiet.(oa), quiet.(ob), step.(oa), step.(ob)}
 

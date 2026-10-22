@@ -1,7 +1,6 @@
 defmodule Valimc.PlacementRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.World
 
   alias Valimc.World.{
     MiningTransfers,
@@ -20,7 +19,7 @@ defmodule Valimc.PlacementRegionTest do
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 64, rz * span}
     other = {rx * span + 1, 64, rz * span}
-    {:ok, {pid, epoch} = owner} = World.item_owner(key)
+    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner(key)
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, reservation} = Region.reserve_placement(owner, observed.revision, observed.blocks)
 
@@ -28,7 +27,7 @@ defmodule Valimc.PlacementRegionTest do
       Map.merge(reservation, %{source: <<nonce::128>>, sequence: 1, edits: %{position => 1}})
 
     on_exit(fn ->
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {live, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(live)
 
       File.rm_rf(base)
@@ -98,7 +97,7 @@ defmodule Valimc.PlacementRegionTest do
     assert Valimc.TestBlocks.get(ctx.position) == @chest
     receipt(ctx, ctx.owner, request, :applied)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
     assert Valimc.TestRegion.section(owner).containers == containers
     {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])

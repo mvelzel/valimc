@@ -11,7 +11,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
 
   # Called at most every 200 ms. Fingerprints are computed on stack changes,
   # never while ticking counters.
-  def scene({rx, rz} = key, views) do
+  def scene(dimension, {rx, rz} = key, views) do
     width = Valimc.config(:region_size) * 16
 
     donors =
@@ -26,7 +26,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
         for x <- (rx - 1)..(rx + 1),
             z <- (rz - 1)..(rz + 1),
             {x, z} != key,
-            view <- Map.values(World.item_snapshot({x, z})),
+            view <- Map.values(World.item_snapshot({dimension, x, z})),
             view.kind == :item and view.merge_open and adjacent?(view.at, rx, rz, width),
             do: Map.put(Map.take(view, @fields), :key, {x, z})
 

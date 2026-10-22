@@ -170,9 +170,17 @@ defmodule Valimc.Player.Mining do
         cancel_mining(state)
 
       mining.reservation == nil ->
-        mining_job(state, :reserve, PlayerMiningQuery.reserve(mining.position), mining.position)
+        mining_job(
+          state,
+          :reserve,
+          PlayerMiningQuery.reserve(state.player.dimension, mining.position),
+          mining.position
+        )
 
-      World.existing_owner(mining.reservation.key) != {:ok, mining.reservation.owner} ->
+      World.existing_owner(
+        World.section(state.player.dimension, mining.reservation.key, :section)
+      ) !=
+          {:ok, mining.reservation.owner} ->
         state |> cancel_mining() |> correct_mining(mining.position)
 
       mining.needs_check or now >= mining.renew_at ->
@@ -294,7 +302,11 @@ defmodule Valimc.Player.Mining do
   # An imported block entity's data follows its block: the client dropped the
   # block entity when it predicted the break (VMC-021e1).
   def mining_result(state, %{stage: :correct} = job, {:ok, owner, block, update}) do
-    key = World.region_key(World.chunk_key(elem(job.position, 0), elem(job.position, 2)))
+    key =
+      World.section(
+        state.player.dimension,
+        World.chunk_key(elem(job.position, 0), elem(job.position, 2))
+      )
 
     if job.generation == state.pose_generation and World.existing_owner(key) == {:ok, owner} and
          reachable?(state, job.position),
@@ -327,7 +339,13 @@ defmodule Valimc.Player.Mining do
 
   def correct_mining(state, position) do
     if not Jobs.active?(state.jobs, :mining) and reachable?(state, position),
-      do: mining_job(state, :correct, PlayerMiningQuery.observe(position), position),
+      do:
+        mining_job(
+          state,
+          :correct,
+          PlayerMiningQuery.observe(state.player.dimension, position),
+          position
+        ),
       else: state
   end
 

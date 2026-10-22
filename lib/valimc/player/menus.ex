@@ -63,7 +63,7 @@ defmodule Valimc.Player.Menus do
 
   @doc false
   def request_table(state, kind, {x, _, z} = position, command) do
-    key = World.region_key(World.chunk_key(x, z))
+    key = World.section(state.player.dimension, World.chunk_key(x, z))
 
     expires =
       System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250, state.player.uuid)
@@ -272,7 +272,12 @@ defmodule Valimc.Player.Menus do
 
   def check_table_menu(%{table_menu: %{kind: kind} = menu} = state)
       when kind in [:chest, :cooking] do
-    key = World.region_key(World.chunk_key(elem(menu.position, 0), elem(menu.position, 2)))
+    key =
+      World.section(
+        state.player.dimension,
+        World.chunk_key(elem(menu.position, 0), elem(menu.position, 2))
+      )
+
     opener = kind == :chest and state.player.game_mode.current != :spectator
 
     cond do
@@ -448,7 +453,8 @@ defmodule Valimc.Player.Menus do
     ) and container_signature(state) == job.signature and
       table_player_valid?(state) and state.player.living.health.value > 0 and
       World.existing_owner(
-        World.region_key(
+        World.section(
+          state.player.dimension,
           World.chunk_key(
             elem(state.table_menu.position, 0),
             elem(state.table_menu.position, 2)

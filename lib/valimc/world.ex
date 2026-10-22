@@ -3,16 +3,36 @@ defmodule Valimc.World do
   Section ownership and spatial topics. There is no global world mutation
   process: each 8 × 8 section belongs to one group process (VMC-077j), found
   through the Directory's routes.
+
+  Routing names a section by its dimension-explicit key `{dimension, sx, sz}`
+  (`section/2`) and never reads the calling process's context: equal
+  coordinates of two dimensions never meet, and a plain `{sx, sz}` is refused
+  rather than taken for the overworld (finding C8). `region_key/1` is plain
+  geometry.
   """
   alias Valimc.World.{BlockSnapshot, Directory}
   def chunk_key(x, z), do: {Integer.floor_div(floor(x), 16), Integer.floor_div(floor(z), 16)}
 
+  @doc "The 8 × 8 section coordinates `{sx, sz}` of a chunk (geometry, no dimension)."
   def region_key({cx, cz}) do
     size = Valimc.config(:region_size)
     {Integer.floor_div(cx, size), Integer.floor_div(cz, size)}
   end
 
-  def region(key) do
+  @doc """
+  The routing key of the section of `dimension` that holds chunk `chunk`, or
+  whose coordinates are `{sx, sz}` (`at: :section`).
+  """
+  def section(dimension, chunk, at \\ :chunk)
+  def section(dimension, chunk, :chunk), do: section(dimension, region_key(chunk), :section)
+
+  def section(dimension, {sx, sz}, :section) when is_atom(dimension),
+    do: {dimension, sx, sz}
+
+  @doc "A section key's dimension and coordinates: `{dimension, {sx, sz}}`."
+  def split_section({dimension, sx, sz}), do: {dimension, {sx, sz}}
+
+  def region({_, _, _} = key) do
     Valimc.Owners.ensure(
       # A dead owner's row is the Directory's to replace: admit at once.
       fn ->
@@ -31,8 +51,9 @@ defmodule Valimc.World do
     )
   end
 
-  def chunk(key) do
-    with {:ok, pid} <- region(region_key(key)), do: GenServer.call(pid, {:chunk, key}, 15_000)
+  def chunk(dimension, key) do
+    with {:ok, pid} <- region(section(dimension, key)),
+         do: GenServer.call(pid, {:chunk, key}, 15_000)
   end
 
   @doc """
@@ -43,13 +64,13 @@ defmodule Valimc.World do
   (VMC-075) or of a region still loading is left out, as vanilla sends only
   loaded chunks; a region not running is started.
   """
-  def sendable(keys, limit), do: sendable(keys, limit, %{}, [])
+  def sendable(dimension, keys, limit), do: sendable(dimension, keys, limit, %{}, [])
 
-  defp sendable(_keys, 0, _routes, acc), do: Enum.reverse(acc)
-  defp sendable([], _limit, _routes, acc), do: Enum.reverse(acc)
+  defp sendable(_dimension, _keys, 0, _routes, acc), do: Enum.reverse(acc)
+  defp sendable(_dimension, [], _limit, _routes, acc), do: Enum.reverse(acc)
 
-  defp sendable([key | rest], limit, routes, acc) do
-    region = region_key(key)
+  defp sendable(dimension, [key | rest], limit, routes, acc) do
+    region = section(dimension, key)
 
     {route, routes} =
       case routes do
@@ -59,9 +80,9 @@ defmodule Valimc.World do
 
     with {pid, table} <- route,
          false <- BlockSnapshot.absent?(table, key) do
-      sendable(rest, limit - 1, routes, [{key, published_frame(table, key, pid)} | acc])
+      sendable(dimension, rest, limit - 1, routes, [{key, published_frame(table, key, pid)} | acc])
     else
-      _ -> sendable(rest, limit, routes, acc)
+      _ -> sendable(dimension, rest, limit, routes, acc)
     end
   end
 
@@ -97,10 +118,10 @@ defmodule Valimc.World do
   def request_chunk(owner, key), do: :gen_server.send_request(owner, {:chunk, key})
 
   @doc "The block at `position` (a state id) or `{:error, reason}`."
-  def item_owner(key), do: owner(key)
+  def item_owner({_, _, _} = key), do: owner(key)
 
   @doc "Find an existing incarnation without loading or starting a region."
-  def existing_owner(key) do
+  def existing_owner({_, _, _} = key) do
     case Directory.lookup(key) do
       {pid, _, %{epoch: epoch}} ->
         if Process.alive?(pid),
@@ -112,14 +133,15 @@ defmodule Valimc.World do
     end
   end
 
-  def owner(key) do
+  def owner({_, _, _} = key) do
     with {:ok, pid} <- region(key) do
       case Directory.lookup(key) do
         {^pid, _, %{epoch: epoch}} ->
           {:ok, {pid, epoch}}
 
         {^pid, _, :loading} ->
-          GenServer.call(pid, {:owner, key}, 5000 * Valimc.config(:owner_call_scale, pid))
+          {_, plain} = split_section(key)
+          GenServer.call(pid, {:owner, plain}, 5000 * Valimc.config(:owner_call_scale, pid))
 
         # Handed to another group meanwhile (VMC-077j): the section is the same.
         {other, _, %{epoch: epoch}} ->
@@ -139,7 +161,7 @@ defmodule Valimc.World do
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.
-  def item_snapshot(key) do
+  def item_snapshot({_, _, _} = key) do
     case Directory.lookup(key) do
       {_, _, %{publication: table}} ->
         Valimc.World.EntityPublication.source(table, :items)
@@ -153,8 +175,8 @@ defmodule Valimc.World do
   end
 
   @doc "Public lid presentation for a loaded chunk; never contains storage contents."
-  def chest_lid_snapshot(chunk) do
-    case Directory.lookup(region_key(chunk)) do
+  def chest_lid_snapshot(dimension, chunk) do
+    case Directory.lookup(section(dimension, chunk)) do
       {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:container_lids, chunk}) do
           [{{:container_lids, ^chunk}, ^epoch, positions, frame}] ->
@@ -172,10 +194,10 @@ defmodule Valimc.World do
   end
 
   @doc """
-  The entity views (every kind) an observer may see: at most 64 regions and
-  `EntityReplication.max_visible/0` views, in chunk order. `cache` maps a chunk to
-  its last `{stamp, views}`; a chunk's views are copied only when its stamp
-  changed. Returns `{views, cache}`.
+  The entity views (every kind) an observer may see: at most 64 sections (by
+  key, of one dimension) and `EntityReplication.max_visible/0` views, in chunk
+  order. `cache` maps a chunk to its last `{stamp, views}`; a chunk's views are
+  copied only when its stamp changed. Returns `{views, cache}`.
   """
   def visible_entities(regions, chunks, cache \\ %{}) do
     limit = Valimc.World.EntityReplication.max_visible()
@@ -183,9 +205,11 @@ defmodule Valimc.World do
 
     tables =
       Map.new(regions, fn key ->
+        {_, plain} = split_section(key)
+
         case Directory.lookup(key) do
-          {_, _, %{publication: table}} -> {key, table}
-          _ -> {key, nil}
+          {_, _, %{publication: table}} -> {plain, table}
+          _ -> {plain, nil}
         end
       end)
 
@@ -216,10 +240,10 @@ defmodule Valimc.World do
     do: if(view.ownership_generation > old.ownership_generation, do: view, else: old)
 
   @doc """
-  The entity frames of region `key` after tick `last`
+  The entity frames of section `key` after tick `last`
   (`Valimc.World.EntityPublication.frames/2`); none while it is not loaded.
   """
-  def entity_frames(key, last) do
+  def entity_frames({_, _, _} = key, last) do
     case Directory.lookup(key) do
       {_, _, %{publication: table}} -> Valimc.World.EntityPublication.frames(table, last)
       _ -> {:ok, last || 0, []}
@@ -253,28 +277,28 @@ defmodule Valimc.World do
     for {id, %{kind: ^kind} = view} <- views, into: %{}, do: {id, view}
   end
 
-  # Topics are region keys scoped by the caller's dimension (VMC-026b).
-  def publish(key, event) do
+  # Topics are section keys (VMC-026b, VMC-077j).
+  def publish({dimension, _, _} = key, event) do
     # Events of the Nether and the End name their dimension (VMC-026b), so a
     # player that just left it drops them; the overworld's stay as they were.
-    event =
-      case Valimc.Dimension.current() do
-        :overworld -> event
-        dimension -> {:in_dimension, dimension, event}
-      end
+    event = if dimension == :overworld, do: event, else: {:in_dimension, dimension, event}
 
-    Registry.dispatch(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key), fn entries ->
+    Registry.dispatch(Valimc.VisibilityRegistry, key, fn entries ->
       for {pid, _} <- entries, do: Valimc.Connection.deliver(pid, event)
     end)
   end
 
   def subscribe(keys, previous) do
     for key <- MapSet.difference(previous, keys),
-        do: Registry.unregister(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key))
+        do: Registry.unregister(Valimc.VisibilityRegistry, topic!(key))
 
     for key <- MapSet.difference(keys, previous),
-        do: Registry.register(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key), nil)
+        do: Registry.register(Valimc.VisibilityRegistry, topic!(key), nil)
 
     keys
   end
+
+  defp topic!({dimension, sx, sz} = key)
+       when is_atom(dimension) and is_integer(sx) and is_integer(sz),
+       do: key
 end

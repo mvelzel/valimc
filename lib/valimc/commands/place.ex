@@ -198,7 +198,8 @@ defmodule Valimc.Commands.Place do
     chunks
     |> Enum.group_by(&Valimc.World.region_key/1)
     |> Enum.reduce(%{}, fn {key, group}, images ->
-      with {:ok, owner} <- Valimc.World.existing_owner({source.dimension, key}),
+      with {:ok, owner} <-
+             Valimc.World.existing_owner(Valimc.World.section(source.dimension, key, :section)),
            {:ok, %{images: read}} <- Valimc.World.Region.column_images(owner, group) do
         Map.merge(images, read)
       else

@@ -1,7 +1,6 @@
 defmodule Valimc.WorldItemsTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{Entities, Region}
   alias Valimc.Protocol.ItemStack
 
@@ -37,7 +36,7 @@ defmodule Valimc.WorldItemsTest do
 
   test "racing replacements serialize one revision" do
     key = {222, 220}
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
     on_exit(fn -> TestScope.kill(pid) end)
     {:ok, handle} = Region.create_item(owner, ItemStack.new("stone"), {28416, 64, 28160})
 
@@ -58,7 +57,11 @@ defmodule Valimc.WorldItemsTest do
              31
 
     id = elem(handle, 2)
-    assert World.visible_items(MapSet.new([key]), MapSet.new()) == %{}
-    assert Map.has_key?(World.visible_items(MapSet.new([key]), MapSet.new([{1776, 1760}])), id)
+    assert Valimc.TestWorld.visible_items(MapSet.new([key]), MapSet.new()) == %{}
+
+    assert Map.has_key?(
+             Valimc.TestWorld.visible_items(MapSet.new([key]), MapSet.new([{1776, 1760}])),
+             id
+           )
   end
 end

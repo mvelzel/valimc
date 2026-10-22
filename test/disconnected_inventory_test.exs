@@ -1,7 +1,7 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.World.Region
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
@@ -51,7 +51,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -86,7 +86,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   end
 
   defp region(ctx) do
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     owner
   end
 
@@ -206,7 +206,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       :sys.resume(disk)
       wait(fn -> not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)) end)
       {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, adopted)
-      {:ok, handle} = World.item_owner(ctx.key)
+      {:ok, handle} = Valimc.TestWorld.item_owner(ctx.key)
       assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)
       ref = make_ref()
       PlayerStore.complete_transfer(writer, fence, ref)

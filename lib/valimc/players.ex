@@ -26,12 +26,10 @@ defmodule Valimc.Players do
     :ok
   end
 
-  @doc "Players in `regions` of the caller's dimension."
+  @doc "Players in the sections `regions` (routing keys)."
   def nearby(regions) do
-    Enum.reduce(regions, MapSet.new(), fn key, players ->
-      scoped = Valimc.Dimension.scope(key)
-
-      Enum.reduce(:ets.lookup(Valimc.SpatialIndex, scoped), players, fn {_, pid}, acc ->
+    Enum.reduce(regions, MapSet.new(), fn {_, _, _} = key, players ->
+      Enum.reduce(:ets.lookup(Valimc.SpatialIndex, key), players, fn {_, pid}, acc ->
         MapSet.put(acc, pid)
       end)
     end)
@@ -90,12 +88,12 @@ defmodule Valimc.Players do
     end
   end
 
-  # Region keys of the player's dimension (VMC-026b).
+  # The section the player is in (VMC-026b, VMC-077j).
   defp spatial_key(player),
     do:
-      Valimc.Dimension.scope(
+      Valimc.World.section(
         Map.get(player, :dimension, :overworld),
-        Valimc.World.region_key(Valimc.World.chunk_key(player.x, player.z))
+        Valimc.World.chunk_key(player.x, player.z)
       )
 
   def broadcast(event, except \\ nil) do

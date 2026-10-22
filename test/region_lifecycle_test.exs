@@ -3,7 +3,7 @@ defmodule Valimc.RegionLifecycleTest do
   # Serial: lowers the global region cap and counts every owner.
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{Directory, Region}
+  alias Valimc.World.Region
 
   @coral Valimc.Registry.Blocks.default_state("tube_coral_block")
   @dead Valimc.Registry.Blocks.default_state("dead_tube_coral_block")
@@ -17,7 +17,7 @@ defmodule Valimc.RegionLifecycleTest do
 
     on_exit(fn ->
       for key <- keys,
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -31,7 +31,7 @@ defmodule Valimc.RegionLifecycleTest do
     for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   end
 
-  defp gone?(key), do: Registry.lookup(Valimc.RegionRegistry, key) == []
+  defp gone?(key), do: Valimc.TestWorld.registered(key) == []
 
   test "a long walk never reaches max_regions; regions left behind save and unload", ctx do
     limit = Valimc.config(:max_regions)
@@ -45,7 +45,7 @@ defmodule Valimc.RegionLifecycleTest do
       edit =
         {rx * Valimc.config(:region_size) * 16 + 3, 70, rz * Valimc.config(:region_size) * 16}
 
-      table = fn key -> elem(Directory.lookup(key), 2).publication end
+      table = fn key -> elem(Valimc.TestWorld.lookup(key), 2).publication end
 
       tables =
         ctx.keys
@@ -54,10 +54,10 @@ defmodule Valimc.RegionLifecycleTest do
           tables =
             for key <- [here, ahead], reduce: tables do
               acc ->
-                assert {:ok, pid} = World.region(key)
+                assert {:ok, pid} = Valimc.TestWorld.region(key)
                 Region.ticket(pid, key, :player_loading, hd(chunks(key)), chunks(key))
                 if key == first, do: assert(:ok = Valimc.TestBlocks.set(edit, @coral))
-                {:ok, _} = World.owner(key)
+                {:ok, _} = Valimc.TestWorld.owner(key)
                 [table.(key) | acc]
             end
 
@@ -65,7 +65,7 @@ defmodule Valimc.RegionLifecycleTest do
           behind = {elem(here, 0) - 1, elem(here, 1)}
 
           if behind in ctx.keys do
-            {pid, _, _} = Directory.lookup(behind) || {nil, nil, nil}
+            {pid, _, _} = Valimc.TestWorld.lookup(behind) || {nil, nil, nil}
             if pid, do: Region.ticket(pid, behind, :player_loading, nil, [])
             Valimc.TestWait.until(fn -> gone?(behind) end)
           end
@@ -88,7 +88,7 @@ defmodule Valimc.RegionLifecycleTest do
   test "only chunks a simulation ticket covers tick; their due ticks run once it arrives", ctx do
     key = Enum.at(ctx.keys, 5)
     TestScope.isolate(key, region_ticks: :manual, random_tick_speed: 0)
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     ticking = {rx * span + 8, 64, rz * span + 8}

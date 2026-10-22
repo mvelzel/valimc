@@ -2,7 +2,6 @@ defmodule Valimc.TickPipelineTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{Region, ScheduledTicks}
 
   defmodule Spread do
@@ -24,7 +23,7 @@ defmodule Valimc.TickPipelineTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual, tick_behaviours: [Spread])
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -65,7 +64,7 @@ defmodule Valimc.TickPipelineTest do
 
   test "a manual owner ticks only when stepped; random and scheduled effects apply and persist",
        ctx do
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     TestScope.simulate(owner, ctx.key)
     surface = blocks(owner, ctx.key, Data.block("grass_block"))
     assert length(surface) > 1000
@@ -79,7 +78,7 @@ defmodule Valimc.TickPipelineTest do
     {pid, _} = owner
     # The final save on unload holds the scheduled ticks.
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     TestScope.simulate(owner, ctx.key)
     # The game tick continues from the saved one (VMC-077f).
     assert {:ok, 3} = Region.step(owner, 2)

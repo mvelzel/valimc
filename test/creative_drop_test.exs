@@ -1,7 +1,7 @@
 defmodule Valimc.CreativeDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.World.Entities
   alias Valimc.TestClient, as: Client
@@ -30,7 +30,7 @@ defmodule Valimc.CreativeDropTest do
     File.write!(path, bytes)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -68,7 +68,7 @@ defmodule Valimc.CreativeDropTest do
   end
 
   defp records(ctx) do
-    {:ok, {pid, _}} = World.item_owner(ctx.key)
+    {:ok, {pid, _}} = Valimc.TestWorld.item_owner(ctx.key)
     Entities.records(Valimc.TestRegion.section(pid).entities.store)
   end
 
@@ -113,7 +113,7 @@ defmodule Valimc.CreativeDropTest do
     assert Enum.any?(original, &(&1.stack == %{ctx.stone | count: 1}))
     depart(ctx, client)
     assert saved(ctx).inventory.slots == state.inventory.slots
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     second = login(ctx)
     assert second.inventory.items == Inventory.contents(state.inventory)

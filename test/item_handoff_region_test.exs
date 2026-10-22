@@ -3,7 +3,6 @@ defmodule Valimc.ItemHandoffRegionTest do
   alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.World.{Entities, Region}
 
   setup tags do
@@ -35,12 +34,12 @@ defmodule Valimc.ItemHandoffRegionTest do
     destination_records = if count == 1, do: [], else: records.(destination, 1000)
     Valimc.TestDisk.write(base, key, :items, %{records: source_records, receipts: receipts})
     Valimc.TestDisk.write(base, destination, :items, %{records: destination_records})
-    {:ok, owner} = World.item_owner(key)
-    {:ok, other} = World.item_owner(destination)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
+    {:ok, other} = Valimc.TestWorld.item_owner(destination)
 
     on_exit(fn ->
       for region <- [key, destination],
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region) do
+          {pid, _} <- Valimc.TestWorld.registered(region) do
         :sys.resume(pid)
         TestScope.kill(pid)
       end
@@ -108,7 +107,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^pid, _}
-    assert {:ok, next} = World.item_owner(key)
+    assert {:ok, next} = Valimc.TestWorld.item_owner(key)
     next
   end
 

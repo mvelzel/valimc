@@ -17,7 +17,7 @@ defmodule Valimc.WorldPresetsTest do
   end
 
   defp owner!(key, attempts \\ 600) do
-    case World.owner(key) do
+    case Valimc.TestWorld.owner(key) do
       {:ok, owner} ->
         {:ok, owner}
 
@@ -64,7 +64,7 @@ defmodule Valimc.WorldPresetsTest do
     TestScope.isolate(key, world_path: ctx.base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
     end)
 

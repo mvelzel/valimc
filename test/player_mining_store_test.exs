@@ -9,8 +9,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     PlayerFood,
     PlayerSnapshot,
     PlayerStore,
-    TransferDelivery,
-    World
+    TransferDelivery
   }
 
   alias Valimc.Protocol.{Data, ItemStack}
@@ -27,7 +26,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     uuid = Connection.offline_uuid(name)
     Valimc.TestScope.isolate([uuid | Valimc.TestScope.neighborhood(key)], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
     assert :ok = Valimc.TestBlocks.set(position, Data.block("stone"))
     assert :ok = Region.flush(pid)
     {:ok, reservation} = Region.reserve_mining(owner, [position])
@@ -129,7 +128,7 @@ defmodule Valimc.PlayerMiningStoreTest do
 
   defp deliver(ctx, snapshot) do
     token = make_ref()
-    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, snapshot)
+    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, snapshot, :overworld)
     assert_receive {:transfer_delivered, worker, ^token, result}
     assert worker == job.pid
     Process.demonitor(job.monitor, [:flush])
@@ -138,7 +137,7 @@ defmodule Valimc.PlayerMiningStoreTest do
 
   defp restart_region(ctx) do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(ctx.owner, 0))
-    {:ok, next} = World.item_owner(ctx.key)
+    {:ok, next} = Valimc.TestWorld.item_owner(ctx.key)
     next
   end
 
@@ -156,7 +155,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert final.transfer_sequence == 1 and final.outbox == nil
     assert Inventory.get(final.inventory, 43) == ctx.intent.before
     assert Valimc.TestBlocks.get(ctx.position) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
 
     assert {:ok, saved} =
              PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)

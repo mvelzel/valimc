@@ -4,7 +4,7 @@ defmodule Valimc.DirectoryRecoveryTest do
   # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.World.{Directory, Entities, Region, RegionStorage}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -44,13 +44,13 @@ defmodule Valimc.DirectoryRecoveryTest do
 
   test "directory loss fences owners, writers and routes, restores durable state, replays an unacknowledged committed transfer once and permits reconnect",
        %{base: base} do
-    {:ok, owner = {pid, epoch}} = World.owner({0, 0})
+    {:ok, owner = {pid, epoch}} = Valimc.TestWorld.owner({0, 0})
     :ok = Valimc.TestBlocks.set({2, 64, 2}, 1)
     :ok = Region.flush(pid)
     {:ok, _handle} = Region.create_item(owner, ItemStack.new("stone", 7), {2.5, 64.5, 3.5})
     [record] = Entities.records(Valimc.TestRegion.section(owner).entities.store)
-    {^pid, admission, %{publication: publication}} = Directory.lookup({0, 0})
-    [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {0, 0})
+    {^pid, admission, %{publication: publication}} = Valimc.TestWorld.lookup({0, 0})
+    [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {:overworld, 0, 0})
     name = "DirRecovery"
     uuid = Valimc.Connection.offline_uuid(name)
     source_path = PlayerStore.path(base, uuid)
@@ -96,7 +96,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert receipts[uuid].sequence == 1
     # The owner adopted and shows the drop at once (D2); only the player's reply waited.
     assert length(Entities.records(Valimc.TestRegion.section(owner).entities.store)) == 2
-    assert map_size(World.item_snapshot({0, 0})) == 2
+    assert map_size(Valimc.TestWorld.item_snapshot({0, 0})) == 2
     assert {:ok, ^intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
 
     old_directory = Process.whereis(Directory)
@@ -125,7 +125,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert :ets.info(publication) == :undefined
     assert {:error, {:retry, :region_unavailable}} = Region.observe_blocks(owner, [])
 
-    case World.existing_owner({0, 0}) do
+    case Valimc.TestWorld.existing_owner({0, 0}) do
       {:error, {:retry, :region_unavailable}} ->
         :ok
 
@@ -133,7 +133,7 @@ defmodule Valimc.DirectoryRecoveryTest do
         assert recovering != pid and recovered_epoch != epoch
     end
 
-    {:ok, replacement = {next, next_epoch}} = World.owner({0, 0})
+    {:ok, replacement = {next, next_epoch}} = Valimc.TestWorld.owner({0, 0})
     assert next != pid and next_epoch != epoch
     assert Valimc.TestBlocks.get({2, 64, 2}) == 1
     recovered_records = Entities.records(Valimc.TestRegion.section(replacement).entities.store)
@@ -143,11 +143,14 @@ defmodule Valimc.DirectoryRecoveryTest do
     {:ok, recovered} = Region.find_item(replacement, record.uuid)
 
     assert {:error, :stale_admission} =
-             Directory.publish({0, 0}, admission, %{epoch: epoch, publication: publication})
+             Directory.publish({:overworld, 0, 0}, admission, %{
+               epoch: epoch,
+               publication: publication
+             })
 
     send(Directory, {:DOWN, monitor, :process, pid, :killed})
-    assert {:ok, ^next} = Directory.admit({0, 0})
-    assert {:ok, ^replacement} = World.existing_owner({0, 0})
+    assert {:ok, ^next} = Valimc.TestWorld.admit({0, 0})
+    assert {:ok, ^replacement} = Valimc.TestWorld.existing_owner({0, 0})
     # The closed session delivers its outbox and closes its store first.
     Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     {^uuid, reconnected} = Client.login(name)

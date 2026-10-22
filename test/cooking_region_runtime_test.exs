@@ -18,7 +18,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     File.mkdir_p!(base)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -43,7 +43,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
       ctx.position => if(lit, do: ctx.lit, else: ctx.unlit)
     })
 
-    RegionData.load(ctx.key)
+    RegionData.load(:overworld, ctx.key)
   end
 
   def progress,
@@ -78,7 +78,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert disk(ctx) != expected
     RegionData.terminate(:shutdown, state)
     assert disk(ctx) == expected
-    reloaded = RegionData.load(ctx.key)
+    reloaded = RegionData.load(:overworld, ctx.key)
     assert reloaded.containers == expected
     RegionData.terminate(:shutdown, reloaded)
   end
@@ -146,7 +146,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, edits)
 
     TestScope.isolate(ctx.key, item_simulation: true)
-    {:ok, owner} = Valimc.World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     TestScope.simulate(owner, ctx.key)
 
     record = %{

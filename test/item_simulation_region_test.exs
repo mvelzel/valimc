@@ -3,7 +3,6 @@ defmodule Valimc.ItemSimulationRegionTest do
   alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.World.{ItemTransfers, Region}
 
   setup :scope
@@ -47,12 +46,12 @@ defmodule Valimc.ItemSimulationRegionTest do
 
     receipts = %{<<99::128>> => %{sequence: 1, digest: digest}}
     Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}) do
+          {pid, _} <- Valimc.TestWorld.registered({x, z}) do
         :sys.resume(pid)
         TestScope.kill(pid)
       end
@@ -80,7 +79,7 @@ defmodule Valimc.ItemSimulationRegionTest do
 
   def step(ctx, ticks) do
     for key <- TestScope.neighborhood(ctx.key),
-        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
+        {pid, _} <- Valimc.TestWorld.registered(key) do
       TestScope.simulate(pid, key)
       Region.step({pid, nil}, ticks)
     end

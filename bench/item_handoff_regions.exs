@@ -66,8 +66,8 @@ rows =
           }
 
     :ok = RegionStorage.import(base, :overworld, a_key, %{items: records})
-    {:ok, a} = World.item_owner(a_key)
-    {:ok, b} = World.item_owner(b_key)
+    {:ok, a} = World.item_owner(Valimc.World.section(:overworld, a_key, :section))
+    {:ok, b} = World.item_owner(Valimc.World.section(:overworld, b_key, :section))
     frames = Map.get(Valimc.Metrics.snapshot(), :storage_records, 0)
 
     samples =

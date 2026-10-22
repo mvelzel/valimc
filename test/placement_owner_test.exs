@@ -1,7 +1,7 @@
 defmodule Valimc.PlacementOwnerTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{PlayerPlacementQuery, World}
+  alias Valimc.PlayerPlacementQuery
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
 
@@ -13,10 +13,10 @@ defmodule Valimc.PlacementOwnerTest do
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span + 40, 64, rz * span + 40}
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf!(path)
@@ -92,9 +92,9 @@ defmodule Valimc.PlacementOwnerTest do
 
     assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
     assert Valimc.TestRegion.section(c.owner).containers == containers
-    assert World.item_snapshot(c.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(c.key) == %{}
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, replacement} = World.owner(c.key)
+    {:ok, replacement} = Valimc.TestWorld.owner(c.key)
     assert Valimc.TestRegion.section(replacement).containers == containers
     assert Valimc.TestBlocks.get(c.position) == 0
   end
@@ -121,10 +121,10 @@ defmodule Valimc.PlacementOwnerTest do
     }
 
     assert {:error, {:retry, :region_unavailable}} = plan(c, "stone", request)
-    assert Registry.lookup(Valimc.RegionRegistry, foreign) == []
+    assert Valimc.TestWorld.registered(foreign) == []
 
     request = %{request | position: {(rx + 1) * c.span - 1, 64, rz * c.span + 40}, face: 5}
     assert {:error, :cross_owner_placement} = plan(c, "stone", request)
-    assert Registry.lookup(Valimc.RegionRegistry, {rx + 1, rz}) == []
+    assert Valimc.TestWorld.registered({rx + 1, rz}) == []
   end
 end

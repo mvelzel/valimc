@@ -2,7 +2,7 @@ defmodule Valimc.DeathStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.Living.{Freezing, Health}
   alias Valimc.TestScope
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.ItemStack
 
   setup do
@@ -17,7 +17,7 @@ defmodule Valimc.DeathStoreTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: TestScope.kill(pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -76,7 +76,7 @@ defmodule Valimc.DeathStoreTest do
              stored.inventory.carried == nil
 
     assert stored.outbox == nil and stored.transfer_sequence == 9
-    items = World.item_snapshot(ctx.key)
+    items = Valimc.TestWorld.item_snapshot(ctx.key)
     assert map_size(items) == 44
     records = destination(ctx)
     assert Enum.count(records, &(&1.stack == ItemStack.new("stone", 7))) == 43

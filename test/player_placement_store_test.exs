@@ -8,8 +8,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     PlayerFood,
     PlayerSnapshot,
     PlayerStore,
-    TransferDelivery,
-    World
+    TransferDelivery
   }
 
   alias Valimc.Protocol.ItemStack
@@ -27,7 +26,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     uuid = Connection.offline_uuid(name)
     Valimc.TestScope.isolate([uuid | Valimc.TestScope.neighborhood(key)], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, reservation} = Region.reserve_placement(owner, observed.revision, observed.blocks)
 
@@ -126,7 +125,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
   defp deliver(ctx, pending) do
     token = make_ref()
-    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
+    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending, :overworld)
     assert_receive {:transfer_delivered, worker, ^token, result}
     assert worker == job.pid
     Process.demonitor(job.monitor, [:flush])
@@ -136,7 +135,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
   defp restart(ctx) do
     :ok = DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, ctx.writer)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(ctx.owner, 0))
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     {:ok, writer, restored, fence} = PlayerStore.open(ctx.uuid)
     {%{ctx | writer: writer, owner: owner}, restored, fence}
   end

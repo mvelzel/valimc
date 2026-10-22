@@ -38,7 +38,7 @@ if scatter or fluid do
             Valimc.World.region_key(Valimc.World.chunk_key(x, z))
           end),
         batch <- Enum.chunk_every(entries, 128) do
-      {:ok, owner} = Valimc.World.owner(key)
+      {:ok, owner} = Valimc.World.owner(Valimc.World.section(:overworld, key, :section))
 
       {:ok, observation} =
         Valimc.World.Region.observe_blocks(owner, Enum.map(batch, &elem(&1, 0)))

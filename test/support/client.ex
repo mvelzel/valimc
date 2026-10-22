@@ -463,7 +463,7 @@ defmodule Valimc.TestDisk do
   defp route(key) do
     _ = Valimc.World.Regionizer.groups(:overworld)
 
-    case Valimc.World.Directory.lookup(key) do
+    case Valimc.TestWorld.lookup(key) do
       {pid, _, _} -> :sys.get_state(pid, 30_000).route
       nil -> {:region, :overworld, key}
     end
@@ -591,7 +591,7 @@ defmodule Valimc.TestRegion do
   """
   def await_published({x, _, z} = position, block) do
     key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-    {:ok, owner} = Valimc.World.existing_owner(key)
+    {:ok, owner} = Valimc.TestWorld.existing_owner(key)
     Valimc.TestWait.until(fn -> published_block(owner, position) == block end)
     :ok
   end
@@ -686,7 +686,7 @@ defmodule Valimc.TestScope do
       if opts[:spawn], do: neighborhood(key) ++ neighborhood({0, 0}), else: neighborhood(key)
 
     for region <- Enum.uniq(regions),
-        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
+        {pid, _} <- Valimc.TestWorld.registered(region),
         do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
     :ok
@@ -699,7 +699,7 @@ defmodule Valimc.TestScope do
   so this repeats until none is left.
   """
   def stop_dimensions do
-    elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
+    elsewhere = [{{{:"$1", :_, :_}, :"$2", :_}, [{:"=/=", :"$1", :overworld}], [:"$2"]}]
     schedulers = [{{{:_, :"$1"}, :"$2", :_}, [{:"=/=", :"$1", :overworld}], [:"$2"]}]
 
     running =
@@ -832,7 +832,7 @@ defmodule Valimc.TestPlayer do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -999,7 +999,7 @@ defmodule Valimc.TestBlocks do
 
     Valimc.TestWait.until(
       fn ->
-        with {:ok, owner} <- World.owner(key),
+        with {:ok, owner} <- Valimc.TestWorld.owner(key),
              {:ok, view} <- Region.observe_blocks(owner, [position]) do
           {owner, view}
         else
@@ -1010,4 +1010,35 @@ defmodule Valimc.TestBlocks do
       120_000
     )
   end
+end
+
+defmodule Valimc.TestWorld do
+  @moduledoc """
+  World routing for tests (VMC-077j): sections named by plain keys `{sx, sz}`
+  of the test process's dimension (the overworld unless it set one), by
+  addresses `{dimension, {sx, sz}}` or by section keys `{dimension, sx, sz}`.
+  """
+  alias Valimc.World
+
+  def section({_, _, _} = key), do: key
+  def section({dimension, {sx, sz}}) when is_atom(dimension), do: {dimension, sx, sz}
+
+  def section({sx, sz}) when is_integer(sx) and is_integer(sz),
+    do: {Valimc.Dimension.current(), sx, sz}
+
+  def owner(key), do: World.owner(section(key))
+  def existing_owner(key), do: World.existing_owner(section(key))
+  def item_owner(key), do: World.item_owner(section(key))
+  def region(key), do: World.region(section(key))
+  def lookup(key), do: World.Directory.lookup(section(key))
+  def admit(key), do: World.Directory.admit(section(key))
+  def registered(key), do: Registry.lookup(Valimc.RegionRegistry, section(key))
+  def item_snapshot(key), do: World.item_snapshot(section(key))
+  def chunk(chunk), do: World.chunk(Valimc.Dimension.current(), chunk)
+  def sendable(keys, limit), do: World.sendable(Valimc.Dimension.current(), keys, limit)
+
+  def subscribe(keys, previous),
+    do: World.subscribe(MapSet.new(keys, &section/1), MapSet.new(previous, &section/1))
+
+  def visible_items(keys, chunks), do: World.visible_items(MapSet.new(keys, &section/1), chunks)
 end

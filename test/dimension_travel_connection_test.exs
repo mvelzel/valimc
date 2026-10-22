@@ -234,7 +234,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     <<section::signed-64, _::binary>> = update
     # The section of (9, 118, 9): x 0, z 0, y 7 (packed as vanilla's SectionPos).
     assert section == Bitwise.bsl(0, 42) + Bitwise.bsl(0, 20) + 7
-    assert [_] = Registry.lookup(Valimc.RegionRegistry, {:the_nether, {0, 0}})
+    assert [_] = Valimc.TestWorld.registered({:the_nether, {0, 0}})
     # The region is stored as the Nether's: frames of the world's log until its
     # checkpoint under `dimensions/minecraft/the_nether` (VMC-077f).
     wait(fn -> {0, 0} in elem(Valimc.World.RegionStorage.keys(ctx.base, :the_nether), 1) end)

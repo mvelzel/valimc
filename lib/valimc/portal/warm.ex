@@ -71,10 +71,8 @@ defmodule Valimc.Portal.Warm do
 
     by_region = Enum.group_by(chunks, &World.region_key/1)
 
-    Valimc.Dimension.within(dimension, fn ->
-      for key <- regions(area),
-          {:ok, pid} <- [World.region(key)],
-          do: Valimc.World.Region.ticket(pid, key, :portal, center, Map.get(by_region, key, []))
-    end)
+    for key <- regions(area),
+        {:ok, pid} <- [World.region(World.section(dimension, key, :section))],
+        do: Valimc.World.Region.ticket(pid, key, :portal, center, Map.get(by_region, key, []))
   end
 end

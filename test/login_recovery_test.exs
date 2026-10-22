@@ -1,7 +1,7 @@
 defmodule Valimc.LoginRecoveryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers}
   alias Valimc.World.Region
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -15,7 +15,7 @@ defmodule Valimc.LoginRecoveryTest do
     key = {400 + rem(nonce, 3_333) * 3, 400}
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -96,7 +96,7 @@ defmodule Valimc.LoginRecoveryTest do
     motion = %Valimc.ItemMotionState{velocity: {0.3, 0.1, -0.2}, pickup_delay: 40}
     fixture = seed(ctx, motion)
     finish(Client.begin_login(fixture.name), fixture)
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
 
     assert [record] =
              Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
@@ -108,13 +108,13 @@ defmodule Valimc.LoginRecoveryTest do
     # Replay the physically committed source intent after its destination was consumed.
     File.write!(fixture.path, fixture.bytes)
     finish(Client.begin_login(fixture.name), fixture)
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     assert Valimc.TestRegion.section(owner).entities.receipts[fixture.uuid].sequence == 1
   end
 
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
     fixture = seed(ctx)
-    {:ok, region_owner} = World.item_owner(ctx.key)
+    {:ok, region_owner} = Valimc.TestWorld.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -131,7 +131,7 @@ defmodule Valimc.LoginRecoveryTest do
       assert not Enum.any?(Valimc.Players.all(), &(&1.name == fixture.name))
       assert File.read!(fixture.path) == fixture.bytes
       # The region shows the delivered items at once (D2); the login waits for its proof.
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       job = state.recovery.job
       send(pid, {:transfer_delivered, self(), job.token, {:ok, :applied}})
       send(pid, {:retry_recovery, state.recovery.id, make_ref()})
@@ -147,7 +147,7 @@ defmodule Valimc.LoginRecoveryTest do
       departed(%{name: name, uuid: healthy_uuid})
       :sys.resume(writer)
       finish(client, fixture)
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Client.close(client)
@@ -157,7 +157,7 @@ defmodule Valimc.LoginRecoveryTest do
 
   test "worker loss after submission retries the identical uncertain delivery", ctx do
     fixture = seed(ctx)
-    {:ok, region_owner} = World.item_owner(ctx.key)
+    {:ok, region_owner} = Valimc.TestWorld.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -175,7 +175,7 @@ defmodule Valimc.LoginRecoveryTest do
       {^pid, _} = await_state(fixture.name, &(&1.recovery.attempts > 0))
       :sys.resume(writer)
       finish(client, fixture)
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Client.close(client)
@@ -221,7 +221,7 @@ defmodule Valimc.LoginRecoveryTest do
 
   test "deadline cancels jobs and preserves pending source even if region later commits", ctx do
     fixture = seed(ctx)
-    {:ok, region_owner} = World.item_owner(ctx.key)
+    {:ok, region_owner} = Valimc.TestWorld.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -244,7 +244,7 @@ defmodule Valimc.LoginRecoveryTest do
       assert File.read!(fixture.path) == fixture.bytes
       :sys.resume(writer)
       finish(Client.begin_login(fixture.name), fixture)
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Client.close(client)
@@ -261,7 +261,7 @@ defmodule Valimc.LoginRecoveryTest do
       else
         Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
         Application.put_env(:valimc, :world_path, nil)
-        {:ok, _} = World.item_owner(ctx.key)
+        {:ok, _} = Valimc.TestWorld.item_owner(ctx.key)
         Application.put_env(:valimc, :world_path, ctx.base)
       end
 
@@ -276,7 +276,7 @@ defmodule Valimc.LoginRecoveryTest do
       Client.close(client)
       departed(fixture)
       assert File.read!(fixture.path) == fixture.bytes
-      assert World.item_snapshot(ctx.key) == %{}
+      assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     end
   end
 end

@@ -2,7 +2,7 @@ defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.Health
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -78,7 +78,7 @@ defmodule Valimc.MenuOverflowTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -150,7 +150,7 @@ defmodule Valimc.MenuOverflowTest do
   end
 
   defp records(ctx) do
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     Entities.records(Valimc.TestRegion.section(owner).entities.store)
   end
 
@@ -193,7 +193,7 @@ defmodule Valimc.MenuOverflowTest do
     assert saved(ctx).transfer_sequence == 1 and records(ctx) == first
     Client.close(client)
     departed(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     second = login(ctx)
     assert second.inventory.items == Inventory.contents(ctx.after_inventory)

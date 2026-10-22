@@ -14,15 +14,17 @@ defmodule Valimc.World.View do
   heightmap, lowest sky sources and biomes Rust computes beside the sections
   (`column/3`, `biome/2`). `await/4` waits for chunks to load and generate,
   holding a timed ticket. `of/1` is a view of supplied states
-  for oracles and tests.
+  for oracles and tests. A view reads one dimension, named when it is made
+  (VMC-077j: routing never reads the process's context).
   """
   import Bitwise, only: [band: 2, bsl: 2, bsr: 2]
   alias Valimc.World
   alias Valimc.World.{Chunk, Directory, Region}
 
-  defstruct chunks: %{}, owners: %{}, supplied: nil
+  defstruct dimension: :overworld, chunks: %{}, owners: %{}, supplied: nil
 
-  def new, do: %__MODULE__{}
+  @doc "An empty view of `dimension` (the calling process's by default)."
+  def new(dimension \\ Valimc.Dimension.current()), do: %__MODULE__{dimension: dimension}
 
   @doc "A view of `states` (`position => state`) only: other positions cannot be read."
   def of(states) when is_map(states), do: %__MODULE__{supplied: states}
@@ -46,7 +48,7 @@ defmodule Valimc.World.View do
       if Map.has_key?(view.chunks, chunk) do
         view
       else
-        {row, owner} = lookup(chunk)
+        {row, owner} = lookup(view.dimension, chunk)
 
         owners =
           if owner, do: Map.put(view.owners, World.region_key(chunk), owner), else: view.owners
@@ -94,7 +96,7 @@ defmodule Valimc.World.View do
   """
   def biome(%__MODULE__{supplied: nil} = view, {x, y, z}) do
     {zoom_seed, _} =
-      Valimc.World.Spec.client_info(Valimc.World.Spec.current(), Valimc.Dimension.current())
+      Valimc.World.Spec.client_info(Valimc.World.Spec.current(), view.dimension)
 
     {:ok, {qx, qy, qz}} = Valimc.Native.biome_zoom(zoom_seed, x, y, z)
 
@@ -133,10 +135,10 @@ defmodule Valimc.World.View do
     end
   end
 
-  defp entry(%__MODULE__{chunks: chunks}, chunk) do
+  defp entry(%__MODULE__{chunks: chunks, dimension: dimension}, chunk) do
     case chunks do
       %{^chunk => entry} -> entry
-      _ -> elem(lookup(chunk), 0)
+      _ -> elem(lookup(dimension, chunk), 0)
     end
   end
 
@@ -156,7 +158,7 @@ defmodule Valimc.World.View do
     |> Enum.filter(&(view.chunks[&1] == :unavailable))
     |> Enum.group_by(&World.region_key/1)
     |> Enum.reduce_while({:ok, view}, fn {key, members}, {:ok, view} ->
-      case await_region(key, members, type, deadline) do
+      case await_region(World.section(view.dimension, key, :section), members, type, deadline) do
         :ok ->
           {:cont, {:ok, load_chunks(%{view | chunks: Map.drop(view.chunks, members)}, members)}}
 
@@ -171,7 +173,7 @@ defmodule Valimc.World.View do
 
   defp await_region(key, chunks, type, deadline) do
     with {:ok, owner} <- World.owner(key),
-         :ok <- Region.ticket(owner, key, type, hd(chunks), chunks) do
+         :ok <- Region.ticket(owner, elem(World.split_section(key), 1), type, hd(chunks), chunks) do
       Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond))
     else
       # An owner unloading or backing off is admitted again shortly.
@@ -200,8 +202,8 @@ defmodule Valimc.World.View do
         do: {position(cx, cz, s, index), state}
   end
 
-  defp lookup(chunk) do
-    case Directory.lookup(World.region_key(chunk)) do
+  defp lookup(dimension, chunk) do
+    case Directory.lookup(World.section(dimension, chunk)) do
       {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
           [{_, _, :absent, _, _}] -> {:unavailable, nil}

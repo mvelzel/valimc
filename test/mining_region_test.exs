@@ -3,7 +3,6 @@ defmodule Valimc.MiningRegionTest do
   alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.Protocol.{Data, ItemStack}
-  alias Valimc.World
   alias Valimc.World.{MiningTransfers, Region}
 
   setup do
@@ -15,7 +14,7 @@ defmodule Valimc.MiningRegionTest do
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 63, rz * span}
     other = {rx * span + 1, 63, rz * span}
-    {:ok, {pid, epoch} = owner} = World.item_owner(key)
+    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner(key)
     assert :ok = Valimc.TestBlocks.set(position, Data.block("stone"))
     assert :ok = Region.flush(pid)
     {:ok, reservation} = Region.reserve_mining(owner, [position])
@@ -37,7 +36,7 @@ defmodule Valimc.MiningRegionTest do
       })
 
     on_exit(fn ->
-      for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {live, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(live)
 
       File.rm_rf(base)
@@ -68,7 +67,7 @@ defmodule Valimc.MiningRegionTest do
 
       # Adopted and shown at once (D2); the reply, the player's proof, waits.
       assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       assert Task.yield(task, 10) == nil
       :sys.resume(stripe)
       assert {:ok, :applied} = Task.await(task, 60_000)
@@ -78,7 +77,7 @@ defmodule Valimc.MiningRegionTest do
       assert :ok = Valimc.TestBlocks.set(ctx.position, 1)
       assert {:ok, :already_applied} = Region.apply_mining_transfer(ctx.owner, ctx.transfer)
       assert Valimc.TestBlocks.get(ctx.position) == 1
-      assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     after
       :sys.resume(stripe)
       Task.shutdown(task, :brutal_kill)
@@ -106,7 +105,7 @@ defmodule Valimc.MiningRegionTest do
     assert {:ok, :rejected} = Region.apply_mining_transfer(ctx.owner, transfer)
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(ctx.owner, transfer)
     assert Valimc.TestBlocks.get(ctx.other) == 1
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     assert {:ok, {_, receipt}} = Region.item_transfer_receipt(ctx.owner, transfer.source)
     assert {:ok, :rejected} = MiningTransfers.receipt_result(ctx.key, transfer, receipt)
     {:ok, replacement} = Region.reserve_mining(ctx.owner, [ctx.other])
@@ -147,31 +146,31 @@ defmodule Valimc.MiningRegionTest do
 
     assert Enum.sort(results) == [{:ok, :applied}, {:ok, :rejected}]
     assert Valimc.TestBlocks.get(ctx.position) == 0
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
   end
 
   test "a restarted owner rejects an uncommitted old permit; a committed receipt survives restart",
        ctx do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
-    assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    assert {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
 
     assert {:error, {:retry, :stale_owner}} =
              Region.apply_mining_transfer({pid, ctx.epoch}, ctx.transfer)
 
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, ctx.transfer)
     assert Valimc.TestBlocks.get(ctx.position) == 1
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(owner, ctx.transfer)
     {:ok, reservation} = Region.reserve_mining(owner, [ctx.position])
     transfer = Map.merge(ctx.transfer, reservation) |> Map.put(:sequence, 2)
     assert {:ok, :applied} = Region.apply_mining_transfer(owner, transfer)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
-    assert {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, transfer)
     assert Valimc.TestBlocks.get(ctx.position) == 0
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
   end
 
   test "a log failure under the frame commits neither block nor receipt and rejects the stale retry",
@@ -192,17 +191,22 @@ defmodule Valimc.MiningRegionTest do
       assert_receive {:DOWN, ^ref, :process, _, _}
     end)
 
-    assert {:ok, owner} = World.item_owner(ctx.key)
-    assert Valimc.TestBlocks.get(ctx.position) == before and World.item_snapshot(ctx.key) == %{}
+    assert {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
+
+    assert Valimc.TestBlocks.get(ctx.position) == before and
+             Valimc.TestWorld.item_snapshot(ctx.key) == %{}
+
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, ctx.transfer)
-    assert Valimc.TestBlocks.get(ctx.position) == before and World.item_snapshot(ctx.key) == %{}
+
+    assert Valimc.TestBlocks.get(ctx.position) == before and
+             Valimc.TestWorld.item_snapshot(ctx.key) == %{}
   end
 
   test "no-drop mining still commits a block and receipt; invalid inbox data is inert", ctx do
     request = %{ctx.transfer | records: []}
     assert {:ok, :applied} = Region.apply_mining_transfer(ctx.owner, request)
     assert Valimc.TestBlocks.get(ctx.position) == 0
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     assert {:ok, :already_applied} = Region.apply_mining_transfer(ctx.owner, request)
 
     assert {:error, :invalid_mining_transfer} =

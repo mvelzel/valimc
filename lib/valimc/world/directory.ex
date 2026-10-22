@@ -27,13 +27,10 @@ defmodule Valimc.World.Directory do
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  # Rows are keyed by the region key scoped by the caller's dimension
-  # (`Valimc.Dimension.scope/1`, VMC-026b).
-  def lookup(key) do
-    scoped = Valimc.Dimension.scope(key)
-
-    case :ets.lookup(@table, scoped) do
-      [{^scoped, pid, token, _monitor, publication}] -> {pid, token, publication}
+  # Rows are keyed by the section key `{dimension, sx, sz}` (VMC-077j).
+  def lookup({_, _, _} = key) do
+    case :ets.lookup(@table, key) do
+      [{^key, pid, token, _monitor, publication}] -> {pid, token, publication}
       [] -> nil
     end
   rescue
@@ -41,18 +38,14 @@ defmodule Valimc.World.Directory do
   end
 
   @doc "`{:ok, pid}` of the key's owner, started if needed, or `{:error, reason}`."
-  def admit(key) do
-    GenServer.call(
-      __MODULE__,
-      {:admit, Valimc.Dimension.scope(key)},
-      5000 * Valimc.config(:owner_call_scale)
-    )
+  def admit({_, _, _} = key) do
+    GenServer.call(__MODULE__, {:admit, key}, 5000 * Valimc.config(:owner_call_scale))
   catch
     :exit, _ -> Valimc.Error.retry(:directory_unavailable)
   end
 
-  def publish(key, token, publication),
-    do: GenServer.call(__MODULE__, {:publish, Valimc.Dimension.scope(key), token, publication})
+  def publish({_, _, _} = key, token, publication),
+    do: GenServer.call(__MODULE__, {:publish, key, token, publication})
 
   @doc """
   The calling group handed section `key` (admitted with `token`) to group
@@ -60,22 +53,18 @@ defmodule Valimc.World.Directory do
   route goes with the target's death from now on, adopted or not, so the
   section is admitted again from its log.
   """
-  def move(key, token, target, publication),
-    do:
-      GenServer.call(
-        __MODULE__,
-        {:move, Valimc.Dimension.scope(key), token, target, publication}
-      )
+  def move({_, _, _} = key, token, target, publication),
+    do: GenServer.call(__MODULE__, {:move, key, token, target, publication})
 
   @doc """
   An idle owner is unloading (VMC-077e): its route goes, so admission waits for
   its exit instead of handing out a process that is saving and stopping.
   """
-  def retire(key, token),
-    do: GenServer.call(__MODULE__, {:retire, Valimc.Dimension.scope(key), token})
+  def retire({_, _, _} = key, token),
+    do: GenServer.call(__MODULE__, {:retire, key, token})
 
   @doc "The calling group finished retiring `key`: it may be admitted again."
-  def retired(key), do: GenServer.cast(__MODULE__, {:retired, Valimc.Dimension.scope(key)})
+  def retired({_, _, _} = key), do: GenServer.cast(__MODULE__, {:retired, key})
 
   @impl true
   def init(_) do

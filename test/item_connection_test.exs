@@ -3,7 +3,6 @@ defmodule Valimc.ItemConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{ItemStack, Wire}
-  alias Valimc.World
   alias Valimc.World.Region
   defp name, do: "Item" <> Integer.to_string(System.unique_integer([:positive]))
 
@@ -34,7 +33,7 @@ defmodule Valimc.ItemConnectionTest do
     client = Client.load_world(client)
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
     key = {0, 0}
-    {:ok, {pid, epoch} = owner} = World.item_owner(key)
+    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner(key)
     stone = ItemStack.new("stone", 7)
     egg = ItemStack.new("egg", 3)
     {:ok, {^pid, ^epoch, id, 1} = first} = Region.create_item(owner, stone, {0.5, 64.5, 0.5})
@@ -72,7 +71,7 @@ defmodule Valimc.ItemConnectionTest do
     {_, client} = Client.login(name())
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    {:ok, {pid, epoch} = owner} = World.item_owner({0, 0})
+    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner({0, 0})
     stack = ItemStack.new("stone", 3)
     {:ok, {^pid, ^epoch, id, 1}} = Region.create_item(owner, stack, {4.5, 64.5, 4.5})
     {_spawn, client} = await_entity(client, "add_entity", id)

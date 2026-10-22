@@ -1,7 +1,7 @@
 defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
+  alias Valimc.{ItemMotionState, Protocol.ItemStack}
   alias Valimc.World.{EntityHandoffs, Entities, Region}
 
   setup do
@@ -33,13 +33,13 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     for {k, records} <- [{key, [donor]}, {target_key, [recipient]}],
         do: Valimc.TestDisk.write(base, k, :items, %{records: records})
 
-    {:ok, source} = World.item_owner(key)
-    {:ok, target} = World.item_owner(target_key)
+    {:ok, source} = Valimc.TestWorld.item_owner(key)
+    {:ok, target} = Valimc.TestWorld.item_owner(target_key)
 
     on_exit(fn ->
       for x <- (elem(key, 0) - 1)..(elem(key, 0) + 2),
           z <- (elem(key, 1) - 1)..(elem(key, 1) + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: TestScope.kill(pid)
 
       File.rm_rf!(base)
@@ -101,7 +101,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     {pid, _} = c.target
     assert :ok = Region.flush(pid)
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, restarted} = World.item_owner(c.target_key)
+    {:ok, restarted} = Valimc.TestWorld.item_owner(c.target_key)
 
     assert [%{uuid: ^uuid, stack: %{count: 5}}] =
              Entities.records(state(restarted).entities.store)

@@ -44,7 +44,7 @@ defmodule Bench.EntityStore do
 
   # Items one region accepts before refusing.
   def capacity(key) do
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
 
     Enum.reduce_while(1..2000, 0, fn i, created ->
       case Region.create_item(owner, ItemStack.new("dirt"), position(key, i)) do
@@ -60,7 +60,7 @@ defmodule Bench.EntityStore do
 
   def persistence(base, key) do
     :ok = RegionStorage.import(base, :overworld, key, %{items: records(key, 200, :resting)})
-    {:ok, {pid, _} = owner} = World.item_owner(key)
+    {:ok, {pid, _} = owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
     flush = fn -> :ok = Region.flush(pid) end
     flush.()
     Valimc.World.Saving.set_auto(false)
@@ -99,7 +99,7 @@ defmodule Bench.EntityStore do
 
   def encodes(base, key, observers) do
     :ok = RegionStorage.import(base, :overworld, key, %{items: records(key, 200, :moving)})
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = World.item_owner(Valimc.World.section(:overworld, key, :section))
     chunks = Valimc.World.RegionGeneration.chunks_of(key)
     :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
     Process.sleep(500)
@@ -113,7 +113,12 @@ defmodule Bench.EntityStore do
           {elapsed, states} =
             :timer.tc(fn ->
               for {replication, cache} <- states do
-                {desired, cache} = World.visible_entities([key], chunks, cache)
+                {desired, cache} =
+                  World.visible_entities(
+                    [World.section(:overworld, key, :section)],
+                    chunks,
+                    cache
+                  )
 
                 {replication, _packets} =
                   Valimc.World.EntityReplication.reconcile(

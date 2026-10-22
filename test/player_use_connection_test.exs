@@ -194,7 +194,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     drink = potion("fire_resistance")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
     {client, pid} = login(ctx, 20.0, food)
-    {:ok, {region, _}} = Valimc.World.existing_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
     :sys.suspend(region)
 
     try do
@@ -357,7 +357,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).use_save != nil and
                state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
 
-      assert Valimc.World.item_snapshot(ctx.key) == %{}
+      assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
       :sys.resume(store)
       wait(fn -> state(pid).life_stage == :dead end)
       {body, _client} = Client.await(client, :play, "player_combat_kill")
@@ -374,7 +374,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
       assert saved.transfer_sequence == 1 and saved.outbox == nil
-      assert map_size(Valimc.World.item_snapshot(ctx.key)) == 1
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
       {_client, restored} = login(ctx, 0.0, food)
@@ -383,8 +383,8 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.transfer_sequence == 1 and saved.outbox == nil
 
-      assert map_size(Valimc.World.item_snapshot(ctx.key)) == 1
-      [view] = Valimc.World.item_snapshot(ctx.key) |> Map.values()
+      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
+      [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
 
       {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
         Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))

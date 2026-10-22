@@ -53,11 +53,10 @@ defmodule Valimc.World.RegionGeneration do
         do: {cx, cz}
   end
 
-  @doc "The generation state of region `key` whose log holds column `images`."
-  def new(key, images) do
+  @doc "The generation state of section `key` of `dimension` whose log holds column `images`."
+  def new(dimension, key, images) do
     path = Valimc.config(:world_path, key)
     world = Spec.fetch(path)
-    dimension = Valimc.Dimension.current()
     {present, absent} = Enum.split_with(chunks_of(key), &Map.has_key?(images, &1))
 
     case Spec.generation(world, dimension) do
@@ -322,7 +321,7 @@ defmodule Valimc.World.RegionGeneration do
     if served != [],
       do:
         World.publish(
-          state.key,
+          RegionData.route_key(state),
           {:block_batch, Valimc.World.LightHalo.frames(state, served, :all)}
         )
 

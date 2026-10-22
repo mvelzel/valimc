@@ -814,7 +814,9 @@ defmodule Valimc.Session.Messages do
           )
 
         {replication, packets} =
-          EntityReplication.reconcile(state.entity_replication, desired, &World.entity_frames/2)
+          EntityReplication.reconcile(state.entity_replication, desired, fn region, last ->
+            World.entity_frames(World.section(state.player.dimension, region, :section), last)
+          end)
 
         state =
           Replication.emit_peer_packets(

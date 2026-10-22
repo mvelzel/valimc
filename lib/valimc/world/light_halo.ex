@@ -58,8 +58,8 @@ defmodule Valimc.World.LightHalo do
     end
   end
 
-  defp owner(key) do
-    case Registry.lookup(Valimc.RegionRegistry, Valimc.Dimension.scope(key)) do
+  defp owner(state, {sx, sz}) do
+    case Registry.lookup(Valimc.RegionRegistry, {state.dimension, sx, sz}) do
       [{pid, _}] -> pid
       _ -> nil
     end
@@ -68,7 +68,7 @@ defmodule Valimc.World.LightHalo do
   @doc "After loading: send loaded neighbours this region's ring chunks."
   def hello(state) do
     for key <- neighbours(state.key),
-        pid = owner(key),
+        pid = owner(state, key),
         pid != nil,
         do: send(pid, {:halo, key, {:hello, state.key, self(), images(state, key)}})
 
@@ -77,7 +77,7 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Send loaded neighbours the generated columns (VMC-075) of chunks in their rings."
   def columns_changed(state, columns) do
-    for key <- neighbours(state.key), pid = owner(key), pid != nil do
+    for key <- neighbours(state.key), pid = owner(state, key), pid != nil do
       list = for {{cx, cz} = chunk, image} <- columns, ring?(key, chunk), do: {cx, cz, image}
       if list != [], do: send(pid, {:halo, key, {:images, state.key, list}})
     end
@@ -87,7 +87,7 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Forward durable block changes in neighbours' rings."
   def forward(state, edits) do
-    for key <- neighbours(state.key), pid = owner(key), pid != nil do
+    for key <- neighbours(state.key), pid = owner(state, key), pid != nil do
       list =
         for {{x, y, z}, block} <- edits, ring?(key, World.chunk_key(x, z)), do: {x, y, z, block}
 
@@ -123,8 +123,14 @@ defmodule Valimc.World.LightHalo do
   # around fresh terrain relight many chunks nobody has yet (VMC-071).
   defp adopt(state, {:ok, changes}, scope) do
     case Enum.filter(changes, &MapSet.member?(state.served, elem(&1, 0))) do
-      [] -> :ok
-      served -> World.publish(state.key, {:block_batch, frames(state, served, scope)})
+      [] ->
+        :ok
+
+      served ->
+        World.publish(
+          Valimc.World.RegionData.route_key(state),
+          {:block_batch, frames(state, served, scope)}
+        )
     end
 
     Valimc.World.RegionData.light_changed(state, Blocks.changed_chunks(changes))

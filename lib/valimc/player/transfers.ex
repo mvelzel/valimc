@@ -33,7 +33,13 @@ defmodule Valimc.Player.Transfers do
   def deliver_recovery(state) do
     token = make_ref()
 
-    case TransferDelivery.start(self(), token, state.player.uuid, state.recovery.intent) do
+    case TransferDelivery.start(
+           self(),
+           token,
+           state.player.uuid,
+           state.recovery.intent,
+           state.player.dimension
+         ) do
       {:ok, job} -> %{state | recovery: %{state.recovery | stage: :delivery, job: job}}
       error -> recovery_failure(state, error)
     end
@@ -140,7 +146,7 @@ defmodule Valimc.Player.Transfers do
         {_, view} ->
           key = World.region_key(view.chunk)
 
-          case World.existing_owner(key) do
+          case World.existing_owner(World.section(state.player.dimension, key, :section)) do
             {:ok, {_, epoch} = owner} when epoch == view.epoch ->
               ref = make_ref()
               {x, y, z} = view.at

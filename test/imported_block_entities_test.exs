@@ -19,7 +19,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -85,7 +85,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   defp grant(position, secondary \\ false) do
     {x, y, z} = position
     # The 200 ms grant starts once its owner has no write in flight (VMC-073).
-    {:ok, owner} = World.existing_owner(World.region_key(World.chunk_key(x, z)))
+    {:ok, owner} = Valimc.TestWorld.existing_owner(World.region_key(World.chunk_key(x, z)))
 
     Valimc.TestWait.until(fn ->
       not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner))
@@ -104,15 +104,15 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   end
 
   test "chunk packets carry the sign's update tag; changes and uses of it are refused", ctx do
-    {:ok, owner} = World.owner(ctx.key)
-    frame = World.chunk(ctx.chunk)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    frame = Valimc.TestWorld.chunk(ctx.chunk)
     body = payload(IO.iodata_to_binary(frame))
     assert :binary.match(body, "Imported") != :nomatch
 
     assert Valimc.TestBlocks.set(ctx.sign, 0) == {:error, :unsupported_block_entity}
     assert Valimc.TestBlocks.get(ctx.sign) == @sign
 
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     ref = make_ref()
     assert :ok = Region.request_table(owner, self(), ref, ctx.sign, grant(ctx.sign))
 
@@ -125,7 +125,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   end
 
   test "a refused change's correction can resend the sign's data", ctx do
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {:ok, packet} = Region.block_entity_update(owner, ctx.sign)
     {id, payload} = packet
     assert id == Valimc.Protocol.Data.id(:play, :clientbound, "block_entity_data")
@@ -141,8 +141,8 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   end
 
   test "an imported chest opens with its contents", ctx do
-    {:ok, owner} = World.owner(ctx.key)
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     ref = make_ref()
     assert :ok = Region.request_table(owner, self(), ref, ctx.chest, grant(ctx.chest))
     assert_receive {:event, {:table_admitted, ^ref, ^owner, {:chest, @chest, view}}}

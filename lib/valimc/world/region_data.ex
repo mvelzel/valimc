@@ -45,6 +45,9 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Block.Rules
 
   defstruct [
+    # The section's dimension and coordinates `{sx, sz}`; its routing key is
+    # `{dimension, sx, sz}` (`route_key/1`, VMC-077j).
+    :dimension,
     :key,
     # The owner's incarnation: handles and messages of an older one are stale.
     :epoch,
@@ -92,15 +95,15 @@ defmodule Valimc.World.RegionData do
   # A generated world's region loads without generating: chunks its log has no
   # column for are absent until they are wanted and generated (VMC-075,
   # `RegionGeneration`).
-  def load(key) do
+  def load(dimension, key) do
     {storage, loaded} =
-      case RegionStorage.open(key) do
+      case RegionStorage.open(dimension, key) do
         {:ok, storage, loaded} -> {storage, loaded}
         {:error, reason} -> exit({:shutdown, {:region_storage_unavailable, reason}})
       end
 
     images = loaded.columns
-    generation = RegionGeneration.new(key, images)
+    generation = RegionGeneration.new(dimension, key, images)
 
     blocks =
       case Blocks.new(key, loaded.cells, images, generation.absent) do
@@ -153,6 +156,7 @@ defmodule Valimc.World.RegionData do
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
 
     %__MODULE__{
+      dimension: dimension,
       key: key,
       epoch: items.epoch,
       publication: publication,
@@ -191,6 +195,9 @@ defmodule Valimc.World.RegionData do
     |> baseline_storage()
     |> resume_item_handoff()
   end
+
+  @doc "The section's routing key `{dimension, sx, sz}`."
+  def route_key(%{dimension: dimension, key: {sx, sz}}), do: {dimension, sx, sz}
 
   @doc "The owner's keyed parts that `RegionStorage` diffs into frames and checkpoints."
   def parts(state),
@@ -422,7 +429,7 @@ defmodule Valimc.World.RegionData do
          (entities.cross_next == nil or now >= entities.cross_next) do
       state = %{state | entities: %{entities | cross_next: now + 200}}
 
-      case ItemCrossMergeQuery.scene(state.key, entities.store.views) do
+      case ItemCrossMergeQuery.scene(state.dimension, state.key, entities.store.views) do
         nil ->
           %{state | entities: %{state.entities | cross_stamp: nil}}
 
@@ -983,7 +990,7 @@ defmodule Valimc.World.RegionData do
             biomes = Map.new(changed, &{&1, Blocks.encode_biomes(state.blocks, &1)})
 
             for {chunk, {:ok, bytes}} <- biomes,
-                do: Valimc.World.publish(state.key, {:chunks_biomes, [{chunk, bytes}]})
+                do: Valimc.World.publish(route_key(state), {:chunks_biomes, [{chunk, bytes}]})
 
             {:reply, {:ok, count}, light_changed(state, changed)}
 
@@ -1913,18 +1920,18 @@ defmodule Valimc.World.RegionData do
   end
 
   defp release_effect(state, {:level_events, events}) do
-    Valimc.World.publish(state.key, {:level_events, events})
+    Valimc.World.publish(route_key(state), {:level_events, events})
     state
   end
 
   defp release_effect(state, {:raw_block, position, block, previous, lit}) do
     state = retire_container_changes(state, %{position => block}, previous)
-    Valimc.World.publish(state.key, {:block, position, block})
+    Valimc.World.publish(route_key(state), {:block, position, block})
 
     if lit != [],
       do:
         Valimc.World.publish(
-          state.key,
+          route_key(state),
           {:block_batch, Valimc.World.LightHalo.frames(state, lit, :border)}
         )
 
@@ -1937,7 +1944,7 @@ defmodule Valimc.World.RegionData do
     do: notify_container_changed(state, position)
 
   defp release_effect(state, {:experience_pickup, %{id: id, collector: collector}}) do
-    Valimc.World.publish(state.key, {:experience_pickup, state.epoch, id, collector})
+    Valimc.World.publish(route_key(state), {:experience_pickup, state.epoch, id, collector})
     state
   end
 
@@ -2663,7 +2670,7 @@ defmodule Valimc.World.RegionData do
 
     # Clients relight from the light packets after the block updates; neighbours
     # relight their ring from the changed blocks.
-    Valimc.World.publish(state.key, {:block_batch, effects.batch.frames ++ light})
+    Valimc.World.publish(route_key(state), {:block_batch, effects.batch.frames ++ light})
     Valimc.World.LightHalo.forward(state, effects.batch.edits)
     Valimc.Metrics.add(:block_edits, map_size(effects.batch.edits))
     state
@@ -3134,7 +3141,7 @@ defmodule Valimc.World.RegionData do
         end
 
       Valimc.World.publish(
-        state.key,
+        route_key(state),
         {:chest_lid, {self(), state.epoch}, position, open, frame, sound}
       )
     end
@@ -3224,7 +3231,7 @@ defmodule Valimc.World.RegionData do
   defp pickup_effect(_, _, _, _), do: nil
 
   defp finish_item_reply(state, from, {:pickup_result, result, effect}) do
-    if result == :applied and effect != nil, do: Valimc.World.publish(state.key, effect)
+    if result == :applied and effect != nil, do: Valimc.World.publish(route_key(state), effect)
     reply_item(from, {:ok, result})
     state
   end

@@ -15,7 +15,7 @@ defmodule Valimc.RegionLightTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -23,7 +23,7 @@ defmodule Valimc.RegionLightTest do
 
     {rx, rz} = key
     size = Valimc.config(:region_size)
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
     %{key: key, owner: owner, origin: {rx * size * 16, rz * size * 16}}
   end
 
@@ -58,7 +58,7 @@ defmodule Valimc.RegionLightTest do
 
   test "edits relight their surroundings, across chunk borders, and send light updates", ctx do
     {x0, z0} = ctx.origin
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     # Served chunks get light updates.
     _ = packet_light(World.chunk_key(x0 + 47, z0 + 40))
     _ = packet_light(World.chunk_key(x0 + 48, z0 + 40))
@@ -114,11 +114,11 @@ defmodule Valimc.RegionLightTest do
     )
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east),
+      for {pid, _} <- Valimc.TestWorld.registered(east),
           do: TestScope.kill(pid)
     end)
 
-    {:ok, neighbour} = World.owner(east)
+    {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
     edge = x0 + Valimc.config(:region_size) * 16 - 1
     glowstone = BlockRegistry.default_state("glowstone")
@@ -144,7 +144,7 @@ defmodule Valimc.RegionLightTest do
     set(neighbour, %{{edge + 1, 70, z0 + 40} => glowstone})
     {pid, _} = ctx.owner
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
 
     assert eventually(fn ->
              level(image(owner, World.chunk_key(edge, z0 + 40)), :block, {edge - 1, 70, z0 + 40}) ==
@@ -162,14 +162,14 @@ defmodule Valimc.RegionLightTest do
     )
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east), do: TestScope.kill(pid)
+      for {pid, _} <- Valimc.TestWorld.registered(east), do: TestScope.kill(pid)
     end)
 
     # Neighbours share a group (the regionizer, VMC-077j2).
-    group = fn key -> elem(elem(World.owner(key), 1), 0) end
+    group = fn key -> elem(elem(Valimc.TestWorld.owner(key), 1), 0) end
     assert eventually(fn -> group.(east) == group.(ctx.key) end)
-    {:ok, owner} = World.owner(ctx.key)
-    {:ok, neighbour} = World.owner(east)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
     edge = x0 + Valimc.config(:region_size) * 16 - 1
     glowstone = BlockRegistry.default_state("glowstone")
@@ -203,17 +203,17 @@ defmodule Valimc.RegionLightTest do
     )
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east),
+      for {pid, _} <- Valimc.TestWorld.registered(east),
           do: TestScope.kill(pid)
     end)
 
-    {:ok, neighbour} = World.owner(east)
+    {:ok, neighbour} = Valimc.TestWorld.owner(east)
     {x0, z0} = ctx.origin
     edge = x0 + Valimc.config(:region_size) * 16 - 1
     sent = World.chunk_key(edge + 2, z0 + 40)
     unsent = World.chunk_key(edge + 2, z0 + 48)
     _ = packet_light(sent)
-    World.subscribe(MapSet.new([east]), MapSet.new())
+    Valimc.TestWorld.subscribe(MapSet.new([east]), MapSet.new())
     set(ctx.owner, %{{edge, 70, z0 + 44} => BlockRegistry.default_state("glowstone")})
 
     assert eventually(fn ->
@@ -229,7 +229,7 @@ defmodule Valimc.RegionLightTest do
 
   # The light data a freshly joining client gets: the tail of the chunk packet.
   defp packet_light(key) do
-    frame = World.chunk(key)
+    frame = Valimc.TestWorld.chunk(key)
 
     {:ok, _id, payload, <<>>} =
       Wire.next_frame(

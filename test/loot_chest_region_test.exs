@@ -4,7 +4,6 @@ defmodule Valimc.LootChestRegionTest do
   alias Valimc.Physics.BlockEntities, as: Types
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}
 
   @chest BlockRegistry.default_state("chest")
@@ -36,7 +35,7 @@ defmodule Valimc.LootChestRegionTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -117,8 +116,8 @@ defmodule Valimc.LootChestRegionTest do
   # A grant lives 200 ms; a loaded machine can outlast it, so an expired one is
   # retried with a fresh grant.
   defp open(ctx, position, mode \\ :survival, tries \\ 5) do
-    {:ok, owner} = World.owner(ctx.key)
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
     ref = make_ref()
     assert :ok = Region.request_table(owner, self(), ref, position, grant(position, mode))
     assert_receive {:event, {:table_admitted, ^ref, ^owner, decision}}
@@ -141,7 +140,7 @@ defmodule Valimc.LootChestRegionTest do
   end
 
   defp durable(ctx, part) do
-    for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key), do: :ok = Region.flush(pid)
+    for {pid, _} <- Valimc.TestWorld.registered(ctx.key), do: :ok = Region.flush(pid)
 
     case part do
       :block_entities -> elem(RegionStorage.read(ctx.base, :overworld, ctx.key), 1).block_entities
@@ -150,7 +149,7 @@ defmodule Valimc.LootChestRegionTest do
   end
 
   defp restart(ctx) do
-    for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key),
+    for {pid, _} <- Valimc.TestWorld.registered(ctx.key),
         do: :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
   end
 

@@ -2,7 +2,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -189,7 +189,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
     {_fresh, pid} = reconnect(ctx, client)
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     assert Valimc.TestBlocks.get(ctx.target) == 0
   end
 
@@ -263,7 +263,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
        ctx do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
     {client, pid} = login(ctx)
-    {:ok, {region, _} = owner} = World.existing_owner(ctx.key)
+    {:ok, {region, _} = owner} = Valimc.TestWorld.existing_owner(ctx.key)
     :ok = Valimc.TestRegionGate.stall(region)
 
     try do
@@ -292,7 +292,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     end
 
     assert Valimc.TestBlocks.get(ctx.target) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
   end
 
@@ -334,7 +334,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     {_fresh, fresh_pid} = reconnect(ctx, client)
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
-    {:ok, owner} = World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
     assert receipt.sequence == 1
     assert Enum.sort_by(drops(ctx), & &1.item_id) == expected

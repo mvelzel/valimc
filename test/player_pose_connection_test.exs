@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerPoseConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -36,7 +36,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+          {pid, _} <- Valimc.TestWorld.registered({x, z}),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -142,11 +142,11 @@ defmodule Valimc.PlayerPoseConnectionTest do
     roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
     :ok = Valimc.TestBlocks.set(roof, 1)
     client = await_pose(client, entity, 3)
-    {:ok, {owner, _}} = World.owner(ctx.key)
+    {:ok, {owner, _}} = Valimc.TestWorld.owner(ctx.key)
     Process.exit(owner, :kill)
     wait(fn -> not Process.alive?(owner) and state(pid).pose_checked == nil end)
     assert Process.alive?(pid)
-    {:ok, {replacement, _}} = World.owner(ctx.key)
+    {:ok, {replacement, _}} = Valimc.TestWorld.owner(ctx.key)
     refute replacement == owner
     # The roof was durable before the kill (VMC-077f); the new owner's change is seen.
     :ok = Valimc.TestBlocks.set(roof, 0)

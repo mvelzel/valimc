@@ -1,11 +1,11 @@
 defmodule Valimc.PlayerMotionQueryTest do
   use ExUnit.Case, async: false
   alias Valimc.TestScope
-  alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerMotionQuery, World}
+  alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerMotionQuery}
 
   setup do
     key = {6100, 6210}
-    {:ok, _} = World.owner(key)
+    {:ok, _} = Valimc.TestWorld.owner(key)
 
     player = %{
       x: 780_810.5,
@@ -19,7 +19,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     }
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
     end)
 
@@ -50,7 +50,7 @@ defmodule Valimc.PlayerMotionQueryTest do
   end
 
   test "source loss requests recovery but never supplies missing air", %{player: p, key: key} do
-    {:ok, {old, _}} = World.existing_owner(key)
+    {:ok, {old, _}} = Valimc.TestWorld.existing_owner(key)
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, old)
     result = query(p, %{x: p.x + 0.2})
 
@@ -59,7 +59,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert match?({:error, {:missing_block, _}}, result) or
              match?({:ok, %{accepted: true}}, result)
 
-    assert {:ok, {replacement, _}} = World.owner(key)
+    assert {:ok, {replacement, _}} = Valimc.TestWorld.owner(key)
     refute old == replacement
     :sys.suspend(replacement)
 

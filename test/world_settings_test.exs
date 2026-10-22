@@ -105,13 +105,17 @@ defmodule Valimc.WorldSettingsTest.Serial do
 
   test "save-all from the Nether saves every dimension's regions and starts none" do
     {overworld, nether} = {{-31_001, 9}, {-31_002, 9}}
-    {:ok, _} = Valimc.World.owner(overworld)
-    {:ok, _} = Valimc.Dimension.within(:the_nether, fn -> Valimc.World.owner(nether) end)
-    scoped = [overworld, {:the_nether, nether}]
+    {:ok, _} = Valimc.TestWorld.owner(overworld)
+    {:ok, _} = Valimc.Dimension.within(:the_nether, fn -> Valimc.TestWorld.owner(nether) end)
+
+    scoped = [
+      Valimc.TestWorld.section(overworld),
+      Valimc.World.section(:the_nether, nether, :section)
+    ]
 
     on_exit(fn ->
       for key <- scoped,
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          {pid, _} <- Valimc.TestWorld.registered(key),
           do: Valimc.TestScope.kill(pid)
     end)
 
@@ -123,7 +127,7 @@ defmodule Valimc.WorldSettingsTest.Serial do
     owners = Valimc.Commands.Server.owners() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
 
     for key <- scoped,
-        [{pid, _}] = Registry.lookup(Valimc.RegionRegistry, key),
+        [{pid, _}] = Valimc.TestWorld.registered(key),
         do: assert(MapSet.member?(owners, pid))
   end
 

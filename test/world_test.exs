@@ -23,7 +23,7 @@ defmodule Valimc.WorldTest do
       end
 
     try do
-      task = Task.async(fn -> World.chunk({880, 880}) end)
+      task = Task.async(fn -> Valimc.TestWorld.chunk({880, 880}) end)
       assert Task.yield(task, 20) == nil
       assert :ok = Valimc.TestBlocks.set({14081, 64, 14081}, 1)
       assert Valimc.TestBlocks.get({14081, 64, 14081}) == 1
@@ -39,7 +39,7 @@ defmodule Valimc.WorldTest do
       1..64
       |> Task.async_stream(
         fn _ ->
-          {:ok, pid} = World.region({100, 100})
+          {:ok, pid} = Valimc.TestWorld.region({100, 100})
           pid
         end,
         timeout: 60_000,
@@ -56,13 +56,16 @@ defmodule Valimc.WorldTest do
 
     frames =
       1..64
-      |> Task.async_stream(fn _ -> World.chunk(key) end, timeout: 60_000, max_concurrency: 64)
+      |> Task.async_stream(fn _ -> Valimc.TestWorld.chunk(key) end,
+        timeout: 60_000,
+        max_concurrency: 64
+      )
       |> Enum.map(fn {:ok, frame} -> frame end)
 
     assert length(Enum.uniq(frames)) == 1
     assert (Valimc.Metrics.snapshot()[:chunks_encoded] || 0) - before_count == 1
     assert :ok = Valimc.TestBlocks.set({12801, 64, 12801}, 1)
-    changed = World.chunk(key)
+    changed = Valimc.TestWorld.chunk(key)
     refute changed == hd(frames)
     assert {:ok, 46, _, <<>>} = Wire.next_frame(changed, 2_097_152, 256)
     assert Valimc.TestBlocks.get({12801, 64, 12801}) == 1
@@ -70,21 +73,21 @@ defmodule Valimc.WorldTest do
 
   test "a chunk's packet is published for connections and withdrawn with a change" do
     key = {808, 808}
-    frame = World.chunk(key)
-    assert [{^key, {:frame, ^frame}}] = World.sendable([key], 1)
+    frame = Valimc.TestWorld.chunk(key)
+    assert [{^key, {:frame, ^frame}}] = Valimc.TestWorld.sendable([key], 1)
     assert :ok = Valimc.TestBlocks.set({808 * 16 + 1, 64, 808 * 16 + 1}, 1)
     # The change withdrew it: the connection asks without waiting for the reply.
-    assert [{^key, {:owner, pid}}] = World.sendable([key], 1)
+    assert [{^key, {:owner, pid}}] = Valimc.TestWorld.sendable([key], 1)
     request = World.request_chunk(pid, key)
     assert {:reply, changed} = :gen_server.receive_response(request, 60_000)
     refute changed == frame
-    assert [{^key, {:frame, ^changed}}] = World.sendable([key], 1)
+    assert [{^key, {:frame, ^changed}}] = Valimc.TestWorld.sendable([key], 1)
   end
 
   # Sections more than three apart are never in one group (VMC-077j2).
   test "separate groups continue responding when one is suspended" do
-    {:ok, a} = World.region({101, 101})
-    {:ok, b} = World.owner({106, 106})
+    {:ok, a} = Valimc.TestWorld.region({101, 101})
+    {:ok, b} = Valimc.TestWorld.owner({106, 106})
     :sys.suspend(a)
     position = {106 * 128, 63, 106 * 128}
 
@@ -101,14 +104,14 @@ defmodule Valimc.WorldTest do
     Application.put_env(:valimc, :world_path, path)
 
     try do
-      {:ok, pid} = World.region({103, 103})
+      {:ok, pid} = Valimc.TestWorld.region({103, 103})
       pos = {13184, 65, 13184}
       assert :ok = Valimc.TestBlocks.set(pos, 1)
       assert :ok = World.Region.flush(pid)
       ref = Process.monitor(pid)
       assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _}
-      {:ok, replacement} = World.region({103, 103})
+      {:ok, replacement} = Valimc.TestWorld.region({103, 103})
       assert replacement != pid
       assert Valimc.TestBlocks.get(pos) == 1
       DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, replacement)

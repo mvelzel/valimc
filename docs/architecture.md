@@ -58,9 +58,11 @@ classified where they are made (`Valimc.Error`): a caller retries
 Everything that can interact has one owner (VMC-077j). The 8 × 8-chunk section
 stays the unit of storage, generation and light; a **group process** owns a
 connected set of sections of one dimension and is the unit of ownership, time
-and durability. Callers hold `{group pid, epoch}` per section from the
-Directory's route table (section key to group and epoch); the group runs each
-call on the section it names by epoch, chunk or key. One tick runs all of a
+and durability. A section's routing key names its dimension, `{dimension, sx,
+sz}`, in every dimension: the Directory's route table, the registries, topics
+and the spatial index use it, and no route reads a process's dimension
+context. Callers hold `{group pid, epoch}` per section from the route table;
+the group runs each call on the section it names by epoch, chunk or key. One tick runs all of a
 group's sections in key order under one tick number, the world clock's game
 time (`World.GameTick`), so groups merge without offsets. The group cuts all
 its sections' changes at once into one record of the write-ahead log, so a

@@ -88,12 +88,11 @@ defmodule Valimc.World.RegionStorage do
   def commit_ms, do: @commit_ms
 
   @doc """
-  Open the storage of region `key` in the caller's dimension: its checkpoint
-  and the frames after it. `{:ok, storage, loaded}` with the region's parts, or
-  `{:error, reason}`; a region stored before VMC-077f is refused (D4).
+  Open the storage of section `key` of `dimension`: its checkpoint and the
+  frames after it. `{:ok, storage, loaded}` with the section's parts, or
+  `{:error, reason}`; a section stored before VMC-077f is refused (D4).
   """
-  def open(key) do
-    dimension = Valimc.Dimension.current()
+  def open(dimension, key) do
     base = Valimc.config(:world_path, key)
     owner = {:region, dimension, key}
 

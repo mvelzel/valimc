@@ -83,7 +83,7 @@ defmodule Valimc.PickupBench do
   defp deliver(uuid, pending) do
     token = make_ref()
 
-    case TransferDelivery.start(self(), token, uuid, pending) do
+    case TransferDelivery.start(self(), token, uuid, pending, :overworld) do
       {:ok, job} ->
         receive do
           {:transfer_delivered, pid, ^token, result} when pid == job.pid ->
@@ -150,7 +150,7 @@ defmodule Valimc.PickupBench do
       for {key, grouped} <- Enum.group_by(sources, &elem(&1, 0)) do
         records = Enum.flat_map(grouped, &elem(&1, 2))
         :ok = RegionStorage.import(base, :overworld, key, %{items: records})
-        {:ok, owner} = Valimc.World.item_owner(key)
+        {:ok, owner} = Valimc.World.item_owner(Valimc.World.section(:overworld, key, :section))
         {key, owner}
       end
       |> Map.new()

@@ -2,7 +2,7 @@ defmodule Valimc.ItemVoidRegionTest do
   use ExUnit.Case, async: false
   # Serial: the fsync-wait assertion races a simulation tick that queued writes allow.
   alias Valimc.TestScope
-  alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
+  alias Valimc.{ItemMotionState, Protocol.ItemStack}
   alias Valimc.World.Region
 
   setup do
@@ -35,10 +35,10 @@ defmodule Valimc.ItemVoidRegionTest do
 
     data = %{records: [below, boundary], receipts: receipts, ledger: ledger}
     Valimc.TestDisk.write(base, key, :items, data)
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key), do: TestScope.kill(pid)
+      for {pid, _} <- Valimc.TestWorld.registered(key), do: TestScope.kill(pid)
 
       Valimc.TestScope.stop_neighbourhood(key)
 
@@ -72,7 +72,7 @@ defmodule Valimc.ItemVoidRegionTest do
     wait(fn -> map_size(state(c.owner).entities.store.entries) == 1 end)
 
     wait(fn ->
-      Enum.map(Map.values(World.item_snapshot(c.key)), & &1.uuid) == [c.boundary.uuid]
+      Enum.map(Map.values(Valimc.TestWorld.item_snapshot(c.key)), & &1.uuid) == [c.boundary.uuid]
     end)
 
     {pid, _} = c.owner
@@ -84,7 +84,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
     assert saved.ledger == c.ledger
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, reopened} = World.item_owner(c.key)
+    {:ok, reopened} = Valimc.TestWorld.item_owner(c.key)
     assert map_size(state(reopened).entities.store.entries) == 1
     assert Enum.map(disk(c).records, & &1.uuid) == [c.boundary.uuid]
   end

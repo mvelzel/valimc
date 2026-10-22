@@ -41,7 +41,7 @@ defmodule Valimc.CookingOrbConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for owned_key <- [key, source_key],
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, owned_key),
+          {pid, _} <- Valimc.TestWorld.registered(owned_key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
@@ -80,8 +80,8 @@ defmodule Valimc.CookingOrbConnectionTest do
       ledger: %{sequence: 1, outgoing: outgoing, incoming: %{}}
     })
 
-    {:ok, source_owner} = World.item_owner(source_key)
-    {:ok, {owner, epoch}} = World.item_owner(key)
+    {:ok, source_owner} = Valimc.TestWorld.item_owner(source_key)
+    {:ok, {owner, epoch}} = Valimc.TestWorld.item_owner(key)
     wait(fn -> map_size(store({owner, epoch}).views) == 2 end)
     views = store({owner, epoch}).views
     uuids = MapSet.new(for {_, v} <- views, do: v.uuid)
@@ -100,7 +100,10 @@ defmodule Valimc.CookingOrbConnectionTest do
     # Resting orbs need no movement packets (no more "predicted" resends).
     orb_id = spawns |> Map.keys() |> Enum.min()
 
-    assert World.visible_items(MapSet.new([key]), MapSet.new([World.chunk_key(pose.x, pose.z)])) ==
+    assert Valimc.TestWorld.visible_items(
+             MapSet.new([key]),
+             MapSet.new([World.chunk_key(pose.x, pose.z)])
+           ) ==
              %{}
 
     {:ok, {_, ^epoch, item_id, 1}} =
@@ -131,13 +134,13 @@ defmodule Valimc.CookingOrbConnectionTest do
     {_late, late_spawns, _values} = observe(late, uuids)
     assert late_spawns == spawns
     # The group holding the section now (the regionizer may have merged it).
-    {:ok, {owner, ^epoch}} = World.item_owner(key)
+    {:ok, {owner, ^epoch}} = Valimc.TestWorld.item_owner(key)
     ref = Process.monitor(owner)
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^ref, :process, ^owner, :killed}
 
     wait(fn ->
-      case World.item_owner(key) do
+      case Valimc.TestWorld.item_owner(key) do
         {:ok, {pid, _}} -> pid != owner
         _ -> false
       end
@@ -147,7 +150,7 @@ defmodule Valimc.CookingOrbConnectionTest do
     {_client, recreated, new_values} = observe(client, uuids, 9)
     assert Enum.sort(Map.values(new_values)) == [1, 3]
     assert MapSet.disjoint?(MapSet.new(Map.keys(spawns)), MapSet.new(Map.keys(recreated)))
-    {:ok, {replacement, new_epoch}} = World.item_owner(key)
+    {:ok, {replacement, new_epoch}} = Valimc.TestWorld.item_owner(key)
     assert new_epoch != epoch
     assert orbs(store({replacement, new_epoch})) == orbs(installed)
   end

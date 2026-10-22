@@ -3,7 +3,6 @@ defmodule Valimc.ItemPortalHandoffTest do
   use ExUnit.Case, async: true
   alias Valimc.{Dimension, ItemMotionState, TestScope}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World
   alias Valimc.World.{EntityHandoffs, Entities, Region}
 
   setup do
@@ -29,7 +28,7 @@ defmodule Valimc.ItemPortalHandoffTest do
 
     on_exit(fn ->
       for region <- [key, beside, {:the_nether, key}, {:the_nether, beside}],
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
+          {pid, _} <- Valimc.TestWorld.registered(region),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -42,8 +41,8 @@ defmodule Valimc.ItemPortalHandoffTest do
   defp wait(fun), do: Valimc.TestWait.until(fun)
   defp nether(fun), do: Dimension.within(:the_nether, fun)
 
-  defp owner(:the_nether, key), do: nether(fn -> elem(World.item_owner(key), 1) end)
-  defp owner(:overworld, key), do: elem(World.item_owner(key), 1)
+  defp owner(:the_nether, key), do: nether(fn -> elem(Valimc.TestWorld.item_owner(key), 1) end)
+  defp owner(:overworld, key), do: elem(Valimc.TestWorld.item_owner(key), 1)
 
   # One step of `uuid` to `position`, as a portal's destination places it.
   defp step(owner, uuid, position, cooldown) do

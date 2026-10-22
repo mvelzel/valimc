@@ -29,7 +29,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 1), z <- (rz - 1)..(rz + 1) do
-        for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
+        for {pid, _} <- Valimc.TestWorld.registered({x, z}),
             do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
       end
 
@@ -79,7 +79,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   defp spawn_item(c, stack, dx \\ 0.0) do
     at = {c.pose.x + dx, c.pose.y, c.pose.z}
     key = World.region_key(World.chunk_key(c.pose.x + dx, c.pose.z))
-    {:ok, owner} = World.item_owner(key)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
     {:ok, handle} = Region.create_item(owner, stack, at)
     {owner, handle, key}
   end

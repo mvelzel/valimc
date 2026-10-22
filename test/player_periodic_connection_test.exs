@@ -2,7 +2,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerSnapshot, World}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot}
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, state: 1]
@@ -108,7 +108,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.effects[id] == [{39, 0, false, true, true}]
     assert saved.inventory.slots == %{} and saved.outbox == nil and saved.transfer_sequence == 1
-    [view] = World.item_snapshot(ctx.key) |> Map.values()
+    [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
 
     {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
       Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
@@ -120,7 +120,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     seed(ctx, health: 10.0)
     {_client, pid} = login(ctx)
     effect(pid, "regeneration", 50)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.existing_owner(ctx.key)
     Valimc.TestRegionGate.stall(region)
 
     try do

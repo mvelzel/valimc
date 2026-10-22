@@ -4,7 +4,6 @@ defmodule Valimc.ImportedRegionTest do
   alias Valimc.Protocol.Data
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
-  alias Valimc.World
   alias Valimc.World.{Blocks, Region, RegionStorage}
 
   @plains Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
@@ -17,7 +16,7 @@ defmodule Valimc.ImportedRegionTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -46,9 +45,9 @@ defmodule Valimc.ImportedRegionTest do
   end
 
   defp restart(key) do
-    {:ok, {pid, _}} = World.owner(key)
+    {:ok, {pid, _}} = Valimc.TestWorld.owner(key)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, owner} = World.owner(key)
+    {:ok, owner} = Valimc.TestWorld.owner(key)
     owner
   end
 
@@ -59,7 +58,7 @@ defmodule Valimc.ImportedRegionTest do
     assert RegionStorage.import(ctx.base, :overworld, ctx.key, %{columns: columns}) == :ok
     assert RegionStorage.import(ctx.base, :overworld, ctx.key, %{}) == {:error, :region_exists}
 
-    {:ok, owner} = World.owner(ctx.key)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     cave = {cx * 16 + 5, 10 - 30, cz * 16 + 5}
     top = {cx * 16 + 5, 63, cz * 16 + 5}
     beside = {(cx + 1) * 16 + 5, 10 - 30, cz * 16 + 5}

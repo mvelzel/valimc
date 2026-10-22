@@ -3,7 +3,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   import Valimc.TestPlayer, only: [living: 1]
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerSnapshot, Players, PlayerStore, World}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot, Players, PlayerStore}
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -26,7 +26,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
           {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
@@ -110,7 +110,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
     {client, pid} = login(name)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
     Valimc.TestRegionGate.stall(region)
 
     try do
@@ -136,7 +136,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       assert stored.health.value == 0 and stored.outbox != nil
       assert stored.transfer_sequence == 1 and map_size(stored.inventory.slots) == 3
       assert stored.last_death == {floor(p.x), floor(p.y), floor(p.z)}
-      assert World.item_snapshot(ctx.key) == %{}
+      assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     after
       Valimc.TestRegionGate.resume(region)
     end
@@ -147,7 +147,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert state(pid).inventory.slots == %{} and state(pid).inventory.carried == nil
     assert {:ok, stored} = saved(ctx, name)
     assert stored.health.value == 20 and stored.transfer_sequence == 2 and stored.outbox == nil
-    assert map_size(World.item_snapshot(ctx.key)) == 8
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
     assert client.inventory.items == List.duplicate(nil, 46)
   end
 
@@ -182,7 +182,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert {:ok, stored} = saved(ctx, name)
     assert stored.last_death == {0, 64, 0} and stored.health.value == 20
     assert stored.transfer_sequence == 1 and stored.outbox == nil
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     Client.close(client)
   end
 
@@ -190,7 +190,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
     {client, pid} = login(name)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
     Valimc.TestRegionGate.stall(region)
 
     next =
@@ -231,7 +231,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     next = Client.load_world(next)
     new_pid = Enum.find(Players.all(), &(&1.name == name)).pid
     assert state(new_pid).life_stage == :dead
-    assert map_size(World.item_snapshot(ctx.key)) == 8
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
     _next = respawn(next, new_pid)
     assert {:ok, source} = saved(ctx, name)
     assert source.health.value == 20 and source.transfer_sequence == 2 and source.outbox == nil
@@ -285,7 +285,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     })
 
     {client, pid} = login(name)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, {region, _}} = Valimc.TestWorld.item_owner(ctx.key)
     Valimc.TestRegionGate.stall(region)
 
     try do

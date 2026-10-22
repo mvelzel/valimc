@@ -3,11 +3,11 @@ defmodule Valimc.PlayerMiningQuery do
   alias Valimc.World
   alias Valimc.World.Region
 
-  def reserve({x, _, z} = position) do
+  def reserve(dimension, {x, _, z} = position) do
     start(fn ->
       key = World.region_key(World.chunk_key(x, z))
 
-      with {:ok, owner} <- World.existing_owner(key),
+      with {:ok, owner} <- World.existing_owner(World.section(dimension, key, :section)),
            {:ok, reservation} <- Region.reserve_mining(owner, [position]),
            do: {:ok, Map.merge(reservation, %{key: key, owner: owner})}
     end)
@@ -16,11 +16,9 @@ defmodule Valimc.PlayerMiningQuery do
   def renew(reservation),
     do: start(fn -> Region.renew_mining(reservation.owner, reservation.permit) end)
 
-  def observe({x, _, z} = position) do
+  def observe(dimension, {x, _, z} = position) do
     start(fn ->
-      key = World.region_key(World.chunk_key(x, z))
-
-      with {:ok, owner} <- World.existing_owner(key),
+      with {:ok, owner} <- World.existing_owner(World.section(dimension, World.chunk_key(x, z))),
            {:ok, observation} <- Region.observe_blocks(owner, [position]),
            {:ok, update} <- Region.block_entity_update(owner, position),
            do: {:ok, owner, Map.fetch!(observation.blocks, position), update}

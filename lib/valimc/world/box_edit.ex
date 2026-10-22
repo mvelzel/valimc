@@ -33,7 +33,7 @@ defmodule Valimc.World.BoxEdit do
           do: {key, {ax, y0, az}, {bx, y1, bz}}
 
     Enum.reduce_while(parts, {:ok, %{}}, fn {key, min, max}, {:ok, acc} ->
-      with {:ok, owner} <- World.existing_owner({dimension, key}),
+      with {:ok, owner} <- World.existing_owner(World.section(dimension, key, :section)),
            {:ok, states} <- Region.read_box(owner, min, max) do
         {:cont, {:ok, Map.merge(acc, Map.new(Enum.zip(positions(min, max), decode(states))))}}
       else
@@ -52,7 +52,7 @@ defmodule Valimc.World.BoxEdit do
 
     owners =
       Enum.reduce_while(Enum.sort(parts), {:ok, []}, fn {key, part}, {:ok, acc} ->
-        case World.existing_owner({dimension, key}) do
+        case World.existing_owner(World.section(dimension, key, :section)) do
           {:ok, owner} -> {:cont, {:ok, [{owner, part} | acc]}}
           _ -> {:halt, {:error, :unloaded}}
         end
