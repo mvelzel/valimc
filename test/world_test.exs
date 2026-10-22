@@ -88,6 +88,9 @@ defmodule Valimc.WorldTest do
 
   # Sections more than three apart are never in one group (VMC-077j2).
   test "separate groups continue responding when one is suspended" do
+    {:ok, _} = Valimc.TestWorld.owner({101, 101})
+    # A group merged away retires (VMC-077y): suspend the one that holds it.
+    :ok = Valimc.World.Regionizer.settle(:overworld)
     {:ok, a} = Valimc.TestWorld.region({101, 101})
     {:ok, b} = Valimc.TestWorld.owner({106, 106})
     :sys.suspend(a)

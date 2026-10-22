@@ -133,7 +133,7 @@ defmodule Valimc.StorageTest do
     {storage, []} = RegionStorage.commit(RegionStorage.columns(storage, columns), parts)
     assert storage.seq > 1
     # The group sends the cut frames (VMC-077j).
-    {frames, _} = RegionStorage.take(storage, owner)
+    {frames, _} = RegionStorage.take(storage)
     Log.commit_group(ctx.base, owner, frames, self())
     assert_receive {:storage_durable, ^owner, seq} when seq == storage.seq, 10_000
     frames = Log.frames(ctx.base, owner, 0)

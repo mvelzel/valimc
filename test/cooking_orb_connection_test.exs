@@ -100,8 +100,10 @@ defmodule Valimc.CookingOrbConnectionTest do
 
     # Out of reach until the client tracks it: vanilla sends the take only to
     # the item's trackers.
+    {:ok, current} = Valimc.TestWorld.item_owner(key)
+
     {:ok, {_, ^epoch, item_id, 1}} =
-      Region.create_item({owner, epoch}, ItemStack.new("stone", 3), {pose.x + 3.0, 64.1, pose.z})
+      Region.create_item(current, ItemStack.new("stone", 3), {pose.x + 3.0, 64.1, pose.z})
 
     client = Client.await_spawn(client, item_id)
     client = Client.teleport(client, player, %{pose | x: pose.x + 3.0})

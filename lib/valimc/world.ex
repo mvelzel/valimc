@@ -28,9 +28,12 @@ defmodule Valimc.World do
     )
   end
 
+  # A group that retired as the call reached it (its section moved): ask again.
   def chunk(dimension, key) do
     with {:ok, pid} <- region(Grid.section(dimension, key)),
          do: GenServer.call(pid, {:chunk, key}, 15_000)
+  catch
+    :exit, {reason, _} when reason in [:normal, :noproc] -> chunk(dimension, key)
   end
 
   @doc """

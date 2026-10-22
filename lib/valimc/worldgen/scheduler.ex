@@ -169,8 +169,13 @@ defmodule Valimc.Worldgen.Scheduler do
   def handed_over(world, dimension, chunks, nil),
     do: cast(world, dimension, {:handed_over, chunks})
 
-  @doc "The calling process installed a delivery from `scheduler`: it may send the next."
-  def delivered(scheduler), do: GenServer.cast(scheduler, {:delivered, self()})
+  @doc """
+  The calling process installed a delivery from `scheduler` sent to
+  `requester` (itself, unless the delivery's sections moved to it): the
+  scheduler may send `requester` the next.
+  """
+  def delivered(scheduler, requester \\ self()),
+    do: GenServer.cast(scheduler, {:delivered, requester})
 
   @doc "A region loaded with these chunks full."
   def present(world, dimension, chunks), do: cast(world, dimension, {:present, chunks})

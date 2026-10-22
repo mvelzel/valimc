@@ -24,7 +24,7 @@ defmodule Valimc.PlayerStorageTest do
   # Send the storage's frames as a group would, and wait until they are durable.
   defp commit(storage, base) do
     route = {:region, :overworld, {0, 0}}
-    {frames, storage} = Storage.take(storage, route)
+    {frames, storage} = Storage.take(storage)
     Log.commit_group(base, route, frames, self())
 
     Enum.reduce(frames, storage, fn {owner, seq, _}, acc ->
@@ -129,6 +129,8 @@ defmodule Valimc.PlayerStorageTest.Connection do
     on_exit(fn ->
       Application.put_env(:valimc, :world_path, old)
       Valimc.TestScope.stop_players(base)
+      # The spawn's groups, which may still write to the world being removed.
+      Valimc.TestScope.stop_neighbourhood({0, 0})
       File.rm_rf!(base)
     end)
 

@@ -34,18 +34,11 @@ defmodule Valimc.Player.RainQuery do
   end
 
   @doc """
-  Rain for a player: a spectator, whose kernel reads the cells of chunks not
-  loaded as air (VMC-077v), reads their columns as dry.
+  Rain for a player. A spectator is not sampled: rain never touches it, and
+  its view may hold chunks not loaded (VMC-077v).
   """
-  def sample(position, top, view, player) do
-    case sample(position, top, view) do
-      {:error, :rain_column_unavailable} when player.game_mode.current == :spectator ->
-        {:ok, false}
-
-      result ->
-        result
-    end
-  end
+  def sample(_position, _top, _view, %{game_mode: %{current: :spectator}}), do: {:ok, false}
+  def sample(position, top, view, _player), do: sample(position, top, view)
 
   defp precipitation(view, position) do
     with {:ok, biome} <- View.biome(view, position),

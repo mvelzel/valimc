@@ -154,9 +154,7 @@ pub fn validate(
         return Err(Fault::Limit("movement_query_limit"));
     }
     let fall = p.motion.fall_distance;
-    if !bounded(&query(catalog, p, Some(target), flags)?) {
-        return Err(Fault::Limit("movement_query_limit"));
-    }
+    query(catalog, p, Some(target), flags)?;
     let ctx = p.context(fall, position[1]);
     let spectator = p.spectator();
     let air = AirWhereUnreadable(w.source);
@@ -345,7 +343,7 @@ pub fn rest(w: &World, catalog: &[Dimensions], p: &Player) -> Result<Rested, Fau
 }
 
 /// The query box a move or rest reads, for the caller to pick the chunk
-/// rows: the move's own when given a target.
+/// rows: the move's own when given a target, refused past `QUERY_CELLS`.
 pub fn query(
     catalog: &[Dimensions],
     p: &Player,
@@ -376,10 +374,15 @@ pub fn query(
             )
             .expand_towards([0.0, 0.6, 0.0])
             .expand_towards([0.0, -0.001, 0.0]);
-            Ok(Aabb::new(
+            let b = Aabb::new(
                 std::array::from_fn(|i| u.min[i].min(kinetic.min[i])),
                 std::array::from_fn(|i| u.max[i].max(kinetic.max[i])),
-            ))
+            );
+            if bounded(&b) {
+                Ok(b)
+            } else {
+                Err(Fault::Limit("movement_query_limit"))
+            }
         }
     }
 }

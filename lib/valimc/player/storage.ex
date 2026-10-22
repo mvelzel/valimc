@@ -16,13 +16,10 @@ defmodule Valimc.Player.Storage do
     after #{1200} frames or 1 MiB of them, on `/save-all` and when the
     player leaves; the log then forgets the frames it holds. Loading reads
     the file and the frames after it, and folds them into the file at once.
-  - **Holders.** The group hosting the session, and a closing checkpoint,
-    register under the player's uuid (`Valimc.PlayerRegistry`); a login waits
-    until none does, so it never loads under frames still in flight.
-
-  A session moving to another group carries its storage; frames in flight on
-  the old group's stripe hold the new group's commit until they are durable
-  (`held?/2`), as a section's do.
+  - **Holders.** The group hosting the session (until it lets the player go
+    or the file holds its last frame) and a recovery fold register under the
+    uuid (`Valimc.PlayerRegistry`, `host/1`); a login waits until none does.
+    A session moves only once every frame it sent is durable (VMC-077y).
   """
   require Logger
   alias Valimc.Player.State, as: PlayerState
@@ -62,10 +59,9 @@ defmodule Valimc.Player.Storage do
     checkpointing: nil,
     requested: false,
     volatile_at: 0,
-    # Frames cut and not yet sent (`[{owner, seq, frame}]`, newest first),
-    # the route each sent frame took, and what waits for frames in flight.
+    # Frames cut and not yet sent (`[{owner, seq, frame}]`, newest first)
+    # and what waits for frames in flight.
     outbox: [],
-    routes: %{},
     in_flight: %{},
     waits: []
   ]
@@ -177,6 +173,13 @@ defmodule Valimc.Player.Storage do
   @doc "This group no longer holds the player's state."
   def release(%__MODULE__{uuid: uuid}), do: Registry.unregister(@registry, uuid)
 
+  @doc "Another group hosting `uuid`, or nil."
+  def host(<<_::128>> = uuid) do
+    Enum.find_value(Registry.lookup(@registry, uuid), fn {pid, value} ->
+      if value == :hosted and pid != self(), do: pid
+    end)
+  end
+
   @doc """
   Cut a frame of `state`'s records that changed (`full` includes the
   volatile ones however recent): `{:ok, storage}`, or `{:error, reason}`
@@ -269,8 +272,8 @@ defmodule Valimc.Player.Storage do
     end
   end
 
-  defdelegate take(storage, route), to: RegionStorage
-  defdelegate held?(storage, route), to: RegionStorage
+  defdelegate take(storage), to: RegionStorage
+  defdelegate sending?(storage), to: RegionStorage
   defdelegate durable(storage, seq), to: RegionStorage
 
   ## Checkpoints
@@ -293,7 +296,7 @@ defmodule Valimc.Player.Storage do
   """
   def checkpoint(storage, notify) do
     ref = make_ref()
-    job = %{storage | outbox: [], routes: %{}, in_flight: %{}, waits: []}
+    job = %{storage | outbox: [], in_flight: %{}, waits: []}
 
     {:ok, _} =
       Task.start(fn ->

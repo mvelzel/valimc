@@ -104,6 +104,21 @@ defmodule Valimc.Session.Messages do
     Map.has_key?(session.jobs.refs, ref) or Map.has_key?(session.pose_sources, ref)
   end
 
+  @doc "A session moves to another group only without a job: no reply follows it."
+  @impl Valimc.Player.Host
+  def movable?(session), do: session.jobs.active == %{}
+
+  @doc "A session that moved here watches the groups its pose was sampled from."
+  @impl Valimc.Player.Host
+  def adopted(%{pose_sources: sources} = session) when sources == %{}, do: session
+
+  def adopted(session),
+    do:
+      Valimc.Player.Movement.monitor_pose_sources(
+        %{session | pose_sources: %{}},
+        Map.values(session.pose_sources)
+      )
+
   @doc """
   A session ends: its view and jobs are released and the cursor and grid
   drop (vanilla's `removed` of the open menu for a player who disconnected).

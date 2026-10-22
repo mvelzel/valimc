@@ -627,6 +627,8 @@ defmodule Valimc.TestRegion do
   def section(owner, key \\ nil)
 
   def section({pid, epoch}, nil) when is_pid(pid) and is_reference(epoch) do
+    # A group a merge emptied retires (VMC-077y): the section's route names its group.
+    pid = if Process.alive?(pid), do: pid, else: moved_to!(nil, epoch)
     state = :sys.get_state(pid, 30_000)
 
     case state.epochs do
@@ -641,11 +643,11 @@ defmodule Valimc.TestRegion do
     sections[key].resource
   end
 
-  # The group the section of `epoch` moved to from this one.
-  defp moved_to!(state, epoch) do
-    case state.moved do
-      %{^epoch => {pid, _}} -> pid
-      _ -> raise "no section of epoch #{inspect(epoch)} here or moved from here"
+  # The group the section of `epoch` moved to, by its route.
+  defp moved_to!(_state, epoch) do
+    case Valimc.World.Directory.epoch_owner(epoch) do
+      pid when is_pid(pid) -> pid
+      nil -> raise "no section of epoch #{inspect(epoch)} is routed"
     end
   end
 
@@ -653,6 +655,7 @@ defmodule Valimc.TestRegion do
   def replace_section(owner, fun, key \\ nil)
 
   def replace_section({pid, epoch}, fun, nil) when is_pid(pid) and is_reference(epoch) do
+    pid = if Process.alive?(pid), do: pid, else: moved_to!(nil, epoch)
     # In one step with the lookup, so a move cannot come between them.
     moved =
       :sys.replace_state(pid, fn s ->

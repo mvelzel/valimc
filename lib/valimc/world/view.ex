@@ -235,10 +235,12 @@ defmodule Valimc.World.View do
              type,
              hd(chunks),
              chunks
-           ) do
-      Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond))
+           ),
+         :ok <- Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond)) do
+      :ok
     else
-      # An owner unloading or backing off is admitted again shortly.
+      # An owner unloading, backing off or retired (its section moved, VMC-077y)
+      # is found again shortly.
       {:error, {:retry, _}} = error ->
         if System.monotonic_time(:millisecond) < deadline do
           Process.sleep(20)

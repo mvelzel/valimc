@@ -15,6 +15,9 @@ defmodule Valimc.World.Regionizer do
   they load and unload; the regionizer watches them and forgets the sections
   of one that stops. Sections merge only within one world folder and tick
   mode (tests run worlds side by side).
+
+  It alone retires groups (VMC-077y, `retire/1`): only one its record holds
+  no section of, forgotten first, so a retiring group is never a target.
   """
   alias Valimc.Data.Grid
   use GenServer
@@ -43,6 +46,14 @@ defmodule Valimc.World.Regionizer do
 
   @doc "Group `pid` unloaded section `key` (`{sx, sz}`) of `dimension`."
   def unloaded(dimension, key, pid), do: cast(dimension, {:unloaded, key, pid})
+
+  @doc "The calling group has nothing left: `:ok` (it stops on `:retire`), or `:none`."
+  def retire(dimension) do
+    case GenServer.whereis(name(dimension)) do
+      nil -> :none
+      pid -> GenServer.cast(pid, {:retire, self()})
+    end
+  end
 
   @doc "The groups of `dimension`: `%{pid => [{sx, sz}]}` (tests, measurements)."
   def groups(dimension), do: GenServer.call(name(dimension), :groups, 30_000)
@@ -117,6 +128,18 @@ defmodule Valimc.World.Regionizer do
     case state.sections do
       %{^key => {^pid, _}} -> {:noreply, state |> remove(key, pid) |> maybe_split(pid)}
       _ -> {:noreply, state}
+    end
+  end
+
+  def handle_cast({:retire, pid}, state) do
+    group = state.groups[pid]
+
+    if group && MapSet.size(group.keys) > 0 do
+      {:noreply, state}
+    else
+      if group, do: Process.demonitor(group.monitor, [:flush])
+      send(pid, :retire)
+      {:noreply, %{state | groups: Map.delete(state.groups, pid)}}
     end
   end
 

@@ -29,8 +29,8 @@ defmodule Valimc.World.RegionStorage do
   A cut frame waits in the section's outbox; its group process sends the
   frames of all its sections from one commit as one record (VMC-077j,
   `take/2`), on the stripe of its `route`, so changes that span sections are
-  durable together. A section that moved to a group on another stripe sends
-  there only once its frames on the old stripe are durable (`held?/2`).
+  durable together. A section moves to another group only once its frames
+  are durable (VMC-077y), so they never wait on two stripes.
 
   Item motion (position, velocity) goes into a frame at most once a second.
   Counters that move every tick (an item's age and delays, a furnace's
@@ -93,10 +93,8 @@ defmodule Valimc.World.RegionStorage do
     # `:log` once they passed `@kept_bytes`; `kept_bytes` their size.
     kept: [],
     kept_bytes: 0,
-    # The key whose stripe the section's group commits to, and the route of
-    # each frame in flight.
-    route: nil,
-    routes: %{}
+    # The key whose stripe the section's group commits to.
+    route: nil
   ]
 
   def commit_ms, do: @commit_ms
@@ -327,27 +325,20 @@ defmodule Valimc.World.RegionStorage do
   end
 
   @doc """
-  The outbox's frames, oldest first, to send on `route`'s stripe, and the
-  storage that has sent them.
+  The outbox's frames, oldest first, to send on the stripe of the group's
+  route, and the storage that has sent them.
   """
-  def take(%{outbox: []} = storage, _route), do: {[], storage}
-
-  def take(storage, route) do
-    frames = Enum.reverse(storage.outbox)
-
-    routes =
-      Enum.reduce(frames, storage.routes, fn {_, seq, _}, acc -> Map.put(acc, seq, route) end)
-
-    {frames, %{storage | outbox: [], routes: routes}}
-  end
+  def take(storage), do: {Enum.reverse(storage.outbox), %{storage | outbox: []}}
 
   @doc """
-  Whether the section must not send on `route` yet: frames of it are in
-  flight on another stripe, and a later one there could be durable first.
+  Whether frames that were sent are not yet durable (those still in the
+  outbox are not sent: they are the oldest frames not yet sent onwards).
   """
-  def held?(storage, route) do
-    stripe = Log.stripe(route)
-    Enum.any?(storage.routes, fn {_, r} -> Log.stripe(r) != stripe end)
+  def sending?(%{outbox: []} = storage), do: storage.in_flight != %{}
+
+  def sending?(storage) do
+    {_, first, _} = List.last(storage.outbox)
+    Enum.any?(storage.in_flight, fn {seq, _} -> seq < first end)
   end
 
   @doc "Send the outbox now, on the section's own route, and wait until it is appended."
@@ -355,16 +346,10 @@ defmodule Valimc.World.RegionStorage do
   def send_now(%{base: nil} = storage, _sync), do: storage
 
   def send_now(storage, sync) do
-    {frames, storage} = take(storage, storage.route)
+    {frames, storage} = take(storage)
     if frames != [], do: Log.commit_group(storage.base, storage.route, frames, self())
 
-    if sync,
-      do:
-        for(
-          route <- Enum.uniq([storage.route | Map.values(storage.routes)]),
-          do: :ok = Log.sync(storage.base, route)
-        )
-
+    if sync, do: :ok = Log.sync(storage.base, storage.route)
     storage
   end
 
@@ -380,8 +365,7 @@ defmodule Valimc.World.RegionStorage do
   def durable(storage, seq) do
     {done, in_flight} = Map.split_with(storage.in_flight, fn {s, _} -> s <= seq end)
     items = done |> Enum.sort() |> Enum.flat_map(&elem(&1, 1))
-    routes = Map.reject(storage.routes, fn {s, _} -> s <= seq end)
-    {%{storage | in_flight: in_flight, routes: routes}, items}
+    {%{storage | in_flight: in_flight}, items}
   end
 
   ## Checkpoints
@@ -409,7 +393,9 @@ defmodule Valimc.World.RegionStorage do
   Start a checkpoint of `parts` (the owner's current parts, everything cut into
   frames up to `storage.seq`) and `blocks`; a task merges the images of the
   dirty chunks into the last checkpoint's and writes the file, then sends
-  `{:checkpointed, ref, seq, result}` to the owner. `sync: true` writes it
+  `wrap.({:checkpointed, ref, seq, result})` to the owner (`:wrap`, a
+  section's epoch tag: the report reaches the section by its route, wherever
+  it moved meanwhile). `sync: true` writes it
   here; `detach: true` (an unloading section) leaves it to the task, which
   reports what it covers to the log itself.
   """
@@ -455,7 +441,7 @@ defmodule Valimc.World.RegionStorage do
       opts[:detach] ->
         parent = self()
         tag = make_ref()
-        routes = Enum.uniq([storage.route | Map.values(storage.routes)])
+        route = storage.route
 
         {:ok, _} =
           Task.start(
@@ -467,7 +453,7 @@ defmodule Valimc.World.RegionStorage do
                   # The log may still be appending the last frames: it learns
                   # they are covered once it holds them.
                   :ok ->
-                    for route <- routes, do: :ok = Log.sync(job.base, route)
+                    :ok = Log.sync(job.base, route)
                     Log.covered(job.base, job.owner, job.seq)
 
                   {:error, reason} ->
@@ -482,18 +468,18 @@ defmodule Valimc.World.RegionStorage do
         end
 
       true ->
-        async_checkpoint(storage, job, chunks)
+        async_checkpoint(storage, job, chunks, Keyword.get(opts, :wrap, & &1))
     end
   end
 
-  defp async_checkpoint(storage, job, chunks) do
+  defp async_checkpoint(storage, job, chunks, wrap) do
     owner = self()
     ref = make_ref()
 
     {:ok, _} =
       Task.start(
         Valimc.World.Dimension.bind(fn ->
-          send(owner, {:checkpointed, ref, job.seq, write_checkpoint(job)})
+          send(owner, wrap.({:checkpointed, ref, job.seq, write_checkpoint(job)}))
         end)
       )
 

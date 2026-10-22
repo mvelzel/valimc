@@ -73,7 +73,9 @@ defmodule Valimc.RegionGroupTest do
     assert Region.sections(ctx.pa) == Enum.sort([ctx.a, ctx.b])
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
 
-    # A handle held from before the move still works: its old group forwards.
+    # The group it left had nothing more and retired: a handle held from
+    # before the move goes on by its epoch's route.
+    Valimc.TestWait.until(fn -> not Process.alive?(ctx.pb) end)
     assert {:ok, %{blocks: blocks}} = Region.observe_blocks({ctx.pb, ctx.eb}, [position(ctx.b)])
     assert blocks[position(ctx.b)] == stone
 
@@ -146,6 +148,10 @@ defmodule Valimc.RegionGroupTest do
     assert {:ok, {^pc, eb}} = Valimc.TestWorld.owner(ctx.b)
     assert eb == ctx.eb
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
+
+    # A handle held from before the split goes on by the section's route.
+    assert {:ok, %{blocks: blocks}} = Region.observe_blocks({ctx.pa, ctx.eb}, [position(ctx.b)])
+    assert blocks[position(ctx.b)] == stone
     on_exit(fn -> if Process.alive?(pc), do: TestScope.kill(pc) end)
   end
 
@@ -193,8 +199,7 @@ defmodule Valimc.RegionGroupTest do
     assert match?({pid, _, _} when pid == ctx.pa, Valimc.TestWorld.lookup(ctx.b))
     TestScope.kill(ctx.pa)
 
-    # The route went with the adopter; the group it left, now empty, stops
-    # rather than forward there.
+    # The route went with the adopter; the group it left, now empty, retires.
     Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(ctx.b) == nil end)
     Valimc.TestWait.until(fn -> not Process.alive?(ctx.pb) end)
     assert {:error, {:retry, _}} = Region.observe_blocks({ctx.pb, ctx.eb}, [position(ctx.b)])

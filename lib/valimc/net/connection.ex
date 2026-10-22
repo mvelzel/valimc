@@ -125,6 +125,8 @@ defmodule Valimc.Net.Connection do
        # Section => the owner told which chunks the view wants (VMC-075) and
        # those chunks, loading and simulated (VMC-077u).
        wanted: %{},
+       # The groups told, watched: pid => monitor (`Replication`).
+       wanted_owners: %{},
        # The dimension, chunk and position the generation scheduler was last
        # told the player is at (VMC-077u).
        generation_focus: nil,

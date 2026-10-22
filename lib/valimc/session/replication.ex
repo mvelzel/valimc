@@ -16,7 +16,6 @@ defmodule Valimc.Session.Replication do
   alias Valimc.World.{
     BorderReplication,
     ChestLidReplication,
-    Directory,
     Region,
     WeatherReplication
   }
@@ -181,39 +180,38 @@ defmodule Valimc.Session.Replication do
     # One message per group, nearest sections first.
     for {pid, entries} <- tickets, do: Region.tickets(pid, Enum.reverse(entries))
 
-    %{state | wanted: wanted}
+    watch_owners(%{state | wanted: wanted})
   end
 
-  # An owner that restarted since it was told lost the view's wants, even
-  # when every chunk of its section was sent: its section loads again only
-  # once it is wanted again.
-  defp refresh_wants(%{view: {_, _}} = state) do
-    current = fn key ->
-      case Directory.lookup(key) do
-        {pid, _, _} -> pid
-        nil -> nil
-      end
-    end
+  # The groups told the view's wants are watched (VMC-077y): one that stops
+  # took them along, and its sections load again once told again.
+  defp watch_owners(state) do
+    pids = for {_, {pid, _, _}} <- state.wanted, into: MapSet.new(), do: pid
 
-    if Enum.all?(state.wanted, fn {key, told} ->
-         told != nil and current.(key) == elem(told, 0)
-       end),
-       do: state,
-       else: want_chunks(state)
+    {kept, gone} =
+      Map.split_with(state.wanted_owners, fn {pid, _} -> MapSet.member?(pids, pid) end)
+
+    for {_, ref} <- gone, do: Process.demonitor(ref)
+
+    owners =
+      Enum.reduce(pids, kept, fn pid, acc ->
+        Map.put_new_lazy(acc, pid, fn ->
+          :erlang.monitor(:process, pid, tag: :wanted_owner_down)
+        end)
+      end)
+
+    %{state | wanted_owners: owners}
   end
 
-  defp refresh_wants(state), do: state
+  @doc "A group told the view's wants stopped (`pid`): the view tells its sections again."
+  def owner_down(state, pid) do
+    state = %{state | wanted_owners: Map.delete(state.wanted_owners, pid)}
+    if match?({_, _}, state.view), do: want_chunks(state), else: state
+  end
 
-  @doc """
-  A 50 ms tick of the chunk stream: tell owners that restarted what the view
-  wants, refill the send quota, then stream.
-  """
+  @doc "A 50 ms tick of the chunk stream: refill the send quota, then stream."
   def chunk_tick(state),
-    do:
-      stream_chunks(%{
-        refresh_wants(state)
-        | chunk_sender: ChunkSender.tick(state.chunk_sender)
-      })
+    do: stream_chunks(%{state | chunk_sender: ChunkSender.tick(state.chunk_sender)})
 
   @doc """
   Send the nearest pending chunks the quota allows as one batch; chunks whose

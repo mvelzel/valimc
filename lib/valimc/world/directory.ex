@@ -37,6 +37,18 @@ defmodule Valimc.World.Directory do
     ArgumentError -> nil
   end
 
+  @doc "The group section incarnation `epoch` is routed to, or nil (a scan: strays only)."
+  def epoch_owner(epoch) when is_reference(epoch) do
+    case :ets.match(@table, {:_, :"$1", :_, :_, %{epoch: epoch}}, 1) do
+      {[[pid]], _} -> pid
+      _ -> nil
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
+  def epoch_owner(_epoch), do: nil
+
   @doc "`{:ok, pid}` of the key's owner, started if needed, or `{:error, reason}`."
   def admit({_, _, _} = key) do
     GenServer.call(__MODULE__, {:admit, key}, 5000 * Valimc.config(:owner_call_scale))

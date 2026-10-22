@@ -10,7 +10,6 @@ defmodule Valimc.Player.MotionQuery do
   """
   import Bitwise
   alias Valimc.Living.{Air, Burning}
-  alias Valimc.Physics.Kernel
   alias Valimc.Data.PlayerPose
   alias Valimc.Living.Landing
   alias Valimc.Player.{Motion, RainQuery}
@@ -21,10 +20,9 @@ defmodule Valimc.Player.MotionQuery do
   over the published snapshots (or a supplied `view`).
   """
   def run(player, target, flags \\ 0, view \\ nil) do
+    # The kernel refuses a box past its `QUERY_CELLS`: only a forged packet's
+    # cost; the speed check bounds a vanilla client's move first.
     with {:ok, query} <- Valimc.Player.Kinetics.player_query(player, target, flags),
-         # The kernel's `QUERY_CELLS`: only a forged packet's cost; the speed
-         # check bounds a vanilla client's move first.
-         true <- Kernel.bounded?(query, 65_536) or {:error, :movement_query_limit},
          view = view || View.load(View.new(), query),
          {:ok, r} <- Valimc.Player.Kinetics.player_move(view, query, player, target, flags),
          {:ok, tick} <- kinetics(r.tick),

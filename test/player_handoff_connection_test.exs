@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerHandoffConnectionTest do
-  # A hosted player's move between groups is two-phase (VMC-077s): the group
-  # lets it go only once the target holds it, and a group without sections
-  # still expires its forwards and stops.
+  # A hosted player's move between groups is two-phase (VMC-077s, VMC-077y):
+  # the group lets it go only once the target holds it, and a group left with
+  # nothing retires.
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.Player.ChunkView
@@ -35,7 +35,7 @@ defmodule Valimc.PlayerHandoffConnectionTest do
 
     TestWait.until(fn ->
       {:messages, messages} = Process.info(target, :messages)
-      Enum.any?(messages, &match?({:adopt_player, _, _}, &1))
+      Enum.any?(messages, &match?({:adopt, _, _, [], [_]}, &1))
     end)
 
     # A call made meanwhile goes on to the target too; the group runs it
@@ -59,7 +59,7 @@ defmodule Valimc.PlayerHandoffConnectionTest do
       owner = group(pid)
 
       owner != target and Process.alive?(owner) and
-        match?(%{moving: nil}, :sys.get_state(owner).players[ctx.uuid])
+        Map.has_key?(:sys.get_state(owner).players, ctx.uuid)
     end)
 
     assert %{x: x, yaw: 90.0} = TestConn.state(pid).player
@@ -74,33 +74,20 @@ defmodule Valimc.PlayerHandoffConnectionTest do
     assert TestConn.state(pid).player.x == ctx.east_pose.x
   end
 
-  test "a group without sections expires its forwards, releases what it no longer backs and stops",
-       ctx do
-    {:ok, {source, _}} = TestWorld.owner(ctx.key)
+  test "a player rides its section's transfer; the group left with nothing retires", ctx do
+    {client, pid} = TestPlayer.login(ctx)
+    source = group(pid)
     {:ok, {target, _}} = TestWorld.owner(ctx.east)
-    {:ok, [_]} = Region.hand_over(source, target)
-    assert :sys.get_state(source).sections == %{}
-
-    # A player handed on long ago, whose registration this group kept.
-    gone = Valimc.Data.UUID.offline("Gone#{System.unique_integer([:positive])}")
-    past = System.monotonic_time(:millisecond) - 1
-
-    :sys.replace_state(source, fn state ->
-      {:ok, _} = Registry.register(Valimc.PlayerRegistry, gone, :hosted)
-      %{state | player_moves: %{gone => {target, past}}}
-    end)
-
-    # It forwards for the section a while longer, without a tick.
-    TestWait.until(fn -> not registered?(gone) end)
-    assert Process.alive?(source) and :sys.get_state(source).player_moves == %{}
-
     ref = Process.monitor(source)
+    {:ok, [_]} = Region.hand_over(source, target)
 
-    :sys.replace_state(source, fn state ->
-      %{state | moved: Map.new(state.moved, fn {id, {pid, _}} -> {id, {pid, past}} end)}
-    end)
-
+    # The registration follows the player: only the target holds it.
     assert_receive {:DOWN, ^ref, :process, ^source, :normal}, 5_000
+    TestWait.until(fn -> group(pid) == target end)
+    assert [{^target, :hosted}] = Registry.lookup(Valimc.PlayerRegistry, ctx.uuid)
+
+    Client.close(client)
+    TestWait.until(fn -> not registered?(ctx.uuid) end)
   end
 
   # Flies `steps` client ticks east at `speed` blocks each, reading what

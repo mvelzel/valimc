@@ -312,8 +312,21 @@ defmodule Valimc.World.RegionData do
   # Start background work `kind` on the job table; its reports carry the epoch.
   def start_job(state, kind, work, opts) do
     epoch = state.epoch
+    section = route_key(state)
+    owner = self()
 
-    case Jobs.start(state.jobs, kind, work, [wrap: &{:resource, epoch, &1}] ++ opts) do
+    # The report goes to the section's group when the work is done: the one
+    # that started it may have handed the section on and retired (VMC-077y).
+    reply_to = fn ->
+      with {pid, _, _} <- Valimc.World.Directory.lookup(section), do: pid, else: (_ -> owner)
+    end
+
+    case Jobs.start(
+           state.jobs,
+           kind,
+           work,
+           [wrap: &{:resource, epoch, &1}, reply_to: reply_to] ++ opts
+         ) do
       {:ok, jobs, _job} -> {:ok, %{state | jobs: jobs}}
       {:error, _} = error -> error
     end
@@ -1348,17 +1361,24 @@ defmodule Valimc.World.RegionData do
 
   @doc """
   The section was handed to the calling group process (VMC-077j): it watches
-  the ticket holders and container viewers and tells the generation scheduler
-  its wants again from here. Running workers stay watched by the group they
-  report to, which forwards their reports and ends in order.
+  its ticket holders, viewers and workers, arms its timers (the group it left
+  may stop first, VMC-077y) and tells the scheduler its wants from here.
   """
   def adopted(state) do
-    generation = %{state.generation | scheduler: nil, sent: %{}}
+    generation = %{state.generation | scheduler: nil, sent: %{}, retry: nil}
+
+    for key <- Map.keys(state.encodes),
+        not Jobs.running?(state.jobs, {:encode, key}),
+        do: send_after(state, {:retry_encode, key}, 0)
+
+    with %{token: token} <- state.entities.handoff,
+         do: send_after(state, {:item_handoff_wake, token}, 0)
 
     %{
       state
       | tickets: Tickets.remonitor(state.tickets),
         container_viewers: ContainerViewers.remonitor(state.container_viewers),
+        jobs: Jobs.watch(state.jobs),
         generation: generation
     }
   end
@@ -1414,7 +1434,10 @@ defmodule Valimc.World.RegionData do
       do:
         settled(%{
           state
-          | storage: RegionStorage.checkpoint(state.storage, parts(state), state.blocks)
+          | storage:
+              RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
+                wrap: &{:resource, state.epoch, &1}
+              )
         }),
       else: state
   end
@@ -2595,14 +2618,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A worker without a monitor (a slot's, `Valimc.World.Jobs`) failed.
-  def handle_info({:job_down, kind, token, reason}, state) do
-    case Jobs.finish(state.jobs, kind, token) do
-      {:ok, job, jobs} -> job_failed(kind, job.data, {:down, reason}, %{state | jobs: jobs})
-      :stale -> {:noreply, state}
-    end
-  end
-
   def handle_info({:job_deadline, kind, token}, state) do
     case Jobs.expire(state.jobs, kind, token) do
       {:ok, job, jobs} -> job_failed(kind, job.data, :timeout, %{state | jobs: jobs})
@@ -2610,10 +2625,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _, reason}, %{jobs: %{monitors: monitors}} = state)
-      when is_map_key(monitors, ref) do
-    {:ok, job, jobs} = Jobs.down(state.jobs, ref)
-    job_failed(job.kind, job.data, {:down, reason}, %{state | jobs: jobs})
+  # A worker's monitor (`Valimc.World.Jobs`): one that ended without a report.
+  def handle_info({:job_down, ref, reason}, state) do
+    case Jobs.down(state.jobs, ref, reason) do
+      {:ok, job, jobs} -> job_failed(job.kind, job.data, {:down, reason}, %{state | jobs: jobs})
+      :none -> {:noreply, state}
+    end
   end
 
   def handle_info(

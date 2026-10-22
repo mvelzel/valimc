@@ -191,15 +191,19 @@ defmodule Valimc.RegionizerTest do
     regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
     :sys.suspend(regionizer)
 
+    # Wanted by nobody: it loads and unloads before the regionizer reads of
+    # it. Its group reports the unload and, with nothing left, asks to
+    # retire: the regionizer, which alone retires groups, stops it.
+    {:ok, {group, _}} = Valimc.TestWorld.owner(bridge)
+    monitor = Process.monitor(group)
+
     try do
-      # Wanted by nobody: it loads and unloads before the regionizer reads of
-      # it. Its group reports the unload, then stops (it has nothing left).
-      {:ok, {group, _}} = Valimc.TestWorld.owner(bridge)
-      monitor = Process.monitor(group)
-      assert_receive {:DOWN, ^monitor, :process, ^group, _}, 30_000
+      Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(bridge) == nil end)
     after
       :sys.resume(regionizer)
     end
+
+    assert_receive {:DOWN, ^monitor, :process, ^group, _}, 30_000
 
     :ok = Regionizer.settle(:overworld)
     assert separate?(hd(ends), List.last(ends))

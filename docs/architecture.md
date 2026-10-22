@@ -111,13 +111,10 @@ uuid, message}` and writes the packets the session sends back after each
 callback. A pickup, a drop, a placement, a container or table click, an XP
 pickup and a death's drops are plain calls inside the group, so the inventory
 and the world change in one callback and are durable in one record. A player
-crossing into another group's section is handed over, with its storage, once
-its frames are sent; one whose section moves goes along. The group keeps the
-player until the new one holds it: a target that stops first never ran what
-was forwarded to it, so the old group resumes the player and replays that in
-order. A group that crashes
-disconnects its players, whose clients hold state newer than what is durable;
-their next login loads every durable frame.
+is registered under its uuid exactly while a group hosts it or saves its last
+frame; a login waits until no group does. A group that crashes disconnects its
+players, whose clients hold state newer than what is durable; their next login
+loads every durable frame.
 
 One regionizer per dimension applies Folia's rule at section size (grid
 exponent 3, create and merge radius 1): a loaded section joins every group with
@@ -125,14 +122,43 @@ a loaded section within three sections of it, so separate groups keep their
 loaded chunks at least 25 chunks apart. A group whose sections fall into
 pieces splits once a sixth of the sections it had at its last recalculation
 have unloaded. The regionizer only decides; groups move sections at their
-tick boundaries, one change at a time. A handoff passes the section's Rust
-store to the new owner (`region_give`: the NIF's owner check follows it), its
-table with `:ets.give_away/3` and its state in one message; the adopting group
-takes the route and the section keeps its epoch. The group it left forwards
-what still arrives for the section for two minutes; one left without sections
-then stops. A group without sections does not tick, so a timer expires its
-forwards and moves its players on instead, and no group stops while a section
-or player handed to it waits unread in its mailbox.
+tick boundaries, one change at a time. The regionizer also alone retires
+groups: a group left with nothing (no sections, players, saves of leaving
+players or transfers) asks, and is told to stop only when the regionizer's own
+record of it holds no section, so a group about to adopt is never stopped and
+a retiring one is never chosen as a target. A group ticks while it has
+sections or players.
+
+One transfer moves sections and players between groups (VMC-077y), the way
+Folia moves a region's state: adopt, held, release. The giving group waits
+until every frame it sent is durable, sending nothing more meanwhile (frames
+cut meanwhile go along), so no log acknowledgement ever follows a section or
+player elsewhere. It then sends the sections and the players standing in them
+in one message: each section's Rust store changes owner (`region_give`: the
+NIF's owner check follows it), its table moves with `:ets.give_away/3`, its
+route moves to the target and it keeps its epoch; the target watches its
+ticket holders, viewers and workers again and hosts the players, telling their
+connections. The giving group keeps the players until the target says held:
+what arrives for them meanwhile goes on and is copied, and if the target stops
+first (taking the sections' routes; their log holds every frame) the players
+resume where they were and run the copies in order. A player crossing into
+another group's section, teleported or carried by a portal moves alone through
+the same transfer, once no session job runs; a target that does not hold the
+player's section refuses it, and it stays.
+
+Nothing is forwarded by table. A message for a section a group does not hold
+goes on by the Directory's current route (by key, chunk or epoch); a worker
+reports to its section's current group, and its monitor's message carries
+the section's epoch. One for a player goes to the group that hosts it. A call
+is relayed: the group that received it, which its caller watches, stays until
+the answer passed through. A call that reaches a group after it stopped never
+ran: one that names an epoch goes to that section's current route
+(`Region.call/3`); other callers get the usual retry. The adopting group arms a section's timers again, since the group it
+left may stop before they fire there. A connection watches the
+groups it told its view's tickets to and tells the view again when one
+stops. A delivery of generated chunks for a section that moved goes on with
+its credit, and the group that installs it acknowledges it for the group it
+was sent to.
 
 ## Foundations
 

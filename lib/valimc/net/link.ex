@@ -47,6 +47,7 @@ defmodule Valimc.Net.Link do
     :own_chunk_missing,
     :regions,
     :wanted,
+    :wanted_owners,
     :generation_focus,
     :pending,
     :chunk_sender,
@@ -139,6 +140,9 @@ defmodule Valimc.Net.Link do
       Codec.reject(%{state | owner: nil}, "World owner restarted; please reconnect")
     end)
   end
+
+  def info({:wanted_owner_down, _ref, :process, pid, _}, state),
+    do: {:noreply, Replication.owner_down(state, pid)}
 
   def info({:DOWN, ref, :process, pid, _} = message, state) do
     case Replication.chunk_reply(state, message) do

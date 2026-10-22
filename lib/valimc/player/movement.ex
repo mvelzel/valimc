@@ -1,6 +1,4 @@
 defmodule Valimc.Player.Movement do
-  require Logger
-
   @moduledoc """
   Player movement in the player's session: input, position and motion
   validation, pose sampling, kinetics and movement attributes (VMC-069).
@@ -121,11 +119,6 @@ defmodule Valimc.Player.Movement do
       cond do
         # "moved too quickly"
         distance - (vx * vx + vy * vy + vz * vz) > allowance ->
-          Logger.info(
-            "movement correction: too quickly, distance² #{Float.round(distance, 2)}, " <>
-              "allowance #{allowance}, packets #{count}, mode #{state.player.game_mode.current}"
-          )
-
           correct_motion(state, :movement_speed_corrections)
 
         state.life_stage != :alive ->
@@ -170,19 +163,9 @@ defmodule Valimc.Player.Movement do
         accept(state, position, result)
 
       {:ok, %{accepted: false}} ->
-        Logger.info(
-          "movement correction: collision, mode #{state.player.game_mode.current}, " <>
-            "to #{inspect(position)}"
-        )
-
         correct_motion(state, :movement_collision_corrections)
 
-      {:error, reason} ->
-        Logger.info(
-          "movement correction: geometry #{inspect(reason)}, " <>
-            "mode #{state.player.game_mode.current}, to #{inspect(position)}"
-        )
-
+      {:error, _reason} ->
         correct_motion(state, :movement_geometry_corrections)
     end
   end
@@ -234,16 +217,6 @@ defmodule Valimc.Player.Movement do
     player = if reset_motion, do: %{player | motion: %Motion{}}, else: player
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
-
-    Logger.debug(fn ->
-      {:current_stacktrace, [_, _ | frames]} = Process.info(self(), :current_stacktrace)
-
-      callers =
-        frames |> Enum.take(3) |> Enum.map_join(" < ", &Exception.format_stacktrace_entry/1)
-
-      "teleport #{teleport} to #{inspect({player.x, player.y, player.z})} from #{callers}"
-    end)
-
     send_packets(state, [Packets.teleport(player, teleport, delta)])
     PlayerList.update(state.connection, player)
 
