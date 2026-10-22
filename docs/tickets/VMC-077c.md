@@ -1,7 +1,6 @@
 # VMC-077c — Per-chunk light
 
-Status: Awaiting client
-Note: Live in play; the VMC-077 milestone client run checks light at chunk and region borders.
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (audit finding C2/C8, boundary B3/F2),
 [VMC-022](VMC-022.md) (light and the ring), [VMC-075](VMC-075.md) (per-chunk
@@ -137,3 +136,5 @@ Deferred:
 - `/fillbiome` re-images a column without its light, so that chunk is lit
   alone at each load until it is generated or imported again.
 - A ring chunk of a neighbour that unloads keeps its last blocks and light.
+
+Client: interim VMC-077 run on the frozen release of b8646a33 (October 22, 2026; evidence in ignored `.local/client-tests/VMC-077-interim/`): no black chunks or light seams at chunk and region lines, torch light and roof shadow update across x = 128. PASS.

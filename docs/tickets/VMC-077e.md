@@ -1,6 +1,6 @@
 # VMC-077e — Chunk tickets, region unload and World.View
 
-Status: Awaiting client
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan), [VMC-070](VMC-070.md)
 (view distance and chunk batches), [VMC-075](VMC-075.md) (per-chunk generation).
@@ -127,3 +127,5 @@ and movement beside lit furnaces and other block changes without corrections.
 Next: the client run; vanilla's level rings and per-chunk entity ticking with
 the entity store; the remaining owner calls (`Portal.Access` commit retries,
 `World.chunk/1` for tests) with VMC-077g's error taxonomy.
+
+Client: interim VMC-077 run on the frozen release of b8646a33 (October 22, 2026; evidence in ignored `.local/client-tests/VMC-077-interim/`): chunk streaming at view distance 12, a 3,000-block teleport (whole view in about 8–12 s), and unload and return after a 20,000-block hop. PASS.

@@ -1,12 +1,10 @@
 # VMC-077l — Physics kernel in Rust
 
-Status: Foundation
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan),
 [VMC-077d](VMC-077d.md) (the one installed fact table),
 [VMC-077e](VMC-077e.md) (`World.View` over published snapshots).
-Note: Foundation until the milestone client run walks, swims, steps and drops
-items with the kernel.
 
 Before: entity physics was about 70 Elixir modules under `lib/valimc/physics/`.
 Each move packet started a pooled task (`CollisionQuery`, a partitioned
@@ -162,3 +160,5 @@ fail in setup on c50a4670 as well, before this ticket.
 - Block-entity collision shapes (opening shulker boxes, moving pistons) are
   not modelled: shulker boxes collide as closed, moving pistons as empty.
 - Mobs use the same kernel when they arrive (M3).
+
+Client: interim VMC-077 run on the frozen release of b8646a33 (October 22, 2026; evidence in ignored `.local/client-tests/VMC-077-interim/`): walking, sprinting, step-up, ladders, falls, walls without rubber-banding; items fall, settle, drift and cross a region line. PASS.

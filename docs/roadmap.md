@@ -31,19 +31,14 @@ have landed; wave 3 runs the entity store and the regionizer, then players in ow
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077b](tickets/VMC-077b.md) | Native scheduling policy and NIF hygiene | Foundation |
-| [VMC-077c](tickets/VMC-077c.md) | Per-chunk light, section-mask light packets | Awaiting client |
-| [VMC-077e](tickets/VMC-077e.md) | Chunk tickets, unload, ack-paced batches, `World.View` | Awaiting client |
-| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity | Foundation |
-| [VMC-077l](tickets/VMC-077l.md), [077l2](tickets/VMC-077l2.md) | Rust physics kernel; synchronous movement checks in Rust | Foundation |
-| [VMC-077n](tickets/VMC-077n.md) | One generation scheduler per dimension; volatile proto chunks | Awaiting client |
+| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity; natural regeneration at food 18–19 | Foundation |
 | VMC-077h | Entity store: items and orbs as keyed entities, stable ids, pushed deltas | In progress |
 | VMC-077j | Regionizer: groups of sections merge and split around activity | In progress |
 | VMC-077i | Players owned by their group; transfer families deleted | Planned |
 
-Done in foundations II: phase 0, VMC-077a, 077d, 077f, 077g, 077m, 077o. An
-interim client run covers waves 1–2; the phase ends with layout and one client
-run (see [VMC-077](tickets/VMC-077.md)).
+Done in foundations II: phase 0, VMC-077a–g, 077l, 077m, 077n, 077o (interim client
+run passed on waves 1–2; `/fill` interiors and ladder support are being fixed).
+The phase ends with layout and one client run (see [VMC-077](tickets/VMC-077.md)).
 
 ## M3 onward
 

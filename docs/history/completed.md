@@ -5,6 +5,11 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-077b Native scheduling](../tickets/VMC-077b.md) | `f3d92ed`; one capped generation pool, cost-based dispatch, parity NIFs behind a feature, owner checks; interim client run |
+| [VMC-077c Per-chunk light](../tickets/VMC-077c.md) | `44f7876`; chunks lit alone at generation and persisted with their image, incremental runtime light, section-mask packets; install per batch 32 → 0.28 ms; interim client run |
+| [VMC-077e Chunk lifecycle](../tickets/VMC-077e.md) | tickets drive load, simulation and unload; ack-paced chunk batches; `World.View` as the one read path; interim client run |
+| [VMC-077l Physics kernel](../tickets/VMC-077l.md) and [077l2](../tickets/VMC-077l2.md) | `67c9f795`; collision, travel rules and item steps in one Rust kernel; synchronous movement checks (15–16 µs a move); worker pools and corrections on late results gone; interim client run |
+| [VMC-077n Generation scheduler](../tickets/VMC-077n.md) | `9d23f74b`; one scheduler per dimension with write areas that queue, volatile proto chunks, shared `SeedContext`; proto owners and their transactions gone; interim client run |
 | [VMC-077f One log](../tickets/VMC-077f.md) | `833f5c7c`; one striped write-ahead log with keyed change records, per-section checkpoints, one commit per owner per tick, replies before the sync |
 | [VMC-077g Owner skeleton](../tickets/VMC-077g.md) | `f952b6ca`; one job table, admission guard and error taxonomy; RegionData split into owned parts |
 | [VMC-077m Block-rule engine](../tickets/VMC-077m.md) | one Rust engine for shape updates, survival, neighbour updates and redstone wire, shared by worldgen and live regions |

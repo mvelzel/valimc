@@ -1,9 +1,8 @@
 # VMC-077b — Native scheduling policy and NIF hygiene
 
-Status: Foundation
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan).
-Note: Foundation until the milestone client run plays generation with these pools.
 
 Before: `native/valimc_nif/src/lib.rs` was one 2,392-line file of 72 NIF entries
 in seven domains. `WorldgenWorkers` and `DecorationWorkers` were each sized to
@@ -99,3 +98,5 @@ instead of NBT terms; registries parse fact files in Rust instead of a decoded
 term tree; `full_sync` and `fsync_dir` open files outside `FileBudget`;
 `entity_kind`'s global mutex and leaked strings; fluid tick names as strings in
 `worldgen_proto_full`; copy-on-write section snapshots as resources (audit G3).
+
+Client: interim VMC-077 run on the frozen release of b8646a33 (October 22, 2026; evidence in ignored `.local/client-tests/VMC-077-interim/`): generation, teleports and travel played on these pools with no stalls. PASS.

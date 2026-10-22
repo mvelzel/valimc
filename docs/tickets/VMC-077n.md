@@ -1,7 +1,6 @@
 # VMC-077n — One generation scheduler per dimension
 
-Status: Awaiting client
-Note: Live in play; the VMC-077 milestone client run checks generation after joins and long teleports.
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (finding B1, B2, C1–C6; decision D3),
 [VMC-075](VMC-075.md) (per-chunk generation), [VMC-077b](VMC-077.md) (the
@@ -220,3 +219,5 @@ Deferred:
   finishes on its own instead of being killed.
 - A chunk made alone lacks its neighbours' decorations, as vanilla's
   regeneration of a chunk missing from its region file does.
+
+Client: interim VMC-077 run on the frozen release of b8646a33 (October 22, 2026; evidence in ignored `.local/client-tests/VMC-077-interim/`): fresh terrain over 400 blocks across region lines with continuous features; a village by /locate; two Nether portal round trips. PASS.
