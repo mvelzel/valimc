@@ -221,9 +221,13 @@ was sent to.
   vanilla's `LevelTicks`: a tick visits only the containers of simulated
   chunks, so those of the rest wait untouched, with no cap on how many a
   section holds (VMC-077s). What a commit starts (neighbour and shape updates,
-  survival, redstone wire power) and dependent blocks' due ticks run in the Rust
-  block-update engine in one call per commit, over the group's section stores
-  (VMC-077m, VMC-077j); blocks with effects of
+  survival, redstone wire power), dependent blocks' due ticks and due fluid
+  ticks (water and lava, VMC-031a; keyed `{:fluid, id}`, run after the block
+  ticks) run in the Rust block-update engine in one call per commit, over the
+  group's section stores (VMC-077m, VMC-077j); so do a player's buckets and a
+  generated chunk's post-processing marks, settled when it first ticks with
+  its neighbours present. A fluid tick that would read past its group waits
+  its delay and runs again. Blocks with effects of
   their own (portals, containers, cooking) keep `Valimc.Blocks.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Each region owner holds one entity store (`Entity.Store`,
@@ -272,7 +276,10 @@ was sent to.
   mining, replaceability, heightmaps, sky, light and redstone signals. Survival
   keeps two tables, read by one Rust module: decoration checks survival before
   placement under unlit light, live updates after it with their reactions.
-  Block behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the
+  What water and lava read beyond the table (containers' fluids, waterlogging,
+  bucket pickups, dimension attributes) is `physics/fluids.json`
+  (`Valimc.Blocks.Fluids`, VMC-031a); a bucket's ray reads outline shapes
+  (`physics/outlines.json`, `Valimc.Physics.Clip`). Block behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the
   generated class (VMC-068).
 - **Connection.** `Valimc.Net.Connection` is a thin GenServer shell. `Net.*`
   holds the login flow, the pre-play packets and the connection's own

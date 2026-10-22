@@ -74,8 +74,9 @@ defmodule Valimc.BlockTickBehavioursTest do
 
     test "placed coral dies 60 to 99 ticks later away from water, and after its water goes",
          %{owner: owner, origin: {x, y, z} = dry} do
-      wet = {x + 4, y, z}
-      water = {x + 5, y, z}
+      # Water flows (VMC-031a): the wet pair stands beyond its reach of the dry coral.
+      wet = {x + 12, y, z}
+      water = {x + 13, y, z}
       set(owner, %{dry => @coral, wet => @coral, water => @water})
 
       {:ok, _} = Region.step(owner, 59)
@@ -84,8 +85,9 @@ defmodule Valimc.BlockTickBehavioursTest do
       assert block(owner, dry) == @dead
       assert block(owner, wet) == @coral
 
+      # Its flowing water dries first, then the coral's death is scheduled.
       set(owner, %{water => @air})
-      {:ok, _} = Region.step(owner, 100)
+      {:ok, _} = Region.step(owner, 160)
       assert block(owner, wet) == @dead
     end
   end

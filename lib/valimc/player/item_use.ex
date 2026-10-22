@@ -59,6 +59,14 @@ defmodule Valimc.Player.ItemUse do
     stack = Inventory.held(state.inventory, hand)
     props = if stack, do: FoodItems.properties(stack)
 
+    if Valimc.Player.Buckets.bucket?(stack) do
+      Valimc.Player.Buckets.use(state, hand)
+    else
+      begin_food_use(state, hand, stack, props)
+    end
+  end
+
+  defp begin_food_use(state, hand, stack, props) do
     if props && match?({:ok, _}, item_use_effects(stack, props)) &&
          FoodItems.eligible?(props, state.player.food, state.player.abilities) do
       use = Use.new(stack, hand, props)

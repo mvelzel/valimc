@@ -6,9 +6,9 @@
 //! due block ticks and fluid ticks, kept in vanilla's `LevelTicks` order
 //! (trigger tick, then scheduling order; a position and type pending once).
 
+use crate::atoms;
 use crate::facts::FLAGS;
 use crate::rules::BlockRules;
-use crate::atoms;
 use rustler::{Atom, ResourceArc};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use valimc_core::column::{ColumnStore, HEIGHT};

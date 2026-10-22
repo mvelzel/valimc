@@ -1239,6 +1239,27 @@ defmodule Valimc.World.RegionData do
   def handle_call({:abort_box, _epoch, token}, _from, state),
     do: {:reply, :ok, %{state | permits: Permits.release(state.permits, token)}}
 
+  def handle_call({:bucket, epoch, action}, _from, state) do
+    position = elem(action, 1)
+
+    cond do
+      epoch != state.epoch ->
+        {:reply, Error.retry(:stale_owner), state}
+
+      not in_region?(state, position) ->
+        {:reply, {:error, :invalid_bucket}, state}
+
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
+
+      true ->
+        case rule_run(state, %{actions: [action]}) do
+          {state, %{results: [result]}} -> {:reply, {:ok, result}, state}
+          {state, nil} -> {:reply, Error.retry(:region_busy), state}
+        end
+    end
+  end
+
   def handle_call({:placement_state, epoch, {_, y, _} = position, states}, _from, state) do
     cond do
       epoch != state.epoch ->

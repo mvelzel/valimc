@@ -56,12 +56,15 @@ import net.minecraft.world.ticks.TickPriority;
  *   sets first (a waterlogged block that cannot stand then breaks) and the item, an index into
  *   `pickup_items`.
  * - `outlines OUT`: per state its outline shape (`getShape` with an empty collision context, as
- *   a bucket's clip sees it): a palette of geometries, per state its index (hex u16), and
+ *   a bucket's clip sees it): a palette of geometries (grid axes, sizes and filled cells, and the
+ *   boxes `toAabbs` gives), per state its index (hex u16), and
  *   `offsets`, `[state, kind, horizontal, vertical]` for the states whose outline moves by their
  *   position offset (kind 1 XZ, 2 XYZ, with the block's largest offsets; their geometry is the
  *   outline at offset zero). Other offset blocks keep their outline in place.
  * - `clips OUT`: `BlockGetter.clip` with outline shapes and the fluid modes NONE and
- *   SOURCE_ONLY over random scenes of blocks and fluids: per ray its hit (or miss).
+ *   SOURCE_ONLY over random scenes of blocks and fluids: per ray its hit (or miss). Fluid shapes
+ *   are first cached at their own heights (`FlowingFluid` keeps the first one it computes).
+ *   `views`: `calculateViewVector` for random pitches and yaws.
  * - `scenes OUT [SCENES [SEED]]`: flow over a probe level whose block and fluid ticks are
  *   vanilla's own `LevelTicks`, run as `ServerLevel.tick` runs them (block ticks, then fluid
  *   ticks, each in drain order). Scenes straddle chunk and 8 x 8 chunk section lines. Each game
@@ -268,7 +271,7 @@ public class FluidOracle {
           if(!near(moved.toAabbs(),shape.move(at.x,at.y,at.z).toAabbs()))throw new AssertionError("outline not its offset base "+state);
         }
       }
-      var geometry=BlockFactsOracle.geometry(shape);geometry.remove("boxes");
+      var geometry=BlockFactsOracle.geometry(shape);geometry.remove("full_block");
       var key=gson.toJson(geometry);Integer index=indexes.get(key);
       if(index==null){index=palette.size();indexes.put(key,index);palette.add(geometry);}
       hex.append(String.format(Locale.ROOT,"%04x",index));
@@ -337,6 +340,9 @@ public class FluidOracle {
 
   static void clips(String out)throws Exception{
     var probe=probe(5);var random=new Random(31_002L);var scenes=new JsonArray();int hits=0,fluidHits=0;
+    // `FlowingFluid` caches each fluid state's shape at the height of the first cell asked:
+    // ask every state where no fluid stands above, so sources keep their own height.
+    for(var fluidState:Fluid.FLUID_STATE_REGISTRY)fluidState.getShape(EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
     for(int s=0;s<200;s++){
       probe.cells=new HashMap<>();var cells=new JsonArray();var placed=new ArrayList<BlockPos>();
       for(int i=0;i<60;i++){
@@ -363,9 +369,16 @@ public class FluidOracle {
       var scene=new JsonObject();scene.add("cells",cells);scene.add("rays",rays);scenes.add(scene);
     }
     if(hits<1500||fluidHits<300)throw new AssertionError("thin clips: "+hits+" hits, "+fluidHits+" in fluid cells");
-    var result=new JsonObject();result.add("scenes",scenes);
+    // `Entity.calculateViewVector`, which aims an item's clip.
+    var views=new JsonArray();
+    for(int i=0;i<2000;i++){
+      float pitch=(float)(random.nextDouble()*180-90),yaw=(float)(random.nextDouble()*720-360);
+      var v=net.minecraft.world.entity.Entity.calculateViewVector(pitch,yaw);
+      var row=new JsonArray();row.add(pitch);row.add(yaw);row.add(v.x);row.add(v.y);row.add(v.z);views.add(row);
+    }
+    var result=new JsonObject();result.add("scenes",scenes);result.add("views",views);
     Files.writeString(Path.of(out),new Gson().toJson(result)+"\n");
-    System.out.println("PASS: 4000 clips over 200 scenes; "+hits+" hits, "+fluidHits+" at fluid cells");
+    System.out.println("PASS: 4000 clips over 200 scenes; "+hits+" hits, "+fluidHits+" at fluid cells; 2000 view vectors");
   }
 
   static void scenes(String out,int sceneCount,long seed)throws Exception{

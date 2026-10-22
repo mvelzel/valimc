@@ -14,8 +14,8 @@
 
 use std::collections::HashMap;
 
-use super::updater::{Engine, World, ALL, KNOWN_SHAPE, UPDATE_LIMIT, UPDATE_SHAPE_ORDER};
 use super::at;
+use super::updater::{Engine, World, ALL, KNOWN_SHAPE, UPDATE_LIMIT, UPDATE_SHAPE_ORDER};
 use crate::physics::facts::Facts as Physics;
 use crate::physics::table::Context;
 use crate::physics::VoxelShape;
@@ -105,7 +105,7 @@ impl Fluid {
 
     /// `Fluid.isSame`: water with water, lava with lava.
     fn same(self, kind: u8) -> bool {
-        kind != FLUID_EMPTY && self.kind != FLUID_EMPTY && (self.kind + 1) / 2 == (kind + 1) / 2
+        kind != FLUID_EMPTY && self.kind != FLUID_EMPTY && self.kind.div_ceil(2) == kind.div_ceil(2)
     }
 
     /// `getOwnHeight`.
@@ -220,7 +220,12 @@ impl FluidFacts {
                 .collect(),
             pickups: (0..pickups.len())
                 .step_by(5)
-                .map(|i| (u16_at(&pickups, i), (u16_at(&pickups, i + 2), pickups[i + 4])))
+                .map(|i| {
+                    (
+                        u16_at(&pickups, i),
+                        (u16_at(&pickups, i + 2), pickups[i + 4]),
+                    )
+                })
                 .collect(),
             pickup_items,
             water: levels("water")?,
@@ -262,10 +267,7 @@ impl FluidFacts {
 
     /// The collision shape `canPassThroughWall` reads: the empty context's.
     fn shape(&self, state: u16, pos: [i32; 3]) -> Option<(&VoxelShape, [f64; 3])> {
-        let picked = self
-            .physics?
-            .shapes
-            .shape(state, pos, &Context::default());
+        let picked = self.physics?.shapes.shape(state, pos, &Context::default());
         Some((picked.shape, picked.offset))
     }
 }
@@ -576,9 +578,8 @@ impl<W: World> Engine<'_, W> {
     /// (five cells around it: the slope search and its holes).
     fn owns_around(&self, pos: [i32; 3]) -> bool {
         let chunks = |c: i32| ((c - 5) >> 4)..=((c + 5) >> 4);
-        chunks(pos[0]).all(|cx| {
-            chunks(pos[2]).all(|cz| self.world.owns([cx * 16, pos[1], cz * 16]))
-        })
+        chunks(pos[0])
+            .all(|cx| chunks(pos[2]).all(|cz| self.world.owns([cx * 16, pos[1], cz * 16])))
     }
 
     /// `FlowingFluid.tick`.
@@ -632,7 +633,8 @@ impl<W: World> Engine<'_, W> {
         if fluid.is_water() {
             d == DOWN && !(other == FLUID_WATER || other == FLUID_FLOWING_WATER)
         } else if fluid.is_lava() {
-            self.height(fluid, pos) >= 0.444_444_45 && (other == FLUID_WATER || other == FLUID_FLOWING_WATER)
+            self.height(fluid, pos) >= 0.444_444_45
+                && (other == FLUID_WATER || other == FLUID_FLOWING_WATER)
         } else {
             true
         }
@@ -1032,8 +1034,14 @@ mod tests {
     #[test]
     fn rectangles_cover_the_unit_square_exactly() {
         assert!(covers_unit_square(&[[0.0, 1.0, 0.0, 1.0]]));
-        assert!(covers_unit_square(&[[0.0, 0.5, 0.0, 1.0], [0.5, 1.0, 0.0, 1.0]]));
-        assert!(!covers_unit_square(&[[0.0, 0.5, 0.0, 1.0], [0.5, 1.0, 0.0, 0.9]]));
+        assert!(covers_unit_square(&[
+            [0.0, 0.5, 0.0, 1.0],
+            [0.5, 1.0, 0.0, 1.0]
+        ]));
+        assert!(!covers_unit_square(&[
+            [0.0, 0.5, 0.0, 1.0],
+            [0.5, 1.0, 0.0, 0.9]
+        ]));
         assert!(covers_unit_square(&[[-0.5, 1.5, -1.0, 2.0]]));
         assert!(!covers_unit_square(&[]));
     }

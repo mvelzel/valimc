@@ -19,6 +19,9 @@ defmodule Valimc.Blocks.Fluids do
   @fluids %{1 => :flowing_water, 2 => :water, 3 => :flowing_lava, 4 => :lava}
   @ids Map.new(@fluids, fn {id, name} -> {name, id} end)
 
+  @doc "The facts as the Rust rules parse them (read at run time)."
+  def native_facts, do: Valimc.Data.Facts.read!("physics/fluids.json")
+
   @doc "A source conversion game rule's default (`water_source_conversion`, `lava_source_conversion`)."
   def game_rule(name), do: Map.fetch!(@game_rules, name)
 

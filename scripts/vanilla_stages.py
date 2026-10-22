@@ -671,6 +671,8 @@ STAGES = [
         ('same', '@outlines.json', 'priv/physics/outlines.json'),
         ('java', 'FluidOracle', 'scenes', '@fluid-scenes.json'),
         ('check', 'check_fluids.exs', '@fluid-scenes.json'),
+        ('java', 'FluidOracle', 'clips', '@clips.json'),
+        ('check', 'check_clips.exs', '@clips.json'),
     ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),

@@ -52,7 +52,7 @@ defmodule Valimc.World.BlockRules do
       "support" => Worldgen.fact("survival"),
       "shapes" => Worldgen.fact("shapes"),
       "live_support" => Valimc.Data.Facts.read!("physics/support.json"),
-      "fluids" => Valimc.Data.Facts.read!("physics/fluids.json")
+      "fluids" => Valimc.Blocks.Fluids.native_facts()
     }
   end
 

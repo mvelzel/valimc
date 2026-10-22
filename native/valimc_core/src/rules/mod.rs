@@ -176,7 +176,9 @@ impl Rules {
         // A block holding water (waterlogged, kelp, seagrass) schedules its
         // water in `updateShape`.
         if self.fluids.is_some()
-            && !self.table.flag(state, crate::worldgen::blocks::LIQUID_BLOCK)
+            && !self
+                .table
+                .flag(state, crate::worldgen::blocks::LIQUID_BLOCK)
             && self.table.fluid(state) == FLUID_WATER
         {
             access.schedule_fluid_tick(pos, FLUID_WATER, WATER_DELAY);

@@ -341,6 +341,22 @@ defmodule Valimc.World.Region do
   end
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
+
+  @doc """
+  A player's bucket in the owner of `action`'s cell (VMC-031a), run by the
+  block rules: `{:empty, position, fluid, retry, secondary}` (`BucketItem.
+  emptyContents`) or `{:pickup, position}` (`BucketPickup.pickupBlock`).
+  `{:ok, result}`: for a bucket emptied 0 (it could not), 1 (placed) or 2
+  (evaporated); for a pickup 0 (nothing) or the item's index + 1
+  (`Valimc.Blocks.Fluids.pickup_item/1`).
+  """
+  def bucket({pid, epoch}, action) when is_pid(pid) and is_reference(epoch) do
+    call(pid, {:bucket, epoch, action}, budget(pid, 1000))
+  catch
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
+  end
+
   @doc "One fresh creative destruction through the owner, including its owned metadata journal."
   def destroy_block({pid, epoch}, revision, position, deadline) do
     call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))

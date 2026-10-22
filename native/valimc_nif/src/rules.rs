@@ -119,7 +119,14 @@ fn put_position(out: &mut Vec<u8>, pos: [i32; 3]) {
 }
 
 type Updated<'a> = (
-    (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>, Vec<i32>),
+    (
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Vec<i32>,
+    ),
     (u64, u64, u64),
 );
 
@@ -269,9 +276,10 @@ fn updates<'a>(
         options: Options::from_bits(packed.options),
     };
     let mut random = Random::legacy(seed);
-    let outcome = valimc_core::rules::live::run(rules, &stores, &absent, &input, &mut random, budget)
-        .map_err(|_| atoms::invalid_state())?
-        .ok_or(atoms::too_large())?;
+    let outcome =
+        valimc_core::rules::live::run(rules, &stores, &absent, &input, &mut random, budget)
+            .map_err(|_| atoms::invalid_state())?
+            .ok_or(atoms::too_large())?;
     Ok(encode(env, &outcome))
 }
 
