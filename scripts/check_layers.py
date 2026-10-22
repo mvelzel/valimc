@@ -35,15 +35,6 @@ BASE = {"lib/valimc.ex", "lib/valimc/native.ex"}
 # Known upward edges, each with the change that removes it. The check fails on
 # any other violation and on an entry that no longer occurs.
 ALLOWED = {
-    # The hosted session's router (VMC-077i) still carries the connection's
-    # login, authentication and socket clauses; splitting it into the
-    # connection's half and the session's half removes these.
-    ("lib/valimc/player/host.ex", "lib/valimc/session/messages.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/auth/profile.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/connection.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/login_jobs.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/login_flow.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/serverbound.ex"): "hosted session router",
     # Block behaviours read their level's build height from the owner's
     # dimension context; passing the level to the callbacks removes it.
     ("lib/valimc/blocks/nether_portal.ex", "lib/valimc/world/dimension.ex"): "level height",
@@ -151,7 +142,7 @@ def main():
     if problems:
         raise SystemExit("LAYERING CHECK FAILED\n" + "\n".join(problems))
     print(f"PASS: {len(edges)} files depend only on their own or lower layers "
-          f"({len(ALLOWED)} known exceptions)")
+          f"({len(ALLOWED)} known exception{'' if len(ALLOWED) == 1 else 's'})")
 
 
 if __name__ == "__main__":

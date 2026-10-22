@@ -1,4 +1,4 @@
-defmodule Valimc.Session.Link do
+defmodule Valimc.Net.Link do
   @moduledoc """
   The connection's half of a playing session (VMC-077i3). At the end of
   login the connection hands the session (`Valimc.Player.Host`) to the group
@@ -17,7 +17,7 @@ defmodule Valimc.Session.Link do
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
-  alias Valimc.Session.{ChunkSender, Events, Messages, Replication}
+  alias Valimc.Session.{ChunkSender, Events, Replication}
   alias Valimc.World
   alias Valimc.World.ChestLidReplication
   alias Valimc.Entity.Observer
@@ -102,11 +102,14 @@ defmodule Valimc.Session.Link do
     :exit, _ -> {:error, :owner_unavailable}
   end
 
-  @doc "The session part of a connection's state, as its group hosts it."
+  @doc """
+  The session part of a connection's state, as its group hosts it, with the
+  router its group runs its messages through (`Valimc.Player.Host`).
+  """
   def session(state) do
     state
     |> Map.drop(@link_keys)
-    |> Map.merge(%{socket: nil, pickup_cache: %{}})
+    |> Map.merge(%{socket: nil, pickup_cache: %{}, router: Valimc.Session.Messages})
   end
 
   @doc "A message to a connection whose session its group hosts."
@@ -147,9 +150,9 @@ defmodule Valimc.Session.Link do
   end
 
   def info({[:alias | ref], _} = message, state) when is_reference(ref),
-    do: Messages.info(message, state)
+    do: Valimc.Net.Messages.info(message, state)
 
-  def info(:send_chunks, state), do: Messages.info(:send_chunks, state)
+  def info(:send_chunks, state), do: Valimc.Net.Messages.info(:send_chunks, state)
 
   def info(:publish_movement, state) do
     forward(state, :publish_movement)
@@ -170,10 +173,10 @@ defmodule Valimc.Session.Link do
 
   def info(message, state)
       when is_tuple(message) and elem(message, 0) in [:tcp, :tcp_closed, :tcp_error, :EXIT],
-      do: Messages.info(message, state)
+      do: Valimc.Net.Messages.info(message, state)
 
   def info(message, state) when message in [:drain, :keepalive],
-    do: Messages.info(message, state)
+    do: Valimc.Net.Messages.info(message, state)
 
   def info(:login_deadline, state), do: {:noreply, state}
 

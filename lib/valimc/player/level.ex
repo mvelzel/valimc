@@ -66,7 +66,7 @@ defmodule Valimc.Player.Level do
     state = Travel.leave(state, player)
 
     # The client forgets its level chunk by chunk first: its connection
-    # resets the view in order with the session's packets (`Valimc.Session.Link`)
+    # resets the view in order with the session's packets (`Valimc.Net.Link`)
     # for the new `dimension`, unloading the old level chunk by chunk
     # (`unload`), with the clock, difficulty, weather and border views.
     Valimc.Protocol.Codec.out(

@@ -14,8 +14,7 @@ through `Net.Codec`, and the text codec called the command parser. Most of
 the code was one dependency cycle.
 
 Scope: phase 6 of VMC-077. Moves and function moves only: no gameplay or
-protocol behaviour changes. Not here: splitting the hosted session's router
-(below).
+protocol behaviour changes.
 
 ## What changed
 
@@ -56,6 +55,24 @@ protocol behaviour changes. Not here: splitting the hosted session's router
   - `ChunkView` (and the regions a view covers) is Player's,
     `ChestBlockEntity` Blocks', the sprint report a private part of
     `World.TickRate`; `/clear` sends its item matcher to the player.
+- **The router split.** `Session.Messages` was one router for the connection
+  before play and for the session its group hosts in play, so the group
+  (`Player.Host`) depended on the session layer and, through it, on the
+  connection's login code; that one edge held two thirds of the remaining
+  cycle together.
+  - The connection's own clauses (socket data and the read loop, the login
+    jobs' replies and deadlines, the login deadline, keepalives, chunk
+    replies and the chunk stream, linked exits) are `Net.Messages`. Before
+    play the connection runs the session's jobs first, then these clauses,
+    then the session's (`Session.Messages.dispatch/3` takes the fallback),
+    so no message changes route.
+  - The play packets are `Session.Play`, out of `Net.Serverbound`, which
+    keeps the pre-play phases and the packets the connection keeps in play.
+  - A hosted session carries its router module (`:router`); `Player.Host`
+    defines the callbacks it runs (`dispatch/2`, `claims?/2`,
+    `terminate/1`) and `Session.Messages` implements them, as GenServer's
+    callbacks are run.
+  - The connection's half is `Net.Link`.
 - **Mechanical leftovers.**
   - One `Data.Float32` (`round/1`, `round_or_infinity/1`) replaces 22
     private f32 helpers, three public copies and `Reader.to_float32`; mining
@@ -88,8 +105,8 @@ protocol behaviour changes. Not here: splitting the hosted session's router
 | Files under `lib` | 330 | 334 |
 | Lines under `lib` | 56,214 | 56,211 |
 | Flat modules in `lib/valimc` | 70 | 8 (the application, the NIF module, 6 context facades) |
-| Largest dependency cycle (`mix xref graph --format cycles`) | 230 files (41 compile, 51 export edges) | 76 files (1 compile, 6 export) |
-| Upward edges under the ranking | 73 | 7, all known exceptions |
+| Largest dependency cycle (`mix xref graph --format cycles`) | 230 files (41 compile, 51 export edges) | 41 files (1 export) |
+| Upward edges under the ranking | 73 | 1, the known exception |
 | protocol → player, world | 14 | 0 |
 | protocol → living, menus, storage, commands, admin | 12 | 0 |
 | world → connection | 2 | 0 |
@@ -98,15 +115,10 @@ protocol behaviour changes. Not here: splitting the hosted session's router
 
 The "before" edges are the graph at 38f8a86a with every file where it is
 now; the moves alone would have left those 73, the function moves removed 66.
-Without the seven exceptions the largest cycle would be 41 files.
+The router split took the largest cycle from 76 files to 41.
 
-## Known exceptions
+## Known exception
 
-- The hosted session's router (`Session.Messages`, run by `Player.Host` in a
-  group) still carries the connection's login, authentication and socket
-  clauses: `Player.Host` → `Session.Messages` → five `Net` modules. Splitting
-  it into the connection's half and the hosted session's half removes six
-  edges and most of the remaining cycle.
 - `Blocks.NetherPortal` reads its level's build height from the owner's
   dimension context (`World.Dimension.bounds/0`); passing the level to block
   callbacks removes it.
@@ -123,7 +135,11 @@ the full `mix test` through `scripts/heavy.py` on the layering commit (574 of
 574) and on the leftovers commit (572 of 574: the portal test still sent the
 removed teleport call; it uses `TestConn.teleport/2` now and passes);
 `check_vanilla.py --changed 38f8a86a` once at the end: 209 of 209 stages
-(every stage; the moves reach them all).
+(every stage; the moves reach them all). The router split: the full `mix test`,
+575 of 576 (the one failure, `RegionizerTest` "a split decided before a
+second unload's report still splits", counts every overworld group while
+other tests make their own; it passes alone, four runs of four), and the
+`tcp` stage, the only one `--changed` selects.
 
 Storage: worlds and player files written before this change hold the old
 struct names (an item's motion, a player's motion, food, experience,
@@ -133,8 +149,7 @@ final client run's world belongs to its frozen release.
 
 Next / deferred:
 
-- Split `Session.Messages` (the first known exception).
-- Pass the level to block behaviour callbacks (the second).
+- Pass the level to block behaviour callbacks (the known exception).
 - The parity NIFs behind the deleted kernel wrappers
   (`physics_any_liquid`, `physics_footing`, `physics_inside_shape`,
   `physics_new_collision`) have no caller; remove them from

@@ -6,7 +6,8 @@ defmodule Valimc.Player.Host do
   the view and stays the player's address: what is meant for the session
   arrives there and is forwarded here as `{:player, uuid, message}`.
 
-  - **Callbacks.** A session message runs the same handlers a connection ran
+  - **Callbacks.** A session message runs its session's router, the module
+    under the session's `:router` key that implements this module's callbacks
     (`Valimc.Session.Messages`), in the player's dimension. What the session
     sends goes to the connection after the callback as one
     `{:player_out, items}`: frames, view changes and view resets in order.
@@ -35,12 +36,21 @@ defmodule Valimc.Player.Host do
   to the group that made them; the session that claims one handles it, and an
   unclaimed one follows the players this group handed on.
   """
+  @doc "Route a message the session's group received (its jobs first)."
+  @callback dispatch(message :: term, session :: map) ::
+              {:noreply, map} | {:stop, term, map}
+
+  @doc "Whether a process-bound message (a task reply, a DOWN, a job timer) is the session's."
+  @callback claims?(session :: map, message :: term) :: boolean
+
+  @doc "The session ends: it releases what it holds and returns the state its last frame saves."
+  @callback terminate(session :: map) :: map
+
   alias Valimc.Data.Grid
   require Logger
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.Storage
   alias Valimc.Protocol.Codec
-  alias Valimc.Session.Messages
   alias Valimc.World
   alias Valimc.World.PlayerTracker
 
@@ -97,7 +107,7 @@ defmodule Valimc.Player.Host do
   @doc "A session's message (`{:player, uuid, message}`)."
   def info(state, uuid, message) do
     case state.players do
-      %{^uuid => _} -> run(state, uuid, &Messages.dispatch(message, &1))
+      %{^uuid => _} -> run(state, uuid, &route(&1, :dispatch, [message, &1]))
       _ -> forward(state, uuid, {:player, uuid, message})
     end
   end
@@ -353,9 +363,11 @@ defmodule Valimc.Player.Host do
   def claim(state, message, hops), do: claim_session(state, message, hops)
 
   defp claim_session(state, message, hops) do
-    case Enum.find(state.players, fn {_, entry} -> Messages.claims?(entry.session, message) end) do
+    case Enum.find(state.players, fn {_, entry} ->
+           route(entry.session, :claims?, [entry.session, message])
+         end) do
       {uuid, _} ->
-        {:ok, run(state, uuid, &Messages.dispatch(message, &1))}
+        {:ok, run(state, uuid, &route(&1, :dispatch, [message, &1]))}
 
       nil when hops < 2 and state.player_moves != %{} ->
         for pid <- state.player_moves |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.uniq(),
@@ -464,7 +476,7 @@ defmodule Valimc.Player.Host do
 
     session =
       try do
-        Messages.terminate(session)
+        route(session, :terminate, [session])
       rescue
         exception ->
           Logger.error(
@@ -584,4 +596,7 @@ defmodule Valimc.Player.Host do
     now = System.monotonic_time(:millisecond)
     %{state | player_moves: Map.filter(state.player_moves, fn {_, {_, until}} -> until > now end)}
   end
+
+  # A session's router (its `:router`, the callbacks above).
+  defp route(session, callback, args), do: apply(session.router, callback, args)
 end

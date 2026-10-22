@@ -4,7 +4,7 @@ defmodule Valimc.Net.Connection do
   @moduledoc """
   A socket-owning process per player: framing, encryption, compression, login
   and configuration, then in play the chunk view and replication while its
-  session runs at the player's group (`Valimc.Session.Link`,
+  session runs at the player's group (`Valimc.Net.Link`,
   `Valimc.Player.Host`). It stays the player's address throughout.
   """
   require Logger
@@ -173,11 +173,11 @@ defmodule Valimc.Net.Connection do
 
   @impl true
   # In play the session runs at its owner and the connection keeps its own
-  # messages (`Valimc.Session.Link`); before that it runs the session itself.
+  # messages (`Valimc.Net.Link`); before that it runs the session itself.
   def handle_info(message, %{owner: owner} = state) when owner != nil,
-    do: Valimc.Session.Link.info(message, state)
+    do: Valimc.Net.Link.info(message, state)
 
-  def handle_info(message, state), do: Messages.dispatch(message, state)
+  def handle_info(message, state), do: Valimc.Net.Messages.dispatch(message, state)
 
   @doc false
   def consume(%{step: step} = state, _) when step in [:key_job, :auth_job],

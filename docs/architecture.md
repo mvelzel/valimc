@@ -24,16 +24,19 @@ depends only on its own rank and the ranks below it:
 | 7 | Net | The connection shell, login, authentication, the listener, the console and RCON |
 
 `scripts/check_layers.py`, run by the publication audit, fails on any `mix
-xref` edge to a higher rank. Its few known exceptions name the change that
-removes each: the hosted session's router still carries the connection's
-login and authentication clauses, and one block behaviour reads its level's
-height from its owner's dimension context.
+xref` edge to a higher rank. Its one known exception names the change that
+removes it: a block behaviour reads its level's height from its owner's
+dimension context. A lower layer that must run code of a higher one takes it
+as a value: a hosted session carries its router module, whose callbacks
+`Player.Host` defines (`Session.Messages` implements them), and the physics
+kernel reads the world through `Physics.Cells`, which `World.View`
+implements.
 
 ## Owners
 
 | State/work | Owner and access |
 |---|---|
-| Socket, framing, AES stream, compression, login and configuration, keepalive, chunk view and streaming, replication of what owners publish | One connection process per player, the player's stable address (`Session.Link`) |
+| Socket, framing, AES stream, compression, login and configuration, keepalive, chunk view and streaming, replication of what owners publish | One connection process per player, the player's stable address (`Net.Link`) |
 | A playing player's body, inventory, living state, open menus, movement checks, mining and item use | The group process that owns the section the player stands in (`Player.Host`); each move packet is validated there by the physics kernel |
 | Admission, names, lifecycle | `Player.PlayerList`; never on movement or chat hot paths |
 | Nearby-player observations | Spatial index for routing events; players replicate through their group's trackers like entities |
@@ -217,13 +220,17 @@ then stops.
   placement under unlit light, live updates after it with their reactions.
   Block behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the
   generated class (VMC-068).
-- **Connection.** `Valimc.Net.Connection` is a thin GenServer shell; `Net.*`
-  holds the login flow and serverbound dispatch, `Protocol.Codec` the framing,
-  cipher and socket writes, `Session.*` message routing, events, replication
-  and chat commands, and `Player.*` each gameplay domain. In play
-  `Session.Link` is the connection's half and `Player.Host` runs the session
-  at its group, whose client output queues in the codec's outbox. Broadcast
-  packets are framed once and shared as binaries (VMC-069).
+- **Connection.** `Valimc.Net.Connection` is a thin GenServer shell. `Net.*`
+  holds the login flow, the pre-play packets and the connection's own
+  messages (`Net.Messages`: socket data, login jobs, keepalives, the chunk
+  stream); `Protocol.Codec` the framing, cipher and socket writes;
+  `Session.*` the session's router (`Session.Messages`), its play packets
+  (`Session.Play`), events, replication and chat commands; and `Player.*`
+  each gameplay domain. Before play the connection runs both routers on its
+  whole state; in play `Net.Link` is the connection's half and `Player.Host`
+  runs the session at its group, whose client output queues in the codec's
+  outbox. Broadcast packets are framed once and shared as binaries
+  (VMC-069).
 - **Commands.** `Valimc.Commands.registry/0` maps each top-level command to
   one handler function, which receives the parsed literals; the
   Brigadier tree is built from `tree.json` at start, so the command

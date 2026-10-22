@@ -294,8 +294,8 @@ defmodule Valimc.Net.LoginFlow do
       if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
 
     # In play the session runs at the group that owns the player's section.
-    link = Valimc.Session.Link.host(state)
-    Valimc.Session.Link.forward(link, :entered)
+    link = Valimc.Net.Link.host(state)
+    Valimc.Net.Link.forward(link, :entered)
     link
   end
 end

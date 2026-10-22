@@ -216,7 +216,7 @@ defmodule Valimc.Player.Movement do
     send_packets(state, [Packets.teleport(player, teleport, delta)])
     PlayerList.update(state.connection, player)
 
-    # The connection's view follows the new pose (`Valimc.Session.Link`).
+    # The connection's view follows the new pose (`Valimc.Net.Link`).
     %{
       state
       | player: player,
