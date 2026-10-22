@@ -1,6 +1,6 @@
 # VMC-077i — Players in owners
 
-Status: Awaiting client
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (D1 option C, D2, phase 3),
 [VMC-077f](VMC-077f.md) (the shared log), [VMC-077g](VMC-077g.md) (owner
@@ -115,3 +115,4 @@ Recheck (VMC-077-recheck) fixes:
   join into a double chest (facing and sneaking) is refused, since double
   chests are not modelled yet.
 
+Client: the final VMC-077 run on `38f8a86a` and its rechecks on `84293890` and `eee6e582` (October 22, 2026; ignored `.local/client-tests/VMC-077-final`, `-recheck`, `-recheck2`): survival interactions as calls in the owner, crossings, restarts, portal arrival, death experience and chest menus. PASS. Double chests are not modelled yet (VMC-032).

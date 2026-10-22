@@ -22,28 +22,22 @@ portals, world settings and the world-generation commands; the gate is in
 systems (VMC-053h, k–n) move with those systems. Generation and tick time stay
 matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
-## Foundations II (VMC-077, in progress)
+## Foundations II (complete)
 
-The pre-M3 audit's plan, decided October 21, 2026: players and everything that
-interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
-owner per tick, volatile proto chunks, no world migration. Phase 0 and waves 1–2
-and waves 1–3 have landed; layout and the final client run remain.
-
-| Ticket | Open slice | Status |
-|---|---|---|
-| [VMC-077i](tickets/VMC-077i.md) | Players owned by their group; final-run fixes: portal arrival, death experience, chest menus, chests at region lines | Awaiting client |
-| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity | Foundation |
-| VMC-077r | Phase 6: domain layout, layering check, docs of the new model | In progress |
-
-Done in foundations II: phase 0, VMC-077a–g, 077j1–j3, 077l, 077m, 077n, 077o,
-077h, 077p, 077q. The final client run passed apart from the fixes listed above.
+VMC-077 audited the code after M2 and rebuilt its foundations: everything that
+interacts shares one owner (groups of 8 × 8 sections that merge and split, with
+players, entities and blocks inside), one atomic frame per owner per tick in one
+striped log, one entity store, one block fact table, Rust kernels for physics,
+block rules, light and generation scheduling, and a layered module layout. The
+final client run and its rechecks passed; see [VMC-077](tickets/VMC-077.md).
 
 ## M3 onward
 
 Survival core on the entity model (mobs/AI, spawning, combat, projectiles), redstone
 and block updates, then commands/admin and certification; backlog milestones C–F
 hold the rest. From VMC-026: the dragon fight (crystals, exit portal, new gateways),
-thrown eyes of ender, and orbs (VMC-034n4c) and mobs through portals.
+thrown eyes of ender, and orbs (VMC-034n4c) and mobs through portals. Double chests
+(placement beside a same-facing chest is refused today) go with VMC-032.
 
 ## Paused
 

@@ -1,6 +1,6 @@
 # VMC-077k — Living rules for any entity
 
-Status: Foundation
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan), [VMC-077d](VMC-077d.md)
 (damage types and enchantment effects from data).
@@ -121,3 +121,5 @@ death messages (they name a player today); the living entity metadata packets
 packets keyed by entity id; `status_damage.json` and the Unbreaking tables in
 `item_armor_wear.json` are no longer read by `lib` and could leave their
 generators; `PlayerInteraction` still decodes `attributes.json` itself.
+
+Client: the final VMC-077 run and its rechecks (October 22, 2026): fire, drowning, effects, natural regeneration at food 18 and experience on death. PASS.
