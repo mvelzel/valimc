@@ -21,12 +21,6 @@ defmodule Valimc.World.EntityHandoffDelivery do
   defp outcome(result) when result in [:rejected, :already_rejected], do: {:ok, :rejected}
   defp outcome(_), do: {:error, :item_handoff_uncertain}
 
-  # Another dimension's region (VMC-026c) is found, and loaded, in that dimension.
-  defp owner({dimension, key} = destination) when is_atom(dimension) do
-    if Valimc.Dimension.address?(destination),
-      do: World.item_owner(World.section(dimension, key, :section)),
-      else: {:error, :invalid_item_handoff}
-  end
-
-  defp owner(key), do: World.item_owner(World.section(Valimc.Dimension.current(), key, :section))
+  # Another dimension's section (VMC-026c) is found, and loaded, the same way.
+  defp owner(section), do: World.item_owner(section)
 end

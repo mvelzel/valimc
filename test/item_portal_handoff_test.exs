@@ -1,5 +1,5 @@
 defmodule Valimc.ItemPortalHandoffTest do
-  # Item handoffs across dimensions (VMC-026c): tagged ends, separate receipts.
+  # Item handoffs across dimensions (VMC-026c): section keys as ends, separate receipts.
   use ExUnit.Case, async: true
   alias Valimc.{Dimension, ItemMotionState, TestScope}
   alias Valimc.Protocol.ItemStack
@@ -10,7 +10,8 @@ defmodule Valimc.ItemPortalHandoffTest do
     key = {41_000 + rem(nonce, 3_333) * 3, 900}
     beside = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-portal-handoff-#{nonce}")
-    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
+    # Separate groups: Nether neighbours hand over durably, not inside a group.
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base, regionizer: false)
     File.mkdir_p!(base)
 
     record = fn {rx, rz}, n ->
@@ -38,6 +39,7 @@ defmodule Valimc.ItemPortalHandoffTest do
   end
 
   defp resource(owner), do: Valimc.TestRegion.section(owner)
+  defp section(dimension, {x, z}), do: {dimension, x, z}
   defp wait(fun), do: Valimc.TestWait.until(fun)
   defp nether(fun), do: Dimension.within(:the_nether, fun)
 
@@ -81,7 +83,7 @@ defmodule Valimc.ItemPortalHandoffTest do
     assert {:ok, 1} =
              Region.handoff_items(
                source,
-               {:the_nether, ctx.beside},
+               section(:the_nether, ctx.beside),
                [step(source, <<1::128>>, arrival, 300)]
              )
 
@@ -93,7 +95,10 @@ defmodule Valimc.ItemPortalHandoffTest do
     entry = resource(target).entities.store.entries[id]
     assert {entry.entity.x, entry.entity.y, entry.entity.z} == arrival
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 9
-    assert Map.keys(resource(target).entities.store.ledger.incoming) == [{:overworld, ctx.key}]
+
+    assert Map.keys(resource(target).entities.store.ledger.incoming) == [
+             section(:overworld, ctx.key)
+           ]
 
     # Both owners restart from disk: the item stays in the Nether, once.
     for {pid, _} <- [source, target], do: TestScope.kill(pid)
@@ -101,7 +106,10 @@ defmodule Valimc.ItemPortalHandoffTest do
     target = owner(:the_nether, ctx.beside)
     wait(fn -> holds?(target, <<1::128>>) end)
     refute holds?(source, <<1::128>>)
-    assert Map.keys(resource(target).entities.store.ledger.incoming) == [{:overworld, ctx.key}]
+
+    assert Map.keys(resource(target).entities.store.ledger.incoming) == [
+             section(:overworld, ctx.key)
+           ]
   end
 
   test "a same-coordinate Nether neighbour and the overworld region keep separate receipts",
@@ -119,14 +127,14 @@ defmodule Valimc.ItemPortalHandoffTest do
     assert {:ok, 1} =
              Region.handoff_items(
                nether_source,
-               ctx.beside,
+               section(:the_nether, ctx.beside),
                [step(nether_source, <<2::128>>, {bx * 128 + 1.5, 64.25, bz * 128 + 1.5}, 0)]
              )
 
     assert {:ok, 1} =
              Region.handoff_items(
                source,
-               {:the_nether, ctx.beside},
+               section(:the_nether, ctx.beside),
                [step(source, <<1::128>>, {bx * 128 + 2.5, 64.25, bz * 128 + 2.5}, 300)]
              )
 
@@ -135,17 +143,17 @@ defmodule Valimc.ItemPortalHandoffTest do
     wait(fn -> holds?(target, <<1::128>>) and holds?(target, <<2::128>>) end)
 
     assert Enum.sort(Map.keys(resource(target).entities.store.ledger.incoming)) ==
-             Enum.sort([ctx.key, {:overworld, ctx.key}])
+             Enum.sort([section(:the_nether, ctx.key), section(:overworld, ctx.key)])
   end
 
-  test "crossing digests: tagged ends of two dimensions, never one", ctx do
+  test "handoff digests name both ends by section key, never a plain one", ctx do
     {bx, bz} = ctx.beside
     records = [%{ctx.record.(ctx.beside, 7) | x: bx * 128 + 3.5, z: bz * 128 + 3.5}]
 
     transfer = %{
-      source: {:overworld, ctx.key},
+      source: section(:overworld, ctx.key),
       sequence: 1,
-      destination: {:the_nether, ctx.beside},
+      destination: section(:the_nether, ctx.beside),
       records: records,
       merge: nil
     }
@@ -156,6 +164,9 @@ defmodule Valimc.ItemPortalHandoffTest do
     assert {:ok, ^digest} = EntityHandoffs.digest(with_id)
 
     assert {:error, :invalid_item_handoff} =
-             EntityHandoffs.digest(%{transfer | destination: {:overworld, ctx.beside}})
+             EntityHandoffs.digest(%{transfer | destination: ctx.beside})
+
+    assert {:error, :invalid_item_handoff} =
+             EntityHandoffs.digest(%{transfer | destination: transfer.source})
   end
 end

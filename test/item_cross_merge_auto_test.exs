@@ -10,7 +10,9 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     target_key = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-cross-auto-#{n}")
     File.mkdir_p!(base)
-    TestScope.isolate(TestScope.neighborhood(key, 2), world_path: base)
+    # Separate groups: the merge crosses by the durable handoff (inside one
+    # group it is local, `region_group_test.exs`).
+    TestScope.isolate(TestScope.neighborhood(key, 2), world_path: base, regionizer: false)
 
     donor = %{
       uuid: <<n::64, 1::64>>,
@@ -57,6 +59,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   end
 
   defp state(owner), do: Valimc.TestRegion.section(owner)
+  defp section(key), do: Valimc.TestWorld.section(key)
 
   defp start(c) do
     for owner <- [c.source, c.target] do
@@ -97,7 +100,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
     assert uuid == c.recipient.uuid and motion.age < 90
     assert disk(c, c.key).records == [] and disk(c, c.key).ledger.sequence == 1
-    assert disk(c, c.target_key).ledger.incoming[c.key].sequence == 1
+    assert disk(c, c.target_key).ledger.incoming[section(c.key)].sequence == 1
     {pid, _} = c.target
     assert :ok = Region.flush(pid)
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -114,26 +117,28 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert {:ok, departed, transfer} =
              EntityHandoffs.depart_merge(
                source,
-               c.key,
+               section(c.key),
                epoch,
                {id, revision},
-               c.target_key,
+               section(c.target_key),
                <<1::128>>
              )
 
     assert departed.entries == %{} and transfer.merge == <<1::128>>
     assert {:ok, digest} = EntityHandoffs.digest(transfer)
     {:ok, target} = Entities.restore(c.target_key, [c.recipient])
-    assert {:ok, target, :rejected} = EntityHandoffs.accept(target, c.target_key, transfer)
+
+    assert {:ok, target, :rejected} =
+             EntityHandoffs.accept(target, section(c.target_key), transfer)
 
     assert {:ok, ^target, :already_rejected} =
-             EntityHandoffs.accept(target, c.target_key, transfer)
+             EntityHandoffs.accept(target, section(c.target_key), transfer)
 
     assert Entities.records(target) ==
              Entities.records(elem(Entities.restore(c.target_key, [c.recipient]), 1))
 
     assert {:ok, back} =
-             EntityHandoffs.finish(departed, c.key, transfer.sequence, digest, :rejected)
+             EntityHandoffs.finish(departed, section(c.key), transfer.sequence, digest, :rejected)
 
     assert back.ledger.outgoing == nil
     assert {:ok, {_, ^id, _}} = Entities.find(back, c.donor.uuid)

@@ -92,7 +92,13 @@ rows =
         started = System.monotonic_time(:microsecond)
 
         {withdrawal, {:ok, _}} =
-          :timer.tc(fn -> Region.handoff_items(source, destination_key, steps) end)
+          :timer.tc(fn ->
+            Region.handoff_items(
+              source,
+              Valimc.World.section(:overworld, destination_key, :section),
+              steps
+            )
+          end)
 
         :ok =
           wait.(fn ->

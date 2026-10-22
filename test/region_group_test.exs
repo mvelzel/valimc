@@ -185,6 +185,111 @@ defmodule Valimc.RegionGroupTest do
     assert Valimc.TestBlocks.get(position(ctx.b)) == stone
   end
 
+  # Two more sections of the same world in one group, with `records` written
+  # first: `{c, d, group, epoch of c, epoch of d}`.
+  defp item_group(ctx, records) do
+    {cx, z} = c = {elem(ctx.b, 0) + 1, elem(ctx.b, 1)}
+    d = {cx + 1, z}
+
+    TestScope.isolate([c, d],
+      world_path: ctx.base,
+      region_ticks: :manual,
+      region_commit_ms: 600_000,
+      regionizer: false,
+      item_simulation: true
+    )
+
+    on_exit(fn ->
+      for key <- [c, d], {pid, _} <- Valimc.TestWorld.registered(key), do: TestScope.kill(pid)
+    end)
+
+    for {key, list} <- records,
+        do: Valimc.TestDisk.write(ctx.base, key.(c, d), :items, %{records: list})
+
+    {:ok, {pc, ec}} = Valimc.TestWorld.owner(c)
+    {:ok, {pd, ed}} = Valimc.TestWorld.owner(d)
+    :ok = Region.hand_over(pd, pc)
+
+    Valimc.TestWait.until(fn ->
+      match?({pid, _, _} when pid == pc, Valimc.TestWorld.lookup(d))
+    end)
+
+    TestScope.simulate({pc, ec}, c)
+    TestScope.simulate({pc, ed}, d)
+    {c, d, pc, ec, ed}
+  end
+
+  defp item(uuid, x, z, count, motion),
+    do: %{
+      uuid: uuid,
+      x: x,
+      y: 68.0,
+      z: z,
+      stack: Valimc.Protocol.ItemStack.new("stone", count),
+      motion: motion
+    }
+
+  defp store(group, epoch), do: Valimc.TestRegion.section({group, epoch}).entities.store
+
+  defp holds?(group, epoch, uuid),
+    do: match?({:ok, _}, Valimc.World.Entities.find(store(group, epoch), uuid))
+
+  test "an item crossing into another section of the group moves there in one commit", ctx do
+    # An item at c's east edge, moving east into d.
+    uuid = <<7::128>>
+    {cx, z} = c_key(ctx)
+    east = %Valimc.ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}
+    moving = item(uuid, cx * 128 + 127.85, z * 128 + 4.5, 3, east)
+    {c, d, pc, ec, ed} = item_group(ctx, [{fn c, _ -> c end, [moving]}])
+
+    Valimc.TestWait.until(fn -> holds?(pc, ed, uuid) or (Region.step({pc, ec}, 1) && false) end)
+    refute holds?(pc, ec, uuid)
+    {:ok, {_, id, _}} = Valimc.World.Entities.find(store(pc, ed), uuid)
+    assert store(pc, ed).entries[id].hops == 1
+    # No intent or receipt: the move is the group's own.
+    assert store(pc, ec).ledger.outgoing == nil and store(pc, ed).ledger.incoming == %{}
+
+    # One log record withdraws it from c and adds it to d.
+    :ok = Region.flush(pc)
+    :ok = Log.sync(ctx.base, {:region, :overworld, c})
+
+    {:ok, %{frames: frames}} =
+      RegionLog.read(Log.dir(ctx.base, Log.stripe({:region, :overworld, c})))
+
+    owners = [{:region, :overworld, c}, {:region, :overworld, d}]
+
+    assert Enum.any?(frames, fn %{ops: ops} ->
+             in_frame = for {:frame, owner, _, _} <- ops, do: owner
+             Enum.all?(owners, &(&1 in in_frame))
+           end)
+
+    TestScope.kill(pc)
+    Valimc.TestWait.until(fn -> Valimc.TestWorld.lookup(d) == nil end)
+    saved = fn key -> (Valimc.TestDisk.read(ctx.base, key, :items) || %{records: []}).records end
+    assert saved.(c) == []
+    assert Enum.map(saved.(d), & &1.uuid) == [uuid]
+  end
+
+  test "a border item merges into its neighbour section's stack inside the group", ctx do
+    {cx, z} = c_key(ctx)
+    still = %Valimc.ItemMotionState{age: 30, no_gravity: true}
+    donor = item(<<8::128>>, (cx + 1) * 128 - 0.1, z * 128 + 7.5, 2, still)
+    recipient = item(<<9::128>>, (cx + 1) * 128 + 0.1, z * 128 + 7.5, 3, %{still | age: 100})
+
+    {_c, _d, pc, ec, ed} =
+      item_group(ctx, [{fn c, _ -> c end, [donor]}, {fn _, d -> d end, [recipient]}])
+
+    Valimc.TestWait.until(fn ->
+      not holds?(pc, ec, donor.uuid) or (Region.step({pc, ec}, 1) && false)
+    end)
+
+    {:ok, {_, id, _}} = Valimc.World.Entities.find(store(pc, ed), recipient.uuid)
+    assert store(pc, ed).entries[id].stack.count == 5
+    assert store(pc, ec).ledger.outgoing == nil and store(pc, ed).ledger.incoming == %{}
+  end
+
+  defp c_key(ctx), do: {elem(ctx.b, 0) + 1, elem(ctx.b, 1)}
+
   test "handing over refuses sections the group does not own", ctx do
     assert Region.hand_over(ctx.pa, ctx.pb, [ctx.b]) == {:error, :invalid_handoff}
     assert Region.hand_over(ctx.pa, ctx.pa) == {:error, :invalid_handoff}

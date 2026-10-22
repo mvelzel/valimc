@@ -73,7 +73,7 @@ defmodule Valimc.CookingOrbConnectionTest do
       )
 
     orbs = ExperienceOrbs.award({pose.x + 4.0, 64.5, pose.z}, award)
-    outgoing = %{destination: key, records: orbs, merge: nil}
+    outgoing = %{destination: Valimc.TestWorld.section(key), records: orbs, merge: nil}
 
     Valimc.TestDisk.write(base, source_key, :items, %{
       records: [],
@@ -121,7 +121,7 @@ defmodule Valimc.CookingOrbConnectionTest do
 
     wait(fn -> store(source_owner).ledger.outgoing == nil end)
     installed = store({owner, epoch})
-    assert Map.keys(installed.ledger.incoming) == [source_key]
+    assert Map.keys(installed.ledger.incoming) == [Valimc.TestWorld.section(source_key)]
     assert store(source_owner).views == %{}
 
     # One tracker for every kind: the two orbs, and the picked-up stone until the

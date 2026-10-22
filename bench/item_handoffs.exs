@@ -47,11 +47,22 @@ handoffs =
 
     run = fn ->
       {:ok, source, transfer} =
-        EntityHandoffs.depart(initial, {0, 0}, initial.epoch, {1, 0}, steps)
+        EntityHandoffs.depart(
+          initial,
+          {:overworld, 0, 0},
+          initial.epoch,
+          {:overworld, 1, 0},
+          steps
+        )
 
-      {:ok, destination, :applied} = EntityHandoffs.accept(Entities.new(), {1, 0}, transfer)
+      {:ok, destination, :applied} =
+        EntityHandoffs.accept(Entities.new(), {:overworld, 1, 0}, transfer)
+
       {:ok, digest} = EntityHandoffs.digest(transfer)
-      {:ok, source} = EntityHandoffs.finish(source, {0, 0}, transfer.sequence, digest, :applied)
+
+      {:ok, source} =
+        EntityHandoffs.finish(source, {:overworld, 0, 0}, transfer.sequence, digest, :applied)
+
       true = map_size(source.entries) + map_size(destination.entries) == active
       true = Enum.all?(destination.entries, fn {_, entry} -> entry.hops == 1 end)
     end

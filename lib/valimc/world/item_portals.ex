@@ -15,7 +15,7 @@ defmodule Valimc.World.ItemPortals do
     dimension (tagged) or region (plain), or a local move. The arrival keeps
     the item's stack, age and pickup delay, with a fresh cooldown.
   """
-  alias Valimc.{Dimension, ItemMotionState, World}
+  alias Valimc.{ItemMotionState, World}
   alias Valimc.Portal.{Contact, Destination, EndPortal, GatewayDestination}
   alias Valimc.World.Entities
 
@@ -80,9 +80,9 @@ defmodule Valimc.World.ItemPortals do
   defp destination(%{kind: :end_gateway} = travel), do: GatewayDestination.destination(travel)
 
   @doc """
-  The travelled item's step at its target: `{:handoff, destination, step}`
-  (a `{dimension, key}` address in another dimension, a plain region key in
-  this one), `{:local, step}`, or `:gone` once the item no longer exists.
+  The travelled item's step at its target, for an item of section `key`:
+  `{:handoff, destination section, step}`, `{:local, step}`, or `:gone` once
+  the item no longer exists.
   """
   def arrival(items, key, uuid, target) do
     case Entities.find(items, uuid) do
@@ -97,12 +97,9 @@ defmodule Valimc.World.ItemPortals do
           motion: %{motion | velocity: target.velocity, portal_cooldown: @cooldown}
         }
 
-        region = World.region_key(World.chunk_key(target.x, target.z))
-
-        cond do
-          target.dimension != Dimension.current() -> {:handoff, {target.dimension, region}, step}
-          region != key -> {:handoff, region, step}
-          true -> {:local, step}
+        case World.section(target.dimension, World.chunk_key(target.x, target.z)) do
+          ^key -> {:local, step}
+          destination -> {:handoff, destination, step}
         end
 
       _ ->

@@ -82,11 +82,12 @@ defmodule Valimc.World.RegionData do
     :scheduled_ticks,
     :tick_index,
     :rule_backlog,
-    # The group's other sections the block rules read across (VMC-077j), as
-    # the group hands them in (`Region`), and the rules' changes to them it
-    # applies once this section's call returns.
+    # The group's other sections (VMC-077j), as the group hands them in
+    # (`Region`): what the block rules read across and whether a plan holds
+    # each; and what this section's call did to them (block-rule changes,
+    # entities moved there), which the group applies once the call returns.
     {:siblings, %{}},
-    {:sibling_rules, []},
+    {:sibling_effects, []},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -437,17 +438,21 @@ defmodule Valimc.World.RegionData do
           state
 
         scene ->
-          with {id, destination, target} <- ItemCrossMergeQuery.pick(state.key, scene),
+          with {id, destination, target} <- ItemCrossMergeQuery.pick(route_key(state), scene),
                %{revision: revision} <- entities.store.entries[id] do
             request = {{id, revision}, destination, target, now + 250}
 
-            case plan_item_change(:item_merge_out, request, nil, state) do
-              {:noreply, next} ->
-                Valimc.Metrics.add(:item_cross_merges)
-                next
+            if local_destination?(state, destination) do
+              merge_into_sibling(state, destination, {id, revision}, target)
+            else
+              case plan_item_change(:item_merge_out, request, nil, state) do
+                {:noreply, next} ->
+                  Valimc.Metrics.add(:item_cross_merges)
+                  next
 
-              {:reply, _, next} ->
-                next
+                {:reply, _, next} ->
+                  next
+              end
             end
           else
             _ -> %{state | entities: %{state.entities | cross_stamp: scene.stamp}}
@@ -1631,7 +1636,8 @@ defmodule Valimc.World.RegionData do
     else
       {own, theirs} = Map.pop(parts, state.key)
       state = if own, do: apply_rules(state, own), else: state
-      %{state | sibling_rules: state.sibling_rules ++ Map.to_list(theirs)}
+      effects = for {key, part} <- theirs, do: {key, {:rules, part}}
+      %{state | sibling_effects: state.sibling_effects ++ effects}
     end
   end
 
@@ -1666,6 +1672,100 @@ defmodule Valimc.World.RegionData do
           else: acc
       end)
     end)
+  end
+
+  @doc """
+  Apply what a section of this group did to this one (VMC-077j): its block
+  rules' changes, entities it moved here, or a donor item to merge into
+  `target` here. A move that cannot land goes back to `source` the same way.
+  """
+  def apply_sibling(state, {:rules, part}), do: apply_rules(state, part)
+
+  def apply_sibling(state, {:entities, source, records}) do
+    {store, refused} =
+      Enum.reduce(records, {state.entities.store, []}, fn record, {store, refused} ->
+        with false <- Entities.reserved_uuid?(store, record.uuid),
+             {:ok, next, _} <- Entities.create_record(store, state.key, record) do
+          {next, refused}
+        else
+          _ -> {store, [record | refused]}
+        end
+      end)
+
+    state
+    |> put_entities(store)
+    |> return_to(source, Enum.reverse(refused))
+  end
+
+  def apply_sibling(state, {:merge, source, target, donor}) do
+    case ItemMerges.absorb(state.entities.store, state.key, target, donor) do
+      {:ok, store} -> put_entities(state, store)
+      :error -> return_to(state, source, [donor])
+    end
+  end
+
+  defp put_entities(state, store) when store == state.entities.store, do: state
+
+  defp put_entities(state, store),
+    do: publish_item_views(%{state | entities: %{state.entities | store: store}})
+
+  defp return_to(state, _source, []), do: state
+
+  defp return_to(state, nil, records) do
+    require Logger
+    Logger.error("Entities lost between sections: #{inspect(Enum.map(records, & &1.uuid))}")
+    state
+  end
+
+  defp return_to(state, source, records),
+    do: %{state | sibling_effects: state.sibling_effects ++ [{source, {:entities, nil, records}}]}
+
+  # Whether entities moving to section `destination` go there directly: it is
+  # a section of this group and no plan holds either store (a plan's result
+  # replaces its store whole).
+  defp local_destination?(state, {dimension, sx, sz}) do
+    dimension == state.dimension and write_busy(state) == nil and
+      match?(%{busy: false}, state.siblings[{sx, sz}]) and {sx, sz} != state.key
+  end
+
+  # Entities moving to a section of this group go there in the same group
+  # commit (VMC-077j): withdrawn here, their hops counted as a handoff counts
+  # them, and adopted there once this call returns, with a fresh tracker
+  # (observers resync to the new epoch); no intent, no receipt.
+  defp move_to_sibling(state, {_, sx, sz}, steps) do
+    with {:ok, moved, handles} <-
+           Entities.advance(state.entities.store, {sx, sz}, state.entities.store.epoch, steps),
+         {:ok, store, records} <- Entities.withdraw(moved, handles) do
+      Valimc.Metrics.add(:item_section_moves, length(records))
+      effect = {{sx, sz}, {:entities, state.key, records}}
+
+      %{
+        state
+        | entities: %{state.entities | store: store},
+          sibling_effects: state.sibling_effects ++ [effect]
+      }
+    else
+      _ -> state
+    end
+  end
+
+  # A cross-section merge inside the group: the donor leaves here and merges
+  # into `target` there, or comes back.
+  defp merge_into_sibling(state, {_, sx, sz}, {id, revision}, target) do
+    case Entities.withdraw(state.entities.store, [{state.entities.store.epoch, id, revision}]) do
+      {:ok, store, [donor]} ->
+        Valimc.Metrics.add(:item_cross_merges)
+        effect = {{sx, sz}, {:merge, state.key, target, donor}}
+
+        %{
+          state
+          | entities: %{state.entities | store: store},
+            sibling_effects: state.sibling_effects ++ [effect]
+        }
+
+      _ ->
+        state
+    end
   end
 
   @doc """
@@ -2140,6 +2240,7 @@ defmodule Valimc.World.RegionData do
     containers = state.containers
     items = state.entities.store
     key = state.key
+    route = route_key(state)
     block = container_block(state, request)
 
     {permits, grant} =
@@ -2157,7 +2258,9 @@ defmodule Valimc.World.RegionData do
         if request[:kind] == :experience,
           do: Valimc.World.ExperienceTransfers.plan(reserved, items, key, request, eligible),
           else:
-            reserved |> ContainerTransfers.plan(key, request, eligible) |> spawn_orbs(items, key)
+            reserved
+            |> ContainerTransfers.plan(key, request, eligible)
+            |> spawn_orbs(items, route)
       end
     end)
   end
@@ -2202,10 +2305,14 @@ defmodule Valimc.World.RegionData do
 
   defp planning(state), do: with(%{data: pending} <- Jobs.get(state.jobs, :plan), do: pending)
 
+  # Entity handoffs name their ends by section key (VMC-077j); the other plans
+  # check positions against this section's coordinates.
+  @handoff_plans [:item_handoff_in, :item_handoff_out, :item_merge_out, :item_handoff_clear]
+
   defp plan_item_change(kind, request, from, state) do
     items = state.entities.store
     receipts = state.entities.receipts
-    key = state.key
+    key = if kind in @handoff_plans, do: route_key(state), else: state.key
 
     acceptance_deadline =
       case kind do
@@ -2831,7 +2938,7 @@ defmodule Valimc.World.RegionData do
     case start_job(
            state,
            :handoff,
-           EntityHandoffDelivery.work(state.key, state.entities.store.ledger),
+           EntityHandoffDelivery.work(route_key(state), state.entities.store.ledger),
            supervisor: Valimc.TransferWorkers,
            link: true,
            deadline: 8000
@@ -3292,9 +3399,11 @@ defmodule Valimc.World.RegionData do
         end
       end)
 
+    route = route_key(state)
+
     {local, borders} =
       Enum.split_with(steps, fn %{position: {x, _, z}} ->
-        Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key
+        Valimc.World.section(state.dimension, Valimc.World.chunk_key(x, z)) == route
       end)
 
     {local, state} = portal_contacts(state, local)
@@ -3312,14 +3421,21 @@ defmodule Valimc.World.RegionData do
         end)
       end
 
-    if borders != [] and state.entities.store.ledger.outgoing == nil and state.entities.persistent do
-      {destination, batch} =
-        borders
-        |> Enum.group_by(fn %{position: {x, _, z}} ->
-          Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-        end)
-        |> Enum.sort_by(&elem(&1, 0))
-        |> hd()
+    {nearby, away} =
+      borders
+      |> Enum.group_by(fn %{position: {x, _, z}} ->
+        Valimc.World.section(state.dimension, Valimc.World.chunk_key(x, z))
+      end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.split_with(fn {destination, _} -> local_destination?(state, destination) end)
+
+    state =
+      for {destination, batch} <- nearby, chunk <- Enum.chunk_every(batch, 32), reduce: state do
+        acc -> move_to_sibling(acc, destination, chunk)
+      end
+
+    if away != [] and state.entities.store.ledger.outgoing == nil and state.entities.persistent do
+      [{destination, batch} | _] = away
 
       case plan_item_change(
              :item_handoff_out,
@@ -3374,7 +3490,7 @@ defmodule Valimc.World.RegionData do
     state = %{state | entities: %{state.entities | portal: nil}}
     deadline = System.monotonic_time(:millisecond) + 250
 
-    case ItemPortals.arrival(state.entities.store, state.key, uuid, target) do
+    case ItemPortals.arrival(state.entities.store, route_key(state), uuid, target) do
       :gone ->
         state
 
@@ -3385,9 +3501,13 @@ defmodule Valimc.World.RegionData do
         next
 
       {:handoff, destination, step} ->
-        case plan_item_change(:item_handoff_out, {destination, [step], deadline}, nil, state) do
-          {:noreply, next} -> next
-          {:reply, _, next} -> next
+        if local_destination?(state, destination) do
+          move_to_sibling(state, destination, [step])
+        else
+          case plan_item_change(:item_handoff_out, {destination, [step], deadline}, nil, state) do
+            {:noreply, next} -> next
+            {:reply, _, next} -> next
+          end
         end
     end
   end

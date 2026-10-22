@@ -28,7 +28,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
             {x, z} != key,
             view <- Map.values(World.item_snapshot({dimension, x, z})),
             view.kind == :item and view.merge_open and adjacent?(view.at, rx, rz, width),
-            do: Map.put(Map.take(view, @fields), :key, {x, z})
+            do: Map.put(Map.take(view, @fields), :key, {dimension, x, z})
 
       donors = donors |> Enum.map(&Map.take(&1, @fields)) |> Enum.sort_by(& &1.entity_id)
       targets = Enum.sort_by(targets, & &1.entity_id)
@@ -37,9 +37,10 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   end
 
   @doc """
-  The first pair of the scene as `{donor id, target region, target uuid}`, or
-  nil. The smaller stack goes; between equal stacks, the lower region's. Only
-  whole donors cross (vanilla merges at most 64 items at once).
+  The first pair of the scene as `{donor id, target section, target uuid}`, or
+  nil; `key` is this section's key. The smaller stack goes; between equal
+  stacks, the lower section's. Only whole donors cross (vanilla merges at most
+  64 items at once).
   """
   def pick(key, %{donors: donors, targets: targets}) do
     targets = Enum.group_by(targets, & &1.merge_key)

@@ -68,8 +68,11 @@ time (`World.GameTick`), so groups merge without offsets. The group cuts all
 its sections' changes at once into one record of the write-ahead log, so a
 change that spans sections is durable whole or not at all. Inside a group the
 block rules read and write across section borders and stop only at its edge,
-and light crosses by the group's own mailbox. A group that crashes takes its
-sections down; each is admitted again from its log, in a group of its own.
+light crosses by the group's own mailbox, and an entity crossing a section
+line is withdrawn and adopted in the same group commit; between groups it
+goes by the durable entity handoff, whose ends and receipts are section keys.
+A group that crashes takes its sections down; each is admitted again from its
+log, in a group of its own.
 
 One regionizer per dimension applies Folia's rule at section size (grid
 exponent 3, create and merge radius 1): a loaded section joins every group with

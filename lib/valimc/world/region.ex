@@ -724,17 +724,22 @@ defmodule Valimc.World.Region do
     end
   end
 
-  # The block rules' changes a section's run made in its siblings apply
-  # before the group's next cut, so they commit with the run's own.
+  # What a section's call did to its siblings (block-rule changes, entities
+  # moved, a donor to merge) applies before the group's next cut, so it
+  # commits with the call's own changes; what that sends back applies too.
   defp deliver_rules(state, key) do
     case state.sections do
-      %{^key => %{resource: %{sibling_rules: [_ | _] = parts} = resource}} ->
-        state = put_resource(state, key, %{resource | sibling_rules: []})
+      %{^key => %{resource: %{sibling_effects: [_ | _] = effects} = resource}} ->
+        state = put_resource(state, key, %{resource | sibling_effects: []})
 
-        Enum.reduce(parts, state, fn {sibling, part}, acc ->
-          if Map.has_key?(acc.sections, sibling),
-            do: put_resource(acc, sibling, RegionData.apply_rules(enter(acc, sibling), part)),
-            else: acc
+        Enum.reduce(effects, state, fn {sibling, effect}, acc ->
+          if Map.has_key?(acc.sections, sibling) do
+            acc
+            |> put_resource(sibling, RegionData.apply_sibling(enter(acc, sibling), effect))
+            |> deliver_rules(sibling)
+          else
+            acc
+          end
         end)
 
       _ ->

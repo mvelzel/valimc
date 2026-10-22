@@ -118,7 +118,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     assert {:ok, 1} =
              Region.handoff_items(
                ctx.owner,
-               ctx.destination,
+               Valimc.TestWorld.section(ctx.destination),
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
@@ -135,14 +135,21 @@ defmodule Valimc.ItemHandoffRegionTest do
     assert key == ctx.key
 
     assert {:ok, 1} =
-             Region.handoff_items(ctx.other, ctx.key, steps(ctx.other, ctx.key, [ctx.uuid]))
+             Region.handoff_items(
+               ctx.other,
+               Valimc.TestWorld.section(ctx.key),
+               steps(ctx.other, ctx.key, [ctx.uuid])
+             )
 
     complete(ctx.other)
     owner = replace_owner(ctx.owner, ctx.key)
     other = replace_owner(ctx.other, ctx.destination)
     assert published(owner, ctx.uuid) and not published(other, ctx.uuid)
     assert hops(ctx, ctx.key, ctx.uuid) == 2
-    assert disk(ctx, ctx.destination).ledger.incoming[ctx.key].sequence == 1
+
+    assert disk(ctx, ctx.destination).ledger.incoming[Valimc.TestWorld.section(ctx.key)].sequence ==
+             1
+
     assert disk(ctx, ctx.key).receipts == ctx.receipts
   end
 
@@ -153,8 +160,17 @@ defmodule Valimc.ItemHandoffRegionTest do
     b_uuids = Enum.map(1000..1031, &<<&1::128>>)
     a_steps = steps(ctx.owner, ctx.destination, a_uuids)
     b_steps = steps(ctx.other, ctx.key, b_uuids)
-    a = Task.async(fn -> Region.handoff_items(ctx.owner, ctx.destination, a_steps) end)
-    b = Task.async(fn -> Region.handoff_items(ctx.other, ctx.key, b_steps) end)
+
+    a =
+      Task.async(fn ->
+        Region.handoff_items(ctx.owner, Valimc.TestWorld.section(ctx.destination), a_steps)
+      end)
+
+    b =
+      Task.async(fn ->
+        Region.handoff_items(ctx.other, Valimc.TestWorld.section(ctx.key), b_steps)
+      end)
+
     assert {:ok, 1} = Task.await(a, 60_000)
     assert {:ok, 1} = Task.await(b, 60_000)
     complete(ctx.owner)
