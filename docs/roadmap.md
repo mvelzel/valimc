@@ -27,18 +27,20 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 The pre-M3 audit's plan, decided October 21, 2026: players and everything that
 interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
 owner per tick, volatile proto chunks, no world migration. Phase 0 and waves 1–2
-have landed; wave 3 runs the entity store and the regionizer, then players in owners.
+have landed with the entity store and the regionizer; players move into their
+group owners next.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity; natural regeneration at food 18–19 | Foundation |
-| VMC-077h | Entity store: items and orbs as keyed entities, stable ids, pushed deltas | In progress |
-| VMC-077j | Regionizer: groups of sections merge and split around activity | In progress |
-| VMC-077i | Players owned by their group; transfer families deleted | Planned |
+| [VMC-077h](tickets/VMC-077h.md) | Entity store: items and orbs as keyed entities, stable ids, replication encoded once | Awaiting client |
+| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity | Foundation |
+| VMC-077i | Players owned by their group; transfer families deleted; one menu engine | In progress |
+| VMC-077p | Section snapshots as shared copy-on-write Rust resources | In progress |
+| VMC-077q | Bounded proto chunk memory at the generation perimeter | In progress |
 
-Done in foundations II: phase 0, VMC-077a–g, 077l, 077m, 077n, 077o (interim client
-run passed on waves 1–2; `/fill` interiors and ladder support are being fixed).
-The phase ends with layout and one client run (see [VMC-077](tickets/VMC-077.md)).
+Done in foundations II: phase 0, VMC-077a–g, 077j1–j3, 077l, 077m, 077n, 077o; the
+interim client run's findings are fixed. The phase ends with layout and one
+client run (see [VMC-077](tickets/VMC-077.md)).
 
 ## M3 onward
 
