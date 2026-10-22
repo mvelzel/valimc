@@ -102,9 +102,12 @@ defmodule Valimc.World.Regionizer do
     do: {:reply, Map.new(state.groups, fn {pid, g} -> {pid, Enum.sort(g.keys)} end), state}
 
   @impl true
+  # A section that unloaded before its load report is read merges nothing:
+  # groups never join through a section that is gone (its unload report,
+  # still on its way, takes it off again).
   def handle_cast({:loaded, key, pid, compat}, state) do
     state = add(state, key, pid, compat)
-    {:noreply, merge_around(state, key)}
+    if routed?(state, key), do: {:noreply, merge_around(state, key)}, else: {:noreply, state}
   end
 
   def handle_cast({:adopted, key, pid, compat}, state),
@@ -201,11 +204,16 @@ defmodule Valimc.World.Regionizer do
 
   # Into the largest group; on a tie the one that was there first, so a
   # group's route (its log stripe) stays put while sections join it.
+  # A section a source no longer held unloaded since its report: it counts as
+  # gone from the merged group, which then splits if it fell apart.
   defp merge(state, pids) do
     target = Enum.max_by(pids, &MapSet.size(state.groups[&1].keys))
+    t = state.groups[target]
+    state = %{state | groups: Map.put(state.groups, target, %{t | gone: 0})}
 
     Enum.reduce(pids -- [target], state, fn source, acc ->
       started = System.monotonic_time(:microsecond)
+      known = acc.groups[source].keys
 
       case safe_hand_over(source, target, :all) do
         {:ok, moved} ->
@@ -216,7 +224,9 @@ defmodule Valimc.World.Regionizer do
             System.monotonic_time(:microsecond) - started
           )
 
-          transfer(acc, target, moved)
+          acc
+          |> transfer(target, moved)
+          |> lost(target, MapSet.to_list(MapSet.difference(known, MapSet.new(moved))))
 
         {:error, reason} ->
           Logger.debug(
@@ -226,11 +236,11 @@ defmodule Valimc.World.Regionizer do
           acc
       end
     end)
+    |> then(fn acc -> if acc.groups[target].gone > 0, do: maybe_split(acc, target), else: acc end)
   end
 
-  # The sections `source` handed over are `target`'s. Those the regionizer
-  # thought `source` had but it no longer held unloaded meanwhile: their
-  # reports, still on their way, take them off `source`.
+  # The sections `source` handed over are `target`'s (`lost/3` takes those it
+  # no longer held).
   defp transfer(state, target, moved) do
     state =
       Enum.reduce(moved, state, fn key, acc ->
@@ -241,7 +251,32 @@ defmodule Valimc.World.Regionizer do
       end)
 
     t = state.groups[target]
-    %{state | groups: Map.put(state.groups, target, %{t | since: MapSet.size(t.keys), gone: 0})}
+    %{state | groups: Map.put(state.groups, target, %{t | since: MapSet.size(t.keys)})}
+  end
+
+  defp lost(state, _target, []), do: state
+
+  defp lost(state, target, keys) do
+    state =
+      Enum.reduce(keys, state, fn key, acc ->
+        case acc.sections do
+          %{^key => {pid, _}} ->
+            leave(%{acc | sections: Map.delete(acc.sections, key)}, key, pid)
+
+          _ ->
+            acc
+        end
+      end)
+
+    t = state.groups[target]
+    %{state | groups: Map.put(state.groups, target, %{t | gone: t.gone + length(keys)})}
+  end
+
+  # Whether `key` still has a route: it is loaded.
+  defp routed?(state, {sx, sz}) do
+    :ets.member(Valimc.RegionRoutes, {state.dimension, sx, sz})
+  rescue
+    ArgumentError -> false
   end
 
   # `key` is no longer in `pid`'s group; a group left with none is forgotten.

@@ -84,15 +84,18 @@ defmodule Valimc.RegionizerTest do
     ends = [at(ctx.origin, 0), at(ctx.origin, 6)]
     bridge = at(ctx.origin, 3)
 
-    # The ends stay wanted; the bridge only for a moment.
+    # The ends stay wanted; the bridge until the group has formed.
     for key <- ends do
       {:ok, owner} = Valimc.TestWorld.owner(key)
       TestScope.simulate(owner, key)
     end
 
-    {:ok, _} = Valimc.TestWorld.owner(bridge)
+    {:ok, held} = Valimc.TestWorld.owner(bridge)
+    TestScope.simulate(held, bridge)
     :ok = Regionizer.settle(:overworld)
     assert same_group?(hd(ends), List.last(ends))
+    {:ok, owner} = Valimc.TestWorld.owner(bridge)
+    Region.ticket(owner, bridge, :forced, nil, [])
 
     # The bridge unloads on its group's tick; the regionizer splits the group
     # when it handles that report.
@@ -118,30 +121,33 @@ defmodule Valimc.RegionizerTest do
 
     kept = for dx <- [0, 1, 2, 8], do: at(ctx.origin, dx)
     [bridge, far] = [at(ctx.origin, 5), at(ctx.origin, 9)]
-    regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
-    # The bridge's report must come first: hold the regionizer while both go.
-    :sys.suspend(regionizer)
 
-    try do
-      for key <- kept do
-        {:ok, owner} = Valimc.TestWorld.owner(key)
-        TestScope.simulate(owner, key)
-      end
-
-      for key <- [bridge, far], do: {:ok, _} = Valimc.TestWorld.owner(key)
-    after
-      :sys.resume(regionizer)
+    for key <- kept ++ [bridge, far] do
+      {:ok, owner} = Valimc.TestWorld.owner(key)
+      TestScope.simulate(owner, key)
     end
 
     :ok = Regionizer.settle(:overworld)
     assert same_group?(hd(kept), List.last(kept))
     groups = Regionizer.groups(:overworld)
+    # Hold the regionizer while both go, so it reads the bridge's report first.
+    regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
     :sys.suspend(regionizer)
 
     try do
+      # Both go on the group's next tick, in key order: the bridge first. A
+      # section leaves the group's list once its report is sent.
+      {:ok, {pid, _}} = Valimc.TestWorld.owner(bridge)
+
+      for key <- [bridge, far] do
+        {:ok, owner} = Valimc.TestWorld.owner(key)
+        Region.ticket(owner, key, :forced, nil, [])
+      end
+
       assert Valimc.TestWait.until(
                fn ->
-                 Valimc.TestWorld.lookup(bridge) == nil and Valimc.TestWorld.lookup(far) == nil
+                 sections = Region.sections(pid)
+                 bridge not in sections and far not in sections
                end,
                30_000
              )
@@ -161,5 +167,39 @@ defmodule Valimc.RegionizerTest do
     end
 
     assert map_size(Regionizer.groups(:overworld)) <= map_size(groups) + 1
+  end
+
+  test "a section gone before its load report is read joins no groups", ctx do
+    TestScope.isolate(
+      for(dx <- 0..12, do: at(ctx.origin, dx)),
+      region_ticks: :timer,
+      region_unload_delay_ms: 0
+    )
+
+    ends = [at(ctx.origin, 0), at(ctx.origin, 6)]
+    bridge = at(ctx.origin, 3)
+
+    for key <- ends do
+      {:ok, owner} = Valimc.TestWorld.owner(key)
+      TestScope.simulate(owner, key)
+    end
+
+    :ok = Regionizer.settle(:overworld)
+    regionizer = GenServer.whereis({:via, Registry, {Valimc.Regionizers, :overworld}})
+    :sys.suspend(regionizer)
+
+    try do
+      # Wanted by nobody: it loads and unloads before the regionizer reads of
+      # it. Its group reports the unload, then stops (it has nothing left).
+      {:ok, {group, _}} = Valimc.TestWorld.owner(bridge)
+      monitor = Process.monitor(group)
+      assert_receive {:DOWN, ^monitor, :process, ^group, _}, 30_000
+    after
+      :sys.resume(regionizer)
+    end
+
+    :ok = Regionizer.settle(:overworld)
+    assert separate?(hd(ends), List.last(ends))
+    refute Enum.any?(Regionizer.groups(:overworld), fn {_, keys} -> bridge in keys end)
   end
 end

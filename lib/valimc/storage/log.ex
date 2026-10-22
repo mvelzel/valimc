@@ -107,8 +107,9 @@ defmodule Valimc.Storage.Log do
   decides its stripe).
   """
   def frames(base, owner, seq) do
-    # Every stripe recovers (and indexes) its segments when it starts.
-    for n <- region_stripes(), do: ensure_stripe(base, n)
+    # Every stripe recovers (and indexes) its segments when it starts; one
+    # with no directory has never held a frame.
+    for n <- region_stripes(), File.dir?(dir(base, n)), do: ensure_stripe(base, n)
 
     Enum.reduce_while(indexed(base, owner), [], fn n, acc ->
       case GenServer.call(ensure_stripe(base, n), {:frames, owner, seq}, 60_000) do
@@ -125,9 +126,15 @@ defmodule Valimc.Storage.Log do
     end
   end
 
-  @doc "`owner`'s checkpoint holds its frames up to `seq` (on every region stripe)."
+  @doc """
+  `owner`'s checkpoint holds its frames up to `seq` (on every running region
+  stripe; one that is not running reads the checkpoint when it opens).
+  """
   def covered(base, owner, seq) do
-    for n <- region_stripes(), do: GenServer.cast(ensure_stripe(base, n), {:covered, owner, seq})
+    for n <- region_stripes(),
+        [{pid, _}] <- [Registry.lookup(Valimc.StorageRegistry, {base, n})],
+        do: GenServer.cast(pid, {:covered, owner, seq})
+
     :ok
   end
 
