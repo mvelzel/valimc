@@ -1,6 +1,8 @@
+alias Valimc.Native
 alias Valimc.Physics.PlayerPose
 import Bitwise
 [path] = System.argv()
+:ok = Valimc.Registry.BlockFacts.install!()
 native = path |> File.read!() |> JSON.decode!()
 
 for c <- native["poses"] do
@@ -19,12 +21,19 @@ end
 
 for c <- native["geometry"] do
   position = c["position"] |> Enum.map(decode) |> List.to_tuple()
-  {:ok, actual} = PlayerPose.geometry(String.to_existing_atom(c["pose"]), position)
+  pose = String.to_existing_atom(c["pose"])
+  {:ok, actual} = PlayerPose.geometry(pose, position)
+
+  {:ok, {box, fit_box, eye}} =
+    Native.physics_player_parity(:pose_geometry, {PlayerPose.id(pose), position})
 
   for {field, key} <- [box: "box", fit_box: "fit_box", eye: "eye"] do
     if bits.(Map.fetch!(actual, field)) != c[key],
       do: raise("Native pose geometry mismatch: #{inspect(c)} / #{field}")
   end
+
+  unless bits.(box) == c["box"] and bits.(fit_box) == c["fit_box"] and bits.(eye) == c["eye"],
+    do: raise("Kernel pose geometry mismatch: #{inspect(c)}")
 end
 
 keys = [:sleeping, :swimming, :fall_flying, :spin_attack, :shift, :flying, :spectator, :passenger]
@@ -38,14 +47,13 @@ for c <- native["cases"] do
 
   fits =
     for {pose, bit} <- Enum.with_index(fit_poses),
-        into: %{},
-        do: {pose, (c["fits"] &&& 1 <<< bit) != 0}
+        do: {PlayerPose.id(pose), (c["fits"] &&& 1 <<< bit) != 0}
 
-  current = String.to_existing_atom(c["current"])
-  {:ok, selected, queries} = PlayerPose.select(current, struct!(PlayerPose, values), fits)
+  current = PlayerPose.id(String.to_existing_atom(c["current"]))
+  {:ok, {selected, queries}} = Native.physics_player_parity(:pose_select, {current, values, fits})
 
-  if Atom.to_string(selected) != c["selected"] or
-       Enum.map(queries, &Atom.to_string/1) != c["queries"],
+  if Atom.to_string(PlayerPose.from_id(selected)) != c["selected"] or
+       Enum.map(queries, &Atom.to_string(PlayerPose.from_id(&1))) != c["queries"],
      do: raise("Native pose selection mismatch: #{inspect(c)}")
 end
 

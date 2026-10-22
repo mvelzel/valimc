@@ -1,4 +1,4 @@
-alias Valimc.Physics.MovementFood
+alias Valimc.Native
 alias Valimc.{GameMode, PlayerFood}
 import Bitwise
 [path] = System.argv()
@@ -18,7 +18,8 @@ for c <- cases do
     sprinting: (flags &&& 64) != 0
   }
 
-  amount = MovementFood.amount(List.to_tuple(c["movement"]), contact)
+  movement = c["movement"] |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
+  {:ok, amount} = Native.physics_player_parity(:food_travel, {movement, contact})
 
   unless amount == c["exhaustion"],
     do: raise("Native movement food mismatch #{inspect({c, amount})}")
@@ -38,7 +39,7 @@ end
 
 for c <- data["jumps"],
     do:
-      unless(MovementFood.jump(c["sprinting"]) == c["exhaustion"],
+      unless(Native.physics_player_parity(:food_jump, c["sprinting"]) == {:ok, c["exhaustion"]},
         do: raise("Native jump exhaustion differs #{inspect(c)}")
       )
 

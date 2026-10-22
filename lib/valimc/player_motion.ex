@@ -7,7 +7,8 @@ defmodule Valimc.PlayerMotion do
             physical_ground: false,
             settled: false,
             swimming: false,
-            paths: %Valimc.Physics.MovementPaths{},
+            # Moves since the last tick, `{from, to, axis}` (at most 100, VMC-077l2).
+            paths: [],
             stuck_multiplier: {0.0, 0.0, 0.0},
             known_movement: {0.0, 0.0, 0.0},
             on_ground: false,

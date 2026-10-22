@@ -17,7 +17,6 @@ defmodule Valimc.Player.Movement do
     Metrics,
     Players,
     PlayerInput,
-    PlayerKinetics,
     PlayerMotion,
     PlayerMotionQuery,
     PlayerPoseQuery,
@@ -162,7 +161,7 @@ defmodule Valimc.Player.Movement do
     case PlayerMotionQuery.run(state.player, position, flags) do
       {:ok, %{accepted: true} = result} ->
         Metrics.add(:movement_validations)
-        accept(state, position, flags, result)
+        accept(state, position, result)
 
       {:ok, %{accepted: false}} ->
         correct_motion(state, :movement_collision_corrections)
@@ -172,17 +171,13 @@ defmodule Valimc.Player.Movement do
     end
   end
 
-  defp accept(state, position, flags, result) do
-    player = state.player |> Map.merge(position) |> Map.put(:pose, result.pose)
-    movement = {player.x - state.player.x, player.y - state.player.y, player.z - state.player.z}
-
-    motion =
-      PlayerMotion.accept(state.player.motion, movement, flags, player.abilities.flying)
-
-    motion =
-      PlayerKinetics.apply_result(%{motion | swimming: result.swimming}, result.kinetics.packet)
-
-    player = %{player | motion: motion}
+  defp accept(state, position, result) do
+    # The kernel accepted the packet's movement and flags into the motion.
+    player =
+      state.player
+      |> Map.merge(position)
+      |> Map.put(:pose, result.pose)
+      |> Map.put(:motion, result.motion)
 
     if result.pose != state.player.pose,
       do: send_packets(state, [Packets.player_pose(player)])
@@ -192,7 +187,11 @@ defmodule Valimc.Player.Movement do
     next =
       %{state | player: player, pose_checked: nil}
       |> Valimc.Player.Vitals.apply_movement_exhaustion(result.exhaustion)
-      |> apply_kinetic_tick(result.kinetics.tick, result.kinetics.packet.bounced)
+      |> apply_kinetic_tick(
+        result.ticked,
+        result.kinetics.tick.bounced,
+        result.kinetics.packet.bounced
+      )
       |> Valimc.Player.Vitals.observe_environment(
         result.powder_snow,
         result.submerged,
@@ -286,7 +285,7 @@ defmodule Valimc.Player.Movement do
 
     state =
       %{state | player: player}
-      |> apply_kinetic_tick(result.kinetics, false)
+      |> apply_kinetic_tick(result.ticked, result.kinetics.bounced, false)
       |> Valimc.Player.Vitals.observe_environment(
         result.powder_snow,
         result.submerged,
@@ -300,12 +299,13 @@ defmodule Valimc.Player.Movement do
       else: state
   end
 
-  def apply_kinetic_tick(state, result, packet_bounce) do
+  # The motion after the server's tick replaces the player's when a tick is
+  # due; otherwise only the packet's restitution counts.
+  def apply_kinetic_tick(state, ticked, tick_bounced, packet_bounce) do
     {player, bounced} =
       if state.simulation_due do
         Metrics.add(:player_physics_ticks)
-        motion = PlayerKinetics.apply_result(state.player.motion, result)
-        {%{state.player | motion: motion}, packet_bounce or result.bounced}
+        {%{state.player | motion: ticked}, packet_bounce or tick_bounced}
       else
         {state.player, packet_bounce}
       end

@@ -76,13 +76,7 @@ defmodule Valimc.PlayerMotionQueryTest do
 
   test "retained paths sample crossed material, fit the frame and remain owned until a tick commits",
        %{player: p} do
-    paths =
-      Valimc.Physics.MovementPaths.record(
-        %Valimc.Physics.MovementPaths{},
-        {p.x - 3, p.y, p.z},
-        {3.0, 0.0, 0.0},
-        {3.0, 0.0, 0.0}
-      )
+    paths = [{{p.x - 3, p.y, p.z}, {p.x, p.y, p.z}, {3.0, 0.0, 0.0}}]
 
     :ok = Valimc.TestBlocks.set({floor(p.x) - 2, 64, floor(p.z)}, 2362)
     p = Map.put(p, :motion, %Valimc.PlayerMotion{paths: paths})
@@ -90,7 +84,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert {:ok, %{accepted: true, kinetics: %{packet: packet, tick: tick}}} =
              query(p, %{x: p.x + 0.2})
 
-    assert packet.paths.count == 2 and tick.paths.count == 0
+    assert length(packet.paths) == 2 and tick.paths == []
     assert elem(tick.stuck_multiplier, 0) == 0.25 and tick.reset_fall
     assert p.motion.paths == paths
     assert {:error, :movement_query_limit} = PlayerMotionQuery.run(p, %{p | z: p.z + 64})

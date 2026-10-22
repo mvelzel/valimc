@@ -1,4 +1,5 @@
 alias Valimc.Living.Burning
+alias Valimc.Native
 alias Valimc.World.View
 [path] = System.argv()
 
@@ -22,48 +23,40 @@ for row <- rows do
       {:ok, operations} = Burning.plan(steps)
       operations
     else
-      alias Valimc.Physics.{CollisionContext, BlockContacts}
+      alias Valimc.Physics.{CollisionContext, Kernel, PlayerPose}
       states = Map.new(row["blocks"], fn [x, y, z, id] -> {{x, y, z}, id} end)
+      vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
       paths =
         Enum.map(row["paths"], fn p ->
-          %{
-            from: List.to_tuple(p["from"]),
-            to: List.to_tuple(p["to"]),
-            axis: if(is_list(p["axis"]), do: List.to_tuple(p["axis"]))
-          }
+          {vec.(p["from"]), vec.(p["to"]), if(is_list(p["axis"]), do: vec.(p["axis"]))}
         end)
 
-      feet = List.to_tuple(row["feet"])
+      feet = vec.(row["feet"])
 
       context =
         CollisionContext.entity(elem(feet, 1))
         |> CollisionContext.with_entity(row["fall"], false, false)
 
-      facts = %{
-        pose:
-          Map.fetch!(
-            %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming},
-            row["pose"]
-          ),
-        feet: feet,
-        flying: false,
-        spectator: row["spectator"],
-        weaving: false,
-        grounded: false,
-        careful: false,
-        known_movement: {0.0, 0.0, 0.0},
-        support_state: 0
-      }
+      pose =
+        Map.fetch!(
+          %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming},
+          row["pose"]
+        )
 
-      case BlockContacts.sample_paths(
-             View.of(states),
-             paths,
-             context,
-             facts
+      body = {PlayerPose.id(pose), feet, false, row["spectator"], false}
+
+      case Native.physics_player_parity(
+             :touched,
+             {Kernel.native(View.of(states), nil), paths, Kernel.context(context), body,
+              {false, false, {0.0, 0.0, 0.0}, 0}}
            ) do
-        {:ok, result} -> result.operations
-        error -> raise("Native geometry refused: #{inspect({row, error})}")
+        {:ok, fires} ->
+          {:ok, operations} = Burning.plan(fires.steps)
+          for({source, amount} <- fires.immediate, do: {:damage, source, amount}) ++ operations
+
+        error ->
+          raise("Native geometry refused: #{inspect({row, error})}")
       end
     end
 

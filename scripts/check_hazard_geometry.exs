@@ -1,6 +1,7 @@
 alias Valimc.Living.Burning
+alias Valimc.Native
 alias Valimc.World.View
-alias Valimc.Physics.{BlockContacts, CollisionContext}
+alias Valimc.Physics.{CollisionContext, Kernel, PlayerPose}
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
 
@@ -10,33 +11,31 @@ for row <- rows do
   {a, b, c} = from = List.to_tuple(row["from"])
   support = Map.fetch!(states, {floor(x), floor(y - 0.20000000298023224), floor(z)})
 
-  facts = %{
-    pose:
-      Map.fetch!(
-        %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming},
-        row["pose"]
-      ),
-    feet: to,
-    flying: false,
-    spectator: false,
-    weaving: false,
-    grounded: row["grounded"],
-    careful: row["careful"],
-    known_movement: {x - a, y - b, z - c},
-    support_state: support
-  }
+  pose =
+    Map.fetch!(
+      %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming},
+      row["pose"]
+    )
 
   context =
     CollisionContext.entity(y, row["careful"])
     |> CollisionContext.with_entity(5.0, false, false)
 
-  {:ok, plan} =
-    BlockContacts.sample_paths(
-      View.of(states),
-      [%{from: from, to: to}],
-      context,
-      facts
+  float = fn {p, q, r} -> {p * 1.0, q * 1.0, r * 1.0} end
+
+  {:ok, fires} =
+    Native.physics_player_parity(
+      :touched,
+      {Kernel.native(View.of(states), nil), [{float.(from), float.(to), nil}],
+       Kernel.context(context), {PlayerPose.id(pose), float.(to), false, false, false},
+       {row["grounded"], row["careful"], {x - a, y - b, z - c}, support}}
     )
+
+  {:ok, planned} = Burning.plan(fires.steps)
+
+  plan = %{
+    operations: for({source, amount} <- fires.immediate, do: {:damage, source, amount}) ++ planned
+  }
 
   Process.put(:hazard_draws, 0)
 

@@ -4,7 +4,6 @@ defmodule Valimc.Living.Air do
   contact with water, Respiration, the breathing effects, drowning and
   refilling. The owner supplies fresh contact, ticks and random draws.
   """
-  alias Valimc.Physics.FluidContact
   alias Valimc.Protocol.EffectTypes
   alias Valimc.Registry.Blocks
   @maximum 300
@@ -17,16 +16,8 @@ defmodule Valimc.Living.Air do
   def valid?(air), do: is_integer(air) and air in -20..@maximum
   def bubble_states, do: Enum.to_list(Blocks.states("bubble_column"))
 
-  def contact(frame, %{box: box, eye: {x, y, z} = eye}) do
-    with {:ok, eyes} <- FluidContact.eyes(frame, box, eye),
-         {:ok, state} <- Valimc.World.View.fetch(frame, {floor(x), floor(y), floor(z)}) do
-      submerged = eyes.water and Blocks.block_id(state) != @bubble_column
-      {:ok, %{water: eyes.water, submerged: submerged}}
-    else
-      :error -> {:error, :incomplete_air_frame}
-      error -> error
-    end
-  end
+  @doc "Whether an eye under water at a block of `state` is submerged (bubble columns are not)."
+  def submerged?(eye_water, state), do: eye_water and Blocks.block_id(state) != @bubble_column
 
   @doc "The breathing effects' policy: `:none`, `:hold` (no drain) or `:refill`."
   def policy(effects) when is_map(effects) do

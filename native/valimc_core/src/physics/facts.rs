@@ -50,6 +50,100 @@ pub struct Boundary {
     pub context: u8,
 }
 
+/// What a state offers a climber (`isClimbable`, trapdoors over ladders).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Climb {
+    pub climbable: bool,
+    pub glide_through: bool,
+    pub scaffolding: bool,
+    /// The ladder's facing (`Direction` index), -1 for none.
+    pub ladder_facing: i8,
+    pub trapdoor_facing: i8,
+    pub trapdoor_open: bool,
+}
+
+/// What standing inside a state does to an entity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InsideKind {
+    #[default]
+    None,
+    Fire,
+    SoulFire,
+    PowderSnow,
+    Cobweb,
+    BerryBush,
+}
+
+/// The shape an entity must be inside for the state's effect
+/// (`getEntityInsideCollisionShape`): the whole block, the collision shape
+/// for the entity's context, or fixed block-local boxes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum InsideShape {
+    #[default]
+    Full,
+    Context,
+    Boxes(Vec<super::aabb::Aabb>),
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Inside {
+    pub kind: InsideKind,
+    pub shape: InsideShape,
+}
+
+/// The immediate harm a state does to a player touching it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Hazard {
+    Magma,
+    /// A lit campfire's damage (0 unlit).
+    Campfire(f64),
+    Cactus,
+    /// A sweet berry bush's age.
+    Berry(i32),
+}
+
+/// The player's facts beside the collision ones: climbing, inside
+/// behaviour, hazards and the pose catalog.
+#[derive(Clone, Debug, Default)]
+pub struct PlayerFacts {
+    pub climb_states: Vec<u8>,
+    pub climbs: Vec<Climb>,
+    pub inside_states: Vec<u8>,
+    pub insides: Vec<Inside>,
+    pub hazard_states: Vec<u8>,
+    pub hazards: Vec<Option<Hazard>>,
+    pub poses: Vec<super::player::pose::Dimensions>,
+}
+
+impl PlayerFacts {
+    pub fn climb(&self, state: u16) -> Climb {
+        self.climb_states
+            .get(state as usize)
+            .and_then(|&i| self.climbs.get(i as usize))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn inside(&self, state: u16) -> &Inside {
+        static NONE: Inside = Inside {
+            kind: InsideKind::None,
+            shape: InsideShape::Full,
+        };
+        self.inside_states
+            .get(state as usize)
+            .and_then(|&i| self.insides.get(i as usize))
+            .unwrap_or(&NONE)
+    }
+
+    pub fn hazard(&self, state: u16) -> Option<Hazard> {
+        self.hazard_states
+            .get(state as usize)
+            .and_then(|&i| self.hazards.get(i as usize))
+            .copied()
+            .flatten()
+    }
+}
+
 /// Everything the kernel reads per state.
 #[derive(Debug)]
 pub struct Facts {
@@ -61,6 +155,7 @@ pub struct Facts {
     pub fluids: Vec<Fluid>,
     pub boundary_states: Vec<u8>,
     pub boundaries: Vec<Boundary>,
+    pub player: PlayerFacts,
 }
 
 const NO_MOTION: Motion = Motion {
@@ -139,6 +234,7 @@ impl Facts {
             fluids,
             boundary_states,
             boundaries,
+            player: PlayerFacts::default(),
         })
     }
 

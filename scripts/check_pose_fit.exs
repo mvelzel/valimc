@@ -1,9 +1,12 @@
+alias Valimc.Native
+
 alias Valimc.Physics.{
   BlockScan,
   BorderSnapshot,
   CollisionContext,
-  PlayerPose,
-  PoseFit
+  EntityCollisions,
+  Kernel,
+  PlayerPose
 }
 
 import Bitwise
@@ -68,21 +71,27 @@ try do
 
     {:ok, border} = BorderSnapshot.new(0, 0, c["diameter"])
 
-    observations = %{
-      blocks: Valimc.World.View.of(Map.new(Enum.flat_map(blocks, &Map.to_list(&1.blocks)))),
-      entities: entities,
-      border: border,
-      subject: 1
-    }
+    frame = Valimc.World.View.of(Map.new(Enum.flat_map(blocks, &Map.to_list(&1.blocks))))
+    {:ok, bounds} = BorderSnapshot.bounds(border)
+    position = position |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
 
-    {:ok, result} =
-      PoseFit.select(
-        String.to_existing_atom(c["current"]),
-        struct!(PlayerPose, intent),
-        position,
-        CollisionContext.empty(),
-        observations
+    # The entity policy picks colliders per fit box; these fixtures' boxes all
+    # lie around the standing body, so its candidates serve every pose.
+    {:ok, colliders} = EntityCollisions.collect(geometry.box, 1, entities)
+
+    {:ok, {selected, fits, queries}} =
+      Native.physics_player_parity(
+        :pose_fit,
+        {Kernel.native(frame, nil), PlayerPose.id(String.to_existing_atom(c["current"])), intent,
+         position, Kernel.context(CollisionContext.empty()),
+         {Enum.map(colliders.colliders, & &1.box), bounds, {elem(position, 0), elem(position, 2)}}}
       )
+
+    result = %{
+      pose: PlayerPose.from_id(selected),
+      fits: Map.new(fits, fn {pose, fit} -> {PlayerPose.from_id(pose), fit} end),
+      queries: Enum.map(queries, &PlayerPose.from_id/1)
+    }
 
     expected_fits =
       Map.new(c["fits"], fn {name, fits} -> {String.to_existing_atom(name), fits} end)

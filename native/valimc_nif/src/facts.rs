@@ -3,11 +3,16 @@
 //! and the per-state facts worldgen's block table reads all come from it.
 
 use crate::{atoms, done};
-use rustler::{Atom, Binary, NifMap, NifResult};
+use rustler::{Atom, Binary, NifMap, NifResult, Term};
 use std::sync::OnceLock;
 use valimc_core::light::LightFacts;
-use valimc_core::physics::facts::{self as physics, Boundary, Fluid, Motion};
+use valimc_core::physics::facts::{
+    self as physics, Boundary, Climb, Fluid, Hazard, Inside, InsideKind, InsideShape, Motion,
+    PlayerFacts,
+};
+use valimc_core::physics::player::pose::Dimensions;
 use valimc_core::physics::table::Entry;
+use valimc_core::physics::Aabb;
 use valimc_core::physics::VoxelShape;
 use valimc_core::{BlockFlags, StateFacts};
 
@@ -46,6 +51,111 @@ struct Physics<'a> {
     fluids: Vec<(u8, u8, f64, bool, bool)>,
     boundary_states: Binary<'a>,
     boundaries: Vec<(bool, bool, u8)>,
+    climb_states: Binary<'a>,
+    climbs: Vec<ClimbT>,
+    inside_states: Binary<'a>,
+    insides: Vec<InsideT<'a>>,
+    hazard_states: Binary<'a>,
+    hazards: Vec<(u8, f64)>,
+    poses: Vec<(f64, f64, f64)>,
+}
+
+/// A climb palette entry: `{climbable, glide_through, scaffolding,
+/// ladder_facing, trapdoor_facing, trapdoor_open}` (facings -1 for none).
+type ClimbT = (bool, bool, bool, i8, i8, bool);
+
+/// An inside palette entry: `{kind, shape}` with kind 0 none, 1 fire, 2 soul
+/// fire, 3 powder snow, 4 cobweb, 5 berry bush, and shape `:full`,
+/// `:context` or block-local boxes.
+type InsideT<'a> = (u8, Term<'a>);
+
+mod shapes {
+    rustler::atoms! { full, context }
+}
+
+fn inside(entry: &InsideT) -> Option<Inside> {
+    let (kind, shape) = entry;
+    let kind = match kind {
+        0 => InsideKind::None,
+        1 => InsideKind::Fire,
+        2 => InsideKind::SoulFire,
+        3 => InsideKind::PowderSnow,
+        4 => InsideKind::Cobweb,
+        5 => InsideKind::BerryBush,
+        _ => return None,
+    };
+    let shape = if let Ok(atom) = shape.decode::<Atom>() {
+        if atom == shapes::full() {
+            InsideShape::Full
+        } else if atom == shapes::context() {
+            InsideShape::Context
+        } else {
+            return None;
+        }
+    } else {
+        let boxes: Vec<(f64, f64, f64, f64, f64, f64)> = shape.decode().ok()?;
+        InsideShape::Boxes(
+            boxes
+                .into_iter()
+                .map(|b| Aabb::new([b.0, b.1, b.2], [b.3, b.4, b.5]))
+                .collect(),
+        )
+    };
+    Some(Inside { kind, shape })
+}
+
+fn player_facts(p: &Physics, count: usize) -> Option<PlayerFacts> {
+    let fits = |states: &[u8], palette: usize| {
+        states.len() == count && states.iter().all(|&s| (s as usize) < palette)
+    };
+    let facts = PlayerFacts {
+        climb_states: p.climb_states.as_slice().to_vec(),
+        climbs: p
+            .climbs
+            .iter()
+            .map(
+                |&(
+                    climbable,
+                    glide_through,
+                    scaffolding,
+                    ladder_facing,
+                    trapdoor_facing,
+                    trapdoor_open,
+                )| Climb {
+                    climbable,
+                    glide_through,
+                    scaffolding,
+                    ladder_facing,
+                    trapdoor_facing,
+                    trapdoor_open,
+                },
+            )
+            .collect(),
+        inside_states: p.inside_states.as_slice().to_vec(),
+        insides: p.insides.iter().map(inside).collect::<Option<_>>()?,
+        hazard_states: p.hazard_states.as_slice().to_vec(),
+        hazards: p
+            .hazards
+            .iter()
+            .map(|&(kind, value)| match kind {
+                0 => Some(None),
+                1 => Some(Some(Hazard::Magma)),
+                2 => Some(Some(Hazard::Campfire(value))),
+                3 => Some(Some(Hazard::Cactus)),
+                4 => Some(Some(Hazard::Berry(value as i32))),
+                _ => None,
+            })
+            .collect::<Option<_>>()?,
+        poses: p
+            .poses
+            .iter()
+            .map(|&(width, height, eye)| Dimensions { width, height, eye })
+            .collect(),
+    };
+    (fits(&facts.climb_states, facts.climbs.len())
+        && fits(&facts.inside_states, facts.insides.len())
+        && fits(&facts.hazard_states, facts.hazards.len()))
+    .then_some(facts)
 }
 
 pub(crate) fn shape(s: &ShapeT) -> Option<VoxelShape> {
@@ -151,7 +261,8 @@ fn physics_facts(p: &Physics, flags: Vec<u64>, count: usize) -> Option<physics::
             context,
         })
         .collect();
-    physics::Facts::new(
+    let player = player_facts(p, count)?;
+    let mut facts = physics::Facts::new(
         table,
         flags,
         p.motion_states.as_slice().to_vec(),
@@ -160,7 +271,9 @@ fn physics_facts(p: &Physics, flags: Vec<u64>, count: usize) -> Option<physics::
         fluids,
         p.boundary_states.as_slice().to_vec(),
         boundaries,
-    )
+    )?;
+    facts.player = player;
+    Some(facts)
 }
 
 /// The table's columns: `flags` and `signal` are eight big-endian bytes per

@@ -1,5 +1,5 @@
 alias Valimc.World.View
-alias Valimc.Physics.{BlockScan, FluidContact}
+alias Valimc.Physics.{BlockScan, Kernel}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 
@@ -15,7 +15,7 @@ for c <- cases do
     )
 
   frame = View.of(Map.merge(states, supplied))
-  {:ok, actual} = FluidContact.eyes(frame, box, List.to_tuple(c["eye"]))
+  {:ok, actual} = Kernel.eyes(frame, box, List.to_tuple(c["eye"]))
 
   for key <- [:water, :lava] do
     if actual[key] != c[Atom.to_string(key)],

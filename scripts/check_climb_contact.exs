@@ -1,5 +1,6 @@
 alias Valimc.World.View
-alias Valimc.Physics.{BlockScan, ClimbContact, PlayerPose}
+alias Valimc.Native
+alias Valimc.Physics.{BlockScan, Kernel, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})
@@ -9,11 +10,14 @@ states = Map.new(plan, fn {p, _} -> {p, 0} end)
 for c <- cases do
   frame = View.of(Map.merge(states, %{{0, 64, 0} => c["state"], {0, 63, 0} => c["below"]}))
 
-  {:ok, result} =
-    ClimbContact.sample(frame, {0, 64, 0}, c["flying"], c["spectator"], c["gliding"])
+  {:ok, {climbing, _scaffolding}} =
+    Native.physics_player_parity(
+      :climb_contact,
+      {Kernel.native(frame, nil), {0, 64, 0}, c["flying"], c["spectator"], c["gliding"]}
+    )
 
-  if result.climbing != c["climbing"],
-    do: raise("Native climb contact mismatch #{inspect(c)} #{inspect(result)}")
+  if climbing != c["climbing"],
+    do: raise("Native climb contact mismatch #{inspect(c)} #{inspect(climbing)}")
 
   for p <- c["queries"] do
     unless Map.has_key?(states, List.to_tuple(p)),

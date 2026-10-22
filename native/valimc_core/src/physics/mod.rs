@@ -9,6 +9,7 @@ pub mod collide;
 pub mod facts;
 pub mod fluid;
 pub mod item;
+pub mod player;
 pub mod response;
 pub mod shape;
 pub mod source;

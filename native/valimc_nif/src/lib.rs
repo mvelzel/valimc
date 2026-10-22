@@ -26,6 +26,11 @@ mod loot;
 #[cfg(feature = "parity")]
 mod parity;
 mod physics;
+#[cfg(feature = "parity")]
+mod physics_checks;
+mod player;
+#[cfg(feature = "parity")]
+mod player_parity;
 mod region;
 mod rules;
 mod sys;

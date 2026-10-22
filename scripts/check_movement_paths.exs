@@ -1,30 +1,21 @@
-alias Valimc.Physics.MovementPaths
+alias Valimc.Native
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
+vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
 for c <- cases do
-  history =
-    Enum.reduce(c["inputs"], %MovementPaths{}, fn input, history ->
-      MovementPaths.record(
-        history,
-        List.to_tuple(input["from"]),
-        List.to_tuple(input["actual"]),
-        List.to_tuple(input["axis"])
-      )
-    end)
+  inputs = Enum.map(c["inputs"], &{vec.(&1["from"]), vec.(&1["actual"]), vec.(&1["axis"])})
 
-  actual = MovementPaths.collect(history, List.to_tuple(c["old"]), List.to_tuple(c["current"]))
+  {:ok, {actual, count}} =
+    Native.physics_player_parity(:paths, {inputs, vec.(c["old"]), vec.(c["current"])})
 
   expected =
     Enum.map(c["paths"], fn p ->
-      %{
-        from: List.to_tuple(p["from"]),
-        to: List.to_tuple(p["to"]),
-        axis: if(p["axis"] == nil, do: nil, else: List.to_tuple(p["axis"]))
-      }
+      {List.to_tuple(p["from"]), List.to_tuple(p["to"]),
+       if(p["axis"] == nil, do: nil, else: List.to_tuple(p["axis"]))}
     end)
 
-  if actual != expected or history.count > 100,
+  if actual != expected or count > 100,
     do: raise("History mismatch: #{inspect({c, actual}, limit: :infinity)}")
 end
 

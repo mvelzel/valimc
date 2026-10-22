@@ -1,5 +1,5 @@
 alias Valimc.Native
-alias Valimc.Physics.{Kernel, MovementValidation}
+alias Valimc.Physics.Kernel
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 floats = fn values -> values |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
@@ -13,13 +13,13 @@ for {fixture, index} <- Enum.with_index(cases) do
       "spectator" -> :spectator
     end
 
+  exempt =
+    fixture["changing_dimension"] or fixture["impulse"] or mode in [:creative, :spectator]
+
   {:ok, wrongly} =
-    MovementValidation.wrongly?(
-      List.to_tuple(fixture["requested"]),
-      List.to_tuple(fixture["moved"]),
-      mode,
-      fixture["changing_dimension"],
-      fixture["impulse"]
+    Native.physics_player_parity(
+      :moved_wrongly,
+      {floats.(fixture["requested"]), floats.(fixture["moved"]), exempt}
     )
 
   queried = not (fixture["no_physics"] or (wrongly and fixture["old_clear"]))
@@ -32,11 +32,9 @@ for {fixture, index} <- Enum.with_index(cases) do
     )
 
   {:ok, rejected} =
-    MovementValidation.collision_rejected?(
-      fixture["no_physics"],
-      wrongly,
-      fixture["old_clear"],
-      new_collision
+    Native.physics_player_parity(
+      :rejected,
+      {fixture["no_physics"], wrongly, fixture["old_clear"], new_collision}
     )
 
   if rejected != fixture["rejected"], do: raise("Native movement decision differs: #{index}")

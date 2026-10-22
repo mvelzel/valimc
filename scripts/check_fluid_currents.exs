@@ -1,5 +1,5 @@
 alias Valimc.World.View
-alias Valimc.Physics.{BlockScan, FluidCurrents}
+alias Valimc.Physics.{BlockScan, Kernel}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end
@@ -13,7 +13,7 @@ for c <- cases do
   frame = View.of(states)
 
   {:ok, actual} =
-    FluidCurrents.sample(frame, box, List.to_tuple(c["initial"]), c["pushed"], c["fast_lava"])
+    Kernel.current(frame, box, List.to_tuple(c["initial"]), c["pushed"], c["fast_lava"], :player)
 
   unless bits.(actual.velocity) == bits.(List.to_tuple(c["velocity"])),
     do: raise("Native player current mismatch #{inspect(c)} #{inspect(actual)}")

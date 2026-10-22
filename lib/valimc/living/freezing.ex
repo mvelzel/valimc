@@ -6,9 +6,6 @@ defmodule Valimc.Living.Freezing do
   sample and current gear.
   """
   alias Valimc.Living.Armor
-  alias Valimc.Physics.Box
-  alias Valimc.Registry.BlockFacts
-  @epsilon 9.999999747378752e-6
   defstruct powder_snow: false, frozen_ticks: 0, damage_phase: 0, damage_due: false
 
   def valid_ticks?(value), do: is_integer(value) and value in 0..140
@@ -47,34 +44,5 @@ defmodule Valimc.Living.Freezing do
       end
 
     %{env | powder_snow: powder, frozen_ticks: next}
-  end
-
-  def sample(%Valimc.World.View{} = view, box) do
-    if Box.valid?(box) do
-      {a, b, c, d, e, f} = box
-      {x0, y0, z0} = {floor(a + @epsilon), floor(b + @epsilon), floor(c + @epsilon)}
-      {x1, y1, z1} = {floor(d - @epsilon), floor(e - @epsilon), floor(f - @epsilon)}
-      count = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1)
-
-      if a + @epsilon < d - @epsilon and b + @epsilon < e - @epsilon and
-           c + @epsilon < f - @epsilon and count in 1..512 do
-        positions = for x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z}
-
-        states = Enum.map(positions, &Valimc.World.View.fetch(view, &1))
-
-        if Enum.all?(states, &match?({:ok, _}, &1)) do
-          {:ok,
-           Enum.any?(states, fn {:ok, state} ->
-             BlockFacts.stuck(state) == :powder_snow
-           end)}
-        else
-          {:error, :incomplete_environment_frame}
-        end
-      else
-        {:error, :environment_body_limit}
-      end
-    else
-      {:error, :invalid_environment_body}
-    end
   end
 end

@@ -1,28 +1,13 @@
 defmodule Valimc.Physics.PlayerPose do
-  @moduledoc "Native default dimensions and pure supplied-fit selection; live authority is separate."
+  @moduledoc """
+  The player pose catalog (vanilla's default dimensions): ids, dimensions and
+  each pose's box, fit box and eye. The physics kernel chooses poses from the
+  same catalog (VMC-077l2).
+  """
   alias Valimc.Physics.Box
-
-  defstruct sleeping: false,
-            swimming: false,
-            fall_flying: false,
-            spin_attack: false,
-            shift: false,
-            flying: false,
-            spectator: false,
-            passenger: false
 
   @poses ~w(standing fall_flying sleeping swimming spin_attack crouching long_jumping dying
             croaking using_tongue sitting roaring sniffing emerging digging sliding shooting inhaling)a
-  @intent_keys [
-    :sleeping,
-    :swimming,
-    :fall_flying,
-    :spin_attack,
-    :shift,
-    :flying,
-    :spectator,
-    :passenger
-  ]
   use Valimc.Facts, "physics/player_poses.json"
 
   unless Enum.map(@facts, & &1["name"]) == Enum.map(@poses, &Atom.to_string/1),
@@ -32,6 +17,18 @@ defmodule Valimc.Physics.PlayerPose do
   @ids Map.new(Enum.zip(@poses, @facts), fn {pose, fact} -> {pose, fact["id"]} end)
 
   def id(pose), do: Map.fetch!(@ids, pose)
+
+  unless Enum.map(@facts, & &1["id"]) == Enum.to_list(0..(length(@poses) - 1)),
+    do: raise("Pose ids are not their catalog order")
+
+  @by_id List.to_tuple(@poses)
+
+  @doc "The pose with catalog id `id`."
+  def from_id(id), do: elem(@by_id, id)
+
+  @doc "The catalog's dimensions in id order, as the physics kernel takes them."
+  def native_dimensions,
+    do: for(f <- @facts, do: {f["width"] * 1.0, f["height"] * 1.0, f["eye_height"] * 1.0})
 
   def dimensions(pose) do
     case Map.fetch(@dimensions, pose) do
@@ -57,60 +54,4 @@ defmodule Valimc.Physics.PlayerPose do
   end
 
   def geometry(_, _), do: {:error, :invalid_pose_position}
-
-  def select(current, %__MODULE__{} = intent, fits)
-      when map_size(intent) == 9 and is_map(fits) and map_size(fits) <= 18 do
-    valid =
-      current in @poses and Enum.all?(@intent_keys, &is_boolean(Map.get(intent, &1)))
-
-    valid_fits = Enum.all?(fits, fn {pose, fits?} -> pose in @poses and is_boolean(fits?) end)
-
-    if valid and valid_fits do
-      choose(current, intent, fits)
-    else
-      {:error, :invalid_pose_observations}
-    end
-  end
-
-  def select(_, _, _), do: {:error, :invalid_pose_observations}
-
-  defp choose(current, intent, fits) do
-    case Map.fetch(fits, :swimming) do
-      :error -> {:error, {:missing_fit, :swimming}}
-      {:ok, false} -> {:ok, current, [:swimming]}
-      {:ok, true} -> choose_desired(desired(intent), intent, fits)
-    end
-  end
-
-  defp choose_desired(desired, %{spectator: spectator, passenger: passenger}, _fits)
-       when spectator or passenger,
-       do: {:ok, desired, [:swimming]}
-
-  defp choose_desired(desired, _intent, fits) do
-    case Map.fetch(fits, desired) do
-      :error ->
-        {:error, {:missing_fit, desired}}
-
-      {:ok, true} ->
-        {:ok, desired, [:swimming, desired]}
-
-      {:ok, false} ->
-        case Map.fetch(fits, :crouching) do
-          :error -> {:error, {:missing_fit, :crouching}}
-          {:ok, true} -> {:ok, :crouching, [:swimming, desired, :crouching]}
-          {:ok, false} -> {:ok, :swimming, [:swimming, desired, :crouching]}
-        end
-    end
-  end
-
-  defp desired(intent) do
-    cond do
-      intent.sleeping -> :sleeping
-      intent.swimming -> :swimming
-      intent.fall_flying -> :fall_flying
-      intent.spin_attack -> :spin_attack
-      intent.shift and not intent.flying -> :crouching
-      true -> :standing
-    end
-  end
 end

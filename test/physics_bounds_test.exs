@@ -2,9 +2,8 @@ defmodule Valimc.PhysicsBoundsTest do
   # Work and coordinate bounds of the collision kernels that client movement drives.
   # Their vanilla behaviour is compared by the physics oracle stages.
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose, SneakEdges}
+  alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
   alias Valimc.Living.FallDamage
-  @sneak_box {-0.3, 64.0, -0.3, 0.3, 65.8, 0.3}
 
   defp body(point) do
     {:ok, %{box: {a, b, c, d, e, f}}} = PlayerPose.geometry(:standing, point)
@@ -37,27 +36,5 @@ defmodule Valimc.PhysicsBoundsTest do
 
     for box <- [nil, {1, 0, 0, -1, 1, 1}, {0, 0, 0, 60_000_001, 1, 1}, {0, 0, 0, :bad, 1, 1}],
         do: assert(BlockScan.plan(box) == {:error, :invalid_box})
-  end
-
-  test "sneak edges: exclusions perform no reads; a missing supporting frame is never empty space" do
-    missing = fn _ -> {:error, :incomplete_frame} end
-
-    for facts <- [
-          %SneakEdges{},
-          %SneakEdges{shift: true, flying: true},
-          %SneakEdges{shift: true, mover: :piston}
-        ] do
-      assert {:ok, %{queries: 0, requested: {0.4, -0.1, 0.2}}} =
-               SneakEdges.step(@sneak_box, {0.4, -0.1, 0.2}, facts, missing)
-    end
-
-    assert {:ok, %{queries: 0}} =
-             SneakEdges.step(@sneak_box, {0.4, 0.001, 0.2}, %SneakEdges{shift: true}, missing)
-
-    assert {:error, :incomplete_frame} =
-             SneakEdges.step(@sneak_box, {0.4, 0.0, 0.2}, %SneakEdges{shift: true}, missing)
-
-    assert {:error, :invalid_sneak_edges} =
-             SneakEdges.step(@sneak_box, {65.0, 0.0, 0.0}, %SneakEdges{}, missing)
   end
 end

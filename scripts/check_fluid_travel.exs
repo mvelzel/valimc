@@ -1,38 +1,45 @@
-alias Valimc.Living.Attributes
-alias Valimc.Physics.FluidMotion
-alias Valimc.{PlayerInput, PlayerKinetics, PlayerMotion}
-alias Valimc.Physics.{BlockScan, Box, PlayerPose}
+alias Valimc.{Native, PlayerInput, PlayerMotion}
+alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
-fields = Map.keys(Map.from_struct(%FluidMotion{})) -- [:kind, :falling]
+
+fields =
+  ~w(on_ground sprint dolphins_grace water_efficiency horizontal_collision climbable shallow old_y new_y)a
+
 bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end
+float = fn v -> if is_number(v), do: v * 1.0, else: v end
+vec = fn l -> l |> Enum.map(float) |> List.to_tuple() end
 
 check = fn c ->
-  initial = List.to_tuple(c["initial"])
-  resolved = List.to_tuple(c["resolved"])
+  initial = vec.(c["initial"])
+  resolved = vec.(c["resolved"])
 
   {:ok, gravity} =
-    Attributes.gravity(c["gravity"], elem(initial, 1), c["slow_falling"])
+    Native.physics_player_parity(
+      :gravity,
+      {c["gravity"] * 1.0, elem(initial, 1), c["slow_falling"]}
+    )
 
   facts =
     fields
-    |> Map.new(&{&1, Map.fetch!(c, Atom.to_string(&1))})
+    |> Map.new(&{&1, float.(Map.fetch!(c, Atom.to_string(&1)))})
     |> Map.merge(%{
       kind: String.to_existing_atom(c["kind"]),
       falling: elem(initial, 1) <= 0,
       gravity: gravity
     })
-    |> then(&struct!(FluidMotion, &1))
 
-  {:ok, result} = FluidMotion.prepare(resolved, facts)
+  {:ok, {velocity, escape}} = Native.physics_player_parity(:fluid_motion, {resolved, facts})
   query = if c["escape_query"], do: List.to_tuple(c["escape_query"])
 
-  unless (query == nil and result.escape_query == nil) or
-           (query != nil and result.escape_query != nil and
-              bits.(query) == bits.(result.escape_query)),
-         do: raise("Native fluid escape query mismatch #{inspect(c)} #{inspect(result)}")
+  unless (query == nil and escape == nil) or
+           (query != nil and escape != nil and bits.(query) == bits.(escape)),
+         do:
+           raise(
+             "Native fluid escape query mismatch #{inspect(c)} #{inspect({velocity, escape})}"
+           )
 
-  actual = FluidMotion.finish(result, c["free"])
+  {:ok, actual} = Native.physics_player_parity(:fluid_finish, {velocity, escape, c["free"]})
   expected = List.to_tuple(c["velocity"])
 
   unless bits.(actual) == bits.(expected),
@@ -50,7 +57,9 @@ check = fn c ->
       game_mode: Valimc.GameMode.new(:creative)
     }
 
-    {:ok, envelope} = PlayerKinetics.query_box(geometry.box, player)
+    {:ok, envelope} =
+      Native.physics_player_parity(:kinetic_query, {Kernel.player(player), geometry.box, false})
+
     {:ok, acquired} = BlockScan.plan(envelope, 1024)
     positions = MapSet.new(acquired, &elem(&1, 0))
     {:ok, movement} = BlockScan.plan(Box.expand_towards(geometry.box, initial))

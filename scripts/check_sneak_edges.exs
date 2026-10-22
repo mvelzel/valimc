@@ -1,33 +1,30 @@
-alias Valimc.Physics.{BlockScan, Box, PlayerPose, SneakEdges}
+alias Valimc.Native
+alias Valimc.Physics.{BlockScan, Kernel, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
+vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
 for c <- cases do
-  supports = Enum.map(c["supports"], &List.to_tuple/1)
-  Process.put(:edge_queries, [])
+  supports = Enum.map(c["supports"], vec)
 
-  free? = fn box ->
-    Process.put(:edge_queries, [box | Process.get(:edge_queries)])
-    {:ok, not Enum.any?(supports, &Box.intersects?(box, &1))}
-  end
-
-  facts = %SneakEdges{
+  facts = %{
     flying: c["flying"],
     shift: c["shift"],
     on_ground: c["ground"],
-    fall_distance: c["fall"],
-    max_step: c["step"],
-    mover: String.to_existing_atom(c["mover"])
+    fall_distance: c["fall"] * 1.0,
+    max_step: c["step"] * 1.0,
+    player: c["mover"] in ["self", "player"]
   }
 
-  {:ok, actual} =
-    SneakEdges.step(List.to_tuple(c["box"]), List.to_tuple(c["requested"]), facts, free?)
+  {:ok, {requested, queries}} =
+    Native.physics_player_parity(
+      :sneak_edges,
+      {vec.(c["box"]), vec.(c["requested"]), facts, supports}
+    )
 
-  queries = Process.delete(:edge_queries) |> Enum.reverse()
-
-  unless actual.requested == List.to_tuple(c["result"]) and actual.queries == length(queries) and
+  unless requested == List.to_tuple(c["result"]) and
            queries == Enum.map(c["queries"], &List.to_tuple/1),
-         do: raise("Native edge mismatch: #{inspect({c, actual, queries}, limit: :infinity)}")
+         do: raise("Native edge mismatch: #{inspect({c, requested, queries}, limit: :infinity)}")
 
   if queries != [] do
     [a, y, b, d, _, f] = c["box"]
@@ -44,10 +41,15 @@ for c <- cases do
     }
 
     target = %{player | x: player.x + dx, y: y + dy, z: player.z + dz}
-    {:ok, packet_box} = Valimc.PlayerMotionQuery.query_box(player, target)
+    {:ok, packet_box} = Kernel.player_query(player, target)
     {:ok, standing} = PlayerPose.geometry(:standing, {player.x, y, player.z})
     tick_player = %{player | motion: %{player.motion | velocity: {dx, dy, dz}}}
-    {:ok, tick_box} = Valimc.PlayerKinetics.query_box(standing.box, tick_player)
+
+    {:ok, tick_box} =
+      Native.physics_player_parity(
+        :kinetic_query,
+        {Kernel.player(tick_player), standing.box, false}
+      )
 
     for box <- [packet_box, tick_box] do
       case BlockScan.plan(box, 1024) do

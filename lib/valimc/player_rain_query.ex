@@ -9,7 +9,8 @@ defmodule Valimc.PlayerRainQuery do
   alias Valimc.Physics.RainContact
   alias Valimc.World.{Climate, Clock, View}
 
-  def sample({x, y, z}, %{box: {_, _, _, _, top, _}}, %View{} = view) do
+  @doc "Rain at the feet of a body at `{x, y, z}` and its head at height `top`."
+  def sample({x, y, z}, top, %View{} = view) do
     if Clock.weather().wet do
       {x, z} = {floor(x), floor(z)}
       feet = {x, floor(y), z}

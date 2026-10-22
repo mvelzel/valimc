@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerKineticsTest do
   use ExUnit.Case, async: true
-  alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerKinetics, PlayerMotion}
-  alias Valimc.Physics.PlayerPose
+  alias Valimc.{GameMode, Native, PlayerAbilities, PlayerInput, PlayerKinetics, PlayerMotion}
+  alias Valimc.{PlayerMotionQuery, PlayerPoseQuery}
+  alias Valimc.Physics.{Kernel, PlayerPose}
 
   defp player do
     %{
@@ -37,95 +38,68 @@ defmodule Valimc.PlayerKineticsTest do
 
     p = %{p | motion: %{p.motion | on_ground: true}}
     {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
-
-    {:ok, result} =
-      PlayerKinetics.packet(p, %{p | y: 64.5}, {0.0, 0.5, 0.0}, 0, body.box, frame())
-
-    assert result.velocity == {0.0, 0.6200000047683716, 0.0}
+    {:ok, result} = PlayerMotionQuery.run(p, %{p | y: 64.5}, 0, frame())
+    assert result.kinetics.packet.velocity == {0.0, 0.6200000047683716, 0.0}
     shorter = %{p | living: %Valimc.Living{effects: %{id => [{299, 1, false, true, true}]}}}
     assert PlayerKinetics.signature(p) == PlayerKinetics.signature(shorter)
     high = %{p | living: %Valimc.Living{effects: %{id => [{300, 255, false, true, true}]}}}
     refute PlayerKinetics.signature(p) == PlayerKinetics.signature(high)
-    {:ok, ordinary} = PlayerKinetics.query_box(body.box, p, true)
-    {:ok, expanded} = PlayerKinetics.query_box(body.box, high, true)
+
+    query = fn player ->
+      Native.physics_player_parity(:kinetic_query, {Kernel.player(player), body.box, true})
+    end
+
+    {:ok, ordinary} = query.(p)
+    {:ok, expanded} = query.(high)
     assert elem(expanded, 4) > 91.0 and elem(expanded, 4) > elem(ordinary, 4) + 25
-    assert {:ok, velocity} = PlayerKinetics.jump({0.0, 2.0, 0.0}, 1, false, 0, 0)
-    assert velocity == {0.0, 2.0, 0.0}
+
+    assert Native.physics_player_parity(:jump, {{0.0, 2.0, 0.0}, 1.0, false, 0.0, 0}) ==
+             {:ok, {0.0, 2.0, 0.0}}
   end
 
   test "packet paths are observed after travel, including crossed blocks outside the final body" do
     p = %{player() | x: 2.5}
     f = frame(%{{3, 64, 4} => 2362})
-    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
     target = %{p | x: 5.5}
-    {:ok, packet} = PlayerKinetics.packet(p, target, {3.0, 0.0, 0.0}, 1, body.box, f)
-    assert packet.paths.count == 1 and packet.stuck_multiplier == {0.0, 0.0, 0.0}
-    candidate = %{target | motion: PlayerKinetics.apply_result(p.motion, packet)}
-    {:ok, tick} = PlayerKinetics.tick(candidate, :standing, f)
+    {:ok, result} = PlayerMotionQuery.run(p, target, 1, f)
+    packet = result.kinetics.packet
+    assert length(packet.paths) == 1 and packet.stuck_multiplier == {0.0, 0.0, 0.0}
+    tick = result.kinetics.tick
     assert tick.reset_fall and elem(tick.stuck_multiplier, 0) == 0.25
-    assert tick.paths.count == 0 and candidate.motion.paths.count == 1
+    assert tick.paths == [] and length(result.motion.paths) == 1
+    candidate = %{target | motion: result.motion}
     refute PlayerKinetics.signature(target) == PlayerKinetics.signature(candidate)
-
-    {:ok, query} = PlayerKinetics.query_box(body.box, candidate)
+    {:ok, query} = Kernel.player_query(candidate, nil)
     assert elem(query, 0) <= 2.2 and elem(query, 3) >= 5.8
     incomplete = %{f | supplied: Map.delete(f.supplied, {3, 64, 4})}
-
-    assert {:error, :incomplete_fire_frame} =
-             PlayerKinetics.tick(candidate, :standing, incomplete)
+    assert {:error, {:missing_block, _}} = PlayerMotionQuery.run(p, target, 1, incomplete)
   end
 
-  test "edge backoff follows slowing consumption and uses one fenced support frame" do
+  test "sneaking backs off an edge after slowing is consumed, and reads the ground it needs" do
     p = player()
     p = %{p | input: %{p.input | shared_flags: 2}, motion: %{p.motion | on_ground: true}}
-    {:ok, body} = PlayerPose.geometry(:crouching, {p.x, p.y, p.z})
     removed = for x <- 5..9, z <- 0..9, into: %{}, do: {{x, 63, z}, 0}
     f = frame(removed)
-
-    {:ok, guarded} =
-      PlayerKinetics.prepare_collision(p, {1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, body.box, f, true)
-
-    assert elem(guarded.requested, 0) < 0.8 and elem(guarded.requested, 0) > 0.7
-    assert guarded.velocity == {1.0, 0.0, 0.0}
+    {:ok, guarded} = PlayerMotionQuery.run(p, %{p | x: p.x + 1.0}, 1, f)
+    assert elem(guarded.moved, 0) > 5.2 and elem(guarded.moved, 0) < 5.3
     stuck = %{p | motion: %{p.motion | stuck_multiplier: {0.25, 0.05000000074505806, 0.25}}}
-
-    {:ok, slowed} =
-      PlayerKinetics.prepare_collision(stuck, {1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, body.box, f, true)
-
-    assert slowed.requested == {0.25, 0.0, 0.0} and slowed.velocity == {0.0, 0.0, 0.0}
+    {:ok, slowed} = PlayerMotionQuery.run(stuck, %{p | x: p.x + 1.0}, 1, f)
+    assert slowed.moved == {4.75, 64.0, 4.5}
     missing = %{f | supplied: Map.delete(f.supplied, {4, 63, 4})}
 
     assert {:error, {:missing_block, _}} =
-             PlayerKinetics.prepare_collision(
-               p,
-               {0.1, 0.0, 0.0},
-               {0.1, 0.0, 0.0},
-               body.box,
-               missing,
-               true
-             )
-
-    {:ok, upward} =
-      PlayerKinetics.prepare_collision(
-        p,
-        {1.0, 0.01, 0.0},
-        {1.0, 0.01, 0.0},
-        body.box,
-        missing,
-        true
-      )
-
-    assert upward.requested == {1.0, 0.01, 0.0}
+             PlayerMotionQuery.run(p, %{p | x: p.x + 0.1}, 1, missing)
   end
 
-  test "floor fixed point evolves only kinetic fields, never accepted displacement/fall" do
+  test "a resting tick on the floor evolves only kinetic fields, never displacement or fall" do
     p = player()
     p = %{p | motion: %{p.motion | fall_distance: 2.75, known_movement: {0.1, 0.0, 0.0}}}
     f = frame()
 
     p =
       Enum.reduce(1..3, p, fn _, p ->
-        {:ok, result} = PlayerKinetics.tick(p, :standing, f)
-        %{p | motion: PlayerKinetics.apply_result(p.motion, result)}
+        {:ok, result} = PlayerPoseQuery.run(p, f)
+        %{p | motion: result.ticked}
       end)
 
     assert p.y == 64.0
@@ -139,16 +113,12 @@ defmodule Valimc.PlayerKineticsTest do
     p = player()
     p = %{p | y: 65.2, motion: %{p.motion | velocity: {0.7, -2.0, 0.0}, fall_distance: 5.0}}
     f = frame(%{{4, 65, 4} => 7308})
-    {:ok, result} = PlayerKinetics.tick(p, :standing, f)
-    assert_in_delta elem(result.velocity, 0), 0.15000000596046448 * 0.91, 1.0e-8
-    assert_in_delta elem(result.velocity, 1), -0.225400010, 1.0e-8
-    assert result.reset_fall
-    assert PlayerKinetics.apply_result(p.motion, result).fall_distance == 0.0
-    assert p.x == 4.5 and p.y == 65.2 and p.motion.fall_distance == 5.0
-
-    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
-    {:ok, packet} = PlayerKinetics.packet(p, p, {0.0, 0.0, 0.0}, 0, body.box, f)
-    assert PlayerKinetics.apply_result(p.motion, packet).fall_distance == 5.0
+    {:ok, rest} = PlayerPoseQuery.run(p, f)
+    assert_in_delta elem(rest.kinetics.velocity, 0), 0.15000000596046448 * 0.91, 1.0e-8
+    assert_in_delta elem(rest.kinetics.velocity, 1), -0.225400010, 1.0e-8
+    assert rest.kinetics.reset_fall and rest.ticked.fall_distance == 0.0
+    {:ok, still} = PlayerMotionQuery.run(p, p, 0, f)
+    assert still.motion.fall_distance == 5.0
   end
 
   test "known movement survives its tick boundary, then an idle client tick clears it" do

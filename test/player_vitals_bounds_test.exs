@@ -3,10 +3,8 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   # rules. Their vanilla numbers are the vitals and effect oracle stages.
   use ExUnit.Case, async: true
   alias Valimc.Living.{Air, Burning, Effects, Health}
-  alias Valimc.World.View
   alias Valimc.{FoodItems}
   alias Valimc.{PlayerFood}
-  alias Valimc.Physics.{PlayerPose}
   alias Valimc.Protocol.{FoodProperties, ItemStack, ItemTypes, PotionContents, Wire}
 
   @fire 11
@@ -62,29 +60,11 @@ defmodule Valimc.PlayerVitalsBoundsTest do
         do: refute(PlayerFood.valid?(Map.put(%PlayerFood{}, key, value)))
   end
 
-  test "only selected-pose water eyes drain air; both bubble-column states replenish it" do
-    frame = View.of(%{{0, 64, 0} => 89, {0, 65, 0} => 0, {0, 66, 0} => 0})
-
-    {:ok, standing} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})
-    {:ok, swimming} = PlayerPose.geometry(:swimming, {0.5, 64.0, 0.5})
-    assert {:ok, %{water: false, submerged: false}} = Air.contact(frame, standing)
-    assert {:ok, %{water: true, submerged: true}} = Air.contact(frame, swimming)
-    full = %{frame | supplied: Map.put(frame.supplied, {0, 65, 0}, 89)}
-    assert {:ok, %{water: true, submerged: true}} = Air.contact(full, standing)
-
-    for id <- Air.bubble_states() do
-      assert {:ok, %{water: true, submerged: false}} =
-               Air.contact(
-                 %{full | supplied: Map.put(full.supplied, {0, 65, 0}, id)},
-                 standing
-               )
-    end
-
-    assert {:error, _} =
-             Air.contact(
-               %{frame | supplied: Map.delete(frame.supplied, {0, 65, 0})},
-               standing
-             )
+  test "only an eye in water drains air; both bubble-column states replenish it" do
+    water = 89
+    assert Air.submerged?(true, water)
+    refute Air.submerged?(false, water)
+    for id <- Air.bubble_states(), do: refute(Air.submerged?(true, id))
   end
 
   test "fire contact work is bounded and unknown or malformed samples refuse" do

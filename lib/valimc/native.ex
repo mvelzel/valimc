@@ -116,45 +116,24 @@ defmodule Valimc.Native do
   def halo_set(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
   def put_columns_lit(_region, _images), do: :erlang.nif_error(:nif_not_loaded)
 
-  ## Physics (VMC-077l, through `Valimc.Physics.Kernel`)
-
-  def physics_move(_view, _body, _movement, _context, _extra, _max_step, _ground),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_colliding(_view, _boxes, _context, _extra, _subject),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_new_collision(_view, _old, _new, _context, _extra),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_fluid_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_any_liquid(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_flow(_view, _position), do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_current(_view, _body, _velocity, _flags),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_sweep(_from, _to, _body, _stop), do: :erlang.nif_error(:nif_not_loaded)
+  ## Physics (VMC-077l: items, obstruction, the border; VMC-077l2: players)
 
   def physics_border_clear(_border, _subject, _body), do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_inside_shape(_state, _position, _context, _body, _movement),
-    do: :erlang.nif_error(:nif_not_loaded)
-
   def physics_obstructs(_state, _position, _context, _bodies),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_respond(_velocity, _moved_y, _collisions, _bounce, _drag),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_footing(_view, _body, _position, _movement, _context),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items_dirty(_view, _items, _border, _refresh),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_player_query(_player, _target, _flags), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_player_move(_view, _player, _target, _flags, _border),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_player_rest(_view, _player, _border), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Codec
 
@@ -220,6 +199,37 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   ## Parity and benchmarks (dev, test and bench builds)
+
+  def physics_player_parity(_op, _args), do: :erlang.nif_error(:nif_not_loaded)
+
+  # The kernel's entry points one by one, for the oracle checks.
+  def physics_move(_view, _body, _movement, _context, _extra, _max_step, _ground),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_colliding(_view, _boxes, _context, _extra, _subject),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_new_collision(_view, _old, _new, _context, _extra),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_fluid_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_any_liquid(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_flow(_view, _position), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_current(_view, _body, _velocity, _flags),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_sweep(_from, _to, _body, _stop), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_inside_shape(_state, _position, _context, _body, _movement),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_respond(_velocity, _moved_y, _collisions, _bounce, _drag),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_footing(_view, _body, _position, _movement, _context),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_parity_clip(_colliders, _axis, _body, _delta, _raw),
     do: :erlang.nif_error(:nif_not_loaded)

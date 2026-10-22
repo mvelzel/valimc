@@ -1,5 +1,5 @@
 alias Valimc.World.View
-alias Valimc.Physics.{BlockScan, FluidCurrents}
+alias Valimc.Physics.{BlockScan, Kernel}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 unless length(cases) == 12_288, do: raise("Incomplete native item current observations")
@@ -14,13 +14,7 @@ for c <- cases do
   frame = View.of(states)
 
   {:ok, actual} =
-    FluidCurrents.sample_item(
-      frame,
-      box,
-      List.to_tuple(c["initial"]),
-      c["pushed"],
-      c["fast_lava"]
-    )
+    Kernel.current(frame, box, List.to_tuple(c["initial"]), c["pushed"], c["fast_lava"], :item)
 
   unless bits.(actual.velocity) == bits.(List.to_tuple(c["velocity"])),
     do: raise("Native item current mismatch #{inspect(c)} #{inspect(actual)}")

@@ -380,8 +380,43 @@ defmodule Valimc.Registry.BlockFacts do
           fluid_states: @fluid_states,
           fluids: @native_fluids,
           boundary_states: @boundary_states,
-          boundaries: @native_boundaries
+          boundaries: @native_boundaries,
+          climb_states: @climb_states,
+          climbs: native_climbs(),
+          inside_states: @inside_states,
+          insides: native_insides(),
+          hazard_states: @hazard_states,
+          hazards: native_hazards(),
+          poses: Valimc.Physics.PlayerPose.native_dimensions()
         })
     }
+  end
+
+  defp native_climbs,
+    do:
+      for(
+        c <- Tuple.to_list(@climbs),
+        do:
+          {c.climbable, c.glide_through, c.scaffolding, c.ladder_facing, c.trapdoor_facing,
+           c.trapdoor_open}
+      )
+
+  defp native_insides,
+    do:
+      for(
+        i <- Tuple.to_list(@insides),
+        do: {Enum.find_index(@inside_kinds, &(&1 == i.kind)), i.shape}
+      )
+
+  defp native_hazards do
+    for h <- Tuple.to_list(@hazards) do
+      case h do
+        nil -> {0, 0.0}
+        {:magma, value} -> {1, value * 1.0}
+        {:campfire, value} -> {2, value * 1.0}
+        {:cactus, value} -> {3, value * 1.0}
+        {:berry, value} -> {4, value * 1.0}
+      end
+    end
   end
 end

@@ -1,22 +1,25 @@
-alias Valimc.Physics.{BlockScan, Box, FluidMotion, PlayerPose, SwimSteering}
+alias Valimc.Native
+alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
+vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
+
+fluid_motion =
+  for key <- ~w(falling on_ground dolphins_grace climbable shallow)a,
+      into: %{kind: :water, water_efficiency: 0.0, gravity: 0.08},
+      do: {key, key == :falling}
 
 for c <- cases do
-  {:ok, look} = SwimSteering.look_y(c["pitch"])
+  {:ok, look} = Native.physics_player_parity(:look_y, c["pitch"] * 1.0)
 
   if bits.(look) != bits.(c["look_y"]),
     do: raise("Native swim look mismatch #{inspect(c)} #{look}")
 
   {:ok, actual} =
-    SwimSteering.step(
-      List.to_tuple(c["initial"]),
-      look,
-      c["swimming"],
-      c["jump"],
-      c["above_fluid"],
-      c["passenger"]
+    Native.physics_player_parity(
+      :swim_steer,
+      {vec.(c["initial"]), look, c["swimming"], c["jump"], c["above_fluid"], c["passenger"]}
     )
 
   if Enum.map(Tuple.to_list(actual), bits) != Enum.map(c["velocity"], bits),
@@ -24,7 +27,7 @@ for c <- cases do
 
   player = %{
     game_mode: Valimc.GameMode.new(:creative),
-    motion: %Valimc.PlayerMotion{velocity: List.to_tuple(c["initial"]), swimming: c["swimming"]},
+    motion: %Valimc.PlayerMotion{velocity: vec.(c["initial"]), swimming: c["swimming"]},
     input: %Valimc.PlayerInput{shared_flags: 8}
   }
 
@@ -33,35 +36,37 @@ for c <- cases do
   {:ok, body} =
     PlayerPose.geometry(if(c["swimming"], do: :swimming, else: :standing), {0.5, 64.0, 0.5})
 
-  {:ok, query} = Valimc.PlayerKinetics.query_box(standing.box, player)
+  {:ok, query} =
+    Native.physics_player_parity(:kinetic_query, {Kernel.player(player), standing.box, false})
+
   {:ok, plan} = BlockScan.plan(query, 1024)
   acquired = MapSet.new(plan, &elem(&1, 0))
 
   for kind <- [:water, :lava], shift <- [-0.061, 0.0, 0.061] do
-    {vx, vy, vz} = List.to_tuple(c["initial"])
+    {vx, vy, vz} = vec.(c["initial"])
 
     {:ok, adjusted} =
-      SwimSteering.step(
-        {vx, vy + shift, vz},
-        look,
-        c["swimming"],
-        c["jump"],
-        c["above_fluid"],
-        c["passenger"]
+      Native.physics_player_parity(
+        :swim_steer,
+        {{vx, vy + shift, vz}, look, c["swimming"], c["jump"], c["above_fluid"], c["passenger"]}
       )
 
-    {:ok, result} =
-      FluidMotion.prepare(adjusted, %FluidMotion{
-        kind: kind,
-        horizontal_collision: true,
-        sprint: true,
-        old_y: 64.0,
-        new_y: 64.0 + elem(adjusted, 1)
-      })
+    {:ok, {_velocity, escape}} =
+      Native.physics_player_parity(
+        :fluid_motion,
+        {adjusted,
+         Map.merge(fluid_motion, %{
+           kind: kind,
+           horizontal_collision: true,
+           sprint: true,
+           old_y: 64.0,
+           new_y: 64.0 + elem(adjusted, 1)
+         })}
+      )
 
     moved = Box.move(body.box, adjusted)
 
-    for box <- [Box.expand_towards(body.box, adjusted), Box.move(moved, result.escape_query)] do
+    for box <- [Box.expand_towards(body.box, adjusted), Box.move(moved, escape)] do
       {:ok, dependencies} = BlockScan.plan(box)
 
       unless Enum.all?(dependencies, &MapSet.member?(acquired, elem(&1, 0))),

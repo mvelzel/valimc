@@ -1,5 +1,5 @@
 alias Valimc.Native
-alias Valimc.Physics.{AirMotion, Kernel}
+alias Valimc.Physics.Kernel
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 
@@ -51,10 +51,20 @@ Enum.each(data["traces"], fn trace ->
         })
 
       {:ok, next} =
-        AirMotion.step(resolved.velocity, %AirMotion{
-          on_ground: previous_ground,
-          friction: trace["friction"]
-        })
+        Native.physics_player_parity(
+          :air_step,
+          {resolved.velocity,
+           %{
+             on_ground: previous_ground,
+             friction: trace["friction"] * 1.0,
+             friction_modifier: 1.0,
+             air_drag_modifier: 1.0,
+             gravity: 0.08,
+             levitation: nil,
+             discard_friction: false,
+             omnidirectional: false
+           }}
+        )
 
       {dx, dy, dz} = moved
       {x0, y0, z0, x1, y1, z1} = b

@@ -1,16 +1,16 @@
-alias Valimc.Physics.BlockHazards
+alias Valimc.Native
 [path] = System.argv()
+:ok = Valimc.Registry.BlockFacts.install!()
 
 rows = :json.decode(File.read!(path))
 
 for row <- rows do
+  vec = fn l -> l |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
+
   {:ok, request} =
-    BlockHazards.request(
-      row["state"],
-      row["careful"],
-      row["client"],
-      List.to_tuple(row["known"]),
-      List.to_tuple(row["previous"])
+    Native.physics_player_parity(
+      :hazard,
+      {row["state"], row["careful"], row["client"], vec.(row["known"]), vec.(row["previous"])}
     )
 
   damage =

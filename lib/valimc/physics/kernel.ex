@@ -1,9 +1,12 @@
 defmodule Valimc.Physics.Kernel do
   @moduledoc """
-  The entity physics kernel (VMC-077l): vanilla's collision geometry, block
-  scans, movement with step-up, swept inside-block visits, fluid contacts,
-  flow and currents, the supporting block and a whole item tick, in Rust
-  (`valimc_core::physics`) over a `Valimc.World.View`.
+  The entity physics kernel (VMC-077l), in Rust (`valimc_core::physics`) over
+  a `Valimc.World.View`. Live play makes three kinds of call: a player's
+  move packet or resting tick in one call each (`player_move/5`,
+  `player_rest/3`, VMC-077l2), a region owner's items in one call per tick
+  (`items/3`), and placement and spawn obstruction (`obstructs?/4`). The other
+  functions reach the kernel's pieces one by one for the oracle checks; their
+  NIFs exist only in dev, test and bench builds (the `parity` feature).
 
   Each call hands the kernel the published rows of the chunks around its
   boxes (or a supplied view's states); the kernel decodes only the sections
@@ -314,6 +317,88 @@ defmodule Valimc.Physics.Kernel do
     do:
       {Enum.map(axes, fn a -> Enum.map(a, &(&1 * 1.0)) end), sizes,
        Base.decode16!(bits, case: :lower)}
+
+  @doc """
+  The box a player's move to `target` (or its rest, `target` nil) reads:
+  `{:ok, box}`, or `{:error, reason}` past the query bounds.
+  """
+  def player_query(player, target, flags \\ 0) do
+    BlockFacts.install!()
+
+    Native.physics_player_query(
+      player(player),
+      target && {target.x * 1.0, target.y * 1.0, target.z * 1.0},
+      flags
+    )
+  end
+
+  @doc """
+  Validate `player`'s move packet to `target` (`handleMovePlayer`) over
+  `view` (its query box `query`), in one call: the acceptance, pose, swimming, fluid, powder snow
+  and eye contact, the packet's and the tick's kinetics, the landing, the
+  exhaustion, and the motion after the packet and after the tick.
+  """
+  def player_move(view, query, player, target, flags) do
+    target = {target.x * 1.0, target.y * 1.0, target.z * 1.0}
+
+    Native.physics_player_move(native(view, query), player(player), target, flags, border())
+    |> error()
+  end
+
+  @doc "Sample a resting `player`'s tick over `view` (its query box `query`), in one call."
+  def player_rest(view, query, player),
+    do: Native.physics_player_rest(native(view, query), player(player), border()) |> error()
+
+  defp border do
+    case BorderSnapshot.bounds(Valimc.World.Clock.border_snapshot()) do
+      {:ok, bounds} -> bounds
+      _ -> nil
+    end
+  end
+
+  @doc "A player as the kernel takes it (installing the facts its poses come from)."
+  def player(player) do
+    BlockFacts.install!()
+    motion = Map.get(player, :motion, %Valimc.PlayerMotion{})
+    input = Map.get(player, :input, %Valimc.PlayerInput{})
+    effects = Map.get(player, :living, %Valimc.Living{}).effects
+    {slow, levitation} = Valimc.Living.Attributes.travel_signature(effects)
+    loaded = Valimc.PlayerInput.loaded?(input)
+    abilities = Map.get(player, :abilities, %Valimc.PlayerAbilities{})
+
+    %{
+      position:
+        {Map.get(player, :x, 0.0) * 1.0, Map.get(player, :y, 0.0) * 1.0,
+         Map.get(player, :z, 0.0) * 1.0},
+      yaw: Map.get(player, :yaw, 0.0) * 1.0,
+      pitch: Map.get(player, :pitch, 0.0) * 1.0,
+      pose: Valimc.Physics.PlayerPose.id(Map.get(player, :pose, :standing)),
+      motion: %{
+        fall_distance: motion.fall_distance * 1.0,
+        velocity: floats(motion.velocity),
+        physical_ground: motion.physical_ground,
+        settled: motion.settled,
+        swimming: motion.swimming,
+        paths: motion.paths,
+        stuck_multiplier: floats(motion.stuck_multiplier),
+        known_movement: floats(motion.known_movement),
+        on_ground: motion.on_ground,
+        horizontal_collision: motion.horizontal_collision,
+        received: motion.received
+      },
+      shift: (input.shared_flags &&& 2) != 0,
+      sprint: (input.shared_flags &&& 8) != 0,
+      loaded: loaded,
+      jump: loaded and Valimc.PlayerInput.pressed?(input, :jump),
+      sneak: loaded and Valimc.PlayerInput.pressed?(input, :shift),
+      flying: abilities.flying,
+      mode: Map.get(player, :game_mode, Valimc.GameMode.new(:survival)).current,
+      invulnerable: abilities.invulnerable,
+      jump_boost: Valimc.Living.Attributes.jump_boost_level(effects),
+      slow_falling: slow,
+      levitation: levitation
+    }
+  end
 
   @doc "`value` rounded to a 32-bit float (Java's `(float)` cast)."
   def f32(value) do

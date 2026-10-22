@@ -1,16 +1,12 @@
-alias Valimc.Physics.Swimming
+alias Valimc.Native
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 
 for c <- cases do
-  kernel =
-    Swimming.next(
-      c["previous"],
-      c["sprint"],
-      c["water"],
-      c["underwater"],
-      c["feet_water"],
-      c["passenger"]
+  {:ok, kernel} =
+    Native.physics_player_parity(
+      :swimming_next,
+      {c["previous"], c["sprint"], c["water"], c["underwater"], c["feet_water"], c["passenger"]}
     )
 
   actual = kernel and not Map.get(c, "flying", false) and not Map.get(c, "spectator", false)
