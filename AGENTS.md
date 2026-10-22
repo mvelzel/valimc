@@ -95,4 +95,6 @@ commits; never force-push without permission.
 Benchmark only tickets whose goal is performance, with matched workloads and
 retained raw results, under `MIX_ENV=bench` (the full Rust profile); see
 [measurements](docs/performance.md). Empty-world or unequal workloads cannot
-establish fastest-server status.
+establish fastest-server status. Never run the flight bench
+(`bench/outrun_flight.exs`) unless the user explicitly asks for it in that
+session: it takes far too long. Not as a check, a gate or a before/after.

@@ -1,3 +1,6 @@
+# Run only when the user explicitly asks for it (AGENTS.md): it takes far too
+# long to be a check or a gate.
+#
 # A player outrunning generation (VMC-077u). One real loopback TCP client in
 # spectator mode flies straight over terrain nothing has generated, at a
 # spectator's top speed with a large view distance, acknowledging every chunk
