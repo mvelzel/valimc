@@ -118,6 +118,13 @@ for {variable, key} <- [
   end
 end
 
+if cells = System.get_env("VALIMC_WORLDGEN_PROTO_CELLS") do
+  case Integer.parse(cells) do
+    {value, ""} when value > 0 -> config :valimc, worldgen_proto_cells: value
+    _ -> raise "VALIMC_WORLDGEN_PROTO_CELLS must be a positive integer"
+  end
+end
+
 if radius = System.get_env("VALIMC_RESPAWN_RADIUS") do
   case Integer.parse(radius) do
     {value, ""} when value in 0..2_147_483_647 -> config :valimc, respawn_radius: value

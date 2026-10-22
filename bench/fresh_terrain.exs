@@ -6,13 +6,25 @@
 #
 #   VALIMC_GENERATOR=vanilla VALIMC_SEED=20261020 VALIMC_WORLD=<fresh dir> \
 #     VALIMC_PORT=0 VALIMC_VIEW_DISTANCE=10 MIX_ENV=prod \
-#     mix run bench/fresh_terrain.exs bench/results/fresh-terrain.json [hops] [hop_blocks]
+#     mix run bench/fresh_terrain.exs bench/results/fresh-terrain.json [hops] [hop_blocks] \
+#     [proto_cells]
+#
+# Per hop it also records the overworld generation's memory gauges (VMC-077q):
+# proto chunks in memory and their bytes, spilled ones and the scratch file.
+# `proto_cells` sets the cap on proto chunks in memory for the run.
 alias Valimc.Protocol.{Data, Wire}
 alias Valimc.Session.ChunkView
 
 [output | rest] = System.argv()
 hops = String.to_integer(Enum.at(rest, 0, "6"))
 hop_blocks = String.to_integer(Enum.at(rest, 1, "512"))
+
+case Enum.at(rest, 2) do
+  nil -> :ok
+  cells -> Application.put_env(:valimc, :worldgen_proto_cells, String.to_integer(cells))
+end
+
+proto_cells = Valimc.config(:worldgen_proto_cells)
 distance = 10
 %{generator: :vanilla, seed: seed} = Valimc.World.Spec.current()
 now = fn -> System.monotonic_time(:microsecond) end
@@ -188,6 +200,21 @@ delta = fn before ->
   Map.new(counters, &{&1, Map.get(snapshot, &1, 0) - Map.get(before, &1, 0)})
 end
 
+gauges =
+  ~w(worldgen_cells_overworld worldgen_proto_bytes_overworld worldgen_memory_bytes_overworld
+     worldgen_spilled_overworld worldgen_scratch_bytes_overworld worldgen_spills worldgen_drops)a
+
+# The gauges are put on the scheduler's next dispatch after five seconds.
+memory = fn ->
+  stats = Valimc.Worldgen.Scheduler.stats(Valimc.config(:world_path), :overworld)
+  snapshot = Valimc.Metrics.snapshot()
+
+  Map.merge(
+    Map.new(gauges, &{&1, Map.get(snapshot, &1, 0)}),
+    Map.take(stats, [:in_memory, :proto_bytes, :spilled, :terrain, :decorated, :handed])
+  )
+end
+
 view_at = fn x, z -> MapSet.new(ChunkView.chunks({Valimc.World.chunk_key(x, z), distance})) end
 
 before = Valimc.Metrics.snapshot()
@@ -204,7 +231,8 @@ join = %{
   first_chunk_us: first,
   full_view_us: full,
   max_mailbox: peak.(),
-  counters: delta.(before)
+  counters: delta.(before),
+  memory: memory.()
 }
 
 IO.puts(
@@ -222,8 +250,12 @@ IO.puts(
     {client, first, full, have} = fill.(fill, client, view_at.(x, z), have, started, nil)
     mailbox = peak.()
 
+    mem = memory.()
+
     IO.puts(
-      "hop #{hop} to x=#{x}: first #{div(first, 1000)} ms, full #{div(full, 1000)} ms, mailbox #{mailbox}"
+      "hop #{hop} to x=#{x}: first #{div(first, 1000)} ms, full #{div(full, 1000)} ms, " <>
+        "mailbox #{mailbox}, protos #{mem.in_memory} in memory " <>
+        "(#{div(mem.proto_bytes, 1_048_576)} MiB), #{mem.spilled} spilled"
     )
 
     {[
@@ -234,7 +266,8 @@ IO.puts(
          first_chunk_us: first,
          full_view_us: full,
          max_mailbox: mailbox,
-         counters: delta.(before)
+         counters: delta.(before),
+         memory: mem
        }
        | results
      ], client, have}
@@ -247,6 +280,7 @@ record = %{
   seed: seed,
   view_distance: distance,
   hop_blocks: hop_blocks,
+  proto_cells: proto_cells,
   schedulers: System.schedulers_online(),
   dirty_cpu_schedulers: :erlang.system_info(:dirty_cpu_schedulers_online),
   revision: System.cmd("git", ["rev-parse", "HEAD"]) |> elem(0) |> String.trim(),

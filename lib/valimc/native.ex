@@ -177,6 +177,7 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def gen_encode(_cell), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_cells_bytes(_cells), do: :erlang.nif_error(:nif_not_loaded)
   def gen_decode(_state, _encoded), do: :erlang.nif_error(:nif_not_loaded)
 
   def gen_reference(_state, _biome_source, _origin, _size, _order, _structures),

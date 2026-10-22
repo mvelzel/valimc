@@ -19,6 +19,10 @@ config :valimc,
   region_unload_delay_ms: 10_000,
   # A group cuts its sections' changes into one log record this often (VMC-077f/j).
   region_commit_ms: 50,
+  # Proto chunks a dimension's generation keeps in memory (VMC-077q, about
+  # 200 KB each in the overworld); past it, untouched terrain is dropped and
+  # other proto chunks spill to a scratch file.
+  worldgen_proto_cells: 1024,
   # Sections whose loaded chunks come near share a group process (VMC-077j2).
   regionizer: true,
   region_size: 8,

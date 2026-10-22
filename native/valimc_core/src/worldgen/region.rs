@@ -110,6 +110,20 @@ pub fn block_entity_kind(name: &str) -> Option<&'static str> {
 }
 
 impl ProtoChunk {
+    /// Approximate heap bytes the chunk holds (VMC-077q's memory gauge): its
+    /// states, heightmaps and biomes (shared biomes counted once per holder),
+    /// and an estimate per mark, tick, block entity and entity.
+    pub fn heap_bytes(&self) -> usize {
+        use std::mem::size_of;
+        self.blocks.capacity() * size_of::<u16>()
+            + self.biomes.capacity() * size_of::<u16>() / Arc::strong_count(&self.biomes).max(1)
+            + self.heightmaps.len() * size_of::<[i32; 256]>()
+            + (self.marks.len() + self.block_entities.len()) * 40
+            + (self.block_ticks.len() + self.fluid_ticks.len()) * 48
+            + self.block_entity_data.len() * 160
+            + self.entities.capacity() * size_of::<Entity>()
+    }
+
     /// A chunk from its terrain (`blocks` as tall as the dimension, `min_y`
     /// up), with every heightmap primed from it (the worldgen ones as the
     /// terrain step leaves them, the final ones as it primes them).

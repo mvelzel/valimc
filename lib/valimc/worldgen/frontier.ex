@@ -34,6 +34,17 @@ defmodule Valimc.Worldgen.Frontier do
   that needs a decoration that can no longer run (a neighbour is handed over
   or failed), is made alone, as vanilla makes a chunk missing from its region
   file: over fresh terrain of its 3 × 3, with only its own decoration.
+
+  Proto cells in memory are bounded (VMC-077q): past `cap`, the cells no
+  wanted chunk or needed decoration is near go, least recently used first
+  (`evictions/2`). Terrain no decoration wrote into is dropped and made
+  again when needed (terrain reads only the starts' beards, which placement
+  never changes, so it comes out the same). Any other cell spills: the
+  caller writes its encoding to a scratch file that is never durable state
+  (`spilled/2`), and a job that needs it decodes it there and hands it back.
+  A decoration cannot be made again exactly without replaying, in number
+  order, every earlier decoration within 2 of it, transitively; a spilled
+  cell is the chunk itself.
   """
   alias Valimc.Native
   alias Valimc.World.{Blocks, Generator}
@@ -73,7 +84,16 @@ defmodule Valimc.Worldgen.Frontier do
     given_up: MapSet.new(),
     attempts: %{},
     # The numbered chunks in order, newest first, when recorded (checks).
-    log: nil
+    log: nil,
+    # Proto cells in memory, the most kept (nil: no bound), a use clock for
+    # least-recently-used eviction, the scratch file spilled cells are read
+    # back from, and counts of cells dropped and spilled (VMC-077q).
+    cap: nil,
+    in_memory: 0,
+    clock: 0,
+    scratch: nil,
+    dropped: 0,
+    spills: 0
   ]
 
   # A job whose worker dies is tried again this often, then fails.
@@ -259,10 +279,12 @@ defmodule Valimc.Worldgen.Frontier do
   # Chunks final after terrain need no record: a lost one is made again.
   defp hand(%{final_after_terrain: true} = f, chunks, _present) do
     chunks = Enum.reject(chunks, &Map.has_key?(f.busy, &1))
+    held = Enum.count(chunks, &in_memory?(f, &1))
 
     %{
       f
       | chunks: Map.drop(f.chunks, chunks),
+        in_memory: f.in_memory - held,
         delivered: Enum.reduce(chunks, f.delivered, &MapSet.delete(&2, &1))
     }
   end
@@ -287,6 +309,7 @@ defmodule Valimc.Worldgen.Frontier do
               %{
                 f
                 | chunks: Map.put(f.chunks, chunk, %{status: :handed, cell: nil}),
+                  in_memory: f.in_memory - if(in_memory?(f, chunk), do: 1, else: 0),
                   delivered: MapSet.delete(f.delivered, chunk)
               },
               chunk
@@ -327,6 +350,14 @@ defmodule Valimc.Worldgen.Frontier do
   end
 
   defp handed?(f, chunk), do: status(f, chunk) == :handed
+
+  defp in_memory?(f, chunk) do
+    case f.chunks do
+      %{^chunk => %{cell: cell}} -> is_reference(cell)
+      _ -> false
+    end
+  end
+
   defp decorated?(f, chunk), do: status(f, chunk) in [:decorated, :handed]
   defp cell?(f, chunk), do: status(f, chunk) in [:terrain, :decorated]
   defp frozen?(f, chunk), do: handed?(f, chunk) or Map.has_key?(f.failed, chunk)
@@ -509,8 +540,17 @@ defmodule Valimc.Worldgen.Frontier do
       }
 
       busy = Enum.reduce(holds, f.busy, &Map.put(&2, &1, ref))
-      f = %{f | busy: busy, jobs: Map.put(f.jobs, ref, job)}
+      clock = f.clock + 1
+      chunks = Enum.reduce(holds, f.chunks, &touch(&2, &1, clock))
+      f = %{f | busy: busy, jobs: Map.put(f.jobs, ref, job), chunks: chunks, clock: clock}
       {Map.put(job, :run, runner(f, job)), f}
+    end
+  end
+
+  defp touch(chunks, chunk, clock) do
+    case chunks do
+      %{^chunk => entry} -> Map.put(chunks, chunk, Map.put(entry, :used, clock))
+      _ -> chunks
     end
   end
 
@@ -536,21 +576,31 @@ defmodule Valimc.Worldgen.Frontier do
     fn -> Native.gen_terrain(worldgen, source, starts, x, z) end
   end
 
+  # Spilled cells come back with the decoration's result.
   defp runner(f, %{kind: :decorate, chunk: center}) do
-    {worldgen, source, starts} = {f.worldgen, f.source, f.starts}
-    cells = Enum.map(around(center, 1), &f.chunks[&1].cell)
+    {worldgen, source, starts, scratch} = {f.worldgen, f.source, f.starts, f.scratch}
+    cells = Enum.map(around(center, 1), &{&1, f.chunks[&1].cell})
 
     fn ->
-      with {:ok, _lenient} <- Native.gen_decorate(worldgen, source, starts, center, cells),
-           do: :ok
+      with {:ok, restored} <- load(worldgen, scratch, cells),
+           cells = Enum.map(cells, fn {chunk, cell} -> Map.get(restored, chunk, cell) end),
+           {:ok, _lenient} <- Native.gen_decorate(worldgen, source, starts, center, cells),
+           do: if(restored == %{}, do: :ok, else: {:ok, restored})
     end
   end
 
+  # A spilled cell stays spilled: making it full changes nothing in it.
   defp runner(f, %{kind: :full, chunk: chunk}) do
-    {worldgen, cell, sky} = {f.worldgen, f.chunks[chunk].cell, f.sky}
+    {worldgen, cell, sky, scratch} = {f.worldgen, f.chunks[chunk].cell, f.sky, f.scratch}
 
     fn ->
-      with {:ok, full} <- Native.gen_full(worldgen, cell, Generator.protocol_biomes()),
+      with {:ok, restored} <- load(worldgen, scratch, [{chunk, cell}]),
+           {:ok, full} <-
+             Native.gen_full(
+               worldgen,
+               Map.get(restored, chunk, cell),
+               Generator.protocol_biomes()
+             ),
            do: {:ok, lit(full, sky)}
     end
   end
@@ -588,6 +638,121 @@ defmodule Valimc.Worldgen.Frontier do
     end
   end
 
+  # The spilled cells among `cells` (`{chunk, cell}`), decoded from the scratch
+  # file: `{:ok, %{chunk => cell}}`.
+  defp load(worldgen, scratch, cells) do
+    Enum.reduce_while(cells, {:ok, %{}}, fn
+      {chunk, {:spilled, offset, size}}, {:ok, acc} ->
+        with {:ok, bytes} <- read_spilled(scratch, offset, size),
+             {:ok, cell} <- Native.gen_decode(worldgen, bytes) do
+          {:cont, {:ok, Map.put(acc, chunk, cell)}}
+        else
+          error -> {:halt, {:error, {:scratch, error}}}
+        end
+
+      _, acc ->
+        {:cont, acc}
+    end)
+  end
+
+  @doc "A spilled cell's encoding, read from the scratch file at `path`."
+  def read_spilled(path, offset, size) do
+    with {:ok, file} <- :file.open(path, [:read, :raw, :binary]) do
+      try do
+        case :file.pread(file, offset, size) do
+          {:ok, bytes} when byte_size(bytes) == size -> {:ok, bytes}
+          other -> {:error, {:short_read, other}}
+        end
+      after
+        :file.close(file)
+      end
+    end
+  end
+
+  ## Bounded memory (VMC-077q)
+
+  @doc """
+  Past `cap` proto cells in memory, make room down to seven eighths of it:
+  `{f, spills}`, at most `limit` spills of `{chunk, cell}` for the caller to
+  write and record with `spilled/2`. Cells within 2 of a wanted chunk, within
+  1 of a needed decoration or held by a job stay; of the others, least
+  recently used first, terrain no decoration wrote into is dropped and any
+  other cell spills.
+  """
+  def evictions(f, limit \\ 64)
+
+  def evictions(%__MODULE__{cap: cap, in_memory: n} = f, limit)
+      when is_integer(cap) and n > cap do
+    f = refresh(f)
+    keep = cap - div(cap, 8)
+    protected = protected(f)
+
+    f.chunks
+    |> Enum.filter(fn {chunk, %{cell: cell}} ->
+      is_reference(cell) and not MapSet.member?(protected, chunk)
+    end)
+    |> Enum.sort_by(fn {_, entry} -> Map.get(entry, :used, 0) end)
+    |> Enum.reduce_while({f, []}, fn {chunk, entry}, {f, spills} ->
+      cond do
+        f.in_memory - length(spills) <= keep or length(spills) >= limit ->
+          {:halt, {f, spills}}
+
+        droppable?(f, chunk) ->
+          f = %{
+            f
+            | chunks: Map.delete(f.chunks, chunk),
+              in_memory: f.in_memory - 1,
+              dropped: f.dropped + 1
+          }
+
+          {:cont, {f, spills}}
+
+        true ->
+          {:cont, {f, [{chunk, entry.cell} | spills]}}
+      end
+    end)
+    |> then(fn {f, spills} -> {f, Enum.reverse(spills)} end)
+  end
+
+  def evictions(f, _limit), do: {f, []}
+
+  # The chunks whose cells work soon needs, and those jobs hold. Needs are
+  # rebuilt only when wants change: a decoration that ran since is no need.
+  defp protected(f) do
+    wanted = for {chunk, _} <- f.priority, c <- around(chunk, 2), do: c
+    needed = for {n, _} <- f.needs, Map.has_key?(f.seqs, n), c <- around(n, 1), do: c
+    MapSet.new(wanted ++ needed ++ Map.keys(f.busy))
+  end
+
+  # Terrain no decoration wrote into: no chunk within 1 of it decorated.
+  defp droppable?(f, chunk),
+    do: status(f, chunk) == :terrain and not Enum.any?(around(chunk, 1), &decorated?(f, &1))
+
+  @doc """
+  These cells (`{chunk, offset, size}`) are written to the scratch file: their
+  proto chunks leave memory, to be read back from there.
+  """
+  def spilled(%__MODULE__{} = f, locations) do
+    Enum.reduce(locations, f, fn {chunk, offset, size}, f ->
+      case f.chunks do
+        %{^chunk => %{cell: cell} = entry} when is_reference(cell) ->
+          %{
+            f
+            | chunks: Map.put(f.chunks, chunk, %{entry | cell: {:spilled, offset, size}}),
+              in_memory: f.in_memory - 1,
+              spills: f.spills + 1
+          }
+
+        _ ->
+          f
+      end
+    end)
+  end
+
+  @doc "The proto cells in memory (the memory gauge)."
+  def cells_in_memory(%__MODULE__{} = f),
+    do: for({_, %{cell: cell}} <- f.chunks, is_reference(cell), do: cell)
+
   # A full chunk's image with its light alone stored in it (VMC-077c).
   defp lit(full, sky) do
     lit = Blocks.lit_images(%{{full.x, full.z} => full.image}, sky)
@@ -613,11 +778,21 @@ defmodule Valimc.Worldgen.Frontier do
   end
 
   defp apply_result(f, %{kind: :terrain, chunk: chunk}, {:ok, cell}) do
-    f = %{f | chunks: Map.put(f.chunks, chunk, %{status: :terrain, cell: cell})}
+    entry = %{status: :terrain, cell: cell, used: f.clock}
+    f = %{f | chunks: Map.put(f.chunks, chunk, entry), in_memory: f.in_memory + 1}
 
     if f.final_after_terrain,
       do: {check_final(f, chunk), []},
       else: {Enum.reduce(around(chunk, 1), f, &check_ready(&2, &1)), []}
+  end
+
+  defp apply_result(f, %{kind: :decorate} = job, {:ok, restored}) when is_map(restored) do
+    chunks =
+      Enum.reduce(restored, f.chunks, fn {c, cell}, chunks ->
+        Map.update!(chunks, c, &%{&1 | cell: cell})
+      end)
+
+    apply_result(%{f | chunks: chunks, in_memory: f.in_memory + map_size(restored)}, job, :ok)
   end
 
   defp apply_result(f, %{kind: :decorate, chunk: chunk}, :ok) do
@@ -699,7 +874,11 @@ defmodule Valimc.Worldgen.Frontier do
       numbered: map_size(f.seqs),
       wanted: f.wants |> Enum.map(fn {_, w} -> map_size(w) end) |> Enum.sum(),
       running: map_size(f.jobs),
-      failed: map_size(f.failed)
+      failed: map_size(f.failed),
+      in_memory: f.in_memory,
+      spilled: Enum.count(f.chunks, &match?({_, %{cell: {:spilled, _, _}}}, &1)),
+      dropped: f.dropped,
+      spills: f.spills
     }
   end
 
@@ -716,7 +895,7 @@ defmodule Valimc.Worldgen.Frontier do
   def snapshot(%__MODULE__{kind: :noise, final_after_terrain: false} = f) do
     chunks =
       for {chunk, %{status: status, cell: cell}} <- f.chunks, not Map.has_key?(f.busy, chunk) do
-        {chunk, status, cell && elem(Native.gen_encode(cell), 1)}
+        {chunk, status, encoded(f, cell)}
       end
 
     starts = f.starts && elem(Native.gen_starts_snapshot(f.starts), 1)
@@ -740,8 +919,18 @@ defmodule Valimc.Worldgen.Frontier do
 
   def snapshot(_f), do: nil
 
-  @doc "`f` with a snapshot's chunks and starts; `{:error, reason}` for another generation's."
-  def restore(%__MODULE__{kind: :noise, final_after_terrain: false} = f, binary) do
+  defp encoded(_f, nil), do: nil
+  defp encoded(f, {:spilled, offset, size}), do: elem(read_spilled(f.scratch, offset, size), 1)
+  defp encoded(_f, cell), do: elem(Native.gen_encode(cell), 1)
+
+  @doc """
+  `f` with a snapshot's chunks and starts; `{:error, reason}` for another
+  generation's. With `spill` (`image -> {offset, size}`, writing to the scratch
+  file), its proto chunks stay spilled until a job needs them.
+  """
+  def restore(f, binary, spill \\ nil)
+
+  def restore(%__MODULE__{kind: :noise, final_after_terrain: false} = f, binary, spill) do
     case :erlang.binary_to_term(binary, [:safe]) do
       %{version: @snapshot_version, source: source} = s when source == f.source ->
         chunks =
@@ -749,10 +938,16 @@ defmodule Valimc.Worldgen.Frontier do
             {chunk, status, nil} ->
               {chunk, %{status: status, cell: nil}}
 
+            {chunk, status, image} when spill != nil ->
+              {offset, size} = spill.(image)
+              {chunk, %{status: status, cell: {:spilled, offset, size}}}
+
             {chunk, status, image} ->
               {:ok, cell} = Native.gen_decode(f.worldgen, image)
               {chunk, %{status: status, cell: cell}}
           end)
+
+        in_memory = Enum.count(chunks, fn {_, %{cell: cell}} -> is_reference(cell) end)
 
         starts =
           case {f.starts, s.starts} do
@@ -762,7 +957,15 @@ defmodule Valimc.Worldgen.Frontier do
           end
 
         {:ok,
-         %{f | chunks: chunks, seqs: s.seqs, next_seq: s.next_seq, starts: starts, stale: true}}
+         %{
+           f
+           | chunks: chunks,
+             in_memory: in_memory,
+             seqs: s.seqs,
+             next_seq: s.next_seq,
+             starts: starts,
+             stale: true
+         }}
 
       _ ->
         {:error, :snapshot_of_another_generation}
@@ -771,7 +974,7 @@ defmodule Valimc.Worldgen.Frontier do
     error -> {:error, {:invalid_snapshot, Exception.message(error)}}
   end
 
-  def restore(_f, _binary), do: {:error, :nothing_to_restore}
+  def restore(_f, _binary, _spill), do: {:error, :nothing_to_restore}
 
   ## Inline
 

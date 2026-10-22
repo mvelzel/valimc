@@ -21,6 +21,13 @@ defmodule Valimc.Worldgen.Scheduler do
   running jobs and writes them as the dimension's snapshot
   (`generation.snapshot`), which the next start reads and deletes; after a
   crash, chunks that were not full yet generate again.
+
+  At most `worldgen_proto_cells` proto chunks stay in memory (VMC-077q):
+  past that, the ones work does not need soon are dropped (untouched
+  terrain, made again) or spilled to the dimension's scratch file
+  (`generation.scratch`), which is never durable state: it is emptied at
+  every start, removed at every stop, and a snapshot's chunks are restored
+  into it rather than into memory.
   """
   use GenServer, restart: :temporary
   require Logger
@@ -28,6 +35,7 @@ defmodule Valimc.Worldgen.Scheduler do
   alias Valimc.World.Spec
 
   @snapshot "generation.snapshot"
+  @scratch "generation.scratch"
   # A stop waits this long for running jobs before its snapshot.
   @drain 20_000
   # An idle scheduler (nothing wanted, running or being persisted) stops.
@@ -43,7 +51,11 @@ defmodule Valimc.Worldgen.Scheduler do
     calls: %{},
     waiting: false,
     dirty: false,
-    gauged: nil
+    gauged: nil,
+    # The scratch file spilled cells go to: `%{path, file}` (opened at the
+    # first spill), and the cells in memory when an eviction last freed none.
+    scratch: nil,
+    stuck: nil
   ]
 
   ## API
@@ -147,8 +159,17 @@ defmodule Valimc.Worldgen.Scheduler do
             log: Application.get_env(:valimc, :generation_order_log, false)
           )
 
-        state = %{state | frontier: restore(frontier, state)}
-        {:noreply, state, @idle}
+        path = scratch_path(state)
+        File.rm(path)
+
+        state = %{
+          state
+          | scratch: %{path: path, file: nil},
+            frontier: %{frontier | cap: Valimc.config(:worldgen_proto_cells), scratch: path}
+        }
+
+        {frontier, state} = restore(state.frontier, state)
+        {:noreply, %{state | frontier: frontier}, @idle}
 
       other ->
         {:stop, {:shutdown, {:not_generated, other}}, state}
@@ -160,23 +181,75 @@ defmodule Valimc.Worldgen.Scheduler do
   defp snapshot_path(state),
     do: Path.join(Valimc.Dimension.storage(state.world, state.dimension), @snapshot)
 
+  # A snapshot's proto chunks go to the scratch file, not into memory.
   defp restore(frontier, state) do
     with path when is_binary(path) <- snapshot_path(state),
          {:ok, binary} <- File.read(path) do
       File.rm(path)
+      state = open_scratch(state)
+      file = state.scratch.file
 
-      case Frontier.restore(frontier, binary) do
+      spill = fn image ->
+        {:ok, offset} = :file.position(file, :eof)
+        :ok = :file.write(file, image)
+        {offset, byte_size(image)}
+      end
+
+      case Frontier.restore(frontier, binary, spill) do
         {:ok, frontier} ->
-          frontier
+          {frontier, state}
 
         {:error, reason} ->
           Logger.warning("Ignoring the generation snapshot #{path}: #{inspect(reason)}")
-          frontier
+          {frontier, state}
       end
     else
-      _ -> frontier
+      _ -> {frontier, state}
     end
   end
+
+  defp scratch_path(%{world: nil, dimension: dimension}),
+    do:
+      Path.join(
+        System.tmp_dir!(),
+        "valimc-#{dimension}-#{System.unique_integer([:positive])}-#{@scratch}"
+      )
+
+  defp scratch_path(state),
+    do: Path.join(Valimc.Dimension.storage(state.world, state.dimension), @scratch)
+
+  defp open_scratch(%{scratch: %{file: nil, path: path}} = state) do
+    File.mkdir_p!(Path.dirname(path))
+    {:ok, file} = :file.open(path, [:read, :write, :raw, :binary])
+    %{state | scratch: %{state.scratch | file: file}}
+  end
+
+  defp open_scratch(state), do: state
+
+  # Past the cap: drop and spill what work does not need soon, a batch per
+  # dispatch, and not again until more cells came in if none could go.
+  defp spill(%{frontier: %{cap: cap, in_memory: n}} = state)
+       when is_integer(cap) and n > cap and (state.stuck == nil or n > state.stuck) do
+    {frontier, spills} = Frontier.evictions(state.frontier)
+    state = if spills == [], do: state, else: open_scratch(state)
+    file = state.scratch.file
+
+    locations =
+      for {chunk, cell} <- spills do
+        {:ok, bytes} = Valimc.Native.gen_encode(cell)
+        {:ok, offset} = :file.position(file, :eof)
+        :ok = :file.write(file, bytes)
+        {chunk, offset, byte_size(bytes)}
+      end
+
+    frontier = Frontier.spilled(frontier, locations)
+    Valimc.Metrics.add(:worldgen_spills, length(locations))
+    Valimc.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
+    stuck = if frontier.in_memory == n, do: n
+    %{state | frontier: frontier, stuck: stuck}
+  end
+
+  defp spill(state), do: state
 
   @impl true
   def handle_cast({:want, requester, epoch, wanted}, state) do
@@ -218,11 +291,24 @@ defmodule Valimc.Worldgen.Scheduler do
   def handle_call(:order, _from, state),
     do: reply(Frontier.order(state.frontier), state)
 
-  def handle_call(:stats, _from, state),
-    do: reply(Frontier.stats(state.frontier), state)
+  def handle_call(:stats, _from, state) do
+    {:ok, bytes} = Valimc.Native.gen_cells_bytes(Frontier.cells_in_memory(state.frontier))
+    reply(Map.put(Frontier.stats(state.frontier), :proto_bytes, bytes), state)
+  end
 
   def handle_call({:cells, chunks}, _from, state) do
-    cells = Enum.map(chunks, &get_in(state.frontier.chunks, [&1, :cell]))
+    cells =
+      Enum.map(chunks, fn chunk ->
+        case get_in(state.frontier.chunks, [chunk, :cell]) do
+          {:spilled, offset, size} ->
+            {:ok, bytes} = Frontier.read_spilled(state.scratch.path, offset, size)
+            elem(Valimc.Native.gen_decode(state.frontier.worldgen, bytes), 1)
+
+          cell ->
+            cell
+        end
+      end)
+
     reply({:ok, cells}, state)
   end
 
@@ -289,7 +375,7 @@ defmodule Valimc.Worldgen.Scheduler do
   ## Work
 
   defp dispatch(state) do
-    state = gauges(%{state | dirty: false})
+    state = %{state | dirty: false} |> spill() |> gauges()
     room = Pool.free()
 
     if room == 0 do
@@ -414,15 +500,26 @@ defmodule Valimc.Worldgen.Scheduler do
     if state.gauged && now - state.gauged < @gauges, do: state, else: put_gauges(state, now)
   end
 
+  # Memory: the generation context, the start table and the proto cells in
+  # memory; and the cells spilled and the scratch file's bytes (VMC-077q).
   defp put_gauges(state, now) do
     f = state.frontier
-    stats = Frontier.stats(f)
+    d = state.dimension
     context = if f.worldgen, do: Valimc.Native.worldgen_memory(f.worldgen), else: 0
     starts = if f.starts, do: elem(Valimc.Native.gen_starts_stats(f.starts), 2), else: 0
-    Valimc.Metrics.put(:"worldgen_cells_#{state.dimension}", stats.terrain + stats.decorated)
-    Valimc.Metrics.put(:"worldgen_memory_bytes_#{state.dimension}", context + starts)
+    {:ok, protos} = Valimc.Native.gen_cells_bytes(Frontier.cells_in_memory(f))
+    Valimc.Metrics.put(:"worldgen_cells_#{d}", f.in_memory)
+    Valimc.Metrics.put(:"worldgen_proto_bytes_#{d}", protos)
+    Valimc.Metrics.put(:"worldgen_memory_bytes_#{d}", context + starts + protos)
+    Valimc.Metrics.put(:"worldgen_spilled_#{d}", Frontier.stats(f).spilled)
+    Valimc.Metrics.put(:"worldgen_scratch_bytes_#{d}", scratch_bytes(state))
     %{state | gauged: now}
   end
+
+  defp scratch_bytes(%{scratch: %{file: file}}) when file != nil,
+    do: elem(:file.position(file, :eof), 1)
+
+  defp scratch_bytes(_state), do: 0
 
   @impl true
   def terminate(_reason, %{frontier: %Frontier{}} = state) do
@@ -438,10 +535,18 @@ defmodule Valimc.Worldgen.Scheduler do
       end
     end
 
+    remove_scratch(state)
+  end
+
+  def terminate(_reason, state), do: remove_scratch(state)
+
+  defp remove_scratch(%{scratch: %{path: path, file: file}}) do
+    if file, do: :file.close(file)
+    File.rm(path)
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  defp remove_scratch(_state), do: :ok
 
   # Let running jobs finish, so their chunks are in the snapshot.
   defp drain(%{frontier: %{jobs: jobs}} = state, _deadline) when jobs == %{}, do: state

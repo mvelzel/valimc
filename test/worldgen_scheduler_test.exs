@@ -153,6 +153,34 @@ defmodule Valimc.WorldgenSchedulerTest do
     assert Scheduler.stats(base, :overworld).decorated == 0
   end
 
+  test "with few proto chunks in memory, dropped and spilled ones change nothing", ctx do
+    previous = Application.get_env(:valimc, :worldgen_proto_cells)
+    Application.put_env(:valimc, :worldgen_proto_cells, 8)
+    on_exit(fn -> Application.put_env(:valimc, :worldgen_proto_cells, previous) end)
+
+    first = [{-40, 12}, {-39, 12}]
+    # Beside the first: its decorations read the first's spilled chunks back.
+    second = [{-37, 12}]
+    ours = full(ctx.base, first) ++ full(ctx.base, second)
+
+    # The memory gauge counts a proto chunk's states at least (384 × 256 of them).
+    {:ok, [cell]} = Scheduler.cells(ctx.base, :overworld, [{-40, 12}])
+    assert {:ok, bytes} = Native.gen_cells_bytes([cell])
+    assert bytes >= 384 * 256 * 2 and bytes < 2 * 384 * 256 * 2
+    stats = Scheduler.stats(ctx.base, :overworld)
+    # Every terrain chunk here was decorated into: all spill, none is dropped.
+    assert stats.spills > 0 and stats.spilled > 0
+    order = Scheduler.order(ctx.base, :overworld)
+    assert_same(ours, reference(ctx.worldgen, order, first ++ second))
+
+    # A graceful restart snapshots spilled chunks too, and restores them spilled.
+    stop(ctx.base)
+    third = [{-35, 12}]
+    ours_third = full(ctx.base, third)
+    order = order ++ Scheduler.order(ctx.base, :overworld)
+    assert_same(ours_third, reference(ctx.worldgen, order, third))
+  end
+
   test "a failed job fails its chunk and the wants that need it, once" do
     spec = %{
       kind: :noise,

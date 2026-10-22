@@ -270,6 +270,20 @@ fn gen_decorate(
     })())
 }
 
+/// Approximate heap bytes of the proto chunks in `cells` (VMC-077q); a cell
+/// lent to a job counts nothing.
+#[rustler::nif]
+fn gen_cells_bytes(cells: Vec<ResourceArc<ProtoCell>>) -> NifResult<(Atom, usize)> {
+    reply((|| {
+        let mut total = 0;
+        for cell in &cells {
+            let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+            total += chunk.as_ref().map_or(0, |c| c.heap_bytes());
+        }
+        Ok(total)
+    })())
+}
+
 /// A proto chunk as `proto::encode` writes it (snapshots, parity).
 #[rustler::nif(schedule = "DirtyCpu")]
 fn gen_encode<'a>(env: Env<'a>, cell: ResourceArc<ProtoCell>) -> NifResult<(Atom, Binary<'a>)> {

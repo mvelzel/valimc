@@ -256,6 +256,15 @@ fresh terrain, as vanilla regenerates a chunk missing from its region file. A
 new world's spawn search runs the same scheduler inline and leaves its state
 as the snapshot.
 
+Proto chunks in memory are bounded per dimension (`worldgen_proto_cells`,
+VMC-077q). Past the cap, the cells no wanted chunk or needed decoration is
+near go, least recently used first: terrain no decoration wrote into is
+dropped and made again when needed (terrain reads only the starts' beards,
+which placement never changes), and every other cell spills to the
+dimension's scratch file (`generation.scratch`), never durable state, from
+which the job that needs it decodes it. A snapshot's chunks are restored into
+the scratch file, not into memory.
+
 ## Elixir and Rust
 
 Elixir owns sockets, sessions, ownership, scheduling, transactions, persistence
