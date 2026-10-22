@@ -16,7 +16,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp seed(ctx, opts \\ []) do
+  defp seed(ctx, opts) do
     mode = Keyword.get(opts, :mode, :survival)
 
     player =
@@ -76,29 +76,6 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     assert living(owner).health.value == 18.0
     assert living(owner).freezing.damage_phase < 4
     refute living(owner).freezing.damage_due
-  end
-
-  test "blocked geometry coalesces due periods and a fresh observation consumes only once", ctx do
-    seed(ctx)
-    {_client, pid} = login(ctx)
-    zero_phase(pid)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      for _ <- 1..80, do: tick(pid, false)
-      assert living(pid).freezing.damage_due
-      assert living(pid).health.value == 20.0
-      Valimc.TestRegionGate.resume(region)
-      # An expired query is discarded; an admitted tick starts a fresh one.
-      tick(pid)
-      assert living(pid).health.value == 19.0
-      refute living(pid).freezing.damage_due
-      tick(pid)
-      assert living(pid).health.value == 19.0
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
   end
 
   test "fatal cold seals inventory and respawns without a previous body's pending consequence",

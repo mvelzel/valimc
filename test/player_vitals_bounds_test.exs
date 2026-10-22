@@ -2,7 +2,7 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   # Bounds and fail-closed checks of health, food, armor, air, fire and consumable
   # rules. Their vanilla numbers are the vitals and effect oracle stages.
   use ExUnit.Case, async: true
-  alias Valimc.Living.{Air, Burning, Effects, Health}
+  alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
   alias Valimc.{FoodItems}
   alias Valimc.{PlayerFood}
   alias Valimc.Protocol.{FoodProperties, ItemStack, ItemTypes, PotionContents, Wire}
@@ -65,6 +65,18 @@ defmodule Valimc.PlayerVitalsBoundsTest do
     assert Air.submerged?(true, water)
     refute Air.submerged?(false, water)
     for id <- Air.bubble_states(), do: refute(Air.submerged?(true, id))
+  end
+
+  # A tick without a body sample (its chunk unreadable) leaves the due hit for
+  # the next sample: periods that pass meanwhile keep one hit, not one each.
+  test "freezing keeps at most one due hit until a sample consumes it" do
+    cold = %Freezing{frozen_ticks: 140}
+    due = Enum.reduce(1..80, cold, fn _, env -> Freezing.tick(env, true) end)
+    assert due.damage_due and due.damage_phase == 0
+    assert {true, consumed} = Freezing.consume_damage(due, true)
+    refute consumed.damage_due
+    assert {false, ^consumed} = Freezing.consume_damage(consumed, true)
+    assert {false, %{damage_due: false}} = Freezing.consume_damage(due, false)
   end
 
   test "fire contact work is bounded and unknown or malformed samples refuse" do

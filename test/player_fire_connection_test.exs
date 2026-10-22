@@ -26,11 +26,15 @@ defmodule Valimc.PlayerFireConnectionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
+  # Lava and water fill both of the player's cells. Fire stands only at the
+  # feet, as vanilla keeps it on a sturdy floor: fire above fire cannot survive
+  # (`FireBlock.canSurvive`) and the block updates remove it.
   defp material(ctx, name) do
-    id = %{"air" => 0, "water" => 89, "lava" => 105, "fire" => 4931, "soul_fire" => 5443}[name]
+    id = %{"air" => 0, "water" => 89, "lava" => 105, "fire" => Data.block("fire")}[name]
+    above = if name == "fire", do: 0, else: id
 
-    for y <- [64, 65],
-        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+    for {y, block} <- [{64, id}, {65, above}],
+        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, block)
   end
 
   defp seed(ctx, opts) do
