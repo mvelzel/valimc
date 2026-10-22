@@ -37,7 +37,7 @@ The resulting Elixir design keeps dense simulation state within its region owner
 
 SteelMC explicitly describes incomplete survival and emphasizes vanilla parity. Its published terrain benchmark is a specific generation workload; it does not establish overall server performance or predict this Elixir implementation's performance. [SteelMC introduction](https://steelmc.dev/blog/announcement/)
 
-Folia's neighboring-region rules are especially relevant: adjacent simulation cannot safely proceed as unrelated owners. This preview has independent edits and lacks cross-border simulation. Future survival work must resolve that consistency problem, even on the BEAM. [Folia overview](https://docs.papermc.io/folia/reference/overview/)
+Folia's neighboring-region rules are especially relevant: adjacent simulation cannot safely proceed as unrelated owners. ValiMC applies the same rule at section size: sections whose loaded chunks come near share one group process (VMC-077j). [Folia overview](https://docs.papermc.io/folia/reference/overview/)
 
 ## Current version evidence
 

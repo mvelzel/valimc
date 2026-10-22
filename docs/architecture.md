@@ -2,16 +2,40 @@
 
 Processes define state ownership and failure boundaries. Parallel schedulers do
 not make coupled gameplay independent; published observations never grant
-authority. The M1 foundations below are in place; later milestones on the
+authority. The foundations below are in place; later milestones on the
 [roadmap](roadmap.md) build gameplay on them.
+
+## Contexts and layering
+
+Every module belongs to one domain context, a directory under `lib/valimc`
+(with a facade module of the same name where the context has one, such as
+`Valimc.World` or `Valimc.Commands`); only the application, the root module
+and the NIF module sit at the top. The contexts are ranked, and a module
+depends only on its own rank and the ranks below it:
+
+| Rank | Contexts | Holds |
+|---|---|---|
+| 1 | Data | Generated facts and their loader (`Data.Facts`, `Data.Version`), the block registry and fact table, entity, effect and potion types, NBT, UUIDs, Java floats, the world grid (`Data.Grid`), metrics |
+| 2 | Protocol, Text | Wire formats, packets, item stacks and their data components, the codec and the hosted session's outbox; text components, SNBT, the string reader and selector syntax |
+| 3 | Physics, Living, Blocks, Menus, Txn | The physics kernel (it reads the world through `Physics.Cells`), living entities' rules, block behaviours, cooking and mining, menus and inventories, transfer permits and receipts |
+| 4 | Entity | The entity store, views, publication, trackers, handoffs and item physics |
+| 5 | World, Player, Admin, Storage, Worldgen | Groups and sections, chunk lifecycle, portals and the environment; players and their hosted sessions; admin lists and permissions; the log, checkpoints and Anvil; generation |
+| 6 | Session, Commands | The connection's view, streaming and replication; the command catalog, parser and builtins |
+| 7 | Net | The connection shell, login, authentication, the listener, the console and RCON |
+
+`scripts/check_layers.py`, run by the publication audit, fails on any `mix
+xref` edge to a higher rank. Its few known exceptions name the change that
+removes each: the hosted session's router still carries the connection's
+login and authentication clauses, and one block behaviour reads its level's
+height from its owner's dimension context.
 
 ## Owners
 
 | State/work | Owner and access |
 |---|---|
 | Socket, framing, AES stream, compression, login and configuration, keepalive, chunk view and streaming, replication of what owners publish | One connection process per player, the player's stable address (`Session.Link`) |
-| A playing player's body, inventory, living state, open menus, movement checks, mining and item use | The group process that owns the section the player stands in (`Session.Host`); each move packet is validated there by the physics kernel |
-| Admission, names, lifecycle | Players service; never on movement or chat hot paths |
+| A playing player's body, inventory, living state, open menus, movement checks, mining and item use | The group process that owns the section the player stands in (`Player.Host`); each move packet is validated there by the physics kernel |
+| Admission, names, lifecycle | `Player.PlayerList`; never on movement or chat hot paths |
 | Nearby-player observations | Spatial index for routing events; players replicate through their group's trackers like entities |
 | Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | The group process (`World.Region`) of their 8×8-chunk section while chunk tickets hold it; immutable chunk snapshots and chunk packets in the section's ETS table for readers |
 | Which sections share a group | Regionizer per dimension (`World.Regionizer`); routes in the Directory's ETS table |
@@ -20,8 +44,8 @@ authority. The M1 foundations below are in place; later milestones on the
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
-| Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through the groups hosting them |
-| Encoding, placement and mining jobs, auth/crypto | Bounded worker pools (the placement and mining pool partitioned per caller) |
+| Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Commands.Source` value; blocks change through region owners, players through the groups hosting them |
+| Encoding, transfers, command jobs, key exchange and session verification | Bounded worker pools; the login jobs in `Net.LoginJobs` |
 | Region and player checkpoints, the write-ahead log | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
@@ -30,7 +54,7 @@ limit and mailbox checks. Overloaded connections are shut down with
 `{:shutdown, :overloaded}`, so their sessions still end and save. Chat follows
 the vanilla spam throttle. Runtime caps live in `config/config.exs`. A
 connection calls another owner only to hand its session to a group and to end
-it; commands and suggestions run as jobs (`Session.Jobs`) and their results
+it; commands and suggestions run as jobs (`Player.Jobs`) and their results
 arrive as messages (VMC-077a).
 
 Supervision is five domain supervisors under a `rest_for_one` root, each with
@@ -48,9 +72,9 @@ replication trackers and the entity work it schedules), its commit state (`Regio
 runs on that table: at most one job
 per kind under a bounded pool, each with a token, a monitor and a deadline,
 reported, overrun and lost through one path; a crashed worker is a failed job.
-Owner processes are found or started through one helper (`Owners.ensure/4`).
+Owner processes are found or started through one helper (`World.Owners.ensure/4`).
 Errors are `{:error, {:retry | :reject | :conflict | :invalid, detail}}`,
-classified where they are made (`Valimc.Error`): a caller retries
+classified where they are made (`Valimc.Data.Error`): a caller retries
 `{:retry, _}` without a list of atoms (VMC-077g).
 
 ## Groups and the regionizer
@@ -75,7 +99,7 @@ A group that crashes takes its sections down; each is admitted again from its
 log, in a group of its own.
 
 A group also hosts the session of each player standing in one of its sections
-(`Session.Host`, VMC-077i3). The player's connection stays its address: it
+(`Player.Host`, VMC-077i3). The player's connection stays its address: it
 forwards play input and what else is meant for the session as `{:player,
 uuid, message}` and writes the packets the session sends back after each
 callback. A pickup, a drop, a placement, a container or table click, an XP
@@ -99,7 +123,7 @@ takes the route and the section keeps its epoch. The group it left forwards
 what still arrives for the section for two minutes; one left without sections
 then stops.
 
-## Foundations (M1)
+## Foundations
 
 - **Sections, not edit maps.** Each region owns its chunk columns as paletted
   sections in a Rust resource (VMC-062): single-value or packed palette storage
@@ -149,26 +173,26 @@ then stops.
   survival, redstone wire power) and dependent blocks' due ticks run in the Rust
   block-update engine in one call per commit, over the group's section stores
   (VMC-077m, VMC-077j); blocks with effects of
-  their own (portals, containers, cooking) keep `Valimc.Block.Behaviour`
+  their own (portals, containers, cooking) keep `Valimc.Blocks.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
-- **Entities.** Each region owner holds one entity store (`Entities`,
+- **Entities.** Each region owner holds one entity store (`Entity.Store`,
   VMC-077h): every entity it owns, items and XP orbs now, mobs and
   projectiles later, by network id with a uuid index, persisted one record per
   entity with no count or size cap. Network ids come from one `:atomics`
-  counter (`EntityIds`) for players and every kind, and an entity keeps its id
+  counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
   across handoffs within a VM. Entities move between owners through one
-  handoff (`EntityHandoffs`): the source withdraws a cohort into one durable
+  handoff (`Entity.Handoffs`): the source withdraws a cohort into one durable
   outgoing intent, the destination adopts it and records its receipt in the
   same frame, and the source clears the intent once that receipt is durable. A
   cross-region item merge is the donor handed over with its target, merged on
   arrival or returned. A furnace withdrawal spawns its XP orbs in the same
   commit, or hands them to the owner of their position.
-- **Replication.** The owner keeps one tracker per entity (`EntityTracker`,
+- **Replication.** The owner keeps one tracker per entity (`Entity.Tracker`,
   vanilla's `ServerEntity`): each tick it encodes, once for every observer,
   the packets of what changed (relative moves, motion, metadata, absolute
   syncs) at the kind's update interval into a frame, and rewrites only the
-  chunk rows whose views changed (`EntityPublication`). A connection's tracker
-  (`EntityReplication`) spawns entities from their rows, at the position the
+  chunk rows whose views changed (`Entity.Publication`). A connection's tracker
+  (`Entity.Observer`) spawns entities from their rows, at the position the
   owner's tracker last sent, forwards the frames for the ids it tracks, and
   resyncs one seen under another owner or behind the frame ring, never
   respawning it. A departing entity stays published until its handoff clears.
@@ -177,37 +201,38 @@ then stops.
   data and equipment, published in the row and frame of the section it
   stands in. The tab list holds every online player, near or far.
 - **Data.** One generated fact source per concept and a single version module
-  (`Valimc.Version`). Each `priv` file has one decoding module: it reads the
-  file with `use Valimc.Facts`, which loads it once at compile time and checks
+  (`Valimc.Data.Version`). Each `priv` file has one decoding module: it reads the
+  file with `use Valimc.Data.Facts`, which loads it once at compile time and checks
   every release stamp it carries, and every other reader asks that module.
   Files too large to keep as terms (loot tables, translations, the command
   tree) and the files Rust parses itself (worldgen, survival, shapes) are read
-  at run time by their owner through `Valimc.Facts.read!/1`;
+  at run time by their owner through `Valimc.Data.Facts.read!/1`;
   `Valimc.Worldgen.Facts` keeps the few worldgen terms Elixir needs (biome
-  names and climates, the ids commands name). `Valimc.Registry.Blocks` owns block identity (state
-  runs, defaults, properties, vanilla classes) and `Valimc.Registry.BlockFacts`
+  names and climates, the ids commands name). `Valimc.Data.Blocks` owns block identity (state
+  runs, defaults, properties, vanilla classes) and `Valimc.Data.BlockFacts`
   every per-state fact, as one columnar table from one oracle (VMC-077d): flags,
   collision shape, motion, fluid, climbing, inside behaviour, hazard, landing,
   mining, replaceability, heightmaps, sky, light and redstone signals. Survival
   keeps two tables, read by one Rust module: decoration checks survival before
   placement under unlit light, live updates after it with their reactions.
-  Block behaviours are `Valimc.Block.Behaviour` callbacks chosen by the
+  Block behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the
   generated class (VMC-068).
-- **Connection.** `Valimc.Connection` is a thin GenServer shell; `Net.*` holds
-  the codec, login flow and serverbound dispatch, `Session.*` message routing,
-  jobs, events, replication and commands, and `Player.*` each gameplay domain.
-  In play `Session.Link` is the connection's half and `Session.Host` runs the
-  session at its group. Broadcast packets are framed once and shared as
-  binaries (VMC-069).
+- **Connection.** `Valimc.Net.Connection` is a thin GenServer shell; `Net.*`
+  holds the login flow and serverbound dispatch, `Protocol.Codec` the framing,
+  cipher and socket writes, `Session.*` message routing, events, replication
+  and chat commands, and `Player.*` each gameplay domain. In play
+  `Session.Link` is the connection's half and `Player.Host` runs the session
+  at its group, whose client output queues in the codec's outbox. Broadcast
+  packets are framed once and shared as binaries (VMC-069).
 - **Commands.** `Valimc.Commands.registry/0` maps each top-level command to
   one handler function, which receives the parsed literals; the
   Brigadier tree is built from `tree.json` at start, so the command
   packet needs no compile-time handler table (nodes keep redirects and a
   modifier slot for `execute`). A command runs in layers: parse
-  (pure), resolve over published snapshots (`Command.Targets` selects
+  (pure), resolve over published snapshots (`Commands.Targets` selects
   over the player projections and the spatial index), execute through owner
   operations, and feedback through the source's sink (a connection, the
-  log or an RCON reply). `Command.Source` is a plain value: entity,
+  log or an RCON reply). `Commands.Source` is a plain value: entity,
   dimension, position, rotation, anchor, level, sink and silent flag.
   `/fill`, `/clone` and `/place` are box edits (`World.BoxEdit`): each
   region owner locks its cells (`Txn.Permits` `:box_edit`) and checks
@@ -309,7 +334,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
 per chunk), region file headers and palette-name mapping (VMC-021, about 80 µs
-per chunk; not yet compared with Rust). `Valimc.NBT` is the one
+per chunk; not yet compared with Rust). `Valimc.Data.NBT` is the one
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 

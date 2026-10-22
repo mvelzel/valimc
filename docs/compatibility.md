@@ -1,27 +1,24 @@
-# Preview compatibility
+# Compatibility
 
-Target: vanilla Java **26.3 / protocol 777**. This is a creative flat-world preview.
-Completed tickets establish their stated scope, not subsystem/full-server parity.
-[Current gates](roadmap.md) and [feature backlog](backlog.md) remain explicit.
+Target: vanilla Java **26.3 / protocol 777**. ValiMC generates and serves real
+vanilla worlds; survival gameplay beyond the player's own body is incomplete.
+Completed tickets establish their stated scope, not subsystem or full-server
+parity. [Current work](roadmap.md) and the [feature backlog](backlog.md) say
+what remains.
 
-| Area | Implemented preview | Still missing |
+| Area | Implemented | Still missing |
 |---|---|---|
-| Protocol/login | Status, compression, registries/tags, encryption, optional real online identity | Full packet behavior, signed chat, complete session/proxy policy |
-| Players | Nearby replication, saved pose/flight/modes/fall/freeze/health, hurt timers, powder freezing/thaw, ordered fire/soul/lava and magma/campfire/cactus/berry contacts with gear/wear, owned Speed/Slowness/Jump Boost/Slow Falling/Levitation, Resistance/Fire Resistance/Water Breathing/regeneration/poison/wither, durations/reconnect, supported potion drinking, instant healing/harming/Saturation, Hunger/Nausea, durable Absorption golden hearts, stock food status groups and milk/honey removal, respawn and translated environmental/self-magic deaths with accepted named-item hovers, roof-aware flat-plains rain extinction, input/Shift/sprint flags, selected pose/eye height, bounded block-based movement corrections, default ranges | Remaining status effects/attributes, abnormal signed-healing lifecycle (whole drink refused), live mode transitions, complete forces and remaining damage/combat/consumption rules |
-| World | Flat chunks, creative edits, basic/slab survival mining and placement, blocks that lose their support break (generated survival rules; tool-less deterministic drops), clocks/weather/difficulty, world border (moving, damage outside, `/worldborder`), vanilla world and player spawn search, custom snapshots | Anvil/NBT worlds, generation/biomes/structures, real lighting, full gamerules, functional/oriented blocks |
-| Inventory | Supported components, authoritative clicks/swaps/drops, manual 2×2/3×3 ordinary/remainder recipes, bounded bulk crafting, durable cleanup/recovery, six-slot equipment replication, fixture-backed ordinary chest exchanges/shared lids | General recipe book/autofill, special/component crafting outputs, full components/containers/equipment rules; pending gesture gates |
-| Cooking/XP | All three processor menus, fuel/progress and persistent cooking, earned ordinary/Shift output, cooking recipe unlocks, durable orb consumption/player XP/bar/reconnect, stored body poses and terminal retirement | Automatic orb motion/lifetime, Mending, processor-destruction XP, automation and broader recipe-book behavior; [pickup](tickets/VMC-034n5.md), [stored bodies](tickets/VMC-034n4b.md) |
-| Items | Owned dropped entities, bounded motion/fluid travel, same/cross-owner merging, ordinary pickup, void disposal and durable transfer retries | Advanced pickup contexts, remaining entity lifecycle and rendering edges |
-| Physics | Native shapes/clipping/steps, live pose/movement/fall reconciliation, default dry/fluid velocity, swimming/climbing/slowing contacts, sneaking edge protection, supplied entity fitting, live world border collision | Complete forces/effects and dynamic contexts, solid entities, coupled ownership/transfers |
-| Simulation | Bounded region/player owners and tick deadlines, fenced powder contact/freezing | Full survival ticks, mobs/AI, redstone, fluid propagation, explosions and coupled mechanics |
+| Protocol/login | Status, compression, registries and tags, encryption, optional online authentication, configuration and the vanilla command tree with server suggestions | Signed chat and command signatures, complete session and proxy policy |
+| Worlds | Vanilla generation of the overworld, the Nether and the End, live and per chunk: noise terrain, biomes, features, structures and their loot, per-chunk lighting; world presets and data packs; Anvil import and export; flat worlds; portals between dimensions; world border, spawn search, clock, weather and difficulty | Fluid propagation, the dragon fight, remaining gamerules |
+| Blocks | Creative edits; survival mining and placement of modelled blocks; vanilla block updates in a Rust engine (shape updates, support, survival and redstone wire power); chests, crafting tables and the three furnaces | Most redstone components, pistons, explosions, falling blocks and functional blocks beyond those |
+| Players | Movement validated by the native physics kernel (fluids, climbing, swimming, slowing blocks, edges, poses), health, food, air, freezing, burning, fall and contact damage, status effects and attributes, death and respawn, game modes and abilities, experience | Combat, remaining effects and attributes, live mode transitions |
+| Inventory | Authoritative clicks, swaps and drops, 2×2 and 3×3 crafting, chest and furnace menus, cooking with recipe unlocks, item components the data format reads | Recipe book and autofill, special and component crafting outputs, remaining containers |
+| Entities | Items and experience orbs as owned entities: motion, merging, pickup, portals, handoffs between owners and replication | Mobs, AI, spawning, projectiles, vehicles |
+| Commands | Vanilla's command tree; world, player, admin and generation commands (`/fill`, `/clone`, `/place`, `/locate`, `/give`, `/effect`, `/tp`, `/worldborder`, ...) with selectors over players | `/execute`, scoreboards, teams, functions, selectors over other entities |
 | Extensions | Original Elixir runtime | Extension API, Java plugins and Bedrock compatibility |
 
-Supported item data includes scalar components, bounded custom NBT, names/lore,
-enchantments, potion contents and tooltip controls. Unsupported structured edits
-restore accepted state. Data support does not imply every corresponding gameplay effect. Component and
-inventory/drop child tickets are indexed in the [backlog](backlog.md).
-
-World/player formats are custom and bounded. Hard crashes can lose changes since
-ordinary periodic checkpoints; durable item transfers have a separate journaled
-contract. Idle regions remain resident up to the configured cap. See
-[architecture](architecture.md) and [configuration](configuration.md).
+New worlds are flat unless `generator` selects vanilla terrain; a world keeps
+the generator it was created with. World and player storage is ValiMC's own
+log and checkpoint format (vanilla worlds import and export through Anvil): a
+crash loses at most the last frames. See [architecture](architecture.md) and
+[configuration](configuration.md).

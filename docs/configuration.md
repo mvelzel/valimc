@@ -6,7 +6,7 @@
 |---|---|
 | `VALIMC_BIND` | Listen address; default `127.0.0.1` |
 | `VALIMC_PORT` | TCP port; default `25565` |
-| `VALIMC_WORLD` | Custom preview storage directory; default `world` |
+| `VALIMC_WORLD` | World storage directory; default `world` |
 | `VALIMC_GENERATOR` | Terrain of a new world: `flat` (default) or `vanilla`; recorded in its `world.json` |
 | `VALIMC_SEED` | Seed of a new vanilla world (64-bit integer); random by default |
 | `VALIMC_LEVEL_TYPE` | World preset of a new vanilla world (`level-type`): `minecraft:normal` (default), `large_biomes`, `amplified`, `single_biome_surface` or `flat`; an unknown one is normal, debug worlds are refused |
@@ -46,7 +46,7 @@ proxy-IP policy remain unfinished.
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt
 iex -S mix
-# In IEx: Valimc.Metrics.snapshot()
+# In IEx: Valimc.Data.Metrics.snapshot()
 # Graceful shutdown: System.stop()
 ```
 

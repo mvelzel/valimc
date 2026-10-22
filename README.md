@@ -1,8 +1,9 @@
 # ValiMC
 
 A Minecraft Java **26.3 / protocol 777** server written in Elixir/OTP.
-The goal is full vanilla compatibility. Today it is a **creative flat-world
-preview**; survival gameplay is incomplete. No fastest-server claim is made.
+The goal is full vanilla compatibility. Today it generates and serves vanilla
+worlds; survival gameplay beyond the player's own body (mobs, combat, most
+redstone) is incomplete. No fastest-server claim is made.
 
 ## Run
 
@@ -18,11 +19,12 @@ Rust 1.99+ (rustup's stable toolchain): `mix deps.get && mix compile` builds the
 (chunk section storage) through Rustler, a build-time Hex dependency. There are no
 runtime Hex or JVM dependencies; Java 25 is used only by development reference tools.
 
-The preview supports login/encryption/optional online authentication, flat chunks,
-creative edits, nearby players, supported inventory transactions and persistence.
-Player movement enforcement, survival, crafting, mobs, terrain generation,
-lighting, redstone and Anvil storage remain unfinished.
-See [compatibility](docs/compatibility.md) for scope and pending validation.
+It supports login with encryption and optional online authentication, vanilla
+generation of the overworld, the Nether and the End (flat worlds by default),
+portals, Anvil import and export, validated movement, survival mining,
+placement and block updates, crafting, chests and furnaces, items and
+experience orbs, and the vanilla command tree. Mobs, combat, most redstone and
+fluids remain unfinished. See [compatibility](docs/compatibility.md) for scope.
 
 ## Develop
 

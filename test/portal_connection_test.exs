@@ -125,8 +125,7 @@ defmodule Valimc.PortalConnectionTest do
   end
 
   defp move(client, pid, {x, y, z}) do
-    deadline = System.monotonic_time(:millisecond) + 2000
-    :ok = GenServer.call(pid, {:teleport, %{x: x, y: y, z: z, yaw: 0.0, pitch: 0.0}, deadline})
+    :ok = Valimc.TestConn.teleport(pid, %{x: x, y: y, z: z, yaw: 0.0, pitch: 0.0})
     {position, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", position)
     wait(fn -> not state(pid).teleport_pending end)

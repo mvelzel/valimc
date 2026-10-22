@@ -174,13 +174,16 @@ git diff --cached
 ```
 
 The audit also runs `scripts/lint_docs.py` (ticket status values, roadmap length,
-readable prose, links). Stage explicit paths. Push validated work with normal
+readable prose, links) and `scripts/check_layers.py`, which fails on a
+dependency on a higher-ranked context (see
+[architecture](architecture.md#contexts-and-layering)); `--report` prints the
+edges between contexts and the largest dependency cycle. Stage explicit paths. Push validated work with normal
 pushes; never force-push without permission. Report actual push outcomes.
 
 ## Private vanilla inspection
 
 The release pin is `priv/version.json` (name, data version, protocol, jar SHA-1),
-read by `Valimc.Version` and `scripts/pinned.py`; `research/mojang-version.json`
+read by `Valimc.Data.Version` and `scripts/pinned.py`; `research/mojang-version.json`
 must name the same release. `prepare_vanilla.py` verifies/extracts the pinned jar; `java_tool.py NAME ARGS`
 runs one oracle (all sources compile together, only when changed). Use `javap -c -p`
 first. Keep decompiler tools, dumps and raw outputs under ignored `research/` or

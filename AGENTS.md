@@ -1,9 +1,10 @@
 # ValiMC development
 
 Target the full vanilla Minecraft Java **26.3 / protocol 777** player experience on
-Elixir/OTP, with Rust NIFs where native code measurably wins. The server is a
-creative flat-world preview; the current milestone is **foundations first**
-(see the [roadmap](docs/roadmap.md)).
+Elixir/OTP, with Rust NIFs where native code measurably wins. The server
+generates and serves real vanilla worlds; the current milestone is
+**foundations II** (VMC-077), before M3's survival core (see the
+[roadmap](docs/roadmap.md)).
 
 ## Start selectively
 
@@ -25,11 +26,14 @@ Evidence (counts, seeds, runs) belongs in the ticket, never in the roadmap.
   [research](docs/research.md) and `research/sources.lock.json`. Write original code;
   preserve upstream licenses and keep reference sources out of the tree.
 - Jars, decompiler output, upstream checkouts, logs/captures and test worlds stay
-  ignored. `scripts/audit_public_tree.py` (which also lints docs) runs before every
-  commit; review the exact diff too.
+  ignored. `scripts/audit_public_tree.py` (which also lints docs and checks the
+  context layering) runs before every commit; review the exact diff too.
 
 ## Architecture rules
 
+- Every module lives in a domain context and depends only on its own and
+  lower-ranked contexts ([layering](docs/architecture.md#contexts-and-layering));
+  no new flat modules at the top of `lib/valimc`.
 - Processes represent ownership, lifecycle or blocking I/O, never individual blocks
   or entities. No global gameplay process on a hot path; no unbounded mailbox,
   queue, packet, task pool or write.
