@@ -337,32 +337,37 @@ defmodule Valimc.Protocol.ItemData do
   # List elements as tags; vanilla unwraps `{"": tag}` compound elements on load.
   defp elements(list), do: NBT.items(list)
 
+  @doc """
+  `ItemStack.getDisplayName`: the hover name (the custom name, in italics, or
+  the item name) in square brackets, coloured by rarity (raised a step when
+  enchanted), with the stack as its item hover.
+  """
+  def display_name(%ItemStack{} = stack) do
+    custom = effective(stack, "minecraft:custom_name", nil, &Codec.take/1)
+    name = custom || effective(stack, "minecraft:item_name", {:string, ""}, &Codec.take/1)
+    {:compound, data} = tag(stack)
+    hover = if stack.count == 1, do: Map.delete(data, "count"), else: data
+    rarity = effective(stack, "minecraft:rarity", 0, &Wire.take_varint/1)
+    enchanted = effective(stack, "minecraft:enchantments", %{}, &Enchantments.take/1)
+    rarity = if map_size(enchanted) > 0, do: min(3, max(2, rarity + 1)), else: rarity
+    hover_name = %{"text" => {:string, ""}, "extra" => NBT.list([name])}
+    hover_name = if custom, do: Map.put(hover_name, "italic", {:byte, 1}), else: hover_name
+
+    {:compound,
+     %{
+       "translate" => {:string, "chat.square_brackets"},
+       "with" => NBT.list([{:compound, hover_name}]),
+       "color" => {:string, Enum.at(@colors, rarity)},
+       "hover_event" => {:compound, Map.put(hover, "action", {:string, "show_item"})}
+     }}
+  end
+
+  @doc "`display_name/1` of a stack with a custom name, else nil."
   def named_display(nil), do: nil
 
   def named_display(%ItemStack{} = stack) do
-    case effective(stack, "minecraft:custom_name", nil, &Codec.take/1) do
-      nil ->
-        nil
-
-      name ->
-        {:compound, data} = tag(stack)
-        hover = if stack.count == 1, do: Map.delete(data, "count"), else: data
-        rarity = effective(stack, "minecraft:rarity", 0, &Wire.take_varint/1)
-        enchanted = effective(stack, "minecraft:enchantments", %{}, &Enchantments.take/1)
-        rarity = if map_size(enchanted) > 0, do: min(3, max(2, rarity + 1)), else: rarity
-
-        {:compound,
-         %{
-           "translate" => {:string, "chat.square_brackets"},
-           "with" =>
-             NBT.list([
-               {:compound,
-                %{"text" => {:string, ""}, "italic" => {:byte, 1}, "extra" => NBT.list([name])}}
-             ]),
-           "color" => {:string, Enum.at(@colors, rarity)},
-           "hover_event" => {:compound, Map.put(hover, "action", {:string, "show_item"})}
-         }}
-    end
+    if effective(stack, "minecraft:custom_name", nil, &Codec.take/1),
+      do: display_name(stack)
   end
 
   defp effective(stack, name, absent, decoder) do

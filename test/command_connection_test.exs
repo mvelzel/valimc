@@ -10,7 +10,7 @@ defmodule Valimc.CommandConnectionTest do
   defp command(client, input, key) do
     Client.send_packet(client, :play, "chat_command", Wire.string(input))
     {body, client} = Client.await(client, :play, "system_chat")
-    assert :binary.match(body, key) != :nomatch, "#{input}: #{inspect(body)}"
+    for key <- List.wrap(key), do: assert(body =~ key, "#{input}: #{inspect(body)}")
     client
   end
 
@@ -89,7 +89,8 @@ defmodule Valimc.CommandConnectionTest do
         client,
         ~s(give @s iron_sword[custom_name="Blade",lore=["one",{text:"two",color:"red"}],) <>
           ~s(enchantments={"minecraft:sharpness":2},rarity="epic"]),
-        "commands.give.success.single"
+        # `getDisplayName` names the stack by its custom name: "Gave 1 [Blade]".
+        ["commands.give.success.single", "Blade"]
       )
 
     [blade] =

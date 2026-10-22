@@ -224,7 +224,7 @@ defmodule Valimc.Commands.Players do
     count = Map.get(arguments, "count", 1)
     stack = %{ItemStack.new(item.item, 1) | components: item.components, removed: item.removed}
     limit = ItemStack.max_stack_size(stack) * 100
-    display = Names.item(item.item_id)
+    display = Valimc.Protocol.ItemData.display_name(stack)
 
     if count > limit,
       do: Error.fail!("commands.give.failed.toomanyitems", [limit, display])
