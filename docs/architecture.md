@@ -327,20 +327,21 @@ conflicting decorations run in number order, so a chunk depends only on the
 order of requests. Work waits in priority queues (wanted final chunks,
 decorations that can run, needed terrain) whose priorities the work inherits
 from the wanted chunks; a finished job updates them around its chunk. A want
-or a player's move looks only at the chunks whose priority changed: one that
-went down passes at once to the work its chunk needs, earlier decorations
-included, and one that went up or away waits for a whole rebuild, at most
-four times a second (VMC-077x). Each player's
-connection tells the scheduler which chunk the player entered and which way
-they move (`Scheduler.focus/5`), so the order does not wait for the regions'
-tickets. While a player is in the dimension, the player's own chunk goes
+or a player's move looks only at the chunks whose priority changed. An urgent
+one that went down (a call's, or a chunk's near a player) passes at once to
+the work its chunk needs, earlier decorations included; the rest wait for a
+whole rebuild, at most four times a second and a tenth of the scheduler's
+time (VMC-077x). Each player's connection tells the scheduler which chunk the
+player entered and which way they move (`Scheduler.focus/5`), so the order
+does not wait for the regions' tickets. While a player is in the dimension, the player's own chunk goes
 first, then the chunks ahead of them before those beside and behind; calls
 that wait for a chunk go before all of these. The scheduler does not send a
 region a chunk again that it already sent to that section at the same epoch:
 the section's mailbox may still hold it. Nothing answers busy or polls: a
 job's result starts the next job at once, and while work is left out for want
-of a slot, the next job to end anywhere in the pool wakes the scheduler. Terrain-only worlds are final after
-terrain; flat-layer worlds are full at once.
+of a slot, the next job to end anywhere in the pool wakes the scheduler.
+Terrain-only worlds are final after terrain; flat-layer worlds are full at
+once.
 
 Proto chunks and starts are not durable (D3): a graceful stop snapshots them
 (`generation.snapshot`), the next start reads and deletes it, and after a
@@ -357,8 +358,10 @@ near go, least recently used first: terrain no decoration wrote into is
 dropped and made again when needed (terrain reads only the starts' beards,
 which placement never changes), and every other cell spills to the
 dimension's scratch file (`generation.scratch`), never durable state, from
-which the job that needs it decodes it. A snapshot's chunks are restored into
-the scratch file, not into memory.
+which the job that needs it decodes it. A job of its own encodes and writes
+the spills, holding their chunks meanwhile, so the scheduler never waits for
+them (VMC-077x). A snapshot's chunks are restored into the scratch file, not
+into memory.
 
 ## Elixir and Rust
 

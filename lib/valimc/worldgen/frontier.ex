@@ -497,12 +497,14 @@ defmodule Valimc.Worldgen.Frontier do
   # holds it can no longer run, so they lose their numbers and nothing waits
   # for them (the chunks that need them are made alone).
   # A chunk handed over with its 3 × 3 decorated blocks nothing: only itself,
-  # if wanted again, is made alone.
+  # if wanted again, is made alone. A decoration that waited only for the
+  # blocked ones can start now.
   defp freeze(f, chunk) do
     blocked = for n <- around(chunk, 1), not decorated?(f, n), do: n
     near = if blocked == [], do: [chunk], else: around(chunk, 2)
     wanted = for c <- near, Map.has_key?(f.priority, c), do: c
-    find_alone(%{f | seqs: Map.drop(f.seqs, blocked)}, wanted)
+    f = find_alone(%{f | seqs: Map.drop(f.seqs, blocked)}, wanted)
+    blocked |> within(2) |> Enum.reduce(f, &check_ready(&2, &1))
   end
 
   defp busy_decorating?(f, chunk) do
