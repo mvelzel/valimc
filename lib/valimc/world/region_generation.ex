@@ -273,13 +273,13 @@ defmodule Valimc.World.RegionGeneration do
       end
 
     ticks =
-      Enum.reduce(parts.ticks, state.scheduled_ticks, fn {position, block, delay, priority},
-                                                         acc ->
-        case ScheduledTicks.schedule(acc, position, block, state.game_tick + delay, priority) do
-          {:ok, next} -> next
-          {:error, _} -> acc
-        end
-      end)
+      ScheduledTicks.schedule_all(
+        state.scheduled_ticks,
+        for(
+          {position, block, delay, priority} <- parts.ticks,
+          do: {position, block, state.game_tick + delay, priority}
+        )
+      )
 
     installed = MapSet.new(chunks)
     {deferred, waiting} = Map.split(gen.deferred, chunks)

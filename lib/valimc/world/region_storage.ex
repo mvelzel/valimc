@@ -14,14 +14,14 @@ defmodule Valimc.World.RegionStorage do
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:containers, :sequence}` | containers |
-  | `{:tick, position, block}` | a scheduled block tick, `{due, priority}` |
+  | `{:tick, position, block}`, `{:ticks, :shift}` | a scheduled block tick, `{due, priority}`, its due relative to the shift |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `:game_tick` | the region's game tick when the frame was cut |
 
   The owner adopts every change in memory at once and replies at once (D2).
   Every 50 ms (`@commit_ms`) the changes since the last frame are one frame:
-  cells and columns as they were made, every other part as the difference of
-  its keyed records from the last frame's. Only the replies of entity
+  cells and columns as they were made, every other part as the records that
+  changed, found in O(changes) (`diff_parts/2`). Only the replies of entity
   handoffs between owners wait for their frame to be durable
   (`after_durable/2`), so a crash can lose the last frames but never one half
   of a handoff.
@@ -69,6 +69,8 @@ defmodule Valimc.World.RegionStorage do
     waits: [],
     in_flight: %{},
     committed: %{},
+    # The last written records of changes that wait (`diff_parts/2`).
+    deferred: %{},
     dirty_chunks: MapSet.new(),
     checkpoint_seq: 0,
     since_checkpoint: 0,
@@ -463,6 +465,13 @@ defmodule Valimc.World.RegionStorage do
   The owner's keyed parts for commits and checkpoints: `items` (an
   `Valimc.Entity.Store`), `containers`, `ticks` (a
   `ScheduledTicks`), `block_entities` and `game_tick`.
+
+  A frame carries only what changed, found in O(changes): the scheduled
+  ticks' journal (`ScheduledTicks.changes/1`) and, for the keyed maps of the
+  other parts, the entries that are no longer the ones last committed (an
+  unchanged entry is the same term and compares at once). A change that may
+  wait (`wait/4`) keeps its last written record in `deferred` until it
+  changes otherwise, or until the next motion pass writes it.
   """
   def diff_parts(storage, parts) do
     now = System.monotonic_time(:millisecond)
@@ -474,19 +483,19 @@ defmodule Valimc.World.RegionStorage do
           value = Map.fetch!(parts, part)
 
           case acc.committed do
-            %{^part => {^value, _}} when not full ->
+            %{^part => ^value} when not full ->
               acc
 
             committed ->
-              previous = with {_, records} <- committed[part], do: records
-
-              {pending, written, waits} =
-                diff(acc.pending, previous || %{}, part_records(part, value), full)
+              changes = changes(part, Map.get(committed, part), value)
+              changes = if full, do: flush(acc.deferred, part, value, changes), else: changes
+              {pending, deferred, waits} = settle(acc.pending, acc.deferred, changes, full)
 
               %{
                 acc
                 | pending: pending,
-                  committed: Map.put(committed, part, {value, written}),
+                  deferred: deferred,
+                  committed: Map.put(committed, part, value),
                   motion_waiting: acc.motion_waiting or :motion in waits,
                   counters_since:
                     if(:counters in waits and acc.counters_since == nil,
@@ -504,48 +513,176 @@ defmodule Valimc.World.RegionStorage do
       else: storage
   end
 
-  @doc "Take `parts` as what the log and checkpoint hold (after a load or a checkpoint)."
+  @doc """
+  Take `parts` as what the log and checkpoint hold (after a load or a
+  checkpoint); the owner then settles its scheduled ticks' journal.
+  """
   def baseline(storage, parts) do
-    committed =
-      Map.new(@parts, fn part ->
-        {part, {Map.fetch!(parts, part), part_records(part, Map.fetch!(parts, part))}}
-      end)
-
     %{
       storage
-      | committed: committed,
+      | committed: Map.new(@parts, &{&1, Map.fetch!(parts, &1)}),
+        deferred: %{},
         motion_waiting: false,
         motion_at: System.monotonic_time(:millisecond) + @motion_ms
     }
   end
 
-  # `{pending, written, waits}`: changed records the next frame must carry go
-  # to `pending`; a record whose change may wait keeps its last written value
-  # in `written`, and `waits` says what waits (`:motion`, `:counters`).
-  defp diff(pending, previous, current, full) do
-    {pending, written, waits} =
-      Enum.reduce(current, {pending, current, []}, fn {key, value}, {acc, written, waits} ->
-        case previous do
-          %{^key => ^value} ->
-            {acc, written, waits}
+  # `%{key => {old, new}}` of the records that changed between the last
+  # committed value of `part` and `value` (`new` is `:deleted` for a gone
+  # record; `old` nil for a new one, `:unknown` where the part keeps no old).
+  defp changes(:ticks, previous, ticks) do
+    changes = ScheduledTicks.changes(ticks)
 
-          %{^key => old} ->
-            case wait(key, old, value, full) do
-              nil -> {Map.put(acc, key, value), written, waits}
-              kind -> {acc, Map.put(written, key, old), [kind | waits]}
-            end
+    changes =
+      if match?(%ScheduledTicks{}, previous) and previous.shift == ticks.shift,
+        do: Map.delete(changes, {:ticks, :shift}),
+        else: changes
+
+    Map.new(changes, fn {key, value} -> {key, {:unknown, value}} end)
+  end
+
+  defp changes(:items, previous, %Store{} = items) do
+    old = if previous, do: previous.entries, else: %{}
+
+    entities =
+      keyed_changes(old, items.entries, fn _id, entry ->
+        {{:entity, entry.entity.uuid}, Store.record(entry)}
+      end)
+
+    old_ledger = if previous, do: ledger_records(previous.ledger), else: %{}
+    map_changes(old_ledger, ledger_records(items.ledger), entities)
+  end
+
+  defp changes(:containers, previous, %Containers{} = c) do
+    old = if previous, do: previous.entries, else: %{}
+    changes = keyed_changes(old, c.entries, fn pos, entry -> {{:container, pos}, entry} end)
+
+    if previous && previous.sequence == c.sequence,
+      do: changes,
+      else:
+        Map.put(changes, {:containers, :sequence}, {previous && previous.sequence, c.sequence})
+  end
+
+  defp changes(:block_entities, previous, %BlockEntities{entries: entries}) do
+    old = if previous, do: previous.entries, else: %{}
+
+    keyed_changes(old, entries, fn pos, %{type: type, nbt: nbt} ->
+      {{:block_entity, pos}, {type, nbt}}
+    end)
+  end
+
+  # The records of the entries of `new` that are not the entries of `old`,
+  # and of those gone; `record` maps a key and entry to `{record key, record}`.
+  defp keyed_changes(old, new, _record) when old === new, do: %{}
+
+  defp keyed_changes(old, new, record) do
+    changed =
+      Enum.reduce(new, %{}, fn {key, entry}, acc ->
+        case old do
+          %{^key => ^entry} ->
+            acc
+
+          %{^key => before} ->
+            {record_key, after_record} = record.(key, entry)
+            {_, before_record} = record.(key, before)
+            Map.put(acc, record_key, {before_record, after_record})
 
           _ ->
-            {Map.put(acc, key, value), written, waits}
+            {record_key, after_record} = record.(key, entry)
+            Map.put(acc, record_key, {nil, after_record})
         end
       end)
 
-    pending =
-      Enum.reduce(previous, pending, fn {key, _}, acc ->
-        if Map.has_key?(current, key), do: acc, else: Map.put(acc, key, :deleted)
+    Enum.reduce(old, changed, fn {key, before}, acc ->
+      if Map.has_key?(new, key) do
+        acc
+      else
+        {record_key, before_record} = record.(key, before)
+        Map.put(acc, record_key, {before_record, :deleted})
+      end
+    end)
+  end
+
+  defp map_changes(old, new, acc) do
+    acc =
+      Enum.reduce(new, acc, fn {key, value}, acc ->
+        case old do
+          %{^key => ^value} -> acc
+          _ -> Map.put(acc, key, {Map.get(old, key), value})
+        end
       end)
 
-    {pending, written, Enum.uniq(waits)}
+    Enum.reduce(old, acc, fn {key, value}, acc ->
+      if Map.has_key?(new, key), do: acc, else: Map.put(acc, key, {value, :deleted})
+    end)
+  end
+
+  defp ledger_records(ledger) do
+    %{
+      {:handoff, :sequence} => ledger.sequence,
+      {:handoff, :outgoing} => stored_outgoing(ledger.outgoing)
+    }
+    |> Map.merge(
+      for {source, receipt} <- ledger.incoming, into: %{}, do: {{:handoff_in, source}, receipt}
+    )
+  end
+
+  # A motion pass writes what waited: each deferred record of `part` that has
+  # not changed again since.
+  defp flush(deferred, part, value, changes) do
+    Enum.reduce(deferred, changes, fn {key, written}, acc ->
+      if Map.has_key?(acc, key) or part_of(key) != part,
+        do: acc,
+        else: Map.put(acc, key, {written, current(part, value, key)})
+    end)
+  end
+
+  defp part_of({:entity, _}), do: :items
+  defp part_of({:container, _}), do: :containers
+  defp part_of(_), do: nil
+
+  defp current(:items, %Store{} = items, {:entity, uuid}) do
+    case items.uuids do
+      %{^uuid => id} -> Store.record(items.entries[id])
+      _ -> :deleted
+    end
+  end
+
+  defp current(:containers, %Containers{entries: entries}, {:container, pos}),
+    do: Map.get(entries, pos, :deleted)
+
+  # `{pending, deferred, waits}`: changed records the next frame must carry go
+  # to `pending`; one whose change may wait keeps its last written record in
+  # `deferred`, and `waits` says what waits (`:motion`, `:counters`).
+  defp settle(pending, deferred, changes, full) do
+    {pending, deferred, waits} =
+      Enum.reduce(changes, {pending, deferred, []}, fn {key, {before, value}},
+                                                       {pending, deferred, waits} ->
+        written = Map.get(deferred, key, before)
+
+        cond do
+          # Back to what the last frame wrote while it waited: nothing to write.
+          value == written and is_map_key(deferred, key) ->
+            {Map.delete(pending, key), Map.delete(deferred, key), waits}
+
+          value == written ->
+            {pending, deferred, waits}
+
+          value == :deleted or written in [nil, :unknown, :deleted] ->
+            {Map.put(pending, key, value), Map.delete(deferred, key), waits}
+
+          true ->
+            case wait(key, written, value, full) do
+              nil ->
+                {Map.put(pending, key, value), Map.delete(deferred, key), waits}
+
+              kind ->
+                {pending, Map.put_new(deferred, key, written), [kind | waits]}
+            end
+        end
+      end)
+
+    {pending, deferred, Enum.uniq(waits)}
   end
 
   # Whether a changed record may wait: `:counters` when only its tick counters
@@ -584,16 +721,8 @@ defmodule Valimc.World.RegionStorage do
 
   @doc false
   def part_records(:items, %Store{} = items) do
-    ledger = items.ledger
-
     for(record <- Store.records(items), into: %{}, do: {{:entity, record.uuid}, record})
-    |> Map.merge(%{
-      {:handoff, :sequence} => ledger.sequence,
-      {:handoff, :outgoing} => stored_outgoing(ledger.outgoing)
-    })
-    |> Map.merge(
-      for {source, receipt} <- ledger.incoming, into: %{}, do: {{:handoff_in, source}, receipt}
-    )
+    |> Map.merge(ledger_records(items.ledger))
   end
 
   def part_records(:containers, %Containers{} = c) do
@@ -601,13 +730,7 @@ defmodule Valimc.World.RegionStorage do
     |> Map.merge(for {pos, entry} <- c.entries, into: %{}, do: {{:container, pos}, entry})
   end
 
-  def part_records(:ticks, %ScheduledTicks{index: index}),
-    do:
-      for(
-        {{pos, block}, {due, priority, _, _, _}} <- index,
-        into: %{},
-        do: {{:tick, pos, block}, {due, priority}}
-      )
+  def part_records(:ticks, %ScheduledTicks{} = ticks), do: ScheduledTicks.records(ticks)
 
   def part_records(:block_entities, %BlockEntities{entries: entries}),
     do:
@@ -685,6 +808,9 @@ defmodule Valimc.World.RegionStorage do
       {{:tick, pos, block}, {due, priority}}, acc ->
         %{acc | ticks: [{pos, block, due, priority} | acc.ticks]}
 
+      {{:ticks, :shift}, shift}, acc ->
+        Map.put(acc, :tick_shift, shift)
+
       {{:block_entity, pos}, value}, acc ->
         put_in(acc, [:block_entities, pos], value)
 
@@ -696,6 +822,18 @@ defmodule Valimc.World.RegionStorage do
         throw({:old_region_format, key})
     end)
     |> Map.update!(:items, &Enum.sort_by(&1, fn r -> r.uuid end))
+    |> shift_ticks()
+  end
+
+  # Stored dues are relative to the ticks' shift (`ScheduledTicks`).
+  defp shift_ticks(parts) do
+    {shift, parts} = Map.pop(parts, :tick_shift, 0)
+
+    %{
+      parts
+      | ticks:
+          for({pos, block, due, priority} <- parts.ticks, do: {pos, block, due + shift, priority})
+    }
   end
 
   defp chunk(x, z), do: {Integer.floor_div(x, 16), Integer.floor_div(z, 16)}

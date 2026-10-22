@@ -36,17 +36,48 @@ defmodule Valimc.TickPipelineTest do
     {:ok, t} = ScheduledTicks.schedule(ScheduledTicks.new(), {0, 0, 0}, 1, 5, 0)
     {:ok, t} = ScheduledTicks.schedule(t, {1, 0, 0}, 1, 3, 1)
     {:ok, t} = ScheduledTicks.schedule(t, {2, 0, 0}, 1, 3, -1)
-    {:ok, t} = ScheduledTicks.schedule(t, {3, 0, 0}, 1, 3, -1)
+    # Another chunk's tick joins the order when its chunk ticks.
+    {:ok, t} = ScheduledTicks.schedule(t, {19, 0, 0}, 1, 3, -1)
     {:ok, ^t} = ScheduledTicks.schedule(t, {0, 0, 0}, 1, 1, 0)
-    assert {[], ^t} = ScheduledTicks.take_due(t, 2)
-    assert {[{{2, 0, 0}, 1}, {{3, 0, 0}, 1}, {{1, 0, 0}, 1}], t} = ScheduledTicks.take_due(t, 4)
+    chunks = [{0, 0}, {1, 0}]
+    assert {[], t} = ScheduledTicks.take_due(t, 2, chunks)
+
+    assert {[{{2, 0, 0}, 1}, {{19, 0, 0}, 1}, {{1, 0, 0}, 1}], t} =
+             ScheduledTicks.take_due(t, 4, chunks)
+
     assert ScheduledTicks.size(t) == 1
     assert ScheduledTicks.dump(t, 4) == [{{0, 0, 0}, 1, 1, 0}]
 
     assert ScheduledTicks.load(ScheduledTicks.dump(t, 4), 100)
-           |> ScheduledTicks.take_due(101)
+           |> ScheduledTicks.take_due(101, chunks)
            |> elem(0) ==
              [{{0, 0, 0}, 1}]
+  end
+
+  test "ticks of chunks that do not tick stay untouched until their chunk ticks; a rebase keeps delays" do
+    t =
+      Enum.reduce(0..999, ScheduledTicks.new(), fn n, acc ->
+        {:ok, acc} = ScheduledTicks.schedule(acc, {32 + rem(n, 16), 64, div(n, 16)}, 7, 1, 0)
+        acc
+      end)
+
+    {:ok, t} = ScheduledTicks.schedule(t, {0, 64, 0}, 7, 1, 0)
+    t = ScheduledTicks.settled(t)
+    {due, after_take} = ScheduledTicks.take_due(t, 5, [{0, 0}])
+    assert due == [{{0, 64, 0}, 7}]
+    # Only the taken tick changed: the far chunk's thousand are the same term.
+    assert after_take.containers[{2, 0}] === t.containers[{2, 0}]
+
+    assert ScheduledTicks.changes(after_take) == %{
+             {:tick, {0, 64, 0}, 7} => :deleted,
+             {:ticks, :shift} => 0
+           }
+
+    rebased = ScheduledTicks.rebase(after_take, 5, 1005)
+    assert rebased.containers === after_take.containers
+    assert {[], _} = ScheduledTicks.take_due(rebased, 1000, [{2, 0}])
+    assert {taken, _} = ScheduledTicks.take_due(rebased, 1001, [{2, 0}])
+    assert length(taken) == 256
   end
 
   defp blocks(owner, key, block) do

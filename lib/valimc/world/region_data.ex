@@ -209,7 +209,11 @@ defmodule Valimc.World.RegionData do
     }
 
   defp baseline_storage(state),
-    do: %{state | storage: RegionStorage.baseline(state.storage, parts(state))}
+    do: settled(%{state | storage: RegionStorage.baseline(state.storage, parts(state))})
+
+  # The storage took the scheduled ticks' changes: their journal starts over.
+  defp settled(state),
+    do: %{state | scheduled_ticks: ScheduledTicks.settled(state.scheduled_ticks)}
 
   def item_tick(state, now) do
     state = travel_item(state)
@@ -1319,7 +1323,7 @@ defmodule Valimc.World.RegionData do
   # was already durable (none here) run at once.
   defp commit(state) do
     {storage, released} = RegionStorage.commit(state.storage, parts(state))
-    run_released(%{state | storage: storage}, released)
+    run_released(settled(%{state | storage: storage}), released)
   end
 
   @doc """
@@ -1338,7 +1342,7 @@ defmodule Valimc.World.RegionData do
   def rebase(%{game_tick: tick} = state, tick), do: state
 
   def rebase(state, tick) do
-    ticks = ScheduledTicks.load(ScheduledTicks.dump(state.scheduled_ticks, state.game_tick), tick)
+    ticks = ScheduledTicks.rebase(state.scheduled_ticks, state.game_tick, tick)
     %{state | scheduled_ticks: ticks, game_tick: tick}
   end
 
@@ -1370,7 +1374,9 @@ defmodule Valimc.World.RegionData do
     if Valimc.World.Saving.auto?(),
       do: %{
         state
-        | storage: RegionStorage.checkpoint(state.storage, parts(state), state.blocks, sync: true)
+        | storage:
+            RegionStorage.checkpoint(state.storage, parts(state), state.blocks, sync: true),
+          scheduled_ticks: ScheduledTicks.settled(state.scheduled_ticks)
       },
       else: state
   end
@@ -1394,7 +1400,11 @@ defmodule Valimc.World.RegionData do
 
   defp maybe_checkpoint(state) do
     if RegionStorage.checkpoint_due?(state.storage),
-      do: %{state | storage: RegionStorage.checkpoint(state.storage, parts(state), state.blocks)},
+      do:
+        settled(%{
+          state
+          | storage: RegionStorage.checkpoint(state.storage, parts(state), state.blocks)
+        }),
       else: state
   end
 
@@ -1426,11 +1436,10 @@ defmodule Valimc.World.RegionData do
   """
   def block_ticks(state, tick) do
     state = %{state | game_tick: tick}
-    # Only chunks a simulation ticket covers tick; due ticks elsewhere wait.
+    # Only chunks a simulation ticket covers tick; due ticks elsewhere wait
+    # untouched (vanilla's `LevelTicks`).
     {due, scheduled} =
-      ScheduledTicks.take_due(state.scheduled_ticks, tick, fn {x, _, z} ->
-        Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
-      end)
+      ScheduledTicks.take_due(state.scheduled_ticks, tick, state.tickets.simulated)
 
     state = %{state | scheduled_ticks: scheduled}
     state = retry_rule_backlog(state)
@@ -1835,16 +1844,16 @@ defmodule Valimc.World.RegionData do
   defp schedule_ticks(state, effects) do
     Enum.reduce(effects, state, fn
       {:schedule, position, block, delay, priority}, acc ->
-        case ScheduledTicks.schedule(
-               acc.scheduled_ticks,
-               position,
-               block,
-               acc.game_tick + delay,
-               priority
-             ) do
-          {:ok, ticks} -> %{acc | scheduled_ticks: ticks}
-          {:error, _} -> acc
-        end
+        {:ok, ticks} =
+          ScheduledTicks.schedule(
+            acc.scheduled_ticks,
+            position,
+            block,
+            acc.game_tick + delay,
+            priority
+          )
+
+        %{acc | scheduled_ticks: ticks}
 
       _, acc ->
         acc

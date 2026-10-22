@@ -172,7 +172,10 @@ then stops.
   sections at the group's game tick: scheduled block ticks, random ticks (a
   native per-section sampler), entities, cooking. Block ticks and item motion
   run only in chunks a simulation ticket covers; cooking while any chunk of
-  the section does (VMC-077e). What a commit starts (neighbour and shape updates,
+  the section does (VMC-077e). Scheduled ticks sit in per-chunk containers, as
+  vanilla's `LevelTicks`: a tick visits only the containers of simulated
+  chunks, so those of the rest wait untouched, with no cap on how many a
+  section holds (VMC-077s). What a commit starts (neighbour and shape updates,
   survival, redstone wire power) and dependent blocks' due ticks run in the Rust
   block-update engine in one call per commit, over the group's section stores
   (VMC-077m, VMC-077j); blocks with effects of
