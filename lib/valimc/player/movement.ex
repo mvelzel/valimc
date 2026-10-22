@@ -161,7 +161,8 @@ defmodule Valimc.Player.Movement do
 
   # Vanilla's rules (`handleMovePlayer`): a move into a new collision is
   # corrected, and so is one that "moved wrongly" from a clear box; a move the
-  # kernel cannot read (chunks not loaded) is corrected too.
+  # kernel cannot read (chunks not loaded) is corrected too, except a
+  # spectator's: it reads them as air, as vanilla's noPhysics accepts it.
   defp validate(state, position, flags) do
     case MotionQuery.run(state.player, position, flags) do
       {:ok, %{accepted: true} = result} ->

@@ -28,7 +28,7 @@ defmodule Valimc.Player.PoseQuery do
          view = view || View.load(View.new(), query),
          {:ok, r} <- Valimc.Player.Kinetics.player_rest(view, query, player),
          {:ok, tick} <- MotionQuery.kinetics(r.tick),
-         {:ok, rain} <- RainQuery.sample({player.x, player.y, player.z}, r.top, view) do
+         {:ok, rain} <- RainQuery.sample({player.x, player.y, player.z}, r.top, view, player) do
       {:ok,
        %{
          pose: PlayerPose.from_id(r.pose),

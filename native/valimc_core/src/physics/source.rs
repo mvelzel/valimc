@@ -2,7 +2,8 @@
 //! durable blocks, VMC-077p), which players and region owners alike read,
 //! borrowed for the query, or supplied states (oracles). A cell that cannot be
 //! read fails the query (`Unreadable`): movement into chunks that are not
-//! loaded or not generated fails closed.
+//! loaded or not generated fails closed, except a spectator's
+//! (`AirWhereUnreadable`).
 
 use super::table::{ShapeTable, LARGE, MOVING_PISTON};
 use crate::column::{MIN_Y, SECTIONS};
@@ -92,6 +93,25 @@ impl BlockSource for Rows<'_> {
             // Unreadable: the scan reads it and fails.
             (None, _) => true,
         }
+    }
+}
+
+/// Air's block state (vanilla's first).
+pub const AIR: u16 = 0;
+
+/// A source whose unreadable cells read as air: a spectator's (VMC-077v).
+/// Vanilla's spectator has no physics, its collisions skip chunks that are
+/// not loaded and its fluid contact skips them too, so a spectator flies
+/// into chunks generation has not reached.
+pub struct AirWhereUnreadable<'a>(pub &'a dyn BlockSource);
+
+impl BlockSource for AirWhereUnreadable<'_> {
+    fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
+        Some(self.0.state(x, y, z).unwrap_or(AIR))
+    }
+
+    fn special_near(&self, x: i32, y: i32, z: i32) -> bool {
+        self.0.special_near(x, y, z)
     }
 }
 

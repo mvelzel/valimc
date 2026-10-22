@@ -15,7 +15,7 @@ use crate::physics::aabb::Aabb;
 use crate::physics::border::Border;
 use crate::physics::collide::{self, Extra};
 use crate::physics::facts::Facts;
-use crate::physics::source::{BlockSource, Unreadable};
+use crate::physics::source::{AirWhereUnreadable, BlockSource, Unreadable};
 use crate::physics::table::Context;
 pub use paths::{Path, Paths};
 
@@ -105,7 +105,17 @@ pub struct World<'a> {
     pub border: Option<Border>,
 }
 
-impl World<'_> {
+impl<'a> World<'a> {
+    /// The world as a mover reads it: a spectator's unreadable cells are air
+    /// (`air` wraps this world's source).
+    pub fn read_by<'b>(&'b self, spectator: bool, air: &'b AirWhereUnreadable<'a>) -> World<'b> {
+        World {
+            source: if spectator { air } else { self.source },
+            facts: self.facts,
+            border: self.border,
+        }
+    }
+
     pub fn state(&self, p: [i32; 3]) -> Result<u16, Fault> {
         self.source
             .state(p[0], p[1], p[2])

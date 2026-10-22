@@ -12,7 +12,8 @@ defmodule Valimc.Physics.Kernel do
   boxes (or a supplied view's states); the kernel decodes only the sections
   it reads, against the block fact table installed at start. A cell the view
   cannot read answers `{:error, {:missing_block, position}}`: movement into
-  chunks that are not loaded or generated fails closed.
+  chunks that are not loaded or generated fails closed, except a spectator's,
+  which reads them as air (VMC-077v).
 
   Boxes are `{x0, y0, z0, x1, y1, z1}`, vectors `{x, y, z}`; contexts are
   `Valimc.Physics.CollisionContext`s; `extra` is `{entity_boxes, border}` with

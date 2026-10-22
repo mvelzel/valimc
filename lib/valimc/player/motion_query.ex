@@ -28,7 +28,7 @@ defmodule Valimc.Player.MotionQuery do
          view = view || View.load(View.new(), query),
          {:ok, r} <- Valimc.Player.Kinetics.player_move(view, query, player, target, flags),
          {:ok, tick} <- kinetics(r.tick),
-         {:ok, rain} <- RainQuery.sample({target.x, target.y, target.z}, r.top, view),
+         {:ok, rain} <- RainQuery.sample({target.x, target.y, target.z}, r.top, view, player),
          {:ok, landing} <- landing(r.landing, player) do
       {:ok,
        %{

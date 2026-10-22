@@ -138,11 +138,10 @@ distance 32.
 
 Follow-ups:
 
-- The server refuses a spectator's move into a chunk not generated yet
+- The server refused a spectator's move into a chunk not generated yet
   (`movement correction: geometry {:missing_block, …}, mode spectator`) and
-  teleports it back, at 116 blocks a second in the bench. Vanilla spectators
-  have no physics; whether a move into an unloaded chunk is refused belongs
-  to movement.
+  teleported it back, at 116 blocks a second in the bench: fixed by
+  [VMC-077v](VMC-077v.md).
 - Installs (`put_columns`, `LightHalo.handle`, scheduled ticks) are the
   group's largest remaining cost while flying; a delivery could carry every
   chunk finished for a section since the last one, for one install.

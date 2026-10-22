@@ -79,6 +79,24 @@ defmodule Valimc.PlayerKineticsTest do
     assert {:error, {:missing_block, _}} = MotionQuery.run(p, target, 1, incomplete)
   end
 
+  test "a spectator flies into cells not loaded as vanilla's noPhysics; others fail closed" do
+    spectator = %{
+      player()
+      | game_mode: GameMode.new(:spectator),
+        abilities: Abilities.for_mode(:spectator)
+    }
+
+    # Beyond the frame's x 0..9 no cell is readable.
+    target = %{spectator | x: 12.5, y: 66.0}
+    assert {:ok, %{accepted: true} = result} = MotionQuery.run(spectator, target, 0, frame())
+    assert result.moved == {12.5, 66.0, 4.5} and result.landing == nil
+
+    assert {:error, {:missing_block, _}} =
+             MotionQuery.run(player(), %{player() | x: 12.5, y: 66.0}, 0, frame())
+
+    assert {:ok, _} = PoseQuery.run(%{target | motion: result.ticked}, frame())
+  end
+
   test "sneaking backs off an edge after slowing is consumed, and reads the ground it needs" do
     p = player()
     p = %{p | input: %{p.input | shared_flags: 2}, motion: %{p.motion | on_ground: true}}

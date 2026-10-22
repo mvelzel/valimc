@@ -9,6 +9,7 @@ use super::rules::{self, FoodContact};
 use super::{Fault, Mode, Motion, Player, World};
 use crate::physics::aabb::Aabb;
 use crate::physics::facts::WATER;
+use crate::physics::source::AirWhereUnreadable;
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -158,6 +159,8 @@ pub fn validate(
     }
     let ctx = p.context(fall, position[1]);
     let spectator = p.spectator();
+    let air = AirWhereUnreadable(w.source);
+    let w = &w.read_by(spectator, &air);
     let swimming_before = p.swimming(w, catalog, p.pose, position)?;
     let before = p.fit(w, catalog, p.pose, swimming_before, position, fall)?;
     let body = before.geometry.body;
@@ -319,6 +322,8 @@ pub fn rest(w: &World, catalog: &[Dimensions], p: &Player) -> Result<Rested, Fau
     if !bounded(&query) {
         return Err(Fault::Limit("pose_query_limit"));
     }
+    let air = AirWhereUnreadable(w.source);
+    let w = &w.read_by(p.spectator(), &air);
     let swimming = p.swimming(w, catalog, p.pose, position)?;
     let fitted = p.fit(w, catalog, p.pose, swimming, position, fall)?;
     let powder_snow = contacts::powder_snow(w.source, w.facts, &fitted.geometry.body)?;
