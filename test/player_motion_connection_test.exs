@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, PackedVelocity, Wire}
   alias Valimc.TestClient, as: Client
@@ -20,7 +20,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       uuid = Connection.offline_uuid(name)
       snapshot = PlayerState.capture(%{pos | x: pos.x + index * 256}, Inventory.new())
       {:ok, bytes} = PlayerState.encode(uuid, snapshot)
-      path = PlayerStore.path(base, uuid)
+      path = Valimc.Player.Storage.path(base, uuid)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
     end
@@ -29,10 +29,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
       for p <- Players.all(),
           p.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for name <- names,
-          {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),
@@ -136,11 +132,14 @@ defmodule Valimc.PlayerMotionConnectionTest do
     Client.close(client)
 
     wait(fn ->
-      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerRegistry, uuid) == []
     end)
 
     {:ok, saved} =
-      PlayerState.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
+      PlayerState.decode(
+        File.read!(Valimc.Player.Storage.path(Valimc.config(:world_path), uuid)),
+        uuid
+      )
 
     assert saved.velocity == {0.25, 0.75, -0.5}
     {^uuid, second} = Client.login(name)

@@ -66,7 +66,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     assert living(pid).health.value == 18.0
     assert state(pid).inventory == inventory
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 18.0 and saved.frozen_ticks == 140
 
@@ -87,6 +87,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     ticks(pid, 40)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0
     assert saved.inventory.slots == %{} and map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8

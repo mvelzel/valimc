@@ -1,7 +1,7 @@
 defmodule Valimc.Session.Messages do
   @moduledoc """
-  A session's message router (VMC-069): socket data, worker replies, store
-  acknowledgements, ticks and deliveries. Before play the connection runs it
+  A session's message router (VMC-069): socket data, worker replies, ticks
+  and deliveries. Before play the connection runs it
   on its whole state; in play the session's group runs it on the session
   (`Valimc.Session.Host`), and the connection handles only its own messages
   (`Valimc.Session.Link`).
@@ -22,8 +22,7 @@ defmodule Valimc.Session.Messages do
   import Valimc.Net.Codec,
     only: [send_packets: 2, crypt_bytes: 3, reject: 2, reset_window: 1]
 
-  alias Valimc.{Inventory, Metrics, PlayerInput, PlayerStore, World}
-  alias Valimc.Player.State, as: PlayerState
+  alias Valimc.{Inventory, Metrics, PlayerInput, World}
   alias Valimc.World.{ChestLidReplication, TickClock}
 
   @resistance EffectTypes.id("resistance")
@@ -71,37 +70,18 @@ defmodule Valimc.Session.Messages do
   def claims?(_session, _message), do: false
 
   defp owns_ref?(session, ref) do
-    Map.has_key?(session.jobs.refs, ref) or ref == session.store_monitor or
-      Map.has_key?(session.pose_sources, ref)
+    Map.has_key?(session.jobs.refs, ref) or Map.has_key?(session.pose_sources, ref)
   end
 
   @doc """
-  A session ends: its view and jobs are released, the cursor and grid drop
-  (vanilla's `removed` of the open menu for a player who disconnected), and
-  the player saves.
+  A session ends: its view and jobs are released and the cursor and grid
+  drop (vanilla's `removed` of the open menu for a player who disconnected).
+  Returns the state its last frame saves (`Valimc.Session.Host`).
   """
   def terminate(state) do
     Menus.retire_container_view(state)
     Jobs.cancel_all(state.jobs)
-    state = if state.phase == :play, do: return_items(%{state | mining: nil}), else: state
-
-    if state.player_store && state.phase == :play do
-      # Observations can lag quiet simulation clocks. Persist the owner state;
-      # per-frame exception boundaries already retain earlier accepted packets.
-      snapshot =
-        case state.life_save do
-          %{kind: :respawn, snapshot: snapshot} -> snapshot
-          _ -> PlayerState.capture(state.player, state.inventory)
-        end
-
-      try do
-        PlayerStore.close_session(state.player_store, state.store_fence, snapshot)
-      catch
-        :exit, _ -> Logger.error("Player state final save could not complete")
-      end
-    end
-
-    :ok
+    if state.phase == :play, do: return_items(%{state | mining: nil}), else: state
   end
 
   defp return_items(state) do
@@ -270,78 +250,15 @@ defmodule Valimc.Session.Messages do
         reject(state, "Login encryption unavailable")
       end)
 
-  def info(:save_player, state) do
-    Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
-    info(:save_player_now, state)
-  end
+  # `/save-all` (VMC-010b): the player's file as soon as its frames are durable.
+  def info(:save_player_now, %{storage: %Valimc.Player.Storage{} = storage} = state),
+    do: {:noreply, %{state | storage: Valimc.Player.Storage.request_checkpoint(storage)}}
 
-  # `/save-all` (VMC-010b): a checkpoint now, outside the periodic schedule.
-  def info(:save_player_now, state) do
-    if state.phase == :play and state.save_ref == nil do
-      ref = make_ref()
-
-      PlayerStore.checkpoint(
-        state.player_store,
-        state.store_fence,
-        PlayerState.capture(state.player, state.inventory),
-        ref
-      )
-
-      Process.send_after(state.connection, {:save_deadline, ref}, 5000)
-      {:noreply, %{state | save_ref: ref}}
-    else
-      {:noreply, state}
-    end
-  end
-
-  def info({:player_saved, ref, :ok}, %{life_save: %{ref: ref} = save} = state) do
-    Valimc.Connection.guard_connection(state, fn ->
-      state = %{state | life_save: if(save.kind == :respawn, do: save, else: nil), save_ref: nil}
-
-      state =
-        case save.kind do
-          :death_mark ->
-            Vitals.continue_life(%{state | life_stage: :dropping})
-
-          :death_done ->
-            Vitals.continue_life(%{state | life_stage: :dead})
-
-          :respawn ->
-            Vitals.finish_respawn(state, save.player)
-
-          :travel ->
-            Valimc.Player.Travel.finish(state, save.player)
-        end
-
-      {:noreply, state}
-    end)
-  end
-
-  def info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply,
-         %{state | save_ref: nil, use_save: nil}
-         |> Vitals.continue_life()
-         |> Valimc.Player.Travel.continue()}
-      end)
-
-  def info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
-    do: Valimc.Connection.guard_connection(state, fn -> reject(state, "Player save failed") end)
-
-  def info({:save_deadline, ref}, %{save_ref: ref} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn -> reject(state, "Player save timed out") end)
-
-  def info({:save_deadline, _}, state), do: {:noreply, state}
+  def info(:save_player_now, state), do: {:noreply, state}
 
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
   def info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
-
-  def info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn -> reject(state, "Player storage stopped") end)
 
   def info({:DOWN, ref, :process, pid, _} = message, %{socket: socket} = state)
       when socket != nil do

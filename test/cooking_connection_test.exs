@@ -1,7 +1,7 @@
 defmodule Valimc.CookingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
@@ -28,7 +28,6 @@ defmodule Valimc.CookingConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
       for {registry, supervisor, identity} <- [
-            {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid},
             {Valimc.RegionRegistry, Valimc.RegionSupervisor, key}
           ],
           {pid, _} <- Registry.lookup(registry, identity),
@@ -88,7 +87,7 @@ defmodule Valimc.CookingConnectionTest do
       })
 
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
   end
@@ -372,7 +371,7 @@ defmodule Valimc.CookingConnectionTest do
     assert Valimc.TestConn.state(pid).inventory.slots == expected
     client = close(client, pid)
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {fresh, fresh_pid} = login(ctx)
     {fresh, _} = open(fresh, ctx, kind)
     assert Enum.take(fresh.inventory.items, 3) == [nil, nil, nil]

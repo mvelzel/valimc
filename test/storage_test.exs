@@ -115,41 +115,6 @@ defmodule Valimc.StorageTest do
     assert [{1, _}] = Log.frames(ctx.base, owner, 0)
   end
 
-  test "player files from many writers share one append and survive a lost file", ctx do
-    paths = for i <- 1..20, do: Path.join([ctx.base, "players", "#{i}.dat"])
-    stripes = Enum.group_by(paths, &Log.stripe({:file, Path.relative_to(&1, ctx.base)}))
-    {n, same} = Enum.max_by(stripes, fn {_, group} -> length(group) end)
-    assert :ok = Log.commit_file(ctx.base, hd(same), "warm")
-    [{stripe, _}] = Registry.lookup(Valimc.StorageRegistry, {ctx.base, n})
-    {:ok, %{frames: before}} = RegionLog.read(Log.dir(ctx.base, n))
-    :sys.suspend(stripe)
-
-    tasks =
-      try do
-        tasks = for path <- same, do: Task.async(fn -> Log.commit_file(ctx.base, path, path) end)
-        count = length(same)
-
-        Valimc.TestWait.until(fn ->
-          Process.info(stripe, :message_queue_len) == {:message_queue_len, count}
-        end)
-
-        tasks
-      after
-        :sys.resume(stripe)
-      end
-
-    assert Enum.all?(Task.await_many(tasks), &(&1 == :ok))
-    {:ok, %{frames: frames}} = RegionLog.read(Log.dir(ctx.base, n))
-    assert length(frames) == length(before) + 1
-    for path <- same, do: assert(File.read!(path) == path)
-
-    # A crash after the record's sync but before the file reached the disk.
-    File.rm!(hd(same))
-    TestScope.kill(stripe)
-    assert :ok = Log.commit_file(ctx.base, List.last(same), "next")
-    assert File.read!(hd(same)) == hd(same)
-  end
-
   test "a commit too large for one frame is split below the cap", ctx do
     owner = {:region, :overworld, ctx.key}
     storage = %RegionStorage{base: ctx.base, owner: owner}
@@ -193,8 +158,8 @@ defmodule Valimc.StorageTest do
     on_exit(fn -> File.rm_rf(old) end)
 
     capture_log(fn ->
-      assert {:error, {:storage_log, _}} =
-               Log.commit_file(old, Path.join([old, "players", "a"]), "x")
+      assert {:storage_log_unavailable, {:old_player_log, _}} =
+               catch_exit(Log.sync(old, {:region, :overworld, ctx.key}))
     end)
   end
 end

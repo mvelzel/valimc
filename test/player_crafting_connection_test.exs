@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerCraftingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,9 +22,6 @@ defmodule Valimc.PlayerCraftingConnectionTest do
       for player <- Players.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
@@ -51,7 +48,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     {:ok, bytes} =
       PlayerState.encode(ctx.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
   end
@@ -100,7 +97,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert client.inventory.carried == nil
     assert Enum.at(client.inventory.items, 36) == ItemStack.new("oak_planks", 8)
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {fresh, owner} = login(ctx)
     assert Enum.at(fresh.inventory.items, 36) == ItemStack.new("oak_planks", 8)
     assert fresh.inventory.carried == nil
@@ -109,7 +106,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert inv.slots == %{36 => ItemStack.new("oak_planks", 8)}
 
     {:ok, saved} =
-      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(Valimc.Player.Storage.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert saved.inventory.slots == inv.slots
   end

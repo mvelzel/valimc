@@ -9,10 +9,12 @@
 # `set_cursor_item`). Tick time is every group tick sampled while the players
 # move (`TickRate` samples); reductions are the group's and the connections'
 # per tick, a CPU proxy that stays comparable when work moves between them.
+# Memory is the connection's heap and, with players in owners, the session's
+# share of its group's (a player store before).
 Code.require_file("test/support/client.ex")
 
 defmodule Bench.PlayersInOwners do
-  alias Valimc.{Connection, GameMode, Inventory, PlayerStore, Players}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -38,7 +40,7 @@ defmodule Bench.PlayersInOwners do
       })
 
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     uuid
@@ -136,9 +138,12 @@ defmodule Bench.PlayersInOwners do
       end
 
     {:ok, {group, _}} = owner(pose(0))
-    stores = for {name, _, _, _} <- clients, do: store(name)
     memory = for {_, _, pid, _} <- clients, do: elem(Process.info(pid, :memory), 1)
-    store_memory = for pid <- stores, pid != nil, do: elem(Process.info(pid, :memory), 1)
+
+    # A session its group hosts (VMC-077i3) is part of the group's heap.
+    session_memory =
+      for {_, entry} <- Map.get(:sys.get_state(group), :players, %{}),
+          do: :erts_debug.flat_size(entry.session) * :erlang.system_info(:wordsize)
 
     group_reductions = reductions([group])
     connection_reductions = reductions(for {_, _, pid, _} <- clients, do: pid)
@@ -165,18 +170,11 @@ defmodule Bench.PlayersInOwners do
           max(ticks, 1)
         ),
       connection_bytes: div(Enum.sum(memory), count),
-      store_bytes: if(store_memory == [], do: 0, else: div(Enum.sum(store_memory), count))
+      session_bytes: div(Enum.sum(session_memory), count)
     }
 
     for {{name, _, _, _}, client} <- Enum.zip(clients, finals), do: logout(client, name)
     result
-  end
-
-  defp store(name) do
-    case Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) do
-      [{pid, _} | _] -> pid
-      [] -> nil
-    end
   end
 
   defp reductions(pids),

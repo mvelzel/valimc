@@ -103,8 +103,7 @@ defmodule Valimc.PlayerConsumption do
            transition.inventory,
            selected,
            source,
-           transition.player.living.effects,
-           false
+           transition.player.living.effects
          ) do
       {:ok, %{player: player, inventory: inventory, broken: []}} ->
         context = {:self_magic, hand}

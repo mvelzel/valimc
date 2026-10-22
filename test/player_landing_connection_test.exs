@@ -4,7 +4,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerMotion, PlayerStore, Players}
+  alias Valimc.{Connection, Inventory, PlayerMotion, Players}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -26,9 +26,6 @@ defmodule Valimc.PlayerLandingConnectionTest do
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
@@ -44,7 +41,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
       base: base,
       key: key,
       pose: pose,
-      path: PlayerStore.path(base, uuid)
+      path: Valimc.Player.Storage.path(base, uuid)
     }
   end
 
@@ -138,7 +135,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     {_, client} = Client.await_stats(client)
     assert living(pid).health.value == 15.0
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 15.0
     {second, owner} = login(ctx)

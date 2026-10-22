@@ -19,8 +19,7 @@ defmodule Valimc.Player.Movement do
     PlayerInput,
     PlayerMotion,
     PlayerMotionQuery,
-    PlayerPoseQuery,
-    PlayerStore
+    PlayerPoseQuery
   }
 
   def update_player_input(state, input) do
@@ -100,7 +99,10 @@ defmodule Valimc.Player.Movement do
 
   def move(state, changes, flags) do
     player = Map.merge(state.player, changes)
-    if not PlayerStore.valid_pose?(player), do: reject(state, "Position outside world bounds")
+
+    if not Valimc.Player.State.valid_pose?(player),
+      do: reject(state, "Position outside world bounds")
+
     state = count_motion_packet(state)
     rotation = Map.take(changes, [:yaw, :pitch])
     rotated = Map.merge(state.player, rotation)

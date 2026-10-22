@@ -741,31 +741,31 @@ defmodule Valimc.TestScope do
   end
 
   @doc """
-  Stop the connections and player stores writing under the world `base`: a store
-  writes its player file when its session closes, which can race `File.rm_rf!`
+  Stop the connections whose players save under the world `base` and wait
+  until their files hold their last frames, so no save races `File.rm_rf!`
   (VMC-073).
   """
   def stop_players(base) do
-    stores =
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(Valimc.PlayerStoreSupervisor),
-          state = safe_state(pid),
-          is_map(state) and String.starts_with?(Map.get(state, :path, ""), base),
-          do: {pid, state}
+    players =
+      for player <- Valimc.Players.all(),
+          match?(%{storage: %{base: b}} when is_binary(b), state = safe_state(player.pid)),
+          String.starts_with?(state.storage.base, base),
+          do: player
 
-    uuids = MapSet.new(stores, fn {_, state} -> state.uuid end)
-
-    for player <- Valimc.Players.all(),
-        MapSet.member?(uuids, player.uuid),
+    for player <- players,
         do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
-    for {pid, _} <- stores,
-        do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+    for player <- players,
+        do:
+          Valimc.TestWait.until(fn ->
+            Registry.lookup(Valimc.PlayerRegistry, player.uuid) == []
+          end)
 
     :ok
   end
 
   defp safe_state(pid) do
-    :sys.get_state(pid, 30_000)
+    Valimc.TestConn.state(pid)
   catch
     :exit, _ -> nil
   end
@@ -818,7 +818,7 @@ defmodule Valimc.TestPlayer do
   to join with a parked clock and `tick/2` for one owner tick.
   """
   import ExUnit.Assertions
-  alias Valimc.{Connection, Players, PlayerStore}
+  alias Valimc.{Connection, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.TestClient, as: Client
   alias Valimc.World.Clock
@@ -851,9 +851,6 @@ defmodule Valimc.TestPlayer do
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
@@ -875,7 +872,7 @@ defmodule Valimc.TestPlayer do
       uuid: uuid,
       key: key,
       base: base,
-      path: PlayerStore.path(base, uuid),
+      path: Valimc.Player.Storage.path(base, uuid),
       pose: %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
     }
   end
@@ -888,6 +885,36 @@ defmodule Valimc.TestPlayer do
   end
 
   def state(pid), do: Valimc.TestConn.state(pid)
+
+  @doc "Wait until the player's file holds the live state of the connection `pid`'s session."
+  def checkpointed(pid) do
+    Valimc.TestWait.until(fn ->
+      send(pid, :save_player_now)
+      %{storage: storage} = state = Valimc.TestConn.state(pid)
+
+      storage.seq == storage.checkpoint_seq and storage.checkpointing == nil and
+        PlayerState.records(PlayerState.capture(state.player, state.inventory)) ==
+          storage.committed
+    end)
+  end
+
+  @doc """
+  The player's file once it satisfies `predicate`, asking the session of the
+  connection `pid` for a checkpoint (`/save-all`) meanwhile (VMC-077i3).
+  """
+  def saved(%{path: path, uuid: uuid}, pid, predicate \\ fn _ -> true end) do
+    Valimc.TestWait.until(fn ->
+      send(pid, :save_player_now)
+
+      with {:ok, bytes} <- File.read(path),
+           {:ok, saved} <- PlayerState.decode(bytes, uuid),
+           true <- predicate.(saved) do
+        saved
+      else
+        _ -> false
+      end
+    end)
+  end
 
   @doc "The connection's `%Valimc.Living{}`."
   def living(pid), do: state(pid).player.living

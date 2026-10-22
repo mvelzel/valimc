@@ -8,7 +8,8 @@ defmodule Valimc.Session.Calls do
   require Logger
 
   alias Valimc.Player.{Movement, Vitals}
-  alias Valimc.{PlayerKinetics, Players, PlayerStore}
+  alias Valimc.{PlayerKinetics, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   @live_effects Valimc.Living.Effects.live()
 
@@ -19,7 +20,7 @@ defmodule Valimc.Session.Calls do
     if System.monotonic_time(:millisecond) < deadline and is_map(destination) and
          map_size(destination) == 5 and
          Enum.all?([:x, :y, :z, :yaw, :pitch], &Map.has_key?(destination, &1)) and
-         PlayerStore.valid_pose?(destination) do
+         PlayerState.valid_pose?(destination) do
       {:reply, :ok, Movement.relocate(state, Map.merge(state.player, destination))}
     else
       {:reply, {:error, :invalid_or_expired_teleport}, state}

@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerPlacementConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,9 +22,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       for player <- Players.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
@@ -66,7 +63,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     }
 
     {:ok, bytes} = PlayerState.encode(c.uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(c.base, c.uuid)
+    path = Valimc.Player.Storage.path(c.base, c.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     :ok = Valimc.TestBlocks.set(c.target, 0)
@@ -131,7 +128,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     Client.close(client)
 
     wait(fn ->
-      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerRegistry, c.uuid) == []
     end)
 
     {_fresh, fresh_pid} = login(c)
@@ -198,7 +195,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     Client.close(client)
 
     wait(fn ->
-      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerRegistry, c.uuid) == []
     end)
 
     {_fresh, fresh_pid} = login(c)
@@ -245,7 +242,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       })
 
     {:ok, bytes} = PlayerState.encode(other_uuid, PlayerState.capture(peer, %Inventory{}))
-    path = PlayerStore.path(c.base, other_uuid)
+    path = Valimc.Player.Storage.path(c.base, other_uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     {_, peer_client} = Client.login(other)

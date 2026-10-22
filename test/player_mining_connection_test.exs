@@ -2,7 +2,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -29,10 +29,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
       for player <- Players.all(),
           player.name in [name, name <> "B"],
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for source <- [uuid, Connection.offline_uuid(name <> "B")],
-          {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, source),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
@@ -61,7 +57,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     {:ok, bytes} =
       PlayerState.encode(ctx.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     :ok = Valimc.TestBlocks.set(ctx.target, block)
@@ -157,7 +153,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp reconnect(ctx, client) do
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     login(ctx)
   end
 

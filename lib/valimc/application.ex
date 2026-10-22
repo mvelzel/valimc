@@ -63,8 +63,8 @@ defmodule Valimc.Application do
       # The write-ahead log's stripes, per world folder (VMC-077f).
       {Registry, keys: :unique, name: Valimc.StorageRegistry},
       dynamic(Valimc.StorageSupervisor, 1024),
-      {Registry, keys: :unique, name: Valimc.PlayerStoreRegistry},
-      dynamic(Valimc.PlayerStoreSupervisor, Valimc.config(:max_connections))
+      # The processes holding a player's durable state (`Valimc.Player.Storage`).
+      {Registry, keys: :duplicate, name: Valimc.PlayerRegistry}
     ]
 
     # A directory restart fences every region owner and its writer (VMC-019b3a).

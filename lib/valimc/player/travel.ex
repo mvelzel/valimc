@@ -6,10 +6,9 @@ defmodule Valimc.Player.Travel do
   velocity and rotation, and the client rebuilds its level from a respawn
   packet that keeps all data.
 
-  A player's durable state names its dimension. A travel therefore waits
-  until no save or world job of the old dimension is in flight, then saves
-  the player at the destination before it switches: a crash before that save
-  leaves the player where it was, one after it at the destination. Respawning after a death elsewhere crosses the same way
+  A travel waits until no world job of the old dimension is in flight, then
+  switches; the player's next frame (`Valimc.Player.Storage`) names the
+  destination. Respawning after a death elsewhere crosses the same way
   (`leave/2`).
   """
 
@@ -17,8 +16,7 @@ defmodule Valimc.Player.Travel do
 
   alias Valimc.Players
   alias Valimc.Session.Jobs
-  alias Valimc.Player.State, as: PlayerState
-  alias Valimc.Player.{Movement, Vitals}
+  alias Valimc.Player.Movement
   alias Valimc.Protocol.Packets
 
   alias Valimc.World.{BorderReplication, Clock, WeatherReplication}
@@ -47,31 +45,15 @@ defmodule Valimc.Player.Travel do
   def request(state, _target), do: state
 
   @doc "Whether the old dimension's work has settled, so the player can leave it."
-  def settled?(state) do
-    state.save_ref == nil and state.life_save == nil and state.use_save == nil and
-      not Jobs.active?(state.jobs, :placement)
-  end
+  def settled?(state), do: not Jobs.active?(state.jobs, :placement)
 
-  @doc "Save the player at the destination once settled; `finish/2` follows the save."
+  @doc "Arrive at the destination once settled (`finish/2`)."
   def continue(%{travel: nil} = state), do: state
-  def continue(%{travel: %{saving: true}} = state), do: state
   def continue(%{phase: phase} = state) when phase != :play, do: state
   def continue(%{life_stage: stage} = state) when stage != :alive, do: %{state | travel: nil}
 
   def continue(%{travel: target} = state) do
-    if settled?(state) do
-      player = arrive(state.player, target)
-      snapshot = PlayerState.capture(player, state.inventory)
-
-      Vitals.checkpoint_life(
-        %{state | travel: Map.put(target, :saving, true)},
-        :travel,
-        snapshot,
-        player
-      )
-    else
-      state
-    end
+    if settled?(state), do: finish(state, arrive(state.player, target)), else: state
   end
 
   # Portals start the player's portal cooldown; command teleports do not.
@@ -93,7 +75,7 @@ defmodule Valimc.Player.Travel do
   end
 
   @doc """
-  The saved player has arrived: leave the old level, rebuild the client's in
+  The player has arrived: leave the old level, rebuild the client's in
   `player.dimension` and place the player there.
   """
   def finish(state, player) do
@@ -119,7 +101,6 @@ defmodule Valimc.Player.Travel do
       state
       | player: player,
         active_use: nil,
-        life_save: nil,
         travel: nil,
         portal: state.portal && %{state.portal | last: nil}
     }

@@ -2,7 +2,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerStore}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.TestClient, as: Client
@@ -20,7 +20,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     for {name, index} <- Enum.with_index(names) do
       uuid = Valimc.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 2}
-      path = PlayerStore.path(base, uuid)
+      path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
@@ -30,11 +30,6 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
       for player <- Players.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for name <- names,
-          {pid, _} <-
-            Registry.lookup(Valimc.PlayerStoreRegistry, Valimc.Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),
@@ -76,7 +71,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
       })
 
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
-    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
+    File.write!(Valimc.Player.Storage.path(Valimc.config(:world_path), uuid), bytes)
   end
 
   defp await_slot(client, entity, slot, stack) do
@@ -125,7 +120,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     Client.close(sender)
 
     wait(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, Valimc.Connection.offline_uuid(first)) == []
+      Registry.lookup(Valimc.PlayerRegistry, Valimc.Connection.offline_uuid(first)) == []
     end)
 
     {_sender, fresh} = login(first)

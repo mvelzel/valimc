@@ -99,41 +99,13 @@ defmodule Valimc.PlayerFireConnectionTest do
     Client.close(client)
   end
 
-  test "inventory recovery defers wear and rechecks current contact rather than replaying stale lava",
-       ctx do
-    helmet = ItemStack.new("iron_helmet")
-    seed(ctx, inventory: %Inventory{slots: %{5 => helmet}})
-    {_client, pid} = login(ctx)
-    Valimc.TestConn.replace(pid, &%{&1 | use_save: make_ref()})
-    tick(pid)
-
-    assert living(pid).health.value == 20.0 and
-             state(pid).inventory.slots[5] == helmet
-
-    material(ctx, "air")
-
-    Valimc.TestConn.replace(
-      pid,
-      &%{&1 | use_save: nil, player: %{&1.player | living: %{&1.player.living | fire_ticks: 19}}}
-    )
-
-    tick(pid)
-
-    assert living(pid).health.value == 20.0 and
-             state(pid).inventory.slots[5] == helmet
-
-    material(ctx, "lava")
-    tick(pid)
-    assert living(pid).health.value < 20.0
-    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
-  end
-
   test "fatal lava seals one death and respawn clears burning and pending damage", ctx do
     seed(ctx, health: 3.0, inventory: %Inventory{slots: %{36 => ItemStack.new("diamond", 2)}})
     {client, pid} = login(ctx)
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
     assert living(pid).fire_ticks == 0
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.fire_ticks == 0
     assert saved.inventory.slots == %{}

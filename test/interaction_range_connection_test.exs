@@ -1,7 +1,7 @@
 defmodule Valimc.InteractionRangeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.{GameMode, Inventory, Players, World}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,7 +22,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     {_, client} = Client.login(name)
@@ -35,9 +35,6 @@ defmodule Valimc.InteractionRangeConnectionTest do
 
       if Process.alive?(pid),
         do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for {writer, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, writer)
 
       for {owner, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)

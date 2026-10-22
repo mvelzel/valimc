@@ -1,7 +1,7 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
@@ -41,15 +41,12 @@ defmodule Valimc.DisconnectedInventoryTest do
     }
 
     snapshot = PlayerState.capture(pose, inventory)
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
 
     on_exit(fn ->
       for {pid, p} <- :ets.tab2list(Players),
           p.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -120,7 +117,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     wait(fn -> not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.uuid == ctx.uuid end) end)
   end
 
-  defp idle(ctx), do: wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+  defp idle(ctx), do: wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
 
   test "a closed socket drops the cursor and grid stacks once; logins cannot repeat them",
        ctx do

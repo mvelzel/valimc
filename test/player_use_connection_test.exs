@@ -206,7 +206,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
     assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
     assert state(pid).player.food == food
-    wait(fn -> state(pid).use_save == nil end)
 
     client = use_hand(client, pid, :off, 2)
     assert state(pid).player.use_flags == 3
@@ -215,12 +214,12 @@ defmodule Valimc.PlayerUseConnectionTest do
     {{^entity, 11, 0, 9600, 6}, client} = effect_packet(client)
     assert state(pid).inventory.slots[45] == ItemStack.new("glass_bottle")
     assert living(pid).effects == %{11 => [{9600, 0, false, true, true}]}
-    wait(fn -> state(pid).use_save == nil end)
+    Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.effects == living(pid).effects
     assert saved.inventory.slots == state(pid).inventory.slots
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {_client, owner} = login(ctx, 20.0, food)
     assert living(owner).effects == saved.effects
     assert state(owner).inventory.slots == saved.inventory.slots
@@ -249,7 +248,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     end)
 
     tick(pid)
-    assert state(pid).active_use == nil and state(pid).use_save == nil
+    assert state(pid).active_use == nil
 
     assert living(pid).effects == %{} and
              state(pid).inventory.slots[36] == unsupported
@@ -272,96 +271,47 @@ defmodule Valimc.PlayerUseConnectionTest do
     _client = use_hand(client, pid)
     ticks(pid, 32)
     assert living(pid).effects == %{} and state(pid).inventory.slots == slots
-    assert state(pid).active_use == nil and state(pid).use_save == nil
+    assert state(pid).active_use == nil
   end
 
-  test "a stalled potion checkpoint cannot rewind the effect clock or consume twice", ctx do
-    food = %PlayerFood{}
-    drink = potion("fire_resistance")
-    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
-    {client, pid} = login(ctx, 20.0, food)
-    client = use_hand(client, pid)
-    store = state(pid).player_store
-    :sys.suspend(store)
-
-    try do
-      ticks(pid, 32)
-      assert state(pid).use_save != nil
-      assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
-      _client = use_hand(client, pid, :main, 2)
-      ticks(pid, 9)
-      assert state(pid).active_use == nil
-      assert living(pid).effects == %{11 => [{3591, 0, false, true, true}]}
-      assert {:ok, observed} = Players.get(pid)
-      # Other owner work can publish a newer observation; ETS is not the clock authority.
-      assert %{11 => [{observed_ticks, 0, false, true, true}]} = observed.living.effects
-      assert observed_ticks in 3591..3600
-      :sys.resume(store)
-      wait(fn -> state(pid).use_save == nil end)
-      assert living(pid).effects == %{11 => [{3591, 0, false, true, true}]}
-      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.effects == %{11 => [{3591, 0, false, true, true}]}
-      assert saved.inventory.slots == %{36 => ItemStack.new("glass_bottle")}
-    after
-      if Process.alive?(store), do: :sys.resume(store)
-    end
-  end
-
-  test "fatal harming waits for its bottle checkpoint and recovers one death drop after reconnect",
+  test "fatal harming dies with its bottle and one death drop, which a reconnect keeps",
        ctx do
     food = %PlayerFood{level: 10, saturation: 0.0}
     drink = custom_potion([{6, [{1, 0, false, true, true}]}, {5, [{1, 1, false, true, true}]}])
     seed(ctx, food, 5.0, inventory: %Inventory{slots: %{36 => drink}})
     {client, pid} = login(ctx, 5.0, food)
     client = use_hand(client, pid)
-    store = state(pid).player_store
-    :sys.suspend(store)
+    ticks(pid, 32)
+    assert living(pid).health.value == 0.0 and state(pid).life_stage == :dead
+    assert state(pid).inventory.slots == %{}
+    {body, _client} = Client.await(client, :play, "player_combat_kill")
+    {_entity, message} = Wire.take_varint(body)
 
-    try do
-      ticks(pid, 32)
+    assert {:ok,
+            {:compound,
+             %{
+               "translate" => {:string, "death.attack.indirectMagic"},
+               "with" => {:list, {:string, names}}
+             }}, <<>>} = Valimc.NBT.take(message)
 
-      assert living(pid).health.value == 0.0 and
-               state(pid).life_stage == :sealing_death
+    assert names == [ctx.name, ctx.name]
+    Valimc.TestPlayer.checkpointed(pid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
+    {_client, restored} = login(ctx, 0.0, food)
 
-      assert state(pid).use_save != nil and
-               state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    assert living(restored).health.value == 0.0
+    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
+    [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
 
-      assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
-      :sys.resume(store)
-      wait(fn -> state(pid).life_stage == :dead end)
-      {body, _client} = Client.await(client, :play, "player_combat_kill")
-      {_entity, message} = Wire.take_varint(body)
+    {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
+      Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
 
-      assert {:ok,
-              {:compound,
-               %{
-                 "translate" => {:string, "death.attack.indirectMagic"},
-                 "with" => {:list, {:string, names}}
-               }}, <<>>} = Valimc.NBT.take(message)
-
-      assert names == [ctx.name, ctx.name]
-      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
-      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      {_client, restored} = login(ctx, 0.0, food)
-
-      assert living(restored).health.value == 0.0
-      assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
-      [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
-
-      {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
-        Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
-
-      bottle = ItemStack.new("glass_bottle")
-      assert {:ok, ^bottle, <<255>>} = ItemStack.take(stack_bytes)
-    after
-      if Process.alive?(store), do: :sys.resume(store)
-    end
+    bottle = ItemStack.new("glass_bottle")
+    assert {:ok, ^bottle, <<255>>} = ItemStack.take(stack_bytes)
   end
 
   test "Speed drinking, sprint, promotion, expiry and milk publish owned movement attributes",
@@ -380,7 +330,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     ticks(pid, 32)
     {{_, 0, 0, 3600, 14}, client} = effect_packet(client)
     client = speed_attribute(client, pid)
-    wait(fn -> state(pid).use_save == nil end)
 
     # Ordinary countdown does not dirty the active amplifier or resend attributes.
     tick(pid)
@@ -465,9 +414,8 @@ defmodule Valimc.PlayerUseConnectionTest do
       health = living(pid).health.value
       ticks(pid, 50)
       assert living(pid).health.value == health
-      wait(fn -> state(pid).use_save == nil end)
       Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
       assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
 
       assert saved.effects == %{} and
@@ -501,7 +449,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).inventory.slots[45] == bread
     assert state(pid).player.food == %PlayerFood{level: 8, saturation: 6.0}
     assert state(pid).active_use == nil and state(pid).player.use_flags == 0
-    wait(fn -> state(pid).use_save == nil end)
     client = use_hand(client, pid, :off, 3)
     assert state(pid).player.use_flags == 3
     ticks(pid, 32)
@@ -510,7 +457,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).player.food == %PlayerFood{level: 13, saturation: 12.0}
     ticks(pid, 3)
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.inventory.slots[36].count == 1 and saved.inventory.slots[45].count == 1
     assert saved.food == %PlayerFood{level: 13, saturation: 12.0}
@@ -555,43 +502,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     Client.close(client)
   end
 
-  test "a stalled consumption save keeps later food ticks", ctx do
-    food = %PlayerFood{level: 5, saturation: 0.0}
-    bread = ItemStack.new("bread", 3)
-    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread}})
-    {client, pid} = login(ctx, 20.0, food)
-    client = use_hand(client, pid)
-    store = state(pid).player_store
-    :sys.suspend(store)
-
-    try do
-      ticks(pid, 32)
-      assert state(pid).use_save != nil and state(pid).inventory.slots[36].count == 2
-      client = use_hand(client, pid, :main, 2)
-      assert state(pid).active_use == nil
-
-      Valimc.TestConn.replace(pid, fn s ->
-        player = %{s.player | food: %{s.player.food | exhaustion: 5.0}}
-        Players.update(pid, player)
-        %{s | player: player}
-      end)
-
-      tick(pid)
-      assert state(pid).player.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
-      assert state(pid).inventory.slots[36].count == 2
-      :sys.resume(store)
-      wait(fn -> state(pid).use_save == nil end)
-      assert state(pid).player.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
-      assert saved.inventory.slots[36].count == 2
-    after
-      if Process.alive?(store), do: :sys.resume(store)
-    end
-  end
-
   test "disconnect and fatal damage retire unfinished use without consuming", ctx do
     food = %PlayerFood{level: 5, saturation: 0.0}
     bread = ItemStack.new("bread", 2)
@@ -600,7 +510,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = use_hand(client, pid)
     ticks(pid, 10)
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {client, pid} = login(ctx, 20.0, food)
     assert state(pid).inventory.slots[36] == bread and state(pid).active_use == nil
     _client = use_hand(client, pid)
@@ -609,32 +519,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).life_stage == :dead end)
     assert state(pid).player.food == food
     assert state(pid).inventory.slots == %{}
-  end
-
-  test "a prior checkpoint defers completion without resetting or duplicating the use", ctx do
-    food = %PlayerFood{level: 5, saturation: 0.0}
-    bread = ItemStack.new("bread", 2)
-    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread}})
-    {client, pid} = login(ctx, 20.0, food)
-    _client = use_hand(client, pid)
-    store = state(pid).player_store
-    :sys.suspend(store)
-
-    try do
-      send(pid, :save_player)
-      wait(fn -> state(pid).save_ref != nil end)
-      ticks(pid, 35)
-      assert state(pid).active_use.remaining == 0
-      assert state(pid).inventory.slots[36] == bread and state(pid).player.food == food
-      :sys.resume(store)
-      wait(fn -> state(pid).save_ref == nil end)
-      tick(pid)
-      assert state(pid).inventory.slots[36].count == 1 and state(pid).player.food.level == 10
-      ticks(pid, 3)
-      assert state(pid).inventory.slots[36].count == 1
-    after
-      if Process.alive?(store), do: :sys.resume(store)
-    end
   end
 
   test "unloaded requests and spectator use cannot begin a meal", ctx do

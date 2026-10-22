@@ -3,7 +3,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   import Valimc.TestPlayer, only: [living: 1]
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,10 +22,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       for {pid, player} <- :ets.tab2list(Players),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for name <- names,
-          {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -60,10 +56,15 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     File.write!(path, bytes)
   end
 
-  defp path(ctx, name), do: PlayerStore.path(ctx.base, Connection.offline_uuid(name))
+  defp path(ctx, name), do: Valimc.Player.Storage.path(ctx.base, Connection.offline_uuid(name))
 
-  defp saved(ctx, name),
-    do: PlayerState.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
+  # An online player's file once it holds the live state.
+  defp saved(ctx, name) do
+    with %{pid: pid} <- Enum.find(Players.all(), &(&1.name == name)),
+         do: Valimc.TestPlayer.checkpointed(pid)
+
+    PlayerState.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
+  end
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 
@@ -119,7 +120,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     wait(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
+      Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid(name)) == []
     end)
 
     {_, client} = Client.login(name)
@@ -138,84 +139,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert stored.last_death == {0, 64, 0} and stored.health.value == 20
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     Client.close(client)
-  end
-
-  test "an accepted respawn survives a disconnected client while its save is stalled", ctx do
-    [name | _] = ctx.names
-    seed(ctx, name, %Inventory{})
-    {client, pid} = login(name)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-    wait(fn -> state(pid).life_stage == :dead end)
-    writer = state(pid).player_store
-    :sys.suspend(writer)
-    monitor = Process.monitor(pid)
-
-    try do
-      Client.send_packet(client, :play, "client_command", <<0>>)
-      wait(fn -> state(pid).life_stage == :respawning end)
-      assert {:ok, source} = saved(ctx, name)
-      assert source.health.value == 0
-      Client.close(client)
-    after
-      :sys.resume(writer)
-    end
-
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
-
-    wait(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
-    end)
-
-    assert {:ok, source} = saved(ctx, name)
-
-    assert source.health.value == 20 and
-             source.last_death == {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
-
-    assert source.inventory.slots == %{}
-
-    {_client, new_pid} = login(name)
-    assert living(new_pid).health.value == 20 and state(new_pid).life_stage == :alive
-  end
-
-  test "a failed respawn wire write cannot roll back the already committed living snapshot",
-       ctx do
-    [name | _] = ctx.names
-    seed(ctx, name, %Inventory{})
-    {client, pid} = login(name)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-    wait(fn -> state(pid).life_stage == :dead end)
-    writer = state(pid).player_store
-    :sys.suspend(writer)
-    Client.send_packet(client, :play, "client_command", <<0>>)
-    wait(fn -> state(pid).life_stage == :respawning end)
-    ref = state(pid).life_save.ref
-    socket = state(pid).socket
-    :sys.suspend(pid)
-    monitor = Process.monitor(pid)
-
-    try do
-      :sys.resume(writer)
-
-      wait(fn ->
-        {:messages, messages} = Process.info(pid, :messages)
-        {:player_saved, ref, :ok} in messages
-      end)
-
-      assert {:ok, source} = saved(ctx, name)
-      assert source.health.value == 20
-      :ok = :gen_tcp.close(socket)
-    after
-      :sys.resume(pid)
-    end
-
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
-
-    wait(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
-    end)
-
-    assert {:ok, source} = saved(ctx, name)
-    assert source.health.value == 20 and source.inventory.slots == %{}
   end
 
   test "creative immunity, living/duplicate respawn requests and expired damage cannot resurrect or mutate",

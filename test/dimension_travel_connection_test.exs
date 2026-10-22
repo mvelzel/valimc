@@ -5,7 +5,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 180_000
-  alias Valimc.{Connection, Dimension, Inventory, PlayerStore, Players}
+  alias Valimc.{Connection, Dimension, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -27,9 +27,6 @@ defmodule Valimc.DimensionTravelConnectionTest do
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
       # The overworld regions and stores around the player and the world spawn
       # (a respawn lands there).
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
@@ -47,7 +44,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
       key: key,
       base: base,
       pose: pose,
-      path: PlayerStore.path(base, uuid)
+      path: Valimc.Player.Storage.path(base, uuid)
     }
   end
 
@@ -234,12 +231,13 @@ defmodule Valimc.DimensionTravelConnectionTest do
     wait(fn -> {0, 0} in elem(Valimc.World.RegionStorage.keys(ctx.base, :the_nether), 1) end)
 
     # The arrival was saved before the switch.
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.dimension == :the_nether and saved.pose.x == 8.5
 
     # A reconnect rejoins in the Nether.
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {login, client, pid} = join(ctx)
     {_levels, info} = login_levels(login)
     assert info.level == "minecraft:the_nether"
@@ -259,6 +257,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     _client = Client.auto_reply(client, :play, "player_position", position)
     assert context(pid) == :overworld
     wait(fn -> match?({:ok, %{dimension: :overworld}}, Players.get(pid)) end)
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert Map.get(saved, :dimension, :overworld) == :overworld
   end
@@ -298,6 +297,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     wait(fn -> state(pid).life_stage == :alive end)
     assert context(pid) == :overworld
     assert state(pid).player.dimension == :overworld
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.death_dimension == :the_nether and saved.dimension == :overworld
   end
@@ -309,7 +309,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     other_uuid = Connection.offline_uuid(other)
     {:ok, snapshot} = PlayerState.decode(bytes, ctx.uuid)
     {:ok, other_bytes} = PlayerState.encode(other_uuid, snapshot)
-    File.write!(PlayerStore.path(ctx.base, other_uuid), other_bytes)
+    File.write!(Valimc.Player.Storage.path(ctx.base, other_uuid), other_bytes)
 
     on_exit(fn ->
       for p <- Players.all(),

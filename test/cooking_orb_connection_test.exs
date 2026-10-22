@@ -2,7 +2,7 @@ defmodule Valimc.CookingOrbConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.{Connection, CookingAwards, GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.{Connection, CookingAwards, GameMode, Inventory, Players, World}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
@@ -28,10 +28,6 @@ defmodule Valimc.CookingOrbConnectionTest do
           p.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
-      for name <- names,
-          {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
       for owned_key <- [key, source_key],
           {pid, _} <- Valimc.TestWorld.registered(owned_key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -50,7 +46,7 @@ defmodule Valimc.CookingOrbConnectionTest do
 
       uuid = Connection.offline_uuid(name)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, %Inventory{}))
-      path = PlayerStore.path(base, uuid)
+      path = Valimc.Player.Storage.path(base, uuid)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
     end

@@ -85,7 +85,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert living(pid).health.value == 12.0
     assert living(pid).effects[id] == [{149, 0, false, true, true}]
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.effects[id] == [{149, 0, false, true, true}]
     {_client, owner} = login(ctx, {id, 149, 0, 6})
@@ -106,6 +106,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert {:ok, {:compound, %{"translate" => {:string, "death.attack.wither"}}}, <<>>} =
              Valimc.NBT.take(message)
 
+    Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.effects[id] == [{39, 0, false, true, true}]
     assert saved.inventory.slots == %{}

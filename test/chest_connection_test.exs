@@ -1,7 +1,7 @@
 defmodule Valimc.ChestConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
@@ -29,7 +29,6 @@ defmodule Valimc.ChestConnectionTest do
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
       for {registry, supervisor, identity} <- [
-            {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid},
             {Valimc.RegionRegistry, Valimc.RegionSupervisor, key}
           ],
           {pid, _} <- Registry.lookup(registry, identity),
@@ -62,7 +61,7 @@ defmodule Valimc.ChestConnectionTest do
       })
 
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -146,7 +145,7 @@ defmodule Valimc.ChestConnectionTest do
 
   defp saved(ctx) do
     {:ok, snapshot} =
-      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(Valimc.Player.Storage.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     snapshot
   end
@@ -253,7 +252,7 @@ defmodule Valimc.ChestConnectionTest do
     _client = content(client, &(&1.container == 0 and &1.carried == nil))
     assert Valimc.TestConn.state(pid).table_menu == nil
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {fresh, fresh_pid} = login(ctx)
     fresh = open(fresh, ctx)
     assert Enum.all?(Enum.take(fresh.inventory.items, 27), &(&1 == nil))
@@ -286,7 +285,7 @@ defmodule Valimc.ChestConnectionTest do
     snapshot = %{saved(ctx) | game_mode: GameMode.new(mode)}
 
     {:ok, bytes} = PlayerState.encode(other.uuid, snapshot)
-    File.write!(PlayerStore.path(ctx.base, other.uuid), bytes)
+    File.write!(Valimc.Player.Storage.path(ctx.base, other.uuid), bytes)
     other
   end
 

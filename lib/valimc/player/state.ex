@@ -10,7 +10,7 @@ defmodule Valimc.Player.State do
 
   `game_mode` nil means the server's default.
   """
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerProgression, PlayerStore}
+  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerProgression}
 
   alias Valimc.Living
   alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
@@ -59,7 +59,7 @@ defmodule Valimc.Player.State do
     struct(
       __MODULE__,
       Map.merge(living, %{
-        pose: PlayerStore.pose(player),
+        pose: pose(player),
         inventory: inventory,
         game_mode: Map.get(player, :game_mode),
         flying: flying,
@@ -75,6 +75,22 @@ defmodule Valimc.Player.State do
       })
     )
   end
+
+  @pose [:x, :y, :z, :yaw, :pitch]
+
+  @doc "The pose a player's file keeps."
+  def pose(player), do: Map.take(player, @pose)
+
+  @doc "Whether `pose` is finite and inside the world's bounds."
+  def valid_pose?(pose) when is_map(pose) do
+    Enum.all?(@pose, fn key ->
+      value = Map.get(pose, key)
+      bound = if key in [:x, :z], do: 29_999_984, else: 1_000_000
+      is_float(value) and abs(value) <= bound
+    end)
+  end
+
+  def valid_pose?(_), do: false
 
   @doc "A state from a map of its fields (a fixture's partial map takes the defaults)."
   def new(%__MODULE__{} = state), do: state
@@ -147,7 +163,7 @@ defmodule Valimc.Player.State do
     state = new(state)
 
     checks = [
-      invalid_pose: PlayerStore.valid_pose?(state.pose),
+      invalid_pose: valid_pose?(state.pose),
       invalid_dimension: state.dimension in @dimensions and state.death_dimension in @dimensions,
       invalid_inventory: inventory?(state.inventory),
       invalid_game_mode:

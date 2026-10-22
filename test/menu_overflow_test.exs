@@ -2,7 +2,7 @@ defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.Health
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -67,7 +67,7 @@ defmodule Valimc.MenuOverflowTest do
         })
       )
 
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, seed_bytes)
 
@@ -75,9 +75,6 @@ defmodule Valimc.MenuOverflowTest do
       for {pid, p} <- :ets.tab2list(Players),
           p.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -113,9 +110,8 @@ defmodule Valimc.MenuOverflowTest do
       {pid, state} = await_state(ctx, &(&1.phase == :play))
       inventory = %{ctx.original | infinite_materials: state.inventory.infinite_materials}
       Valimc.TestConn.replace(pid, &%{&1 | inventory: inventory})
-      # This is administrative setup through the trusted leased owner, not a click.
-      send(pid, :save_player)
-      await_state(ctx, &(&1.save_ref == nil && saved(ctx).inventory.carried == inventory.carried))
+      # This is administrative setup through the trusted owner, not a click.
+      Valimc.TestPlayer.saved(ctx, pid, &(&1.inventory.carried == inventory.carried))
     end
 
     client
@@ -135,7 +131,7 @@ defmodule Valimc.MenuOverflowTest do
   end
 
   defp departed(ctx, attempts \\ 1000) do
-    if Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
+    if Enum.any?(Registry.lookup(Valimc.PlayerRegistry, ctx.uuid), fn {_, v} ->
          v != :closing
        end) or
          Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.uuid == ctx.uuid end) do
@@ -143,11 +139,6 @@ defmodule Valimc.MenuOverflowTest do
       Process.sleep(2)
       departed(ctx, attempts - 1)
     end
-  end
-
-  defp saved(ctx) do
-    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-    snapshot
   end
 
   defp records(ctx) do

@@ -22,11 +22,8 @@ defmodule Valimc.Player.ItemUse do
     Players,
     PlayerEquipment,
     PlayerInput,
-    PlayerStore,
     PlayerUse
   }
-
-  alias Valimc.Player.State, as: PlayerState
 
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects Effects.live()
@@ -63,9 +60,6 @@ defmodule Valimc.Player.ItemUse do
       true -> value
     end
   end
-
-  def begin_item_use(state, _) when state.use_save != nil,
-    do: Valimc.Player.CreativeInventory.resync_inventory(state)
 
   def begin_item_use(%{active_use: %PlayerUse{}} = state, _), do: state
   def begin_item_use(%{player: %{game_mode: %{current: :spectator}}} = state, _), do: state
@@ -203,9 +197,6 @@ defmodule Valimc.Player.ItemUse do
 
   def tick_item_use(state), do: state
 
-  def complete_item_use(state, _) when state.use_save != nil or state.save_ref != nil,
-    do: state
-
   def complete_item_use(state, notify) do
     use = state.active_use
     stack = Inventory.held(state.inventory, use.hand)
@@ -216,28 +207,8 @@ defmodule Valimc.Player.ItemUse do
 
       case Valimc.PlayerConsumption.plan(state.player, state.inventory, use.hand, props, incoming) do
         {:ok, transition} ->
-          # Plan health and all callbacks without I/O, then queue one immutable
-          # checkpoint before any socket write or death lifecycle can run.
-          ref = make_ref()
-
-          state = %{
-            state
-            | player: transition.player,
-              inventory: transition.inventory,
-              save_ref: ref,
-              use_save: ref
-          }
-
+          state = %{state | player: transition.player, inventory: transition.inventory}
           state = if transition.death, do: Vitals.dead_state(state), else: state
-
-          PlayerStore.checkpoint(
-            state.player_store,
-            state.store_fence,
-            PlayerState.capture(state.player, state.inventory),
-            ref
-          )
-
-          Process.send_after(state.connection, {:save_deadline, ref}, 5000)
           Players.update(state.connection, state.player)
           if notify, do: send_packets(state, [Packets.use_item_finished(state.player.entity_id)])
 
@@ -285,7 +256,7 @@ defmodule Valimc.Player.ItemUse do
 
           state =
             if transition.death,
-              do: Vitals.death_notice(state, true, transition.death),
+              do: state |> Vitals.death_notice(true, transition.death) |> Vitals.continue_life(),
               else: state
 
           state

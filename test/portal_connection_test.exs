@@ -4,7 +4,7 @@ defmodule Valimc.PortalConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 240_000
-  alias Valimc.{Connection, Dimension, Inventory, PlayerStore, Players}
+  alias Valimc.{Connection, Dimension, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Portal.Blocks
@@ -27,9 +27,6 @@ defmodule Valimc.PortalConnectionTest do
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
       # The overworld regions and stores around the portal and the world spawn
       # (the credits' respawn lands there, and its owners may still be loading).
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
@@ -44,7 +41,7 @@ defmodule Valimc.PortalConnectionTest do
       key: key,
       base: base,
       origin: origin,
-      path: PlayerStore.path(base, uuid)
+      path: Valimc.Player.Storage.path(base, uuid)
     }
   end
 
@@ -284,6 +281,7 @@ defmodule Valimc.PortalConnectionTest do
     {position, client} = Client.await(client, :play, "player_position")
     _client = Client.auto_reply(client, :play, "player_position", position)
     wait(fn -> state(pid).player.dimension == :overworld end)
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.seen_credits and Map.get(saved, :dimension, :overworld) == :overworld
   end

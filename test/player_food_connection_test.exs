@@ -88,7 +88,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     saved_food = %PlayerFood{saturation: 4.0, exhaustion: 1.0, timer: 1}
     assert state(pid).player.food == saved_food
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == saved_food and saved.health.value == expected
     {_client, owner} = login(ctx, expected, saved_food)
@@ -165,6 +165,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert_health(body, 20.0, %PlayerFood{})
     assert state(pid).player.food == %PlayerFood{}
     assert state(pid).food_tick_origin == state(pid).simulation_clock.tick
+    Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.health.value == 20.0
     assert saved.inventory.slots == %{}
@@ -200,7 +201,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {body, client} = Client.await(client, :play, "set_health")
     assert_health(body, 4.0, food)
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == food and saved.health.value == 4.0
     assert saved.inventory.slots == inventory.slots
@@ -212,6 +213,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {body, _client} = Client.await(client, :play, "set_health")
     assert_health(body, 20.0, %PlayerFood{})
     assert Valimc.TestConn.state(pid).player.food == %PlayerFood{}
+    Valimc.TestPlayer.checkpointed(pid)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.air_supply == 300
     assert saved.inventory.slots == %{}

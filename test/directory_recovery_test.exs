@@ -4,7 +4,7 @@ defmodule Valimc.DirectoryRecoveryTest do
   # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore}
+  alias Valimc.{Inventory}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.{Directory, Entities, Region}
   alias Valimc.Protocol.ItemStack
@@ -62,8 +62,8 @@ defmodule Valimc.DirectoryRecoveryTest do
       )
 
     {:ok, source_bytes} = PlayerState.encode(uuid, initial)
-    File.mkdir_p!(Path.dirname(PlayerStore.path(base, uuid)))
-    File.write!(PlayerStore.path(base, uuid), source_bytes)
+    File.mkdir_p!(Path.dirname(Valimc.Player.Storage.path(base, uuid)))
+    File.write!(Valimc.Player.Storage.path(base, uuid), source_bytes)
     {^uuid, client} = Client.login(name)
     _client = Client.load_world(client)
 
@@ -105,10 +105,10 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert {:ok, ^next} = Valimc.TestWorld.admit({0, 0})
     assert {:ok, ^replacement} = Valimc.TestWorld.existing_owner({0, 0})
     # The player lost its owner with the world domain; it joins again.
-    Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
+    Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerRegistry, uuid) == [] end)
     {^uuid, reconnected} = Client.login(name)
     reconnected = Client.load_world(reconnected)
-    {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(Valimc.Player.Storage.path(base, uuid)), uuid)
     assert saved.inventory.slots[36].count == 7
     {:ok, item} = Region.find_item(replacement, record.uuid)
     :ok = Region.remove_item(item)

@@ -4,7 +4,7 @@ defmodule Valimc.ExperienceTransfersTest do
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
-  alias Valimc.{Connection, GameMode, Inventory, PlayerProgression, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, PlayerProgression}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.{Entities, ExperienceOrbs}
@@ -83,7 +83,7 @@ defmodule Valimc.ExperienceTransfersTest do
     name = "XpPickup" <> Integer.to_string(System.unique_integer([:positive]))
     uuid = Connection.offline_uuid(name)
     {:ok, bytes} = PlayerState.encode(uuid, ctx.snapshot)
-    path = PlayerStore.path(ctx.base, uuid)
+    path = Valimc.Player.Storage.path(ctx.base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     {_, client} = Valimc.TestClient.login(name)
@@ -96,9 +96,6 @@ defmodule Valimc.ExperienceTransfersTest do
       for p <- Valimc.Players.all(),
           p.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
     end)
 
     Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
@@ -109,7 +106,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
     Valimc.TestClient.close(client)
     wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, uuid) == [] end)
     {:ok, disk} = PlayerState.decode(File.read!(path), uuid)
     assert disk.progression.experience.total == 6
     Process.exit(elem(ctx.owner, 0), :kill)

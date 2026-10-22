@@ -17,9 +17,8 @@ defmodule Valimc.Living.Damage do
   Resolve a selected hit (`Health.hurt_window/3`) of `source` on `living`
   (health, absorption and effects) wearing `equipment`. Options: `:effects`
   for the defenses (default the living's), `:invulnerable`, `:immune` (a
-  caller's own immunity, such as a player's flight against falls), `:infinite`
-  (no armor wear) and `:pending` (equipment cannot change now, so armored hits
-  wait). Returns `:ignored`, `:immune`, `:deferred` or `{:ok, %{living,
+  caller's own immunity, such as a player's flight against falls) and
+  `:infinite` (no armor wear). Returns `:ignored`, `:immune` or `{:ok, %{living,
   equipment, broken, exhaustion}}`; `exhaustion` is the food a player spends,
   or nil when no damage got through absorption.
   """
@@ -54,9 +53,6 @@ defmodule Valimc.Living.Damage do
         (invulnerable and not DamageSource.is?(source, :bypasses_invulnerability)) or
         enchantment_immune?(equipment, source) or status_immune?(living.effects, source) ->
         :immune
-
-      DamageSource.wears_armor?(source) and Keyword.get(opts, :pending, false) ->
-        :deferred
 
       true ->
         {:ok, equipment, broken} =

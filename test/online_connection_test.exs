@@ -107,7 +107,7 @@ defmodule Valimc.OnlineConnectionTest do
     assert :ets.lookup(Players, pid) == []
 
     for uuid <- [Connection.offline_uuid(name), profile(name).uuid],
-        do: assert(Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [])
+        do: assert(Registry.lookup(Valimc.PlayerRegistry, uuid) == [])
   end
 
   defp verified(name) do
@@ -135,7 +135,7 @@ defmodule Valimc.OnlineConnectionTest do
     {_body, _} = Client.await_stats(client)
     Client.close(client)
     eventually(fn -> not Process.alive?(pid) end)
-    eventually(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, profile(name).uuid) == [] end)
+    eventually(fn -> Registry.lookup(Valimc.PlayerRegistry, profile(name).uuid) == [] end)
     {client, _} = verified(name)
     Client.close(client)
   end

@@ -23,8 +23,7 @@ defmodule Valimc.Net.LoginFlow do
     PlayerInput,
     PlayerKinetics,
     PlayerLife,
-    PlayerMotion,
-    PlayerStore
+    PlayerMotion
   }
 
   alias Valimc.World.TickClock
@@ -138,16 +137,16 @@ defmodule Valimc.Net.LoginFlow do
         reject(state, reason)
     end
 
-    {store, fence, player, inventory} =
-      case PlayerStore.open(player.uuid) do
-        {:ok, pid, nil, fence} ->
+    {storage, player, inventory} =
+      case Valimc.Player.Storage.load(player.uuid) do
+        {:ok, storage, nil} ->
           # A new player appears near the world spawn (VMC-027e).
           player = Map.merge(player, Valimc.World.PlayerSpawn.find())
 
-          {pid, fence, player,
+          {storage, player,
            %{state.inventory | infinite_materials: player.abilities.infinite_materials}}
 
-        {:ok, pid, snapshot, fence} ->
+        {:ok, storage, snapshot} ->
           mode = snapshot.game_mode || player.game_mode
           abilities = GameMode.abilities(mode, snapshot.flying)
           {:ok, velocity} = PlayerKinetics.restore_velocity(snapshot.velocity)
@@ -186,7 +185,7 @@ defmodule Valimc.Net.LoginFlow do
           unless Enum.all?(player.living.effects, fn {id, _} -> id in @live_effects end),
             do: reject(state, "Saved status effect is not implemented in this preview")
 
-          {pid, fence, player, inventory}
+          {storage, player, inventory}
 
         {:error, reason} ->
           Logger.warning("Player state load failed: #{inspect(reason)}")
@@ -203,10 +202,8 @@ defmodule Valimc.Net.LoginFlow do
       state
       | player: player,
         life_stage: life_stage(player, inventory),
-        player_store: store,
-        store_fence: fence,
-        inventory: inventory,
-        store_monitor: Process.monitor(store)
+        storage: storage,
+        inventory: inventory
     }
 
     finish_login(state)
@@ -313,7 +310,6 @@ defmodule Valimc.Net.LoginFlow do
     if ticks == :timer, do: Process.send_after(state.connection, {:player_tick, clock.token}, 50)
     state = %{state | simulation_clock: clock, player_ticks: ticks}
     Process.send_after(state.connection, :publish_movement, 50)
-    Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
 
     state =
       if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state

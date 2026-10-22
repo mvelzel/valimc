@@ -1,7 +1,7 @@
 defmodule Valimc.FlightConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerAbilities, PlayerStore}
+  alias Valimc.{Inventory, Players, PlayerAbilities}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -17,7 +17,7 @@ defmodule Valimc.FlightConnectionTest do
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 70.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}, selected: 0}
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, inventory))
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -26,9 +26,6 @@ defmodule Valimc.FlightConnectionTest do
       for {pid, player} <- :ets.tab2list(Players),
           player.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -57,7 +54,7 @@ defmodule Valimc.FlightConnectionTest do
   end
 
   defp departed(ctx),
-    do: wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    do: wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
 
   defp close(ctx, client) do
     ref = Process.monitor(state(ctx).player.pid)

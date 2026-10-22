@@ -1,7 +1,7 @@
 defmodule Valimc.TableConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,9 +22,6 @@ defmodule Valimc.TableConnectionTest do
       for player <- Players.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
@@ -51,7 +48,7 @@ defmodule Valimc.TableConnectionTest do
     {:ok, bytes} =
       PlayerState.encode(ctx.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -155,7 +152,7 @@ defmodule Valimc.TableConnectionTest do
     _client = inventory_until(client, &(&1.container == 0))
     assert Valimc.TestConn.state(pid).table_menu == nil
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {fresh, pid} = login(ctx)
     assert fresh.inventory.container == 0
     assert Enum.at(fresh.inventory.items, 40) == ItemStack.new("wooden_pickaxe")

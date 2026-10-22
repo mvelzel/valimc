@@ -9,7 +9,8 @@ authority. The M1 foundations below are in place; later milestones on the
 
 | State/work | Owner and access |
 |---|---|
-| Socket, protocol, AES stream, session inventory/input/pose, move validation | One connection process per player; each move packet is validated synchronously by the physics kernel |
+| Socket, framing, AES stream, compression, login and configuration, keepalive, chunk view and streaming, replication of what owners publish | One connection process per player, the player's stable address (`Session.Link`) |
+| A playing player's body, inventory, living state, open menus, movement checks, mining and item use | The group process that owns the section the player stands in (`Session.Host`); each move packet is validated there by the physics kernel |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
 | Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | The group process (`World.Region`) of their 8×8-chunk section while chunk tickets hold it; immutable chunk snapshots and chunk packets in the section's ETS table for readers |
@@ -19,18 +20,18 @@ authority. The M1 foundations below are in place; later milestones on the
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
-| Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through their own connections |
-| Encoding, placement and mining jobs, auth/crypto, transfer recovery | Bounded worker pools (the placement and mining pool partitioned per caller) |
-| Region checkpoints, the write-ahead log and player files | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
+| Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through the groups hosting them |
+| Encoding, placement and mining jobs, auth/crypto | Bounded worker pools (the placement and mining pool partitioned per caller) |
+| Region and player checkpoints, the write-ahead log | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
 frame and receive-buffer caps (small before configuration), a connection heap
 limit and mailbox checks. Overloaded connections are shut down with
-`{:shutdown, :overloaded}`, so their final save still runs. Chat follows the
-vanilla spam throttle. Runtime caps live in `config/config.exs`. A connection
-never calls another owner synchronously: commands, suggestions and block
-interactions run as its jobs (`Session.Jobs`) and their results arrive as
-messages (VMC-077a).
+`{:shutdown, :overloaded}`, so their sessions still end and save. Chat follows
+the vanilla spam throttle. Runtime caps live in `config/config.exs`. A
+connection calls another owner only to hand its session to a group and to end
+it; commands and suggestions run as jobs (`Session.Jobs`) and their results
+arrive as messages (VMC-077a).
 
 Supervision is five domain supervisors under a `rest_for_one` root, each with
 its own restart intensity: infrastructure (settings, clock, tick rate, admin
@@ -42,8 +43,7 @@ on accept errors (VMC-077a).
 A section's state is its key and epoch (its incarnation: handles and
 messages of an older one are stale), its publication table, its blocks and
 block entities, its entities (`RegionEntities`: the entity store, its
-replication trackers, the players' transfer receipts and the entity work it
-schedules), its commit state (`RegionStorage`) and its job table
+replication trackers and the entity work it schedules), its commit state (`RegionStorage`) and its job table
 (`Jobs`), held by its group as a `RegionData`. Every piece of background work
 runs on that table: at most one job
 per kind under a bounded pool, each with a token, a monitor and a deadline,
@@ -73,6 +73,18 @@ line is withdrawn and adopted in the same group commit; between groups it
 goes by the durable entity handoff, whose ends and receipts are section keys.
 A group that crashes takes its sections down; each is admitted again from its
 log, in a group of its own.
+
+A group also hosts the session of each player standing in one of its sections
+(`Session.Host`, VMC-077i3). The player's connection stays its address: it
+forwards play input and what else is meant for the session as `{:player,
+uuid, message}` and writes the packets the session sends back after each
+callback. A pickup, a drop, a placement, a container or table click, an XP
+pickup and a death's drops are plain calls inside the group, so the inventory
+and the world change in one callback and are durable in one record. A player
+crossing into another group's section is handed over, with its storage, once
+its frames are sent; one whose section moves goes along. A group that crashes
+disconnects its players, whose clients hold state newer than what is durable;
+their next login loads every durable frame.
 
 One regionizer per dimension applies Folia's rule at section size (grid
 exponent 3, create and merge radius 1): a loaded section joins every group with
@@ -111,24 +123,24 @@ then stops.
   observations for placement, mining and commands carry section revisions, so
   they stale only when the sections they read change (VMC-064).
 - **Shared write-ahead log (D2).** Every owner commits to one striped log per
-  world (`Valimc.Storage.Log`, VMC-077f): eight stripes, region frames on six
-  and player files on two, each written by one process that drains its queue
-  into one append with one `datasync` (plus `F_FULLFSYNC` on macOS). An owner
+  world (`Valimc.Storage.Log`, VMC-077f): eight stripes, each written by one
+  process that drains its queue into one append with one `datasync` (plus
+  `F_FULLFSYNC` on macOS). An owner
   adopts, publishes and answers every change at once and cuts one frame of
   keyed records every 50 ms (cells, entities by UUID, receipts, container
   entries by position, scheduled ticks, block entities), a group all its
-  sections' frames as one record on its own stripe; only a cross-owner transfer's
-  reply (its receipt, the proof the other owner acts on) waits for its frame. A
-  crash loses at most a suffix of an owner's frames, never one half of a
-  transfer. A region's checkpoint file folds its cells into column images
+  sections' and hosted players' frames as one record on its own stripe; only
+  an entity handoff's reply between groups (its receipt, the proof the other
+  owner acts on) waits for its frame. A crash loses at most a suffix of an
+  owner's frames, never one half of a handoff or of a player's interaction
+  with the world. A region's checkpoint file folds its cells into column images
   relit alone, so a load replays nothing older; the log then drops the frames
   it holds. Simulation never waits for the disk.
-- **One transaction engine.** Cross-owner effects (pickup, mining drops, container
-  exchanges, XP pickup, entity handoffs) are idempotent operations keyed by source,
-  sequence and digest. Shared primitives: `Txn.Permits` (one owner permit table),
-  `Txn.Receipts` (one idempotency classifier over the per-sequence-space receipt
-  tables), `Txn.Delivery` (bounded attempts) and `Txn.Operation` (the per-kind
-  source half: request, apply, receipt, proof, resolve) (VMC-064).
+- **Cross-owner effects.** Entity handoffs between groups and box edits use
+  shared primitives: `Txn.Permits` (one owner permit table) and `Txn.Receipts`
+  (one idempotency classifier over the receipt tables) (VMC-064). A player's
+  interactions need neither: they are calls inside the group hosting the
+  player (VMC-077i3).
 - **Tick pipeline.** Each group tick runs `TickPipeline` phases on each of its
   sections at the group's game tick: scheduled block ticks, random ticks (a
   native per-section sampler), entities, cooking. Block ticks and item motion
@@ -181,7 +193,9 @@ then stops.
 - **Connection.** `Valimc.Connection` is a thin GenServer shell; `Net.*` holds
   the codec, login flow and serverbound dispatch, `Session.*` message routing,
   jobs, events, replication and commands, and `Player.*` each gameplay domain.
-  Broadcast packets are framed once and shared as binaries (VMC-069).
+  In play `Session.Link` is the connection's half and `Session.Host` runs the
+  session at its group. Broadcast packets are framed once and shared as
+  binaries (VMC-069).
 - **Commands.** `Valimc.Commands.registry/0` maps each top-level command to
   one handler function, which receives the parsed literals; the
   Brigadier tree is built from `tree.json` at start, so the command
@@ -287,7 +301,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
-| Entity physics (VMC-077l, VMC-077l2) | One kernel (`valimc_core::physics`) for players and items: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the connection; a region owner's items one call per tick. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Entity physics (VMC-077l, VMC-077l2) | One kernel (`valimc_core::physics`) for players and items: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick. Effects on living state (burning, landing damage, air, rain) come back as observations |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
@@ -338,9 +352,13 @@ of checksummed frames, not Anvil: vanilla worlds are imported into checkpoints
 and exported from them offline
 (`mix valimc.import`, `mix valimc.export`, VMC-021; 26.2 chunks upgraded as vanilla's
 data fixers upgrade them, VMC-028d), and what ValiMC does not model
-yet is preserved for export in a side file. A player's file is a checkpoint
-of its state's keyed records (`Player.State`, one schema and codec), logged on
-the player stripes before the file is written. The log holds
+yet is preserved for export in a side file. A player's file is the checkpoint
+of its state's keyed records (`Player.State`, one schema and codec); its
+changes ride as frames in the record of the group hosting it
+(`Player.Storage`), records that move every tick at most once a second and
+every other change at once. The file is replaced after 1200 frames, on
+`/save-all` and when the player leaves; a login waits until no group holds
+the player, then folds the frames into the file. The log holds
 no file descriptor between operations, so descriptors are bounded by its
 stripes; an append that cannot open its segment wrote nothing and is retried
 for 30 seconds. Worlds stored before the shared log are refused with a clear
@@ -351,12 +369,11 @@ checkpoints, at the latest five minutes after they move, as vanilla's autosave.
 An entity record carries its kind, uuid, position and hops, never its
 network id; an outgoing handoff intent is stored without network ids, so one
 recovered after a restart delivers records that get fresh ones.
-Transfer proofs are always durable before they are sent. Item transfers
-journal a reduced source inventory plus one outbox before delivery; the region
-commits records and retry receipts before publication. Source clearing requires
-destination receipt proof. UUID writer leases, owner incarnations and revisions
-fence stale operations. Never fabricate recovery evidence or roll back one side of
-a committed transfer. Receipt tables are keyed records with no source cap.
+Handoff receipts are durable before they are sent, and a source clears its
+intent only on the destination's durable receipt. Owner incarnations and
+revisions fence stale operations. Never fabricate recovery evidence or roll
+back one side of a committed handoff. Receipt tables are keyed records with no
+source cap.
 Contracts and tests: [VMC-019b1](tickets/VMC-019b1.md), [019b2](tickets/VMC-019b2.md),
 [019b3a](tickets/VMC-019b3a.md) and [disconnect cleanup](tickets/VMC-005b2d2b.md).
 

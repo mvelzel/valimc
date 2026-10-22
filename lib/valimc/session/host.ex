@@ -17,15 +17,23 @@ defmodule Valimc.Session.Host do
     The adopting group tells the connection, so the connection's later
     messages follow the adoption; what still reaches the old group is
     forwarded for #{120} s.
-  - **Ends.** A session that stops (a rejected packet, a defect) saves and
-    tells its connection to close; a connection that closes or dies has its
-    session saved and dropped.
+  - **Durability.** Each hosted player's changes are a frame of this
+    group's commit (`Valimc.Player.Storage`), with the world's. A player is
+    handed on only once its frames are sent, so the changes of one callback
+    never split between two groups' records.
+  - **Ends.** A session that stops (a rejected packet, a defect) tells its
+    connection to close; a connection that closes or dies has its session
+    end. Either way its last frame is cut at once, and once it is durable the
+    player file holds it and this group lets the player go: a connection
+    that asked is answered then.
 
   Process-bound pieces of a session (task replies, monitors, job timers) come
   to the group that made them; the session that claims one handles it, and an
   unclaimed one follows the players this group handed on.
   """
   require Logger
+  alias Valimc.Player.State, as: PlayerState
+  alias Valimc.Player.Storage
   alias Valimc.Session.Messages
   alias Valimc.World
 
@@ -62,21 +70,20 @@ defmodule Valimc.Session.Host do
     end
   end
 
-  @doc "The connection a running session callback acts for (its player store's owner), or nil."
+  @doc "The connection a running session callback acts for, or nil."
   def acting, do: Process.get(@acting)
 
   ## Group side
 
-  @doc "Host `session` (a connection's login, or a handoff): `state`."
-  def host(state, session) do
+  @doc """
+  Host `session` (a connection's login, or a handoff from the group `from`,
+  which lets the player go once this one holds it): `state`.
+  """
+  def host(state, session, from \\ nil) do
     uuid = session.player.uuid
     monitor = Process.monitor(session.connection)
-
-    store_monitor =
-      if is_pid(session.player_store), do: Process.monitor(session.player_store)
-
-    session = %{session | store_monitor: store_monitor}
-
+    :ok = Storage.hold(session.storage)
+    if from, do: send(from, {:player_held, uuid})
     entry = %{session: session, key: key(session.player), monitor: monitor, view: view(session)}
     state = %{state | players: Map.put(state.players, uuid, entry)}
     state = %{state | player_moves: Map.delete(state.player_moves, uuid)}
@@ -120,17 +127,165 @@ defmodule Valimc.Session.Host do
     end
   end
 
-  @doc "The connection of `uuid` closed (`reason`): its session saves and leaves."
-  def left(state, uuid, reason) do
+  @doc """
+  The connection of `uuid` closed (`reason`): its session ends and saves;
+  `reply` (the connection's call) is answered once the file holds it.
+  """
+  def left(state, uuid, reason, reply \\ nil) do
     case state.players do
       %{^uuid => entry} ->
         Process.demonitor(entry.monitor, [:flush])
-        state = run(state, uuid, fn session -> {:stop, {:left, reason}, session} end)
-        %{state | players: Map.delete(state.players, uuid)}
+        run(state, uuid, fn session -> {:stop, {:left, reason, reply}, session} end)
 
       _ ->
+        if reply, do: GenServer.reply(reply, :ok)
         state
     end
+  end
+
+  @doc "The group `uuid` was handed to holds its state: this one lets it go."
+  def held(state, uuid) do
+    unless Map.has_key?(state.players, uuid) or Map.has_key?(state.player_leaving, uuid),
+      do: Registry.unregister(Valimc.PlayerRegistry, uuid)
+
+    state
+  end
+
+  ## Durability (the group's commit)
+
+  @doc """
+  Cut each hosted player's changes into its storage; a player whose state
+  the file may not hold stops.
+  """
+  def cut(state) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: session} = entry}, acc ->
+      case Storage.cut(session.storage, capture(session)) do
+        {:ok, storage} ->
+          put_in(acc.players[uuid].session.storage, storage)
+
+        {:error, reason} ->
+          Logger.error("Player state cannot be saved: #{inspect(reason)}")
+          Process.demonitor(entry.monitor, [:flush])
+          send(session.connection, {:player_stop, "Player save failed"})
+          leave(acc, uuid, session, nil, false)
+      end
+    end)
+  end
+
+  @doc "Whether a player's frames wait to be sent."
+  def pending?(state), do: Enum.any?(storages(state), fn {_, _, s} -> s.outbox != [] end)
+
+  @doc "Whether a player's frames are in flight."
+  def in_flight?(state), do: Enum.any?(storages(state), fn {_, _, s} -> s.in_flight != %{} end)
+
+  @doc "Whether a player's frames are still in flight on another stripe than `route`'s."
+  def held?(state, route),
+    do: Enum.any?(storages(state), fn {_, _, s} -> Storage.held?(s, route) end)
+
+  @doc """
+  Every player's frames to send on `route`'s stripe, as `{base, frame}`, and
+  the state that sent them.
+  """
+  def take(state, route) do
+    Enum.reduce(storages(state), {[], state}, fn {place, uuid, storage}, {frames, acc} ->
+      {taken, storage} = Storage.take(storage, route)
+
+      {frames ++ for(frame <- taken, do: {storage.base, frame}),
+       put_storage(acc, place, uuid, storage)}
+    end)
+  end
+
+  @doc """
+  A frame of `uuid` is durable: a leaving player whose last frame it was
+  closes; the acknowledgement of a player handed on follows it.
+  """
+  def durable(state, uuid, seq) do
+    case place(state, uuid) do
+      {place, storage} ->
+        {storage, items} = Storage.durable(storage, seq)
+        state = put_storage(state, place, uuid, storage)
+        Enum.reduce(items, state, fn {:close, reply}, acc -> close(acc, uuid, reply) end)
+
+      nil ->
+        forward(state, uuid, {:storage_durable, {:player, uuid}, seq})
+    end
+  end
+
+  @doc "Players whose checkpoint is due write it, off the group."
+  def checkpoints(state) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: session}}, acc ->
+      if Storage.checkpoint_due?(session.storage),
+        do:
+          put_in(acc.players[uuid].session.storage, Storage.checkpoint(session.storage, self())),
+        else: acc
+    end)
+  end
+
+  @doc "A player's checkpoint finished (`{:player_checkpointed, uuid, ref, seq, result}`)."
+  def checkpointed(state, uuid, ref, seq, result) do
+    case place(state, uuid) do
+      {place, storage} ->
+        put_storage(state, place, uuid, Storage.checkpointed(storage, ref, seq, result))
+
+      nil ->
+        forward(state, uuid, {:player_checkpointed, uuid, ref, seq, result})
+    end
+  end
+
+  @doc "A leaving player's file holds its last frame: the group lets it go."
+  def closed(state, uuid) do
+    state = %{state | player_leaving: Map.delete(state.player_leaving, uuid)}
+    unless Map.has_key?(state.players, uuid), do: Registry.unregister(Valimc.PlayerRegistry, uuid)
+    state
+  end
+
+  defp capture(session), do: PlayerState.capture(session.player, session.inventory)
+
+  defp storages(state) do
+    for({uuid, entry} <- state.players, do: {:players, uuid, entry.session.storage}) ++
+      for {uuid, storage} <- state.player_leaving, do: {:player_leaving, uuid, storage}
+  end
+
+  defp place(state, uuid) do
+    case state do
+      %{players: %{^uuid => entry}} -> {:players, entry.session.storage}
+      %{player_leaving: %{^uuid => storage}} -> {:player_leaving, storage}
+      _ -> nil
+    end
+  end
+
+  defp put_storage(state, :players, uuid, storage),
+    do: put_in(state.players[uuid].session.storage, storage)
+
+  defp put_storage(state, :player_leaving, uuid, storage),
+    do: put_in(state.player_leaving[uuid], storage)
+
+  # The session is gone: its last frame (`final`) is cut now, and the file
+  # takes it once it is durable.
+  defp leave(state, uuid, session, reply, final) do
+    storage =
+      with true <- final,
+           {:ok, storage} <- Storage.cut(session.storage, capture(session), true) do
+        storage
+      else
+        _ -> session.storage
+      end
+
+    state = %{
+      state
+      | players: Map.delete(state.players, uuid),
+        player_leaving: Map.put(state.player_leaving, uuid, storage)
+    }
+
+    case Storage.after_durable(storage, {:close, reply}) do
+      {:now, storage} -> close(put_in(state.player_leaving[uuid], storage), uuid, reply)
+      {:later, storage} -> put_in(state.player_leaving[uuid], storage)
+    end
+  end
+
+  defp close(state, uuid, reply) do
+    :ok = Storage.close(state.player_leaving[uuid], self(), reply)
+    state
   end
 
   @doc "Whether `uuid`'s session moved on from here: its new group, or nil."
@@ -192,9 +347,24 @@ defmodule Valimc.Session.Host do
     |> expire_moves()
   end
 
-  @doc "A clean stop: every hosted session saves; connections then see the group gone."
-  def stop_all(state) do
-    Enum.reduce(Map.keys(state.players), state, &left(&2, &1, :shutdown))
+  @doc """
+  A clean stop: every hosted session ends and its last frame is cut; the
+  group sends them (`commit/1`, its commit) and waits until they are
+  appended (`sync/1`), then writes the files (`close_all/1`).
+  """
+  def stop_all(state, commit) do
+    state = Enum.reduce(Map.keys(state.players), state, &left(&2, &1, :shutdown))
+    state = commit.(state)
+
+    for {_, _, %{base: base}} when base != nil <- storages(state),
+        do: Valimc.Storage.Log.sync(base, state.route)
+
+    for {uuid, storage} <- state.player_leaving do
+      Storage.close_now(storage)
+      Registry.unregister(Valimc.PlayerRegistry, uuid)
+    end
+
+    %{state | player_leaving: %{}}
   end
 
   ## Callbacks
@@ -245,39 +415,41 @@ defmodule Valimc.Session.Host do
     if entry.key == key(session.player), do: state, else: relocate(state, uuid)
   end
 
-  # The session ends here: it saves, and a connection that is still open is
-  # told to close with the reason the session recorded.
+  # The session ends here and saves; a connection that is still open is told
+  # to close with the reason the session recorded.
   defp finish(state, uuid, entry, session, reason) do
     group_dimension = Valimc.Dimension.put(session.player.dimension)
     Process.put(@group, state)
     Process.put(@acting, session.connection)
 
-    try do
-      Messages.terminate(session)
-    rescue
-      exception ->
-        Logger.error(
-          "Hosted session save failed: " <> Exception.format(:error, exception, __STACKTRACE__)
-        )
-    after
-      Valimc.Dimension.put(group_dimension)
-      Process.delete(@acting)
-    end
+    session =
+      try do
+        Messages.terminate(session)
+      rescue
+        exception ->
+          Logger.error(
+            "Hosted session end failed: " <> Exception.format(:error, exception, __STACKTRACE__)
+          )
+
+          session
+      after
+        Valimc.Dimension.put(group_dimension)
+        Process.delete(@acting)
+      end
 
     state = Process.delete(@group)
     Process.demonitor(entry.monitor, [:flush])
-    if session.store_monitor, do: Process.demonitor(session.store_monitor, [:flush])
 
     case reason do
-      {:left, _} ->
+      {:left, _, reply} ->
         Process.delete(@out)
+        leave(state, uuid, session, reply, true)
 
       _ ->
         flush(session)
         send(session.connection, {:player_stop, Valimc.Session.Presence.take()})
+        leave(state, uuid, session, nil, true)
     end
-
-    %{state | players: Map.delete(state.players, uuid)}
   end
 
   defp flush(session) do
@@ -324,18 +496,27 @@ defmodule Valimc.Session.Host do
       section = World.section(entry.session.player.dimension, key, :section)
 
       case World.existing_owner(section) do
-        {:ok, {pid, _}} when pid != self() -> hand(state, uuid, pid)
+        {:ok, {pid, _}} when pid != self() -> handoff(state, uuid, pid)
         _ -> state
       end
+    end
+  end
+
+  # The player's changes and the world's go out in one record first; a commit
+  # held by frames still in flight elsewhere defers the move to a later tick.
+  defp handoff(state, uuid, target) do
+    state = Valimc.World.Region.commit_now(state)
+
+    case state.players do
+      %{^uuid => %{session: %{storage: %{outbox: []}}}} -> hand(state, uuid, target)
+      _ -> state
     end
   end
 
   defp hand(state, uuid, target) do
     {entry, players} = Map.pop(state.players, uuid)
     Process.demonitor(entry.monitor, [:flush])
-    session = entry.session
-    if session.store_monitor, do: Process.demonitor(session.store_monitor, [:flush])
-    send(target, {:adopt_player, %{session | store_monitor: nil}})
+    send(target, {:adopt_player, entry.session, self()})
     until = System.monotonic_time(:millisecond) + @forward_ms
     Valimc.Metrics.add(:player_handoffs)
 

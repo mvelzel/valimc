@@ -1,7 +1,7 @@
 defmodule Valimc.KeyboardDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
@@ -26,14 +26,12 @@ defmodule Valimc.KeyboardDropTest do
 
     inventory = %Inventory{selected: 7, slots: %{43 => stone, 45 => ItemStack.new("egg", 3)}}
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, inventory))
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
     on_exit(fn ->
       # Closing cursor delivery outlives its socket; stop it before deleting its world.
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -63,7 +61,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp departed(ctx, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
-      not Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
+      not Enum.any?(Registry.lookup(Valimc.PlayerRegistry, ctx.uuid), fn {_, v} ->
         v != :closing
       end) and not Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end)
     end)

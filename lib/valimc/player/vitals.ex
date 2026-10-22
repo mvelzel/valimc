@@ -16,11 +16,8 @@ defmodule Valimc.Player.Vitals do
     PlayerFood,
     PlayerInput,
     PlayerLife,
-    PlayerStore,
     World
   }
-
-  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Living.{
     Air,
@@ -179,7 +176,7 @@ defmodule Valimc.Player.Vitals do
   who may fly, a client that has not loaded is immune, creative players' armor
   does not wear, and food pays the source's exhaustion.
   """
-  def resolve_damage(player, inventory, selected, source, effects, inventory_pending) do
+  def resolve_damage(player, inventory, selected, source, effects) do
     equipment = Armor.equipment(inventory)
 
     result =
@@ -189,8 +186,7 @@ defmodule Valimc.Player.Vitals do
         immune:
           (source in [:fall, :stalagmite] and player.abilities.may_fly) or
             not PlayerInput.loaded?(player.input),
-        infinite: player.abilities.infinite_materials,
-        pending: inventory_pending
+        infinite: player.abilities.infinite_materials
       )
 
     case result do
@@ -218,12 +214,11 @@ defmodule Valimc.Player.Vitals do
             state.inventory,
             selected,
             source,
-            effects || state.player.living.effects,
-            state.use_save != nil
+            effects || state.player.living.effects
           )
 
     case result do
-      reason when reason in [:ignored, :immune, :deferred] ->
+      reason when reason in [:ignored, :immune] ->
         {reason, state}
 
       {:ok, %{player: player, inventory: inventory, broken: broken}} ->
@@ -321,22 +316,10 @@ defmodule Valimc.Player.Vitals do
   defp text_tag(%Valimc.Protocol.ServerText{tag: tag}), do: tag
   defp text_tag(tag), do: tag
 
-  def checkpoint_life(state, kind, snapshot, player \\ nil) do
-    ref = make_ref()
-    PlayerStore.checkpoint(state.player_store, state.store_fence, snapshot, ref)
-    Process.send_after(state.connection, {:save_deadline, ref}, 5000)
-
-    %{
-      state
-      | save_ref: ref,
-        life_save: %{kind: kind, ref: ref, snapshot: snapshot, player: player}
-    }
-  end
-
-  def continue_life(%{save_ref: ref} = state) when ref != nil, do: state
-
+  # A death runs its stages at once: the inventory and the drops change in one
+  # callback, so the group's commit makes them durable together (VMC-077i3).
   def continue_life(%{life_stage: :sealing_death, phase: :play} = state),
-    do: checkpoint_life(state, :death_mark, PlayerState.capture(state.player, state.inventory))
+    do: continue_life(%{state | life_stage: :dropping})
 
   # The death drops scatter at once (`Player.dropAllDeathLoot`); items with
   # Curse of Vanishing are destroyed. Outside its group's sections the player
@@ -346,7 +329,7 @@ defmodule Valimc.Player.Vitals do
 
     case Valimc.Player.Items.drop(state, inventory, stacks, :scattered) do
       {:ok, state} ->
-        checkpoint_life(state, :death_done, PlayerState.capture(state.player, state.inventory))
+        continue_life(%{state | life_stage: :dead})
 
       :error ->
         state
@@ -355,9 +338,7 @@ defmodule Valimc.Player.Vitals do
 
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
     spawn = Valimc.World.PlayerSpawn.find()
-    player = PlayerLife.respawn(state.player, spawn)
-    snapshot = PlayerState.capture(player, Inventory.new(player.abilities.infinite_materials))
-    checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
+    finish_respawn(state, PlayerLife.respawn(state.player, spawn))
   end
 
   def continue_life(state), do: state
@@ -444,7 +425,7 @@ defmodule Valimc.Player.Vitals do
         do:
           Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
 
-    %{state | life_save: nil}
+    state
   end
 
   def tick_burning(%{life_stage: stage} = state) when stage != :alive,

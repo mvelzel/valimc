@@ -94,7 +94,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     ticks(pid, 7)
     assert living(pid).air_supply == -7
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.air_supply == -7 and saved.health.value == 16.0
     {_client, owner} = login(ctx)
@@ -132,6 +132,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     tick(pid)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
+    Valimc.TestPlayer.checkpointed(pid)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.air_supply == 0
     assert saved.inventory.slots == %{}

@@ -1,7 +1,7 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
@@ -32,7 +32,7 @@ defmodule Valimc.InventoryPersistenceTest do
       end)
 
   defp departed(uuid, retries \\ 100) do
-    if Registry.lookup(Valimc.PlayerStoreRegistry, uuid) != [] do
+    if Registry.lookup(Valimc.PlayerRegistry, uuid) != [] do
       assert retries > 0
       Process.sleep(10)
       departed(uuid, retries - 1)
@@ -88,7 +88,7 @@ defmodule Valimc.InventoryPersistenceTest do
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -196,7 +196,7 @@ defmodule Valimc.InventoryPersistenceTest do
         90.0::float-32, -25.0::float-32>>
 
     legacy = payload <> :crypto.hash(:sha256, payload)
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, legacy)
     client = Client.connect()

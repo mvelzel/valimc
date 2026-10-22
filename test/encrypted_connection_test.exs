@@ -43,7 +43,7 @@ defmodule Valimc.EncryptedConnectionTest do
 
   defp assert_no_lease(pid, name) do
     assert Players.get(pid) == :error
-    assert Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)) == []
+    assert Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid(name)) == []
   end
 
   test "fragmented plaintext key response, encrypted configuration/chunks/commands and independent peer" do
@@ -113,7 +113,7 @@ defmodule Valimc.EncryptedConnectionTest do
     eventually(fn -> not Process.alive?(pid) end)
 
     eventually(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid("CryptoReplay")) == []
+      Registry.lookup(Valimc.PlayerRegistry, Connection.offline_uuid("CryptoReplay")) == []
     end)
 
     Client.close(client)

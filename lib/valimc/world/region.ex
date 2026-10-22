@@ -465,7 +465,9 @@ defmodule Valimc.World.Region do
       # Players this group hosts (`Valimc.Session.Host`): uuid => entry.
       players: %{},
       # Players handed to other groups: uuid => {pid, until}.
-      player_moves: %{}
+      player_moves: %{},
+      # Players that left, until their file holds their last frame: uuid => storage.
+      player_leaving: %{}
     }
   end
 
@@ -595,7 +597,7 @@ defmodule Valimc.World.Region do
   def handle_call({:player_left, uuid, reason} = message, from, state) do
     cond do
       Map.has_key?(state.players, uuid) ->
-        {:reply, :ok, Host.left(state, uuid, reason)}
+        {:noreply, Host.left(state, uuid, reason, from)}
 
       pid = Host.moved(state, uuid) ->
         send(pid, {:"$gen_call", from, message})
@@ -790,8 +792,8 @@ defmodule Valimc.World.Region do
     end
   end
 
-  defp host_player(state, session) do
-    state = Host.host(state, session)
+  defp host_player(state, session, from \\ nil) do
+    state = Host.host(state, session, from)
 
     if Map.has_key?(state.players, session.player.uuid),
       do: send(session.connection, {:player_owner, session.player.uuid, self()})
@@ -837,7 +839,18 @@ defmodule Valimc.World.Region do
   def handle_info({:player, uuid, message}, state),
     do: {:noreply, Host.info(state, uuid, message)}
 
-  def handle_info({:adopt_player, session}, state), do: {:noreply, host_player(state, session)}
+  def handle_info({:adopt_player, session, from}, state),
+    do: {:noreply, host_player(state, session, from)}
+
+  def handle_info({:player_held, uuid}, state), do: {:noreply, Host.held(state, uuid)}
+
+  def handle_info({:player_checkpointed, uuid, ref, seq, result}, state),
+    do: {:noreply, Host.checkpointed(state, uuid, ref, seq, result)}
+
+  def handle_info({:player_closed, uuid, _result}, state) do
+    state = Host.closed(state, uuid)
+    if idle?(state), do: {:stop, :normal, state}, else: {:noreply, state}
+  end
 
   def handle_info({:player_claim, hops, message}, state) do
     case Host.claim(state, message, hops) do
@@ -893,7 +906,8 @@ defmodule Valimc.World.Region do
       end)
 
     timer = Process.send_after(self(), :commit, state.commit_ms)
-    {:noreply, commit_frames(%{state | commit_timer: timer})}
+    state = commit_frames(%{state | commit_timer: timer}, :players)
+    {:noreply, if(state.players == %{}, do: state, else: Host.checkpoints(state))}
   end
 
   def handle_info({:resource, epoch, message} = info, state) do
@@ -916,7 +930,10 @@ defmodule Valimc.World.Region do
       else: elsewhere(state, {:key, key}, {:info, info})
   end
 
-  # The log (VMC-077f): acknowledgements name the section's stream.
+  # The log (VMC-077f): acknowledgements name the section's or player's stream.
+  def handle_info({:storage_durable, {:player, uuid}, seq}, state),
+    do: {:noreply, Host.durable(state, uuid, seq)}
+
   def handle_info({:storage_durable, owner, _seq} = info, state) do
     case state.owners do
       %{^owner => key} -> section_info(state, key, info)
@@ -937,9 +954,10 @@ defmodule Valimc.World.Region do
 
   # The log stripe went down: frames in flight may or may not be durable.
   def handle_info({:DOWN, ref, :process, _, reason}, %{stripe: {_, ref}} = state) do
-    if Enum.any?(state.sections, fn {_, s} -> map_size(s.resource.storage.in_flight) > 0 end),
-      do: {:stop, {:storage_failed, {:log_down, reason}}, state},
-      else: {:noreply, %{state | stripe: nil}}
+    if Host.in_flight?(state) or
+         Enum.any?(state.sections, fn {_, s} -> map_size(s.resource.storage.in_flight) > 0 end),
+       do: {:stop, {:storage_failed, {:log_down, reason}}, state},
+       else: {:noreply, %{state | stripe: nil}}
   end
 
   # A worker of a section that moved ends here, after its report: forwarded.
@@ -1092,7 +1110,7 @@ defmodule Valimc.World.Region do
   defp idle?(state),
     do:
       state.sections == %{} and state.moved == %{} and state.players == %{} and
-        state.player_moves == %{}
+        state.player_moves == %{} and state.player_leaving == %{}
 
   # A group with sections ticks on its timer, unless tests step it.
   defp schedule_tick(state, clock, delay) do
@@ -1107,20 +1125,30 @@ defmodule Valimc.World.Region do
 
   ## Commits
 
-  # Every section's frames from one cut go out as one record: when any section
-  # has frames to send, the others' changes are cut too. A section whose
-  # frames are still in flight on another stripe (it moved here) holds the
-  # group's frames until they are durable.
+  # Every section's and hosted player's frames from one cut go out as one
+  # record: when any has frames to send, the others' changes are cut too, so a
+  # callback's changes to the world and to a player are durable together.
+  # `cut` true cuts everything now; `:players` (the commit timer) cuts the
+  # players' changes. A section or player whose frames are still in flight
+  # on another stripe (it moved here) holds the group's frames until they are
+  # durable.
   defp commit_frames(state, cut \\ false) do
-    pending? = cut or Enum.any?(state.sections, fn {_, s} -> s.resource.storage.outbox != [] end)
+    pending? =
+      cut == true or Enum.any?(state.sections, fn {_, s} -> s.resource.storage.outbox != [] end)
+
+    state =
+      if (pending? or cut == :players) and state.players != %{}, do: Host.cut(state), else: state
+
+    pending? = pending? or Host.pending?(state)
 
     cond do
       not pending? ->
         state
 
-      Enum.any?(state.sections, fn {_, s} ->
-        RegionStorage.held?(s.resource.storage, state.route)
-      end) ->
+      Host.held?(state, state.route) or
+          Enum.any?(state.sections, fn {_, s} ->
+            RegionStorage.held?(s.resource.storage, state.route)
+          end) ->
         state
 
       true ->
@@ -1128,19 +1156,26 @@ defmodule Valimc.World.Region do
           Enum.reduce(Map.keys(state.sections), {[], state}, fn key, {frames, acc} ->
             resource = RegionData.cut(acc.sections[key].resource)
             {taken, storage} = RegionStorage.take(resource.storage, acc.route)
+            taken = for frame <- taken, do: {storage.base, frame}
             {frames ++ taken, put_resource(acc, key, %{resource | storage: storage})}
           end)
 
-        send_frames(state, frames)
+        {players, state} = Host.take(state, state.route)
+        send_frames(state, frames ++ players)
     end
   end
 
-  defp send_frames(state, []), do: state
+  @doc false
+  # A hosted player moving on (`Valimc.Session.Host`) first sends what changed.
+  def commit_now(state), do: commit_frames(state, true)
 
+  # One record per world folder: one in play; tests give owners their own.
   defp send_frames(state, frames) do
-    base = state.sections |> Map.values() |> Enum.find_value(& &1.resource.storage.base)
-    stripe = Log.commit_group(base, state.route, frames, self())
-    watch_stripe(state, stripe)
+    frames
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.reduce(state, fn {base, frames}, acc ->
+      watch_stripe(acc, Log.commit_group(base, acc.route, frames, self()))
+    end)
   end
 
   defp watch_stripe(%{stripe: {pid, _}} = state, pid), do: state
@@ -1214,7 +1249,7 @@ defmodule Valimc.World.Region do
   # section then saves (VMC-077f). A crash commits nothing more.
   def terminate(reason, state) do
     clean = reason in [:normal, :shutdown] or match?({:shutdown, _}, reason)
-    state = if clean, do: Host.stop_all(state), else: state
+    state = if clean, do: Host.stop_all(state, &commit_frames(&1, true)), else: state
     state = if clean and state.sections != %{}, do: commit_frames(state, true), else: state
 
     for {_, section} <- state.sections, do: RegionData.terminate(reason, section.resource)

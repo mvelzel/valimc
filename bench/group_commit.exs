@@ -6,9 +6,8 @@
 # Region workload: R owners each edit a block every 5 ms for two seconds; each
 # replies at once and cuts one frame per 50 ms, and the frames of owners on one
 # stripe share its datasyncs. The interval ends with a flush of every owner.
-# Player workload: P processes each save a player file under `players/`
-# repeatedly through `Valimc.Storage.Log.commit_file/3`; every reply means the
-# bytes are durable.
+# Players' changes ride in their groups' frames (VMC-077i3), so they have no
+# workload of their own.
 alias Valimc.World
 alias Valimc.World.Region
 
@@ -75,48 +74,12 @@ region =
     }
   end
 
-players =
-  for players <- [1, 64, 512] do
-    world = Path.expand(base)
-    dir = Path.join(world, "players")
-    rounds = div(4096, players)
-    {batches, commits} = {metric.(:storage_batches), metric.(:storage_records)}
-    bytes = :crypto.strong_rand_bytes(2048)
-
-    {us, _} =
-      :timer.tc(fn ->
-        1..players
-        |> Task.async_stream(
-          fn p ->
-            path = Path.join(dir, "bench-#{players}-#{p}.pose")
-            for _ <- 1..rounds, do: :ok = Valimc.Storage.Log.commit_file(world, path, bytes)
-          end,
-          max_concurrency: players,
-          timeout: :infinity
-        )
-        |> Stream.run()
-      end)
-
-    n = rounds * players
-    batches = metric.(:storage_batches) - batches
-    commits = metric.(:storage_records) - commits
-
-    %{
-      workload: "player_saves",
-      players: players,
-      operations: n,
-      seconds: us / 1.0e6,
-      ops_per_second: round(n / (us / 1.0e6)),
-      commits_per_datasync: Float.round(commits / max(batches, 1), 2)
-    }
-  end
-
 results = %{
   revision: System.cmd("git", ["rev-parse", "HEAD"]) |> elem(0) |> String.trim(),
   os: :os.type() |> Tuple.to_list() |> Enum.join("/"),
   schedulers: System.schedulers_online(),
   full_fsync: Application.get_env(:valimc, :full_fsync),
-  results: region ++ players
+  results: region
 }
 
 for r <- results.results, do: IO.inspect(r)

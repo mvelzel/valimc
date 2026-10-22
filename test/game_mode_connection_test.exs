@@ -1,7 +1,7 @@
 defmodule Valimc.GameModeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities, PlayerStore}
+  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -22,16 +22,13 @@ defmodule Valimc.GameModeConnectionTest do
       slots: %{36 => ItemStack.new("stone", 7), 45 => ItemStack.new("egg", 3)}
     }
 
-    path = PlayerStore.path(base, uuid)
+    path = Valimc.Player.Storage.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
 
     on_exit(fn ->
       for {pid, p} <- :ets.tab2list(Players),
           p.uuid == uuid,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for {pid, _} <- Valimc.TestWorld.registered(key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
@@ -68,7 +65,7 @@ defmodule Valimc.GameModeConnectionTest do
     ref = Process.monitor(state(ctx).player.pid)
     Client.close(client)
     assert_receive {:DOWN, ^ref, :process, _, :normal}
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
   end
 
   defp barrier(client) do

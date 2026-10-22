@@ -4,7 +4,7 @@ defmodule Valimc.Storage.Checkpoint do
   frame, `"VMCREG01" <> <<seq::64>> <> term <> sha256`, replaced crash-safely
   (`Valimc.DurableFile`). A region's is `r.X.Z.vmc` in its dimension's folder,
   with its export-only imported data beside it in `r.X.Z.extra`; a player's
-  file has the same form (`Valimc.Player.State`, VMC-077i1). The header alone
+  is `players/<uuid>.pose` (`Valimc.Player.State`, VMC-077i1). The header alone
   tells the log what a checkpoint covers.
   """
   alias Valimc.Dimension
@@ -13,6 +13,9 @@ defmodule Valimc.Storage.Checkpoint do
 
   def path(base, {:region, dimension, {rx, rz}}),
     do: Path.join(Dimension.storage(base, dimension), "r.#{rx}.#{rz}.vmc")
+
+  def path(base, {:player, <<_::128>> = uuid}),
+    do: Path.join([base, "players", Base.encode16(uuid, case: :lower) <> ".pose"])
 
   def path(_base, _owner), do: nil
 

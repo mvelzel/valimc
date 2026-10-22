@@ -2,7 +2,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,9 +19,6 @@ defmodule Valimc.PlayerHealthConnectionTest do
       for player <- Players.all(),
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
       Valimc.TestScope.stop_players(base)
@@ -46,7 +43,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
 
   defp departed(ctx, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
-      Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] and
+      Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] and
         not Enum.any?(Players.all(), &(&1.name == ctx.name))
     end)
   end
@@ -72,7 +69,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
     {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -105,7 +102,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
        ctx do
     legacy = %{pose: %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}, inventory: %Inventory{}}
     {:ok, bytes} = PlayerState.encode(ctx.uuid, legacy)
-    path = PlayerStore.path(ctx.base, ctx.uuid)
+    path = Valimc.Player.Storage.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
     {health, client, pid} = health_login(ctx.name)

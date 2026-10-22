@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerPickupConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, World}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.World.Region
@@ -24,10 +24,6 @@ defmodule Valimc.PlayerPickupConnectionTest do
       for player <- Players.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for name <- names,
-          {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 1), z <- (rz - 1)..(rz + 1) do
         for {pid, _} <- Valimc.TestWorld.registered({x, z}),
@@ -60,7 +56,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {:ok, bytes} =
       PlayerState.encode(c.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
-    path = PlayerStore.path(c.base, c.uuid)
+    path = Valimc.Player.Storage.path(c.base, c.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
   end
@@ -77,7 +73,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp spawn_item(c, stack, dx \\ 0.0) do
+  defp spawn_item(c, stack, dx) do
     at = {c.pose.x + dx, c.pose.y, c.pose.z}
     key = World.region_key(World.chunk_key(c.pose.x + dx, c.pose.z))
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
@@ -118,7 +114,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     Client.close(client)
 
     wait(fn ->
-      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerRegistry, c.uuid) == []
     end)
 
     {_fresh, next} = login(c)

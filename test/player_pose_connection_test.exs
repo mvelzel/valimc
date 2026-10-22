@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerPoseConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerStore}
+  alias Valimc.{Inventory, Players}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.TestClient, as: Client
@@ -19,7 +19,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     for {name, index} <- Enum.with_index(names) do
       uuid = Valimc.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 256}
-      path = PlayerStore.path(base, uuid)
+      path = Valimc.Player.Storage.path(base, uuid)
       {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
@@ -29,11 +29,6 @@ defmodule Valimc.PlayerPoseConnectionTest do
       for player <- Players.all(),
           player.name in names,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-
-      for name <- names,
-          {pid, _} <-
-            Registry.lookup(Valimc.PlayerStoreRegistry, Valimc.Connection.offline_uuid(name)),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
       for x <- (rx - 1)..(rx + 3),
           z <- (rz - 1)..(rz + 1),

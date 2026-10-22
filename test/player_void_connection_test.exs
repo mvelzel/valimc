@@ -84,7 +84,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     tick(pid)
     assert living(pid).health.value == 12.0
     Client.close(client)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    wait(fn -> Registry.lookup(Valimc.PlayerRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.pose.y == -129.0
     assert saved.inventory.slots[36] == ItemStack.new("stone", 7)
@@ -118,7 +118,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     assert state(pid).inventory.slots == inventory.slots
   end
 
-  test "a fatal tick seals once while its writer is stalled, then respawns after durable batches",
+  test "a fatal tick dies once with its drops, then respawns and saves the respawned player",
        ctx do
     helmet = %{
       ItemStack.new("iron_helmet")
@@ -133,35 +133,24 @@ defmodule Valimc.PlayerVoidConnectionTest do
 
     seed(ctx, health: 4.0, inventory: inventory)
     {client, pid} = login(ctx)
-    writer = state(pid).player_store
-    :sys.suspend(writer)
-
-    try do
-      tick(pid)
-      {body, client} = Client.await(client, :play, "player_combat_kill")
-      assert :binary.match(body, "death.attack.outOfWorld") != :nomatch
-      assert state(pid).life_stage == :sealing_death
-      marker = state(pid).save_ref
-      ticks(pid, 15)
-      assert state(pid).save_ref == marker and living(pid).health.value == 0.0
-      Client.send_packet(client, :play, "client_command", <<0>>)
-      wait(fn -> state(pid).respawn_requested end)
-      :sys.resume(writer)
-      {_, client} = Client.await(client, :play, "respawn")
-      {<<13, 0::32>>, client} = Client.await(client, :play, "game_event")
-      {<<20.0::float-32, _::binary>>, _client} = Client.await(client, :play, "set_health")
-      assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
-      assert state(pid).player.y == 64.0 and living(pid).air_supply == 300
-      {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.health.value == 20.0
-      assert saved.last_death == {floor(ctx.pose.x), -129, floor(ctx.pose.z)}
-      records = Valimc.TestWorld.item_snapshot(ctx.key)
-      assert map_size(records) == 8
-      ticks(pid, 12)
-      assert living(pid).health.value == 20.0
-      assert Valimc.TestWorld.item_snapshot(ctx.key) == records
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
+    tick(pid)
+    {body, client} = Client.await(client, :play, "player_combat_kill")
+    assert :binary.match(body, "death.attack.outOfWorld") != :nomatch
+    assert state(pid).life_stage == :dead
+    ticks(pid, 15)
+    assert living(pid).health.value == 0.0
+    Client.send_packet(client, :play, "client_command", <<0>>)
+    {_, client} = Client.await(client, :play, "respawn")
+    {<<13, 0::32>>, client} = Client.await(client, :play, "game_event")
+    {<<20.0::float-32, _::binary>>, _client} = Client.await(client, :play, "set_health")
+    assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
+    assert state(pid).player.y == 64.0 and living(pid).air_supply == 300
+    saved = Valimc.TestPlayer.saved(ctx, pid, &(&1.health.value == 20.0))
+    assert saved.last_death == {floor(ctx.pose.x), -129, floor(ctx.pose.z)}
+    records = Valimc.TestWorld.item_snapshot(ctx.key)
+    assert map_size(records) == 8
+    ticks(pid, 12)
+    assert living(pid).health.value == 20.0
+    assert Valimc.TestWorld.item_snapshot(ctx.key) == records
   end
 end

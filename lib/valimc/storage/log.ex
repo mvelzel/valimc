@@ -11,29 +11,27 @@ defmodule Valimc.Storage.Log do
   wrote nothing; the stripe holds it and everything after it and tries again
   for up to #{30} seconds before failing them. Two kinds of record go in:
 
-  - **Owner frames** (`commit/5`): one region section's changes of a tick, an
-    opaque binary of keyed records the owner encodes (`Valimc.World.RegionStorage`),
-    numbered per section (`seq`). The stripe acknowledges `{:storage_durable,
+  - **Owner frames** (`commit/5`): one owner's changes of a tick (a region
+    section, `Valimc.World.RegionStorage`, or a player,
+    `Valimc.Player.Storage`), an opaque binary of keyed records the owner
+    encodes, numbered per owner (`seq`). The stripe acknowledges `{:storage_durable,
     owner, seq}` once it is durable; the section folds its frames into its own
     checkpoint file and reports `covered/3` with the last `seq` it holds. A
     loading section reads its frames after its checkpoint with `frames/3`.
   - **Group frames** (`commit_group/4`, VMC-077j): the frames of every section
-    of a group process from one commit, in one record, so a crash keeps all of
-    them or none. A section's frames go to the stripe of the group it is in, so
+    and hosted player of a group process from one commit, in one record, so a
+    crash keeps all of them or none. A section's frames go to the stripe of the group it is in, so
     they may sit on several stripes over time: its group sends a frame to a new
     stripe only once those before are durable. An index records the stripes a
     section has sent frames to (the sender writes it before the frame, so a
     load after a crash sees frames still in flight; a recovering stripe
     writes what it finds), and `frames/3` reads only those, so one stalled
     stripe holds only the sections it holds frames of.
-  - **File records** (`commit_file/3`): a player file's whole bytes. The call
-    returns once durable; the stripe then writes the file (page cache) and
-    covers the record itself once a checkpoint has fsynced the file.
 
   A segment is deleted once every frame in it is covered. On start a stripe
-  reads its segments: file records are written to their files again and
-  synced; owners with frames newer than their checkpoint files are admitted, so
-  they replay and checkpoint them. A stripe stops only once its world folder is
+  reads its segments: owners with frames newer than their checkpoint files
+  are admitted (a section) or folded (a player), so they replay and
+  checkpoint them. A stripe stops only once its world folder is
   gone (a removed test world): stopping a live one could lose a commit cast to
   it on the way. Worlds written before this log (per-region `r.X.Z/` logs,
   `players/wal.<n>/`) are refused (D4).
@@ -44,7 +42,6 @@ defmodule Valimc.Storage.Log do
   alias Valimc.World.RegionLog
 
   @stripes 8
-  @file_stripes 2
   @index Valimc.Storage.LogIndex
   @idle_ms 15_000
   @retry_ms 100
@@ -52,21 +49,14 @@ defmodule Valimc.Storage.Log do
   @max_batch 512
   # Several owner frames share a RegionLog frame up to this many bytes.
   @frame_bytes 16 * 1024 * 1024
-  @file_checkpoint_bytes 4 * 1024 * 1024
 
   @doc "How many stripes a world's log has."
   def stripes, do: @stripes
 
-  @doc """
-  The stripe of an owner key. Player files take the last #{2} stripes, so a
-  player's save never queues behind a region's large frame.
-  """
-  def stripe({:file, _} = owner),
-    do: @stripes - @file_stripes + :erlang.phash2(owner, @file_stripes)
+  @doc "The stripe of an owner key."
+  def stripe(owner), do: :erlang.phash2(owner, @stripes)
 
-  def stripe(owner), do: :erlang.phash2(owner, @stripes - @file_stripes)
-
-  defp region_stripes, do: 0..(@stripes - @file_stripes - 1)
+  defp region_stripes, do: 0..(@stripes - 1)
 
   @doc "Create the index of the stripes owners' frames are on; the application owns it."
   def init! do
@@ -110,17 +100,10 @@ defmodule Valimc.Storage.Log do
     stripe
   end
 
-  @doc "Durably store `bytes` as the file `path` under `base`; returns once durable."
-  def commit_file(base, path, bytes) when is_binary(path) and is_binary(bytes) do
-    relative = Path.relative_to(path, base)
-    GenServer.call(ensure(base, {:file, relative}), {:file, relative, bytes}, 10_000)
-  catch
-    :exit, reason -> {:error, {:storage_log, reason}}
-  end
-
   @doc """
-  The frames of `owner` numbered after `seq`, in order, as `[{seq, frame}]`,
-  from every region stripe (a section's group decides its stripe).
+  The frames of `owner` numbered after `seq` that no checkpoint covers, in
+  order, as `[{seq, frame}]`, from every region stripe (a section's group
+  decides its stripe).
   """
   def frames(base, owner, seq) do
     # Every stripe recovers (and indexes) its segments when it starts.
@@ -182,11 +165,7 @@ defmodule Valimc.Storage.Log do
       log: nil,
       # owner => queue of {seq, lsn} of its frames no checkpoint covers yet
       pending: %{},
-      # file path => lsn of its newest record, written but not yet fsynced
-      files: %{},
-      file_bytes: 0,
-      checkpointing: nil,
-      # {commits, files, attempts} held after an unwritten append
+      # {commits, syncs, attempts} held after an unwritten append
       held: nil
     }
 
@@ -196,39 +175,34 @@ defmodule Valimc.Storage.Log do
     end
   end
 
-  # Open the stripe and recover it: files replayed and synced, owners' covered
-  # frames found from their checkpoint files.
+  # Open the stripe and recover it: owners' covered frames found from their
+  # checkpoint files.
   defp open(state) do
     dir = dir(state.base, state.n)
     old = Path.wildcard(Path.join([state.base, "players", "wal.*"]))
 
     with :ok <- if(old == [], do: :ok, else: {:error, {:old_player_log, old}}),
          {:ok, log, %{frames: frames}} <- RegionLog.open(dir) do
-      files = for %{ops: ops} <- frames, {:file, path, bytes} <- ops, into: %{}, do: {path, bytes}
-
       owners =
         for %{lsn: lsn, ops: ops} <- frames, {:frame, owner, seq, _} <- ops, reduce: %{} do
           acc -> Map.update(acc, owner, [{seq, lsn}], &[{seq, lsn} | &1])
         end
 
-      with :ok <- write_files(state.base, files),
-           :ok <- sync_files(state.base, Map.keys(files)) do
-        pending =
-          for {owner, entries} <- owners,
-              covered = checkpoint_seq(state.base, owner),
-              entries = Enum.filter(Enum.reverse(entries), fn {seq, _} -> seq > covered end),
-              entries != [],
-              into: %{},
-              do: {owner, :queue.from_list(entries)}
+      pending =
+        for {owner, entries} <- owners,
+            covered = checkpoint_seq(state.base, owner),
+            entries = Enum.filter(Enum.reverse(entries), fn {seq, _} -> seq > covered end),
+            entries != [],
+            into: %{},
+            do: {owner, :queue.from_list(entries)}
 
-        # Owners with frames their checkpoint does not cover load, replay and
-        # checkpoint them, so the log can be pruned.
-        for {owner, _} <- pending, do: index(state.base, owner, state.n)
-        for {owner, _} <- pending, do: recover(owner)
-        state = %{state | log: log, pending: pending}
-        prune(state)
-        {:ok, state}
-      end
+      # Owners with frames their checkpoint does not cover load, replay and
+      # checkpoint them, so the log can be pruned.
+      for {owner, _} <- pending, do: index(state.base, owner, state.n)
+      for {owner, _} <- pending, do: recover(state.base, owner)
+      state = %{state | log: log, pending: pending}
+      prune(state)
+      {:ok, state}
     end
   rescue
     error in [File.Error, ArgumentError] -> {:error, {:storage_log, Exception.message(error)}}
@@ -241,22 +215,21 @@ defmodule Valimc.Storage.Log do
     end
   end
 
-  defp recover({:region, dimension, key}) do
+  defp recover(_base, {:region, dimension, key}) do
     Task.start(fn ->
       Valimc.World.Directory.admit(Valimc.World.section(dimension, key, :section))
     end)
   end
 
-  defp recover(_), do: :ok
+  defp recover(base, {:player, uuid}), do: Valimc.Player.Storage.recover(base, uuid)
+  defp recover(_base, _owner), do: :ok
 
   @impl true
-  def handle_cast({:commit, _, _} = first, %{held: nil} = state) do
-    {commits, files} = drain([first], [], @max_batch - 1)
-    append(state, commits, files)
-  end
+  def handle_cast({:commit, _, _} = first, %{held: nil} = state),
+    do: append(state, drain([first], @max_batch - 1), [])
 
-  def handle_cast({:commit, _, _} = commit, %{held: {commits, files, n}} = state),
-    do: {:noreply, %{state | held: {commits ++ [commit], files, n}}, @idle_ms}
+  def handle_cast({:commit, _, _} = commit, %{held: {commits, syncs, n}} = state),
+    do: {:noreply, %{state | held: {commits ++ [commit], syncs, n}}, @idle_ms}
 
   def handle_cast({:covered, owner, seq}, state) do
     pending =
@@ -285,22 +258,19 @@ defmodule Valimc.Storage.Log do
   end
 
   @impl true
-  def handle_call({:file, _, _} = first, from, %{held: nil} = state) do
-    {commits, files} = drain([], [{from, first}], @max_batch - 1)
-    append(state, commits, files)
-  end
-
-  def handle_call({:file, _, _} = file, from, %{held: {commits, files, n}} = state),
-    do: {:noreply, %{state | held: {commits, files ++ [{from, file}], n}}, @idle_ms}
-
+  # Only frames no checkpoint covers: a file written anew (a seeded or edited
+  # player) does not replay the frames an earlier checkpoint holds.
   def handle_call({:frames, owner, after_seq}, _from, state) do
+    uncovered =
+      MapSet.new(:queue.to_list(Map.get(state.pending, owner, :queue.new())), &elem(&1, 0))
+
     case RegionLog.read(dir(state.base, state.n)) do
       {:ok, %{frames: frames}} ->
         {:reply,
          for(
            %{ops: ops} <- frames,
            {:frame, ^owner, seq, frame} <- ops,
-           seq > after_seq,
+           seq > after_seq and MapSet.member?(uncovered, seq),
            do: {seq, frame}
          ), state, @idle_ms}
 
@@ -310,27 +280,16 @@ defmodule Valimc.Storage.Log do
   end
 
   # Held appends answer once they land or fail.
-  def handle_call(:sync, from, %{held: {commits, files, n}} = state),
-    do: {:noreply, %{state | held: {commits, files ++ [{from, :sync}], n}}, @idle_ms}
+  def handle_call(:sync, from, %{held: {commits, syncs, n}} = state),
+    do: {:noreply, %{state | held: {commits, syncs ++ [from], n}}, @idle_ms}
 
   def handle_call(:sync, _from, state), do: {:reply, :ok, state, @idle_ms}
 
   @impl true
-  def handle_info({:checkpointed, ref, written, result}, %{checkpointing: ref} = state) do
-    files =
-      if result == :ok,
-        do: Map.reject(state.files, fn {path, lsn} -> written[path] == lsn end),
-        else: state.files
+  def handle_info(:retry, %{held: {commits, syncs, n}} = state),
+    do: append(%{state | held: nil}, commits, syncs, n + 1)
 
-    state = %{state | checkpointing: nil, files: files}
-    prune(state)
-    {:noreply, state, @idle_ms}
-  end
-
-  def handle_info(:retry, %{held: {commits, files, n}} = state),
-    do: append(%{state | held: nil}, commits, files, n + 1)
-
-  def handle_info(:timeout, %{checkpointing: nil, held: nil} = state) do
+  def handle_info(:timeout, %{held: nil} = state) do
     if File.dir?(state.base, [:raw]) do
       {:noreply, state, @idle_ms}
     else
@@ -343,30 +302,24 @@ defmodule Valimc.Storage.Log do
 
   def handle_info(_, state), do: {:noreply, state, @idle_ms}
 
-  # Commits from many owners arrive as casts and calls; each owner's stay in
-  # order, so taking them ahead of other messages reorders nothing per owner.
-  defp drain(commits, files, 0), do: {Enum.reverse(commits), Enum.reverse(files)}
+  # Commits from many owners arrive as casts; each owner's stay in order, so
+  # taking them ahead of other messages reorders nothing per owner.
+  defp drain(commits, 0), do: Enum.reverse(commits)
 
-  defp drain(commits, files, left) do
+  defp drain(commits, left) do
     receive do
-      {:"$gen_cast", {:commit, _, _} = commit} ->
-        drain([commit | commits], files, left - 1)
-
-      {:"$gen_call", from, {:file, _, _} = file} ->
-        drain(commits, [{from, file} | files], left - 1)
+      {:"$gen_cast", {:commit, _, _} = commit} -> drain([commit | commits], left - 1)
     after
-      0 -> {Enum.reverse(commits), Enum.reverse(files)}
+      0 -> Enum.reverse(commits)
     end
   end
 
-  defp append(state, commits, entries, attempts \\ 0) do
-    {syncs, files} = Enum.split_with(entries, &match?({_, :sync}, &1))
-
+  defp append(state, commits, syncs, attempts \\ 0) do
     # A commit's frames stay together in one RegionLog frame (VMC-077j).
     units =
       Enum.map(commits, fn {:commit, frames, _} ->
         for {owner, seq, frame} <- frames, do: {:frame, owner, seq, frame}
-      end) ++ Enum.map(files, fn {_, {:file, path, bytes}} -> [{:file, path, bytes}] end)
+      end)
 
     ops = Enum.concat(units)
     Valimc.Metrics.add(:storage_batches)
@@ -385,10 +338,7 @@ defmodule Valimc.Storage.Log do
           {owner, seq, _} <- frames,
           do: send(notify, {:storage_durable, owner, seq})
 
-      latest = Map.new(files, fn {_, {:file, path, bytes}} -> {path, bytes} end)
-      result = write_files(state.base, latest)
-      for {from, _} <- files, do: GenServer.reply(from, result)
-      for {from, _} <- syncs, do: GenServer.reply(from, :ok)
+      for from <- syncs, do: GenServer.reply(from, :ok)
 
       pending =
         commits
@@ -400,20 +350,12 @@ defmodule Valimc.Storage.Log do
           Map.update(acc, owner, :queue.from_list([{seq, lsn}]), &:queue.in({seq, lsn}, &1))
         end)
 
-      state = %{
-        state
-        | log: log,
-          pending: pending,
-          files: Enum.reduce(Map.keys(latest), state.files, &Map.put(&2, &1, last)),
-          file_bytes: state.file_bytes + Enum.sum(Enum.map(Map.values(latest), &byte_size/1))
-      }
-
-      {:noreply, maybe_checkpoint_files(state), @idle_ms}
+      {:noreply, %{state | log: log, pending: pending}, @idle_ms}
     else
       # Nothing was written: hold the batch, and what follows, and try again.
       {:error, {:unwritten, _}} when attempts < @retries ->
         Process.send_after(self(), :retry, @retry_ms)
-        {:noreply, %{state | held: {commits, entries, attempts}}, @idle_ms}
+        {:noreply, %{state | held: {commits, syncs, attempts}}, @idle_ms}
 
       {:error, reason} ->
         Logger.error("Storage log append failed: #{inspect(reason)}")
@@ -422,8 +364,7 @@ defmodule Valimc.Storage.Log do
             {owner, seq, _} <- frames,
             do: send(notify, {:storage_failed, owner, seq, reason})
 
-        for {from, _} <- files, do: GenServer.reply(from, {:error, reason})
-        for {from, _} <- syncs, do: GenServer.reply(from, :ok)
+        for from <- syncs, do: GenServer.reply(from, :ok)
 
         # A torn frame may only be repaired by recovery: reopen the stripe.
         case reason do
@@ -485,78 +426,13 @@ defmodule Valimc.Storage.Log do
   end
 
   defp op_bytes({:frame, _, _, frame}), do: byte_size(frame) + 64
-  defp op_bytes({:file, path, bytes}), do: byte_size(bytes) + byte_size(path) + 64
 
-  defp write_files(_base, files) when map_size(files) == 0, do: :ok
-
-  defp write_files(base, files) do
-    Enum.reduce_while(files, :ok, fn {path, bytes}, :ok ->
-      path = Path.join(base, path)
-      tmp = path <> ".tmp"
-
-      result =
-        with :ok <- File.mkdir_p(Path.dirname(path)),
-             :ok <- File.write(tmp, bytes, [:binary, :raw]),
-             do: File.rename(tmp, path)
-
-      case result do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp sync_files(_base, []), do: :ok
-
-  defp sync_files(base, paths) do
-    with :ok <-
-           Enum.reduce_while(paths, :ok, fn path, :ok ->
-             case Valimc.Native.full_sync(Path.join(base, path)) do
-               :ok -> {:cont, :ok}
-               {:error, reason} -> {:halt, {:error, reason}}
-             end
-           end) do
-      paths
-      |> Enum.map(&Path.dirname(Path.join(base, &1)))
-      |> Enum.uniq()
-      |> Enum.reduce_while(:ok, fn dir, :ok ->
-        case Valimc.Native.fsync_dir(dir) do
-          :ok -> {:cont, :ok}
-          error -> {:halt, error}
-        end
-      end)
-    end
-  end
-
-  # Written files are fsynced by a task once their bytes add up; their records
-  # are covered then.
-  defp maybe_checkpoint_files(%{file_bytes: bytes} = state) when bytes < @file_checkpoint_bytes,
-    do: state
-
-  defp maybe_checkpoint_files(%{checkpointing: ref} = state) when ref != nil, do: state
-
-  defp maybe_checkpoint_files(state) do
-    stripe = self()
-    ref = make_ref()
-    written = state.files
-    base = state.base
-
-    {:ok, _} =
-      Task.start_link(fn ->
-        send(stripe, {:checkpointed, ref, written, sync_files(base, Map.keys(written))})
-      end)
-
-    %{state | checkpointing: ref, file_bytes: 0}
-  end
-
-  # Everything at or below the first uncovered frame of any owner or file is
-  # covered; segments wholly below it go.
+  # Everything at or below the first uncovered frame of any owner is covered;
+  # segments wholly below it go.
   defp prune(%{log: nil}), do: :ok
 
   defp prune(state) do
-    floors =
-      Enum.map(Map.values(state.pending), fn entries -> elem(:queue.get(entries), 1) end) ++
-        Map.values(state.files)
+    floors = Enum.map(Map.values(state.pending), fn entries -> elem(:queue.get(entries), 1) end)
 
     floor = if floors == [], do: state.log.next_lsn, else: Enum.min(floors)
     RegionLog.prune(state.log, floor - 1)
