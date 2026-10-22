@@ -32,11 +32,9 @@ defmodule Valimc.PlacementOwnerTest do
   end
 
   test "owner block commits refuse unsupported block entities and keep supported ones", c do
-    {pid, _} = c.owner
-
     # Default states the 26.3 client sent for a copper chest and a barrel.
     for state <- [32_926, 24_100] do
-      revision = Valimc.TestConn.state(pid).resource.revision
+      revision = Valimc.TestRegion.section(c.owner).revision
 
       assert {:error, :unsupported_block_entity} =
                Region.set_blocks(c.owner, revision, %{c.position => state})
@@ -45,7 +43,7 @@ defmodule Valimc.PlacementOwnerTest do
     end
 
     {:ok, furnace} = Valimc.CookingBlocks.placement(:furnace, 90.0)
-    revision = Valimc.TestConn.state(pid).resource.revision
+    revision = Valimc.TestRegion.section(c.owner).revision
     assert {:ok, _} = Region.set_blocks(c.owner, revision, %{c.position => furnace})
     assert Valimc.TestBlocks.get(c.position) == furnace
   end
@@ -71,7 +69,7 @@ defmodule Valimc.PlacementOwnerTest do
 
     chest = Valimc.TestBlocks.get(c.position)
     assert Valimc.TestRegion.published_block(c.owner, c.position) == chest
-    old = Valimc.TestConn.state(pid).resource.containers
+    old = Valimc.TestRegion.section(c.owner).containers
     assert old.entries[c.position].slots == Tuple.duplicate(nil, 27)
     {:ok, current} = Region.observe_blocks(c.owner, [c.position])
 
@@ -93,11 +91,11 @@ defmodule Valimc.PlacementOwnerTest do
       )
 
     assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
-    assert Valimc.TestConn.state(pid).resource.containers == containers
+    assert Valimc.TestRegion.section(c.owner).containers == containers
     assert World.item_snapshot(c.key) == %{}
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, {replacement, _}} = World.owner(c.key)
-    assert :sys.get_state(replacement).resource.containers == containers
+    {:ok, replacement} = World.owner(c.key)
+    assert Valimc.TestRegion.section(replacement).containers == containers
     assert Valimc.TestBlocks.get(c.position) == 0
   end
 

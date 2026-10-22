@@ -71,7 +71,7 @@ defmodule Valimc.ItemPortalRegionTest do
     Dimension.within(dimension, fn -> elem(World.item_owner(region), 1) end)
   end
 
-  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp resource(owner), do: Valimc.TestRegion.section(owner)
 
   # Step the source owner tick by tick until `fun` holds.
   defp run(owner, fun) do

@@ -106,9 +106,11 @@ defmodule Valimc.RegionLightTest do
     {rx, rz} = ctx.key
     east = {rx + 1, rz}
 
+    # In another group (the regionizer would merge them): light crosses by halo.
     TestScope.isolate(east,
       world_path: Valimc.config(:world_path, ctx.key),
-      region_ticks: :manual
+      region_ticks: :manual,
+      regionizer: false
     )
 
     on_exit(fn ->
@@ -150,13 +152,54 @@ defmodule Valimc.RegionLightTest do
            end)
   end
 
-  test "a neighbour sends border light updates only for chunks a client asked for", ctx do
+  test "light crosses section borders inside one group (VMC-077j)", ctx do
     {rx, rz} = ctx.key
     east = {rx + 1, rz}
 
     TestScope.isolate(east,
       world_path: Valimc.config(:world_path, ctx.key),
       region_ticks: :manual
+    )
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east), do: TestScope.kill(pid)
+    end)
+
+    # Neighbours share a group (the regionizer, VMC-077j2).
+    group = fn key -> elem(elem(World.owner(key), 1), 0) end
+    assert eventually(fn -> group.(east) == group.(ctx.key) end)
+    {:ok, owner} = World.owner(ctx.key)
+    {:ok, neighbour} = World.owner(east)
+    {x0, z0} = ctx.origin
+    edge = x0 + Valimc.config(:region_size) * 16 - 1
+    glowstone = BlockRegistry.default_state("glowstone")
+    across = {edge + 2, 70, z0 + 40}
+    across_chunk = World.chunk_key(edge + 2, z0 + 40)
+    set(owner, %{{edge, 70, z0 + 40} => glowstone})
+    assert eventually(fn -> level(image(neighbour, across_chunk), :block, across) == 13 end)
+    set(owner, %{{edge, 70, z0 + 40} => 0})
+    assert eventually(fn -> level(image(neighbour, across_chunk), :block, across) == 0 end)
+    set(neighbour, %{{edge + 1, 70, z0 + 40} => glowstone})
+
+    assert eventually(fn ->
+             level(
+               image(owner, World.chunk_key(edge, z0 + 40)),
+               :block,
+               {edge - 1, 70, z0 + 40}
+             ) ==
+               13
+           end)
+  end
+
+  test "a neighbour sends border light updates only for chunks a client asked for", ctx do
+    {rx, rz} = ctx.key
+    east = {rx + 1, rz}
+
+    # In another group (the regionizer would merge them): light crosses by halo.
+    TestScope.isolate(east,
+      world_path: Valimc.config(:world_path, ctx.key),
+      region_ticks: :manual,
+      regionizer: false
     )
 
     on_exit(fn ->

@@ -56,12 +56,12 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     }
   end
 
-  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp state(owner), do: Valimc.TestRegion.section(owner)
 
   defp start(c) do
-    for {pid, _} = owner <- [c.source, c.target] do
+    for owner <- [c.source, c.target] do
       Valimc.TestScope.simulate(owner, state(owner).key)
-      :sys.replace_state(pid, &put_in(&1.resource.entities.simulate, true))
+      Valimc.TestRegion.replace_section(owner, &put_in(&1.entities.simulate, true))
     end
   end
 

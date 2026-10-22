@@ -12,7 +12,8 @@ authority. The M1 foundations below are in place; later milestones on the
 | Socket, protocol, AES stream, session inventory/input/pose, move validation | One connection process per player; each move packet is validated synchronously by the physics kernel |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
-| Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
+| Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | The group process (`World.Region`) of their 8×8-chunk section while chunk tickets hold it; immutable chunk snapshots and chunk packets in the section's ETS table for readers |
+| Which sections share a group | Regionizer per dimension (`World.Regionizer`); routes in the Directory's ETS table |
 | Generated chunks before they are full | Generation scheduler per dimension (`Worldgen.Scheduler`): statuses, proto chunks as native cells, structure starts; terrain, decoration and full chunks as jobs on the generation pool |
 | Entity observations | Region-owned protected ETS: per-chunk views and per-tick frames encoded once by the owner's trackers |
 | World clock, weather, difficulty | Environment owner; immutable publications |
@@ -38,18 +39,48 @@ in its domain; only a domain's restart restarts the domains after it. Tables
 that hold no owned state belong to the application itself. Acceptors back off
 on accept errors (VMC-077a).
 
-A region owner's state is its key and epoch (its incarnation: handles and
+A section's state is its key and epoch (its incarnation: handles and
 messages of an older one are stale), its publication table, its blocks and
 block entities, its entities (`RegionEntities`: the entity store, its
 replication trackers, the players' transfer receipts and the entity work it
 schedules), its commit state (`RegionStorage`) and its job table
-(`Jobs`). Every piece of background work runs on that table: at most one job
+(`Jobs`), held by its group as a `RegionData`. Every piece of background work
+runs on that table: at most one job
 per kind under a bounded pool, each with a token, a monitor and a deadline,
 reported, overrun and lost through one path; a crashed worker is a failed job.
 Owner processes are found or started through one helper (`Owners.ensure/4`).
 Errors are `{:error, {:retry | :reject | :conflict | :invalid, detail}}`,
 classified where they are made (`Valimc.Error`): a caller retries
 `{:retry, _}` without a list of atoms (VMC-077g).
+
+## Groups and the regionizer
+
+Everything that can interact has one owner (VMC-077j). The 8 × 8-chunk section
+stays the unit of storage, generation and light; a **group process** owns a
+connected set of sections of one dimension and is the unit of ownership, time
+and durability. Callers hold `{group pid, epoch}` per section from the
+Directory's route table (section key to group and epoch); the group runs each
+call on the section it names by epoch, chunk or key. One tick runs all of a
+group's sections in key order under one tick number, the world clock's game
+time (`World.GameTick`), so groups merge without offsets. The group cuts all
+its sections' changes at once into one record of the write-ahead log, so a
+change that spans sections is durable whole or not at all. Inside a group the
+block rules read and write across section borders and stop only at its edge,
+and light crosses by the group's own mailbox. A group that crashes takes its
+sections down; each is admitted again from its log, in a group of its own.
+
+One regionizer per dimension applies Folia's rule at section size (grid
+exponent 3, create and merge radius 1): a loaded section joins every group with
+a loaded section within three sections of it, so separate groups keep their
+loaded chunks at least 25 chunks apart. A group whose sections fall into
+pieces splits once a sixth of the sections it had at its last recalculation
+have unloaded. The regionizer only decides; groups move sections at their
+tick boundaries, one change at a time. A handoff passes the section's Rust
+store to the new owner (`region_give`: the NIF's owner check follows it), its
+table with `:ets.give_away/3` and its state in one message; the adopting group
+takes the route and the section keeps its epoch. The group it left forwards
+what still arrives for the section for two minutes; one left without sections
+then stops.
 
 ## Foundations (M1)
 
@@ -72,7 +103,8 @@ classified where they are made (`Valimc.Error`): a caller retries
   into one append with one `datasync` (plus `F_FULLFSYNC` on macOS). An owner
   adopts, publishes and answers every change at once and cuts one frame of
   keyed records every 50 ms (cells, entities by UUID, receipts, container
-  entries by position, scheduled ticks, block entities); only a cross-owner transfer's
+  entries by position, scheduled ticks, block entities), a group all its
+  sections' frames as one record on its own stripe; only a cross-owner transfer's
   reply (its receipt, the proof the other owner acts on) waits for its frame. A
   crash loses at most a suffix of an owner's frames, never one half of a
   transfer. A region's checkpoint file folds its cells into column images
@@ -84,13 +116,14 @@ classified where they are made (`Valimc.Error`): a caller retries
   `Txn.Receipts` (one idempotency classifier over the per-sequence-space receipt
   tables), `Txn.Delivery` (bounded attempts) and `Txn.Operation` (the per-kind
   source half: request, apply, receipt, proof, resolve) (VMC-064).
-- **Tick pipeline.** Each region tick runs `TickPipeline` phases on the owner's
-  game tick: scheduled block ticks, random ticks (a native per-section sampler),
-  entities, cooking. Block ticks and item motion run only in chunks a
-  simulation ticket covers; cooking while any chunk of the region does
-  (VMC-077e). What a commit starts (neighbour and shape updates,
+- **Tick pipeline.** Each group tick runs `TickPipeline` phases on each of its
+  sections at the group's game tick: scheduled block ticks, random ticks (a
+  native per-section sampler), entities, cooking. Block ticks and item motion
+  run only in chunks a simulation ticket covers; cooking while any chunk of
+  the section does (VMC-077e). What a commit starts (neighbour and shape updates,
   survival, redstone wire power) and dependent blocks' due ticks run in the Rust
-  block-update engine in one call per commit (VMC-077m); blocks with effects of
+  block-update engine in one call per commit, over the group's section stores
+  (VMC-077m, VMC-077j); blocks with effects of
   their own (portals, containers, cooking) keep `Valimc.Block.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Each region owner holds one entity store (`Entities`,
@@ -158,7 +191,7 @@ classified where they are made (`Valimc.Error`): a caller retries
 ## Chunk lifecycle
 
 Chunk tickets drive load, simulation and unload, as vanilla's `TicketType`s do
-(VMC-077e). A region owner holds the tickets of its chunks
+(VMC-077e). A section holds the tickets of its chunks
 (`World.Tickets`): a connection's view (`player_loading`) and simulation
 (`player_simulation`, the chunks within `min(simulation distance, view
 distance)` of the player), `forced` from `/forceload`, timed `portal`,
@@ -167,8 +200,8 @@ chunks loaded, and a fresh owner's one-tick `unknown` ticket of its own
 admission. Untimed tickets end with their holder process. An owner without
 tickets and work in flight (writes, jobs, outboxes, deferred calls, open
 containers, permits) for `region_unload_delay_ms` retires its route, saves its
-volatile state and stops; a world without a path and `/save-off` keep their
-regions. The Directory admits regions; one whose owner dies while loading backs
+volatile state and leaves its group; a world without a path and `/save-off` keep
+their sections. The Directory admits sections; one whose group dies while loading backs
 off per key and is poisoned, with one error line, after five failures in a row.
 Admission errors are values.
 
@@ -181,20 +214,21 @@ withdraws the old dimension's tickets and abandons pending requests.
 
 ## Generation (M2)
 
-A region of a generated world loads without generating: the chunks its log has
+A section of a generated world loads without generating: the chunks its log has
 no column for are absent (VMC-075). Loading tickets say which of its chunks are
-wanted and how far from their center; the owner tells its dimension's
-generation scheduler which absent chunks it wants, each at its distance to the
+wanted and how far from their center; the section tells its dimension's
+generation scheduler which absent chunks it wants (as `{group, key}`, so
+sections of one group keep separate wants), each at its distance to the
 nearest player that wants it, whenever that changes, and never generates on
 itself. It installs each full chunk as it arrives; its column image joins the
 next frame, and the scheduler forgets the chunk only once that frame is
 durable. Until then an absent chunk is like a chunk of an unloaded neighbour
-region: block reads in the owner see nothing there, edits and observations are
+group: block reads in the group see nothing there, edits and observations are
 refused, published snapshots fail closed and the chunk stream skips it.
 
 One scheduler per dimension owns every chunk's generation (VMC-077n): its
 status (terrain, decorated, final once its 3 × 3 is decorated, handed over
-once its region made it durable), its proto chunk as a native cell, and the
+once its section made it durable), its proto chunk as a native cell, and the
 dimension's structure starts, which placement changes as vanilla changes its
 saved starts. Work runs on `Valimc.Worldgen.Pool` with explicit write areas:
 terrain holds its chunk, a decoration its 3 × 3, a full chunk its own cell.
@@ -257,8 +291,9 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 - Results: `{:ok, value}`, `:ok` without one, or `{:error, atom}` from the
   domain's closed set for an expected failure; a broken invariant raises. No
   string errors for machine use.
-- Mutable state is a `ResourceArc` owned by the process that created it: the
-  Region resource refuses changes from any other (`{:error, :not_owner}`).
+- Mutable state is a `ResourceArc` owned by one process: the Region resource
+  refuses changes from any other (`{:error, :not_owner}`) and changes owner
+  only by a handoff its owner makes (`region_give`).
   Shared Rust state is immutable and shared through an `Arc` (a seed's
   generation context, with bounded caches of pure values), or lent to one
   job at a time by its owner (the scheduler's proto cells and start table,

@@ -317,8 +317,8 @@ defmodule Valimc.ChestConnectionTest do
   end
 
   defp viewer_state(ctx) do
-    {:ok, {pid, _}} = World.existing_owner(ctx.key)
-    Valimc.TestConn.state(pid).resource.container_viewers
+    {:ok, owner} = World.existing_owner(ctx.key)
+    Valimc.TestRegion.section(owner).container_viewers
   end
 
   defp subscribed(pid) do

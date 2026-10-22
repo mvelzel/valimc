@@ -1,5 +1,9 @@
 defmodule Valimc.World do
-  @moduledoc "Region ownership and spatial topics. There is no global world mutation process."
+  @moduledoc """
+  Section ownership and spatial topics. There is no global world mutation
+  process: each 8 × 8 section belongs to one group process (VMC-077j), found
+  through the Directory's routes.
+  """
   alias Valimc.World.{BlockSnapshot, Directory}
   def chunk_key(x, z), do: {Integer.floor_div(floor(x), 16), Integer.floor_div(floor(z), 16)}
 
@@ -115,7 +119,13 @@ defmodule Valimc.World do
           {:ok, {pid, epoch}}
 
         {^pid, _, :loading} ->
-          GenServer.call(pid, :owner, 5000 * Valimc.config(:owner_call_scale, pid))
+          GenServer.call(pid, {:owner, key}, 5000 * Valimc.config(:owner_call_scale, pid))
+
+        # Handed to another group meanwhile (VMC-077j): the section is the same.
+        {other, _, %{epoch: epoch}} ->
+          if Process.alive?(other),
+            do: {:ok, {other, epoch}},
+            else: Valimc.Error.retry(:region_restarting)
 
         _ ->
           Valimc.Error.retry(:region_restarting)

@@ -17,6 +17,10 @@ config :valimc,
   simulation_distance: 10,
   # A region without tickets and work in flight saves and unloads after this long.
   region_unload_delay_ms: 10_000,
+  # A group cuts its sections' changes into one log record this often (VMC-077f/j).
+  region_commit_ms: 50,
+  # Sections whose loaded chunks come near share a group process (VMC-077j2).
+  regionizer: true,
   region_size: 8,
   item_simulation: true,
   cooking_simulation: true,

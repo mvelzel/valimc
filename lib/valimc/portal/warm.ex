@@ -74,7 +74,7 @@ defmodule Valimc.Portal.Warm do
     Valimc.Dimension.within(dimension, fn ->
       for key <- regions(area),
           {:ok, pid} <- [World.region(key)],
-          do: Valimc.World.Region.ticket(pid, :portal, center, Map.get(by_region, key, []))
+          do: Valimc.World.Region.ticket(pid, key, :portal, center, Map.get(by_region, key, []))
     end)
   end
 end

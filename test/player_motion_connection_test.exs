@@ -177,7 +177,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     ])
 
     {_, client} = Client.await(client, :play, "container_set_slot")
-    {:ok, {owner, _}} = World.existing_owner(ctx.key)
+    {:ok, owner} = World.existing_owner(ctx.key)
     move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
 
     Client.send_packet(client, :play, "player_action", [
@@ -191,7 +191,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
         state(pid).recovery == nil
     end)
 
-    [record] = Valimc.World.Entities.records(:sys.get_state(owner).resource.entities.store)
+    [record] = Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
     assert record.x == ctx.pos.x + 0.2 and record.z == ctx.pos.z
     uuid = state(pid).player.uuid
 

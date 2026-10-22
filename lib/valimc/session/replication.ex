@@ -93,8 +93,8 @@ defmodule Valimc.Session.Replication do
             simulated =
               Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
 
-            Region.ticket(pid, :player_loading, center, chunks)
-            Region.ticket(pid, :player_simulation, center, simulated)
+            Region.ticket(pid, key, :player_loading, center, chunks)
+            Region.ticket(pid, key, :player_simulation, center, simulated)
             {key, pid}
 
           _ ->
@@ -102,9 +102,11 @@ defmodule Valimc.Session.Replication do
         end
       end)
 
-    for {key, pid} <- state.wanted, pid != nil, wanted[key] != pid do
-      Region.ticket(pid, :player_loading, nil, [])
-      Region.ticket(pid, :player_simulation, nil, [])
+    # A section that moved to another group took the tickets with it
+    # (VMC-077j): only sections the view left are told to drop them.
+    for {key, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, key) do
+      Region.ticket(pid, key, :player_loading, nil, [])
+      Region.ticket(pid, key, :player_simulation, nil, [])
     end
 
     %{state | wanted: wanted}

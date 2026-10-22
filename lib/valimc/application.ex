@@ -37,6 +37,8 @@ defmodule Valimc.Application do
     Valimc.World.EntityIds.init!()
     Valimc.World.Saving.init!()
     Valimc.Worldgen.Pool.init!()
+    Valimc.World.GameTick.init!()
+    Valimc.Storage.Log.init!()
 
     if not Valimc.GameMode.valid?(Valimc.config(:default_game_mode)),
       do: raise("Invalid default game mode")
@@ -66,18 +68,22 @@ defmodule Valimc.Application do
     ]
 
     # A directory restart fences every region owner and its writer (VMC-019b3a).
-    world = [
-      {Registry, keys: :unique, name: Valimc.RegionRegistry},
-      # Region topic => subscribed connections (duplicate keys).
-      {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
-      {Valimc.World.Directory, []},
-      # One generation scheduler per generated dimension (VMC-077n), stopped
-      # after the regions that persist its chunks.
-      {Registry, keys: :unique, name: Valimc.Worldgen.Schedulers},
-      dynamic(Valimc.Worldgen.SchedulerSupervisor, Valimc.config(:max_regions)),
-      dynamic(Valimc.RegionSupervisor, Valimc.config(:max_regions)),
-      {Valimc.World.ForcedChunks, []}
-    ]
+    world =
+      [
+        {Registry, keys: :unique, name: Valimc.RegionRegistry},
+        # Region topic => subscribed connections (duplicate keys).
+        {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
+        {Valimc.World.Directory, []},
+        # One generation scheduler per generated dimension (VMC-077n), stopped
+        # after the regions that persist its chunks.
+        {Registry, keys: :unique, name: Valimc.Worldgen.Schedulers},
+        dynamic(Valimc.Worldgen.SchedulerSupervisor, Valimc.config(:max_regions)),
+        dynamic(Valimc.RegionSupervisor, Valimc.config(:max_regions)),
+        # One regionizer per dimension decides which sections share a group
+        # (VMC-077j2); one that restarts rebuilds from the routes.
+        {Registry, keys: :unique, name: Valimc.Regionizers}
+        | Enum.map(Valimc.Dimension.ids(), &{Valimc.World.Regionizer, &1})
+      ] ++ [{Valimc.World.ForcedChunks, []}]
 
     players = [
       Valimc.Players,

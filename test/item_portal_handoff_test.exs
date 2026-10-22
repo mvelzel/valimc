@@ -38,7 +38,7 @@ defmodule Valimc.ItemPortalHandoffTest do
     %{key: key, beside: beside, base: base, record: record}
   end
 
-  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp resource(owner), do: Valimc.TestRegion.section(owner)
   defp wait(fun), do: Valimc.TestWait.until(fun)
   defp nether(fun), do: Dimension.within(:the_nether, fun)
 

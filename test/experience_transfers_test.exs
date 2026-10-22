@@ -87,7 +87,7 @@ defmodule Valimc.ExperienceTransfersTest do
     }
   end
 
-  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp resource(owner), do: Valimc.TestRegion.section(owner)
   defp wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
 
   setup ctx do

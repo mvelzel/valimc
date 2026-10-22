@@ -449,12 +449,24 @@ defmodule Valimc.TestDisk do
 
   defp path(base, key), do: Checkpoint.path(base, {:region, :overworld, key})
 
-  @doc "The log stripe region `key` of the world at `base` commits to (started if needed)."
+  @doc """
+  The log stripe section `key` of the world at `base` commits to (started if
+  needed): its group's (VMC-077j), once the regionizer has placed it.
+  """
   def stripe(base, key) do
-    owner = {:region, :overworld, key}
-    :ok = Log.sync(base, owner)
-    [{pid, _}] = Registry.lookup(Valimc.StorageRegistry, {base, Log.stripe(owner)})
+    route = route(key)
+    :ok = Log.sync(base, route)
+    [{pid, _}] = Registry.lookup(Valimc.StorageRegistry, {base, Log.stripe(route)})
     pid
+  end
+
+  defp route(key) do
+    _ = Valimc.World.Regionizer.groups(:overworld)
+
+    case Valimc.World.Directory.lookup(key) do
+      {pid, _, _} -> :sys.get_state(pid, 30_000).route
+      nil -> {:region, :overworld, key}
+    end
   end
 
   @doc """
@@ -494,6 +506,68 @@ end
 
 defmodule Valimc.TestRegion do
   @moduledoc "Region owner probes that do not depend on how durable writes are queued."
+
+  @doc """
+  The state of a section (VMC-077j): of an owner handle `{pid, epoch}`
+  wherever the section moved since, or of group `pid`'s section `key` (its
+  only or first section by default).
+  """
+  def section(owner, key \\ nil)
+
+  def section({pid, epoch}, nil) when is_pid(pid) and is_reference(epoch) do
+    state = :sys.get_state(pid, 30_000)
+
+    case state.epochs do
+      %{^epoch => key} -> state.sections[key].resource
+      _ -> section({moved_to!(state, epoch), epoch})
+    end
+  end
+
+  def section(pid, key) when is_pid(pid) do
+    sections = :sys.get_state(pid, 30_000).sections
+    key = key || sections |> Map.keys() |> Enum.min()
+    sections[key].resource
+  end
+
+  # The group the section of `epoch` moved to from this one.
+  defp moved_to!(state, epoch) do
+    case state.moved do
+      %{^epoch => {pid, _}} -> pid
+      _ -> raise "no section of epoch #{inspect(epoch)} here or moved from here"
+    end
+  end
+
+  @doc "Change a section's state: of an owner handle, or group `pid`'s (`key`, or its first)."
+  def replace_section(owner, fun, key \\ nil)
+
+  def replace_section({pid, epoch}, fun, nil) when is_pid(pid) and is_reference(epoch) do
+    # In one step with the lookup, so a move cannot come between them.
+    moved =
+      :sys.replace_state(pid, fn s ->
+        case s.epochs do
+          %{^epoch => key} ->
+            %{s | sections: Map.update!(s.sections, key, &%{&1 | resource: fun.(&1.resource)})}
+
+          _ ->
+            s
+        end
+      end)
+
+    case moved.epochs do
+      %{^epoch => _} -> :ok
+      _ -> replace_section({moved_to!(moved, epoch), epoch}, fun)
+    end
+  end
+
+  def replace_section(pid, fun, key) when is_pid(pid) do
+    :sys.replace_state(pid, fn s ->
+      key = key || s.sections |> Map.keys() |> Enum.min()
+      %{s | sections: Map.update!(s.sections, key, &%{&1 | resource: fun.(&1.resource)})}
+    end)
+
+    :ok
+  end
+
   @doc "Whether a durable mutation is being planned or a frame (or a reply on one) is in flight."
   def writing?(resource),
     do:
@@ -554,14 +628,12 @@ defmodule Valimc.TestRegion do
   def expire_permits(pid) do
     past = System.monotonic_time(:millisecond) - 1
 
-    :sys.replace_state(pid, fn s ->
+    Valimc.TestRegion.replace_section(pid, fn resource ->
       entries =
-        Map.new(s.resource.permits.entries, fn {token, e} -> {token, %{e | expires: past}} end)
+        Map.new(resource.permits.entries, fn {token, e} -> {token, %{e | expires: past}} end)
 
-      %{s | resource: %{s.resource | permits: %{s.resource.permits | entries: entries}}}
+      %{resource | permits: %{resource.permits | entries: entries}}
     end)
-
-    :ok
   end
 end
 
@@ -685,10 +757,10 @@ defmodule Valimc.TestScope do
   The calling test holds a `:forced` ticket over every chunk of region `key`
   (owner `owner`), so its chunks tick when stepped (VMC-077e).
   """
-  def simulate(owner, {rx, rz}) do
+  def simulate(owner, {rx, rz} = key) do
     size = Valimc.config(:region_size)
     chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
-    Valimc.World.Region.ticket(owner, :forced, nil, chunks)
+    Valimc.World.Region.ticket(owner, key, :forced, nil, chunks)
   end
 end
 

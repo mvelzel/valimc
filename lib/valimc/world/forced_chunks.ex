@@ -78,7 +78,7 @@ defmodule Valimc.World.ForcedChunks do
       for key <- chunks |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
           {:ok, pid} <- [Valimc.World.region(key)] do
         held = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
-        Valimc.World.Region.ticket(pid, :forced, List.first(held), held)
+        Valimc.World.Region.ticket(pid, key, :forced, List.first(held), held)
       end
     end)
   end

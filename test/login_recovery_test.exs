@@ -99,7 +99,7 @@ defmodule Valimc.LoginRecoveryTest do
     {:ok, owner} = World.item_owner(ctx.key)
 
     assert [record] =
-             Valimc.World.Entities.records(:sys.get_state(elem(owner, 0)).resource.entities.store)
+             Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
 
     assert record.motion == motion
     assert {:ok, handle} = Region.find_item(owner, record.uuid)
@@ -109,12 +109,12 @@ defmodule Valimc.LoginRecoveryTest do
     File.write!(fixture.path, fixture.bytes)
     finish(Client.begin_login(fixture.name), fixture)
     assert World.item_snapshot(ctx.key) == %{}
-    assert :sys.get_state(elem(owner, 0)).resource.entities.receipts[fixture.uuid].sequence == 1
+    assert Valimc.TestRegion.section(owner).entities.receipts[fixture.uuid].sequence == 1
   end
 
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
     fixture = seed(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, region_owner} = World.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -123,7 +123,8 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
+          &(&1.recovery != nil and
+              Valimc.TestRegion.writing?(Valimc.TestRegion.section(region_owner)))
         )
 
       assert state.phase == :login and state.step == :recover
@@ -156,7 +157,7 @@ defmodule Valimc.LoginRecoveryTest do
 
   test "worker loss after submission retries the identical uncertain delivery", ctx do
     fixture = seed(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, region_owner} = World.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -165,7 +166,8 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
+          &(&1.recovery != nil and
+              Valimc.TestRegion.writing?(Valimc.TestRegion.section(region_owner)))
         )
 
       job = state.recovery.job
@@ -219,7 +221,7 @@ defmodule Valimc.LoginRecoveryTest do
 
   test "deadline cancels jobs and preserves pending source even if region later commits", ctx do
     fixture = seed(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, region_owner} = World.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
@@ -228,7 +230,8 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
+          &(&1.recovery != nil and
+              Valimc.TestRegion.writing?(Valimc.TestRegion.section(region_owner)))
         )
 
       job = state.recovery.job

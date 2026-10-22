@@ -100,10 +100,10 @@ defmodule Valimc.ChestSpillRegionTest do
 
     try do
       Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(c.pid).resource)
+        Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(c.owner))
       end)
 
-      resource = Valimc.TestConn.state(c.pid).resource
+      resource = Valimc.TestRegion.section(c.owner)
       assert resource.containers.entries == %{}
 
       assert quantities(Enum.map(Entities.records(resource.entities.store), & &1.stack)) ==

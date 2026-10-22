@@ -77,7 +77,7 @@ defmodule Valimc.RegionDirectoryTest do
   test "capacity rejects cold starts while existing routes remain usable", ctx do
     assert {:ok, owner} = World.owner(ctx.key)
     limit = Valimc.config(:max_regions)
-    Application.put_env(:valimc, :max_regions, map_size(:sys.get_state(Directory).owners))
+    Application.put_env(:valimc, :max_regions, :ets.info(Valimc.RegionRoutes, :size))
 
     try do
       assert World.region(ctx.other) == {:error, {:retry, :max_children}}

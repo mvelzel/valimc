@@ -36,7 +36,7 @@ defmodule Valimc.RegionLifecycleTest do
   test "a long walk never reaches max_regions; regions left behind save and unload", ctx do
     limit = Valimc.config(:max_regions)
     # Two regions held at a time, one more while the last one left is retiring.
-    Application.put_env(:valimc, :max_regions, map_size(:sys.get_state(Directory).owners) + 3)
+    Application.put_env(:valimc, :max_regions, :ets.info(Valimc.RegionRoutes, :size) + 3)
 
     try do
       [first | _] = ctx.keys
@@ -55,7 +55,7 @@ defmodule Valimc.RegionLifecycleTest do
             for key <- [here, ahead], reduce: tables do
               acc ->
                 assert {:ok, pid} = World.region(key)
-                Region.ticket(pid, :player_loading, hd(chunks(key)), chunks(key))
+                Region.ticket(pid, key, :player_loading, hd(chunks(key)), chunks(key))
                 if key == first, do: assert(:ok = Valimc.TestBlocks.set(edit, @coral))
                 {:ok, _} = World.owner(key)
                 [table.(key) | acc]
@@ -66,7 +66,7 @@ defmodule Valimc.RegionLifecycleTest do
 
           if behind in ctx.keys do
             {pid, _, _} = Directory.lookup(behind) || {nil, nil, nil}
-            if pid, do: Region.ticket(pid, :player_loading, nil, [])
+            if pid, do: Region.ticket(pid, behind, :player_loading, nil, [])
             Valimc.TestWait.until(fn -> gone?(behind) end)
           end
 
@@ -96,12 +96,16 @@ defmodule Valimc.RegionLifecycleTest do
     {:ok, observed} = Region.observe_blocks(owner, [ticking, idle])
     # Coral away from water schedules the tick that kills it (60–99 ticks).
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{ticking => @coral, idle => @coral})
-    Region.ticket(owner, :player_simulation, nil, [World.chunk_key(8 + rx * span, 8 + rz * span)])
+
+    Region.ticket(owner, key, :player_simulation, nil, [
+      World.chunk_key(8 + rx * span, 8 + rz * span)
+    ])
+
     {:ok, _} = Region.step(owner, 100)
     assert Valimc.TestBlocks.get(ticking) == @dead
     assert Valimc.TestBlocks.get(idle) == @coral
 
-    Region.ticket(owner, :forced, nil, [World.chunk_key(elem(idle, 0), elem(idle, 2))])
+    Region.ticket(owner, key, :forced, nil, [World.chunk_key(elem(idle, 0), elem(idle, 2))])
     {:ok, _} = Region.step(owner, 1)
     assert Valimc.TestBlocks.get(idle) == @dead
   end

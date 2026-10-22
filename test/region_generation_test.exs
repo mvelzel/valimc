@@ -141,11 +141,11 @@ defmodule Valimc.RegionGenerationTest do
   end
 
   test "a generated chunk's published heightmap and biomes read as its owner's blocks", ctx do
-    {:ok, {pid, _} = owner} = World.owner(ctx.key)
+    {:ok, owner} = World.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 2, cz + 2}
     :ok = Region.await_chunks(owner, [chunk], 120_000)
-    blocks = :sys.get_state(pid).resource.blocks
+    blocks = Valimc.TestRegion.section(owner).blocks
     {zoom_seed, _} = Generator.client_info()
     view = View.new()
 
@@ -195,7 +195,7 @@ defmodule Valimc.RegionGenerationTest do
     {:ok, {pid, _}} = World.owner(ctx.key)
     {cx, cz} = ctx.origin
     wanted = for x <- cx..(cx + 2), z <- cz..(cz + 2), do: {x, z}
-    Region.ticket(pid, :player_loading, {cx, cz}, wanted)
+    Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, wanted)
 
     Valimc.TestWait.until(fn ->
       Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
@@ -206,7 +206,7 @@ defmodule Valimc.RegionGenerationTest do
     assert columns == columns(wanted)
 
     # A withdrawn ticket generates nothing more; an edit over generated terrain is kept.
-    Region.ticket(pid, :player_loading, {cx, cz}, [])
+    Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, [])
     edited = inside({cx + 2, cz + 2}, 20)
     glass = Valimc.Registry.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(edited, glass)

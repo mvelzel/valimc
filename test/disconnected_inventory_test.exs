@@ -86,13 +86,13 @@ defmodule Valimc.DisconnectedInventoryTest do
   end
 
   defp region(ctx) do
-    {:ok, {pid, _}} = World.item_owner(ctx.key)
-    pid
+    {:ok, owner} = World.item_owner(ctx.key)
+    owner
   end
 
   # Durable records of that owner's region (owner memory may hold in-flight writes).
-  defp records(pid) do
-    [key] = Registry.keys(Valimc.RegionRegistry, pid)
+  defp records(owner) do
+    key = Valimc.TestRegion.section(owner).key
 
     case Valimc.TestDisk.read(Valimc.config(:world_path), key, :items) do
       nil -> []
@@ -144,7 +144,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     first = records(owner)
     verify(ctx, saved(ctx), first)
     assert saved(ctx).transfer_sequence == 1
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
     assert records(region(ctx)) == first
     {^uuid, second} = Client.login(ctx.name)
     second = Client.load_world(second)
@@ -177,7 +177,7 @@ defmodule Valimc.DisconnectedInventoryTest do
         wait(fn ->
           state = :sys.get_state(writer)
 
-          if state.closing.job && Valimc.TestRegion.writing?(:sys.get_state(owner).resource),
+          if state.closing.job && Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)),
             do: state
         end)
 
@@ -204,7 +204,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert :sys.get_state(writer).snapshot.outbox == pending.outbox
       assert :sys.get_state(writer).closing == nil
       :sys.resume(disk)
-      wait(fn -> not Valimc.TestRegion.writing?(:sys.get_state(owner).resource) end)
+      wait(fn -> not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)) end)
       {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, adopted)
       {:ok, handle} = World.item_owner(ctx.key)
       assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)

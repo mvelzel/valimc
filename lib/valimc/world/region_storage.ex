@@ -26,6 +26,12 @@ defmodule Valimc.World.RegionStorage do
   transfer steps wait for their frame to be durable (`after_durable/2`), so
   a crash can lose the last frames but never one half of a transfer.
 
+  A cut frame waits in the section's outbox; its group process sends the
+  frames of all its sections from one commit as one record (VMC-077j,
+  `take/2`), on the stripe of its `route`, so changes that span sections are
+  durable together. A section that moved to a group on another stripe sends
+  there only once its frames on the old stripe are durable (`held?/2`).
+
   Item motion (position, velocity) goes into a frame at most once a second.
   Counters that move every tick (an item's age and delays, a furnace's
   remaining burn and progress) stay out of frames unless they cross zero; a
@@ -71,8 +77,12 @@ defmodule Valimc.World.RegionStorage do
     counters_since: nil,
     motion_waiting: false,
     motion_at: 0,
-    # {pid, monitor} of the log stripe the owner commits to
-    stripe: nil
+    # Frames cut but not yet sent (`[{owner, seq, frame}]`, newest first).
+    outbox: [],
+    # The key whose stripe the section's group commits to, and the route of
+    # each frame in flight.
+    route: nil,
+    routes: %{}
   ]
 
   def commit_ms, do: @commit_ms
@@ -88,7 +98,7 @@ defmodule Valimc.World.RegionStorage do
     owner = {:region, dimension, key}
 
     if base == nil do
-      {:ok, %__MODULE__{owner: owner}, restore(%{}, false)}
+      {:ok, %__MODULE__{owner: owner, route: owner}, restore(%{}, false)}
     else
       path = Checkpoint.path(base, owner)
 
@@ -105,6 +115,7 @@ defmodule Valimc.World.RegionStorage do
         storage = %__MODULE__{
           base: base,
           owner: owner,
+          route: owner,
           path: path,
           seq: last,
           checkpoint_seq: seq,
@@ -203,7 +214,9 @@ defmodule Valimc.World.RegionStorage do
 
   @doc "Whether frames or waits are outstanding (an owner with them does not unload)."
   def busy?(storage),
-    do: map_size(storage.in_flight) > 0 or storage.waits != [] or storage.checkpointing != nil
+    do:
+      map_size(storage.in_flight) > 0 or storage.waits != [] or storage.outbox != [] or
+        storage.checkpointing != nil
 
   ## Commits
 
@@ -252,7 +265,8 @@ defmodule Valimc.World.RegionStorage do
   defp op(key, :deleted), do: {:del, key}
   defp op(key, value), do: {:put, key, value}
 
-  # One frame, or several below the cap when one tick changed very much.
+  # One frame, or several below the cap when one tick changed very much, into
+  # the outbox.
   defp send_frames(storage, ops) do
     binary = :erlang.term_to_binary(ops)
 
@@ -265,33 +279,56 @@ defmodule Valimc.World.RegionStorage do
           |> Enum.map(&:erlang.term_to_binary/1)
 
     Enum.reduce(chunks, {storage, 0}, fn frame, {acc, bytes} ->
-      stripe = Log.commit(acc.base, acc.owner, acc.seq + 1, frame, self())
-      {%{acc | seq: acc.seq + 1, stripe: watch(acc.stripe, stripe)}, bytes + byte_size(frame)}
+      seq = acc.seq + 1
+
+      {%{acc | seq: seq, outbox: [{acc.owner, seq, frame} | acc.outbox]},
+       bytes + byte_size(frame)}
     end)
   end
 
-  defp watch({pid, _} = watched, pid), do: watched
+  @doc """
+  The outbox's frames, oldest first, to send on `route`'s stripe, and the
+  storage that has sent them.
+  """
+  def take(%{outbox: []} = storage, _route), do: {[], storage}
 
-  defp watch(watched, pid) do
-    with {_, ref} <- watched, do: Process.demonitor(ref, [:flush])
-    {pid, Process.monitor(pid)}
+  def take(storage, route) do
+    frames = Enum.reverse(storage.outbox)
+
+    routes =
+      Enum.reduce(frames, storage.routes, fn {_, seq, _}, acc -> Map.put(acc, seq, route) end)
+
+    {frames, %{storage | outbox: [], routes: routes}}
   end
 
   @doc """
-  The owner's stripe (monitored as `ref`) went down: `{:failed, storage}` when
-  frames were in flight on it (they may or may not be durable, so the owner
-  stops and reloads), `{:ok, storage}` otherwise.
+  Whether the section must not send on `route` yet: frames of it are in
+  flight on another stripe, and a later one there could be durable first.
   """
-  def stripe_down(%{stripe: {_, ref}} = storage, ref) do
-    storage = %{storage | stripe: nil}
-    if map_size(storage.in_flight) > 0, do: {:failed, storage}, else: {:ok, storage}
+  def held?(storage, route) do
+    stripe = Log.stripe(route)
+    Enum.any?(storage.routes, fn {_, r} -> Log.stripe(r) != stripe end)
+  end
+
+  @doc "Send the outbox now, on the section's own route, and wait until it is appended."
+  def send_now(%{base: nil} = storage), do: storage
+
+  def send_now(storage) do
+    {frames, storage} = take(storage, storage.route)
+    if frames != [], do: Log.commit_group(storage.base, storage.route, frames, self())
+
+    for route <- Enum.uniq([storage.route | Map.values(storage.routes)]),
+        do: :ok = Log.sync(storage.base, route)
+
+    storage
   end
 
   @doc "A frame is durable: `{storage, items}` its waits (and earlier ones) to run."
   def durable(storage, seq) do
     {done, in_flight} = Map.split_with(storage.in_flight, fn {s, _} -> s <= seq end)
     items = done |> Enum.sort() |> Enum.flat_map(&elem(&1, 1))
-    {%{storage | in_flight: in_flight}, items}
+    routes = Map.reject(storage.routes, fn {s, _} -> s <= seq end)
+    {%{storage | in_flight: in_flight, routes: routes}, items}
   end
 
   ## Checkpoints
@@ -306,7 +343,7 @@ defmodule Valimc.World.RegionStorage do
   """
   def checkpoint_due?(storage) do
     storage.base != nil and storage.checkpointing == nil and map_size(storage.pending) == 0 and
-      map_size(storage.in_flight) == 0 and Valimc.World.Saving.auto?() and
+      map_size(storage.in_flight) == 0 and storage.outbox == [] and Valimc.World.Saving.auto?() and
       (storage.requested or
          (storage.seq > storage.checkpoint_seq and
             (storage.since_checkpoint >= @checkpoint_bytes or

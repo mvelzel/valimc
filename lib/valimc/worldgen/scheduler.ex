@@ -80,7 +80,7 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   @doc """
-  `requester` (a region, fenced by `epoch`) wants `wanted` (`chunk =>
+  `requester` (a region section, `{group pid, key}`, fenced by `epoch`) wants `wanted` (`chunk =>
   priority`, smaller first) made full, replacing what it wanted before:
   `{:ok, scheduler}` for it to monitor.
   """
@@ -186,7 +186,7 @@ defmodule Valimc.Worldgen.Scheduler do
           %{state | requesters: Map.put(state.requesters, requester, %{entry | epoch: epoch})}
 
         _ ->
-          monitor = Process.monitor(requester)
+          monitor = Process.monitor(requester_pid(requester))
           entry = %{epoch: epoch, monitor: monitor}
 
           %{
@@ -342,10 +342,10 @@ defmodule Valimc.Worldgen.Scheduler do
           _ -> state
         end
 
-      pid, state ->
+      requester, state ->
         case state.requesters do
-          %{^pid => %{epoch: epoch}} ->
-            send(pid, {:resource, epoch, {:generated_full, self(), full}})
+          %{^requester => %{epoch: epoch}} ->
+            send(requester_pid(requester), {:resource, epoch, {:generated_full, self(), full}})
             state
 
           _ ->
@@ -369,10 +369,14 @@ defmodule Valimc.Worldgen.Scheduler do
             %{state | calls: calls, frontier: frontier}
         end
 
-      pid, state ->
+      requester, state ->
         case state.requesters do
-          %{^pid => %{epoch: epoch}} ->
-            send(pid, {:resource, epoch, {:generation_failed, chunks, reason}})
+          %{^requester => %{epoch: epoch}} ->
+            send(
+              requester_pid(requester),
+              {:resource, epoch, {:generation_failed, chunks, reason}}
+            )
+
             state
 
           _ ->
@@ -380,6 +384,10 @@ defmodule Valimc.Worldgen.Scheduler do
         end
     end)
   end
+
+  # A region section asks as `{group pid, key}` (VMC-077j); others as their pid.
+  defp requester_pid({pid, _key}) when is_pid(pid), do: pid
+  defp requester_pid(pid) when is_pid(pid), do: pid
 
   defp answer(state, ref, call) do
     if Enum.all?(call.chunks, &Map.has_key?(call.got, &1)) do

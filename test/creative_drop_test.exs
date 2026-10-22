@@ -69,7 +69,7 @@ defmodule Valimc.CreativeDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Entities.records(Valimc.TestConn.state(pid).resource.entities.store)
+    Entities.records(Valimc.TestRegion.section(pid).entities.store)
   end
 
   defp frame(client, slot, stack),

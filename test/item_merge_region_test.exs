@@ -44,7 +44,7 @@ defmodule Valimc.ItemMergeRegionTest do
     %{owner: owner, key: key, base: base, records: records, receipts: receipts}
   end
 
-  def state({pid, _}), do: Valimc.TestConn.state(pid).resource
+  def state(owner), do: Valimc.TestRegion.section(owner)
 
   def pairs(owner) do
     items = state(owner).entities.store

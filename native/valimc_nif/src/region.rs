@@ -1,5 +1,7 @@
-//! The Region resource: one per region owner, holding its column store. Only
-//! the process that created it may change it (`with_owned`).
+//! The Region resource: one per 8 × 8 section, holding its column store. Only
+//! the process that owns it may change it (`with_owned`): the one that created
+//! it, until it hands the section to another group process (`region_give`,
+//! VMC-077j).
 //!
 //! Positions travel as packed big-endian binaries: a position is
 //! `<<x::32-signed, y::32-signed, z::32-signed>>`, a block read at a position
@@ -14,8 +16,8 @@ use valimc_core::column::HEIGHT;
 use valimc_core::{ColumnStore, Storage, StoreError};
 
 pub struct Region {
-    owner: LocalPid,
-    store: Mutex<ColumnStore>,
+    owner: Mutex<LocalPid>,
+    pub(crate) store: Mutex<ColumnStore>,
 }
 
 #[rustler::resource_impl]
@@ -56,9 +58,23 @@ fn region_new(
     }
     let store = ColumnStore::new((cx, cz), size, base, budget);
     Ok(ResourceArc::new(Region {
-        owner: env.pid(),
+        owner: Mutex::new(env.pid()),
         store: Mutex::new(store),
     }))
+}
+
+/// Hand the section to `to` (VMC-077j): from now on only `to` may change it.
+/// Only the current owner may.
+#[rustler::nif]
+fn region_give(env: Env, region: ResourceArc<Region>, to: LocalPid) -> NifResult<Atom> {
+    done((|| {
+        let mut owner = region.owner.lock().map_err(|_| atoms::poisoned())?;
+        if env.pid() != *owner {
+            return Err(atoms::not_owner());
+        }
+        *owner = to;
+        Ok(())
+    })())
 }
 
 /// Read the store (any process: reads change nothing).
@@ -76,7 +92,7 @@ pub(crate) fn with_owned<T>(
     region: &Region,
     f: impl FnOnce(&mut ColumnStore) -> Result<T, Atom>,
 ) -> Result<T, Atom> {
-    if env.pid() != region.owner {
+    if env.pid() != *region.owner.lock().map_err(|_| atoms::poisoned())? {
         return Err(atoms::not_owner());
     }
     with_store(region, f)

@@ -11,7 +11,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     key = {31_000 + rem(nonce, 3_333) * 3, 700}
     destination = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-handoff-#{nonce}")
-    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
+    # Two owners exchanging items: the regionizer would make them one group.
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base, regionizer: false)
     File.mkdir_p!(base)
     count = Map.get(tags, :population, 1)
 
@@ -59,7 +60,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     }
   end
 
-  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp resource(owner), do: Valimc.TestRegion.section(owner)
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -91,8 +92,8 @@ defmodule Valimc.ItemHandoffRegionTest do
   end
 
   # Durably present in that owner's region (what a restart or any reader would see).
-  defp published({pid, _}, uuid) do
-    [key] = Registry.keys(Valimc.RegionRegistry, pid)
+  defp published(owner, uuid) do
+    key = Valimc.TestRegion.section(owner).key
 
     saved = Valimc.TestDisk.read(Valimc.config(:world_path, key), key, :items)
     saved != nil and Enum.any?(saved.records, &(&1.uuid == uuid))

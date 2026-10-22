@@ -73,7 +73,7 @@ defmodule Valimc.ItemStoreTest do
                {elem(owner, 0), elem(updated, 1), elem(updated, 2), elem(updated, 3)}
              )
 
-    assert :sys.get_state(elem(owner, 0)).resource.entities.store.entries[elem(current, 2)].stack ==
+    assert Valimc.TestRegion.section(owner).entities.store.entries[elem(current, 2)].stack ==
              egg
 
     assert :ok = Region.remove_item(current)
@@ -94,7 +94,7 @@ defmodule Valimc.ItemStoreTest do
       assert {:ok, _} = Region.replace_item(handle, ItemStack.new("egg", 3))
 
       Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(ctx.pid).resource)
+        Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(ctx.owner))
       end)
 
       Process.exit(stripe, :kill)
@@ -105,7 +105,7 @@ defmodule Valimc.ItemStoreTest do
     {:ok, owner} = World.item_owner(ctx.key)
     {:ok, current} = Region.find_item(owner, uuid)
 
-    assert :sys.get_state(elem(owner, 0)).resource.entities.store.entries[elem(current, 2)].stack ==
+    assert Valimc.TestRegion.section(owner).entities.store.entries[elem(current, 2)].stack ==
              stone
 
     assert Process.alive?(Process.whereis(Valimc.Listener))

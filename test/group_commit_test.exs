@@ -46,7 +46,7 @@ defmodule Valimc.GroupCommitTest do
     try do
       assert {:ok, _} = Region.create_item(owner, ItemStack.new("stone"), ctx.position)
       assert :ok = Valimc.TestBlocks.set(ctx.block, 1)
-      wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(elem(owner, 0)).resource) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner)) end)
       assert_receive {:event, {:block_batch, _}}
       assert World.chunk({div(cx, 16), div(cz, 16)}) != chunk
       assert map_size(World.item_snapshot(ctx.key)) == 1

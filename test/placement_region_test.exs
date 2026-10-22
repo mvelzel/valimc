@@ -51,12 +51,12 @@ defmodule Valimc.PlacementRegionTest do
     Region.reserve_placement(owner, observed.revision, observed.blocks)
   end
 
-  defp writing(pid) do
+  defp writing(owner) do
     Valimc.TestWait.until(fn ->
-      Valimc.TestRegion.in_flight?(Valimc.TestConn.state(pid).resource)
+      Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner))
     end)
 
-    Valimc.TestConn.state(pid).resource
+    Valimc.TestRegion.section(owner)
   end
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
@@ -80,7 +80,7 @@ defmodule Valimc.PlacementRegionTest do
     task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, request) end)
 
     try do
-      pending = writing(ctx.pid)
+      pending = writing(ctx.owner)
       assert pending.containers.entries[ctx.position].rows == 3
       # Shown at once (D2); the reply, the player's proof, waits for the frame.
       assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == @chest
@@ -100,7 +100,7 @@ defmodule Valimc.PlacementRegionTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
     {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
-    assert :sys.get_state(elem(owner, 0)).resource.containers == containers
+    assert Valimc.TestRegion.section(owner).containers == containers
     {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])
     removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
     assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)

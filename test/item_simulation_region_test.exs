@@ -63,7 +63,7 @@ defmodule Valimc.ItemSimulationRegionTest do
     %{key: key, owner: owner, base: base, records: records, receipts: receipts}
   end
 
-  def state(ctx), do: :sys.get_state(elem(ctx.owner, 0)).resource
+  def state(ctx), do: Valimc.TestRegion.section(ctx.owner)
   def entry(ctx), do: state(ctx).entities.store.entries |> Map.values() |> hd()
 
   # Owners tick only when stepped: advance every live owner around the test's

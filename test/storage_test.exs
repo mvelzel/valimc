@@ -35,7 +35,7 @@ defmodule Valimc.StorageTest do
     owner
   end
 
-  defp resource({pid, _}), do: :sys.get_state(pid).resource
+  defp resource(owner), do: Valimc.TestRegion.section(owner)
 
   test "a block edit answers while its frame waits for the disk; a receipt waits for it", ctx do
     owner = owner(ctx)
@@ -111,13 +111,13 @@ defmodule Valimc.StorageTest do
 
     Log.commit(ctx.base, owner, 1, :erlang.term_to_binary([{:put, :game_tick, 7}]), self())
     Valimc.TestWait.until(fn -> :sys.get_state(stripe).held != nil end)
-    refute_received {:storage_durable, 1}
+    refute_received {:storage_durable, ^owner, 1}
 
     :sys.replace_state(stripe, fn %{log: log} = state ->
       %{state | log: %{log | segment: segment}}
     end)
 
-    assert_receive {:storage_durable, 1}, 5_000
+    assert_receive {:storage_durable, ^owner, 1}, 5_000
     assert [{1, _}] = Log.frames(ctx.base, owner, 0)
   end
 
@@ -172,7 +172,10 @@ defmodule Valimc.StorageTest do
 
     {storage, []} = RegionStorage.commit(RegionStorage.columns(storage, columns), parts)
     assert storage.seq > 1
-    assert_receive {:storage_durable, seq} when seq == storage.seq, 10_000
+    # The group sends the cut frames (VMC-077j).
+    {frames, _} = RegionStorage.take(storage, owner)
+    Log.commit_group(ctx.base, owner, frames, self())
+    assert_receive {:storage_durable, ^owner, seq} when seq == storage.seq, 10_000
     frames = Log.frames(ctx.base, owner, 0)
     assert length(frames) == storage.seq
     assert Enum.all?(frames, fn {_, frame} -> byte_size(frame) < RegionLog.max_frame() end)

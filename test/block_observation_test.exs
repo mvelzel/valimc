@@ -139,6 +139,8 @@ defmodule Valimc.BlockObservationTest do
   test "a paused region cannot block another region or change item publication", c do
     {pid, _} = c.owner
     key = {-309, -310}
+    # Another group: the regionizer would make the neighbour this one's.
+    TestScope.isolate(key, regionizer: false)
     {:ok, {other, _} = neighbour} = World.owner(key)
 
     on_exit(fn ->

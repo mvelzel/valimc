@@ -1,7 +1,8 @@
-//! The live region's side of the block-update engine (VMC-077m): one run
-//! over the region's store, after a batch of block changes or at due ticks.
-//! Writes go to an overlay the owner commits as one batch; ticks, destroyed
-//! blocks and border stops are returned beside it.
+//! The live side of the block-update engine (VMC-077m): one run over the
+//! stores of a group's sections (VMC-077j), after a batch of block changes in
+//! one of them or at its due ticks. Writes go to an overlay the group commits,
+//! each section its own cells; ticks, destroyed blocks and stops at the
+//! group's edge are returned beside it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,8 +28,10 @@ pub struct Outcome {
 }
 
 struct Live<'s> {
-    store: &'s ColumnStore,
-    /// Chunks of the region not generated yet: like a neighbour's, not held.
+    /// The section the run starts in, then the group's other sections.
+    stores: &'s [&'s ColumnStore],
+    /// Chunks of those sections not generated yet: like a neighbour group's,
+    /// not held.
     absent: &'s HashSet<(i32, i32)>,
     air: u16,
     overlay: HashMap<[i32; 3], u16>,
@@ -40,8 +43,18 @@ struct Live<'s> {
 }
 
 impl Live<'_> {
+    /// The store holding chunk `chunk`.
+    fn store(&self, chunk: (i32, i32)) -> Option<&ColumnStore> {
+        self.stores.iter().copied().find(|store| {
+            let (min, size) = (store.chunk_min, store.chunk_size);
+            (min.0..min.0 + size).contains(&chunk.0) && (min.1..min.1 + size).contains(&chunk.1)
+        })
+    }
+
     fn base(&self, pos: [i32; 3]) -> u16 {
-        self.store.get(pos[0], pos[1], pos[2]).unwrap_or(self.air)
+        self.store((pos[0] >> 4, pos[2] >> 4))
+            .and_then(|store| store.get(pos[0], pos[1], pos[2]).ok())
+            .unwrap_or(self.air)
     }
 }
 
@@ -82,14 +95,12 @@ impl BlockAccess for Live<'_> {
 }
 
 impl World for Live<'_> {
-    /// The owner's border, in one place: the region's chunks that are
+    /// The group's edge, in one place: its sections' chunks that are
     /// generated, within the build height.
     fn owns(&self, pos: [i32; 3]) -> bool {
         let chunk = (pos[0] >> 4, pos[2] >> 4);
-        let (min, size) = (self.store.chunk_min, self.store.chunk_size);
         (MIN_Y..MIN_Y + HEIGHT as i32).contains(&pos[1])
-            && (min.0..min.0 + size).contains(&chunk.0)
-            && (min.1..min.1 + size).contains(&chunk.1)
+            && self.store(chunk).is_some()
             && !self.absent.contains(&chunk)
     }
 
@@ -114,11 +125,12 @@ impl World for Live<'_> {
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
-/// `UPDATE_ALL` does), then the dependent blocks' due `ticks`, within
-/// `budget` updates if given (`None` past it, nothing to commit).
+/// `UPDATE_ALL` does), then the dependent blocks' due `ticks`, over `stores`
+/// (the section's, then its group's others), within `budget` updates if
+/// given (`None` past it, nothing to commit).
 pub fn run(
     rules: &Rules,
-    store: &ColumnStore,
+    stores: &[&ColumnStore],
     absent: &HashSet<(i32, i32)>,
     changes: &[Change],
     ticks: &[([i32; 3], u16)],
@@ -126,7 +138,7 @@ pub fn run(
     budget: Option<u64>,
 ) -> Result<Option<Outcome>, String> {
     let world = Live {
-        store,
+        stores,
         absent,
         air: rules.table.default_state("air")?,
         overlay: HashMap::new(),
@@ -162,17 +174,18 @@ pub fn run(
 }
 
 /// The first of `states` that can survive at `pos` (placement's
-/// `canSurvive`, `Rules::live_survives`). A rule that reads past the
-/// region's border is not refused: the neighbour region holds that cell.
+/// `canSurvive`, `Rules::live_survives`) over `stores` (as `run`). A rule
+/// that reads past the group's edge is not refused: the neighbour group
+/// holds that cell.
 pub fn first_surviving(
     rules: &Rules,
-    store: &ColumnStore,
+    stores: &[&ColumnStore],
     absent: &HashSet<(i32, i32)>,
     pos: [i32; 3],
     states: &[u16],
 ) -> Result<Option<u16>, String> {
     let mut world = Live {
-        store,
+        stores,
         absent,
         air: rules.table.default_state("air")?,
         overlay: HashMap::new(),
@@ -193,11 +206,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_region_owns_its_generated_chunks_within_the_build_height() {
+    fn the_group_owns_its_generated_chunks_within_the_build_height() {
         let store = ColumnStore::new((8, -8), 8, Box::new([0; HEIGHT]), 1 << 20);
+        let sibling = ColumnStore::new((16, -8), 8, Box::new([7; HEIGHT]), 1 << 20);
         let absent = HashSet::from([(9, -8)]);
+        let stores = [&store, &sibling];
         let mut live = Live {
-            store: &store,
+            stores: &stores,
             absent: &absent,
             air: 0,
             overlay: HashMap::new(),
@@ -211,7 +226,9 @@ mod tests {
         assert!(live.owns([255, 319, -1]));
         assert!(!live.owns([127, 64, -128]), "west of the region");
         assert!(!live.owns([128, 64, -129]), "north of the region");
-        assert!(!live.owns([256, 64, -1]), "east of the region");
+        assert!(live.owns([256, 64, -1]), "a sibling section east of it");
+        assert_eq!(live.get([256, 64, -1]), 7);
+        assert!(!live.owns([384, 64, -1]), "east of the group");
         assert!(!live.owns([128, 320, -128]), "above the build height");
         assert!(!live.owns([144, 64, -128]), "a chunk not generated yet");
         // Reading outside marks the rule call, which then drops what it scheduled.

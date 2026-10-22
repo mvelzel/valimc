@@ -81,11 +81,12 @@ defmodule Valimc.WorldTest do
     assert [{^key, {:frame, ^changed}}] = World.sendable([key], 1)
   end
 
-  test "separate regions continue responding when one region is suspended" do
+  # Sections more than three apart are never in one group (VMC-077j2).
+  test "separate groups continue responding when one is suspended" do
     {:ok, a} = World.region({101, 101})
-    {:ok, b} = World.owner({102, 102})
+    {:ok, b} = World.owner({106, 106})
     :sys.suspend(a)
-    position = {13056, 63, 13056}
+    position = {106 * 128, 63, 106 * 128}
 
     try do
       assert {:ok, %{blocks: %{^position => 9}}} = Region.observe_blocks(b, [position])

@@ -8,9 +8,10 @@ defmodule Valimc.Block.Rules do
   orders, through a collecting updater with vanilla's chain limit. A shape
   that becomes air destroys its block (it leaves its fluid and drops its
   loot); a dependent block's due tick breaks it if it can no longer survive.
-  The engine reads the region's cells and returns what it decided; the owner
-  commits it. Updates stop at the region's border: an update at a cell the
-  region does not hold, or whose rule reads one, is dropped.
+  The engine reads the cells of a section and its group's other sections
+  (VMC-077j) and returns what it decided; each section commits its part.
+  Updates stop at the group's edge: an update at a cell the group does not
+  hold, or whose rule reads one, is dropped.
 
   Rules come from the shared rule modules, live play's survival facts
   (`priv/physics/support.json`) and decoration's shape facts, in that order;
@@ -54,17 +55,19 @@ defmodule Valimc.Block.Rules do
 
   @doc """
   The updates after the cells of `previous` (`position => old state`) changed
-  in a region's storage, and at dependent blocks' due `ticks` (`[{position,
-  state}]`); `absent` lists the region's chunks not generated yet. Returns
+  in a section's storage, and at dependent blocks' due `ticks` (`[{position,
+  state}]`), reading across the stores of `siblings` (the group's other
+  sections); `absent` lists their chunks not generated yet. Returns
   `%{changes: [{position, state}], destroyed: [{position, state, drops?,
   effects?}], ticks: [{position, block, delay}], stopped: n, skipped: n,
   updates: n}` (`effects?`: it breaks with particles and sound; the counts:
-  updates dropped at the border, past the chain limit and run); storage is not
-  changed.
+  updates dropped at the group's edge, past the chain limit and run); storage
+  is not changed.
   """
-  def run(%Valimc.World.Blocks{ref: ref}, previous, ticks, absent) do
+  def run(%Valimc.World.Blocks{ref: ref}, siblings, previous, ticks, absent) do
     units = map_size(previous) + length(ticks)
-    args = [ref, native(), pack(previous), pack(ticks), absent, :rand.uniform(1 <<< 62)]
+    stores = for %Valimc.World.Blocks{ref: sibling} <- siblings, do: sibling
+    args = [ref, stores, native(), pack(previous), pack(ticks), absent, :rand.uniform(1 <<< 62)]
 
     {:ok, {changes, destroyed, scheduled, stopped, skipped, updates}} =
       case Native.dispatch(:block_updates, units, args) do
@@ -93,12 +96,13 @@ defmodule Valimc.Block.Rules do
   end
 
   @doc """
-  The first of `states` that can survive at `position` in a region's storage
-  (placement's `canSurvive`, `BlockItem.canPlace`), or `nil`; `absent` lists
-  the region's chunks not generated yet.
+  The first of `states` that can survive at `position` in a section's storage
+  (placement's `canSurvive`, `BlockItem.canPlace`), read with `siblings` as
+  `run/5` does, or `nil`; `absent` lists their chunks not generated yet.
   """
-  def first_surviving(%Valimc.World.Blocks{ref: ref}, position, states, absent) do
-    {:ok, state} = Native.block_first_surviving(ref, native(), position, states, absent)
+  def first_surviving(%Valimc.World.Blocks{ref: ref}, siblings, position, states, absent) do
+    stores = for %Valimc.World.Blocks{ref: sibling} <- siblings, do: sibling
+    {:ok, state} = Native.block_first_surviving(ref, stores, native(), position, states, absent)
     state
   end
 

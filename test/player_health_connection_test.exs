@@ -24,6 +24,8 @@ defmodule Valimc.PlayerHealthConnectionTest do
 
       Application.put_env(:valimc, :world_path, old)
       Valimc.TestScope.stop_players(base)
+      # Its sections would otherwise save into the removed folder as they unload.
+      Valimc.TestScope.stop_neighbourhood({0, 0})
       File.rm_rf!(base)
     end)
 

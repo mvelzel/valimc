@@ -51,6 +51,14 @@ defmodule Valimc.World.ContainerViewers do
 
   def register(_, _, _, _, _, _, _), do: {:error, :invalid_container_view}
 
+  @doc "The views' section moved to another group process (VMC-077j): watch the viewers from it."
+  def remonitor(%__MODULE__{} = state),
+    do: %{
+      state
+      | views:
+          Map.new(state.views, fn {pid, v} -> {pid, %{v | monitor: Process.monitor(pid)}} end)
+    }
+
   def unregister(%__MODULE__{} = state, pid, ref) do
     case state.views[pid] do
       %{ref: ^ref, position: position} ->

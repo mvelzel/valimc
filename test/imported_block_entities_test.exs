@@ -85,10 +85,10 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   defp grant(position, secondary \\ false) do
     {x, y, z} = position
     # The 200 ms grant starts once its owner has no write in flight (VMC-073).
-    {:ok, {pid, _}} = World.existing_owner(World.region_key(World.chunk_key(x, z)))
+    {:ok, owner} = World.existing_owner(World.region_key(World.chunk_key(x, z)))
 
     Valimc.TestWait.until(fn ->
-      not Valimc.TestRegion.writing?(:sys.get_state(pid).resource)
+      not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner))
     end)
 
     %{

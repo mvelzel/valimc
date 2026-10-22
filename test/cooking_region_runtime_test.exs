@@ -146,7 +146,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, edits)
 
     TestScope.isolate(ctx.key, item_simulation: true)
-    {:ok, {pid, _} = owner} = Valimc.World.item_owner(ctx.key)
+    {:ok, owner} = Valimc.World.item_owner(ctx.key)
     TestScope.simulate(owner, ctx.key)
 
     record = %{
@@ -165,7 +165,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
              )
 
     eventually(fn ->
-      current = Valimc.TestConn.state(pid).resource
+      current = Valimc.TestRegion.section(owner)
 
       Enum.all?(current.containers.entries, fn {_, entry} ->
         Enum.sum(Map.values(entry.recipes)) == 1

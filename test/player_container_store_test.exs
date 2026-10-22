@@ -231,9 +231,9 @@ defmodule Valimc.PlayerContainerStoreTest do
   end
 
   # No durable write in flight, so a request computed now is answered at once (VMC-073).
-  defp quiescent({pid, _}),
+  defp quiescent(owner),
     do:
       Valimc.TestWait.until(fn ->
-        not Valimc.TestRegion.writing?(:sys.get_state(pid).resource)
+        not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner))
       end)
 end

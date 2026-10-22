@@ -138,8 +138,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert :sys.get_state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
     assert :sys.get_state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-    {:ok, {region, _}} = World.existing_owner(c.key)
-    containers = :sys.get_state(region).resource.containers
+    {:ok, owner} = World.existing_owner(c.key)
+    containers = Valimc.TestRegion.section(owner).containers
     assert containers.sequence == 2 and containers.receipts == %{}
     assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
     assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
@@ -165,8 +165,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     assert Valimc.TestBlocks.get(c.target) == 0
     assert Map.take(Valimc.TestConn.state(pid).inventory.slots, [36, 45]) == held
-    {:ok, {region, _}} = World.existing_owner(c.key)
-    assert :sys.get_state(region).resource.containers.entries == %{}
+    {:ok, owner} = World.existing_owner(c.key)
+    assert Valimc.TestRegion.section(owner).containers.entries == %{}
   end
 
   # The client's predicted block in the target air cell is reset.
@@ -272,13 +272,13 @@ defmodule Valimc.PlayerPlacementConnectionTest do
        c do
     seed(c, :survival)
     {client, pid} = login(c)
-    {:ok, {region, _} = owner} = World.existing_owner(c.key)
+    {:ok, owner} = World.existing_owner(c.key)
     writer = Valimc.TestDisk.stripe(c.base, c.key)
     :sys.suspend(writer)
 
     try do
       send_place(client, c.target)
-      wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(region).resource) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner)) end)
       assert saved(c).outbox.kind == :placement
       assert saved(c).inventory.slots[36].count == 6
       # Shown at once (D2); the player's proof waits for the frame.

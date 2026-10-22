@@ -112,6 +112,8 @@ defmodule Valimc.World.Clock do
           tick_timer: nil,
           save_timer: nil,
           sync_ticks: 0,
+          # The world's clock publishes the game tick groups follow (VMC-077j).
+          main: Keyword.get(opts, :name, __MODULE__) == __MODULE__,
           # Without an explicit interval the clock follows `/tick` (`TickRate`).
           tick_interval: Keyword.get(opts, :tick_interval_ms, :rate),
           tick_steps: nil,
@@ -120,6 +122,7 @@ defmodule Valimc.World.Clock do
             System.monotonic_time(:millisecond) + (Keyword.get(opts, :tick_interval_ms, 50) || 50)
         }
 
+        if state.main, do: Valimc.World.GameTick.put(data.game_time)
         publish(state)
         {:ok, state |> schedule_tick() |> schedule_save()}
 
@@ -350,6 +353,7 @@ defmodule Valimc.World.Clock do
   defp tick(state, now) do
     if state.tick_interval == :rate, do: Valimc.World.TickRate.clock_ticked()
     data = ClockRecord.tick(state.data)
+    if state.main, do: Valimc.World.GameTick.put(data.game_time)
     count = state.sync_ticks + 1
 
     next = %{

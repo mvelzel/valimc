@@ -56,6 +56,7 @@ defmodule Valimc.Native do
   ## Region
 
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
+  def region_give(_region, _to), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def read_box(_region, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
@@ -97,15 +98,15 @@ defmodule Valimc.Native do
 
   def rules_new(_facts), do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_updates(_region, _rules, _changes, _ticks, _absent, _seed),
+  def block_updates(_region, _siblings, _rules, _changes, _ticks, _absent, _seed),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_updates_dirty(_region, _rules, _changes, _ticks, _absent, _seed),
+  def block_updates_dirty(_region, _siblings, _rules, _changes, _ticks, _absent, _seed),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_first_surviving(_region, _rules, _position, _states, _absent),
+  def block_first_surviving(_region, _siblings, _rules, _position, _states, _absent),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_scene(_rules, _floor, _sets), do: :erlang.nif_error(:nif_not_loaded)

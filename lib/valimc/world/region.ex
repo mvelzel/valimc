@@ -1,14 +1,58 @@
 defmodule Valimc.World.Region do
   use GenServer
-  @moduledoc "Simulation lifecycle owner; storage resources remain separate from its tick state."
+
+  @moduledoc """
+  A group process (VMC-077j): the owner of a connected set of 8 × 8 sections
+  of one dimension, each a `Valimc.World.RegionData` with its own blocks,
+  entities, log stream and published table. The section stays the unit of
+  storage, generation and light; the group is the unit of ownership, time and
+  durability:
+
+  - **Routing.** Callers hold `{pid, epoch}` per section (`World.owner/1`,
+    the Directory's row). A call or message names its section by that epoch,
+    by a chunk or position of it, or by key, and the group runs it on that
+    section's state.
+  - **Time.** One tick runs every section, in key order, with one tick number
+    (`Valimc.World.GameTick`, the world clock's game time), so groups that
+    merge need no offsets.
+  - **Locality.** Block rules run across the group's sections (each section
+    hands its siblings' stores to the engine) and stop only at the group's
+    edge; a run's changes in a sibling apply before the group's next cut.
+  - **Durability.** The group cuts every section's changes at once and sends
+    them as one record of the write-ahead log (`Log.commit_group/4`): a
+    change that spans sections is durable whole or not at all.
+  - **Handoff.** At a tick boundary a group hands sections to another
+    (`hand_over/3`): the section's Rust store changes owner (`region_give`),
+    its table moves with `:ets.give_away/3`, its state is copied in one
+    message, the giving group moves the route (`Directory.move/4`) and the
+    adopting group re-monitors what it watches. The section keeps its epoch:
+    a move is not a new incarnation. The process it left forwards what still
+    arrives for it for #{120} s (not to an adopter that stopped); a group
+    left without sections stops after that.
+
+  A section is admitted into a group of its own; the regionizer merges and
+  splits groups. A group that crashes takes its sections down; each is
+  admitted again from its log.
+  """
+  alias Valimc.Native
+
   alias Valimc.World.{
     BlockBatch,
+    GameTick,
     RegionData,
+    RegionStorage,
     TickClock,
     TickPipeline
   }
 
-  # `scoped` is the region key scoped by its dimension (`Valimc.Dimension`).
+  alias Valimc.Storage.Log
+
+  @forward_ms 120_000
+
+  # `scoped` is the first section's key scoped by its dimension (`Valimc.Dimension`).
+  def start_link({:empty, dimension}),
+    do: GenServer.start_link(__MODULE__, {:empty, dimension})
+
   def start_link({scoped, token}),
     do:
       GenServer.start_link(__MODULE__, {scoped, token},
@@ -23,17 +67,43 @@ defmodule Valimc.World.Region do
       shutdown: 20_000
     }
 
+  @doc """
+  Hand `keys` (all of `source`'s sections by default) to the group `target`,
+  at `source`'s next tick boundary: `:ok`, or `{:error, reason}`.
+  """
+  def hand_over(source, target, keys \\ :all) when is_pid(source) and is_pid(target),
+    do: GenServer.call(source, {:hand_over, target, keys}, 30_000)
+
+  @doc "Move `keys` of group `pid` into a new group: `{:ok, new_pid}`."
+  def split(pid, keys) when is_pid(pid) and is_list(keys) do
+    with {:ok, target} <-
+           DynamicSupervisor.start_child(
+             Valimc.RegionSupervisor,
+             %{
+               id: make_ref(),
+               start: {__MODULE__, :start_link, [{:empty, Valimc.Dimension.current()}]},
+               restart: :temporary,
+               shutdown: 20_000
+             }
+           ),
+         :ok <- hand_over(pid, target, keys),
+         do: {:ok, target}
+  end
+
+  @doc "The keys of the sections group `pid` owns."
+  def sections(pid), do: GenServer.call(pid, :sections, 5000)
+
   def flush(pid), do: GenServer.call(pid, :flush, budget(pid, 15_000))
 
   @doc """
   The calling process holds a `type` ticket (`Valimc.World.Tickets`) over
-  `chunks` of the owner's region, nearest to `center` first; an empty list
+  `chunks` of section `key`, nearest to `center` first; an empty list
   withdraws it. Asynchronous; a later call of the same type replaces it.
   """
-  def ticket({pid, _epoch}, type, center, chunks), do: ticket(pid, type, center, chunks)
+  def ticket({pid, _epoch}, key, type, center, chunks), do: ticket(pid, key, type, center, chunks)
 
-  def ticket(pid, type, center, chunks) when is_pid(pid) do
-    send(pid, {:ticket, self(), type, center, chunks})
+  def ticket(pid, key, type, center, chunks) when is_pid(pid) do
+    send(pid, {:ticket, key, self(), type, center, chunks})
     :ok
   end
 
@@ -170,8 +240,8 @@ defmodule Valimc.World.Region do
   end
 
   @doc "Release a prepared box edit part."
-  def abort_box({pid, _epoch}, token) when is_pid(pid) do
-    GenServer.call(pid, {:abort_box, token}, budget(pid, 1000))
+  def abort_box({pid, epoch}, token) when is_pid(pid) do
+    GenServer.call(pid, {:abort_box, epoch, token}, budget(pid, 1000))
   catch
     :exit, _ -> :ok
   end
@@ -376,17 +446,54 @@ defmodule Valimc.World.Region do
   def container_transfer({pid, epoch}, request),
     do: GenServer.call(pid, {:container_transfer, epoch, request}, budget(pid, 6000))
 
+  ## Group
+
   @impl true
+  def init({:empty, dimension}) do
+    Process.flag(:trap_exit, true)
+    Valimc.Dimension.put(dimension)
+    {:ok, new_state(dimension, nil)}
+  end
+
   def init({scoped, token}) do
     Process.flag(:trap_exit, true)
-    # The owner, and everything it routes, works in its region's dimension.
+    # The group, and everything it routes, works in its sections' dimension.
     {dimension, key} = Valimc.Dimension.unscope(scoped)
     Valimc.Dimension.put(dimension)
-    {:ok, %{key: key, admission: token, resource: nil}, {:continue, :load}}
+    {:ok, new_state(dimension, key), {:continue, {:load, key, token}}}
+  end
+
+  defp new_state(dimension, anchor) do
+    %{
+      dimension: dimension,
+      sections: %{},
+      epochs: %{},
+      owners: %{},
+      # What the block rules of one section read of the others: key =>
+      # %{blocks, absent, busy} (VMC-077j).
+      peers: %{},
+      # Sections handed to other groups: key, epoch and storage owner => {pid, until}.
+      moved: %{},
+      # Groups sections were handed to, watched: pid => monitor.
+      targets: %{},
+      # A full collection is due once the sections handed in are adopted.
+      collect: false,
+      # The key whose log stripe the group commits to.
+      route: anchor && {:region, dimension, anchor},
+      stripe: nil,
+      tick_clock: nil,
+      # `:manual` groups (tests) tick only through `step/2`, numbered on their own.
+      manual: false,
+      tick_timer: nil,
+      tick_steps: nil,
+      commit_timer: nil,
+      commit_ms: RegionStorage.commit_ms(),
+      forward_timer: nil
+    }
   end
 
   @impl true
-  def handle_continue(:load, %{key: key, admission: token}) do
+  def handle_continue({:load, key, token}, state) do
     started = System.monotonic_time(:microsecond)
     resource = key |> RegionData.load() |> Valimc.World.LightHalo.hello()
     Valimc.Metrics.add(:region_loads)
@@ -397,52 +504,279 @@ defmodule Valimc.World.Region do
            epoch: resource.epoch
          }) do
       :ok ->
-        # The region's game tick continues from its last frame (VMC-077f).
-        clock = %{
-          TickClock.new(resource.epoch, System.monotonic_time(:millisecond))
-          | tick: resource.game_tick
-        }
-
-        # `:manual` owners (tests) tick only through `step/2`.
-        timer =
-          if Valimc.config(:region_ticks, key) == :timer,
-            do: Process.send_after(self(), {:tick, clock.token}, 50)
-
-        {:noreply,
-         %{
-           key: key,
-           admission: token,
-           resource: resource,
-           tick_clock: clock,
-           tick_timer: timer,
-           tick_steps: nil
-         }}
+        if Valimc.config(:regionizer, key), do: Valimc.World.Regionizer.loaded(key, self())
+        {:noreply, state |> put_section(key, token, resource) |> start_clock()}
 
       {:error, reason} ->
-        {:stop, reason, %{resource: resource}}
+        {:stop, reason, put_section(state, key, token, resource)}
     end
   end
 
-  @impl true
-  def handle_call(:owner, _from, state),
-    do: {:reply, {:ok, {self(), state.resource.epoch}}, state}
+  defp put_section(state, key, token, resource) do
+    resource = %{
+      resource
+      | storage: %{resource.storage | route: state.route || resource.storage.owner}
+    }
 
-  # Deterministic stepping: run `ticks` pipeline ticks now, in order.
-  def handle_call({:step, ticks}, _from, state) when is_integer(ticks) and ticks in 1..1200 do
-    {resource, clock} =
-      Enum.reduce(1..ticks, {state.resource, state.tick_clock}, fn _, {resource, clock} ->
-        clock = %{clock | tick: clock.tick + 1}
-        {TickPipeline.run(resource, clock.tick, System.monotonic_time(:millisecond)), clock}
-      end)
-
-    {:reply, {:ok, clock.tick}, %{state | resource: resource, tick_clock: clock}}
+    %{
+      state
+      | sections: Map.put(state.sections, key, %{resource: resource, admission: token}),
+        peers: peer(state.peers, key, resource),
+        epochs: Map.put(state.epochs, resource.epoch, key),
+        owners: Map.put(state.owners, resource.storage.owner, key),
+        moved: Map.drop(state.moved, [key, resource.epoch, resource.storage.owner]),
+        route: state.route || resource.storage.owner
+    }
   end
 
-  def handle_call(message, from, state),
-    do: RegionData.handle_call(message, from, state.resource) |> wrap(state)
+  defp drop_section(state, key) do
+    {%{resource: resource}, sections} = Map.pop(state.sections, key)
+
+    %{
+      state
+      | sections: sections,
+        peers: Map.delete(state.peers, key),
+        epochs: Map.delete(state.epochs, resource.epoch),
+        owners: Map.delete(state.owners, resource.storage.owner)
+    }
+  end
+
+  # The group's tick and commit timers start with its first section; its
+  # sections continue at the group's tick.
+  defp start_clock(%{tick_clock: nil} = state) do
+    key = state.sections |> Map.keys() |> Enum.min()
+    now = System.monotonic_time(:millisecond)
+    manual = Valimc.config(:region_ticks, key) != :timer
+    tick = state.sections[key].resource.game_tick
+    tick = if manual, do: tick, else: max(GameTick.current(), tick)
+    clock = %{TickClock.new(make_ref(), now) | tick: tick}
+    timer = if not manual, do: Process.send_after(self(), {:tick, clock.token}, 50)
+    commit_ms = Valimc.config(:region_commit_ms, key)
+    commit = Process.send_after(self(), :commit, commit_ms)
+
+    %{
+      state
+      | tick_clock: clock,
+        manual: manual,
+        tick_timer: timer,
+        commit_timer: commit,
+        commit_ms: commit_ms
+    }
+    |> rebase(key)
+  end
+
+  defp start_clock(state), do: state
+
+  defp rebase(state, key),
+    do:
+      put_resource(
+        state,
+        key,
+        RegionData.rebase(state.sections[key].resource, state.tick_clock.tick)
+      )
+
+  # A section handed in continues at the group's tick, or the group at the
+  # section's when that is later: numbers never go back for a section (its
+  # entity frames and scheduled ticks are numbered by them).
+  defp catch_up(state, key) do
+    tick = state.sections[key].resource.game_tick
+
+    if tick > state.tick_clock.tick do
+      state = %{state | tick_clock: %{state.tick_clock | tick: tick}}
+      Enum.reduce(Map.keys(state.sections), state, &rebase(&2, &1))
+    else
+      rebase(state, key)
+    end
+  end
+
+  # The next tick's number: the world's game tick, never behind the group's.
+  defp next_tick(%{manual: true, tick_clock: clock}), do: clock.tick + 1
+  defp next_tick(%{tick_clock: clock}), do: max(clock.tick + 1, GameTick.current())
+
+  ## Calls
 
   @impl true
-  def handle_info({:tick, token}, state) do
+  def handle_call({:owner, key}, from, state) do
+    case state.sections do
+      %{^key => %{resource: resource}} -> {:reply, {:ok, {self(), resource.epoch}}, state}
+      _ -> elsewhere(state, {:key, key}, {:call, from, {:owner, key}})
+    end
+  end
+
+  def handle_call(:sections, _from, state),
+    do: {:reply, state.sections |> Map.keys() |> Enum.sort(), state}
+
+  # Deterministic stepping: run `ticks` group ticks now, in order.
+  def handle_call({:step, ticks}, _from, state) when is_integer(ticks) and ticks in 1..1200 do
+    state =
+      Enum.reduce(1..ticks, state, fn _, acc ->
+        clock = %{acc.tick_clock | tick: next_tick(acc)}
+        run_tick(%{acc | tick_clock: clock}, clock.tick, System.monotonic_time(:millisecond))
+      end)
+
+    {:reply, {:ok, state.tick_clock.tick}, commit_frames(state)}
+  end
+
+  def handle_call(:flush, _from, state) do
+    state = commit_frames(state, true)
+
+    {state, reply} =
+      Enum.reduce(Map.keys(state.sections), {state, :ok}, fn key, {acc, reply} ->
+        case section_call(acc, key, :flush, nil) do
+          {:reply, acc, :ok} -> {acc, reply}
+          {:reply, acc, other} -> {acc, other}
+          {_, acc, _} -> {acc, reply}
+        end
+      end)
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:hand_over, target, keys}, _from, state) do
+    keys = if keys == :all, do: Map.keys(state.sections), else: keys
+
+    if target == self() or not Enum.all?(keys, &Map.has_key?(state.sections, &1)) do
+      {:reply, {:error, :invalid_handoff}, state}
+    else
+      started = System.monotonic_time(:microsecond)
+      state = Enum.reduce(keys, commit_frames(state), &give(&2, &1, target))
+      Valimc.Metrics.add(:region_handoffs, length(keys))
+
+      Valimc.Metrics.add(
+        :region_handoff_microseconds,
+        System.monotonic_time(:microsecond) - started
+      )
+
+      {:reply, :ok, state}
+    end
+  end
+
+  def handle_call(message, from, state) do
+    case target(message, state) do
+      {:section, key} -> section_result(section_call(state, key, message, from), from)
+      other -> elsewhere(state, other, {:call, from, message})
+    end
+  end
+
+  # The section a message names: by epoch (most), by chunk, or by key.
+  defp target({:chunk, chunk}, state), do: by_key(state, Valimc.World.region_key(chunk))
+
+  defp target({:await_chunks, [chunk | _]}, state),
+    do: by_key(state, Valimc.World.region_key(chunk))
+
+  defp target(message, state) when is_tuple(message) and tuple_size(message) >= 2 do
+    epoch = elem(message, 1)
+
+    case state.epochs do
+      %{^epoch => key} -> {:section, key}
+      _ -> {:epoch, epoch}
+    end
+  end
+
+  defp target(_message, _state), do: :none
+
+  defp by_key(state, key) do
+    if Map.has_key?(state.sections, key), do: {:section, key}, else: {:key, key}
+  end
+
+  defp section_call(state, key, message, from) do
+    {kind, resource, rest} =
+      split_result(RegionData.handle_call(message, from, enter(state, key)))
+
+    {kind, state |> put_resource(key, resource) |> deliver_rules(key), rest}
+  end
+
+  defp split_result({:reply, reply, resource}), do: {:reply, resource, reply}
+  defp split_result({:noreply, resource}), do: {:noreply, resource, nil}
+  defp split_result({:stop, reason, resource}), do: {:stop, resource, reason}
+
+  defp put_resource(state, key, resource) do
+    %{
+      state
+      | sections: Map.update!(state.sections, key, &%{&1 | resource: resource}),
+        peers: peer(state.peers, key, resource)
+    }
+  end
+
+  # A section's state as its code runs: with what it reads of its siblings.
+  defp enter(state, key), do: %{state.sections[key].resource | siblings: state.peers}
+
+  defp peer(peers, key, resource) do
+    absent = resource.generation.absent
+    busy = RegionData.write_busy(resource) != nil
+
+    case peers do
+      %{^key => %{absent_set: ^absent, busy: ^busy}} ->
+        peers
+
+      _ ->
+        Map.put(peers, key, %{
+          blocks: resource.blocks,
+          absent_set: absent,
+          absent: MapSet.to_list(absent),
+          busy: busy
+        })
+    end
+  end
+
+  # The block rules' changes a section's run made in its siblings apply
+  # before the group's next cut, so they commit with the run's own.
+  defp deliver_rules(state, key) do
+    case state.sections do
+      %{^key => %{resource: %{sibling_rules: [_ | _] = parts} = resource}} ->
+        state = put_resource(state, key, %{resource | sibling_rules: []})
+
+        Enum.reduce(parts, state, fn {sibling, part}, acc ->
+          if Map.has_key?(acc.sections, sibling),
+            do: put_resource(acc, sibling, RegionData.apply_rules(enter(acc, sibling), part)),
+            else: acc
+        end)
+
+      _ ->
+        state
+    end
+  end
+
+  defp section_result({:reply, state, reply}, _from), do: {:reply, reply, commit_frames(state)}
+  defp section_result({:noreply, state, _}, _from), do: {:noreply, commit_frames(state)}
+  defp section_result({:stop, state, reason}, _from), do: {:stop, reason, state}
+
+  # A message for a section that moved is forwarded as it came; one for a
+  # section this group never had is answered as for a stale owner.
+  defp elsewhere(state, target, message) do
+    case moved_to(state, target) do
+      nil ->
+        case message do
+          {:call, from, _} -> GenServer.reply(from, Valimc.Error.retry(:stale_owner))
+          _ -> :ok
+        end
+
+      pid ->
+        case message do
+          {:call, from, call} -> send(pid, {:"$gen_call", from, call})
+          {:info, info} -> send(pid, info)
+        end
+    end
+
+    {:noreply, state}
+  end
+
+  defp moved_to(state, {:key, key}), do: moved_pid(state, key)
+  defp moved_to(state, {:epoch, epoch}), do: moved_pid(state, epoch)
+  defp moved_to(state, {:owner, owner}), do: moved_pid(state, owner)
+  defp moved_to(_state, _), do: nil
+
+  defp moved_pid(state, id) do
+    case state.moved do
+      %{^id => {pid, _}} -> pid
+      _ -> nil
+    end
+  end
+
+  ## Messages
+
+  @impl true
+  def handle_info({:tick, token}, %{tick_clock: %{token: token}} = state) do
     now = System.monotonic_time(:millisecond)
 
     case TickClock.advance(state.tick_clock, token, now) do
@@ -453,86 +787,344 @@ defmodule Valimc.World.Region do
         {:noreply, schedule_tick(state, clock, delay)}
 
       {:ok, clock, late, delay} ->
+        clock = %{clock | tick: next_tick(state)}
+
         # A frozen game (`/tick freeze`) runs only the steps it is granted.
-        case Valimc.World.TickRate.run?(Map.get(state, :tick_steps)) do
+        case Valimc.World.TickRate.run?(state.tick_steps) do
           {true, steps} ->
             Valimc.Metrics.add(:region_ticks)
             Valimc.Metrics.add(:region_late_milliseconds, late)
             started = System.monotonic_time(:nanosecond)
-            resource = TickPipeline.run(state.resource, clock.tick, now)
+            state = run_tick(%{state | tick_clock: clock, tick_steps: steps}, clock.tick, now)
             Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started)
-            lifecycle(%{state | resource: resource, tick_steps: steps}, clock, delay, now)
+            lifecycle(state, delay, now)
 
           {false, steps} ->
-            lifecycle(Map.put(state, :tick_steps, steps), clock, delay, now)
+            lifecycle(
+              %{state | tick_steps: steps, tick_clock: %{clock | tick: state.tick_clock.tick}},
+              delay,
+              now
+            )
         end
     end
   end
 
-  def handle_info(:tick, state), do: {:noreply, state}
+  def handle_info({:tick, _}, state), do: {:noreply, state}
 
-  def handle_info({:resource, epoch, message}, %{resource: %{epoch: epoch}} = state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info(:commit, state) do
+    state =
+      Enum.reduce(Map.keys(state.sections), state, fn key, acc ->
+        put_resource(acc, key, RegionData.commit_tick(acc.sections[key].resource))
+      end)
 
-  def handle_info({:resource, _, _}, state), do: {:noreply, state}
+    timer = Process.send_after(self(), :commit, state.commit_ms)
+    {:noreply, commit_frames(%{state | commit_timer: timer})}
+  end
 
-  def handle_info({:table_request, _, _, _, _, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info({:resource, epoch, message} = info, state) do
+    case state.epochs do
+      %{^epoch => key} -> section_info(state, key, message)
+      _ -> elsewhere(state, {:epoch, epoch}, {:info, info})
+    end
+  end
 
-  def handle_info({:DOWN, _, :process, _, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info({:table_request, epoch, _, _, _, _} = message, state) do
+    case state.epochs do
+      %{^epoch => key} -> section_info(state, key, message)
+      _ -> elsewhere(state, {:epoch, epoch}, {:info, message})
+    end
+  end
 
-  def handle_info({:halo, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info({:ticket, key, holder, type, center, chunks} = info, state)
+      when is_pid(holder) and is_atom(type) and is_list(chunks) do
+    if Map.has_key?(state.sections, key),
+      do: section_info(state, key, {:ticket, holder, type, center, chunks}),
+      else: elsewhere(state, {:key, key}, {:info, info})
+  end
 
-  # The write-ahead log's acknowledgements and checkpoint tasks (VMC-077f).
-  def handle_info({:storage_durable, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info({:halo, key, payload} = info, state) do
+    if Map.has_key?(state.sections, key),
+      do: section_info(state, key, {:halo, payload}),
+      else: elsewhere(state, {:key, key}, {:info, info})
+  end
 
-  def handle_info({:storage_failed, _, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  # The log (VMC-077f): acknowledgements name the section's stream.
+  def handle_info({:storage_durable, owner, _seq} = info, state) do
+    case state.owners do
+      %{^owner => key} -> section_info(state, key, info)
+      _ -> elsewhere(state, {:owner, owner}, {:info, info})
+    end
+  end
 
-  def handle_info({:checkpointed, _, _, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  def handle_info({:storage_failed, _owner, _seq, reason}, state),
+    do: {:stop, {:storage_failed, reason}, state}
 
-  # Chunk tickets (VMC-077e).
-  def handle_info({:ticket, holder, type, _center, chunks} = message, state)
-      when is_pid(holder) and is_atom(type) and is_list(chunks),
-      do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  # A checkpoint task reports to the process that started it.
+  def handle_info({:checkpointed, _, _, _} = info, state) do
+    for pid <- state.moved |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.uniq(),
+        do: send(pid, info)
+
+    broadcast(state, info)
+  end
+
+  # The log stripe went down: frames in flight may or may not be durable.
+  def handle_info({:DOWN, ref, :process, _, reason}, %{stripe: {_, ref}} = state) do
+    if Enum.any?(state.sections, fn {_, s} -> map_size(s.resource.storage.in_flight) > 0 end),
+      do: {:stop, {:storage_failed, {:log_down, reason}}, state},
+      else: {:noreply, %{state | stripe: nil}}
+  end
+
+  # A worker of a section that moved ends here, after its report: forwarded.
+  # A group sections were handed to stopped: nothing more goes there, and
+  # their routes went with it.
+  def handle_info({:DOWN, ref, :process, pid, _} = info, state) do
+    case {state.targets, moved_pid(state, {:monitor, ref})} do
+      {%{^pid => ^ref}, _} ->
+        moved = Map.reject(state.moved, fn {_, {target, _}} -> target == pid end)
+        maybe_forwarder(%{state | moved: moved, targets: Map.delete(state.targets, pid)})
+
+      {_, nil} ->
+        broadcast(state, info)
+
+      {_, target} ->
+        send(target, info)
+        {:noreply, state}
+    end
+  end
+
+  # A section handed to this group (`hand_over/3`).
+  def handle_info({:adopt, key, token, resource, _tick}, state) do
+    started = System.monotonic_time(:microsecond)
+    resource = RegionData.adopted(resource)
+    state = put_section(state, key, token, resource)
+    {:ok, _} = Registry.register(Valimc.RegionRegistry, Valimc.Dimension.scope(key), nil)
+    Valimc.Metrics.add(:region_adopt_microseconds, System.monotonic_time(:microsecond) - started)
+
+    # The section continues at this group's tick and wants its chunks from here.
+    state =
+      cond do
+        state.tick_clock == nil ->
+          start_clock(state)
+
+        state.tick_timer == nil ->
+          state |> catch_up(key) |> then(&schedule_tick(&1, &1.tick_clock, 50))
+
+        true ->
+          catch_up(state, key)
+      end
+
+    resource = Valimc.World.RegionGeneration.pump(state.sections[key].resource)
+    {:noreply, state |> put_resource(key, resource) |> collect_soon()}
+  end
+
+  # A section's state arrives as one large message; until a full collection
+  # moves it out of the young heap, every minor collection copies it again
+  # (twice the tick cost measured). One collection after a merge's adopts.
+  def handle_info(:collect, state) do
+    :erlang.garbage_collect()
+    {:noreply, %{state | collect: false}}
+  end
+
+  def handle_info({:"ETS-TRANSFER", _table, _from, {:section, _key}}, state),
+    do: {:noreply, state}
+
+  def handle_info(:forward_expired, state), do: maybe_forwarder(%{state | forward_timer: nil})
 
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
 
-  # An idle owner without tickets unloads (VMC-077e): its route goes first, then
-  # `terminate/2` saves what is volatile and closes its store.
-  defp lifecycle(state, clock, delay, now) do
-    case RegionData.lifecycle(state.resource, clock.tick, now) do
-      {:ok, resource} ->
-        {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
+  defp section_info(state, key, message) do
+    case RegionData.handle_info(message, enter(state, key)) do
+      {:noreply, resource} ->
+        {:noreply, state |> put_resource(key, resource) |> deliver_rules(key) |> commit_frames()}
 
-      {:unload, resource} ->
-        case Valimc.World.Directory.retire(state.key, state.admission) do
-          :ok ->
-            Valimc.Metrics.add(:region_unloads)
-            {:stop, :normal, %{state | resource: resource}}
-
-          {:error, _} ->
-            {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
-        end
+      {:stop, reason, resource} ->
+        {:stop, reason, put_resource(state, key, resource)}
     end
   end
 
+  # Every section sees it; each acts only on what is its own.
+  defp broadcast(state, message) do
+    Enum.reduce_while(Map.keys(state.sections), {:noreply, state}, fn key, {:noreply, acc} ->
+      case section_info(acc, key, message) do
+        {:noreply, acc} -> {:cont, {:noreply, acc}}
+        stop -> {:halt, stop}
+      end
+    end)
+  end
+
+  ## Ticks and lifecycle
+
+  defp run_tick(state, tick, now) do
+    state.sections
+    |> Map.keys()
+    |> Enum.sort()
+    |> Enum.reduce(state, fn key, acc ->
+      acc |> put_resource(key, TickPipeline.run(enter(acc, key), tick, now)) |> deliver_rules(key)
+    end)
+  end
+
+  # An idle section without tickets unloads (VMC-077e): its route goes first,
+  # then it saves what is volatile; a group left without sections stops.
+  defp lifecycle(state, delay, now) do
+    tick = state.tick_clock.tick
+
+    state =
+      Enum.reduce(Map.keys(state.sections), state, fn key, acc ->
+        case RegionData.lifecycle(acc.sections[key].resource, tick, now) do
+          {:ok, resource} -> put_resource(acc, key, resource)
+          {:unload, resource} -> unload(put_resource(acc, key, resource), key)
+        end
+      end)
+
+    state = commit_frames(state)
+
+    if state.sections == %{} and state.moved == %{},
+      do: {:stop, :normal, state},
+      else: {:noreply, schedule_tick(state, state.tick_clock, delay)}
+  end
+
+  defp unload(state, key) do
+    section = state.sections[key]
+
+    case Valimc.World.Directory.retire(key, section.admission) do
+      :ok ->
+        Valimc.Metrics.add(:region_unloads)
+        state = commit_frames(state, true)
+        RegionData.terminate(:normal, state.sections[key].resource)
+        :ets.delete(section.resource.publication)
+        Registry.unregister(Valimc.RegionRegistry, Valimc.Dimension.scope(key))
+        Valimc.World.Directory.retired(key)
+        if Valimc.config(:regionizer, key), do: Valimc.World.Regionizer.unloaded(key, self())
+        drop_section(state, key)
+
+      {:error, _} ->
+        state
+    end
+  end
+
+  # A group with sections ticks on its timer, unless tests step it.
   defp schedule_tick(state, clock, delay) do
     if state.tick_timer, do: Process.cancel_timer(state.tick_timer)
-    timer = Process.send_after(self(), {:tick, clock.token}, delay)
+
+    timer =
+      if not state.manual and state.sections != %{},
+        do: Process.send_after(self(), {:tick, clock.token}, delay)
+
     %{state | tick_clock: clock, tick_timer: timer}
   end
 
-  defp wrap({:reply, reply, resource}, state), do: {:reply, reply, %{state | resource: resource}}
-  defp wrap({:noreply, resource}, state), do: {:noreply, %{state | resource: resource}}
-  defp wrap({:stop, reason, resource}, state), do: {:stop, reason, %{state | resource: resource}}
+  ## Commits
+
+  # Every section's frames from one cut go out as one record: when any section
+  # has frames to send, the others' changes are cut too. A section whose
+  # frames are still in flight on another stripe (it moved here) holds the
+  # group's frames until they are durable.
+  defp commit_frames(state, cut \\ false) do
+    pending? = cut or Enum.any?(state.sections, fn {_, s} -> s.resource.storage.outbox != [] end)
+
+    cond do
+      not pending? ->
+        state
+
+      Enum.any?(state.sections, fn {_, s} ->
+        RegionStorage.held?(s.resource.storage, state.route)
+      end) ->
+        state
+
+      true ->
+        {frames, state} =
+          Enum.reduce(Map.keys(state.sections), {[], state}, fn key, {frames, acc} ->
+            resource = RegionData.cut(acc.sections[key].resource)
+            {taken, storage} = RegionStorage.take(resource.storage, acc.route)
+            {frames ++ taken, put_resource(acc, key, %{resource | storage: storage})}
+          end)
+
+        send_frames(state, frames)
+    end
+  end
+
+  defp send_frames(state, []), do: state
+
+  defp send_frames(state, frames) do
+    base = state.sections |> Map.values() |> Enum.find_value(& &1.resource.storage.base)
+    stripe = Log.commit_group(base, state.route, frames, self())
+    watch_stripe(state, stripe)
+  end
+
+  defp watch_stripe(%{stripe: {pid, _}} = state, pid), do: state
+
+  defp watch_stripe(state, pid) do
+    with {_, ref} <- state.stripe, do: Process.demonitor(ref, [:flush])
+    %{state | stripe: {pid, Process.monitor(pid)}}
+  end
+
+  ## Handoff
+
+  # Hand section `key` to `target`; what still arrives for it is forwarded.
+  defp give(state, key, target) do
+    %{resource: resource, admission: token} = state.sections[key]
+    :ok = Native.region_give(resource.blocks.ref, target)
+    true = :ets.give_away(resource.publication, target, {:section, key})
+    Registry.unregister(Valimc.RegionRegistry, Valimc.Dimension.scope(key))
+    send(target, {:adopt, key, token, %{resource | siblings: %{}}, state.tick_clock.tick})
+
+    :ok =
+      Valimc.World.Directory.move(key, token, target, %{
+        publication: resource.publication,
+        epoch: resource.epoch
+      })
+
+    until = System.monotonic_time(:millisecond) + @forward_ms
+    ids = [key, resource.epoch, resource.storage.owner]
+    ids = ids ++ for ref <- Map.keys(resource.jobs.monitors), do: {:monitor, ref}
+    moved = Map.new(ids, &{&1, {target, until}})
+    state = drop_section(state, key)
+
+    targets =
+      Map.put_new_lazy(state.targets, target, fn -> Process.monitor(target) end)
+
+    %{state | moved: Map.merge(state.moved, moved), targets: targets} |> arm_forward()
+  end
+
+  defp collect_soon(%{collect: true} = state), do: state
+
+  defp collect_soon(state) do
+    send(self(), :collect)
+    %{state | collect: true}
+  end
+
+  defp arm_forward(%{forward_timer: nil} = state),
+    do: %{state | forward_timer: Process.send_after(self(), :forward_expired, @forward_ms)}
+
+  defp arm_forward(state), do: state
+
+  # Forwarding entries expire; a group without sections or entries stops.
+  defp maybe_forwarder(state) do
+    now = System.monotonic_time(:millisecond)
+    moved = Map.filter(state.moved, fn {_, {_, until}} -> until > now end)
+    state = %{state | moved: moved}
+
+    cond do
+      state.sections == %{} and moved == %{} ->
+        {:stop, :normal, state}
+
+      moved != %{} and state.forward_timer == nil ->
+        {:noreply, arm_forward(state)}
+
+      true ->
+        {:noreply, state}
+    end
+  end
 
   @impl true
-  def terminate(_reason, %{resource: nil}), do: :ok
-  def terminate(reason, state), do: RegionData.terminate(reason, state.resource)
+  # A clean stop cuts every section's changes into one record first; each
+  # section then saves (VMC-077f). A crash commits nothing more.
+  def terminate(reason, state) do
+    clean = reason in [:normal, :shutdown] or match?({:shutdown, _}, reason)
+    state = if clean and state.sections != %{}, do: commit_frames(state, true), else: state
+
+    for {_, section} <- state.sections, do: RegionData.terminate(reason, section.resource)
+    :ok
+  end
 end

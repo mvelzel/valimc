@@ -80,10 +80,10 @@ defmodule Valimc.CookingOrbConnectionTest do
       ledger: %{sequence: 1, outgoing: outgoing, incoming: %{}}
     })
 
-    {:ok, {source_owner, _}} = World.item_owner(source_key)
+    {:ok, source_owner} = World.item_owner(source_key)
     {:ok, {owner, epoch}} = World.item_owner(key)
-    wait(fn -> map_size(store(owner).views) == 2 end)
-    views = store(owner).views
+    wait(fn -> map_size(store({owner, epoch}).views) == 2 end)
+    views = store({owner, epoch}).views
     uuids = MapSet.new(for {_, v} <- views, do: v.uuid)
 
     {_, client} = Client.login(hd(names))
@@ -103,7 +103,7 @@ defmodule Valimc.CookingOrbConnectionTest do
     assert World.visible_items(MapSet.new([key]), MapSet.new([World.chunk_key(pose.x, pose.z)])) ==
              %{}
 
-    {:ok, {^owner, ^epoch, item_id, 1}} =
+    {:ok, {_, ^epoch, item_id, 1}} =
       Region.create_item({owner, epoch}, ItemStack.new("stone", 3), {pose.x, 64.1, pose.z})
 
     {body, client} = Client.await(client, :play, "take_item_entity")
@@ -117,7 +117,7 @@ defmodule Valimc.CookingOrbConnectionTest do
     end)
 
     wait(fn -> store(source_owner).ledger.outgoing == nil end)
-    installed = store(owner)
+    installed = store({owner, epoch})
     assert Map.keys(installed.ledger.incoming) == [source_key]
     assert store(source_owner).views == %{}
 
@@ -130,6 +130,8 @@ defmodule Valimc.CookingOrbConnectionTest do
     on_exit(fn -> Client.close(late) end)
     {_late, late_spawns, _values} = observe(late, uuids)
     assert late_spawns == spawns
+    # The group holding the section now (the regionizer may have merged it).
+    {:ok, {owner, ^epoch}} = World.item_owner(key)
     ref = Process.monitor(owner)
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^ref, :process, ^owner, :killed}
@@ -147,10 +149,10 @@ defmodule Valimc.CookingOrbConnectionTest do
     assert MapSet.disjoint?(MapSet.new(Map.keys(spawns)), MapSet.new(Map.keys(recreated)))
     {:ok, {replacement, new_epoch}} = World.item_owner(key)
     assert new_epoch != epoch
-    assert orbs(store(replacement)) == orbs(installed)
+    assert orbs(store({replacement, new_epoch})) == orbs(installed)
   end
 
-  defp store(pid), do: :sys.get_state(pid).resource.entities.store
+  defp store(owner), do: Valimc.TestRegion.section(owner).entities.store
 
   # Orb records without their age, a counter a crash may roll back.
   defp orbs(store), do: Enum.map(Entities.records(store), &Map.delete(&1, :age))

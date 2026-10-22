@@ -79,6 +79,11 @@ defmodule Valimc.World.RegionData do
     :scheduled_ticks,
     :tick_index,
     :rule_backlog,
+    # The group's other sections the block rules read across (VMC-077j), as
+    # the group hands them in (`Region`), and the rules' changes to them it
+    # applies once this section's call returns.
+    {:siblings, %{}},
+    {:sibling_rules, []},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -146,7 +151,6 @@ defmodule Valimc.World.RegionData do
 
     :ok = BlockSnapshot.publish_chunks(publication, blocks, present, 0)
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
-    send_after_epoch(items.epoch, :commit, RegionStorage.commit_ms())
 
     %__MODULE__{
       key: key,
@@ -187,9 +191,6 @@ defmodule Valimc.World.RegionData do
     |> baseline_storage()
     |> resume_item_handoff()
   end
-
-  defp send_after_epoch(epoch, message, ms),
-    do: Process.send_after(self(), {:resource, epoch, message}, ms)
 
   @doc "The owner's keyed parts that `RegionStorage` diffs into frames and checkpoints."
   def parts(state),
@@ -1237,7 +1238,8 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:abort_box, token}, _from, state),
+  # A box edit part ends by its token, in whichever incarnation holds it.
+  def handle_call({:abort_box, _epoch, token}, _from, state),
     do: {:reply, :ok, %{state | permits: Permits.release(state.permits, token)}}
 
   def handle_call({:placement_state, epoch, {_, y, _} = position, states}, _from, state) do
@@ -1397,12 +1399,49 @@ defmodule Valimc.World.RegionData do
     run_released(%{state | storage: storage}, released)
   end
 
-  # Commit, wait until the frames are appended, then checkpoint here.
+  @doc """
+  The group's commit tick (VMC-077j): cut a frame of what changed into the
+  outbox and start a checkpoint when one is due.
+  """
+  def commit_tick(state), do: maybe_checkpoint(commit(state))
+
+  @doc "Cut a frame of what changed into the outbox (the group sends every section's at once)."
+  def cut(state), do: commit(state)
+
+  @doc """
+  Continue at the group's game tick `tick` (VMC-077j): scheduled ticks keep
+  their delays, as vanilla's do across a chunk's unload.
+  """
+  def rebase(%{game_tick: tick} = state, tick), do: state
+
+  def rebase(state, tick) do
+    ticks = ScheduledTicks.load(ScheduledTicks.dump(state.scheduled_ticks, state.game_tick), tick)
+    %{state | scheduled_ticks: ticks, game_tick: tick}
+  end
+
+  @doc """
+  The section was handed to the calling group process (VMC-077j): it watches
+  the ticket holders and container viewers and tells the generation scheduler
+  its wants again from here. Running workers stay watched by the group they
+  report to, which forwards their reports and ends in order.
+  """
+  def adopted(state) do
+    generation = %{state.generation | scheduler: nil, sent: %{}}
+
+    %{
+      state
+      | tickets: Tickets.remonitor(state.tickets),
+        container_viewers: ContainerViewers.remonitor(state.container_viewers),
+        generation: generation
+    }
+  end
+
+  # Commit, send and wait until the frames are appended, then checkpoint here.
   defp save_now(%{storage: %{base: nil}} = state), do: commit(state)
 
   defp save_now(state) do
     state = commit(state)
-    :ok = Valimc.Storage.Log.sync(state.storage.base, state.storage.owner)
+    state = %{state | storage: RegionStorage.send_now(state.storage)}
     state = drain_durable(state)
 
     if Valimc.World.Saving.auto?(),
@@ -1413,10 +1452,11 @@ defmodule Valimc.World.RegionData do
       else: state
   end
 
-  # Durable acknowledgements already in the mailbox (after a sync).
-  defp drain_durable(state) do
+  # This section's durable acknowledgements already in the mailbox (after a
+  # sync); its group's other sections take theirs as messages.
+  defp drain_durable(%{storage: %{owner: owner}} = state) do
     receive do
-      {:storage_durable, seq} ->
+      {:storage_durable, ^owner, seq} ->
         {:noreply, state} = durable(state, seq)
         drain_durable(state)
     after
@@ -1560,29 +1600,79 @@ defmodule Valimc.World.RegionData do
   end
 
   # The block rules after `previous` (cell => old state) changed and at
-  # dependent blocks' due `ticks`. Their writes commit as one batch, with the
-  # loot of the blocks they destroyed, in the next frame; that batch starts no
-  # updates of its own. Behind a planning transfer a run with drops waits for
-  # the next tick, whole.
+  # dependent blocks' due `ticks`, across the group's sections (VMC-077j):
+  # the run stops only at the group's edge. Each section's writes commit as
+  # one batch, with the loot of the blocks they destroyed, in the group's next
+  # frame; that batch starts no updates of its own. Behind a planning
+  # transfer in a section the run drops loot in, it waits for the next tick,
+  # whole.
   defp rule_updates(state, previous, []) when map_size(previous) == 0, do: state
 
   defp rule_updates(state, previous, ticks) do
-    absent = MapSet.to_list(state.generation.absent)
-    outcome = Rules.run(state.blocks, previous, ticks, absent)
-    drops = for {position, block, true, _} <- outcome.destroyed, do: {position, block}
-    breaks = for {position, block, _, true} <- outcome.destroyed, do: {position, block}
+    siblings = Map.delete(state.siblings, state.key)
+    {stores, absent} = rule_reach(state)
+    parts = state.blocks |> Rules.run(stores, previous, ticks, absent) |> by_section(state)
 
-    cond do
-      drops != [] and write_busy(state) != nil ->
-        %{state | rule_backlog: [{previous, ticks} | state.rule_backlog]}
+    busy =
+      Enum.any?(parts, fn {key, part} ->
+        Enum.any?(part.destroyed, &elem(&1, 2)) and
+          if(key == state.key, do: write_busy(state) != nil, else: siblings[key].busy)
+      end)
 
-      true ->
-        changes = Map.new(outcome.changes)
-
-        state
-        |> schedule_ticks(rule_ticks(state, changes, outcome.ticks))
-        |> commit_rule_changes(changes, drops, breaks)
+    if busy do
+      %{state | rule_backlog: [{previous, ticks} | state.rule_backlog]}
+    else
+      {own, theirs} = Map.pop(parts, state.key)
+      state = if own, do: apply_rules(state, own), else: state
+      %{state | sibling_rules: state.sibling_rules ++ Map.to_list(theirs)}
     end
+  end
+
+  # What the block rules read beyond this section: the group's other
+  # sections' stores, and every chunk of the group not generated yet.
+  defp rule_reach(state) do
+    siblings = Map.delete(state.siblings, state.key)
+    own = MapSet.to_list(state.generation.absent)
+    absent = Enum.reduce(siblings, own, fn {_, sibling}, acc -> sibling.absent ++ acc end)
+    {for({_, sibling} <- siblings, do: sibling.blocks), absent}
+  end
+
+  # The run's outcome split by the section of each cell; cells outside the
+  # group (ticks only) are dropped.
+  defp by_section(outcome, state) do
+    key = fn {x, _, z} -> Valimc.World.region_key(Valimc.World.chunk_key(x, z)) end
+    empty = %{changes: [], destroyed: [], ticks: []}
+
+    [changes: outcome.changes, destroyed: outcome.destroyed, ticks: outcome.ticks]
+    |> Enum.reduce(%{}, fn {field, records}, acc ->
+      Enum.reduce(Enum.reverse(records), acc, fn record, acc ->
+        section = key.(elem(record, 0))
+
+        if section == state.key or is_map_key(state.siblings, section),
+          do:
+            Map.update(
+              acc,
+              section,
+              %{empty | field => [record]},
+              &Map.update!(&1, field, fn l -> [record | l] end)
+            ),
+          else: acc
+      end)
+    end)
+  end
+
+  @doc """
+  Apply the block rules' changes, destroyed blocks and ticks in this section
+  (`rule_updates/3`'s, here or from a sibling section's run, VMC-077j).
+  """
+  def apply_rules(state, %{changes: changes, destroyed: destroyed, ticks: ticks}) do
+    drops = for {position, block, true, _} <- destroyed, do: {position, block}
+    breaks = for {position, block, _, true} <- destroyed, do: {position, block}
+    changes = Map.new(changes)
+
+    state
+    |> schedule_ticks(rule_ticks(state, changes, ticks))
+    |> commit_rule_changes(changes, drops, breaks)
   end
 
   # The rules schedule a block's tick, as vanilla does; the owner's ticks name
@@ -1602,14 +1692,10 @@ defmodule Valimc.World.RegionData do
         do: {:schedule, position, cell, delay, 0}
   end
 
-  defp placement_survivor(state, position, states),
-    do:
-      Rules.first_surviving(
-        state.blocks,
-        position,
-        states,
-        MapSet.to_list(state.generation.absent)
-      )
+  defp placement_survivor(state, position, states) do
+    {stores, absent} = rule_reach(state)
+    Rules.first_surviving(state.blocks, stores, position, states, absent)
+  end
 
   defp retry_rule_backlog(%{rule_backlog: []} = state), do: state
 
@@ -2779,14 +2865,6 @@ defmodule Valimc.World.RegionData do
       else: {:noreply, state}
   end
 
-  # The log stripe went down: frames in flight may or may not be durable.
-  def handle_info({:DOWN, ref, :process, _, reason}, %{storage: %{stripe: {_, ref}}} = state) do
-    case RegionStorage.stripe_down(state.storage, ref) do
-      {:failed, _} -> {:stop, {:storage_failed, {:log_down, reason}}, state}
-      {:ok, storage} -> {:noreply, %{state | storage: storage}}
-    end
-  end
-
   # Generation (VMC-075, VMC-077n): full chunks, failures, retries and wants.
   def handle_info({:generated_full, _scheduler, full}, state),
     do: {:noreply, RegionGeneration.received(state, full)}
@@ -2812,21 +2890,15 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_info({:storage_durable, seq}, state), do: durable(state, seq)
+  def handle_info({:storage_durable, _owner, seq}, state), do: durable(state, seq)
 
   # A frame that may be torn: only the log's recovery and a reload continue.
-  def handle_info({:storage_failed, _seq, reason}, state),
+  def handle_info({:storage_failed, _owner, _seq, reason}, state),
     do: {:stop, {:storage_failed, reason}, state}
 
   def handle_info({:checkpointed, ref, seq, result}, state),
     do:
       {:noreply, %{state | storage: RegionStorage.checkpointed(state.storage, ref, seq, result)}}
-
-  def handle_info(:commit, state) do
-    state = maybe_checkpoint(commit(state))
-    send_after_epoch(state.epoch, :commit, RegionStorage.commit_ms())
-    {:noreply, state}
-  end
 
   # `/save-all`: a checkpoint once its frames are appended (`/save-off` pauses them).
   def handle_info({:save, :force}, state) do

@@ -171,7 +171,7 @@ defmodule Valimc.World.View do
 
   defp await_region(key, chunks, type, deadline) do
     with {:ok, owner} <- World.owner(key),
-         :ok <- Region.ticket(owner, type, hd(chunks), chunks) do
+         :ok <- Region.ticket(owner, key, type, hd(chunks), chunks) do
       Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond))
     else
       # An owner unloading or backing off is admitted again shortly.

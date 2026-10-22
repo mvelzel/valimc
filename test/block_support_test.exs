@@ -47,8 +47,8 @@ defmodule Valimc.BlockSupportTest do
       {:ok, _} = Region.set_blocks(owner, observed.fence, edits)
     end
 
-    defp items({pid, _}) do
-      for {_, entry} <- :sys.get_state(pid).resource.entities.store.entries,
+    defp items(owner) do
+      for {_, entry} <- Valimc.TestRegion.section(owner).entities.store.entries,
           do: {entry.stack.item_id, entry.stack.count}
     end
 
@@ -74,7 +74,7 @@ defmodule Valimc.BlockSupportTest do
 
       # The drop pops near the block centre and is launched upwards, not left hovering.
       [entity] =
-        for {_, entry} <- :sys.get_state(elem(owner, 0)).resource.entities.store.entries,
+        for {_, entry} <- Valimc.TestRegion.section(elem(owner, 0)).entities.store.entries,
             do: entry.entity
 
       assert abs(entity.x - (x + 0.5)) <= 0.25 and abs(entity.z - (z + 0.5)) <= 0.25

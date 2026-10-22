@@ -116,6 +116,13 @@ defmodule Valimc.World.Tickets do
     for {{_, type}, entry} <- entries, elem(@types[type], 1), do: {entry.center, entry.chunks}
   end
 
+  @doc """
+  The tickets' section moved to another group process (VMC-077j): watch the
+  holders from it.
+  """
+  def remonitor(%__MODULE__{} = tickets),
+    do: %{tickets | monitors: Map.new(tickets.monitors, fn {h, _} -> {h, Process.monitor(h)} end)}
+
   defp monitor(tickets, holder) do
     if Map.has_key?(tickets.monitors, holder),
       do: tickets,

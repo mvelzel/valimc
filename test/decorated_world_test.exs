@@ -97,7 +97,7 @@ defmodule Valimc.DecoratedWorldTest do
   defp generate_all(key) do
     {:ok, {pid, _}} = owner!(key)
     {cx, cz} = hd(RegionGeneration.chunks_of(key))
-    Valimc.World.Region.ticket(pid, :forced, {cx, cz}, RegionGeneration.chunks_of(key))
+    Valimc.World.Region.ticket(pid, key, :forced, {cx, cz}, RegionGeneration.chunks_of(key))
     {_, _, %{publication: table}} = Directory.lookup(key)
 
     Valimc.TestWait.until(
@@ -139,8 +139,8 @@ defmodule Valimc.DecoratedWorldTest do
     end)
 
     # Block ticks wait in the region's queue, due at its first tick.
-    {:ok, {pid, _}} = owner!(@key)
-    ticks = :sys.get_state(pid).resource.scheduled_ticks
+    {:ok, owner} = owner!(@key)
+    ticks = Valimc.TestRegion.section(owner).scheduled_ticks
     assert ScheduledTicks.size(ticks) == length(parts.ticks)
 
     for {position, state, 0, 0} <- Enum.take(parts.ticks, 50),

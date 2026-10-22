@@ -5,14 +5,16 @@ defmodule Valimc.World.LightHalo do
   cells are exact once the ring holds the neighbours' blocks.
 
   Owners keep each other's rings current with plain messages (no calls, so no
-  owner ever waits on another): after loading, an owner sends every loaded
+  owner ever waits on another), addressed to the neighbour section (a group
+  process holds several, VMC-077j; a sibling in the same group gets its
+  message from its own process): after loading, an owner sends every loaded
   neighbour the column images of its chunks in that neighbour's ring
-  (`{:halo, {:hello, ...}}`); the neighbour adopts them and answers with its own
-  (`{:halo, {:images, ...}}`). Generated columns follow as images, durable block
-  changes in ring chunks as edits (`{:halo, {:edits, ...}}`). A ring chunk is
-  unknown to light until its owner sends it (VMC-077c), and so is a chunk its
-  owner has not generated: light neither enters nor leaves it. A ring chunk of
-  a neighbour that unloads keeps its last known blocks.
+  (`{:halo, key, {:hello, ...}}`); the neighbour adopts them and answers with
+  its own (`{:halo, key, {:images, ...}}`). Generated columns follow as
+  images, durable block changes in ring chunks as edits (`{:edits, ...}`). A
+  ring chunk is unknown to light until its owner sends it (VMC-077c), and so
+  is a chunk its owner has not generated: light neither enters nor leaves it.
+  A ring chunk of a neighbour that unloads keeps its last known blocks.
 
   Light changes go to clients as `light_update` packets carrying only the
   changed sections (`frames/3`). Those that follow block changes reach only the
@@ -58,7 +60,7 @@ defmodule Valimc.World.LightHalo do
 
   defp owner(key) do
     case Registry.lookup(Valimc.RegionRegistry, Valimc.Dimension.scope(key)) do
-      [{pid, _}] when pid != self() -> pid
+      [{pid, _}] -> pid
       _ -> nil
     end
   end
@@ -68,7 +70,7 @@ defmodule Valimc.World.LightHalo do
     for key <- neighbours(state.key),
         pid = owner(key),
         pid != nil,
-        do: send(pid, {:halo, {:hello, state.key, self(), images(state, key)}})
+        do: send(pid, {:halo, key, {:hello, state.key, self(), images(state, key)}})
 
     state
   end
@@ -77,7 +79,7 @@ defmodule Valimc.World.LightHalo do
   def columns_changed(state, columns) do
     for key <- neighbours(state.key), pid = owner(key), pid != nil do
       list = for {{cx, cz} = chunk, image} <- columns, ring?(key, chunk), do: {cx, cz, image}
-      if list != [], do: send(pid, {:halo, {:images, state.key, list}})
+      if list != [], do: send(pid, {:halo, key, {:images, state.key, list}})
     end
 
     state
@@ -89,7 +91,7 @@ defmodule Valimc.World.LightHalo do
       list =
         for {{x, y, z}, block} <- edits, ring?(key, World.chunk_key(x, z)), do: {x, y, z, block}
 
-      if list != [], do: send(pid, {:halo, {:edits, state.key, list}})
+      if list != [], do: send(pid, {:halo, key, {:edits, state.key, list}})
     end
 
     state
@@ -98,7 +100,7 @@ defmodule Valimc.World.LightHalo do
   @doc "Handle a neighbour's message."
   def handle({:hello, from, pid, images}, state) do
     state = adopt(state, Native.halo_put(state.blocks.ref, images), :all)
-    send(pid, {:halo, {:images, state.key, images(state, from)}})
+    send(pid, {:halo, from, {:images, state.key, images(state, from)}})
     state
   end
 

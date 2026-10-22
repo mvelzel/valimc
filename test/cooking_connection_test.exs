@@ -269,8 +269,7 @@ defmodule Valimc.CookingConnectionTest do
     {region, _} = owner = menu.owner
     position = ctx.position
 
-    :sys.replace_state(region, fn state ->
-      resource = state.resource
+    Valimc.TestRegion.replace_section(owner, fn resource ->
       entry = resource.containers.entries[position]
       entry = %{entry | cooking: %{entry.cooking | progress: 11}}
 
@@ -283,13 +282,10 @@ defmodule Valimc.CookingConnectionTest do
         Valimc.World.ContainerViewers.progressed(resource.container_viewers, position, 1)
 
       %{
-        state
-        | resource: %{
-            resource
-            | containers: containers,
-              container_viewers: viewers,
-              cooking_progress: %{position => 1}
-          }
+        resource
+        | containers: containers,
+          container_viewers: viewers,
+          cooking_progress: %{position => 1}
       }
     end)
 
@@ -309,7 +305,7 @@ defmodule Valimc.CookingConnectionTest do
     assert Valimc.TestConn.state(pid).table_menu.view.revision == menu.view.revision
     assert Valimc.TestConn.state(pid).table_menu.view.cooking.progress == 11
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-    refute :sys.get_state(region).resource.container_viewers.views[pid].progress_pending
+    refute Valimc.TestRegion.section(owner).container_viewers.views[pid].progress_pending
 
     for {candidate_owner, ref, generation} <- [
           {{region, make_ref()}, menu.view_ref, 2},

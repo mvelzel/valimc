@@ -63,7 +63,7 @@ defmodule Valimc.MiningRegionTest do
 
     try do
       Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(ctx.pid).resource)
+        Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(ctx.pid))
       end)
 
       # Adopted and shown at once (D2); the reply, the player's proof, waits.
@@ -184,7 +184,7 @@ defmodule Valimc.MiningRegionTest do
 
     capture_log(fn ->
       Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(ctx.pid).resource)
+        Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(ctx.pid))
       end)
 
       Process.exit(stripe, :kill)

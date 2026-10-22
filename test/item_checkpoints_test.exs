@@ -78,12 +78,12 @@ defmodule Valimc.ItemCheckpointsTest do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-    assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    assert {:ok, owner} = World.item_owner(ctx.key)
 
     assert [%{motion: %{age: 1}}] =
-             Entities.records(Valimc.TestConn.state(pid).resource.entities.store)
+             Entities.records(Valimc.TestRegion.section(owner).entities.store)
 
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
-    assert map_size(Valimc.TestConn.state(pid).resource.entities.store.entries) == 1
+    assert map_size(Valimc.TestRegion.section(owner).entities.store.entries) == 1
   end
 end
