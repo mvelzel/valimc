@@ -26,25 +26,24 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
 The pre-M3 audit's plan, decided October 21, 2026: players and everything that
 interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
-owner per tick, volatile proto chunks, no world migration. Phase 0 and wave 1
-(phase 1) have landed; wave 2 runs the storage, kernel, generation, command and
-living-rule slices in parallel.
+owner per tick, volatile proto chunks, no world migration. Phase 0 and waves 1–2
+have landed; wave 3 runs the entity store and the regionizer, then players in owners.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077b](tickets/VMC-077b.md) | Native scheduling policy and NIF hygiene (live; client run pending) | Foundation |
+| [VMC-077b](tickets/VMC-077b.md) | Native scheduling policy and NIF hygiene | Foundation |
 | [VMC-077c](tickets/VMC-077c.md) | Per-chunk light, section-mask light packets | Awaiting client |
 | [VMC-077e](tickets/VMC-077e.md) | Chunk tickets, unload, ack-paced batches, `World.View` | Awaiting client |
-| VMC-077f, 077g | One striped log with change records and per-tick commits; owner skeleton | In progress |
-| VMC-077k | Living rules for any entity | In progress |
-| VMC-077l | Rust physics kernel; synchronous movement checks | In progress |
-| VMC-077m | One Rust block-rule engine for worldgen and live updates | In progress |
-| VMC-077n | One generation scheduler per dimension; volatile proto chunks | In progress |
-| VMC-077o | Command registry, pure source, one text codec, atomic box edits | In progress |
+| [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity | Foundation |
+| [VMC-077l](tickets/VMC-077l.md), [077l2](tickets/VMC-077l2.md) | Rust physics kernel; synchronous movement checks in Rust | Foundation |
+| [VMC-077n](tickets/VMC-077n.md) | One generation scheduler per dimension; volatile proto chunks | Awaiting client |
+| VMC-077h | Entity store: items and orbs as keyed entities, stable ids, pushed deltas | In progress |
+| VMC-077j | Regionizer: groups of sections merge and split around activity | In progress |
+| VMC-077i | Players owned by their group; transfer families deleted | Planned |
 
-Done in foundations II: phase 0, VMC-077a, 077d. Then: 077h–j entity store,
-players in owners and the regionizer; layout; one client run for the phase
-(see [VMC-077](tickets/VMC-077.md)).
+Done in foundations II: phase 0, VMC-077a, 077d, 077f, 077g, 077m, 077o. An
+interim client run covers waves 1–2; the phase ends with layout and one client
+run (see [VMC-077](tickets/VMC-077.md)).
 
 ## M3 onward
 

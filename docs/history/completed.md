@@ -5,6 +5,10 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-077f One log](../tickets/VMC-077f.md) | `833f5c7c`; one striped write-ahead log with keyed change records, per-section checkpoints, one commit per owner per tick, replies before the sync |
+| [VMC-077g Owner skeleton](../tickets/VMC-077g.md) | `f952b6ca`; one job table, admission guard and error taxonomy; RegionData split into owned parts |
+| [VMC-077m Block-rule engine](../tickets/VMC-077m.md) | one Rust engine for shape updates, survival, neighbour updates and redstone wire, shared by worldgen and live regions |
+| [VMC-077o Command layer](../tickets/VMC-077o.md) | `c50a4670`; one registration per command, a pure command source, one text codec, atomic box edits under owner locks |
 | [VMC-077a Runtime safety](../tickets/VMC-077a.md) | `cad5375`; tiered supervisors, accept errors back off, `World.Spec` read once with an atomic settings owner, commands as jobs, fenced block writes only, dimension-correct commands, ingress caps |
 | [VMC-077d One block fact table](../tickets/VMC-077d.md) | `fa46077`; one generated per-state fact table decoded once in Elixir and installed once in Rust; physics `*Blocks` modules, duplicate JSON and generators gone; damage types and enchantment effects from data |
 | [VMC-076](../tickets/VMC-076.md) | `b54d69e`; fast dev NIF builds, two heavy-job slots, test tiers, content-keyed oracle cache with `--changed` and `--regen`; test suite 312 s → 81 s and oracle runs 39–107 min → 7 min warm |
