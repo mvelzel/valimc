@@ -20,9 +20,11 @@ defmodule Valimc.Worldgen.FullChunk do
   adding their block entities and ticks to the region's `entities` and `ticks`.
   """
   def parts(full, entities, ticks) do
-    initial = %{columns: %{}, post_processing: %{}, block_entities: entities, ticks: ticks}
+    # Ticks gather per chunk, newest first, and join once.
+    initial = %{columns: %{}, post_processing: %{}, block_entities: entities, ticks: [ticks]}
 
-    Enum.reduce_while(full, {:ok, initial}, fn chunk, {:ok, acc} ->
+    full
+    |> Enum.reduce_while({:ok, initial}, fn chunk, {:ok, acc} ->
       key = {chunk.x, chunk.z}
 
       pending =
@@ -39,13 +41,17 @@ defmodule Valimc.Worldgen.FullChunk do
               | columns: Map.put(acc.columns, key, chunk.image),
                 post_processing: pending,
                 block_entities: entities,
-                ticks: acc.ticks ++ for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0})
+                ticks: [for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0}) | acc.ticks]
             }}}
 
         error ->
           {:halt, error}
       end
     end)
+    |> case do
+      {:ok, parts} -> {:ok, %{parts | ticks: parts.ticks |> Enum.reverse() |> Enum.concat()}}
+      error -> error
+    end
   end
 
   @doc """

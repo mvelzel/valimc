@@ -44,6 +44,8 @@ defmodule Valimc.Application do
       do: raise("Invalid default game mode")
 
     schedulers = max(System.schedulers_online(), 1)
+    # Chunk packet encodes start without a call (VMC-077w).
+    Valimc.World.Jobs.init_slots!(:chunk_encode, schedulers)
 
     infrastructure = [
       Valimc.World.Settings,
@@ -51,7 +53,6 @@ defmodule Valimc.Application do
       {Valimc.World.Clock, []},
       {Valimc.World.Stopwatches, []},
       {Valimc.Admin.Lists, []},
-      {Task.Supervisor, name: Valimc.ChunkWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4}
     ]

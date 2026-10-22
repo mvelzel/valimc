@@ -166,14 +166,33 @@ defmodule Valimc.WorldgenSchedulerTest do
 
     requester = {self(), {0, 0}}
     {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
-    assert_receive {:resource, 1, {:generated_full, _, %{x: 3, z: 3}}}, 60_000
+    assert_receive {:generated, scheduler, [{{0, 0}, 1, [%{x: 3, z: 3}]}]}, 60_000
 
     # Wanted again before the region read it (its mailbox lags its tickets):
     # it is on its way. A section loaded again (a new epoch) gets it again.
     {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
     assert Scheduler.stats(base, :overworld).wanted == 0
     {:ok, _} = Scheduler.want(base, :overworld, requester, 2, %{{3, 3} => 0})
-    assert_receive {:resource, 2, {:generated_full, _, %{x: 3, z: 3}}}, 60_000
+    assert_receive {:generated, ^scheduler, [{{0, 0}, 2, [%{x: 3, z: 3}]}]}, 60_000
+
+    # Two deliveries unacknowledged: what finishes next waits, and goes in
+    # one delivery, nearest first, once one is acknowledged (VMC-077w).
+    :ok = Scheduler.focus(base, :overworld, self(), {6, 6}, nil)
+    wanted = %{{9, 9} => 0, {6, 6} => 0, {7, 6} => 0}
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 2, wanted)
+    eventually(fn -> Scheduler.stats(base, :overworld).wanted == 0 end)
+    refute_received {:generated, _, _}
+    Scheduler.delivered(scheduler)
+    assert_receive {:generated, ^scheduler, [{{0, 0}, 2, fulls}]}, 60_000
+    assert Enum.map(fulls, &{&1.x, &1.z}) == [{6, 6}, {7, 6}, {9, 9}]
+  end
+
+  defp eventually(check, tries \\ 600) do
+    cond do
+      check.() -> :ok
+      tries == 0 -> flunk("never happened")
+      true -> Process.sleep(100) && eventually(check, tries - 1)
+    end
   end
 
   test "with few proto chunks in memory, dropped and spilled ones change nothing", ctx do

@@ -11,9 +11,11 @@ defmodule Valimc.World.ScheduledTicks do
 
   Dues are stored relative to `shift`, so a section moving to a group on
   another game tick (`rebase/2`) keeps every delay without touching its ticks.
-  Every change goes into a journal of the pairs it touched (`journal`), which
-  the section's storage turns into its next frame (`records/2`) and then
-  clears (`settled/1`).
+  A chunk's ticks are one record (`{:ticks, chunk}`, its container in order,
+  VMC-077w): every change marks its chunk in a journal (`journal`), which the
+  section's storage turns into its next frame (`changes/1`) and then clears
+  (`settled/1`), so a frame costs what the changed chunks hold, not one
+  record per tick.
   """
 
   @max_per_tick 65_536
@@ -41,7 +43,7 @@ defmodule Valimc.World.ScheduledTicks do
          | containers: containers,
            index: Map.put(ticks.index, {position, block}, entry),
            sequence: ticks.sequence + 1,
-           journal: Map.put(ticks.journal, {position, block}, true)
+           journal: Map.put(ticks.journal, chunk, true)
        }}
     end
   end
@@ -63,12 +65,13 @@ defmodule Valimc.World.ScheduledTicks do
         end
       end)
 
-    containers =
-      added
-      |> Enum.group_by(fn {_, _, _, {x, _, z}, _} ->
+    by_chunk =
+      Enum.group_by(added, fn {_, _, _, {x, _, z}, _} ->
         {Integer.floor_div(x, 16), Integer.floor_div(z, 16)}
       end)
-      |> Enum.reduce(ticks.containers, fn {chunk, entries}, acc ->
+
+    containers =
+      Enum.reduce(by_chunk, ticks.containers, fn {chunk, entries}, acc ->
         set = :gb_sets.from_list(entries)
 
         Map.update(acc, chunk, set, fn container ->
@@ -79,9 +82,7 @@ defmodule Valimc.World.ScheduledTicks do
       end)
 
     journal =
-      Enum.reduce(added, ticks.journal, fn {_, _, _, position, block}, acc ->
-        Map.put(acc, {position, block}, true)
-      end)
+      Enum.reduce(by_chunk, ticks.journal, fn {chunk, _}, acc -> Map.put(acc, chunk, true) end)
 
     %{ticks | containers: containers, index: index, sequence: sequence, journal: journal}
   end
@@ -94,24 +95,33 @@ defmodule Valimc.World.ScheduledTicks do
   def take_due(%__MODULE__{} = ticks, tick, chunks) do
     stored = tick - ticks.shift
 
-    {due, containers} =
-      Enum.reduce(chunks, {[], ticks.containers}, fn chunk, {due, containers} ->
-        case containers do
-          %{^chunk => container} ->
-            {taken, rest} = take(container, stored, [])
+    # Whichever is fewer: the chunks that tick, or those with ticks (VMC-077w).
+    chunks =
+      if is_struct(chunks, MapSet) and map_size(ticks.containers) < MapSet.size(chunks),
+        do: Enum.filter(Map.keys(ticks.containers), &MapSet.member?(chunks, &1)),
+        else: chunks
 
-            containers =
-              if :gb_sets.is_empty(rest),
-                do: Map.delete(containers, chunk),
-                else: Map.put(containers, chunk, rest)
+    {due, containers, journal} =
+      Enum.reduce(chunks, {[], ticks.containers, ticks.journal}, fn chunk, acc ->
+        {due, containers, journal} = acc
 
-            {taken ++ due, containers}
+        with %{^chunk => container} <- containers,
+             {[_ | _] = taken, rest} <- take(container, stored, []) do
+          containers =
+            if :gb_sets.is_empty(rest),
+              do: Map.delete(containers, chunk),
+              else: Map.put(containers, chunk, rest)
 
-          _ ->
-            {due, containers}
+          {taken ++ due, containers, Map.put(journal, chunk, true)}
+        else
+          _ -> acc
         end
       end)
 
+    if due == [], do: {[], ticks}, else: take_run(ticks, containers, journal, due)
+  end
+
+  defp take_run(ticks, containers, journal, due) do
     {run, later} = due |> Enum.sort() |> Enum.split(@max_per_tick)
 
     containers =
@@ -123,12 +133,7 @@ defmodule Valimc.World.ScheduledTicks do
     keys = for {_, _, _, position, block} <- run, do: {position, block}
 
     {keys,
-     %{
-       ticks
-       | containers: containers,
-         index: Map.drop(ticks.index, keys),
-         journal: Enum.reduce(keys, ticks.journal, &Map.put(&2, &1, true))
-     }}
+     %{ticks | containers: containers, index: Map.drop(ticks.index, keys), journal: journal}}
   end
 
   defp take(container, stored, acc) do
@@ -146,31 +151,35 @@ defmodule Valimc.World.ScheduledTicks do
   def rebase(%__MODULE__{} = ticks, from, to), do: %{ticks | shift: ticks.shift + to - from}
 
   @doc """
-  The section's records of its scheduled ticks: `{:tick, position, block}`
-  keyed `{due, priority}` (dues relative to `{:ticks, :shift}`).
+  The section's records of its scheduled ticks: `{:ticks, chunk}` keyed by
+  the chunk's ticks in order, `[{due, priority, position, block}]` (dues
+  relative to `{:ticks, :shift}`).
   """
-  def records(%__MODULE__{index: index, shift: shift}) do
-    for(
-      {{pos, block}, {due, priority, _, _, _}} <- index,
-      into: %{},
-      do: {{:tick, pos, block}, {due, priority}}
-    )
+  def records(%__MODULE__{containers: containers, shift: shift}) do
+    for({chunk, container} <- containers, into: %{}, do: {{:ticks, chunk}, record(container)})
     |> Map.put({:ticks, :shift}, shift)
   end
 
   @doc """
-  The records the journal touched since the last `settled/1`: each a value or
-  `:deleted`, and the shift.
+  The records of the chunks the journal marked since the last `settled/1`:
+  each its ticks or `:deleted`, and the shift.
   """
-  def changes(%__MODULE__{index: index, journal: journal, shift: shift}) do
-    for({{pos, block} = key, _} <- journal, into: %{}) do
-      case index do
-        %{^key => {due, priority, _, _, _}} -> {{:tick, pos, block}, {due, priority}}
-        _ -> {{:tick, pos, block}, :deleted}
+  def changes(%__MODULE__{containers: containers, journal: journal, shift: shift}) do
+    for({chunk, _} <- journal, into: %{}) do
+      case containers do
+        %{^chunk => container} -> {{:ticks, chunk}, record(container)}
+        _ -> {{:ticks, chunk}, :deleted}
       end
     end
     |> Map.put({:ticks, :shift}, shift)
   end
+
+  defp record(container),
+    do:
+      for(
+        {due, priority, _, position, block} <- :gb_sets.to_list(container),
+        do: {due, priority, position, block}
+      )
 
   @doc "The journal is in a frame (or a checkpoint): it starts over."
   def settled(%__MODULE__{journal: journal} = ticks) when map_size(journal) == 0, do: ticks

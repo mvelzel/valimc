@@ -192,6 +192,15 @@ defmodule Valimc.Worldgen.Frontier do
     end
   end
 
+  @doc """
+  Where a finished chunk goes in its delivery (VMC-077w): its score from the
+  nearest focused player, smaller first; 0 when no player is focused.
+  """
+  def rank(%__MODULE__{focus: focus}, _chunk) when focus == %{}, do: 0
+
+  def rank(%__MODULE__{focus: focus}, chunk),
+    do: focus |> Map.values() |> Enum.map(&score(chunk, &1)) |> Enum.min()
+
   defp within(chunks, r), do: chunks |> Enum.flat_map(&around(&1, r)) |> Enum.uniq()
 
   # Decoration numbers for the undecorated chunks within 1 of `added` that have

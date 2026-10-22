@@ -9,15 +9,15 @@ defmodule Valimc.World.RegionGeneration do
   generation scheduler (`Valimc.Worldgen.Scheduler`, VMC-077n) which absent
   chunks it wants, each at its smallest squared distance to a ticket's center
   (urgent ones at -1), whenever that changes, and reports the chunks it has
-  when it loads. The scheduler sends each chunk once it is full, lit alone
-  where it was generated (VMC-077c).
+  when it loads. The scheduler sends chunks once they are full, lit alone
+  where they were generated (VMC-077c), in deliveries (VMC-077w).
 
-  A chunk is installed when it arrives and its column image joins the
-  owner's next frame (`RegionStorage`, VMC-077f): its column adopts its light
-  and light crosses its faces, its block entities and ticks are added, its
-  snapshot published, neighbours' rings and served chunks' light updated, and
-  the calls that waited for it run again. The scheduler drops its proto state
-  once that frame is durable. A chunk whose generation failed stays absent
+  A delivery's chunks are installed together when it arrives and their
+  column images join the owner's next frame (`RegionStorage`, VMC-077f):
+  their columns adopt their light and light crosses their faces, their block
+  entities and ticks are added, their snapshots published, neighbours' rings
+  and served chunks' light updated, and the calls that waited for them run
+  again. The scheduler drops their proto state once that frame is durable. A chunk whose generation failed stays absent
   and its waiting calls fail.
 
   Until then an absent chunk is like a chunk of an unloaded neighbour region:
@@ -203,25 +203,31 @@ defmodule Valimc.World.RegionGeneration do
   @doc "These generated chunks are durable: the scheduler drops their proto state."
   def handed_over(state, chunks) do
     gen = state.generation
-    Scheduler.handed_over(gen.world, gen.dimension, chunks)
+    scheduler = with {pid, _} <- gen.scheduler, do: pid
+    Scheduler.handed_over(gen.world, gen.dimension, chunks, scheduler)
     state
   end
 
   ## Results
 
-  @doc "A full chunk from the scheduler."
-  def received(state, full) do
+  @doc "Full chunks from the scheduler, installed in one pass (VMC-077w)."
+  def received(state, fulls) do
     gen = state.generation
-    chunk = {full.x, full.z}
-    state = %{state | generation: %{gen | sent: Map.delete(gen.sent, chunk)}}
+    chunks = for full <- fulls, do: {full.x, full.z}
+    state = %{state | generation: %{gen | sent: Map.drop(gen.sent, chunks)}}
 
-    if absent?(gen, chunk) do
-      case FullChunk.parts([full], %{}, []) do
-        {:ok, parts} -> install(state, parts)
-        {:error, reason} -> generation_failed(state, [chunk], {:unusable_full_chunk, reason})
-      end
-    else
-      state
+    case Enum.filter(fulls, &absent?(gen, {&1.x, &1.z})) do
+      [] ->
+        state
+
+      fulls ->
+        case FullChunk.parts(fulls, %{}, []) do
+          {:ok, parts} ->
+            install(state, parts)
+
+          {:error, reason} ->
+            generation_failed(state, chunks, {:unusable_full_chunk, reason})
+        end
     end
   end
 

@@ -11,15 +11,17 @@ defmodule Valimc.WorldTest do
 
   test "a saturated encoder pool does not block region state operations" do
     blockers =
-      for _ <- 1..System.schedulers_online() do
-        {:ok, pid} =
-          Task.Supervisor.start_child(Valimc.ChunkWorkers, fn ->
-            receive do
-              :release -> :ok
-            end
-          end)
+      for n <- 1..System.schedulers_online() do
+        work = fn ->
+          receive do
+            :release -> :ok
+          end
+        end
 
-        pid
+        {:ok, _, job} =
+          Valimc.World.Jobs.start(%Valimc.World.Jobs{}, n, work, slots: :chunk_encode)
+
+        job.pid
       end
 
     try do

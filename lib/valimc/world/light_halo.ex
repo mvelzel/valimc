@@ -76,14 +76,31 @@ defmodule Valimc.World.LightHalo do
     state
   end
 
-  @doc "Send loaded neighbours the generated columns (VMC-075) of chunks in their rings."
+  @doc """
+  Send loaded neighbours the generated columns (VMC-075) of chunks in their
+  rings. A sibling in the same group takes them as a sibling effect, before
+  the group's next cut (VMC-077w), rather than as a message to its own group.
+  """
   def columns_changed(state, columns) do
-    for key <- neighbours(state.key), pid = owner(state, key), pid != nil do
+    Enum.reduce(neighbours(state.key), state, fn key, acc ->
       list = for {{cx, cz} = chunk, image} <- columns, ring?(key, chunk), do: {cx, cz, image}
-      if list != [], do: send(pid, {:halo, key, {:images, state.key, list}})
-    end
 
-    state
+      cond do
+        list == [] ->
+          acc
+
+        Map.has_key?(acc.siblings, key) ->
+          effect = {key, {:halo, {:images, acc.key, list}}}
+          %{acc | sibling_effects: acc.sibling_effects ++ [effect]}
+
+        pid = owner(acc, key) ->
+          send(pid, {:halo, key, {:images, acc.key, list}})
+          acc
+
+        true ->
+          acc
+      end
+    end)
   end
 
   @doc "Forward durable block changes in neighbours' rings."

@@ -14,6 +14,11 @@
 # The heading is measured from +X towards +Z; the default, 115 degrees, is the
 # direction of the live run that found the problem (a diagonal, so each chunk
 # crossed brings two strips of new chunks).
+#
+# `OUTRUN_SAMPLE` adds samplers (comma separated, VMC-077w): `groups` records
+# every region group every 2 s (sections, reductions, mailbox, memory) and how
+# often the largest is running or runnable (every 10 ms); `stacks` prints
+# where the largest group spends its busy time (its stack every 2 ms).
 alias Valimc.Protocol.{Data, Wire}
 alias Valimc.Worldgen.Pool
 
@@ -319,6 +324,100 @@ util_sampler =
     loop.(loop, wall.(), [])
   end)
 
+sample = String.split(System.get_env("OUTRUN_SAMPLE", ""), ",", trim: true)
+
+# Every group every 2 s: `{t, [{sections, reductions since the last row,
+# mailbox, memory bytes}]}` largest first, and the largest group's busy share
+# (running or runnable at a 10 ms sample) over those 2 s.
+group_sampler =
+  if "groups" in sample do
+    spawn_link(fn ->
+      row = fn ->
+        for {pid, keys} <- Valimc.World.Regionizer.groups(:overworld),
+            info = Process.info(pid, [:reductions, :message_queue_len, :memory]),
+            info != nil,
+            do: {pid, length(keys), info}
+      end
+
+      loop = fn loop, rows, last, largest, busy, n ->
+        receive do
+          :stop ->
+            send(bench, {:groups, Enum.reverse(rows)})
+        after
+          10 ->
+            busy =
+              case largest && Process.info(largest, :status) do
+                {:status, status} when status in [:running, :runnable] -> busy + 1
+                _ -> busy
+              end
+
+            if n < 200 do
+              loop.(loop, rows, last, largest, busy, n + 1)
+            else
+              groups = row.()
+
+              entries =
+                groups
+                |> Enum.map(fn {pid, sections, info} ->
+                  {sections, info[:reductions] - Map.get(last, pid, info[:reductions]),
+                   info[:message_queue_len], info[:memory], pid}
+                end)
+                |> Enum.sort(:desc)
+
+              largest = with [{_, _, _, _, pid} | _] <- entries, do: pid, else: (_ -> nil)
+              entries = Enum.map(entries, &Tuple.delete_at(&1, 4))
+              last = Map.new(groups, fn {pid, _, info} -> {pid, info[:reductions]} end)
+              rows = [{now.(), entries, busy / n} | rows]
+              loop.(loop, rows, last, largest, 0, 1)
+            end
+        end
+      end
+
+      loop.(loop, [], %{}, nil, 0, 200)
+    end)
+  end
+
+# The largest group's stack every 2 ms: frames counted once per busy sample.
+stack_sampler =
+  if "stacks" in sample do
+    spawn_link(fn ->
+      largest = fn ->
+        Valimc.World.Regionizer.groups(:overworld)
+        |> Enum.max_by(fn {_, keys} -> length(keys) end, fn -> {nil, []} end)
+        |> elem(0)
+      end
+
+      loop = fn loop, counts, target, n ->
+        receive do
+          :stop ->
+            send(bench, {:stacks, counts, n})
+        after
+          2 ->
+            target = if rem(n, 500) == 0 or target == nil, do: largest.(), else: target
+
+            counts =
+              case target && Process.info(target, [:current_stacktrace, :status]) do
+                [current_stacktrace: stack, status: status]
+                when status in [:running, :runnable] ->
+                  stack
+                  |> Enum.map(fn {m, f, a, _} -> {m, f, a} end)
+                  |> Enum.uniq()
+                  |> Enum.reduce(Map.update(counts, :busy, 1, &(&1 + 1)), fn frame, acc ->
+                    Map.update(acc, frame, 1, &(&1 + 1))
+                  end)
+
+                _ ->
+                  counts
+              end
+
+            loop.(loop, counts, target, n + 1)
+        end
+      end
+
+      loop.(loop, %{}, nil, 0)
+    end)
+  end
+
 counters =
   ~w(worldgen_chunks worldgen_microseconds worldgen_wants worldgen_refreshes
      worldgen_dispatch_microseconds worldgen_terrain_jobs worldgen_decorate_jobs
@@ -434,6 +533,23 @@ collect = fn tag -> receive do: ({^tag, samples} -> samples) end
 pool = collect.(:pool)
 wants = collect.(:wants)
 util = collect.(:util)
+if group_sampler, do: send(group_sampler, :stop)
+if stack_sampler, do: send(stack_sampler, :stop)
+groups = if group_sampler, do: collect.(:groups), else: []
+
+if stack_sampler do
+  receive do
+    {:stacks, counts, n} ->
+      IO.puts("largest group stacks: #{n} samples, #{counts[:busy]} busy")
+
+      counts
+      |> Map.delete(:busy)
+      |> Enum.sort_by(&(-elem(&1, 1)))
+      |> Enum.take(80)
+      |> Enum.each(fn {frame, count} -> IO.puts("  #{count} #{inspect(frame)}") end)
+  end
+end
+
 :gen_tcp.close(client.socket)
 
 # Missing time per chunk entered: nothing when it was there at the moment of
@@ -468,6 +584,36 @@ dirty = for {t, _, d} <- util, t <= flown, do: d
 normal = for {t, n, _} <- util, t <= flown, do: n
 mean = fn list -> if list == [], do: 0.0, else: Enum.sum(list) / length(list) end
 
+# The largest group at each 2 s row of the flight (VMC-077w).
+largest_rows =
+  for {t, [{sections, reductions, queue, memory} | _], busy} <- groups,
+      t > started and t <= flown,
+      do: %{
+        sections: sections,
+        reductions: reductions,
+        mailbox: queue,
+        memory: memory,
+        busy: busy
+      }
+
+largest_group =
+  if largest_rows == [] do
+    nil
+  else
+    sorted = fn key -> largest_rows |> Enum.map(&Map.fetch!(&1, key)) |> Enum.sort() end
+
+    %{
+      reductions_per_second_median: div(pick.(sorted.(:reductions), 0.5), 2),
+      reductions_per_second_max: div(List.last(sorted.(:reductions)), 2),
+      mailbox_median: pick.(sorted.(:mailbox), 0.5),
+      mailbox_max: List.last(sorted.(:mailbox)),
+      busy_median: Float.round(pick.(sorted.(:busy), 0.5), 3),
+      busy_mean: Float.round(mean.(sorted.(:busy)), 3),
+      sections_max: List.last(sorted.(:sections)),
+      memory_max_mb: div(List.last(sorted.(:memory)), 1_000_000)
+    }
+  end
+
 snapshot = Valimc.Data.Metrics.snapshot()
 delta = Map.new(counters, &{&1, Map.get(snapshot, &1, 0) - Map.get(before, &1, 0)})
 
@@ -488,7 +634,12 @@ summary = %{
   scheduler_busy: Float.round(scheduler_busy, 3),
   dirty_utilization: Float.round(mean.(dirty), 3),
   normal_utilization: Float.round(mean.(normal), 3),
-  generated_chunks_per_second: Float.round(delta.worldgen_chunks / ((flown - started) / 1.0e6), 1)
+  generated_chunks_per_second:
+    Float.round(delta.worldgen_chunks / ((flown - started) / 1.0e6), 1),
+  # The chunk the player stood in when the flight ended: after it stops, how
+  # long it was missing (VMC-077w: no longer than while flying).
+  last_missing_ms: div(List.last(crossings).missing_us, 1000),
+  largest_group: largest_group
 }
 
 IO.puts(
@@ -499,7 +650,9 @@ IO.puts(
     "pool #{round(pool_busy * 100)}% busy while chunks were wanted, scheduler process " <>
     "#{round(scheduler_busy * 100)}% busy, dirty schedulers " <>
     "#{round(summary.dirty_utilization * 100)}%, #{summary.generated_chunks_per_second} chunks/s " <>
-    inspect(delta)
+    inspect(delta) <>
+    "; last chunk missing #{summary.last_missing_ms} ms; largest group " <>
+    inspect(largest_group)
 )
 
 record = %{
@@ -521,7 +674,11 @@ record = %{
   counters: delta,
   crossings: crossings,
   wants: Enum.map(wants, fn {t, w, r, m} -> [div(t - started, 1000), w, r, m] end),
-  utilization: Enum.map(util, fn {t, n, d} -> [div(t - started, 1000), n, d] end)
+  utilization: Enum.map(util, fn {t, n, d} -> [div(t - started, 1000), n, d] end),
+  groups:
+    Enum.map(groups, fn {t, entries, busy} ->
+      [div(t - started, 1000), Float.round(busy, 3), Enum.map(entries, &Tuple.to_list/1)]
+    end)
 }
 
 File.mkdir_p!(Path.dirname(output))

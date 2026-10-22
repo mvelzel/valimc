@@ -132,6 +132,9 @@ defmodule Valimc.DecoratedWorldTest do
     assert stored.columns == parts.columns
     assert stored.block_entities == parts.block_entities
     assert stored.post_processing == parts.post_processing
+    # One record per chunk holds its ticks (VMC-077w).
+    assert Enum.sort(for {p, b, _, _} <- stored.ticks, do: {p, b}) ==
+             Enum.sort(for {p, b, _, _} <- parts.ticks, do: {p, b})
 
     # The scheduler dropped the proto chunks the region made durable.
     Valimc.TestWait.until(fn ->

@@ -69,7 +69,7 @@ defmodule Valimc.TickPipelineTest do
     assert after_take.containers[{2, 0}] === t.containers[{2, 0}]
 
     assert ScheduledTicks.changes(after_take) == %{
-             {:tick, {0, 64, 0}, 7} => :deleted,
+             {:ticks, {0, 0}} => :deleted,
              {:ticks, :shift} => 0
            }
 

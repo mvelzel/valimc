@@ -8,6 +8,12 @@ defmodule Valimc.World.Jobs do
   reports are dropped). A report whose token is not the running job's is
   stale and ignored.
 
+  A job may instead take one of a fixed number of slots (`init_slots!/2`):
+  its worker is spawned at once, without a call to a supervisor (VMC-077w: an
+  owner's hot path never waits on another process), and frees its slot as it
+  ends. Such a worker is never killed, so it always frees its slot: it takes
+  no deadline, and `stop_all/1` lets it finish.
+
   The owner keeps what a job needs to adopt its result in the job's `data`;
   `monitors` maps each worker's monitor to its kind, so an owner can route a
   `:DOWN` message with a guard.
@@ -24,10 +30,15 @@ defmodule Valimc.World.Jobs do
           data: map()
         }
 
+  @doc "Create slots `name` for at most `max` workers at once (application start)."
+  def init_slots!(name, max) when is_atom(name) and max > 0,
+    do: :persistent_term.put({__MODULE__, name}, {:counters.new(1, [:write_concurrency]), max})
+
   @doc """
   Start `work.()` as job `kind`. Options: `:supervisor` (a
-  `Task.Supervisor`), `:deadline` (ms, or nil), `:wrap` (message => message
-  sent to the owner), `:link` (the worker dies with its owner), `:data`.
+  `Task.Supervisor`) or `:slots` (a name of `init_slots!/2`), `:deadline`
+  (ms, or nil; not with slots), `:wrap` (message => message sent to the
+  owner), `:link` (the worker dies with its owner), `:data`.
   `{:error, {:retry, :workers_busy}}` when the pool is full; a kind already
   running is a programming error.
   """
@@ -37,14 +48,15 @@ defmodule Valimc.World.Jobs do
     token = make_ref()
     wrap = Keyword.get(opts, :wrap, & &1)
     link = Keyword.get(opts, :link, false)
+    slots = Keyword.get(opts, :slots)
 
-    case Task.Supervisor.start_child(
-           Keyword.fetch!(opts, :supervisor),
-           Valimc.World.Dimension.bind(fn ->
-             if link, do: Process.link(owner)
-             send(owner, wrap.({:job, kind, token, work.()}))
-           end)
-         ) do
+    run =
+      Valimc.World.Dimension.bind(fn ->
+        if link, do: Process.link(owner)
+        send(owner, wrap.({:job, kind, token, work.()}))
+      end)
+
+    case if(slots, do: spawn_slot(slots, run), else: supervised(opts, run)) do
       {:ok, pid} ->
         timer =
           case Keyword.get(opts, :deadline) do
@@ -58,6 +70,7 @@ defmodule Valimc.World.Jobs do
           pid: pid,
           monitor: Process.monitor(pid),
           timer: timer,
+          kill: slots == nil,
           data: Keyword.get(opts, :data, %{})
         }
 
@@ -70,6 +83,28 @@ defmodule Valimc.World.Jobs do
 
       {:error, _} ->
         {:error, {:retry, :workers_busy}}
+    end
+  end
+
+  defp supervised(opts, run),
+    do: Task.Supervisor.start_child(Keyword.fetch!(opts, :supervisor), run)
+
+  defp spawn_slot(name, run) do
+    {counter, max} = :persistent_term.get({__MODULE__, name})
+
+    if :counters.get(counter, 1) >= max do
+      {:error, :busy}
+    else
+      :counters.add(counter, 1, 1)
+
+      {:ok,
+       spawn(fn ->
+         try do
+           run.()
+         after
+           :counters.sub(counter, 1, 1)
+         end
+       end)}
     end
   end
 
@@ -114,7 +149,7 @@ defmodule Valimc.World.Jobs do
   def stop_all(%__MODULE__{entries: entries}) do
     for {_, job} <- entries do
       close(job)
-      Process.exit(job.pid, :kill)
+      if job.kill, do: Process.exit(job.pid, :kill)
     end
 
     %__MODULE__{}

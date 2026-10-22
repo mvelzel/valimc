@@ -51,6 +51,8 @@ defmodule Valimc.World.Region do
 
   @forward_ms 120_000
   @housekeep_ms 1_000
+  # The commit timer cuts every section once in this many (`handle_info(:commit, _)`).
+  @sweep_commits 20
 
   # A group starts with its first section, by key `{dimension, sx, sz}`, or empty.
   def start_link({:empty, dimension}),
@@ -484,6 +486,8 @@ defmodule Valimc.World.Region do
       # The key whose log stripe the group commits to.
       route: anchor && {:region, dimension, anchor},
       stripe: nil,
+      # Sections changed since the last cut (`commit_frames/2`).
+      touched: MapSet.new(),
       tick_clock: nil,
       # `:manual` groups (tests) tick only through `step/2`, numbered on their own.
       manual: false,
@@ -491,6 +495,7 @@ defmodule Valimc.World.Region do
       tick_steps: nil,
       commit_timer: nil,
       commit_ms: RegionStorage.commit_ms(),
+      commits: 0,
       forward_timer: nil,
       # A group without sections does not tick: its players and forwards are
       # looked after on this timer instead.
@@ -543,6 +548,7 @@ defmodule Valimc.World.Region do
       state
       | sections: Map.put(state.sections, key, %{resource: resource, admission: token}),
         peers: peer(state.peers, key, resource),
+        touched: MapSet.put(state.touched, key),
         epochs: Map.put(state.epochs, resource.epoch, key),
         owners: Map.put(state.owners, resource.storage.owner, key),
         moved: Map.drop(state.moved, [key, resource.epoch, resource.storage.owner]),
@@ -740,11 +746,25 @@ defmodule Valimc.World.Region do
   defp split_result({:stop, reason, resource}), do: {:stop, resource, reason}
 
   defp put_resource(state, key, resource) do
+    {section, sections} =
+      Map.get_and_update!(state.sections, key, &{&1, %{&1 | resource: resource}})
+
     %{
       state
-      | sections: Map.update!(state.sections, key, &%{&1 | resource: resource}),
-        peers: peer(state.peers, key, resource)
+      | sections: sections,
+        peers: peer(state.peers, key, resource),
+        touched: touch(state.touched, key, section.resource, resource)
     }
+  end
+
+  # A section whose storage and stored parts are what they were has nothing
+  # for the next cut (VMC-077w): a tick that changed nothing touches nothing.
+  defp touch(touched, key, old, new) do
+    if old.storage === new.storage and old.scheduled_ticks === new.scheduled_ticks and
+         old.entities.store === new.entities.store and old.containers === new.containers and
+         old.block_entities === new.block_entities,
+       do: touched,
+       else: MapSet.put(touched, key)
   end
 
   # A section's state as its code runs: with what it reads of its siblings.
@@ -941,13 +961,24 @@ defmodule Valimc.World.Region do
 
   def handle_info({:tick, _}, state), do: {:noreply, state}
 
+  # The commit timer cuts the sections changed since the last cut; once a
+  # second every section, for what is due by time alone (item motion, a
+  # checkpoint): a timer's cost follows what changed (VMC-077w).
   def handle_info(:commit, state) do
+    sweep = rem(state.commits, @sweep_commits) == 0
+
+    keys =
+      if sweep,
+        do: Map.keys(state.sections),
+        else: Enum.filter(state.touched, &Map.has_key?(state.sections, &1))
+
     state =
-      Enum.reduce(Map.keys(state.sections), state, fn key, acc ->
+      Enum.reduce(keys, state, fn key, acc ->
         put_resource(acc, key, RegionData.commit_tick(acc.sections[key].resource))
       end)
 
     timer = Process.send_after(self(), :commit, state.commit_ms)
+    state = %{state | commits: state.commits + 1}
     state = commit_frames(%{state | commit_timer: timer}, :players)
     {:noreply, if(state.players == %{}, do: state, else: Host.checkpoints(state))}
   end
@@ -985,6 +1016,53 @@ defmodule Valimc.World.Region do
     end
   end
 
+  # A delivery of full chunks from the generation scheduler (VMC-077w): each
+  # section installs its chunks in one pass, the halo images its siblings get
+  # apply once per sibling, everything commits once, and then the scheduler
+  # may send the next delivery.
+  def handle_info({:generated, scheduler, deliveries}, state)
+      when is_pid(scheduler) and is_list(deliveries) do
+    {state, effects} =
+      Enum.reduce(deliveries, {state, []}, fn {key, epoch, fulls}, {acc, effects} ->
+        message = {:generated, scheduler, fulls}
+
+        case acc.epochs do
+          %{^epoch => ^key} ->
+            {:noreply, resource} = RegionData.handle_info(message, enter(acc, key))
+            acc = put_resource(acc, key, %{resource | sibling_effects: []})
+            {acc, effects ++ resource.sibling_effects}
+
+          _ ->
+            {:noreply, acc} =
+              elsewhere(acc, {:epoch, epoch}, {:info, {:resource, epoch, message}})
+
+            {acc, effects}
+        end
+      end)
+
+    {images, others} =
+      Enum.split_with(effects, &match?({_, {:halo, {:images, _, _}}}, &1))
+
+    halos =
+      images
+      |> Enum.group_by(&elem(&1, 0), fn {_, {:halo, {:images, _, list}}} -> list end)
+      |> Enum.map(fn {key, lists} -> {key, {:halo, {:images, nil, Enum.concat(lists)}}} end)
+
+    state =
+      Enum.reduce(others ++ halos, state, fn {sibling, effect}, acc ->
+        if Map.has_key?(acc.sections, sibling) do
+          acc
+          |> put_resource(sibling, RegionData.apply_sibling(enter(acc, sibling), effect))
+          |> deliver_rules(sibling)
+        else
+          acc
+        end
+      end)
+
+    Valimc.Worldgen.Scheduler.delivered(scheduler)
+    {:noreply, commit_frames(state)}
+  end
+
   def handle_info({:halo, key, payload} = info, state) do
     if Map.has_key?(state.sections, key),
       do: section_info(state, key, {:halo, payload}),
@@ -1005,16 +1083,23 @@ defmodule Valimc.World.Region do
   def handle_info({:storage_failed, _owner, _seq, reason}, state),
     do: {:stop, {:storage_failed, reason}, state}
 
-  # A checkpoint task reports to the process that started it.
-  def handle_info({:checkpointed, _, _, _} = info, state) do
+  # A checkpoint task reports to the process that started it: the section
+  # whose checkpoint it is, or a group that section moved to.
+  def handle_info({:checkpointed, ref, _, _} = info, state) do
     for pid <- state.moved |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.uniq(),
         do: send(pid, info)
 
-    broadcast(state, info)
+    case Enum.find(
+           state.sections,
+           &match?({_, %{resource: %{storage: %{checkpointing: {^ref, _}}}}}, &1)
+         ) do
+      {key, _} -> section_info(state, key, info)
+      nil -> {:noreply, state}
+    end
   end
 
   # The log stripe went down: frames in flight may or may not be durable.
-  def handle_info({:DOWN, ref, :process, _, reason}, %{stripe: {_, ref}} = state) do
+  def handle_info({:DOWN, ref, :process, _, reason}, %{stripe: {_, ref, _}} = state) do
     if Host.in_flight?(state) or
          Enum.any?(state.sections, fn {_, s} -> map_size(s.resource.storage.in_flight) > 0 end),
        do: {:stop, {:storage_failed, {:log_down, reason}}, state},
@@ -1123,14 +1208,20 @@ defmodule Valimc.World.Region do
     end
   end
 
-  # Every section sees it; each acts only on what is its own.
+  # Every section sees it; each acts only on what is its own. One commit
+  # after all of them.
   defp broadcast(state, message) do
-    Enum.reduce_while(Map.keys(state.sections), {:noreply, state}, fn key, {:noreply, acc} ->
-      case section_info(acc, key, message) do
+    Map.keys(state.sections)
+    |> Enum.reduce_while({:noreply, state}, fn key, {:noreply, acc} ->
+      case section_apply(acc, key, message) do
         {:noreply, acc} -> {:cont, {:noreply, acc}}
         stop -> {:halt, stop}
       end
     end)
+    |> case do
+      {:noreply, state} -> {:noreply, commit_frames(state)}
+      stop -> stop
+    end
   end
 
   ## Ticks and lifecycle
@@ -1246,13 +1337,20 @@ defmodule Valimc.World.Region do
   # Every section's and hosted player's frames from one cut go out as one
   # record: when any has frames to send, the others' changes are cut too, so a
   # callback's changes to the world and to a player are durable together.
-  # `cut` true cuts everything now; `:players` (the commit timer) cuts the
-  # players' changes. A section or player whose frames are still in flight
-  # on another stripe (it moved here) holds the group's frames until they are
-  # durable.
+  # Only sections changed since the last cut (`touched`) can have any: a cut
+  # costs what changed, not the group's size (VMC-077w); the commit timer
+  # sweeps every section once a second. `cut` true cuts everything now; `:players` (the
+  # commit timer) cuts the players' changes. A section or player whose frames
+  # are still in flight on another stripe (it moved here) holds the group's
+  # frames until they are durable.
   defp commit_frames(state, cut \\ false) do
+    keys =
+      if cut == true,
+        do: Map.keys(state.sections),
+        else: Enum.filter(state.touched, &Map.has_key?(state.sections, &1))
+
     pending? =
-      cut == true or Enum.any?(state.sections, fn {_, s} -> s.resource.storage.outbox != [] end)
+      cut == true or Enum.any?(keys, &(state.sections[&1].resource.storage.outbox != []))
 
     state =
       if (pending? or cut == :players) and state.players != %{}, do: Host.cut(state), else: state
@@ -1264,22 +1362,21 @@ defmodule Valimc.World.Region do
         state
 
       Host.held?(state, state.route) or
-          Enum.any?(state.sections, fn {_, s} ->
-            RegionStorage.held?(s.resource.storage, state.route)
-          end) ->
+          Enum.any?(keys, &RegionStorage.held?(state.sections[&1].resource.storage, state.route)) ->
         state
 
       true ->
         {frames, state} =
-          Enum.reduce(Map.keys(state.sections), {[], state}, fn key, {frames, acc} ->
+          Enum.reduce(keys, {[], state}, fn key, {frames, acc} ->
             resource = RegionData.cut(acc.sections[key].resource)
             {taken, storage} = RegionStorage.take(resource.storage, acc.route)
             taken = for frame <- taken, do: {storage.base, frame}
-            {frames ++ taken, put_resource(acc, key, %{resource | storage: storage})}
+            {[taken | frames], put_resource(acc, key, %{resource | storage: storage})}
           end)
 
         {players, state} = Host.take(state, state.route)
-        send_frames(state, frames ++ players)
+        frames = frames |> Enum.reverse() |> Enum.concat()
+        send_frames(%{state | touched: MapSet.new()}, frames ++ players)
     end
   end
 
@@ -1292,15 +1389,22 @@ defmodule Valimc.World.Region do
     frames
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
     |> Enum.reduce(state, fn {base, frames}, acc ->
-      watch_stripe(acc, Log.commit_group(base, acc.route, frames, self()))
+      # The stripe watched, unless it went down and its monitor has not said so.
+      known =
+        case acc.stripe do
+          {pid, _, ^base} -> if Process.alive?(pid), do: pid
+          _ -> nil
+        end
+
+      watch_stripe(acc, base, Log.commit_group(base, acc.route, frames, self(), known))
     end)
   end
 
-  defp watch_stripe(%{stripe: {pid, _}} = state, pid), do: state
+  defp watch_stripe(%{stripe: {pid, _, base}} = state, base, pid), do: state
 
-  defp watch_stripe(state, pid) do
-    with {_, ref} <- state.stripe, do: Process.demonitor(ref, [:flush])
-    %{state | stripe: {pid, Process.monitor(pid)}}
+  defp watch_stripe(state, base, pid) do
+    with {_, ref, _} <- state.stripe, do: Process.demonitor(ref, [:flush])
+    %{state | stripe: {pid, Process.monitor(pid), base}}
   end
 
   ## Handoff

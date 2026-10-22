@@ -1447,6 +1447,15 @@ defmodule Valimc.World.RegionData do
   """
   def block_ticks(state, tick) do
     state = %{state | game_tick: tick}
+
+    # Only chunks a simulation ticket covers tick (VMC-077w: most of a large
+    # view does not).
+    if Tickets.simulating?(state.tickets),
+      do: simulated_block_ticks(state, tick),
+      else: retry_rule_backlog(state)
+  end
+
+  defp simulated_block_ticks(state, tick) do
     # Only chunks a simulation ticket covers tick; due ticks elsewhere wait
     # untouched (vanilla's `LevelTicks`).
     {due, scheduled} =
@@ -1610,6 +1619,7 @@ defmodule Valimc.World.RegionData do
   `target` here. A move that cannot land goes back to `source` the same way.
   """
   def apply_sibling(state, {:rules, part}), do: apply_rules(state, part)
+  def apply_sibling(state, {:halo, message}), do: Valimc.World.LightHalo.handle(message, state)
 
   def apply_sibling(state, {:entities, source, records}) do
     {store, refused} =
@@ -1991,6 +2001,14 @@ defmodule Valimc.World.RegionData do
 
   # The entities phase's end (VMC-077h): every tracker ticks once, and the frame
   # of their changes is published with the rows.
+  # A section without entities or players that published nothing last tick
+  # has nothing to publish (VMC-077w): most of a flying player's view.
+  defp track_entities(%{entities: %{quiet: true} = entities} = state)
+       when entities.store.views == %{} and entities.tracking.trackers == %{} and
+              entities.tracking.departing == %{} and state.player_views == %{} and
+              state.player_frame == %{},
+       do: state
+
   defp track_entities(state) do
     store = state.entities.store
 
@@ -2020,7 +2038,8 @@ defmodule Valimc.World.RegionData do
       Enum.sum(Enum.map(frame, &length(elem(&1, 1))))
     )
 
-    %{state | entities: %{state.entities | tracking: tracking}, player_frame: %{}}
+    quiet = views == %{} and frame == %{}
+    %{state | entities: %{state.entities | tracking: tracking, quiet: quiet}, player_frame: %{}}
   end
 
   # Players' drops become entities here; a record that cannot (it left the
@@ -2554,7 +2573,7 @@ defmodule Valimc.World.RegionData do
       end
 
       case start_job(state, {:encode, key}, work,
-             supervisor: Valimc.ChunkWorkers,
+             slots: :chunk_encode,
              data: %{version: version}
            ) do
         {:ok, state} ->
@@ -2638,8 +2657,8 @@ defmodule Valimc.World.RegionData do
   end
 
   # Generation (VMC-075, VMC-077n): full chunks, failures, retries and wants.
-  def handle_info({:generated_full, _scheduler, full}, state),
-    do: {:noreply, RegionGeneration.received(state, full)}
+  def handle_info({:generated, _scheduler, fulls}, state),
+    do: {:noreply, RegionGeneration.received(state, fulls)}
 
   def handle_info({:generation_failed, chunks, reason}, state),
     do: {:noreply, RegionGeneration.generation_failed(state, chunks, reason)}

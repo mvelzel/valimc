@@ -14,7 +14,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:containers, :sequence}` | containers |
-  | `{:tick, position, block}`, `{:ticks, :shift}` | a scheduled block tick, `{due, priority}`, its due relative to the shift |
+  | `{:ticks, chunk}`, `{:ticks, :shift}` | a chunk's scheduled block ticks in order, `[{due, priority, position, block}]`, dues relative to the shift |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `:game_tick` | the region's game tick when the frame was cut |
 
@@ -958,11 +958,11 @@ defmodule Valimc.World.RegionStorage do
       {{:containers, :sequence}, value}, acc ->
         %{acc | containers: %{acc.containers | sequence: value}}
 
-      {{:tick, pos, block}, {due, priority}}, acc ->
-        %{acc | ticks: [{pos, block, due, priority} | acc.ticks]}
-
       {{:ticks, :shift}, shift}, acc ->
         Map.put(acc, :tick_shift, shift)
+
+      {{:ticks, {_, _}}, list}, acc ->
+        %{acc | ticks: [list | acc.ticks]}
 
       {{:block_entity, pos}, value}, acc ->
         put_in(acc, [:block_entities, pos], value)
@@ -982,10 +982,17 @@ defmodule Valimc.World.RegionStorage do
   defp shift_ticks(parts) do
     {shift, parts} = Map.pop(parts, :tick_shift, 0)
 
+    # In vanilla order across chunks: due, then priority (each chunk's own
+    # order is kept).
     %{
       parts
       | ticks:
-          for({pos, block, due, priority} <- parts.ticks, do: {pos, block, due + shift, priority})
+          for(
+            list <- parts.ticks,
+            {due, priority, pos, block} <- list,
+            do: {pos, block, due + shift, priority}
+          )
+          |> Enum.sort_by(fn {_, _, due, priority} -> {due, priority} end)
     }
   end
 

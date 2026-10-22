@@ -20,5 +20,8 @@ defmodule Valimc.World.RegionEntities do
             cross_next: nil,
             cross_stamp: nil,
             age_debt: 0,
-            dropped: []
+            dropped: [],
+            # The last publish had no views and no frame: an idle section
+            # skips the next (VMC-077w).
+            quiet: false
 end

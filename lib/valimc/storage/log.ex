@@ -102,12 +102,14 @@ defmodule Valimc.Storage.Log do
   commit) as one record on the stripe of `route` (a group's key), so they are
   durable together or not at all; `notify` receives `{:storage_durable, owner,
   seq}` for each, or `{:storage_failed, owner, seq, reason}`. Returns the
-  stripe for the caller to monitor.
+  stripe for the caller to monitor; a caller that monitors it already passes
+  it as `stripe` and nothing is looked up (VMC-077w).
   """
-  def commit_group(base, route, frames, notify) when is_list(frames) and is_pid(notify) do
+  def commit_group(base, route, frames, notify, stripe \\ nil)
+      when is_list(frames) and is_pid(notify) do
     n = stripe(route)
     for {owner, _, _} <- frames, do: index(base, owner, n)
-    stripe = ensure_stripe(base, n)
+    stripe = if is_pid(stripe), do: stripe, else: ensure_stripe(base, n)
     GenServer.cast(stripe, {:commit, frames, notify})
     stripe
   end

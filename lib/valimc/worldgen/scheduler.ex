@@ -7,12 +7,20 @@ defmodule Valimc.Worldgen.Scheduler do
 
   A region sends what it wants (`want/5`, its absent chunks with their
   distance to the nearest player that wants them, replaced on every change)
-  and gets each chunk once it is full, as `{:resource, epoch,
-  {:generated_full, scheduler, full}}`, or `{:generation_failed, chunks,
-  reason}` when its generation failed. Once it has persisted a chunk it says
-  so (`handed_over/3`) and the cell goes; when it loads, it reports the chunks
-  it has (`present/3`). It monitors the scheduler and wants again when it
-  restarts.
+  and gets them once they are full, or `{:resource, epoch,
+  {:generation_failed, chunks, reason}}` when their generation failed. Once
+  it has persisted a chunk it says so (`handed_over/3`) and the cell goes;
+  when it loads, it reports the chunks it has (`present/3`). It monitors the
+  scheduler and wants again when it restarts.
+
+  Full chunks go in deliveries with credit (VMC-077w): a requester process (a
+  region group) gets `{:generated, scheduler, [{key, epoch, fulls}]}`, the
+  chunks of each of its sections that wants them, only while fewer than
+  #{2} of its deliveries are unacknowledged (`delivered/1`). What finishes
+  meanwhile waits here and goes in its next delivery, at most #{64} chunks,
+  the players' own and nearest chunks first, so a group installs what is
+  ready in one pass per section and finished chunks never queue in its
+  mailbox.
 
   Work starts when the scheduler's mailbox is empty, as far as the pool has
   room; when the pool is full the next job to end wakes it.
@@ -41,6 +49,9 @@ defmodule Valimc.Worldgen.Scheduler do
   # An idle scheduler (nothing wanted, running or being persisted) stops.
   @idle 60_000
   @gauges 5_000
+  # Unacknowledged deliveries per requester process, and chunks per delivery.
+  @credit 2
+  @delivery 64
 
   defstruct [
     :world,
@@ -50,8 +61,11 @@ defmodule Valimc.Worldgen.Scheduler do
     # Focused players' monitors.
     focused: %{},
     # Per requester, the chunks sent to it at its current epoch that its
-    # wants may still name: its mailbox holds them (VMC-077u).
+    # wants may still name: its mailbox or its outbox here holds them (VMC-077u).
     in_flight: %{},
+    # Per requester process, its unacknowledged deliveries and the full
+    # chunks waiting for its next (`[{requester, chunk, full}]`, newest first).
+    outbox: %{},
     monitors: %{},
     calls: %{},
     waiting: false,
@@ -121,8 +135,21 @@ defmodule Valimc.Worldgen.Scheduler do
     end
   end
 
-  @doc "The regions persisted these full chunks."
-  def handed_over(world, dimension, chunks), do: cast(world, dimension, {:handed_over, chunks})
+  @doc """
+  The regions persisted these full chunks; `scheduler` is the pid deliveries
+  came from, if known (else looked up).
+  """
+  def handed_over(world, dimension, chunks, scheduler \\ nil)
+  def handed_over(_world, _dimension, [], _scheduler), do: :ok
+
+  def handed_over(_world, _dimension, chunks, scheduler) when is_pid(scheduler),
+    do: GenServer.cast(scheduler, {:handed_over, chunks})
+
+  def handed_over(world, dimension, chunks, nil),
+    do: cast(world, dimension, {:handed_over, chunks})
+
+  @doc "The calling process installed a delivery from `scheduler`: it may send the next."
+  def delivered(scheduler), do: GenServer.cast(scheduler, {:delivered, self()})
 
   @doc "A region loaded with these chunks full."
   def present(world, dimension, chunks), do: cast(world, dimension, {:present, chunks})
@@ -325,6 +352,17 @@ defmodule Valimc.Worldgen.Scheduler do
     noreply(%{state | frontier: frontier, dirty: true})
   end
 
+  def handle_cast({:delivered, pid}, state) do
+    case state.outbox do
+      %{^pid => entry} ->
+        entry = %{entry | unacked: max(entry.unacked - 1, 0)}
+        noreply(flush(%{state | outbox: Map.put(state.outbox, pid, entry)}, pid))
+
+      _ ->
+        noreply(state)
+    end
+  end
+
   def handle_cast({:handed_over, chunks}, state),
     do: noreply(%{state | frontier: Frontier.handed_over(state.frontier, chunks), dirty: true})
 
@@ -411,12 +449,15 @@ defmodule Valimc.Worldgen.Scheduler do
         frontier = Frontier.want(state.frontier, requester, %{})
         requesters = Map.delete(state.requesters, requester)
         in_flight = Map.delete(state.in_flight, requester)
+        # Every requester of that process is going: its deliveries with it.
+        outbox = Map.delete(state.outbox, requester_pid(requester))
 
         noreply(%{
           state
           | monitors: monitors,
             requesters: requesters,
             in_flight: in_flight,
+            outbox: outbox,
             frontier: frontier
         })
 
@@ -503,7 +544,52 @@ defmodule Valimc.Worldgen.Scheduler do
       else: %{state | waiting: true}
   end
 
-  defp deliver(state, events), do: Enum.reduce(events, state, &event/2)
+  defp deliver(state, events) do
+    state = Enum.reduce(events, state, &event/2)
+
+    events
+    |> Enum.flat_map(fn
+      {:full, requesters, _, _} -> for {pid, _} <- requesters, is_pid(pid), do: pid
+      _ -> []
+    end)
+    |> Enum.uniq()
+    |> Enum.reduce(state, &flush(&2, &1))
+  end
+
+  # The next delivery to `pid`, if it has credit and chunks wait: the
+  # players' own and nearest chunks first, grouped by section.
+  defp flush(state, pid) do
+    case state.outbox do
+      %{^pid => %{unacked: unacked, ready: [_ | _] = ready} = entry} when unacked < @credit ->
+        rank = &Frontier.rank(state.frontier, &1)
+
+        {sent, waiting} =
+          ready
+          |> Enum.reverse()
+          |> Enum.sort_by(fn {_, chunk, _} -> rank.(chunk) end)
+          |> Enum.split(@delivery)
+
+        # Sections in the order of their first chunk.
+        sections =
+          sent
+          |> Enum.group_by(&elem(&1, 0), &elem(&1, 2))
+          |> Enum.sort_by(fn {_, [full | _]} -> rank.({full.x, full.z}) end)
+          |> Enum.flat_map(fn {requester, fulls} ->
+            case state.requesters do
+              %{^requester => %{epoch: epoch}} -> [{requester_key(requester), epoch, fulls}]
+              _ -> []
+            end
+          end)
+
+        unacked = if sections == [], do: unacked, else: unacked + 1
+        if sections != [], do: send(pid, {:generated, self(), sections})
+        entry = %{entry | unacked: unacked, ready: Enum.reverse(waiting)}
+        flush(%{state | outbox: Map.put(state.outbox, pid, entry)}, pid)
+
+      _ ->
+        state
+    end
+  end
 
   defp event({:full, requesters, chunk, full}, state) do
     Enum.reduce(requesters, state, fn
@@ -516,7 +602,9 @@ defmodule Valimc.Worldgen.Scheduler do
       requester, state ->
         case state.requesters do
           %{^requester => %{epoch: epoch}} ->
-            send(requester_pid(requester), {:resource, epoch, {:generated_full, self(), full}})
+            pid = requester_pid(requester)
+            entry = Map.get(state.outbox, pid, %{unacked: 0, ready: []})
+            entry = %{entry | ready: [{requester, chunk, full} | entry.ready]}
 
             in_flight =
               Map.update(state.in_flight, requester, {epoch, MapSet.new([chunk])}, fn
@@ -524,7 +612,7 @@ defmodule Valimc.Worldgen.Scheduler do
                 _ -> {epoch, MapSet.new([chunk])}
               end)
 
-            %{state | in_flight: in_flight}
+            %{state | in_flight: in_flight, outbox: Map.put(state.outbox, pid, entry)}
 
           _ ->
             state
@@ -566,6 +654,9 @@ defmodule Valimc.Worldgen.Scheduler do
   # A region section asks as `{group pid, key}` (VMC-077j); others as their pid.
   defp requester_pid({pid, _key}) when is_pid(pid), do: pid
   defp requester_pid(pid) when is_pid(pid), do: pid
+
+  defp requester_key({_pid, key}), do: key
+  defp requester_key(_pid), do: nil
 
   defp answer(state, ref, call) do
     if Enum.all?(call.chunks, &Map.has_key?(call.got, &1)) do
