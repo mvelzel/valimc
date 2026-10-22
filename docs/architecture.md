@@ -211,22 +211,22 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
-| Entity physics (VMC-077l) | One kernel (`valimc_core::physics`) for players and items: block scans over published section rows with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block and a whole item tick. Players call it per move packet from their connection; region owners once per tick for all their items |
+| Entity physics (VMC-077l, VMC-077l2) | One kernel (`valimc_core::physics`) for players and items: block scans over published section rows with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the connection; a region owner's items one call per tick. Effects on living state (burning, landing damage, air, rain) come back as observations |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
 per chunk), region file headers and palette-name mapping (VMC-021, about 80 µs
-per chunk; not yet compared with Rust), the player's travel rules around the kernel's geometry (jump, fluid and climbing controls, sneak edges). `Valimc.NBT` is the one
+per chunk; not yet compared with Rust). `Valimc.NBT` is the one
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 
 NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
 - The shim has one module per domain (`facts`, `region`, `rules`, `light`,
-  `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`); oracle and benchmark
-  NIFs live in `parity`, built only
-  with the `parity` cargo feature (dev, test and bench builds, not releases).
-  One arity per NIF.
+  `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`); oracle
+  and benchmark NIFs live in `parity` (the physics kernel's pieces in
+  `physics_checks` and `player_parity`), built only with the `parity` cargo
+  feature (dev, test and bench builds, not releases). One arity per NIF.
 - Scheduling by bounded worst-case cost. A NIF on a normal scheduler stays under
   about 1 ms for any input its callers can pass (batch, never one call per
   position). A NIF whose cost grows with its input has a dirty twin, and

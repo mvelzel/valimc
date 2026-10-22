@@ -55,10 +55,11 @@ wait fell from 34–93 ms to 5–12 ms and its p99 from 70–164 ms to 12–63 m
 generation throughput stayed within the host's noise.
 
 [Physics kernel](tickets/VMC-077l.md) (`bench/physics_kernel.exs`, the same
-moves and items against the Elixir physics it replaced, back to back at load
-11). A player's move validation takes 61.5–66 µs of CPU against 156–192 µs, of
-which the kernel's calls are about 10 µs and the player's travel rules in
-Elixir the rest; an item tick takes 1.25–1.6 µs per item against 24–36 µs.
+moves and items against the Elixir physics it replaced). An item tick takes
+1.2–1.6 µs per item against 24–36 µs. With the player's travel rules in Rust
+too ([VMC-077l2](tickets/VMC-077l2.md), back to back at load 5–17), a move
+packet's validation takes 15–16 µs of CPU in one call, against 59–60 µs with
+the rules in Elixir around the kernel and 156–192 µs before the kernel.
 
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
