@@ -62,8 +62,8 @@ defmodule Valimc.WorldgenFrontierTest do
     assert Enum.map(spills, &elem(&1, 0)) == [{0, 0}, {10, 0}, {20, 0}]
   end
 
-  # The chunks of the jobs `next/3` starts, in order (a flat world: one job
-  # per wanted chunk, by priority; the jobs' closures never run).
+  # The chunks of the jobs `next/3` starts, in order (the jobs' closures
+  # never run; in a flat world one job per wanted chunk, by priority).
   defp order(f, n) do
     {jobs, _f} = Frontier.next(f, n)
     Enum.map(jobs, & &1.chunk)
@@ -93,5 +93,17 @@ defmodule Valimc.WorldgenFrontierTest do
     assert hd(order(f, 5)) == {40, 40}
     f = Frontier.focus(f, :player, nil, nil) |> Frontier.refresh()
     assert order(f, 5) == [{40, 40}, {0, 5}, {3, 0}, {0, 0}, {-3, 0}]
+  end
+
+  test "a want passes its priority to the earlier decorations it waits for at once" do
+    f = Frontier.want(%Frontier{kind: :noise}, :far, %{{0, 0} => 100})
+    # Its decorations within 2 of the first want's wait for them, so their
+    # terrain goes at the new want's priority, Z outer and X inner.
+    f = Frontier.want(f, :near, %{{4, 0} => 1})
+    assert hd(order(f, 1)) == {-2, -2}
+
+    # Withdrawn and refreshed: terrain only the withdrawn want needed waits.
+    f = f |> Frontier.want(:near, %{}) |> Frontier.refresh()
+    assert Enum.all?(order(f, 50), fn {x, _} -> x <= 2 end)
   end
 end
