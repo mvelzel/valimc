@@ -1052,11 +1052,32 @@ defmodule Valimc.World.Region do
   ## Ticks and lifecycle
 
   defp run_tick(state, tick, now) do
+    state = track_players(state)
+
     state.sections
     |> Map.keys()
     |> Enum.sort()
     |> Enum.reduce(state, fn key, acc ->
       acc |> put_resource(key, TickPipeline.run(enter(acc, key), tick, now)) |> deliver_rules(key)
+    end)
+  end
+
+  # Hosted players' trackers tick first; each section publishes the players
+  # standing in it with its entities (VMC-077i4).
+  defp track_players(state) do
+    {state, published} = Host.track(state)
+
+    Enum.reduce(state.sections, state, fn {key, section}, acc ->
+      case Map.fetch(published, key) do
+        {:ok, players} ->
+          put_resource(acc, key, RegionData.players(section.resource, players))
+
+        :error when section.resource.player_views == %{} ->
+          acc
+
+        :error ->
+          put_resource(acc, key, RegionData.players(section.resource, {%{}, %{}}))
+      end
     end)
   end
 

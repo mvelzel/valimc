@@ -31,7 +31,6 @@ defmodule Valimc.Player.Vitals do
     Health
   }
 
-  alias Valimc.World.{BorderReplication, WeatherReplication}
   require Logger
   import Bitwise
   @hunger EffectTypes.id("hunger")
@@ -147,11 +146,8 @@ defmodule Valimc.Player.Vitals do
          before.food.saturation == 0 != (food.saturation == 0),
        do: send_packets(state, [Packets.health(health, food)])
 
-    if previous.value != health.value do
-      packet = Packets.player_health(state.player)
-      send_packets(state, [packet])
-      Valimc.Player.Movement.broadcast_player_packet(state, packet)
-    end
+    if previous.value != health.value,
+      do: send_packets(state, [Packets.player_health(state.player)])
 
     if effect.damage > 0 do
       {:ok, selected} = Health.hurt_window(health, effect.damage)
@@ -344,38 +340,17 @@ defmodule Valimc.Player.Vitals do
   def continue_life(state), do: state
 
   def finish_respawn(state, player) do
-    {clock_version, clock_packet} = Valimc.World.Clock.initial()
-    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
-
-    {weather_view, weather_packets} =
-      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
-
-    border = Valimc.World.Clock.border()
-
-    # The client forgets its level chunk by chunk first (its connection's view).
-    Valimc.Session.Link.reset_view(state, %{
-      unload: true,
-      dimension: Map.get(player, :dimension, :overworld),
-      clock_version: clock_version,
-      difficulty: difficulty,
-      weather: weather_view,
-      border: border
-    })
-
     # Post effects (`/posteffect`) do not survive a respawn, as in vanilla.
-    if Map.get(state.player, :post_effects, []) != [],
-      do: send_packets(state, [Valimc.Player.PostEffects.packet([])])
+    post_effects =
+      if Map.get(state.player, :post_effects, []) != [],
+        do: [Valimc.Player.PostEffects.packet([])],
+        else: []
 
     player = Map.put(player, :post_effects, [])
-    # A death in another dimension respawns in the spawn's (VMC-026b, VMC-077a).
-    state = Valimc.Player.Travel.leave(state, player)
-    inventory = Inventory.new(player.abilities.infinite_materials)
 
     state = %{
       state
-      | player: player,
-        inventory: inventory,
-        life_stage: :alive,
+      | life_stage: :alive,
         air_policy: :none,
         environment_effects: %{},
         movement_speed_view: nil,
@@ -383,49 +358,21 @@ defmodule Valimc.Player.Vitals do
         jump_boost_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
-        active_use: nil,
         respawn_requested: false,
         food_tick_origin: state.simulation_clock.tick,
         client_tick: %ClientTick{}
     }
 
-    send_packets(
+    # A death in another dimension respawns in the spawn's (VMC-026b, VMC-077a).
+    Valimc.Player.Level.respawn(
       state,
-      [
-        Packets.respawn(player, player.last_death),
-        BorderReplication.initialize(border),
-        Packets.level_load_start(),
-        clock_packet,
-        difficulty_packet,
-        Packets.abilities(player.abilities),
-        Packets.health(player.living.health, player.food),
-        Packets.player_health(player),
-        Packets.player_use(player),
-        Packets.player_pose(player),
-        Packets.player_environment(player),
-        Packets.player_flags(player),
-        Packets.spawn_position(),
-        Packets.interaction_attributes(player),
-        Packets.armor_attributes(player.entity_id, Armor.attributes(Armor.equipment(inventory))),
-        Packets.inventory(inventory),
-        Packets.cursor(nil),
-        Packets.held_slot(0)
-      ] ++ weather_packets
+      player,
+      Inventory.new(player.abilities.infinite_materials),
+      keep: 0,
+      unload: true,
+      motion: :reset,
+      post_effects: post_effects
     )
-
-    state =
-      state
-      |> Valimc.Player.Movement.publish_movement_speed()
-      |> Valimc.Player.Movement.publish_absorption()
-      |> Valimc.Player.Movement.publish_jump_boost()
-      |> Valimc.Player.Movement.relocate(player)
-
-    for pid <- Players.around(state.player),
-        pid != state.connection,
-        do:
-          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
-
-    state
   end
 
   def tick_burning(%{life_stage: stage} = state) when stage != :alive,
@@ -603,9 +550,8 @@ defmodule Valimc.Player.Vitals do
       state = put_living(state, health: health)
       player = state.player
       Players.update(state.connection, player)
-      packet = Packets.player_health(player)
-      send_packets(state, [Packets.health(health, player.food), packet])
-      Valimc.Player.Movement.broadcast_player_packet(state, packet)
+      send_packets(state, [Packets.health(health, player.food), Packets.player_health(player)])
+      state
     end
   end
 
@@ -764,9 +710,7 @@ defmodule Valimc.Player.Vitals do
     player = state.player
 
     if air != previous do
-      packet = Packets.player_air(player)
-      send_packets(state, [packet])
-      Valimc.Player.Movement.broadcast_player_packet(state, packet)
+      send_packets(state, [Packets.player_air(player)])
       Players.update(state.connection, player)
     end
 

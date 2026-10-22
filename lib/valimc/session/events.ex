@@ -13,15 +13,11 @@ defmodule Valimc.Session.Events do
 
   alias Valimc.Player.Menus
   alias Valimc.Player.Mining
-  alias Valimc.Session.Replication
 
   import Valimc.Net.Codec,
     only: [send_packets: 2, send_frames: 2]
 
-  alias Valimc.{
-    Players,
-    World
-  }
+  alias Valimc.World
 
   alias Valimc.World.{ChestLidReplication}
 
@@ -152,8 +148,17 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def view(%{phase: :play} = state, {:player_joined, player}),
-    do: Replication.track_peer(state, player)
+  # The tab list holds every online player, near or far; players themselves
+  # come and go with the rows their groups publish (VMC-077i4).
+  def view(%{phase: :play} = state, {:player_joined, player}) do
+    if player.pid != state.connection, do: send_packets(state, [Packets.player_info(player)])
+    state
+  end
+
+  def view(%{phase: :play} = state, {:player_info, packet}) do
+    send_packets(state, [packet])
+    state
+  end
 
   def view(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
     if match?(%{epoch: ^epoch}, state.entity_replication.tracked[id]),
@@ -169,64 +174,44 @@ defmodule Valimc.Session.Events do
     state
   end
 
-  def view(%{phase: :play} = state, {:player_packet, pid, entity, packet, {threshold, frame}}) do
-    case Map.get(state.peers, pid) do
-      view when is_tuple(view) and elem(view, 0) == entity ->
-        if threshold == state.threshold,
-          do: send_frames(state, [frame]),
-          else: send_packets(state, [packet])
-
-      _ ->
-        :ok
+  # A player's own event (a swing, a hurt, a death): for observers tracking it.
+  def view(%{phase: :play} = state, {:player_packet, _pid, entity, packet, {threshold, frame}}) do
+    if Map.has_key?(state.entity_replication.tracked, entity) do
+      if threshold == state.threshold,
+        do: send_frames(state, [frame]),
+        else: send_packets(state, [packet])
     end
 
     state
   end
 
-  def view(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
-    case Map.get(state.peers, pid) do
-      view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
-      _ -> :ok
-    end
-
-    state
-  end
-
-  def view(%{phase: :play} = state, {:player_use_packet, pid, entity, packet}) do
-    case {Map.get(state.peers, pid), Players.get(pid)} do
-      {view, {:ok, %{entity_id: ^entity} = player}} when is_tuple(view) ->
-        # Native use starts by refreshing equipment. Sample the current owner
-        # publication before sending the animation flag, within this peer view.
-        state = Replication.track_peer(state, player)
-        view(state, {:player_packet, pid, entity, packet})
-
-      _ ->
-        state
-    end
-  end
-
-  def view(%{phase: :play} = state, {:player_respawned, pid, entity}) do
-    case Players.get(pid) do
-      {:ok, %{entity_id: ^entity} = player} ->
-        if Map.has_key?(state.peers, pid),
-          do: send_packets(state, [Packets.remove_entity(player)])
-
-        Replication.track_peer(%{state | peers: Map.delete(state.peers, pid)}, player)
-
-      _ ->
-        state
-    end
+  # A respawned player is a new body: it spawns again from its row.
+  def view(%{phase: :play} = state, {:player_respawned, _pid, entity}) do
+    untrack(state, entity)
   end
 
   def view(%{phase: :play} = state, {:player_left, player}) do
-    if Map.has_key?(state.peers, player.pid),
-      do: send_packets(state, [Packets.remove_entity(player), Packets.remove_info(player)])
-
-    %{state | peers: Map.delete(state.peers, player.pid)}
+    state = untrack(state, player.entity_id)
+    send_packets(state, [Packets.remove_info(player)])
+    state
   end
 
   @doc "The client's part of `event`."
   def view(state, _), do: state
+
+  defp untrack(state, entity) do
+    if Map.has_key?(state.entity_replication.tracked, entity) do
+      send_packets(state, [Valimc.Protocol.EntityPackets.remove([entity])])
+
+      %{
+        state
+        | entity_replication:
+            Valimc.World.EntityReplication.untrack(state.entity_replication, entity)
+      }
+    else
+      state
+    end
+  end
 
   defp forget_ready(state, chunks),
     do: %{state | chunk_sender: Valimc.Session.ChunkSender.forget(state.chunk_sender, chunks)}

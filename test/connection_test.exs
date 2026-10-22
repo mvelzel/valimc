@@ -137,25 +137,36 @@ defmodule Valimc.ConnectionTest do
       end
 
     Client.send_raw(sender, frames)
-    # Peers get the latest position per publication, not one packet per input. On a
-    # loaded host the burst may straddle a publication, so sum the sender's deltas
-    # (VMC-073).
+    # Peers get the latest position per publication, not one packet per input:
+    # relative moves, or a sync where the ground flag changed (VMC-077i4).
     entity = Enum.find(Valimc.Players.all(), &(&1.name == sender_name)).entity_id
-    {dx, packets} = coalesced_moves(receiver, entity, 1229)
-    assert dx == 1229 and packets < 20
+    {x, packets} = coalesced_moves(receiver, entity, 0.5 + 20 * 0.015)
+    assert_in_delta x, 0.8, 0.0005
+    assert packets < 20
   end
 
-  defp coalesced_moves(client, entity, target, dx \\ 0, packets \\ 0) do
-    {body, client} = Client.await(client, :play, "move_entity_pos_rot")
+  # The x the observer was last sent, from the spawn at 0.5.
+  defp coalesced_moves(client, entity, target, x \\ 0.5, packets \\ 0) do
+    {id, body, client} = Client.read(client)
+    name = Data.name(:play, :clientbound, id)
 
-    case Wire.take_varint(body) do
-      {^entity, <<1, step::signed-16, 0::signed-16, 0::signed-16, _yaw, _pitch>>} ->
-        if dx + step >= target,
-          do: {dx + step, packets + 1},
-          else: coalesced_moves(client, entity, target, dx + step, packets + 1)
+    sent =
+      case {name, Wire.take_varint(body)} do
+        {"move_entity_pos", {^entity, <<_, dx::signed-16, _::binary>>}} -> x + dx / 4096
+        {"move_entity_pos_rot", {^entity, <<_, dx::signed-16, _::binary>>}} -> x + dx / 4096
+        {"entity_position_sync", {^entity, <<0, sync::float-64, _::binary>>}} -> sync
+        _ -> nil
+      end
 
-      _other ->
-        coalesced_moves(client, entity, target, dx, packets)
+    cond do
+      sent == nil ->
+        coalesced_moves(Client.auto_reply(client, :play, name, body), entity, target, x, packets)
+
+      sent >= target - 0.0005 ->
+        {sent, packets + 1}
+
+      true ->
+        coalesced_moves(client, entity, target, sent, packets + 1)
     end
   end
 

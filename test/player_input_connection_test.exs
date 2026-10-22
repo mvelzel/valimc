@@ -7,7 +7,7 @@ defmodule Valimc.PlayerInputConnectionTest do
   test "pre-load input is retained, completion does not replay it, self and peer flags are paced" do
     {sender, player} = login("Input")
     {receiver, _} = login("Observe")
-    assert receiver.entity_flags[player.entity_id] == 0
+    receiver = await_flags(receiver, player.entity_id, 0)
 
     Client.send_packet(sender, :play, "player_input", <<96>>)
     Client.send_packet(sender, :play, "player_command", command(1))
@@ -54,11 +54,11 @@ defmodule Valimc.PlayerInputConnectionTest do
 
     sender = barrier(sender)
     {receiver, _} = login("Later")
-    assert receiver.entity_flags[player.entity_id] == 10
-
-    sender = relocate(sender, player, 10.0)
-
     receiver = await_flags(receiver, player.entity_id, 10)
+
+    # A teleport the tracker can follow is an absolute sync, not a new body.
+    sender = relocate(sender, player, 10.0)
+    {_, receiver} = Client.await(receiver, :play, "entity_position_sync")
 
     sender = relocate(sender, player, 1024.5)
 
@@ -79,7 +79,7 @@ defmodule Valimc.PlayerInputConnectionTest do
   test "unchanged or flags-only observations generate no redundant movement; command IDs cannot target peers" do
     {sender, player} = login("Quiet")
     {receiver, receiver_player} = login("Peer")
-    assert receiver.entity_flags[player.entity_id] == 0
+    receiver = await_flags(receiver, player.entity_id, 0)
     Client.send_packet(sender, :play, "player_loaded", <<>>)
     Client.send_packet(sender, :play, "player_command", command(1, receiver_player.entity_id))
     sender = barrier(sender)
@@ -134,7 +134,8 @@ defmodule Valimc.PlayerInputConnectionTest do
       {"set_entity_data", {:ok, ^entity, <<0, 0, ^flags, 255>>}} ->
         client
 
-      {"move_entity_pos_rot", {:ok, ^entity, _}} when forbid_movement ->
+      {move, {:ok, ^entity, _}}
+      when forbid_movement and move in ["move_entity_pos", "move_entity_pos_rot"] ->
         flunk("Flags fabricated movement")
 
       _ ->
@@ -146,7 +147,7 @@ defmodule Valimc.PlayerInputConnectionTest do
     {id, body, client} = Client.read(client)
     name = Data.name(:play, :clientbound, id)
 
-    if name in ["set_entity_data", "move_entity_pos_rot"] do
+    if name in ["set_entity_data", "move_entity_pos", "move_entity_pos_rot", "move_entity_rot"] do
       {other, _} = Wire.take_varint(body)
       refute other == entity
     end

@@ -12,14 +12,8 @@ defmodule Valimc.Player.Travel do
   (`leave/2`).
   """
 
-  import Valimc.Net.Codec, only: [send_packets: 2]
-
   alias Valimc.Players
   alias Valimc.Session.Jobs
-  alias Valimc.Player.Movement
-  alias Valimc.Protocol.Packets
-
-  alias Valimc.World.{BorderReplication, Clock, WeatherReplication}
 
   @typedoc "Where a travel ends: a dimension and a pose, with the arrival velocity."
   @type target :: %{
@@ -82,73 +76,13 @@ defmodule Valimc.Player.Travel do
     portal = match?(%{portal: true}, state.travel)
     # Vanilla keeps all data across a teleport; a respawn after the credits keeps attributes.
     keep = Map.get(state.travel || %{}, :keep, 3)
-    state = leave(state, player)
-    {clock_version, clock_packet} = Clock.initial()
-    {difficulty, difficulty_packet} = Clock.difficulty()
-    border = Clock.border()
-    weather = Clock.weather()
+    state = %{state | travel: nil, portal: state.portal && %{state.portal | last: nil}}
 
-    Valimc.Session.Link.reset_view(state, %{
-      unload: false,
-      dimension: player.dimension,
-      clock_version: clock_version,
-      difficulty: difficulty,
-      weather: weather,
-      border: border
-    })
-
-    state = %{
-      state
-      | player: player,
-        active_use: nil,
-        travel: nil,
-        portal: state.portal && %{state.portal | last: nil}
-    }
-
-    send_packets(state, [
-      Packets.respawn(player, player.last_death, keep),
-      difficulty_packet,
-      Packets.permission_level(player.entity_id, Valimc.Permissions.level(player))
-    ])
-
-    state = Movement.relocate(state, player, false, player.motion.velocity)
-
-    # Vanilla's `sendLevelInfo`: border, clocks, spawn, rain where it rains,
-    # then the chunk loading screen; then abilities, inventory and effects.
-    rain = if weather.wet, do: elem(WeatherReplication.reconcile(nil, weather), 1), else: []
-
-    send_packets(
-      state,
-      [
-        Packets.abilities(player.abilities),
-        BorderReplication.initialize(border),
-        clock_packet,
-        Packets.spawn_position()
-      ] ++
-        rain ++
-        [
-          Packets.level_load_start(),
-          Valimc.World.TickRate.state_packet(Valimc.World.TickRate.published()),
-          Valimc.World.TickRate.step_packet(Valimc.World.TickRate.join_steps()),
-          Packets.inventory(state.inventory),
-          Packets.cursor(state.inventory.carried),
-          Packets.held_slot(state.inventory.selected),
-          Packets.experience(player.progression.experience),
-          Packets.health(player.living.health, player.food)
-        ] ++
-        Enum.map(player.living.effects, fn {id, [rung | _]} ->
-          Packets.update_effect(player.entity_id, id, rung, false)
-        end) ++
-        post_effects(player) ++
-        if(portal, do: [Packets.level_event(1032, {0, 0, 0}, 0)], else: [])
+    Valimc.Player.Level.respawn(state, player, state.inventory,
+      keep: keep,
+      portal: portal,
+      post_effects: post_effects(player)
     )
-
-    for pid <- Players.around(state.player),
-        pid != state.connection,
-        do:
-          Valimc.Connection.deliver(pid, {:player_respawned, state.connection, player.entity_id})
-
-    state
   end
 
   defp post_effects(player) do

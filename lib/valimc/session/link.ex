@@ -17,7 +17,7 @@ defmodule Valimc.Session.Link do
   alias Valimc.Net.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
   alias Valimc.Session.{ChunkSender, Events, Messages, Replication}
-  alias Valimc.{Players, World}
+  alias Valimc.World
   alias Valimc.World.{ChestLidReplication, EntityReplication}
 
   # What only the connection keeps; the session keeps the rest.
@@ -47,7 +47,6 @@ defmodule Valimc.Session.Link do
     :chunk_sender,
     :requested_view_distance,
     :view,
-    :peers,
     :entity_replication,
     :entity_cache,
     :clock_version,
@@ -82,7 +81,10 @@ defmodule Valimc.Session.Link do
       link = Map.take(state, @link_keys ++ @shared_keys)
 
       Map.merge(link, %{
-        player: Map.take(state.player, @player_keys),
+        player:
+          state.player
+          |> Map.take(@player_keys)
+          |> Map.put(:spectator, state.player.game_mode.current == :spectator),
         owner: pid,
         owner_monitor: Process.monitor(pid)
       })
@@ -229,17 +231,13 @@ defmodule Valimc.Session.Link do
   end
 
   # A respawn or a travel: the client forgets its level (`unload`: chunk by
-  # chunk, peers and entities too); the view starts over in `dimension`.
+  # chunk, and its entities and players too); the view starts over in
+  # `dimension`.
   defp reset(state, reset) do
     if reset.unload do
-      old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
-      old_items = Map.keys(state.entity_replication.tracked)
-      old_items = if old_items == [], do: [], else: [EntityPackets.remove(old_items)]
-
-      Codec.send_packets(
-        state,
-        Enum.map(state.chunks, &Packets.unload/1) ++ old_entities ++ old_items
-      )
+      old = Map.keys(state.entity_replication.tracked)
+      old = if old == [], do: [], else: [EntityPackets.remove(old)]
+      Codec.send_packets(state, Enum.map(state.chunks, &Packets.unload/1) ++ old)
     end
 
     regions =
@@ -259,7 +257,6 @@ defmodule Valimc.Session.Link do
         chunks: MapSet.new(),
         pending: [],
         chunk_sender: ChunkSender.reset(state.chunk_sender),
-        peers: %{},
         chest_lids: %ChestLidReplication{},
         entity_replication: EntityReplication.new(),
         entity_cache: %{},
@@ -270,36 +267,22 @@ defmodule Valimc.Session.Link do
     }
   end
 
-  # Vanilla tracking ranges, in chunks, of the entity kinds regions own (VMC-070).
+  # Vanilla tracking ranges, in chunks, of the entity kinds groups own (VMC-070).
   @tracking_ranges %{
     item: Valimc.Protocol.EntityTypes.tracking_range("item"),
-    orb: Valimc.Protocol.EntityTypes.tracking_range("experience_orb")
+    orb: Valimc.Protocol.EntityTypes.tracking_range("experience_orb"),
+    player: Valimc.Protocol.EntityTypes.tracking_range("player")
   }
   @entity_range @tracking_ranges |> Map.values() |> Enum.max()
 
-  # The connection's 50 ms replication: chunks, peers, entities and the
+  # The connection's 50 ms replication: chunks, entities and players and the
   # world's clocks, weather, border and difficulty, as one write.
   defp replicate(state) do
     state = Replication.chunk_tick(state)
-    nearby = Players.nearby(state.regions)
-    state = Enum.reduce(nearby, state, &Replication.replicate_peer(&2, &1))
 
-    state =
-      Enum.reduce(state.peers, state, fn {pid, player}, acc ->
-        if MapSet.member?(nearby, pid),
-          do: acc,
-          else: %{
-            Replication.emit_peer_packets(
-              acc,
-              [Packets.remove_entity(player), Packets.remove_info(player)],
-              :buffer
-            )
-            | peers: Map.delete(acc.peers, pid)
-          }
-      end)
-
-    # One tracker for every entity kind; unchanged chunks are not re-read. Only
-    # entities within vanilla's tracking range of their type are seen.
+    # One tracker for every entity kind, players included (VMC-077i4);
+    # unchanged chunks are not re-read. Only entities within vanilla's
+    # tracking range of their type are seen.
     {desired, cache} =
       World.visible_entities(
         state.regions,
@@ -308,8 +291,9 @@ defmodule Valimc.Session.Link do
       )
 
     desired =
-      for {_, %{kind: kind, at: {x, _, z}}} = entry <- desired,
+      for {_, %{kind: kind, at: {x, _, z}} = view} = entry <- desired,
           Replication.sees?(state, {x, z}, @tracking_ranges[kind]),
+          kind != :player or shows?(state, view),
           into: %{},
           do: entry
 
@@ -319,14 +303,18 @@ defmodule Valimc.Session.Link do
       end)
 
     state =
-      Replication.emit_peer_packets(
-        %{state | entity_replication: replication, entity_cache: cache},
-        packets,
-        :buffer
-      )
+      Replication.buffer(%{state | entity_replication: replication, entity_cache: cache}, packets)
 
     state = Replication.replicate_world(state)
     Codec.send_packets(state, state.outbound |> Enum.reverse() |> List.flatten())
     %{state | outbound: []}
+  end
+
+  # Another online player; a spectator only to spectators, as vanilla's
+  # `ServerPlayer.broadcastToPlayer`. A player whose connection is gone may
+  # stay published until its group's next tick.
+  defp shows?(state, view) do
+    view.entity_id != state.player.entity_id and :ets.member(Valimc.Players, view.pid) and
+      (not view.spectator or Map.get(state.player, :spectator, false))
   end
 end

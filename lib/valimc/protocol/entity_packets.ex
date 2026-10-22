@@ -98,6 +98,44 @@ defmodule Valimc.Protocol.EntityPackets do
     ])
   end
 
+  @doc """
+  A relative move with the absolute rotation (26.3
+  `ClientboundMoveEntityPacket.PosRot`): the properties (ground flag, step
+  count 0), the delta in 1/4096 blocks and the yaw and pitch as angle bytes.
+  """
+  def move_rotate(id, {dx, dy, dz}, yaw, pitch, on_ground) do
+    entity_id!(id)
+
+    check(
+      Enum.all?([dx, dy, dz], &(is_integer(&1) and &1 in -32768..32767)) and is_boolean(on_ground) and
+        yaw in 0..255 and pitch in 0..255,
+      "invalid entity move"
+    )
+
+    Packets.packet("move_entity_pos_rot", [
+      Wire.varint(id),
+      <<if(on_ground, do: 1, else: 0), dx::signed-16, dy::signed-16, dz::signed-16, yaw, pitch>>
+    ])
+  end
+
+  @doc "A rotation alone (26.3 `ClientboundMoveEntityPacket.Rot`): the ground flag, yaw and pitch bytes."
+  def rotate(id, yaw, pitch, on_ground) do
+    entity_id!(id)
+    check(yaw in 0..255 and pitch in 0..255 and is_boolean(on_ground), "invalid entity rotation")
+
+    Packets.packet("move_entity_rot", [
+      Wire.varint(id),
+      <<if(on_ground, do: 1, else: 0), yaw, pitch>>
+    ])
+  end
+
+  @doc "The head's yaw as an angle byte (`ClientboundRotateHeadPacket`)."
+  def rotate_head(id, yaw) do
+    entity_id!(id)
+    check(yaw in 0..255, "invalid head rotation")
+    Packets.packet("rotate_head", [Wire.varint(id), <<yaw>>])
+  end
+
   def equipment(id, changes) do
     entity_id!(id)
     changes = bounded_list!(changes, 8, "invalid equipment batch")

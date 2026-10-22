@@ -174,7 +174,6 @@ defmodule Valimc.Connection do
        chunk_sender: Valimc.Session.ChunkSender.tick(%Valimc.Session.ChunkSender{}),
        # Vanilla's default until the client sends its settings (VMC-070).
        requested_view_distance: 2,
-       peers: %{},
        player_flags_view: 0,
        equipment_source: nil,
        pose_checked: nil,

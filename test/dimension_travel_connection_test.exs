@@ -262,6 +262,10 @@ defmodule Valimc.DimensionTravelConnectionTest do
     assert Map.get(saved, :dimension, :overworld) == :overworld
   end
 
+  # Whether the connection `pid`'s client tracks the player of `other`.
+  defp sees?(pid, other),
+    do: Map.has_key?(state(pid).entity_replication.tracked, state(other).player.entity_id)
+
   defp enter(ctx, name \\ nil) do
     ctx = if name, do: %{ctx | name: name}, else: ctx
     {_login, client, pid} = join(ctx)
@@ -319,22 +323,22 @@ defmodule Valimc.DimensionTravelConnectionTest do
 
     {_client_a, a} = enter(ctx)
     {client_b, b} = enter(ctx, other)
-    wait(fn -> Map.has_key?(state(a).peers, b) and Map.has_key?(state(b).peers, a) end)
+    wait(fn -> sees?(a, b) and sees?(b, a) end)
 
     # The same coordinates in the Nether are another world.
     travel(b, :the_nether, ctx.pose)
     {_respawn, client_b} = arrive(client_b, b)
-    wait(fn -> not Map.has_key?(state(a).peers, b) end)
+    wait(fn -> not sees?(a, b) end)
     # A few ticks of both, in which neither sees the other again.
     for pid <- [a, b],
         from = state(pid).simulation_clock.tick,
         do: wait(fn -> state(pid).simulation_clock.tick >= from + 5 end)
 
-    refute Map.has_key?(state(b).peers, a)
-    refute Map.has_key?(state(a).peers, b)
+    refute sees?(b, a)
+    refute sees?(a, b)
 
     travel(b, :overworld, ctx.pose)
     {_respawn, _client_b} = arrive(client_b, b)
-    wait(fn -> Map.has_key?(state(a).peers, b) and Map.has_key?(state(b).peers, a) end)
+    wait(fn -> sees?(a, b) and sees?(b, a) end)
   end
 end

@@ -87,7 +87,4 @@ defmodule Valimc.Living do
     do:
       Freezing.active?(living.freezing) or living.fire_ticks > 0 or
         living.air_supply < Air.maximum()
-
-  @doc "The view peers replicate: everything but the effect map."
-  def replica(%__MODULE__{} = living), do: %{living | effects: %{}}
 end

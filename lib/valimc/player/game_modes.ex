@@ -2,7 +2,7 @@ defmodule Valimc.Player.GameModes do
   @moduledoc """
   Live game-mode changes in the owning connection (VMC-053), as vanilla's
   `ServerPlayer.setGameMode`: abilities follow the mode, the client gets the
-  `change_game_mode` event and abilities, and peers that track the player get the
+  `change_game_mode` event and abilities, and every player's tab list the
   game-mode player-info update. Unchanged modes report `:unchanged`.
   """
   alias Valimc.{GameMode, Players, PlayerAbilities, PlayerMotion}
@@ -38,10 +38,7 @@ defmodule Valimc.Player.GameModes do
         info(player)
       ])
 
-      Players.broadcast(
-        {:player_packet, state.connection, player.entity_id, info(player)},
-        state.connection
-      )
+      Players.broadcast({:player_info, info(player)}, state.connection)
 
       {:changed, state}
     end

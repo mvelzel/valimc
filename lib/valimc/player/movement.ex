@@ -83,7 +83,6 @@ defmodule Valimc.Player.Movement do
 
       Players.update(state.connection, state.player)
       send_packets(state, packets)
-      Enum.each(packets, &broadcast_player_packet(state, &1))
       %{state | absorption_view: view}
     end
   end

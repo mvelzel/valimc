@@ -337,10 +337,6 @@ defmodule Valimc.Session.Messages do
             | living: Valimc.Living.tick(state.player.living, state.life_stage == :alive)
           }
 
-          if state.player.living.health.death_ticks < 20 and
-               player.living.health.death_ticks == 20,
-             do: Movement.broadcast_player_packet(state, Packets.remove_entity(player))
-
           state = %{
             state
             | player: player,

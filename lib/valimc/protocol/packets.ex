@@ -462,15 +462,7 @@ defmodule Valimc.Protocol.Packets do
     ]
   end
 
-  def remove_info({_, uuid, _, _, _, _, _, _, _, _, _, _}),
-    do: packet("player_info_remove", [<<1>>, uuid])
-
   def remove_info(player), do: packet("player_info_remove", [<<1>>, player.uuid])
-
-  def remove_entity({id, _, _, _, _, _, _, _, _, _, _, _}),
-    do: packet("remove_entities", [<<1>>, Wire.varint(id)])
-
-  def remove_entity(player), do: packet("remove_entities", [<<1>>, Wire.varint(player.entity_id)])
 
   def add_entity(player) do
     packet("add_entity", [
@@ -481,13 +473,6 @@ defmodule Valimc.Protocol.Packets do
         angle(player.yaw), angle(player.yaw), 0>>
     ])
   end
-
-  def view(player),
-    do:
-      {player.entity_id, player.uuid, round(player.x * 4096), round(player.y * 4096),
-       round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player),
-       Map.get(player, :pose, :standing), living(player).freezing.frozen_ticks,
-       living(player).health.value, Map.get(player, :equipment, %{})}
 
   def player_flags(player),
     do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
@@ -533,57 +518,6 @@ defmodule Valimc.Protocol.Packets do
     flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(17)
     flags = if living(player).fire_ticks > 0, do: flags ||| 1, else: flags
     if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
-  end
-
-  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags, pose, frozen, health, equipment}) do
-    dx = round(player.x * 4096) - x
-    dy = round(player.y * 4096) - y
-    dz = round(player.z * 4096) - z
-
-    cond do
-      not Enum.all?([dx, dy, dz], &(&1 >= -32768 and &1 <= 32767)) ->
-        # Recreated entities need metadata even when their old flags did not change.
-        [
-          remove_entity(player),
-          add_entity(player),
-          player_flags(player),
-          player_pose(player),
-          player_environment(player),
-          player_use(player),
-          player_health(player)
-        ] ++ player_equipment(player)
-
-      true ->
-        movement =
-          if {dx, dy, dz, angle(player.yaw), angle(player.pitch)} == {0, 0, 0, yaw, pitch} do
-            []
-          else
-            [
-              packet("move_entity_pos_rot", [
-                Wire.varint(player.entity_id),
-                <<1, dx::signed-16, dy::signed-16, dz::signed-16, angle(player.yaw),
-                  angle(player.pitch)>>
-              ])
-            ]
-          end
-
-        metadata = if shared_flags(player) == flags, do: [], else: [player_flags(player)]
-
-        pose_update =
-          if Map.get(player, :pose, :standing) == pose, do: [], else: [player_pose(player)]
-
-        environment =
-          if living(player).freezing.frozen_ticks == frozen,
-            do: [],
-            else: [player_environment(player)]
-
-        health_update =
-          if living(player).health.value == health, do: [], else: [player_health(player)]
-
-        movement ++
-          metadata ++
-          pose_update ++ environment ++ health_update ++ player_equipment(player, equipment)
-    end
   end
 
   defp angle(value), do: round(value * 256 / 360) &&& 255

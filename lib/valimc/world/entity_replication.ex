@@ -5,7 +5,8 @@ defmodule Valimc.World.EntityReplication do
   nothing on the hot path.
 
   - A newly visible entity spawns from its row: the spawn packet at its
-    tracker's base and its metadata, paced by a batch budget. Frames up to the
+    tracker's base and its metadata (a player's is all of its data and
+    equipment, VMC-077i4), paced by a batch budget. Frames up to the
     row's tick are already in that spawn.
   - A tracked entity gets each later frame's packets, in tick order.
   - An entity seen under another owner or tracker (a handoff keeps its id; the reader
@@ -96,16 +97,28 @@ defmodule Valimc.World.EntityReplication do
     {%{state | tracked: tracked, regions: regions}, removal ++ Enum.reverse(updates) ++ spawns}
   end
 
+  @doc "Forget the entity `id` (a peer that respawned): its row spawns it again."
+  def untrack(state, id), do: %{state | tracked: Map.delete(state.tracked, id)}
+
   defp resync(tracked, packets, id, view) do
     entry = entry(view)
     {x, y, z} = view.base
-    entity = %{entity_id: id, x: x, y: y, z: z, on_ground: view.on_ground}
 
-    sync = [
-      binary_packet(EntityPackets.position(entity)),
-      binary_packet(EntityPackets.motion(id, view.velocity)),
-      view.metadata
-    ]
+    entity = %{
+      entity_id: id,
+      x: x,
+      y: y,
+      z: z,
+      yaw: Map.get(view, :yaw, 0.0),
+      pitch: Map.get(view, :pitch, 0.0),
+      on_ground: view.on_ground
+    }
+
+    sync =
+      [
+        binary_packet(EntityPackets.position(entity)),
+        binary_packet(EntityPackets.motion(id, view.velocity))
+      ] ++ List.wrap(view.metadata)
 
     {Map.put(tracked, id, entry), Enum.reverse(sync, packets)}
   end
@@ -119,7 +132,7 @@ defmodule Valimc.World.EntityReplication do
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.reduce_while({tracked, [], [], 0}, fn {id, view},
                                                   {tracked, packets, spawned, bytes} ->
-      bundle = [view.spawn, view.metadata]
+      bundle = [view.spawn | List.wrap(view.metadata)]
       cost = Enum.reduce(bundle, 0, &(EntityView.packet_bytes(&1) + &2))
 
       if length(spawned) >= @max_spawns or bytes + cost > @max_bytes do

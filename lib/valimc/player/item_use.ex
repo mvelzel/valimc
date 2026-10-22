@@ -140,17 +140,8 @@ defmodule Valimc.Player.ItemUse do
     player = %{state.player | use_flags: flags}
     Players.update(state.connection, player)
     state = %{state | player: player}
-    packet = Packets.player_use(player)
-    send_packets(state, [packet])
-
-    for pid <- Players.around(state.player),
-        pid != state.connection,
-        do:
-          Valimc.Connection.deliver(
-            pid,
-            {:player_use_packet, state.connection, player.entity_id, packet}
-          )
-
+    # Observers get the flag from the player's tracker (VMC-077i4).
+    send_packets(state, [Packets.player_use(player)])
     state
   end
 

@@ -606,7 +606,8 @@ public class VanillaOracle implements AutoCloseable {
         ItemStack.matches(c.items().get(38), eggs) && c.items().get(44).isEmpty() &&
         ItemStack.matches(c.items().get(9), eggs) && ItemStack.matches(c.items().get(10), eggs));
       first.send(gameOut, new ServerboundMovePlayerPacket.PosRot(1.5,64,0.5,90,0,true,false));
-      second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
+      // The owner's tracker sends a relative move, or a sync when the ground flag changed.
+      second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot || p instanceof ClientboundEntityPositionSyncPacket);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(44, stone.copyWithCount(7)));
@@ -704,7 +705,7 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(1.5,64,.5)));
       first.send(gameOut,ServerboundClientTickEndPacket.INSTANCE);
       first.send(gameOut,new ServerboundMovePlayerPacket.Pos(1.5,64,.7,true,false));
-      second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
+      second.await(p -> p instanceof ClientboundMoveEntityPacket || p instanceof ClientboundEntityPositionSyncPacket);
       first.send(gameOut,new ServerboundChatCommandPacket("spawn"));
       first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(.5,64,.5)));
       System.out.println("PASS: native TCP forged creative wall entry/large delta corrections, acknowledgment, resumed walking and spawn teleport.");

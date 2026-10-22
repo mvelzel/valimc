@@ -17,6 +17,10 @@ defmodule Valimc.Session.Host do
     The adopting group tells the connection, so the connection's later
     messages follow the adoption; what still reaches the old group is
     forwarded for #{120} s.
+  - **Replication.** Each hosted player has a tracker in the group
+    (`Valimc.World.PlayerTracker`): every tick the section the player stands
+    in publishes its row and the packets of what changed, beside its items
+    and orbs, for observers' connections to read (`track/1`).
   - **Durability.** Each hosted player's changes are a frame of this
     group's commit (`Valimc.Player.Storage`), with the world's. A player is
     handed on only once its frames are sent, so the changes of one callback
@@ -36,6 +40,7 @@ defmodule Valimc.Session.Host do
   alias Valimc.Player.Storage
   alias Valimc.Session.Messages
   alias Valimc.World
+  alias Valimc.World.PlayerTracker
 
   @out {__MODULE__, :out}
   @group {__MODULE__, :group}
@@ -84,7 +89,15 @@ defmodule Valimc.Session.Host do
     monitor = Process.monitor(session.connection)
     :ok = Storage.hold(session.storage)
     if from, do: send(from, {:player_held, uuid})
-    entry = %{session: session, key: key(session.player), monitor: monitor, view: view(session)}
+
+    entry = %{
+      session: session,
+      key: key(session.player),
+      monitor: monitor,
+      view: view(session),
+      tracker: PlayerTracker.new(session.player)
+    }
+
     state = %{state | players: Map.put(state.players, uuid, entry)}
     state = %{state | player_moves: Map.delete(state.player_moves, uuid)}
     relocate(state, uuid)
@@ -149,6 +162,42 @@ defmodule Valimc.Session.Host do
       do: Registry.unregister(Valimc.PlayerRegistry, uuid)
 
     state
+  end
+
+  ## Replication
+
+  @doc """
+  Each hosted player's tracker ticks once: `{state, published}`, what each
+  of this group's sections publishes of the players standing in it,
+  `%{key => {views, frame}}`.
+  """
+  def track(state) do
+    Enum.reduce(state.players, {state, %{}}, fn {uuid, entry}, {acc, published} ->
+      if home?(acc, entry) do
+        player = entry.session.player
+        {tracker, packets} = PlayerTracker.tick(entry.tracker, player)
+        acc = put_in(acc.players[uuid].tracker, tracker)
+        epoch = acc.sections[entry.key].resource.epoch
+
+        case PlayerTracker.view(
+               tracker,
+               player,
+               entry.session.connection,
+               epoch,
+               tracker.incarnation
+             ) do
+          nil ->
+            {acc, published}
+
+          view ->
+            {views, frame} = Map.get(published, entry.key, {%{}, %{}})
+            frame = if packets == [], do: frame, else: Map.put(frame, player.entity_id, packets)
+            {acc, Map.put(published, entry.key, {Map.put(views, player.entity_id, view), frame})}
+        end
+      else
+        {acc, published}
+      end
+    end)
   end
 
   ## Durability (the group's commit)
@@ -471,6 +520,7 @@ defmodule Valimc.Session.Host do
       yaw: player.yaw,
       pitch: player.pitch,
       dimension: player.dimension,
+      spectator: player.game_mode.current == :spectator,
       teleport_pending: session.teleport_pending
     }
   end

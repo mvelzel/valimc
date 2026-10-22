@@ -14,7 +14,6 @@ defmodule Valimc.Players do
   def update(pid, player) do
     [{^pid, previous}] = :ets.lookup(__MODULE__, pid)
     :ets.update_element(__MODULE__, pid, {2, player})
-    if previous.ready, do: publish_replica(player)
     old_key = spatial_key(previous)
     new_key = spatial_key(player)
 
@@ -45,52 +44,6 @@ defmodule Valimc.Players do
     nearby(Valimc.Session.Replication.regions(view, Map.get(player, :dimension, :overworld)))
   end
 
-  # Replication reads a 22-word view per known peer each tick, and the slim replica
-  # only when that view changed; full maps are read only for newly visible peers.
-  @replica_keys [
-    :pid,
-    :dimension,
-    :won_game,
-    :entity_id,
-    :uuid,
-    :name,
-    :x,
-    :y,
-    :z,
-    :yaw,
-    :pitch,
-    :pose,
-    :equipment,
-    :use_flags
-  ]
-
-  defp publish_replica(player) do
-    replica =
-      player
-      |> Map.take(@replica_keys)
-      |> Map.put(:living, Valimc.Living.replica(Map.get(player, :living, %Valimc.Living{})))
-      |> Map.put(:input, %{
-        shared_flags: Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags
-      })
-      |> Map.put(:motion, %{swimming: Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming})
-
-    :ets.insert(Valimc.PeerViews, {player.pid, Valimc.Protocol.Packets.view(player), replica})
-  end
-
-  @doc "The current replication view of a ready peer, or nil."
-  def peer_view(pid) do
-    :ets.lookup_element(Valimc.PeerViews, pid, 2)
-  rescue
-    ArgumentError -> nil
-  end
-
-  @doc "The slim replication map of a ready peer, or nil."
-  def peer_replica(pid) do
-    :ets.lookup_element(Valimc.PeerViews, pid, 3)
-  rescue
-    ArgumentError -> nil
-  end
-
   def get(pid) do
     case :ets.lookup(__MODULE__, pid) do
       [{_, %{ready: true} = player}] -> {:ok, player}
@@ -118,14 +71,6 @@ defmodule Valimc.Players do
   @impl true
   def init(_) do
     :ets.new(__MODULE__, [
-      :named_table,
-      :public,
-      :set,
-      read_concurrency: true,
-      write_concurrency: true
-    ])
-
-    :ets.new(Valimc.PeerViews, [
       :named_table,
       :public,
       :set,
@@ -188,7 +133,6 @@ defmodule Valimc.Players do
     existing = all()
     player = %{player | ready: true}
     :ets.insert(__MODULE__, {pid, player})
-    publish_replica(player)
     :ets.insert(Valimc.SpatialIndex, {spatial_key(player), pid})
 
     for other <- existing do
@@ -201,7 +145,6 @@ defmodule Valimc.Players do
   @impl true
   def handle_info({:DOWN, ref, :process, pid, _}, state) do
     :ets.delete(Valimc.OverloadedConnections, pid)
-    :ets.delete(Valimc.PeerViews, pid)
     :ets.match_delete(Valimc.SpatialIndex, {:_, pid})
 
     case :ets.take(__MODULE__, pid) do

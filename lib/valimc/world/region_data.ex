@@ -80,6 +80,11 @@ defmodule Valimc.World.RegionData do
     # entities moved there), which the group applies once the call returns.
     {:siblings, %{}},
     {:sibling_effects, []},
+    # The players standing in the section, as their group's trackers last
+    # published them (`Valimc.Session.Host.track/1`): their rows, and the
+    # packets not yet in a frame.
+    {:player_views, %{}},
+    {:player_frame, %{}},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -1911,10 +1916,20 @@ defmodule Valimc.World.RegionData do
 
   # Publishes the store's views between ticks; new entities get their tracker
   # here, so the spawn observers read and the frames that follow agree.
+  @doc """
+  The players standing in the section and their packets of this tick
+  (`Valimc.Session.Host.track/1`): published with the entities' rows and
+  frame.
+  """
+  def players(state, {views, frame}) do
+    frame = Map.merge(state.player_frame, frame, fn _, earlier, later -> earlier ++ later end)
+    %{state | player_views: views, player_frame: frame}
+  end
+
   defp publish_item_views(state) do
     store = state.entities.store
     tracking = EntityTracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
-    views = EntityTracking.published(tracking, store.views)
+    views = Map.merge(EntityTracking.published(tracking, store.views), state.player_views)
 
     :ok =
       EntityPublication.publish(
@@ -1942,7 +1957,8 @@ defmodule Valimc.World.RegionData do
         state.game_tick
       )
 
-    views = EntityTracking.published(tracking, store.views)
+    views = Map.merge(EntityTracking.published(tracking, store.views), state.player_views)
+    frame = Map.merge(frame, state.player_frame)
 
     :ok =
       EntityPublication.publish(
@@ -1955,7 +1971,7 @@ defmodule Valimc.World.RegionData do
       )
 
     Valimc.Metrics.add(:entity_frame_packets, Enum.sum(Enum.map(frame, &length(elem(&1, 1)))))
-    %{state | entities: %{state.entities | tracking: tracking}}
+    %{state | entities: %{state.entities | tracking: tracking}, player_frame: %{}}
   end
 
   # Players' drops become entities here; a record that cannot (it left the

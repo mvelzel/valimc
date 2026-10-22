@@ -1,5 +1,5 @@
 defmodule Valimc.Session.Replication do
-  @moduledoc "What a connection's client sees: view distance, chunk streaming and peer player replication (VMC-069, VMC-070)."
+  @moduledoc "What a connection's client sees: view distance, chunk streaming and the world's views (VMC-069, VMC-070)."
 
   alias Valimc.Protocol.{
     Packets,
@@ -9,10 +9,7 @@ defmodule Valimc.Session.Replication do
   import Valimc.Net.Codec,
     only: [send_packets: 2, send_frames: 2]
 
-  alias Valimc.{
-    Players,
-    World
-  }
+  alias Valimc.World
 
   alias Valimc.World.{
     BorderReplication,
@@ -23,8 +20,6 @@ defmodule Valimc.Session.Replication do
   }
 
   alias Valimc.Session.{ChunkSender, ChunkView}
-
-  @player_range Valimc.Protocol.EntityTypes.tracking_range("player")
 
   @doc """
   Track the chunks of the player's current view (VMC-070): its chunk and the
@@ -254,17 +249,11 @@ defmodule Valimc.Session.Replication do
     }
   end
 
-  def visible?(state, player),
-    do:
-      player.pid != self() and not Map.get(player, :won_game, false) and
-        Map.get(player, :dimension, :overworld) == Map.get(state.player, :dimension, :overworld) and
-        sees?(state, {player.x, player.z}, @player_range)
-
   @doc """
   Whether the player sees an entity at `{x, z}` whose type vanilla tracks `range`
   chunks away (VMC-070): within `min(range, view distance)` chunks horizontally,
-  in a tracked chunk. Vanilla also waits until that chunk was sent; peers here are
-  tracked from the join on, items and orbs only in sent chunks (`entity_chunks/2`).
+  in a tracked chunk. Vanilla also waits until that chunk was sent; entities
+  and players here are tracked only in sent chunks (`entity_chunks/2`).
   """
   def sees?(%{view: {_, distance} = view} = state, {x, z}, range) do
     limit = 16 * min(range, distance)
@@ -298,106 +287,8 @@ defmodule Valimc.Session.Replication do
     dx * dx + dz * dz
   end
 
-  # Known peers cost one view lookup when unchanged; see `Players.peer_view/1`.
-  def replicate_peer(state, pid) do
-    case state.peers[pid] do
-      nil ->
-        case Players.get(pid) do
-          {:ok, player} -> track_peer(state, player, :buffer)
-          :error -> state
-        end
-
-      known ->
-        case Players.peer_view(pid) do
-          nil ->
-            state
-
-          ^known ->
-            if view_visible?(state, known), do: state, else: track_peer_replica(state, pid)
-
-          _changed ->
-            track_peer_replica(state, pid)
-        end
-    end
-  end
-
-  def track_peer_replica(state, pid) do
-    case Players.peer_replica(pid) do
-      nil -> state
-      replica -> track_peer(state, replica, :buffer)
-    end
-  end
-
-  def view_visible?(state, view),
-    do: sees?(state, {elem(view, 2) / 4096, elem(view, 4) / 4096}, @player_range)
-
-  def track_peer(state, player, mode \\ :direct) do
-    cond do
-      player.pid == self() or not Process.alive?(player.pid) ->
-        state
-
-      visible?(state, player) ->
-        view = Packets.view(player)
-
-        packets =
-          case state.peers[player.pid] do
-            nil ->
-              body =
-                if player.living.health.value <= 0 and player.living.health.death_ticks >= 20,
-                  do: [],
-                  else:
-                    [
-                      Packets.add_entity(player),
-                      Packets.player_flags(player),
-                      Packets.player_pose(player),
-                      Packets.player_environment(player),
-                      Packets.player_use(player),
-                      Packets.player_health(player),
-                      Packets.player_absorption(player),
-                      Packets.attribute(
-                        player.entity_id,
-                        elem(Valimc.Living.Attributes.absorption(player.living.effects), 1).attribute
-                      )
-                    ] ++ Packets.player_equipment(player)
-
-              [Packets.player_info(player) | body]
-
-            ^view ->
-              []
-
-            previous ->
-              List.wrap(Packets.move_entity(player, previous))
-          end
-
-        if packets == [] do
-          state
-        else
-          state = emit_peer_packets(state, packets, mode)
-          %{state | peers: Map.put(state.peers, player.pid, view)}
-        end
-
-      Map.has_key?(state.peers, player.pid) ->
-        state =
-          emit_peer_packets(
-            state,
-            [Packets.remove_entity(player), Packets.remove_info(player)],
-            mode
-          )
-
-        %{state | peers: Map.delete(state.peers, player.pid)}
-
-      true ->
-        state
-    end
-  end
-
-  def emit_peer_packets(state, packets, :direct) do
-    send_packets(state, packets)
-    state
-  end
-
-  def emit_peer_packets(state, packets, :buffer),
-    do: %{state | outbound: [packets | state.outbound]}
+  @doc "Queue `packets` for the connection's next write."
+  def buffer(state, packets), do: %{state | outbound: [packets | state.outbound]}
 
   @doc """
   The world's clocks, weather, border and difficulty as the client last saw
@@ -414,16 +305,16 @@ defmodule Valimc.Session.Replication do
     {weather_view, weather_packets} =
       WeatherReplication.reconcile(state.weather_view, Valimc.World.Clock.weather())
 
-    state = emit_peer_packets(%{state | weather_view: weather_view}, weather_packets, :buffer)
+    state = buffer(%{state | weather_view: weather_view}, weather_packets)
 
     {border_view, border_packets} =
       BorderReplication.reconcile(state.border_view, Valimc.World.Clock.border())
 
-    state = emit_peer_packets(%{state | border_view: border_view}, border_packets, :buffer)
+    state = buffer(%{state | border_view: border_view}, border_packets)
     {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
 
     if state.difficulty_view != difficulty,
-      do: emit_peer_packets(%{state | difficulty_view: difficulty}, [difficulty_packet], :buffer),
+      do: buffer(%{state | difficulty_view: difficulty}, [difficulty_packet]),
       else: state
   end
 end

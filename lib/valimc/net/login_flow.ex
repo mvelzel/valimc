@@ -28,7 +28,6 @@ defmodule Valimc.Net.LoginFlow do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{BorderReplication, WeatherReplication}
   @live_effects Valimc.Living.Effects.live()
 
   def finish_login(state) do
@@ -228,29 +227,24 @@ defmodule Valimc.Net.LoginFlow do
         login_velocity_pending: state.player.motion.velocity != {0.0, 0.0, 0.0}
     }
 
-    {clock_version, clock_packet} = Valimc.World.Clock.initial()
-
-    {weather_view, weather_packets} =
-      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
-
-    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
-    border = Valimc.World.Clock.border()
+    # The one way into a level (`Valimc.Player.Level`): the world views first.
+    {views, level} = Valimc.Player.Level.views()
 
     state = %{
       state
-      | clock_version: clock_version,
-        weather_view: weather_view,
-        difficulty_view: difficulty,
-        border_view: border
+      | clock_version: views.clock_version,
+        weather_view: views.weather,
+        difficulty_view: views.difficulty,
+        border_view: views.border
     }
 
     send_packets(state, [
       Packets.login(state.player),
       Packets.experience(state.player.progression.experience),
       Valimc.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
-      BorderReplication.initialize(border),
-      clock_packet,
-      difficulty_packet,
+      level.border,
+      level.clock,
+      level.difficulty,
       Packets.abilities(state.player.abilities),
       Packets.health(state.player.living.health, state.player.food),
       Packets.spawn_position(),
@@ -282,14 +276,7 @@ defmodule Valimc.Net.LoginFlow do
       )
     ])
 
-    send_packets(state, weather_packets)
-
-    send_packets(
-      state,
-      Enum.map(state.player.living.effects, fn {id, [rung | _]} ->
-        Packets.update_effect(state.player.entity_id, id, rung, false)
-      end)
-    )
+    send_packets(state, level.weather ++ Valimc.Player.Level.effects(state.player))
 
     state =
       state

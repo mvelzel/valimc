@@ -12,7 +12,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | Socket, framing, AES stream, compression, login and configuration, keepalive, chunk view and streaming, replication of what owners publish | One connection process per player, the player's stable address (`Session.Link`) |
 | A playing player's body, inventory, living state, open menus, movement checks, mining and item use | The group process that owns the section the player stands in (`Session.Host`); each move packet is validated there by the physics kernel |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
-| Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
+| Nearby-player observations | Spatial index for routing events; players replicate through their group's trackers like entities |
 | Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | The group process (`World.Region`) of their 8×8-chunk section while chunk tickets hold it; immutable chunk snapshots and chunk packets in the section's ETS table for readers |
 | Which sections share a group | Regionizer per dimension (`World.Regionizer`); routes in the Directory's ETS table |
 | Generated chunks before they are full | Generation scheduler per dimension (`Worldgen.Scheduler`): statuses, proto chunks as native cells, structure starts; terrain, decoration and full chunks as jobs on the generation pool |
@@ -172,7 +172,10 @@ then stops.
   owner's tracker last sent, forwards the frames for the ids it tracks, and
   resyncs one seen under another owner or behind the frame ring, never
   respawning it. A departing entity stays published until its handoff clears.
-  Peer players still use their own path (VMC-077i).
+  A hosted player has a tracker in its group (`PlayerTracker`, VMC-077i4):
+  relative moves with its rotation and ground flag, head rotation, entity
+  data and equipment, published in the row and frame of the section it
+  stands in. The tab list holds every online player, near or far.
 - **Data.** One generated fact source per concept and a single version module
   (`Valimc.Version`). Each `priv` file has one decoding module: it reads the
   file with `use Valimc.Facts`, which loads it once at compile time and checks
