@@ -154,6 +154,18 @@ defmodule Valimc.PlayerMotionConnectionTest do
     client
   end
 
+  # The live rubber-banding of October 22, 2026: a busy owner applied many client
+  # ticks' moves together, and a window over arrival time read them as one move
+  # past the 100-block² allowance. The window is the client's tick.
+  test "several client ticks of fast flight arriving together are not one fast move", ctx do
+    {client, pid} = login(hd(ctx.names))
+    air = %{ctx.pos | y: 100.0}
+    client = Client.teleport(client, pid, air)
+    for n <- 1..12, do: move(client, %{air | x: air.x + n * 4.0}, 0)
+    wait(fn -> state(pid).player.x == air.x + 48.0 end)
+    refute state(pid).teleport_pending
+  end
+
   test "normal ordered bursts commit requested positions and preserve later rotation", ctx do
     {client, pid} = login(hd(ctx.names))
     for n <- 1..20, do: move(client, %{ctx.pos | x: ctx.pos.x + n * 0.015})

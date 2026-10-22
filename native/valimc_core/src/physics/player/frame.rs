@@ -14,11 +14,14 @@ fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
-/// The most cells a player's query box may scan.
-const QUERY_CELLS: i64 = 1024;
+/// The most cells a player's query box may scan. The speed check runs first
+/// and bounds a vanilla client's move to about ten blocks a packet plus its
+/// velocity (a few thousand cells with the halo); this only bounds a forged
+/// packet's cost and is never a gameplay rule.
+pub const QUERY_CELLS: i64 = 65_536;
 
 /// Whether `b` lies inside the world and its scan (one block of halo) reads
-/// at most 1,024 cells.
+/// at most `QUERY_CELLS` cells.
 pub fn bounded(b: &Aabb) -> bool {
     let inside = b.min[0].abs() < 30_000_000.0
         && b.max[0].abs() < 30_000_000.0

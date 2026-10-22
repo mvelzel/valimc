@@ -158,7 +158,13 @@ defmodule Valimc.Session.Play do
         <<>> = payload
         player = %{state.player | motion: Motion.finish_tick(state.player.motion)}
         PlayerList.update(state.connection, player)
-        %{state | client_tick: ClientTick.finish(state.client_tick), player: player}
+
+        %{
+          state
+          | client_tick: ClientTick.finish(state.client_tick),
+            player: player,
+            motion_window: nil
+        }
 
       "chunk_batch_received" ->
         %{state | chunk_sender: ChunkSender.acknowledged(state.chunk_sender, payload)}

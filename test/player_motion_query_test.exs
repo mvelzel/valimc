@@ -87,6 +87,6 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert length(packet.paths) == 2 and tick.paths == []
     assert elem(tick.stuck_multiplier, 0) == 0.25 and tick.reset_fall
     assert p.motion.paths == paths
-    assert {:error, :movement_query_limit} = MotionQuery.run(p, %{p | z: p.z + 64})
+    assert {:error, :movement_query_limit} = MotionQuery.run(p, %{p | z: p.z + 65})
   end
 end
