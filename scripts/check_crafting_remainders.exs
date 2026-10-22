@@ -1,4 +1,4 @@
-alias Valimc.{Inventory, TableMenu}
+alias Valimc.{Inventory, Menu, MenuClick}
 alias Valimc.Protocol.ItemStack
 [path, catalog_path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -85,7 +85,7 @@ Enum.each(facts["cases"], fn row ->
       if count == 1 or
            (repeats and Inventory.crafting_result(inv) != nil and
               ItemStack.same_item?(Inventory.crafting_result(inv), original)) do
-        {:ok, next, batch} = Inventory.plan_click(inv, action, 0, button)
+        {:ok, nil, next, batch} = MenuClick.plan(Menu.crafting(inv), nil, inv, action, 0, button)
         unless length(batch) <= 5, do: raise("Unbounded remainder plan")
 
         if repeats and batch != [],
@@ -96,7 +96,10 @@ Enum.each(facts["cases"], fn row ->
       end
     end)
 
-  visible = if size == 2, do: Inventory.display_contents(next), else: TableMenu.contents(next)
+  visible =
+    if size == 2,
+      do: Inventory.display_contents(next),
+      else: elem(Menu.contents(Menu.table(), nil, next), 1)
 
   unless same_list.(visible, Enum.map(row["after"], stack)) and
            same.(next.carried, stack.(row["cursor"])) and

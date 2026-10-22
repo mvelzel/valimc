@@ -36,7 +36,7 @@ defmodule Valimc.Block do
   # Owned block entities must stay exactly the generated chest and furnace states.
   unless Enum.all?(Map.keys(@classes), &Map.has_key?(Blocks.classes(), &1)) and
            byte_size(@by_state) == @count and
-           Enum.all?(Valimc.ChestAccess.single_states(), fn state ->
+           Enum.all?(Valimc.Block.Chest.single_states(), fn state ->
              elem(@modules, :binary.at(@by_state, state)) == Chest
            end) and
            Enum.all?(0..(@count - 1), fn state ->

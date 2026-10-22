@@ -4,15 +4,15 @@ facts = JSON.decode!(File.read!("priv/protocol/chest_states.json"))
 block = hd(facts["single_states"])
 
 for [above, blocked, provider] <- raw["covers"] do
-  true = Valimc.ChestOpening.obstructed?(above, false) == blocked
-  true = Valimc.ChestOpening.provider?(block, true, above, false) == provider
+  true = Valimc.MenuAccess.obstructed?(above, false) == blocked
+  true = Valimc.MenuAccess.provider?(block, true, above, false) == provider
 end
 
 for [block, present, cat, blocked, provider] <- raw["contexts"] do
-  true = Valimc.ChestOpening.obstructed?(Valimc.Protocol.Data.block("air"), cat == 2) == blocked
+  true = Valimc.MenuAccess.obstructed?(Valimc.Protocol.Data.block("air"), cat == 2) == blocked
 
   true =
-    Valimc.ChestOpening.provider?(block, present, Valimc.Protocol.Data.block("air"), cat == 2) ==
+    Valimc.MenuAccess.provider?(block, present, Valimc.Protocol.Data.block("air"), cat == 2) ==
       provider
 end
 

@@ -19,7 +19,7 @@ tools =
         }
 
 compared =
-  for row <- raw["cases"], row["metadata"] != 2, Valimc.ChestAccess.single?(row["state"]) do
+  for row <- raw["cases"], row["metadata"] != 2, Valimc.Block.Chest.single?(row["state"]) do
     false = row["named"]
     {:ok, [stack]} = MiningLoot.drops(row["state"], Enum.at(tools, row["tool"]), true)
 

@@ -1,6 +1,6 @@
 defmodule Valimc.World.ContainerRequest do
   @moduledoc "Canonical bounded container action; a durable player intent must precede delivery."
-  alias Valimc.{ContainerClick, CookingClick, Inventory}
+  alias Valimc.{Inventory, Menu, MenuClick}
   alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Containers
@@ -135,6 +135,12 @@ defmodule Valimc.World.ContainerRequest do
     with {:ok, bytes} <- encode(key, request), do: {:ok, :crypto.hash(:sha256, bytes)}
   end
 
+  # The request carries the gestures that move no item into the world, with no
+  # drag active (VMC-077i3 makes every gesture a call).
+  def plan(%{inventory: %Inventory{drag: drag}, action: action})
+      when drag != nil or not is_map_key(@actions, action),
+      do: {:error, :unsupported_container_click}
+
   def plan(%{
         rows: rows,
         slots: slots,
@@ -143,7 +149,7 @@ defmodule Valimc.World.ContainerRequest do
         slot: slot,
         button: button
       }),
-      do: ContainerClick.plan(rows, slots, inventory, action, slot, button)
+      do: MenuClick.plan_without_drops(Menu.chest(rows), slots, inventory, action, slot, button)
 
   def plan(%{
         kind: kind,
@@ -154,9 +160,15 @@ defmodule Valimc.World.ContainerRequest do
         button: button
       }) do
     with {:ok, block} <- CookingBlocks.placement(kind, 0.0),
-         {:ok, next_slots, next_inventory, _taken} <-
-           CookingClick.plan(block, slots, inventory, action, slot, button),
-         do: {:ok, next_slots, next_inventory}
+         do:
+           MenuClick.plan_without_drops(
+             Menu.cooking(block),
+             slots,
+             inventory,
+             action,
+             slot,
+             button
+           )
   end
 
   def matches_entry?(

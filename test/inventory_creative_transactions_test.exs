@@ -9,7 +9,7 @@ defmodule Valimc.InventoryCreativeTransactionsTest do
   end
 
   defp click(inv, action, slot, button) do
-    {:ok, inv} = Inventory.click(inv, action, slot, button)
+    {:ok, inv} = Valimc.TestMenu.click(inv, action, slot, button)
     inv
   end
 
@@ -40,8 +40,9 @@ defmodule Valimc.InventoryCreativeTransactionsTest do
     assert click(inv, :clone, 10, 2).carried == nil
     eggs = put(Inventory.new(true), 9, ItemStack.new("egg", 3))
     assert click(eggs, :clone, 9, 2).carried.count == 16
-    assert Inventory.click(inv, :clone, -999, 2) == {:error, :unsupported_click}
-    assert Inventory.click(inv, :clone, 46, 2) == {:error, :unsupported_click}
+    assert {:ok, %{slots: slots, carried: nil}} = Valimc.TestMenu.click(inv, :clone, -999, 2)
+    assert slots == inv.slots
+    assert Valimc.TestMenu.click(inv, :clone, 46, 2) == {:error, :invalid_menu_slot}
   end
 
   test "creative fill bypasses cursor count, deduplicates targets and preserves compatible components" do
@@ -88,11 +89,14 @@ defmodule Valimc.InventoryCreativeTransactionsTest do
     }
 
     inv = Enum.reduce(9..16, Inventory.new(true), &put(&2, &1, stack))
-    assert Inventory.click(inv, :clone, 9, 2) == {:error, :inventory_byte_limit}
+    assert Valimc.TestMenu.click(inv, :clone, 9, 2) == {:error, :inventory_byte_limit}
     assert inv.carried == nil and Inventory.get(inv, 9) == stack
     started = click(%{Inventory.new(true) | carried: stack}, :quick_craft, -999, 8)
     started = Enum.reduce(9..17, started, &click(&2, :quick_craft, &1, 9))
-    assert Inventory.click(started, :quick_craft, -999, 10) == {:error, :inventory_byte_limit}
+
+    assert Valimc.TestMenu.click(started, :quick_craft, -999, 10) ==
+             {:error, :inventory_byte_limit}
+
     assert started.slots == %{} and started.carried == stack
   end
 end

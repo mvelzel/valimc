@@ -7,7 +7,8 @@ block = hd(facts["single_states"])
 
 for row <- raw["validity"] do
   actual =
-    Valimc.ChestAccess.valid_view?(
+    Valimc.MenuAccess.valid_view?(
+      :chest,
       if(row["present"], do: block),
       String.to_existing_atom(row["mode"]),
       List.to_tuple(row["eye"]),
@@ -18,7 +19,7 @@ for row <- raw["validity"] do
 end
 
 for row <- facts["states"] do
-  true = Valimc.ChestAccess.single?(row["state"]) == (row["part"] == "single")
+  true = Valimc.Block.Chest.single?(row["state"]) == (row["part"] == "single")
 end
 
 IO.puts(

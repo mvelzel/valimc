@@ -9,7 +9,7 @@ defmodule Valimc.InventoryCollectTest do
   end
 
   defp collect(inv, button \\ 0, slot \\ 0) do
-    {:ok, inv} = Inventory.click(inv, :pickup_all, slot, button)
+    {:ok, inv} = Valimc.TestMenu.click(inv, :pickup_all, slot, button)
     inv
   end
 
@@ -76,12 +76,13 @@ defmodule Valimc.InventoryCollectTest do
     inv = %{inv | carried: ItemStack.new("stone", 1)}
     next = collect(inv, 0, 9)
     assert next.slots == inv.slots and next.carried == inv.carried
-    {:ok, started} = Inventory.click(inv, :quick_craft, -999, 0)
+    {:ok, started} = Valimc.TestMenu.click(inv, :quick_craft, -999, 0)
     next = collect(started)
     assert next.drag == nil and next.slots == inv.slots and next.carried == inv.carried
-    assert Inventory.click(inv, :pickup_all, -999, 0) == {:error, :unsupported_click}
-    assert Inventory.click(inv, :pickup_all, 46, 0) == {:error, :unsupported_click}
-    assert Inventory.click(inv, :pickup_all, 0, 2) == {:error, :unsupported_click}
+    assert {:ok, %{slots: slots}} = Valimc.TestMenu.click(inv, :pickup_all, -999, 0)
+    assert slots == inv.slots
+    assert Valimc.TestMenu.click(inv, :pickup_all, 46, 0) == {:error, :invalid_menu_slot}
+    assert Valimc.TestMenu.click(inv, :pickup_all, 0, 2) == {:error, :unsupported_click}
   end
 
   test "collection conserves all owned component groups across dense inventories" do

@@ -2150,7 +2150,8 @@ defmodule Valimc.World.RegionData do
        ) do
     if inventory.infinite_materials == (mode == :creative),
       do:
-        Valimc.ChestAccess.authorize(
+        Valimc.MenuAccess.authorize_action(
+          :chest,
           container_block(state, request),
           position,
           actor,
@@ -2175,7 +2176,8 @@ defmodule Valimc.World.RegionData do
          (request[:award] == nil or request.award.position == actor[:position]) and
          Valimc.CookingBlocks.kind(block) == kind,
        do:
-         Valimc.CookingOpening.authorize_action(
+         Valimc.MenuAccess.authorize_action(
+           :cooking,
            block,
            position,
            actor,
@@ -2201,7 +2203,7 @@ defmodule Valimc.World.RegionData do
         ContainerRequest.matches_entry?(request, containers.entries[request.position])
 
   defp container_block_matches?(%{kind: :experience}, _), do: true
-  defp container_block_matches?(%{rows: _}, block), do: Valimc.ChestAccess.single?(block)
+  defp container_block_matches?(%{rows: _}, block), do: Valimc.Block.Chest.single?(block)
 
   defp container_block_matches?(%{kind: kind}, block),
     do: Valimc.CookingBlocks.kind(block) == kind
@@ -2584,7 +2586,7 @@ defmodule Valimc.World.RegionData do
       above = Blocks.get(state.blocks, {x, y + 1, z})
       now = System.monotonic_time(:millisecond)
 
-      case Valimc.ChestOpening.authorize(block, provisional, above, position, grant, now) do
+      case Valimc.MenuAccess.authorize(:chest, block, provisional, above, position, grant, now) do
         {:chest, _, _} -> unpack_loot(state, position, 0.0)
         _ -> state
       end
@@ -2601,7 +2603,7 @@ defmodule Valimc.World.RegionData do
     if permit_matches?(state, :mining, transfer) do
       Enum.reduce(expected, state, fn {position, block}, acc ->
         if in_region?(acc, position) and Blocks.get(acc.blocks, position) == block and
-             not Valimc.ChestAccess.single?(Valimc.Block.after_removal(block)),
+             not Valimc.Block.Chest.single?(Valimc.Block.after_removal(block)),
            do: unpack_loot(acc, position, 0.0),
            else: acc
       end)
@@ -2688,8 +2690,8 @@ defmodule Valimc.World.RegionData do
           block != Blocks.get(state.blocks, position) and
             Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
             not (retired[position] == entry and
-                   Valimc.ChestAccess.single?(Blocks.get(state.blocks, position)) and
-                   not Valimc.ChestAccess.single?(block))
+                   Valimc.Block.Chest.single?(Blocks.get(state.blocks, position)) and
+                   not Valimc.Block.Chest.single?(block))
 
         nil ->
           false
@@ -2798,11 +2800,11 @@ defmodule Valimc.World.RegionData do
 
   defp isolated_chest_changes?(state, batch) do
     Enum.all?(batch.edits, fn {position, block} ->
-      if Valimc.ChestAccess.single?(block) and
-           not Valimc.ChestAccess.single?(Blocks.get(state.blocks, position)) do
+      if Valimc.Block.Chest.single?(block) and
+           not Valimc.Block.Chest.single?(Blocks.get(state.blocks, position)) do
         Enum.all?(Valimc.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
           Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
-            not Valimc.ChestAccess.ordinary?(
+            not Valimc.Block.Chest.ordinary?(
               Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
             )
         end)
@@ -3050,18 +3052,21 @@ defmodule Valimc.World.RegionData do
           cond do
             Valimc.CookingBlocks.kind(block) != nil or
                 (is_map(grant) and grant[:menu] == :cooking) ->
-              Valimc.CookingOpening.authorize(
+              Valimc.MenuAccess.authorize(
+                :cooking,
                 block,
                 state.containers.entries[position],
+                nil,
                 position,
                 grant,
                 now
               )
 
-            Valimc.ChestAccess.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
+            Valimc.Block.Chest.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
               {x, y, z} = position
 
-              Valimc.ChestOpening.authorize(
+              Valimc.MenuAccess.authorize(
+                :chest,
                 block,
                 state.containers.entries[position],
                 Blocks.get(state.blocks, {x, y + 1, z}),
@@ -3071,10 +3076,10 @@ defmodule Valimc.World.RegionData do
               )
 
             preserved_use?(state, position, block) ->
-              Valimc.TableAccess.refuse_use(block, position, grant, now)
+              Valimc.MenuAccess.refuse_use(block, position, grant, now)
 
             true ->
-              Valimc.TableAccess.authorize(block, position, grant, now)
+              Valimc.MenuAccess.authorize(:table, block, nil, nil, position, grant, now)
           end
       end
 

@@ -122,7 +122,7 @@ defmodule Valimc.LootChestRegionTest do
     assert :ok = Region.request_table(owner, self(), ref, position, grant(position, mode))
     assert_receive {:event, {:table_admitted, ^ref, ^owner, decision}}
 
-    if decision == {:error, :expired_chest_grant} and tries > 1,
+    if decision == {:error, :expired_menu_grant} and tries > 1,
       do: open(ctx, position, mode, tries - 1),
       else: decision
   end

@@ -1,4 +1,4 @@
-alias Valimc.{ChestMenu, Inventory}
+alias Valimc.{Inventory, Menu}
 alias Valimc.Protocol.{ItemStack, Packets}
 [path] = System.argv()
 facts = JSON.decode!(File.read!(path))
@@ -21,12 +21,12 @@ for row <- facts["cases"] do
   unless length(row["slots"]) == rows * 9 + 36 and length(row["storage"]) == rows * 9,
     do: raise("Incomplete native chest cells")
 
-  {:ok, type} = ChestMenu.type(rows)
+  {:ok, type} = Menu.type(Menu.chest(rows))
   unless type == row["type"], do: raise("Native chest menu type differs")
 
   for {[kind, index], wire} <- Enum.with_index(row["slots"]) do
     expected = if kind == "container", do: {:container, index}, else: index
-    {:ok, ^expected} = ChestMenu.address(rows, wire)
+    {:ok, ^expected} = Menu.address(Menu.chest(rows), wire)
   end
 
   storage = row["storage"] |> Enum.map(stack) |> List.to_tuple()
@@ -37,7 +37,7 @@ for row <- facts["cases"] do
         into: %{},
         do: {slot, stack.(item)}
 
-  {:ok, contents} = ChestMenu.contents(rows, storage, %Inventory{slots: slots})
+  {:ok, contents} = Menu.contents(Menu.chest(rows), storage, %Inventory{slots: slots})
   unless contents == Enum.map(row["contents"], stack), do: raise("Native chest contents differ")
   {_, body} = Packets.open_chest(17, rows)
 

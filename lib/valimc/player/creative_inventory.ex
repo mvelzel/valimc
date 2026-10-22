@@ -279,12 +279,21 @@ defmodule Valimc.Player.CreativeInventory do
       {:ok, %{container: 0} = click} ->
         # The vanilla listener applies actions to current owner state even when
         # the reported state ID is stale. Predictions only guide replication.
-        case Inventory.plan_click(state.inventory, click.action, click.slot, click.button) do
-          {:ok, inventory, []} ->
+        menu = Valimc.Menu.inventory()
+
+        case Valimc.MenuClick.plan(
+               menu,
+               nil,
+               state.inventory,
+               click.action,
+               click.slot,
+               click.button
+             ) do
+          {:ok, nil, inventory, []} ->
             send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
             %{state | inventory: inventory}
 
-          {:ok, inventory, [_ | _] = stacks} ->
+          {:ok, nil, inventory, [_ | _] = stacks} ->
             Valimc.Player.Menus.start_click_transfer(state, inventory, stacks, click)
 
           {:error, _} ->

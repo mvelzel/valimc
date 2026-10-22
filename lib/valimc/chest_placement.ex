@@ -10,7 +10,7 @@ defmodule Valimc.ChestPlacement do
   unless Enum.sort(Map.keys(@states)) == [2, 3, 4, 5] and
            Enum.all?(@states, fn {_, states} ->
              Enum.sort(Map.keys(states)) == ["dry", "wet"] and
-               Enum.all?(Map.values(states), &Valimc.ChestAccess.single?/1)
+               Enum.all?(Map.values(states), &Valimc.Block.Chest.single?/1)
            end),
          do: raise("Wrong single-chest placement facts")
 

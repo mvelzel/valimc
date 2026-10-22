@@ -1,4 +1,4 @@
-alias Valimc.{CookingClick, Inventory}
+alias Valimc.{Inventory, Menu, MenuClick}
 alias Valimc.CookingBlocks
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
@@ -58,15 +58,24 @@ kinds = {:furnace, :smoker, :blast_furnace}
     storage = row["before"] |> Enum.map(stack) |> List.to_tuple()
     {:ok, block} = CookingBlocks.placement(elem(kinds, row["kind"]), 0.0)
     action = Map.fetch!(%{0 => :pickup, 1 => :quick_move, 2 => :swap}, row["action"])
-    result = CookingClick.plan(block, storage, inventory, action, row["slot"], row["button"])
+
+    result =
+      MenuClick.plan(Menu.cooking(block), storage, inventory, action, row["slot"], row["button"])
 
     if row["overflow"] do
-      unless result == {:error, :unsupported_cooking_click},
+      unless result == {:error, :unsupported_click},
         do: raise("Overflow was not refused: #{inspect(row)} #{inspect(result)}")
 
       {accepted, refused + 1}
     else
-      {:ok, after_storage, after_inventory, taken} = result
+      {:ok, after_storage, after_inventory, []} = result
+
+      held = fn
+        nil -> 0
+        stack -> stack.count
+      end
+
+      taken = max(held.(elem(storage, 2)) - held.(elem(after_storage, 2)), 0)
 
       unless Tuple.to_list(after_storage) == Enum.map(row["after"], stack) and
                Inventory.contents(after_inventory) == Enum.map(row["player_after"], stack) and

@@ -14,7 +14,7 @@ inputs = %{
     Enum.map(1..10_000, fn i -> Enum.at(chests ++ furnaces, rem(i, 32)) end)
 }
 
-old = fn state -> Valimc.ChestAccess.single?(state) or CookingBlocks.kind(state) != nil end
+old = fn state -> Valimc.Block.Chest.single?(state) or CookingBlocks.kind(state) != nil end
 new = fn state -> Valimc.Block.block_entity(state) != nil end
 
 for {_, states} <- inputs, do: true = Enum.map(states, old) == Enum.map(states, new)

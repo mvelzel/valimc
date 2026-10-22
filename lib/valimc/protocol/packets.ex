@@ -44,7 +44,7 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def open_chest(container, rows) when container in 1..127 and rows in 1..6 do
-    {:ok, type} = Valimc.ChestMenu.type(rows)
+    {:ok, type} = Valimc.Menu.type(Valimc.Menu.chest(rows))
 
     open_screen(
       container,
@@ -54,7 +54,7 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def open_cooking(container, kind) when container in 1..127 do
-    {:ok, type} = Valimc.CookingMenu.type(kind)
+    {:ok, type} = Valimc.Menu.cooking_type(kind)
     open_screen(container, type, "container." <> Atom.to_string(kind))
   end
 
@@ -77,20 +77,25 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def table_inventory(container, inventory) when container in 1..127,
-    do: inventory_content(container, inventory, Valimc.TableMenu.contents(inventory))
+    do:
+      inventory_content(
+        container,
+        inventory,
+        elem(Valimc.Menu.contents(Valimc.Menu.table(), nil, inventory), 1)
+      )
 
   def chest_inventory(container, rows, storage, inventory) when container in 1..127 do
-    {:ok, contents} = Valimc.ChestMenu.contents(rows, storage, inventory)
+    {:ok, contents} = Valimc.Menu.contents(Valimc.Menu.chest(rows), storage, inventory)
     inventory_content(container, inventory, contents)
   end
 
   def cooking_inventory(container, cooking, inventory) when container in 1..127 do
-    {:ok, contents} = Valimc.CookingMenu.contents(cooking, inventory)
+    {:ok, contents} = Valimc.Menu.cooking_contents(cooking, inventory)
     inventory_content(container, inventory, contents)
   end
 
   def cooking_properties(container, cooking) when container in 1..127 do
-    {:ok, properties} = Valimc.CookingMenu.properties(cooking)
+    {:ok, properties} = Valimc.Menu.properties(cooking)
 
     for {value, index} <- Enum.with_index(properties),
         do: packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])

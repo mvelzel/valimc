@@ -49,7 +49,7 @@ Design:
 Slices:
 
 - [VMC-077i1](VMC-077i1.md) — one `Player.State` schema and codec.
-- VMC-077i2 — one menu click engine and `MenuAccess`.
+- [VMC-077i2](VMC-077i2.md) — one menu click engine and `MenuAccess`.
 - VMC-077i3 — players in owners; interactions as calls; the transfer
   families deleted.
 - VMC-077i4 — players in the owner trackers (head rotation, ground flag), a

@@ -25,7 +25,7 @@ defmodule Valimc.InventoryDropPlanTest do
     }
 
     for action <- [:pickup, :quick_move], button <- [0, 1] do
-      assert {:ok, next, [drop]} = Inventory.plan_click(original, action, -999, button)
+      assert {:ok, next, [drop]} = Valimc.TestMenu.plan(original, action, -999, button)
       count = if button == 0, do: 7, else: 1
       assert drop == %{cursor | count: count}
       assert next.carried == if(button == 0, do: nil, else: %{cursor | count: 6})
@@ -34,11 +34,12 @@ defmodule Valimc.InventoryDropPlanTest do
     end
 
     for button <- [0, 1], action <- [:pickup, :quick_move] do
-      assert {:ok, empty, []} = Inventory.plan_click(%Inventory{}, action, -999, button)
+      assert {:ok, empty, []} = Valimc.TestMenu.plan(%Inventory{}, action, -999, button)
       assert empty.carried == nil
     end
 
-    assert {:error, :unsupported_click} = Inventory.plan_click(original, :pickup, -999, 2)
+    assert {:ok, %{carried: carried}, []} = Valimc.TestMenu.plan(original, :pickup, -999, 2)
+    assert carried == original.carried
   end
 
   test "throw removes one or all from grid, equipment, storage, hotbar and offhand" do
@@ -46,7 +47,7 @@ defmodule Valimc.InventoryDropPlanTest do
 
     for slot <- [1, 5, 9, 36, 45], button <- [0, 1, 2, -1, -128, 127] do
       original = %Inventory{slots: %{slot => stack}, selected: 8}
-      assert {:ok, next, [drop]} = Inventory.plan_click(original, :throw, slot, button)
+      assert {:ok, next, [drop]} = Valimc.TestMenu.plan(original, :throw, slot, button)
       count = if button == 0, do: 1, else: 7
       assert drop == %{stack | count: count}
       assert next.slots[slot] == if(button == 0, do: %{stack | count: 6}, else: nil)
@@ -59,29 +60,29 @@ defmodule Valimc.InventoryDropPlanTest do
     original = %Inventory{slots: %{9 => stack}, carried: ItemStack.new("egg", 1)}
 
     for button <- [0, 1, 2] do
-      assert {:ok, next, []} = Inventory.plan_click(original, :throw, 9, button)
+      assert {:ok, next, []} = Valimc.TestMenu.plan(original, :throw, 9, button)
       assert next.slots == original.slots and next.carried == original.carried
     end
 
     for slot <- [0, 8, -1, -999] do
-      assert {:ok, _, []} = Inventory.plan_click(%{original | carried: nil}, :throw, slot, 1)
+      assert {:ok, _, []} = Valimc.TestMenu.plan(%{original | carried: nil}, :throw, slot, 1)
     end
 
     for slot <- [-1000, -2, 46, 32767], button <- [0, 1] do
-      assert {:error, :unsupported_click} = Inventory.plan_click(original, :throw, slot, button)
+      assert {:error, :invalid_menu_slot} = Valimc.TestMenu.plan(original, :throw, slot, button)
     end
   end
 
   test "an interrupting effectful click cancels quick craft before any drop can be planned" do
     stack = stone()
     original = %Inventory{carried: stack, drag: %{mode: 0, slots: MapSet.new([9])}}
-    assert {:ok, interrupted, []} = Inventory.plan_click(original, :pickup, -999, 0)
+    assert {:ok, interrupted, []} = Valimc.TestMenu.plan(original, :pickup, -999, 0)
     assert interrupted.carried == stack and interrupted.drag == nil
-    assert {:ok, completed, [^stack]} = Inventory.plan_click(interrupted, :pickup, -999, 0)
+    assert {:ok, completed, [^stack]} = Valimc.TestMenu.plan(interrupted, :pickup, -999, 0)
     assert completed.carried == nil
     original = %{original | carried: nil, slots: %{9 => stack}}
-    assert {:ok, interrupted, []} = Inventory.plan_click(original, :throw, 9, 1)
+    assert {:ok, interrupted, []} = Valimc.TestMenu.plan(original, :throw, 9, 1)
     assert interrupted.slots[9] == stack and interrupted.drag == nil
-    assert {:ok, _, [^stack]} = Inventory.plan_click(interrupted, :throw, 9, 1)
+    assert {:ok, _, [^stack]} = Valimc.TestMenu.plan(interrupted, :throw, 9, 1)
   end
 end

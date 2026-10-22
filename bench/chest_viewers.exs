@@ -1,5 +1,5 @@
 Code.require_file("blocks.exs", __DIR__)
-alias Valimc.{ChestOpening, World}
+alias Valimc.{MenuAccess, World}
 alias Valimc.World.{Containers, Region, RegionStorage}
 [output] = System.argv()
 dataset = Path.join(System.tmp_dir!(), "valimc-viewer-bench-#{System.os_time(:nanosecond)}")
@@ -92,7 +92,8 @@ results =
         {:ok, ^owner} = World.existing_owner(Valimc.World.section(:overworld, key, :section))
 
         true =
-          ChestOpening.authorize(
+          MenuAccess.authorize(
+            :chest,
             block,
             entry,
             0,

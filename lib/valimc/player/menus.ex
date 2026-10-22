@@ -16,7 +16,16 @@ defmodule Valimc.Player.Menus do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{ChestAccess, Inventory, PlayerContainerQuery, PlayerInput, PlayerStore, TableAccess, TableMenu, World}
+  alias Valimc.{
+    Inventory,
+    Menu,
+    MenuClick,
+    PlayerContainerQuery,
+    PlayerInput,
+    PlayerStore,
+    World
+  }
+
   alias Valimc.Player.State, as: PlayerState
 
   defguardp inventory_busy(state)
@@ -228,32 +237,17 @@ defmodule Valimc.Player.Menus do
   def table_player_valid?(state) do
     menu = state.table_menu
 
+    block =
+      if menu.kind == :table, do: Data.item_block(Data.item("crafting_table")), else: menu.block
+
     valid =
-      case menu.kind do
-        :chest ->
-          ChestAccess.valid_view?(
-            menu.block,
-            state.player.game_mode.current,
-            Valimc.PlayerInteraction.eye(state.player),
-            menu.position
-          )
-
-        :cooking ->
-          Valimc.CookingOpening.valid_view?(
-            menu.block,
-            state.player.game_mode.current,
-            Valimc.PlayerInteraction.eye(state.player),
-            menu.position
-          )
-
-        :table ->
-          TableAccess.valid?(
-            Data.item_block(Data.item("crafting_table")),
-            state.player.game_mode.current,
-            Valimc.PlayerInteraction.eye(state.player),
-            menu.position
-          )
-      end
+      Valimc.MenuAccess.valid_view?(
+        menu.kind,
+        block,
+        state.player.game_mode.current,
+        Valimc.PlayerInteraction.eye(state.player),
+        menu.position
+      )
 
     state.life_stage == :alive and not state.teleport_pending and
       PlayerInput.loaded?(state.player.input) and valid
@@ -335,8 +329,15 @@ defmodule Valimc.Player.Menus do
     do: CreativeInventory.resync_inventory(state)
 
   def apply_table_click(state, click) do
-    case TableMenu.plan_click(state.inventory, click.action, click.slot, click.button) do
-      {:ok, inventory, []} ->
+    case MenuClick.plan(
+           Menu.table(),
+           nil,
+           state.inventory,
+           click.action,
+           click.slot,
+           click.button
+         ) do
+      {:ok, nil, inventory, []} ->
         send_packets(state, [
           Packets.table_inventory(state.table_menu.id, inventory),
           Packets.cursor(inventory.carried)
@@ -344,7 +345,7 @@ defmodule Valimc.Player.Menus do
 
         %{state | inventory: inventory}
 
-      {:ok, inventory, [_ | _] = stacks} ->
+      {:ok, nil, inventory, [_ | _] = stacks} ->
         start_click_transfer(state, inventory, stacks, click)
 
       {:error, _} ->
@@ -613,11 +614,18 @@ defmodule Valimc.Player.Menus do
         CreativeInventory.resync_inventory(state)
 
       repeat.click.container == 0 and state.table_menu == nil ->
-        case Inventory.plan_click(state.inventory, repeat.click.action, 0, repeat.click.button) do
-          {:ok, inventory, [_ | _] = stacks} ->
+        case MenuClick.plan(
+               Menu.inventory(),
+               nil,
+               state.inventory,
+               repeat.click.action,
+               0,
+               repeat.click.button
+             ) do
+          {:ok, nil, inventory, [_ | _] = stacks} ->
             start_click_transfer(state, inventory, stacks, repeat.click)
 
-          {:ok, inventory, []} ->
+          {:ok, nil, inventory, []} ->
             CreativeInventory.resync_inventory(%{state | inventory: inventory})
 
           {:error, _} ->

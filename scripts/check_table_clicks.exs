@@ -1,4 +1,4 @@
-alias Valimc.{Inventory, TableMenu}
+alias Valimc.{Inventory, Menu, MenuClick}
 alias Valimc.Protocol.{Data, ItemStack, Packets}
 [path, packets_path] = System.argv()
 
@@ -70,15 +70,17 @@ packets =
 
     {result, drops} =
       Enum.reduce(clicks, {initial, []}, fn [action, slot, button], {inventory, drops} ->
-        case TableMenu.plan_click(inventory, Enum.at(actions, action), slot, button) do
-          {:ok, next, batch} -> {next, drops ++ batch}
+        case MenuClick.plan(Menu.table(), nil, inventory, Enum.at(actions, action), slot, button) do
+          {:ok, nil, next, batch} -> {next, drops ++ batch}
           other -> raise("Table click refused #{inspect({creative, grid, clicks, other})}")
         end
       end)
 
     expected_owned = Enum.map(after_physical, stack) ++ Enum.map(Enum.slice(visible, 1, 9), stack)
 
-    unless same_list.(TableMenu.contents(result), Enum.map(visible, stack)) and
+    {:ok, contents} = Menu.contents(Menu.table(), nil, result)
+
+    unless same_list.(contents, Enum.map(visible, stack)) and
              same_list.(Inventory.contents(result), expected_owned) and
              same.(result.carried, stack.(carried)) and
              same_list.(drops, Enum.map(dropped, stack)),

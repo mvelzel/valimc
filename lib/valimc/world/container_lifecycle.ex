@@ -3,7 +3,7 @@ defmodule Valimc.World.ContainerLifecycle do
   alias Valimc.World
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
-  @double Valimc.ChestAccess.double_states()
+  @double Valimc.Block.Chest.double_states()
 
   def plan(%Containers{} = containers, key, expected, edits)
       when is_map(expected) and is_map(edits) and map_size(edits) in 1..4096 and

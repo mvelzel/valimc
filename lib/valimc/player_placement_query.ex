@@ -262,13 +262,13 @@ defmodule Valimc.PlayerPlacementQuery do
   defp surviving(_owner, candidate), do: {:ok, candidate}
 
   defp isolated_chest(owner, key, candidate, revision) do
-    if Valimc.ChestAccess.single?(candidate.state) do
+    if Valimc.Block.Chest.single?(candidate.state) do
       neighbors = Valimc.ChestPlacement.neighbors(candidate.position)
 
       if Enum.all?(neighbors, fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) == key end) do
         with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),
              false <-
-               Enum.any?(observed.blocks, fn {_, state} -> Valimc.ChestAccess.ordinary?(state) end),
+               Enum.any?(observed.blocks, fn {_, state} -> Valimc.Block.Chest.ordinary?(state) end),
              do: :ok,
              else: (
                true -> {:error, :adjacent_chest}

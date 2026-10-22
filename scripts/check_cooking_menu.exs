@@ -1,4 +1,4 @@
-alias Valimc.{Cooking, CookingMenu, Inventory}
+alias Valimc.{Cooking, Inventory, Menu}
 alias Valimc.Protocol.{ItemStack, Packets}
 [path] = System.argv()
 facts = JSON.decode!(File.read!(path))
@@ -17,12 +17,12 @@ end
 
 for row <- facts["cases"] do
   kind = elem(kinds, row["kind"])
-  {:ok, type} = CookingMenu.type(kind)
+  {:ok, type} = Menu.cooking_type(kind)
   true = type == row["type"] and length(row["slots"]) == 39
 
   for {[owner, index], wire} <- Enum.with_index(row["slots"]) do
     expected = if owner == "cooking", do: {:cooking, index}, else: index
-    {:ok, ^expected} = CookingMenu.address(wire)
+    {:ok, ^expected} = Menu.address(Menu.cooking(nil), wire)
   end
 
   slots =
@@ -33,7 +33,7 @@ for row <- facts["cases"] do
 
   cooking = %Cooking{slots: row["storage"] |> Enum.map(stack) |> List.to_tuple()}
   inventory = %Inventory{slots: slots}
-  {:ok, contents} = CookingMenu.contents(cooking, inventory)
+  {:ok, contents} = Menu.cooking_contents(cooking, inventory)
   true = contents == Enum.map(row["contents"], stack) and row["after_close"] == row["storage"]
   {_, body} = Packets.open_cooking(17, kind)
   true = IO.iodata_to_binary(body) == Base.decode16!(row["open_hex"], case: :lower)
@@ -49,7 +49,7 @@ for row <- facts["progress"] do
     total: row["total"]
   }
 
-  {:ok, actual} = CookingMenu.properties(cooking)
+  {:ok, actual} = Menu.properties(cooking)
   true = actual == row["data"]
   bodies = for {_, body} <- Packets.cooking_properties(17, cooking), do: IO.iodata_to_binary(body)
   true = bodies == Enum.map(row["data_hex"], &Base.decode16!(&1, case: :lower))

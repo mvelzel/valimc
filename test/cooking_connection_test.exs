@@ -133,7 +133,7 @@ defmodule Valimc.CookingConnectionTest do
     {_, client} = Client.await(client, :play, "block_changed_ack")
     {body, client} = Client.await(client, :play, "open_screen")
     {id, body} = Wire.take_varint(body)
-    {:ok, type} = Valimc.CookingMenu.type(kind)
+    {:ok, type} = Valimc.Menu.cooking_type(kind)
     assert {^type, _} = Wire.take_varint(body)
     client = content(client)
     assert client.inventory.container == id and length(client.inventory.items) == 39

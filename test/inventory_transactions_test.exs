@@ -9,7 +9,7 @@ defmodule Valimc.InventoryTransactionsTest do
   end
 
   defp click(inv, action, slot, button \\ 0) do
-    {:ok, inv} = Inventory.click(inv, action, slot, button)
+    {:ok, inv} = Valimc.TestMenu.click(inv, action, slot, button)
     inv
   end
 
@@ -66,12 +66,16 @@ defmodule Valimc.InventoryTransactionsTest do
     stone = ItemStack.new("stone", 8)
     inv = Inventory.new() |> put(9, helmet) |> put(36, stone) |> click(:quick_move, 9)
     assert Inventory.get(inv, 5) == helmet and Inventory.get(inv, 9) == nil
-    assert Inventory.click(inv, :swap, 5, 0) == {:error, :slot_restricted}
+    # Vanilla leaves a slot that refuses the hotbar's stack as it is.
+    assert {:ok, %{slots: slots}} = Valimc.TestMenu.click(inv, :swap, 5, 0)
+    assert slots == inv.slots
     inv = inv |> click(:swap, 9, 0) |> click(:swap, 9, 40)
     assert Inventory.get(inv, 45) == stone
     assert Inventory.get(inv, 9) == nil and Inventory.get(inv, 36) == nil
-    assert Inventory.click(inv, :pickup, -999, 0) == {:error, :unsupported_click}
-    assert Inventory.click(inv, :quick_craft, 9, 12) == {:error, :unsupported_click}
+    # Outside the window with an empty cursor nothing drops.
+    assert {:ok, %{slots: slots}} = Valimc.TestMenu.click(inv, :pickup, -999, 0)
+    assert slots == inv.slots
+    assert Valimc.TestMenu.click(inv, :quick_craft, 9, 12) == {:error, :unsupported_click}
   end
 
   test "aggregate inventory budget keeps corrections bounded and rejected edits preserve old state" do

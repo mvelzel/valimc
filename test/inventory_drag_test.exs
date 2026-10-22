@@ -4,7 +4,7 @@ defmodule Valimc.InventoryDragTest do
   alias Valimc.Protocol.ItemStack
 
   defp click(inv, slot, button) do
-    {:ok, next} = Inventory.click(inv, :quick_craft, slot, button)
+    {:ok, next} = Valimc.TestMenu.click(inv, :quick_craft, slot, button)
     next
   end
 
@@ -64,7 +64,7 @@ defmodule Valimc.InventoryDragTest do
 
     started = inv |> click(-999, 0) |> click(9, 1)
     assert started.carried == inv.carried and started.slots == inv.slots
-    {:ok, interrupted} = Inventory.click(started, :pickup, 10, 0)
+    {:ok, interrupted} = Valimc.TestMenu.click(started, :pickup, 10, 0)
     assert interrupted.carried == inv.carried and interrupted.slots == inv.slots
     assert interrupted.drag == nil
     assert click(started, -999, 0).drag == nil
@@ -72,7 +72,7 @@ defmodule Valimc.InventoryDragTest do
     assert changed.drag == nil
     assert Inventory.swap_hands(started).drag == nil
     assert click(Inventory.new(), -999, 0).drag == nil
-    assert Inventory.click(started, :quick_craft, -999, 12) == {:error, :unsupported_click}
+    assert Valimc.TestMenu.click(started, :quick_craft, -999, 12) == {:error, :unsupported_click}
   end
 
   test "patch multiplication cannot exceed the aggregate correction budget" do
@@ -86,11 +86,14 @@ defmodule Valimc.InventoryDragTest do
     inv = %{Inventory.new() | carried: stack}
     started = click(inv, -999, 0)
     started = Enum.reduce(9..17, started, &click(&2, &1, 1))
-    assert Inventory.click(started, :quick_craft, -999, 2) == {:error, :inventory_byte_limit}
+
+    assert Valimc.TestMenu.click(started, :quick_craft, -999, 2) ==
+             {:error, :inventory_byte_limit}
+
     assert started.slots == %{} and started.carried == stack
     assert Inventory.cancel_drag(started).drag == nil
 
-    assert Inventory.click(%{inv | carried: ItemStack.new("bundle")}, :quick_craft, -999, 0) ==
+    assert Valimc.TestMenu.click(%{inv | carried: ItemStack.new("bundle")}, :quick_craft, -999, 0) ==
              {:error, :unsupported_click}
   end
 end

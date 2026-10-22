@@ -1,4 +1,4 @@
-alias Valimc.{ContainerClick, Inventory}
+alias Valimc.{Inventory, Menu, MenuClick}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -43,8 +43,15 @@ for row <- facts["cases"] do
   storage = row["before"] |> Enum.map(stack) |> List.to_tuple()
   action = Map.fetch!(%{0 => :pickup, 1 => :quick_move, 2 => :swap}, row["action"])
 
-  {:ok, after_storage, after_inventory} =
-    ContainerClick.plan(row["rows"], storage, inventory, action, row["slot"], row["button"])
+  {:ok, after_storage, after_inventory, []} =
+    MenuClick.plan(
+      Menu.chest(row["rows"]),
+      storage,
+      inventory,
+      action,
+      row["slot"],
+      row["button"]
+    )
 
   unless Tuple.to_list(after_storage) == Enum.map(row["after"], stack) and
            Inventory.contents(after_inventory) == Enum.map(row["player_after"], stack) and

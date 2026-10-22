@@ -1,4 +1,4 @@
-alias Valimc.{Cooking, CookingOpening}
+alias Valimc.{Cooking, MenuAccess}
 alias Valimc.CookingBlocks
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
@@ -27,11 +27,11 @@ for row <- raw["cases"] do
   entry =
     if kind == nil, do: nil, else: %{kind: kind, cooking: %Cooking{}, recipes: %{}, revision: 1}
 
-  actual = CookingOpening.authorize(row["state"], entry, {0, 64, 0}, grant, 1000)
+  actual = MenuAccess.authorize(:cooking, row["state"], entry, nil, {0, 64, 0}, grant, 1000)
 
   if kind == CookingBlocks.kind(row["state"]),
     do: {:cooking, _, ^entry} = actual,
-    else: {:error, :missing_cooking_entry} = actual
+    else: {:error, :missing_menu_entry} = actual
 end
 
 IO.puts(

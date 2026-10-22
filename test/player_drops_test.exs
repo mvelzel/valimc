@@ -69,7 +69,7 @@ defmodule Valimc.PlayerDropsTest do
 
   test "recipe drop authorization accepts the launch origin of a crouching player" do
     before = PlayerState.capture(player(), %Inventory{slots: %{1 => ItemStack.new("oak_log")}})
-    {:ok, inventory, stacks} = Inventory.plan_click(before.inventory, :throw, 0, 0)
+    {:ok, inventory, stacks} = Valimc.TestMenu.plan(before.inventory, :throw, 0, 0)
     assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(:crouching), stacks, :directed)
     after_snapshot = %{before | inventory: inventory}
 

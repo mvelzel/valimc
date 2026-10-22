@@ -1043,3 +1043,33 @@ defmodule Valimc.TestWorld do
 
   def visible_items(keys, chunks), do: World.visible_items(MapSet.new(keys, &section/1), chunks)
 end
+
+defmodule Valimc.TestMenu do
+  @moduledoc """
+  The click engine (`Valimc.MenuClick`) at inventory addresses, in the shape
+  inventory tests use: `plan/4` gives `{:ok, inventory, drops}`, `click/4`
+  `{:ok, inventory}` and refuses drops. The open grid picks the menu.
+  """
+  alias Valimc.{Menu, MenuClick}
+
+  def plan(inventory, action, address, button) do
+    menu = Menu.crafting(inventory)
+
+    case MenuClick.plan(menu, nil, inventory, action, wire(menu, address), button) do
+      {:ok, nil, next, drops} -> {:ok, next, drops}
+      error -> error
+    end
+  end
+
+  def click(inventory, action, address, button) do
+    case plan(inventory, action, address, button) do
+      {:ok, next, []} -> {:ok, next}
+      {:ok, _, [_ | _]} -> {:error, :world_drop_required}
+      error -> error
+    end
+  end
+
+  defp wire(%{kind: :table}, {:table, index}), do: index + 1
+  defp wire(%{kind: :table}, slot) when slot in 9..44, do: slot + 1
+  defp wire(_menu, slot), do: slot
+end

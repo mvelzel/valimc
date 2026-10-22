@@ -1,4 +1,4 @@
-alias Valimc.TableAccess
+alias Valimc.{MenuAccess, PlayerInteraction}
 alias Valimc.Protocol.Data
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -13,7 +13,7 @@ unless facts["version"] == "26.3" and
 for [mode, secondary, main, off, hand, table, opens, consumes] <- facts["uses"] do
   mode = String.to_existing_atom(mode)
   hand = if hand == "MAIN_HAND", do: :main, else: :off
-  actual = table and TableAccess.opens?(mode, hand, secondary, main, off)
+  actual = table and PlayerInteraction.opens_block_menu?(mode, hand, secondary, main, off)
 
   unless actual == (opens == 1) and actual == consumes,
     do:
@@ -26,7 +26,8 @@ for [mode, table, position, eye, expected] <- facts["validity"] do
   block = if table, do: facts["table_state"], else: Data.block("stone")
 
   actual =
-    TableAccess.valid?(
+    MenuAccess.valid_view?(
+      :table,
       block,
       String.to_existing_atom(mode),
       List.to_tuple(eye),

@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerCraftingTransfers do
   @moduledoc "Exact recipe-conversion authorization before durable output delivery."
-  alias Valimc.{Inventory, World}
+  alias Valimc.{Menu, MenuClick, World}
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.ItemTransfers
   @max_sequence 18_446_744_073_709_551_615
@@ -11,8 +11,15 @@ defmodule Valimc.PlayerCraftingTransfers do
                 (action == :pickup and button in [0, 1]) or
                 (action == :swap and (button in 0..8 or button == 40)) or
                 (action == :throw and button in -128..127)) do
-    with {:ok, inventory, [_ | _] = stacks} when length(stacks) <= 5 <-
-           Inventory.plan_click(before.inventory, action, 0, button),
+    with {:ok, nil, inventory, [_ | _] = stacks} when length(stacks) <= 5 <-
+           MenuClick.plan(
+             Menu.crafting(before.inventory),
+             nil,
+             before.inventory,
+             action,
+             0,
+             button
+           ),
          true <- strip_journal(after_snapshot) == %{strip_journal(before) | inventory: inventory},
          true <- is_list(records) and Enum.map(records, & &1.stack) == stacks,
          true <- key == World.region_key(World.chunk_key(before.pose.x, before.pose.z)),
