@@ -23,7 +23,7 @@ contacts = System.argv() |> hd() |> Kernel.<>(".contact.json") |> File.read!() |
 
 Enum.each(contacts, fn row ->
   box = {-0.3, 64.0, -0.3, 0.3, 64 + row["height"], 0.3}
-  actual = Valimc.World.ExperienceTransfers.contact?(box, List.to_tuple(row["at"]))
+  actual = Valimc.World.ExperienceOrbs.contact?(box, List.to_tuple(row["at"]))
   if actual != row["contact"], do: raise("XP contact differs: #{inspect(row)}")
 end)
 

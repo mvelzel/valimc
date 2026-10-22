@@ -219,7 +219,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.effects == living(pid).effects
     assert saved.inventory.slots == state(pid).inventory.slots
-    assert saved.outbox == nil and saved.transfer_sequence == 0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {_client, owner} = login(ctx, 20.0, food)
@@ -346,16 +345,12 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert names == [ctx.name, ctx.name]
       assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
-      assert saved.transfer_sequence == 1 and saved.outbox == nil
       assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
       {_client, restored} = login(ctx, 0.0, food)
 
       assert living(restored).health.value == 0.0
-      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.transfer_sequence == 1 and saved.outbox == nil
-
       assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
       [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
 
@@ -519,7 +514,6 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.inventory.slots[36].count == 1 and saved.inventory.slots[45].count == 1
     assert saved.food == %PlayerFood{level: 13, saturation: 12.0}
-    assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx, 20.0, saved.food)
     assert state(owner).active_use == nil and state(owner).player.use_flags == 0
   end
@@ -561,8 +555,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     Client.close(client)
   end
 
-  test "stalled consumption save keeps later food ticks and blocks inventory transfer until acknowledgement",
-       ctx do
+  test "a stalled consumption save keeps later food ticks", ctx do
     food = %PlayerFood{level: 5, saturation: 0.0}
     bread = ItemStack.new("bread", 3)
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => bread}})
@@ -576,7 +569,6 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).use_save != nil and state(pid).inventory.slots[36].count == 2
       client = use_hand(client, pid, :main, 2)
       assert state(pid).active_use == nil
-      action(client, "drop_item")
 
       Valimc.TestConn.replace(pid, fn s ->
         player = %{s.player | food: %{s.player.food | exhaustion: 5.0}}
@@ -586,7 +578,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
       tick(pid)
       assert state(pid).player.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
-      assert state(pid).inventory.slots[36].count == 2 and state(pid).recovery == nil
+      assert state(pid).inventory.slots[36].count == 2
       :sys.resume(store)
       wait(fn -> state(pid).use_save == nil end)
       assert state(pid).player.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
@@ -594,7 +586,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
       assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
-      assert saved.inventory.slots[36].count == 2 and saved.transfer_sequence == 0
+      assert saved.inventory.slots[36].count == 2
     after
       if Process.alive?(store), do: :sys.resume(store)
     end

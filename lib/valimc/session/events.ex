@@ -11,9 +11,7 @@ defmodule Valimc.Session.Events do
     Packets
   }
 
-  alias Valimc.Player.Placement
   alias Valimc.Player.Menus
-  alias Valimc.Player.CreativeInventory
   alias Valimc.Player.Mining
   alias Valimc.Session.Replication
 
@@ -22,7 +20,6 @@ defmodule Valimc.Session.Events do
 
   alias Valimc.{
     Players,
-    PlayerInput,
     World
   }
 
@@ -30,135 +27,31 @@ defmodule Valimc.Session.Events do
 
   @doc "The session's part of `event`."
   def session(
-        %{phase: :play, table_job: %{ref: ref, owner: owner} = job} = state,
-        {:table_admitted, ref, owner, decision}
-      ) do
-    state = Menus.cancel_table_query(state)
-
-    current =
-      System.monotonic_time(:millisecond) < job.grant.expires and
-        if(job.kind == :open,
-          do: state.player.game_mode.current == job.grant.mode,
-          else: Menus.menu_signature(state) == job.signature
-        ) and
-        World.existing_owner(job.key) == {:ok, owner}
-
-    case {job.kind, decision, current} do
-      {:open, :open, true} ->
-        if state.life_stage == :alive and not state.teleport_pending and
-             PlayerInput.loaded?(state.player.input) and Mining.reachable?(state, job.position),
-           do: Menus.open_table_menu(state, job.position, owner, job.command.sequence),
-           else: Menus.acknowledge_table_use(state, job.command)
-
-      {:open, :pass, true} ->
-        Placement.execute_placement(state, job.command, job.placement)
-
-      {:open, {kind, block, view}, true} when kind in [:chest, :cooking] ->
-        if state.life_stage == :alive and not state.teleport_pending and
-             PlayerInput.loaded?(state.player.input) and Mining.reachable?(state, job.position),
-           do:
-             Menus.open_container_menu(
-               state,
-               kind,
-               job.position,
-               owner,
-               block,
-               view,
-               job.command.sequence
-             ),
-           else: Menus.acknowledge_table_use(state, job.command)
-
-      {:open, _, _} ->
-        Menus.acknowledge_table_use(state, job.command)
-
-      {_, :valid, true} ->
-        if Menus.table_player_valid?(state) do
-          state =
-            if job.kind == :click, do: Menus.apply_menu_click(state, job.command), else: state
-
-          Menus.drain_table_clicks(state)
-        else
-          Menus.begin_table_close(state)
-        end
-
-      {operation, {kind, block, view}, true}
-      when operation in [:subscribe, :check, :refresh, :progress, :click] and
-             kind in [:chest, :cooking] ->
-        if state.table_menu.kind == kind and Menus.table_player_valid?(state) do
-          properties_only =
-            operation == :progress and kind == :cooking and
-              state.table_menu.view.revision == view.revision and
-              state.table_menu.view.cooking.slots == view.cooking.slots
-
-          state = %{
-            state
-            | table_menu: %{
-                state.table_menu
-                | block: block,
-                  view: view,
-                  dirty: false,
-                  progress_dirty: false,
-                  subscribed: true
-              }
-          }
-
-          state =
-            cond do
-              operation == :click ->
-                Menus.apply_menu_click(state, job.command)
-
-              properties_only ->
-                send_packets(state, Packets.cooking_properties(state.table_menu.id, view.cooking))
-                state
-
-              true ->
-                CreativeInventory.resync_inventory(state)
-            end
-
-          Menus.drain_table_clicks(state)
-        else
-          Menus.begin_table_close(state)
-        end
-
-      _ ->
-        Menus.begin_table_close(state)
-    end
-  end
-
-  def session(
         %{
           phase: :play,
-          table_menu: %{kind: kind, owner: owner, view_ref: ref, position: position} = menu
+          table_menu: %{kind: kind, owner: owner, view_ref: ref, position: position}
         } = state,
         {:container_changed, owner, ref, position, revision}
       )
-      when kind in [:chest, :cooking] do
-    if revision > menu.view.revision do
-      Menus.check_table_menu(%{state | table_menu: %{menu | dirty: true}})
-    else
-      state
-    end
-  end
+      when kind in [:chest, :cooking] and is_integer(revision),
+      do: Menus.changed(state, revision)
 
   def session(
         %{
           phase: :play,
-          table_menu: %{kind: :cooking, owner: owner, view_ref: ref, position: position} = menu
+          table_menu: %{kind: :cooking, owner: owner, view_ref: ref, position: position}
         } = state,
         {:container_progress, owner, ref, position, generation}
       )
-      when is_integer(generation) and generation > 0 do
-    if generation > Map.get(menu.view, :generation, 0),
-      do: Menus.check_table_menu(%{state | table_menu: %{menu | progress_dirty: true}}),
-      else: state
-  end
+      when is_integer(generation) and generation > 0,
+      do: Menus.progressed(state, generation)
 
   def session(
         %{phase: :play, table_menu: %{kind: kind, owner: owner, view_ref: ref}} = state,
         {:container_closed, owner, ref}
       )
       when kind in [:chest, :cooking],
-      do: Menus.begin_table_close(state)
+      do: Menus.close(state)
 
   # Blocks changed near the player: its pose is sampled again, and mining and
   # an open block menu check their block.

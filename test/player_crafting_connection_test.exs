@@ -111,7 +111,6 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     {:ok, saved} =
       PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
-    assert saved.inventory.slots == inv.slots and saved.outbox == nil and
-             saved.transfer_sequence == 0
+    assert saved.inventory.slots == inv.slots
   end
 end

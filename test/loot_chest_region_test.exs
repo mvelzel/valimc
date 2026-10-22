@@ -117,10 +117,7 @@ defmodule Valimc.LootChestRegionTest do
   # retried with a fresh grant.
   defp open(ctx, position, mode \\ :survival, tries \\ 5) do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
-    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    ref = make_ref()
-    assert :ok = Region.request_table(owner, self(), ref, position, grant(position, mode))
-    assert_receive {:event, {:table_admitted, ^ref, ^owner, decision}}
+    decision = Region.menu(owner, self(), position, grant(position, mode))
 
     if decision == {:error, :expired_menu_grant} and tries > 1,
       do: open(ctx, position, mode, tries - 1),

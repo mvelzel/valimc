@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerExperience do
-  @moduledoc "Player-owned native float32 XP progress; durable grants belong to the player journal."
+  @moduledoc "Player-owned native float32 XP progress."
   defstruct level: 0, progress: 0.0, total: 0
   @max 2_147_483_647
 

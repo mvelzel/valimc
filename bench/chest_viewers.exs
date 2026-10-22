@@ -20,27 +20,14 @@ results =
     :ok = RegionStorage.import(dataset, :overworld, key, %{containers: containers})
     {:ok, owner} = World.owner(Valimc.World.section(:overworld, key, :section))
     :ok = Bench.Blocks.set(position, block)
-    parent = self()
 
     clients =
       for _ <- 1..count do
         pid =
           spawn(fn ->
-            loop = fn loop ->
-              receive do
-                {:event, {:table_admitted, ref, _, decision}} ->
-                  if decision != :valid and not match?({:chest, _, _}, decision),
-                    do: exit({:invalid_view, decision})
-
-                  send(parent, {:observed, self(), ref})
-                  loop.(loop)
-
-                :stop ->
-                  :ok
-              end
+            receive do
+              :stop -> :ok
             end
-
-            loop.(loop)
           end)
 
         {pid, make_ref()}
@@ -62,27 +49,17 @@ results =
       }
     end
 
-    await = fn pid, ref ->
-      receive do
-        {:observed, ^pid, ^ref} -> :ok
-      after
-        1000 -> raise "Viewer query timed out"
-      end
+    # A grant's decision comes back at once (VMC-077i3); a viewer subscribes.
+    query = fn pid, kind, ref ->
+      decision = Region.menu(owner, pid, position, grant.(kind, ref))
+
+      if decision != :valid and not match?({:chest, _, _}, decision),
+        do: raise("Invalid view: #{inspect(decision)}")
     end
 
     # Both versions establish the same initial private storage snapshot before measurement.
-    for {pid, ref} <- clients do
-      :ok =
-        Region.request_table(
-          owner,
-          pid,
-          ref,
-          position,
-          grant.(if(subscribed, do: :subscribe, else: :refresh), ref)
-        )
-
-      await.(pid, ref)
-    end
+    for {pid, ref} <- clients,
+        do: query.(pid, if(subscribed, do: :subscribe, else: :refresh), ref)
 
     # An identical warm round precedes each timed sample.
     cycles = 40
@@ -102,11 +79,7 @@ results =
             System.monotonic_time(:millisecond)
           ) == :valid
 
-        if not subscribed do
-          ref = make_ref()
-          :ok = Region.request_table(owner, pid, ref, position, grant.(:check, view_ref))
-          await.(pid, ref)
-        end
+        if not subscribed, do: query.(pid, :check, view_ref)
       end
     end
 

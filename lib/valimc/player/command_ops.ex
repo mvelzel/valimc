@@ -1,21 +1,20 @@
 defmodule Valimc.Player.CommandOps do
   @moduledoc """
-  Command effects on one player, run by that player's connection (VMC-053b):
+  Command effects on one player, run by that player's session (VMC-053b):
   game mode, teleport, items, effects, experience and `/kill`. Every target,
   the command's own player too, gets them through a bounded call from the
   command's job (`Valimc.Commands.Remote`), so feedback reports what the
   target did.
   """
-  alias Valimc.{Inventory, PlayerExperience, World}
+  alias Valimc.{Inventory, PlayerExperience}
   alias Valimc.Living.{Effects, Health}
-  alias Valimc.Command.{Error, ItemPredicate}
+  alias Valimc.Command.ItemPredicate
 
   alias Valimc.Player.{
     CreativeInventory,
     GameModes,
     ItemUse,
     Teleports,
-    Transfers,
     Vitals
   }
 
@@ -37,7 +36,6 @@ defmodule Valimc.Player.CommandOps do
   def apply(state, {:teleport, pose}), do: {:ok, Teleports.apply(state, pose)}
 
   def apply(state, {:give, stack, count}) do
-    busy!(state)
     max = ItemStack.max_stack_size(stack)
 
     {inventory, drops} =
@@ -50,17 +48,17 @@ defmodule Valimc.Player.CommandOps do
         {inventory, if(remainder, do: [remainder | drops], else: drops)}
       end)
 
+    # The overflow is thrown from the eyes (vanilla's `Player.drop`).
     state =
-      %{state | inventory: inventory}
-      |> CreativeInventory.resync_inventory()
-      |> ItemUse.publish_equipment()
+      case Valimc.Player.Items.drop(state, inventory, Enum.reverse(drops)) do
+        {:ok, state} -> state
+        :error -> %{state | inventory: inventory}
+      end
 
-    for drop <- Enum.reverse(drops), do: drop_item(state, drop)
-    {:ok, state}
+    {:ok, state |> CreativeInventory.resync_inventory() |> ItemUse.publish_equipment()}
   end
 
   def apply(state, {:clear, predicate, max_count}) do
-    busy!(state)
     counting = max_count == 0
     # Vanilla order: hotbar, main, armour feet to head, offhand, crafting grid.
     slots = Enum.to_list(36..44) ++ Enum.to_list(9..35) ++ [8, 7, 6, 5, 45, 1, 2, 3, 4]
@@ -192,22 +190,6 @@ defmodule Valimc.Player.CommandOps do
 
   defp take(count, max_count, _total) when max_count < 0, do: count
   defp take(count, max_count, total), do: min(count, max(max_count - total, 0))
-
-  defp busy!(state) do
-    if Transfers.inventory_pending?(state),
-      do:
-        Error.throw!(%Error{
-          message: Valimc.Text.literal("An inventory transaction is in progress; try again")
-        })
-  end
-
-  # The give overflow drops at the player's eyes (vanilla tosses it forward).
-  defp drop_item(state, stack) do
-    %{x: x, y: y, z: z} = state.player
-
-    with {:ok, owner} <- World.owner(World.section(state.player.dimension, World.chunk_key(x, z))),
-         do: Valimc.World.Region.create_item(owner, stack, {x, y + 1.62 - 0.3, z})
-  end
 
   @doc "A fresh effect rung for `/effect give`."
   def rung(ticks, amplifier, hide),

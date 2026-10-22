@@ -3,7 +3,7 @@ defmodule Valimc.FlightConnectionTest do
   @moduletag :tcp
   alias Valimc.{Inventory, Players, PlayerAbilities, PlayerStore}
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -74,15 +74,6 @@ defmodule Valimc.FlightConnectionTest do
 
   defp toggle(client, flags), do: Client.send_packet(client, :play, "player_abilities", <<flags>>)
 
-  defp drop(client) do
-    Client.send_packet(client, :play, "player_action", [
-      Wire.varint(ItemTypes.action_id("drop_item")),
-      Wire.position({0, 0, 0}),
-      <<0>>,
-      Wire.varint(0)
-    ])
-  end
-
   test "accepted flight persists with inventory and reconnect advertises it without request echoes",
        ctx do
     client = login(ctx)
@@ -137,72 +128,5 @@ defmodule Valimc.FlightConnectionTest do
     rejoined = login(ctx)
     assert rejoined.abilities.flags == 15
     close(ctx, rejoined)
-  end
-
-  test "late transfer completion cannot roll back flight accepted while the destination is stalled",
-       ctx do
-    client = login(ctx) |> toggle(2) |> barrier()
-    {:ok, _} = Valimc.TestWorld.item_owner(ctx.key)
-    writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
-    :sys.suspend(writer)
-
-    try do
-      drop(client)
-
-      wait(fn ->
-        s = state(ctx)
-        s.recovery != nil and s.recovery.stage == :delivery
-      end)
-
-      assert saved(ctx).flying and saved(ctx).outbox != nil
-      client = toggle(client, 0) |> barrier()
-      refute state(ctx).player.abilities.flying
-      :sys.resume(writer)
-      wait(fn -> state(ctx).recovery == nil end)
-      refute state(ctx).player.abilities.flying
-      assert state(ctx).inventory.slots[36].count == 6
-      close(ctx, client)
-      refute saved(ctx).flying
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      rejoined = login(ctx)
-
-      assert rejoined.abilities.flags == 13 and
-               rejoined.inventory.items |> Enum.at(36) |> Map.fetch!(:count) == 6
-
-      close(ctx, rejoined)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "disconnect preserves newer flight while keeping a pending transfer fenced", ctx do
-    client = login(ctx)
-    {:ok, _} = Valimc.TestWorld.item_owner(ctx.key)
-    writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
-    :sys.suspend(writer)
-
-    try do
-      drop(client)
-
-      wait(fn ->
-        s = state(ctx)
-        s.recovery != nil and s.recovery.stage == :delivery
-      end)
-
-      client = toggle(client, 2) |> barrier()
-      ref = Process.monitor(state(ctx).player.pid)
-      Client.close(client)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}
-      assert saved(ctx).flying and saved(ctx).outbox != nil
-      assert saved(ctx).inventory.slots[36].count == 6
-      :sys.resume(writer)
-      departed(ctx)
-      rejoined = login(ctx)
-      assert rejoined.abilities.flags == 15
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      close(ctx, rejoined)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
   end
 end

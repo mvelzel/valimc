@@ -70,8 +70,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 18.0 and saved.frozen_ticks == 140
 
-    assert saved.inventory.slots == inventory.slots and saved.transfer_sequence == 0 and
-             saved.outbox == nil
+    assert saved.inventory.slots == inventory.slots
 
     {_client, owner} = login(ctx)
     assert living(owner).health.value == 18.0
@@ -89,7 +88,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.health.value == 0.0 and saved.transfer_sequence == 2 and saved.outbox == nil
+    assert saved.health.value == 0.0
     assert saved.inventory.slots == %{} and map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
     assert state(pid).pose_checked == nil
     assert living(pid).freezing.damage_phase == 0

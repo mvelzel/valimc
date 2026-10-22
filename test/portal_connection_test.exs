@@ -10,7 +10,6 @@ defmodule Valimc.PortalConnectionTest do
   alias Valimc.Portal.Blocks
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  alias Valimc.World.Directory
 
   setup do
     nonce = System.unique_integer([:positive])

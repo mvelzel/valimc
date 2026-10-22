@@ -136,7 +136,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     _client = respawn(client, pid)
     assert {:ok, stored} = saved(ctx, name)
     assert stored.last_death == {0, 64, 0} and stored.health.value == 20
-    assert stored.transfer_sequence == 1 and stored.outbox == nil
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     Client.close(client)
   end
@@ -172,8 +171,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert source.health.value == 20 and
              source.last_death == {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
 
-    assert source.inventory.slots == %{} and source.outbox == nil and
-             source.transfer_sequence == 0
+    assert source.inventory.slots == %{}
 
     {_client, new_pid} = login(name)
     assert living(new_pid).health.value == 20 and state(new_pid).life_stage == :alive
@@ -217,7 +215,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     end)
 
     assert {:ok, source} = saved(ctx, name)
-    assert source.health.value == 20 and source.inventory.slots == %{} and source.outbox == nil
+    assert source.health.value == 20 and source.inventory.slots == %{}
   end
 
   test "creative immunity, living/duplicate respawn requests and expired damage cannot resurrect or mutate",

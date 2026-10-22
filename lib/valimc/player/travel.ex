@@ -6,18 +6,17 @@ defmodule Valimc.Player.Travel do
   velocity and rotation, and the client rebuilds its level from a respawn
   packet that keeps all data.
 
-  A player's durable state names its dimension, and a pending transfer (an
-  outbox) targets the dimension it was prepared in. A travel therefore waits
-  until no save, transfer, recovery or world job of the old dimension is in
-  flight, then saves the player at the destination before it switches: a
-  crash before that save leaves the player where it was, one after it at the
-  destination. Respawning after a death elsewhere crosses the same way
+  A player's durable state names its dimension. A travel therefore waits
+  until no save or world job of the old dimension is in flight, then saves
+  the player at the destination before it switches: a crash before that save
+  leaves the player where it was, one after it at the destination. Respawning after a death elsewhere crosses the same way
   (`leave/2`).
   """
 
   import Valimc.Net.Codec, only: [send_packets: 2]
 
   alias Valimc.Players
+  alias Valimc.Session.Jobs
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.{Movement, Vitals}
   alias Valimc.Protocol.Packets
@@ -49,14 +48,8 @@ defmodule Valimc.Player.Travel do
 
   @doc "Whether the old dimension's work has settled, so the player can leave it."
   def settled?(state) do
-    state.save_ref == nil and state.recovery == nil and state.life_save == nil and
-      state.use_save == nil and state.table_job == nil and not state.table_closing and
-      state.crafting_repeat == nil and state.creative_input.queued == 0 and
-      state.placement_queued == 0 and state.table_queued == 0 and
-      not Enum.any?(
-        Map.keys(state.jobs.active),
-        &(&1 in [:placement, :pickup, :mining, :experience])
-      )
+    state.save_ref == nil and state.life_save == nil and state.use_save == nil and
+      not Jobs.active?(state.jobs, :placement)
   end
 
   @doc "Save the player at the destination once settled; `finish/2` follows the save."

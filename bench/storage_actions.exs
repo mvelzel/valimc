@@ -6,12 +6,10 @@
 #
 # Bytes are the growth of every file under the world folder over the actions,
 # after a flush, with checkpoints paused (as `/save-off`): what the actions
-# append to the log. Latency is from the first request to the last durable
-# step the player waits for (a pickup and a click are player-to-region
-# transfers).
+# append to the log. Latency is the owner call a player's group makes for it
+# (VMC-077i3: a pickup and a click are plain calls in the player's owner).
 defmodule Bench.StorageActions do
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerStore}
-  alias Valimc.{TransferDelivery, World}
+  alias Valimc.{GameMode, Inventory, World}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Containers, Region, RegionStorage}
 
@@ -71,112 +69,36 @@ defmodule Bench.StorageActions do
     Valimc.TestWaitless.await_gone(key)
   end
 
-  def snapshot(position) do
-    %{
-      pose: %{
-        x: elem(position, 0) + 0.5,
-        y: 64.0,
-        z: elem(position, 2) + 0.5,
-        yaw: 0.0,
-        pitch: 0.0
-      },
-      inventory: %Inventory{},
-      game_mode: GameMode.new(:survival),
-      flying: false,
-      fall_distance: 0.0,
-      frozen_ticks: 0,
-      velocity: {0.0, 0.0, 0.0},
-      health: %{value: 20.0, hurt_ticks: 0, death_ticks: 0},
-      last_death: nil,
-      air_supply: 300,
-      food: %PlayerFood{},
-      transfer_sequence: 0,
-      outbox: nil
-    }
-  end
-
-  def pickup(owner, key, uuid, writer, fence, snapshot, item) do
+  def pickup(owner, uuid, inventory, item) do
     actor = %{
       uuid: uuid,
+      entity_id: 1,
       box: {item.x - 0.3, item.y, item.z - 0.3, item.x + 0.3, item.y + 1.8, item.z + 0.3},
-      game_mode: snapshot.game_mode,
-      health: snapshot.health
+      game_mode: GameMode.new(:survival),
+      health: %{value: 20.0}
     }
 
-    {:ok, grant} = Region.reserve_pickup(owner, actor, item.uuid)
-    {:ok, _, remainder, _} = Inventory.pickup_stack(snapshot.inventory, grant.before)
-    intent = %{kind: :pickup, key: key, request: Map.put(grant, :remainder, remainder)}
-
-    transfer(writer, fence, uuid, fn ref ->
-      PlayerStore.prepare_pickup(writer, fence, snapshot, intent, ref)
-    end)
+    {:ok, inventory, _taken} = Region.take_item(owner, actor, item.uuid, inventory)
+    inventory
   end
 
-  def click(owner, key, uuid, writer, fence, snapshot, position, entry, sequence) do
+  def click(owner, position, inventory) do
     {x, y, z} = position
 
-    request = %{
-      source: uuid,
-      sequence: sequence,
-      permit: :crypto.strong_rand_bytes(16),
-      position: position,
-      revision: entry.revision,
-      rows: 3,
-      slots: entry.slots,
-      inventory: snapshot.inventory,
-      action: :pickup,
-      slot: 0,
-      button: 0
-    }
-
     actor = %{
-      uuid: uuid,
       mode: :survival,
       eye: {x + 0.5, y + 1.6, z + 0.5},
+      position: {x + 0.5, y, z + 0.5},
       health: 20.0,
       expires: System.monotonic_time(:millisecond) + 200
     }
 
-    {:ok, request} = Region.admit_container_transfer(owner, request, actor)
-    intent = %{kind: :container, key: key, request: request}
+    click = %{inventory: inventory, action: :pickup, slot: 0, button: 0}
 
-    transfer(writer, fence, uuid, fn ref ->
-      PlayerStore.prepare_container(writer, fence, snapshot, intent, ref)
-    end)
-  end
+    {:ok, inventory, _, _} =
+      Region.container_click(owner, self(), make_ref(), position, actor, click)
 
-  # Source intent, delivery, completion: the three durable steps of a transfer.
-  defp transfer(writer, _fence, uuid, prepare) do
-    ref = make_ref()
-    prepare.(ref)
-
-    {fence, pending} =
-      receive do
-        {:player_transfer_saved, ^ref, {:ok, fence, pending}} -> {fence, pending}
-      after
-        10_000 -> raise "prepare timeout"
-      end
-
-    token = make_ref()
-    {:ok, job} = TransferDelivery.start(self(), token, uuid, pending, :overworld)
-
-    result =
-      receive do
-        {:transfer_delivered, _, ^token, result} -> result
-      after
-        10_000 -> raise "delivery timeout"
-      end
-
-    Process.demonitor(job.monitor, [:flush])
-    {:ok, :applied} = result
-    ref = make_ref()
-    PlayerStore.complete_transfer(writer, fence, ref)
-
-    receive do
-      {:player_transfer_saved, ^ref, {:ok, fence, resolved}} -> {fence, resolved}
-    after
-      10_000 -> raise "completion timeout"
-    end
+    inventory
   end
 
   def median(times), do: Enum.at(Enum.sort(times), div(length(times), 2)) / 1000
@@ -186,7 +108,6 @@ defmodule Bench.StorageActions do
     %{owner: owner, records: records, positions: positions} = populate(base, key)
     {pid, _} = owner
     uuid = <<9700::128>>
-    {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     flush = fn -> :ok = Region.flush(pid) end
     flush.()
     Valimc.World.Saving.set_auto(false)
@@ -194,13 +115,13 @@ defmodule Bench.StorageActions do
     # Pickups.
     before = bytes(base)
 
-    {fence, snapshot, pickups} =
+    {_inventory, pickups} =
       records
       |> Enum.take(20)
-      |> Enum.reduce({fence, snapshot(hd(positions)), []}, fn item, {fence, snapshot, times} ->
+      |> Enum.reduce({%Inventory{}, []}, fn item, {inventory, times} ->
         started = System.monotonic_time(:microsecond)
-        {fence, snapshot} = pickup(owner, key, uuid, writer, fence, snapshot, item)
-        {fence, snapshot, [System.monotonic_time(:microsecond) - started | times]}
+        inventory = pickup(owner, uuid, inventory, item)
+        {inventory, [System.monotonic_time(:microsecond) - started | times]}
       end)
 
     flush.()
@@ -209,38 +130,16 @@ defmodule Bench.StorageActions do
     # Chest clicks: each takes the first stack of a chest into the cursor and
     # the next click puts nothing back (a fresh chest each time).
     before = bytes(base)
-    resource = :sys.get_state(pid).resource
 
-    {fence, _snapshot, clicks} =
-      positions
-      |> Enum.take(20)
-      |> Enum.with_index(1)
-      |> Enum.reduce({fence, %{snapshot | inventory: %Inventory{}}, []}, fn {position, i},
-                                                                            {fence, snap, times} ->
-        entry = resource.containers.entries[position]
+    clicks =
+      for position <- Enum.take(positions, 20) do
         started = System.monotonic_time(:microsecond)
-
-        {fence, next} =
-          click(
-            owner,
-            key,
-            uuid,
-            writer,
-            fence,
-            snap,
-            position,
-            entry,
-            snap.transfer_sequence + 1
-          )
-
-        times = [System.monotonic_time(:microsecond) - started | times]
-        _ = i
-        {fence, %{next | inventory: %Inventory{}}, times}
-      end)
+        _inventory = click(owner, position, %Inventory{})
+        System.monotonic_time(:microsecond) - started
+      end
 
     flush.()
     click_bytes = div(bytes(base) - before, 20)
-    :ok = PlayerStore.close(writer, fence, %{snapshot | inventory: %Inventory{}})
 
     # Block edits: one cell each, as creative placement commits it.
     {ox, oz} = origin(key)

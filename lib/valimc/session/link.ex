@@ -62,7 +62,6 @@ defmodule Valimc.Session.Link do
 
   # Region events (`Valimc.World.publish/2`) a session acts on too.
   @session_events [
-    :table_admitted,
     :container_changed,
     :container_progress,
     :container_closed,
@@ -102,7 +101,7 @@ defmodule Valimc.Session.Link do
   def session(state) do
     state
     |> Map.drop(@link_keys)
-    |> Map.merge(%{socket: nil, inputs: :queue.new(), pickup_cache: %{}})
+    |> Map.merge(%{socket: nil, pickup_cache: %{}})
   end
 
   @doc """

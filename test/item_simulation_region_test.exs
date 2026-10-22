@@ -3,7 +3,7 @@ defmodule Valimc.ItemSimulationRegionTest do
   alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemTransfers, Region}
+  alias Valimc.World.Region
 
   setup :scope
 
@@ -37,15 +37,7 @@ defmodule Valimc.ItemSimulationRegionTest do
         }
       end
 
-    {:ok, digest} =
-      ItemTransfers.digest(key, %{
-        source: <<99::128>>,
-        sequence: 1,
-        records: Enum.take(records, 1)
-      })
-
-    receipts = %{<<99::128>> => %{sequence: 1, digest: digest}}
-    Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
+    Valimc.TestDisk.write(base, key, :items, %{records: records})
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
@@ -59,7 +51,7 @@ defmodule Valimc.ItemSimulationRegionTest do
       File.rm_rf(base)
     end)
 
-    %{key: key, owner: owner, base: base, records: records, receipts: receipts}
+    %{key: key, owner: owner, base: base, records: records}
   end
 
   def state(ctx), do: Valimc.TestRegion.section(ctx.owner)
@@ -102,7 +94,7 @@ defmodule Valimc.ItemSimulationRegionTest do
   @tag edge: true, motion: %ItemMotionState{no_gravity: true}
 
   @tag motion: %ItemMotionState{age: 5998}
-  test "despawn is durable and original source replay cannot recreate the item", ctx do
+  test "despawn is durable", ctx do
     wait(ctx, fn ->
       state(ctx).entities.store.entries == %{} and not Valimc.TestRegion.writing?(state(ctx))
     end)
@@ -111,10 +103,7 @@ defmodule Valimc.ItemSimulationRegionTest do
 
     saved = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
-    assert saved.records == [] and saved.receipts == ctx.receipts
-    transfer = %{source: <<99::128>>, sequence: 1, records: ctx.records}
-    assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, transfer)
-    assert state(ctx).entities.store.entries == %{}
+    assert saved == nil
   end
 
   @tag edge: true, motion: %ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}

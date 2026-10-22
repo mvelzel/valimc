@@ -108,6 +108,12 @@ defmodule Valimc.TestClient do
       else: await(auto_reply(client, phase, packet, body), phase, name, limit - 1)
   end
 
+  @doc "Read until the entity `id` spawns."
+  def await_spawn(client, id) do
+    {body, client} = await(client, :play, "add_entity")
+    if match?({^id, _}, Wire.take_varint(body)), do: client, else: await_spawn(client, id)
+  end
+
   def auto_reply(client, :play, "player_position", body) do
     {id,
      <<x::float-64, y::float-64, z::float-64, _delta::binary-size(24), yaw::float-32,
@@ -350,8 +356,8 @@ defmodule Valimc.TestDisk do
   @junk "corrupt"
 
   @doc """
-  `:items` as `%{records, receipts, ledger}` (the entity records, the
-  players' transfer receipts and the handoff ledger), `:containers` as their
+  `:items` as `%{records, ledger}` (the entity records and the handoff
+  ledger), `:containers` as their
   codec encodes them (nil while empty), `:blocks` the cells not folded into
   column images; `:corrupt` when the checkpoint is unreadable.
   """
@@ -365,9 +371,9 @@ defmodule Valimc.TestDisk do
   defp encode(:blocks, _key, parts), do: parts.cells
 
   defp encode(:items, _key, parts) do
-    if parts.items == [] and parts.receipts == %{} and parts.ledger == Entities.empty_ledger(),
+    if parts.items == [] and parts.ledger == Entities.empty_ledger(),
       do: nil,
-      else: %{records: parts.items, receipts: parts.receipts, ledger: parts.ledger}
+      else: %{records: parts.items, ledger: parts.ledger}
   end
 
   defp encode(:containers, key, parts) do
@@ -380,8 +386,8 @@ defmodule Valimc.TestDisk do
   end
 
   @doc """
-  Replace `part` of a region that is not running: `:items` as `%{records,
-  receipts}` (and optionally `ledger`), `:containers` bytes of their codec (nil
+  Replace `part` of a region that is not running: `:items` as `%{records}`
+  (and optionally `ledger`), `:containers` bytes of their codec (nil
   for none), `:blocks` cells to add.
   """
   def write(base, key, part, value) when part in [:blocks, :items, :containers] do
@@ -395,10 +401,10 @@ defmodule Valimc.TestDisk do
     :ok = Checkpoint.write(path(base, key), seq, records)
   end
 
-  defp owns?(:items, {kind, _}) when kind in [:entity, :receipt, :handoff, :handoff_in],
+  defp owns?(:items, {kind, _}) when kind in [:entity, :handoff, :handoff_in],
     do: true
 
-  defp owns?(:containers, {kind, _}) when kind in [:container, :container_receipt, :containers],
+  defp owns?(:containers, {kind, _}) when kind in [:container, :containers],
     do: true
 
   defp owns?(_, _), do: false
@@ -412,10 +418,7 @@ defmodule Valimc.TestDisk do
     ledger = Map.get(data, :ledger, Entities.empty_ledger())
     {:ok, items} = Entities.restore(key, data.records, ledger)
 
-    Map.merge(
-      RegionStorage.part_records(:items, items),
-      RegionStorage.part_records(:receipts, Map.get(data, :receipts, %{}))
-    )
+    RegionStorage.part_records(:items, items)
   end
 
   defp records(:containers, key, bytes) do

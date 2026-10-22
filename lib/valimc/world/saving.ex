@@ -3,7 +3,7 @@ defmodule Valimc.World.Saving do
   The autosave switch (VMC-010b), vanilla's per-level `noSave` that
   `/save-off` and `/save-on` change: region owners skip their periodic save of
   changed cells and scheduled ticks while it is off. Player saves, the world
-  clock, transfers and other journaled writes continue, as do saves at unload
+  clock and the log's frames continue, as do saves at unload
   and shutdown; the switch resets to on at startup, as in vanilla.
 
   A flag in `:persistent_term`, set at application start; region owners read it.

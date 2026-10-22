@@ -207,23 +207,6 @@ defmodule Valimc.World.Region do
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
-  @doc "Authorize one menu operation on the block owner; replies are ordered with its block events."
-  def request_table({pid, epoch}, connection, ref, position, grant)
-      when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do
-    case Process.info(pid, :message_queue_len) do
-      {:message_queue_len, size} ->
-        if size <= Valimc.config(:max_mailbox) do
-          send(pid, {:table_request, epoch, connection, ref, position, grant})
-          :ok
-        else
-          {:error, :table_owner_unavailable}
-        end
-
-      _ ->
-        {:error, :table_owner_unavailable}
-    end
-  end
-
   @doc "Retire only the specified connection's current view in this owner incarnation."
   def unsubscribe_container({pid, epoch}, connection, ref)
       when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do
@@ -344,34 +327,7 @@ defmodule Valimc.World.Region do
     :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
-  @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
-  def reserve_mining({pid, epoch}, positions),
-    do: call(pid, {:reserve_mining, epoch, positions}, budget(pid, 250))
-
-  @doc "Keep the original block fence alive during a long attempt; renewal cannot recreate it."
-  def renew_mining({pid, epoch}, permit),
-    do: call(pid, {:renew_mining, epoch, permit}, budget(pid, 250))
-
-  @doc "Retire an uncommitted attempt without waiting for reservation expiry."
-  def release_mining({pid, epoch}, permit),
-    do: call(pid, {:release_mining, epoch, permit}, budget(pid, 250))
-
-  @doc "Internal inbox: the caller must have durably prepared and fenced the player's mining intent."
-  def apply_mining_transfer({pid, epoch}, transfer),
-    do: call(pid, {:mining_transfer, epoch, transfer}, budget(pid, 6000))
-
-  @doc "Fence the exact prepared placement context on its existing block owner."
-  def reserve_placement({pid, epoch}, revision, expected),
-    do: call(pid, {:reserve_placement, epoch, revision, expected}, budget(pid, 250))
-
-  def release_placement({pid, epoch}, permit),
-    do: call(pid, {:release_placement, epoch, permit}, budget(pid, 250))
-
-  @doc "Internal inbox: delivery follows durable, leased source consumption."
-  def apply_placement_transfer({pid, epoch}, transfer),
-    do: call(pid, {:placement_transfer, epoch, transfer}, budget(pid, 6000))
-
-  # Scene-only API: these operations must never consume a player inventory.
+  # Scene-only API: these operations never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
     do: call(pid, {:create_item, epoch, stack, position}, budget(pid, 6000))
 
@@ -381,22 +337,42 @@ defmodule Valimc.World.Region do
   def remove_item({pid, epoch, id, revision}),
     do: call(pid, {:remove_item, epoch, id, revision}, budget(pid, 6000))
 
-  @doc "Trusted accepted player contact; a new receipt slot is durable before this returns a grant."
-  def reserve_pickup({pid, epoch}, actor, item_uuid),
+  @doc """
+  A block menu's grant for the player whose connection is `viewer`
+  (VMC-077i3, `Valimc.MenuAccess`): the decision, at once.
+  """
+  def menu({pid, epoch}, viewer, position, grant),
+    do: call(pid, {:menu, epoch, viewer, position, grant}, budget(pid, 1000))
+
+  @doc """
+  A click in the container menu at `position` that `viewer`'s view `ref`
+  shows (`Valimc.World.ContainerClicks`): `{:ok, inventory, entry, learned}`.
+  """
+  def container_click({pid, epoch}, viewer, ref, position, actor, click),
     do:
-      call(
-        pid,
-        {:reserve_pickup, epoch, actor, item_uuid,
-         System.monotonic_time(:millisecond) + budget(pid, 250)},
-        budget(pid, 6000)
-      )
+      call(pid, {:container_click, epoch, viewer, ref, position, actor, click}, budget(pid, 1000))
 
-  @doc "Internal pickup inbox; delivery follows the player's durably prepared original inventory."
-  def apply_pickup_transfer({pid, epoch}, request),
-    do: call(pid, {:pickup_transfer, epoch, request}, budget(pid, 6000))
+  @doc "A survival break of the block `expected` at `position`, with its drops `records`."
+  def mine_block({pid, epoch}, position, expected, records),
+    do: call(pid, {:mine_block, epoch, position, expected, records}, budget(pid, 1000))
 
-  def release_pickup({pid, epoch}, token, source),
-    do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
+  @doc """
+  A player's drop (VMC-077i3): the section adopts the entity `records`, after
+  a running item plan if one runs.
+  """
+  def drop_items({pid, epoch}, records),
+    do: call(pid, {:drop_items, epoch, records}, budget(pid, 1000))
+
+  @doc """
+  A player's pickup: what fits `inventory` of the item `uuid` the player
+  (`actor`) touches. `{:ok, inventory, taken}` or `{:error, reason}`.
+  """
+  def take_item({pid, epoch}, actor, uuid, inventory),
+    do: call(pid, {:take_item, epoch, actor, uuid, inventory}, budget(pid, 1000))
+
+  @doc "A player's XP pickup: one unit of the orb `uuid` of `value` it touches."
+  def take_orb({pid, epoch}, actor, uuid, value),
+    do: call(pid, {:take_orb, epoch, actor, uuid, value}, budget(pid, 1000))
 
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
@@ -442,24 +418,6 @@ defmodule Valimc.World.Region do
   @doc "Internal entity handoff inbox; delivery must follow a durably committed source intent."
   def apply_entity_handoff({pid, epoch}, transfer),
     do: call(pid, {:entity_handoff, epoch, transfer}, budget(pid, 6000))
-
-  # Internal inbox only; source persistence/lease fencing must precede gameplay use.
-  def apply_item_transfer({pid, epoch}, transfer),
-    do: call(pid, {:item_transfer, epoch, transfer}, budget(pid, 6000))
-
-  def item_transfer_receipt({pid, epoch}, source),
-    do: call(pid, {:item_transfer_receipt, epoch, source}, budget(pid, 2000))
-
-  def container_transfer_receipt({pid, epoch}, source),
-    do: call(pid, {:container_transfer_receipt, epoch, source}, budget(pid, 2000))
-
-  @doc "Internal action admission against the current chest and fresh player context."
-  def admit_container_transfer({pid, epoch}, request, actor),
-    do: call(pid, {:admit_container_transfer, epoch, request, actor}, budget(pid, 6000))
-
-  @doc "Deliver a prepared source intent; absent matching action admission permits rejection only."
-  def container_transfer({pid, epoch}, request),
-    do: call(pid, {:container_transfer, epoch, request}, budget(pid, 6000))
 
   ## Group
 
@@ -891,7 +849,6 @@ defmodule Valimc.World.Region do
   # A session's job timer or task reply (`Valimc.Session.Jobs`) comes to the
   # group that started it.
   def handle_info({:job_timeout, _, _} = message, state), do: claim(state, message)
-  def handle_info({:transfer_delivered, _, _, _} = message, state), do: claim(state, message)
   def handle_info({ref, _} = message, state) when is_reference(ref), do: claim(state, message)
 
   def handle_info({:tick, token}, %{tick_clock: %{token: token}} = state) do
@@ -943,13 +900,6 @@ defmodule Valimc.World.Region do
     case state.epochs do
       %{^epoch => key} -> section_info(state, key, message)
       _ -> elsewhere(state, {:epoch, epoch}, {:info, info})
-    end
-  end
-
-  def handle_info({:table_request, epoch, _, _, _, _} = message, state) do
-    case state.epochs do
-      %{^epoch => key} -> section_info(state, key, message)
-      _ -> elsewhere(state, {:epoch, epoch}, {:info, message})
     end
   end
 

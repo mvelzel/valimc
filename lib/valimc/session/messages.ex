@@ -15,37 +15,16 @@ defmodule Valimc.Session.Messages do
     Packets
   }
 
-  alias Valimc.Session.Jobs
-  alias Valimc.Session.Events
+  alias Valimc.Session.{Events, Jobs, Replication}
   alias Valimc.Net.LoginFlow
-  alias Valimc.Player.Placement
-  alias Valimc.Player.Menus
-  alias Valimc.Player.CreativeInventory
-  alias Valimc.Player.Transfers
-  alias Valimc.Player.Mining
-  alias Valimc.Session.Replication
-  alias Valimc.Player.Movement
-  alias Valimc.Player.ItemUse
-  alias Valimc.Player.Vitals
+  alias Valimc.Player.{CreativeInventory, Items, ItemUse, Menus, Mining, Movement, Vitals}
 
   import Valimc.Net.Codec,
     only: [send_packets: 2, crypt_bytes: 3, reject: 2, reset_window: 1]
 
-  alias Valimc.{
-    Metrics,
-    PlayerContainerQuery,
-    PlayerInput,
-    PlayerPickupIntent,
-    PlayerStore,
-    TransferDelivery,
-    World
-  }
-
+  alias Valimc.{Inventory, Metrics, PlayerInput, PlayerStore, World}
   alias Valimc.Player.State, as: PlayerState
-
-  alias Valimc.World.TickClock
-
-  alias Valimc.World.ChestLidReplication
+  alias Valimc.World.{ChestLidReplication, TickClock}
 
   @resistance EffectTypes.id("resistance")
   # Events region owners publish to their visibility topics (`Valimc.World.publish/2`).
@@ -57,15 +36,6 @@ defmodule Valimc.Session.Messages do
     :item_pickup,
     :experience_pickup
   ]
-
-  defguardp inventory_busy(state)
-            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
-                   state.table_job != nil or
-                   (is_map_key(state.jobs.active, :placement) and
-                      :erlang.map_get(:placement, state.jobs.active).command.mode == :survival)
-
-  defguardp inventory_pending(state)
-            when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
 
   @doc "Route `message`: a session job's outcome (`Valimc.Session.Jobs`) or another message."
   def dispatch(message, %{jobs: %Jobs{}} = state) do
@@ -96,38 +66,24 @@ defmodule Valimc.Session.Messages do
   def claims?(session, {:job_timeout, kind, ref}),
     do: match?(%{ref: ^ref}, Jobs.get(session.jobs, kind))
 
-  def claims?(session, {:transfer_delivered, worker, token, _}),
-    do: match?(%{job: %{pid: ^worker, token: ^token}}, session.recovery)
-
   def claims?(session, {:DOWN, ref, :process, _, _}), do: owns_ref?(session, ref)
   def claims?(session, {ref, _}) when is_reference(ref), do: owns_ref?(session, ref)
   def claims?(_session, _message), do: false
 
   defp owns_ref?(session, ref) do
     Map.has_key?(session.jobs.refs, ref) or ref == session.store_monitor or
-      Map.has_key?(session.pose_sources, ref) or
-      match?(%{monitor: ^ref}, session.table_menu) or
-      match?(%{monitor: ^ref}, session.table_job) or
-      match?(%{task: %Task{ref: ^ref}}, session.table_job) or
-      match?(%{job: %{monitor: ^ref}}, session.recovery)
+      Map.has_key?(session.pose_sources, ref)
   end
 
-  @doc "A session ends: its views and jobs are released and the player saves."
+  @doc """
+  A session ends: its view and jobs are released, the cursor and grid drop
+  (vanilla's `removed` of the open menu for a player who disconnected), and
+  the player saves.
+  """
   def terminate(state) do
     Menus.retire_container_view(state)
-    Menus.cancel_table_query(state)
-    Transfers.cancel_pickup_query(state)
-    Transfers.cancel_experience_query(state)
-    Mining.cancel_mining(state)
     Jobs.cancel_all(state.jobs)
-
-    if state.recovery do
-      Process.cancel_timer(state.recovery.timer)
-      if state.recovery.retry_timer, do: Process.cancel_timer(state.recovery.retry_timer)
-
-      if state.recovery.job && Process.whereis(Valimc.TransferWorkers) != nil,
-        do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, state.recovery.job.pid)
-    end
+    state = if state.phase == :play, do: return_items(%{state | mining: nil}), else: state
 
     if state.player_store && state.phase == :play do
       # Observations can lag quiet simulation clocks. Persist the owner state;
@@ -146,6 +102,16 @@ defmodule Valimc.Session.Messages do
     end
 
     :ok
+  end
+
+  defp return_items(state) do
+    with :alive <- state.life_stage,
+         {:ok, inventory, stacks} <- Inventory.disconnect(state.inventory),
+         {:ok, state} <- Items.drop(state, inventory, stacks) do
+      state
+    else
+      _ -> state
+    end
   end
 
   def info(:activate, state) do
@@ -304,100 +270,6 @@ defmodule Valimc.Session.Messages do
         reject(state, "Login encryption unavailable")
       end)
 
-  def info({:table_deadline, ref}, %{table_job: %{ref: ref}} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Menus.fail_table_query(state)}
-      end)
-
-  def info({:table_deadline, _}, state), do: {:noreply, state}
-
-  def info(
-        {:DOWN, ref, :process, _, _},
-        %{table_menu: %{kind: kind, monitor: ref}} = state
-      )
-      when kind in [:chest, :cooking],
-      do:
-        Valimc.Connection.guard_connection(state, fn ->
-          {:noreply, Menus.begin_table_close(state)}
-        end)
-
-  def info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Menus.fail_table_query(state)}
-      end)
-
-  def info(
-        {:container_candidate, ref, result},
-        %{jobs: %{active: %{experience: %{ref: ref, stage: :candidate} = job}}} = state
-      ) do
-    Valimc.Connection.guard_connection(state, fn ->
-      with {:ok, intent} <- result,
-           true <- Transfers.experience_current?(state, job),
-           {:ok, task} <- PlayerContainerQuery.start(job.owner, intent.request, job.actor) do
-        jobs = Jobs.update(state.jobs, :experience, %{intent: intent, stage: :admit})
-        {jobs, _job} = Jobs.attach(jobs, :experience, task)
-        {:noreply, %{state | jobs: jobs}}
-      else
-        _ -> {:noreply, Transfers.cancel_experience_query(state)}
-      end
-    end)
-  end
-
-  def info(
-        {:container_candidate, ref, result},
-        %{table_job: %{kind: :container, stage: :candidate, ref: ref} = job} = state
-      ) do
-    Valimc.Connection.guard_connection(state, fn ->
-      next =
-        case result do
-          {:ok, intent} ->
-            if Menus.container_action_current?(state, job),
-              do: Menus.admit_container_action(state, intent),
-              else: Menus.fail_chest_action(state)
-
-          _ ->
-            Menus.fail_chest_action(state)
-        end
-
-      {:noreply, next}
-    end)
-  end
-
-  def info({:container_candidate, _, _}, state), do: {:noreply, state}
-
-  def info(
-        {ref, result},
-        %{table_job: %{kind: :container, task: %Task{ref: ref}} = job} = state
-      ) do
-    Process.demonitor(ref, [:flush])
-    state = %{state | table_job: %{job | task: nil}}
-
-    Valimc.Connection.guard_connection(state, fn ->
-      next =
-        with {:ok, request} <- result,
-             true <- Menus.container_action_current?(state, job),
-             true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit),
-             true <- System.monotonic_time(:millisecond) < job.actor.expires do
-          Menus.prepare_chest_action(state, %{job.intent | request: request})
-        else
-          _ -> Menus.fail_chest_action(state)
-        end
-
-      {:noreply, next}
-    end)
-  end
-
-  def info(
-        {:DOWN, ref, :process, _, _},
-        %{table_job: %{kind: :container, task: %Task{ref: ref}}} = state
-      ),
-      do:
-        Valimc.Connection.guard_connection(state, fn ->
-          {:noreply, Menus.fail_chest_action(state)}
-        end)
-
   def info(:save_player, state) do
     Process.send_after(state.connection, :save_player, Valimc.config(:player_save_interval_ms))
     info(:save_player_now, state)
@@ -405,7 +277,7 @@ defmodule Valimc.Session.Messages do
 
   # `/save-all` (VMC-010b): a checkpoint now, outside the periodic schedule.
   def info(:save_player_now, state) do
-    if state.phase == :play and state.save_ref == nil and not inventory_pending(state) do
+    if state.phase == :play and state.save_ref == nil do
       ref = make_ref()
 
       PlayerStore.checkpoint(
@@ -432,15 +304,7 @@ defmodule Valimc.Session.Messages do
             Vitals.continue_life(%{state | life_stage: :dropping})
 
           :death_done ->
-            state = %{
-              state
-              | inventory: Transfers.recovered_inventory(state, save.snapshot),
-                life_stage: :dead
-            }
-
-            if state.phase == :login,
-              do: LoginFlow.finish_login(state),
-              else: Vitals.continue_life(state)
+            Vitals.continue_life(%{state | life_stage: :dead})
 
           :respawn ->
             Vitals.finish_respawn(state, save.player)
@@ -458,26 +322,9 @@ defmodule Valimc.Session.Messages do
       Valimc.Connection.guard_connection(state, fn ->
         {:noreply,
          %{state | save_ref: nil, use_save: nil}
-         |> CreativeInventory.drain_creative()
          |> Vitals.continue_life()
-         |> Valimc.Player.Travel.continue()
-         |> Menus.continue_table_close()
-         |> Menus.continue_crafting_repeat()
-         |> Menus.drain_table_clicks()
-         |> Placement.drain_placements()}
+         |> Valimc.Player.Travel.continue()}
       end)
-
-  def info(:drain_creative, %{creative_drain_scheduled: true} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply,
-         state
-         |> Map.put(:creative_drain_scheduled, false)
-         |> CreativeInventory.drain_creative()
-         |> CreativeInventory.sync_creative_result()}
-      end)
-
-  def info(:drain_creative, state), do: {:noreply, state}
 
   def info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
     do: Valimc.Connection.guard_connection(state, fn -> reject(state, "Player save failed") end)
@@ -487,210 +334,6 @@ defmodule Valimc.Session.Messages do
       Valimc.Connection.guard_connection(state, fn -> reject(state, "Player save timed out") end)
 
   def info({:save_deadline, _}, state), do: {:noreply, state}
-
-  def info(
-        {:transfer_delivered, worker, token, result},
-        %{recovery: %{stage: :delivery, job: %{pid: worker, token: token} = job} = recovery} =
-          state
-      ) do
-    Process.demonitor(job.monitor, [:flush])
-    state = %{state | recovery: %{recovery | job: nil}}
-
-    Valimc.Connection.guard_connection(state, fn ->
-      if TransferDelivery.completed?(state.recovery.intent, result) do
-        ref = make_ref()
-        PlayerStore.complete_transfer(state.player_store, state.store_fence, ref)
-        {:noreply, %{state | recovery: %{state.recovery | stage: :complete, ref: ref}}}
-      else
-        {:noreply, Transfers.recovery_failure(state, result)}
-      end
-    end)
-  end
-
-  def info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
-
-  def info(
-        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
-        %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
-      ) do
-    Valimc.Connection.guard_connection(state, fn ->
-      expected_outbox =
-        if plan[:intent] && plan.intent[:kind] == :pickup do
-          intent =
-            %{
-              plan.intent
-              | request:
-                  Map.merge(
-                    plan.intent.request,
-                    %{source: state.player.uuid, sequence: snapshot.transfer_sequence}
-                  )
-            }
-
-          {:ok, intent} = PlayerPickupIntent.bind(intent, plan.snapshot)
-          intent
-        else
-          Map.get(plan, :intent, %{key: plan.key, records: plan.records})
-        end
-
-      if snapshot.outbox != expected_outbox or
-           snapshot.inventory.slots != plan.inventory.slots or
-           snapshot.inventory.carried != plan.inventory.carried or
-           snapshot.inventory.selected != plan.inventory.selected or
-           snapshot.inventory.table_inputs != plan.inventory.table_inputs,
-         do: reject(state, "Inventory transfer returned inconsistent state")
-
-      recovery = %{
-        recovery
-        | stage: :delivery,
-          intent: Map.take(snapshot, [:outbox, :transfer_sequence]),
-          ref: nil
-      }
-
-      state = %{state | recovery: recovery, store_fence: fence}
-      state = %{state | inventory: Transfers.recovered_inventory(state, snapshot)}
-
-      state =
-        if recovery.mode == :login or state.life_stage != :alive or
-             CreativeInventory.creative_pending?(state),
-           do: state,
-           else: CreativeInventory.resync_inventory(state)
-
-      {:noreply, Transfers.deliver_recovery(state)}
-    end)
-  end
-
-  def info(
-        {:player_transfer_saved, ref, {:error, reason}},
-        %{recovery: %{stage: :prepare, ref: ref} = recovery} = state
-      ) do
-    Valimc.Connection.guard_connection(state, fn ->
-      if reason == :player_commit_uncertain,
-        do: reject(state, "Inventory transfer commit is uncertain; reconnect to recover")
-
-      if recovery.mode == :death,
-        do: reject(state, "Death inventory cleanup could not be committed; reconnect to recover")
-
-      if state.table_closing and state.inventory.table_inputs != nil,
-        do: reject(state, "Table cleanup could not be committed; reconnect to recover")
-
-      if recovery.mode == :login,
-        do:
-          reject(
-            state,
-            "Disconnected inventory cleanup could not be prepared; please retry later"
-          )
-
-      Process.cancel_timer(recovery.timer)
-      state = %{state | table_closing: false, crafting_repeat: nil}
-
-      send_packets(state, [
-        Packets.chat("Item operation could not be prepared; inventory restored")
-      ])
-
-      {:noreply,
-       state
-       |> Map.put(:recovery, nil)
-       |> Mining.correct_block_recovery(recovery)
-       |> CreativeInventory.drain_creative()
-       |> CreativeInventory.sync_creative_result()
-       |> Vitals.continue_life()
-       |> Placement.drain_placements()}
-    end)
-  end
-
-  def info(
-        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
-        %{recovery: %{stage: :complete, ref: ref} = recovery} = state
-      ) do
-    Valimc.Connection.guard_connection(state, fn ->
-      if snapshot.outbox != nil or snapshot.transfer_sequence != recovery.intent.transfer_sequence,
-        do: reject(state, "Inventory recovery returned inconsistent state")
-
-      Process.cancel_timer(recovery.timer)
-      inventory = Transfers.recovered_inventory(state, snapshot)
-      previous_progression = state.player.progression
-      state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
-
-      state = put_in(state.player.progression, snapshot.progression)
-
-      state =
-        if recovery.intent.outbox[:request] &&
-             recovery.intent.outbox.request[:kind] == :experience,
-           do: %{state | experience_after: System.monotonic_time(:millisecond) + 100},
-           else: state
-
-      if recovery.mode != :login do
-        if previous_progression.experience != state.player.progression.experience,
-          do: send_packets(state, [Packets.experience(state.player.progression.experience)])
-
-        learned =
-          MapSet.difference(state.player.progression.recipes, previous_progression.recipes)
-
-        if MapSet.size(learned) > 0,
-          do: send_packets(state, [Valimc.CookingRecipeBook.packet(learned, false, true)])
-      end
-
-      state = Mining.correct_block_recovery(state, recovery)
-
-      {:noreply,
-       if(recovery.mode == :login,
-         do: LoginFlow.reconcile_login(state),
-         else:
-           state
-           |> CreativeInventory.drain_creative()
-           |> CreativeInventory.sync_recovery_inventory(recovery)
-           |> Vitals.continue_life()
-           |> Menus.continue_table_close()
-           |> Menus.continue_crafting_repeat()
-           |> Menus.drain_table_clicks()
-           |> Placement.drain_placements()
-       )}
-    end)
-  end
-
-  def info(
-        {:player_transfer_saved, ref, {:error, _} = error},
-        %{recovery: %{stage: :complete, ref: ref}} = state
-      ),
-      do:
-        Valimc.Connection.guard_connection(state, fn ->
-          {:noreply, Transfers.recovery_failure(state, error)}
-        end)
-
-  def info({:player_transfer_saved, _, _}, state), do: {:noreply, state}
-
-  def info(
-        {:retry_recovery, id, token},
-        %{recovery: %{id: id, stage: :retry, retry_token: token} = recovery} = state
-      ) do
-    state = %{state | recovery: %{recovery | retry_timer: nil}}
-
-    Valimc.Connection.guard_connection(state, fn ->
-      {:noreply, Transfers.deliver_recovery(state)}
-    end)
-  end
-
-  def info({:retry_recovery, _, _}, state), do: {:noreply, state}
-
-  def info({:recovery_deadline, id}, %{recovery: %{id: id}} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        reject(state, "Inventory recovery is still pending; please retry later")
-      end)
-
-  def info({:recovery_deadline, _}, state), do: {:noreply, state}
-
-  def info(
-        {:DOWN, monitor, :process, worker, _},
-        %{recovery: %{stage: :delivery, job: %{pid: worker, monitor: monitor}} = recovery} =
-          state
-      ) do
-    state = %{state | recovery: %{recovery | job: nil}}
-
-    Valimc.Connection.guard_connection(state, fn ->
-      {:noreply, Transfers.recovery_failure(state, Valimc.Error.retry(:region_restarting))}
-    end)
-  end
 
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
@@ -804,9 +447,8 @@ defmodule Valimc.Session.Messages do
            |> Vitals.tick_food()
            |> Vitals.reset_effect_fall()
            |> Mining.tick_mining()
-           |> Menus.continue_table_close()
-           |> Menus.continue_crafting_repeat()
            |> Menus.check_table_menu()
+           |> Vitals.continue_life()
            |> Valimc.Player.Portals.tick()
            |> Valimc.Player.Travel.tick()
            |> Movement.sample_pose()}
@@ -844,38 +486,44 @@ defmodule Valimc.Session.Messages do
         end
 
       {touching, cache} = touching(state)
-      state = %{state | pickup_cache: cache}
-
-      state =
-        Transfers.start_pickup_query(
-          state,
-          for({id, %{kind: :item} = v} <- touching, into: %{}, do: {id, v})
-        )
-
-      {:noreply,
-       Transfers.start_experience_query(
-         state,
-         for({id, %{kind: :orb} = v} <- touching, into: %{}, do: {id, v})
-       )}
+      state = Items.pickup(%{state | pickup_cache: cache}, touching)
+      {:noreply, Items.collect_experience(state, touching)}
     end)
   end
 
   def info(:publish_movement, state), do: {:noreply, state}
 
-  # Play input from the connection (`Valimc.Session.Link`), in arrival order.
+  # The session entered play at its group (`Valimc.Session.Link`): a cursor
+  # or grid left from a lost connection returns, and a death continues.
+  def info(:entered, state),
+    do:
+      Valimc.Connection.guard_connection(state, fn ->
+        state =
+          case Inventory.disconnect(state.inventory) do
+            {:ok, _, []} ->
+              state
+
+            {:ok, inventory, stacks} ->
+              case Items.drop(state, inventory, stacks) do
+                {:ok, state} -> CreativeInventory.resync_inventory(state)
+                :error -> state
+              end
+
+            _ ->
+              state
+          end
+
+        {:noreply, Vitals.continue_life(state)}
+      end)
+
+  # Play input from the connection (`Valimc.Session.Link`), applied in arrival
+  # order between the group's ticks, as vanilla's server thread runs queued
+  # packet tasks between ticks.
   def info({:input, id, payload}, state),
     do:
       Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Valimc.Session.Inputs.receive(state, id, payload)}
+        {:noreply, Valimc.Net.Serverbound.handle_packet(state, id, payload)}
       end)
-
-  def info(:resume_inputs, %{socket: nil} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Valimc.Session.Inputs.run(state)}
-      end)
-
-  def info(:resume_inputs, state), do: info(:drain, state)
 
   def info(:send_chunks, state),
     do:

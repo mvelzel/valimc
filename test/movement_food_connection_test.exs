@@ -79,7 +79,6 @@ defmodule Valimc.MovementFoodConnectionTest do
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == saved_food and saved.inventory.slots[36] == ItemStack.new("stone", 7)
-    assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx)
     assert state(owner).player.food == saved_food
   end

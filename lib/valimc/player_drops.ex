@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerDrops do
-  @moduledoc "Pin native player launch state once, before source persistence and retryable delivery."
+  @moduledoc "A player's drops as entity records, launched as vanilla throws them (`Player.drop`)."
   alias Valimc.ItemMotionState
   alias Valimc.Physics.{ItemDrop, PlayerPose}
   alias Valimc.Protocol.ItemStack
@@ -8,10 +8,7 @@ defmodule Valimc.PlayerDrops do
   @height_offset 0.30000001192092896
 
   def records(player, stacks, kind) when is_list(stacks) and kind in [:directed, :scattered] do
-    stacks = Enum.take(stacks, 6)
-
-    with true <- length(stacks) <= 5,
-         {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)),
+    with {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)),
          {:ok, records} <- build(player, dimensions["eye_height"], stacks, kind) do
       {:ok, World.region_key(World.chunk_key(player.x, player.z)), records}
     else
@@ -26,7 +23,7 @@ defmodule Valimc.PlayerDrops do
   defp build(player, eye, stacks, kind) do
     Enum.reduce_while(stacks, {:ok, []}, fn
       %ItemStack{} = stack, {:ok, records} ->
-        # Java nextFloat supplies24 uniform bits; recovery reuses the saved record.
+        # Java nextFloat supplies 24 uniform bits.
         draws = for _ <- 1..4, do: (:rand.uniform(16_777_216) - 1) / 16_777_216
 
         case ItemDrop.launch(player, eye, kind, draws) do

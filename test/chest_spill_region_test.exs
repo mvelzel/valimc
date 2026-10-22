@@ -2,7 +2,7 @@ defmodule Valimc.ChestSpillRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, Entities, MiningTransfers, Region}
+  alias Valimc.World.{Containers, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -12,7 +12,6 @@ defmodule Valimc.ChestSpillRegionTest do
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span + 40, 64, rz * span + 40}
-    source = <<nonce::128>>
     {:ok, chest} = Valimc.ChestPlacement.single_state(0.0, 89)
 
     named = %{
@@ -28,8 +27,6 @@ defmodule Valimc.ChestSpillRegionTest do
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
     slots = entry.slots |> put_elem(0, hd(stock)) |> put_elem(1, named) |> put_elem(26, damaged)
     {:ok, containers, _} = Containers.replace(containers, position, entry.revision, slots)
-    typed = %{source => %{sequence: 8, digest: <<2::256>>}}
-    containers = %{containers | receipts: typed}
     {:ok, bytes} = Containers.encode(key, containers)
     File.mkdir_p!(base)
     Valimc.TestDisk.write(base, key, :containers, bytes)
@@ -37,7 +34,6 @@ defmodule Valimc.ChestSpillRegionTest do
 
     Valimc.TestDisk.write(base, key, :items, nil)
     {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
-    {:ok, permit} = Region.reserve_mining(owner, [position])
     {x, y, z} = position
 
     self_loot = %{
@@ -47,8 +43,6 @@ defmodule Valimc.ChestSpillRegionTest do
       z: z + 0.5,
       stack: ItemStack.new("chest")
     }
-
-    transfer = Map.merge(permit, %{source: source, sequence: 1, records: [self_loot]})
 
     on_exit(fn ->
       for {live, _} <- Valimc.TestWorld.registered(key),
@@ -63,12 +57,9 @@ defmodule Valimc.ChestSpillRegionTest do
       position: position,
       pid: pid,
       owner: owner,
-      source: source,
       chest: chest,
-      containers: containers,
       stock: stock,
-      typed: typed,
-      transfer: transfer
+      self_loot: self_loot
     }
   end
 
@@ -81,8 +72,7 @@ defmodule Valimc.ChestSpillRegionTest do
   defp audit(c, self_loot) do
     {:ok, containers} = Containers.decode(Valimc.TestDisk.read(c.base, c.key, :containers), c.key)
 
-    assert containers.entries == %{} and containers.sequence == 3 and
-             containers.receipts == c.typed
+    assert containers.entries == %{} and containers.sequence == 3
 
     saved = Valimc.TestDisk.read(c.base, c.key, :items)
     expected = if self_loot, do: [ItemStack.new("chest") | c.stock], else: c.stock
@@ -91,45 +81,13 @@ defmodule Valimc.ChestSpillRegionTest do
     saved
   end
 
-  test "survival self loot and region-owned component stacks show at once, reply once durable, then replay once",
+  test "a survival break spills the chest's stacks with its own drop in one call; it survives a restart",
        c do
-    stripe = Valimc.TestDisk.stripe(c.base, c.key)
-    :sys.suspend(stripe)
-    task = Task.async(fn -> Region.apply_mining_transfer(c.owner, c.transfer) end)
-
-    try do
-      Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(c.owner))
-      end)
-
-      resource = Valimc.TestRegion.section(c.owner)
-      assert resource.containers.entries == %{}
-
-      assert quantities(Enum.map(Entities.records(resource.entities.store), & &1.stack)) ==
-               quantities([ItemStack.new("chest") | c.stock])
-
-      # Adopted and shown at once (D2); the reply, the player's proof, waits.
-      assert Valimc.TestRegion.published_block(c.owner, c.position) == 89 and
-               Valimc.TestWorld.item_snapshot(c.key) != %{}
-
-      assert Task.yield(task, 10) == nil
-      :sys.resume(stripe)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-    after
-      :sys.resume(stripe)
-      Task.shutdown(task, :brutal_kill)
-    end
-
+    assert :ok = Region.mine_block(c.owner, c.position, c.chest, [c.self_loot])
+    assert :ok = Region.flush(c.pid)
     saved = audit(c, true)
-    assert saved.receipts[c.source].sequence == 1
-
-    assert {:ok, :applied} =
-             MiningTransfers.receipt_result(c.key, c.transfer, saved.receipts[c.source])
-
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(c.owner, c.transfer)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, c.pid)
-    {:ok, owner} = Valimc.TestWorld.item_owner(c.key)
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, c.transfer)
+    {:ok, _owner} = Valimc.TestWorld.item_owner(c.key)
     assert audit(c, true) == saved
   end
 end

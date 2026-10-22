@@ -26,7 +26,6 @@ state = fn row ->
 end
 
 position = {4, 64, 4}
-receipts = %{<<1::128>> => %{sequence: 77, digest: <<2::256>>}}
 
 for row <- raw["cases"] do
   before = row["before"]
@@ -39,7 +38,7 @@ for row <- raw["cases"] do
     recipes: before["recipes"]
   }
 
-  containers = %Containers{sequence: 1, entries: %{position => entry}, receipts: receipts}
+  containers = %Containers{sequence: 1, entries: %{position => entry}}
 
   {:ok, result} =
     CookingRuntime.plan(
@@ -57,7 +56,6 @@ for row <- raw["cases"] do
   true = actual.cooking == state.(row["after"]) and actual.recipes == row["after"]["recipes"]
   true = Map.get(result.changes, position, block) == row["after"]["state"]
   true = Enum.map(Entities.records(result.items), & &1.stack) == Enum.map(row["drops"], stack)
-  true = result.containers.receipts == receipts
   content_changed = entry.cooking.slots != actual.cooking.slots or entry.recipes != actual.recipes
   true = actual.revision == if(content_changed, do: 2, else: 1)
 
@@ -69,5 +67,5 @@ for row <- raw["cases"] do
 end
 
 IO.puts(
-  "PASS:15,630 native cooking states through runtime activity selection, recipe uses, lit frames, remainders, preserved receipts and content-only revisions."
+  "PASS:15,630 native cooking states through runtime activity selection, recipe uses, lit frames, remainders and content-only revisions."
 )

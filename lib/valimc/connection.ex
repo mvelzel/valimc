@@ -9,11 +9,7 @@ defmodule Valimc.Connection do
   """
   require Logger
 
-  alias Valimc.Protocol.{
-    ClientTick,
-    Data,
-    Wire
-  }
+  alias Valimc.Protocol.{ClientTick, Wire}
 
   alias Valimc.Session.Jobs
   alias Valimc.Session.Messages
@@ -30,8 +26,6 @@ defmodule Valimc.Connection do
   @live_effects Valimc.Living.Effects.live()
   @doc "Status effects the live game applies; others are refused (login, commands)."
   def live_effects, do: @live_effects
-
-  @use_item_packet Data.id(:play, :serverbound, "use_item")
 
   # Before configuration a client sends only small frames (VMC-077a): the
   # handshake and status are a few hundred bytes, login its name, key and
@@ -162,16 +156,9 @@ defmodule Valimc.Connection do
        active_use: nil,
        mining: nil,
        mining_water: false,
-       placement_queue: :queue.new(),
-       placement_queued: 0,
        table_menu: nil,
        chest_lids: %ChestLidReplication{},
        table_counter: 0,
-       table_job: nil,
-       table_queue: :queue.new(),
-       table_queued: 0,
-       table_closing: false,
-       crafting_repeat: nil,
        life_save: nil,
        life_stage: :alive,
        # A dimension change waiting for the old dimension's work (VMC-026b).
@@ -179,11 +166,9 @@ defmodule Valimc.Connection do
        # Portal contact and process (`Valimc.Player.Portals`, VMC-026b2).
        portal: nil,
        respawn_requested: false,
-       recovery: nil,
        experience_after: System.monotonic_time(:millisecond),
        pickup_cursor: 0,
        creative_input: CreativeInput.new(CreativeInventory.creative_tick()),
-       creative_drain_scheduled: false,
        chunks: MapSet.new(),
        regions: MapSet.new(),
        # Region => owner told which chunks the view wants (VMC-075).
@@ -291,13 +276,6 @@ defmodule Valimc.Connection do
 
       {:error, _} ->
         reject(state, "Malformed packet")
-
-      # Preserve the client's fallback until its preceding block-use decision.
-      # Earlier chat/control frames and owner clocks remain responsive. The
-      # bounded receive buffer holds this frame until admission/deadline drains it.
-      {:ok, @use_item_packet, _, _}
-      when state.phase == :play and state.table_job != nil and state.table_job.kind == :open ->
-        {:noreply, state}
 
       {:ok, id, payload, tail} ->
         state = reset_window(state)

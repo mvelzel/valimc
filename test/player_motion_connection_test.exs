@@ -188,18 +188,11 @@ defmodule Valimc.PlayerMotionConnectionTest do
     ])
 
     wait(fn ->
-      state(pid).player.x == ctx.pos.x + 0.2 and state(pid).inventory.slots[36] == nil and
-        state(pid).recovery == nil
+      state(pid).player.x == ctx.pos.x + 0.2 and state(pid).inventory.slots[36] == nil
     end)
 
     [record] = Valimc.World.Entities.records(Valimc.TestRegion.section(owner).entities.store)
     assert record.x == ctx.pos.x + 0.2 and record.z == ctx.pos.z
-    uuid = state(pid).player.uuid
-
-    {:ok, saved} =
-      PlayerState.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
-
-    assert saved.transfer_sequence == 1 and saved.outbox == nil
   end
 
   test "creative wall entry and impossible deltas correct to the last accepted position", ctx do

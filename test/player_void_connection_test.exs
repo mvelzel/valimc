@@ -88,7 +88,6 @@ defmodule Valimc.PlayerVoidConnectionTest do
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.pose.y == -129.0
     assert saved.inventory.slots[36] == ItemStack.new("stone", 7)
-    assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx)
 
     assert living(owner).health.value == 12.0 and
@@ -154,7 +153,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
       assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
       assert state(pid).player.y == 64.0 and living(pid).air_supply == 300
       {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.health.value == 20.0 and saved.transfer_sequence == 2 and saved.outbox == nil
+      assert saved.health.value == 20.0
       assert saved.last_death == {floor(ctx.pose.x), -129, floor(ctx.pose.z)}
       records = Valimc.TestWorld.item_snapshot(ctx.key)
       assert map_size(records) == 8

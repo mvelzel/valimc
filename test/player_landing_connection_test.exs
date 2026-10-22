@@ -144,7 +144,6 @@ defmodule Valimc.PlayerLandingConnectionTest do
     {second, owner} = login(ctx)
     assert living(owner).health.value == saved.health.value
     assert Enum.at(second.inventory.items, 36) == ItemStack.new("stone", 7)
-    assert saved.transfer_sequence == 0 and saved.outbox == nil
   end
 
   test "a ground-only report is sampled once instead of silently erasing saved fall distance",
@@ -169,7 +168,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert living(pid).health.value == 20.0 and state(pid).player.y == 65.0
     move(client, pid, 63.0, 1)
     {body, client} = Client.await(client, :play, "player_position")
-    client = Client.auto_reply(client, :play, "player_position", body)
+    _client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
 
     assert living(pid).health.value == 20.0 and

@@ -29,10 +29,9 @@ defmodule Valimc.ItemHandoffRegionTest do
           }
     end
 
-    receipts = %{<<99::128>> => %{sequence: 1, digest: <<99::256>>}}
     source_records = records.(key, 1)
     destination_records = if count == 1, do: [], else: records.(destination, 1000)
-    Valimc.TestDisk.write(base, key, :items, %{records: source_records, receipts: receipts})
+    Valimc.TestDisk.write(base, key, :items, %{records: source_records})
     Valimc.TestDisk.write(base, destination, :items, %{records: destination_records})
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
     {:ok, other} = Valimc.TestWorld.item_owner(destination)
@@ -54,7 +53,6 @@ defmodule Valimc.ItemHandoffRegionTest do
       owner: owner,
       other: other,
       uuid: <<1::128>>,
-      receipts: receipts,
       record: hd(source_records)
     }
   end
@@ -111,7 +109,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     next
   end
 
-  test "both directions and owner recovery conserve one item, its network id and player receipts",
+  test "both directions and owner recovery conserve one item and its network id",
        ctx do
     {:ok, {_, id, _}} = Entities.find(resource(ctx.owner).entities.store, ctx.uuid)
 
@@ -125,14 +123,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     complete(ctx.owner)
     refute published(ctx.owner, ctx.uuid)
     assert published(ctx.other, ctx.uuid)
-    assert disk(ctx, ctx.key).receipts == ctx.receipts
-    assert disk(ctx, ctx.destination).receipts == %{}
     assert hops(ctx, ctx.destination, ctx.uuid) == 1
     assert {:ok, {_, ^id, _}} = Entities.find(resource(ctx.other).entities.store, ctx.uuid)
-    receipt = ctx.receipts[<<99::128>>]
-    # The existing player receipt still fences a retry after the item has left.
-    assert {:ok, {key, ^receipt}} = Region.item_transfer_receipt(ctx.owner, <<99::128>>)
-    assert key == ctx.key
 
     assert {:ok, 1} =
              Region.handoff_items(
@@ -149,8 +141,6 @@ defmodule Valimc.ItemHandoffRegionTest do
 
     assert disk(ctx, ctx.destination).ledger.incoming[Valimc.TestWorld.section(ctx.key)].sequence ==
              1
-
-    assert disk(ctx, ctx.key).receipts == ctx.receipts
   end
 
   @tag population: 256

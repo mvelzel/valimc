@@ -85,24 +85,29 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {owner, handle, key}
   end
 
-  defp saved(c) do
-    {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
-    saved
-  end
-
+  # The items as their owner's frames hold them, once it wrote them.
   defp records(c, key) do
-    Valimc.TestDisk.read(c.base, key, :items).records
+    {:ok, {pid, _}} = Valimc.TestWorld.item_owner(key)
+    :ok = Region.flush(pid)
+
+    case Valimc.TestDisk.read(c.base, key, :items) do
+      nil -> []
+      saved -> saved.records
+    end
   end
 
   defp picked(pid, slot, count) do
     state = Valimc.TestConn.state(pid)
-    state.recovery == nil and match?(%{count: ^count}, state.inventory.slots[slot])
+    match?(%{count: ^count}, state.inventory.slots[slot])
   end
 
   test "automatic whole pickup sends native callback and survives fresh login exactly once", c do
     seed(c)
     {client, pid} = login(c)
-    {_owner, {_, _, id, _}, key} = spawn_item(c, ItemStack.new("stone", 7))
+    # Out of reach until the client tracks it (vanilla sends the take to trackers).
+    {_owner, {_, _, id, _}, key} = spawn_item(c, ItemStack.new("stone", 7), 3.0)
+    client = Client.await_spawn(client, id)
+    client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 3.0})
     {body, client} = Client.await(client, :play, "take_item_entity")
     {^id, body} = Wire.take_varint(body)
     {collector, body} = Wire.take_varint(body)
@@ -110,7 +115,6 @@ defmodule Valimc.PlayerPickupConnectionTest do
     assert {7, <<>>} == Wire.take_varint(body)
     wait(fn -> picked(pid, 36, 7) end)
     assert records(c, key) == []
-    assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
     Client.close(client)
 
     wait(fn ->
@@ -119,6 +123,6 @@ defmodule Valimc.PlayerPickupConnectionTest do
 
     {_fresh, next} = login(c)
     assert picked(next, 36, 7)
-    assert saved(c).transfer_sequence == 1 and records(c, key) == []
+    assert records(c, key) == []
   end
 end

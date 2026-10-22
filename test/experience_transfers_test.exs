@@ -4,7 +4,7 @@ defmodule Valimc.ExperienceTransfersTest do
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
-  alias Valimc.{Connection, GameMode, Inventory, PlayerExperience, PlayerProgression, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, PlayerProgression, PlayerStore}
   alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.{Entities, ExperienceOrbs}
@@ -51,20 +51,7 @@ defmodule Valimc.ExperienceTransfersTest do
       progression: %PlayerProgression{}
     }
 
-    snapshot =
-      PlayerState.capture(player, %Inventory{})
-      |> Map.merge(%{transfer_sequence: 0, outbox: nil})
-
-    request = %{
-      kind: :experience,
-      position: {floor(elem(at, 0)), 64, floor(elem(at, 2))},
-      permit: <<0::128>>,
-      orb_uuid: orb,
-      value: record.value,
-      consumed: 0,
-      before: %PlayerExperience{},
-      collector: 17
-    }
+    snapshot = PlayerState.capture(player, %Inventory{})
 
     %{
       uuid: uuid,
@@ -74,7 +61,6 @@ defmodule Valimc.ExperienceTransfersTest do
       orb: orb,
       record: record,
       snapshot: snapshot,
-      request: request,
       at: at
     }
   end
@@ -119,14 +105,13 @@ defmodule Valimc.ExperienceTransfersTest do
     player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
     wait(fn -> Valimc.TestConn.state(player).player.progression.experience.total == 6 end, 300)
     assert Entities.find(resource(ctx.owner).entities.store, ctx.orb) == {:error, :missing_item}
-    assert resource(ctx.owner).containers.receipts[uuid].sequence == 2
     assert Valimc.TestConn.state(player).inventory.slots == %{}
     {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
     Valimc.TestClient.close(client)
     wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     {:ok, disk} = PlayerState.decode(File.read!(path), uuid)
-    assert disk.progression.experience.total == 6 and disk.outbox == nil
+    assert disk.progression.experience.total == 6
     Process.exit(elem(ctx.owner, 0), :kill)
     wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
     {_, fresh} = Valimc.TestClient.login(name)

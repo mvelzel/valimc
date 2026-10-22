@@ -5,7 +5,7 @@ defmodule Valimc.World.Containers do
   alias Valimc.World.{Chunk, CookingEntry}
 
   # Experience orbs are entities (VMC-077h), not container state.
-  defstruct sequence: 0, entries: %{}, receipts: %{}
+  defstruct sequence: 0, entries: %{}
 
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
@@ -86,30 +86,21 @@ defmodule Valimc.World.Containers do
 
   defp change(_, _, _), do: {:error, :container_sequence_exhausted}
 
-  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries, receipts: receipts})
+  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries})
       when is_integer(sequence) and sequence in 0..@max_sequence and is_map(entries) and
              map_size(entries) <= @max_entries do
     true = region?(key)
-    true = valid_receipts?(receipts)
 
+    # Version 3 holds furnaces; its (always empty) count of the player
+    # transfer receipts versions 2 and 3 held before VMC-077i3 stays.
     version =
-      cond do
-        Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end) -> 3
-        map_size(receipts) == 0 -> 1
-        true -> 2
-      end
+      if Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end), do: 3, else: 1
 
-    receipt_count = if version == 1, do: <<>>, else: <<map_size(receipts)::16>>
-
-    receipt_bytes =
-      Enum.map(Enum.sort(receipts), fn {source, receipt} ->
-        <<source::binary-size(16), receipt.sequence::64, receipt.digest::binary-size(32)>>
-      end)
-
+    receipt_count = if version == 1, do: <<>>, else: <<0::16>>
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
     true = length(Enum.uniq(revisions)) == length(revisions)
 
-    initial_size = 63 + byte_size(receipt_count) + map_size(receipts) * 56
+    initial_size = 63 + byte_size(receipt_count)
 
     true = initial_size <= @max_bytes
 
@@ -132,8 +123,7 @@ defmodule Valimc.World.Containers do
         <<"VMCCONTS", version, 5023::32, rx::signed-32, rz::signed-32, sequence::64,
           map_size(entries)::16>>,
         receipt_count,
-        parts,
-        receipt_bytes
+        parts
       ])
 
     {:ok, payload <> :crypto.hash(:sha256, payload)}
@@ -154,20 +144,12 @@ defmodule Valimc.World.Containers do
     <<"VMCCONTS", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       body::binary>> = payload
 
-    # Versions 4 to 8 held the cooking orb ledger (D4: refused, no migration).
-    true = count <= @max_entries and version in [1, 2, 3]
-
-    {receipts_count, body} =
-      case version do
-        1 -> {0, body}
-        2 -> take_receipt_count(body)
-        3 -> take_receipt_count(body, 0)
-      end
-
-    {entries, body} = take_entries(body, count, %{}, version)
-    {receipts, <<>>} = take_receipts(body, receipts_count, %{})
-
-    state = %__MODULE__{sequence: sequence, entries: entries, receipts: receipts}
+    # Version 2 held player transfer receipts and versions 4 to 8 the cooking
+    # orb ledger (D4: refused, no migration).
+    true = count <= @max_entries and version in [1, 3]
+    body = if version == 3, do: with(<<0::16, rest::binary>> <- body, do: rest), else: body
+    {entries, <<>>} = take_entries(body, count, %{}, version)
+    state = %__MODULE__{sequence: sequence, entries: entries}
     {:ok, ^bytes} = encode(key, state)
     {:ok, state}
   rescue
@@ -241,39 +223,6 @@ defmodule Valimc.World.Containers do
   defp take_slots(bytes, count, slots) do
     {:ok, stack, rest} = ItemStack.take(bytes)
     take_slots(rest, count - 1, [stack | slots])
-  end
-
-  defp take_receipt_count(bytes, minimum \\ 1)
-
-  defp take_receipt_count(<<count::16, body::binary>>, minimum) do
-    true = count >= minimum
-    {count, body}
-  end
-
-  defp take_receipts(body, 0, receipts), do: {receipts, body}
-
-  defp take_receipts(
-         <<source::binary-size(16), sequence::64, digest::binary-size(32), body::binary>>,
-         count,
-         receipts
-       ) do
-    false = Map.has_key?(receipts, source)
-
-    take_receipts(
-      body,
-      count - 1,
-      Map.put(receipts, source, %{sequence: sequence, digest: digest})
-    )
-  end
-
-  defp valid_receipts?(receipts) do
-    Enum.all?(receipts, fn
-      {<<_::128>>, receipt} when is_map(receipt) and map_size(receipt) == 2 ->
-        Valimc.Txn.Receipts.valid?(receipt)
-
-      _ ->
-        false
-    end)
   end
 
   defp valid_slots?(rows, slots) do

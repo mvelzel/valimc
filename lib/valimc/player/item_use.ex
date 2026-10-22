@@ -31,15 +31,6 @@ defmodule Valimc.Player.ItemUse do
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects Effects.live()
 
-  defguardp inventory_busy(state)
-            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
-                   state.table_job != nil or
-                   (is_map_key(state.jobs.active, :placement) and
-                      :erlang.map_get(:placement, state.jobs.active).command.mode == :survival)
-
-  defguardp inventory_pending(state)
-            when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
-
   def use_item(state, payload) do
     case UseItem.decode(payload) do
       {:ok, request} ->
@@ -73,7 +64,7 @@ defmodule Valimc.Player.ItemUse do
     end
   end
 
-  def begin_item_use(state, _) when inventory_pending(state),
+  def begin_item_use(state, _) when state.use_save != nil,
     do: Valimc.Player.CreativeInventory.resync_inventory(state)
 
   def begin_item_use(%{active_use: %PlayerUse{}} = state, _), do: state
@@ -212,7 +203,7 @@ defmodule Valimc.Player.ItemUse do
 
   def tick_item_use(state), do: state
 
-  def complete_item_use(state, _) when inventory_pending(state) or state.save_ref != nil,
+  def complete_item_use(state, _) when state.use_save != nil or state.save_ref != nil,
     do: state
 
   def complete_item_use(state, notify) do
@@ -272,7 +263,7 @@ defmodule Valimc.Player.ItemUse do
               state
               |> stop_item_use()
               |> Valimc.Player.Mining.cancel_mining()
-              |> Valimc.Player.Menus.begin_table_close()
+              |> Valimc.Player.Menus.close()
             else
               state
             end
@@ -297,7 +288,6 @@ defmodule Valimc.Player.ItemUse do
               do: Vitals.death_notice(state, true, transition.death),
               else: state
 
-          send(state.connection, :resume_inputs)
           state
 
         _ ->

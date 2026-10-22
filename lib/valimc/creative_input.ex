@@ -1,8 +1,9 @@
 defmodule Valimc.CreativeInput do
-  @moduledoc "Bounded connection-local deferred commands and vanilla creative-drop admission."
-  defstruct queue: :queue.new(), queued: 0, bytes: 0, level: 0, tick: 0
-  @max_commands 160
-  @max_bytes 524_288
+  @moduledoc """
+  Vanilla's creative drop admission (`dropSpamThrottler`): each drop costs 20
+  of a level that drains by one per tick; at 1480 drops are refused.
+  """
+  defstruct level: 0, tick: 0
 
   def new(tick), do: %__MODULE__{tick: tick}
 
@@ -15,33 +16,4 @@ defmodule Valimc.CreativeInput do
       do: {:ok, %{input | level: level + 20}},
       else: {:throttled, input}
   end
-
-  def push(input, command, payload_bytes) when is_integer(payload_bytes) and payload_bytes >= 0 do
-    cost = payload_bytes + 64
-
-    if input.queued < @max_commands and input.bytes + cost <= @max_bytes do
-      {:ok,
-       %{
-         input
-         | queue: :queue.in({command, cost}, input.queue),
-           queued: input.queued + 1,
-           bytes: input.bytes + cost
-       }}
-    else
-      {:error, :creative_queue_limit}
-    end
-  end
-
-  def pop(input) do
-    case :queue.out(input.queue) do
-      {{:value, {command, cost}}, queue} ->
-        {:ok, command,
-         %{input | queue: queue, queued: input.queued - 1, bytes: input.bytes - cost}}
-
-      {:empty, _} ->
-        :empty
-    end
-  end
-
-  def clear(input), do: %{input | queue: :queue.new(), queued: 0, bytes: 0}
 end

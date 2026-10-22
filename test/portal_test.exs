@@ -1,7 +1,5 @@
 defmodule Valimc.PortalTest do
   use ExUnit.Case, async: true
-  alias Valimc.Inventory
-  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.Portals
 
   defp player(mode, cooldown \\ 0),

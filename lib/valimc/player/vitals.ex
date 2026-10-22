@@ -1,5 +1,5 @@
 defmodule Valimc.Player.Vitals do
-  @moduledoc "Player vitals inside the connection: food, health, damage, death and respawn, burning, effects, environment and air (VMC-069)."
+  @moduledoc "Player vitals in the player's session: food, health, damage, death and respawn, burning, effects, environment and air (VMC-069)."
 
   alias Valimc.Protocol.{
     ClientTick,
@@ -11,14 +11,12 @@ defmodule Valimc.Player.Vitals do
     only: [send_packets: 2]
 
   alias Valimc.{
-    CreativeInput,
     Inventory,
     Players,
     PlayerFood,
     PlayerInput,
     PlayerLife,
     PlayerStore,
-    PlayerTransfers,
     World
   }
 
@@ -41,15 +39,6 @@ defmodule Valimc.Player.Vitals do
   import Bitwise
   @hunger EffectTypes.id("hunger")
   @absorption EffectTypes.id("absorption")
-
-  defguardp inventory_busy(state)
-            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
-                   state.table_job != nil or
-                   (is_map_key(state.jobs.active, :placement) and
-                      :erlang.map_get(:placement, state.jobs.active).command.mode == :survival)
-
-  defguardp inventory_pending(state)
-            when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
 
   def apply_landing(state, nil), do: state
 
@@ -230,7 +219,7 @@ defmodule Valimc.Player.Vitals do
             selected,
             source,
             effects || state.player.living.effects,
-            inventory_pending(state)
+            state.use_save != nil
           )
 
     case result do
@@ -268,7 +257,7 @@ defmodule Valimc.Player.Vitals do
           end
 
         state =
-          if health.value <= 0, do: Valimc.Player.Menus.begin_table_close(state), else: state
+          if health.value <= 0, do: Valimc.Player.Menus.close(state), else: state
 
         Players.update(state.connection, state.player)
 
@@ -285,7 +274,6 @@ defmodule Valimc.Player.Vitals do
 
         state = Valimc.Player.Movement.publish_absorption(state)
         state = if health.value <= 0, do: death_notice(state, true, source), else: state
-        send(state.connection, :resume_inputs)
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
     end
   end
@@ -299,8 +287,7 @@ defmodule Valimc.Player.Vitals do
         pose_generation: state.pose_generation + 1,
         life_stage: :sealing_death,
         fire_damage_due: false,
-        fire_contacts_active: false,
-        creative_input: CreativeInput.clear(state.creative_input)
+        fire_contacts_active: false
     }
   end
 
@@ -347,37 +334,22 @@ defmodule Valimc.Player.Vitals do
   end
 
   def continue_life(%{save_ref: ref} = state) when ref != nil, do: state
-  def continue_life(%{recovery: recovery} = state) when recovery != nil, do: state
 
   def continue_life(%{life_stage: :sealing_death, phase: :play} = state),
     do: checkpoint_life(state, :death_mark, PlayerState.capture(state.player, state.inventory))
 
+  # The death drops scatter at once (`Player.dropAllDeathLoot`); items with
+  # Curse of Vanishing are destroyed. Outside its group's sections the player
+  # keeps them until it is in one.
   def continue_life(%{life_stage: :dropping, phase: :play} = state) do
-    before = PlayerState.capture(state.player, state.inventory)
-    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_death(before)
+    {:ok, inventory, stacks, _destroyed} = Inventory.death(state.inventory)
 
-    if records == [] do
-      checkpoint_life(state, :death_done, after_snapshot)
-    else
-      ref = make_ref()
+    case Valimc.Player.Items.drop(state, inventory, stacks, :scattered) do
+      {:ok, state} ->
+        checkpoint_life(state, :death_done, PlayerState.capture(state.player, state.inventory))
 
-      recovery = %{
-        Valimc.Player.Transfers.new_recovery(state, :death, :prepare, nil)
-        | ref: ref,
-          plan: %{key: key, records: records, inventory: after_snapshot.inventory}
-      }
-
-      PlayerStore.prepare_death(
-        state.player_store,
-        state.store_fence,
-        before,
-        after_snapshot,
-        key,
-        records,
-        ref
-      )
-
-      %{state | recovery: recovery}
+      :error ->
+        state
     end
   end
 

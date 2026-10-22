@@ -135,8 +135,8 @@ defmodule Valimc.PlayerFireConnectionTest do
     wait(fn -> state(pid).life_stage == :dead end)
     assert living(pid).fire_ticks == 0
     {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.health.value == 0.0 and saved.fire_ticks == 0 and saved.outbox == nil
-    assert saved.transfer_sequence == 1 and saved.inventory.slots == %{}
+    assert saved.health.value == 0.0 and saved.fire_ticks == 0
+    assert saved.inventory.slots == %{}
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, _client} = Client.await(client, :play, "respawn")
     assert living(pid).fire_ticks == 0 and not state(pid).fire_damage_due

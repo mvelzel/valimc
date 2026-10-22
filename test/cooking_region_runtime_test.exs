@@ -158,11 +158,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
       motion: %ItemMotionState{pickup_delay: 100}
     }
 
-    assert {:ok, :applied} =
-             Valimc.World.Region.apply_item_transfer(
-               owner,
-               %{source: <<82::128>>, sequence: 1, records: [record]}
-             )
+    assert :ok = Valimc.World.Region.drop_items(owner, [record])
 
     eventually(fn ->
       current = Valimc.TestRegion.section(owner)
@@ -173,6 +169,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
         Enum.any?(current.entities.store.entries, fn {_, entry} -> entry.entity.y < 69.9 end)
     end)
 
+    :ok = Valimc.World.Region.flush(elem(owner, 0))
     assert Enum.all?(disk(ctx).entries, fn {_, entry} -> map_size(entry.recipes) == 1 end)
   end
 end

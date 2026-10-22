@@ -1,5 +1,5 @@
 defmodule Valimc.CookingAwards do
-  @moduledoc "Pure bounded XP decisions; callers must journal the proposal before clearing recipe credit."
+  @moduledoc "Pure bounded XP decisions of a furnace's earned output; its owner applies one with the withdrawal that clears the credit."
   alias Valimc.CookingRecipes
   @max_int 2_147_483_647
   @draw_scale 16_777_216

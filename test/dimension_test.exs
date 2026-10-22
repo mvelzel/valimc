@@ -1,12 +1,8 @@
 defmodule Valimc.DimensionTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Dimension, Inventory}
-  alias Valimc.Player.State, as: PlayerState
+  alias Valimc.Dimension
   alias Valimc.Anvil.Light
   alias Valimc.Protocol.Wire
-
-  defp uuid, do: <<41::128>>
-  defp pose, do: %{x: 8.5, y: 70.0, z: -3.5, yaw: 90.0, pitch: 0.0}
 
   test "the context is per process and bound into tasks" do
     assert Dimension.current() == :overworld

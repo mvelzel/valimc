@@ -160,45 +160,20 @@ defmodule Valimc.TableConnectionTest do
     assert fresh.inventory.container == 0
     assert Enum.at(fresh.inventory.items, 40) == ItemStack.new("wooden_pickaxe")
     assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
-    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
 
-  test "table bulk repeats before later queued clicks and commits each bounded conversion", ctx do
+  test "a table bulk throw repeats in one click, before the clicks after it", ctx do
     seed(ctx, %{36 => ItemStack.new("oak_log", 17), 37 => ItemStack.new("cobblestone")})
     {client, pid} = login(ctx)
     client = open(client, ctx) |> click(37) |> click(1)
-    writer = Valimc.TestConn.state(pid).player_store
-    :sys.suspend(writer)
+    send_click(client, 0, 1, "throw")
+    send_click(client, 38)
 
-    try do
-      send_click(client, 0, 1, "throw")
-      wait(fn -> Valimc.TestConn.state(pid).crafting_repeat != nil end)
-      send_click(client, 38)
-      wait(fn -> Valimc.TestConn.state(pid).table_queued == 1 end)
-      assert Valimc.TestConn.state(pid).inventory.carried == nil
-      :sys.resume(writer)
+    wait(fn -> Valimc.TestConn.state(pid).inventory.carried == ItemStack.new("cobblestone") end)
 
-      wait(fn ->
-        state = Valimc.TestConn.state(pid)
-
-        state.crafting_repeat == nil and state.recovery == nil and state.table_queued == 0 and
-          state.inventory.carried == ItemStack.new("cobblestone")
-      end)
-
-      assert Valimc.TestConn.state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
-      assert length(records(ctx)) == 17
-      assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
-      assert saved(ctx).transfer_sequence == 4 and saved(ctx).outbox == nil
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  defp saved(ctx) do
-    {:ok, saved} =
-      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
-
-    saved
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
+    assert length(records(ctx)) == 17
+    assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
   end
 
   defp records(ctx) do

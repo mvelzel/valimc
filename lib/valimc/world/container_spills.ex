@@ -1,5 +1,5 @@
 defmodule Valimc.World.ContainerSpills do
-  @moduledoc "Bounded region-owned stored-stack release. Only the enclosing joint journal publishes the returned item proposal."
+  @moduledoc "A broken container's stacks scatter as item entities, in the same commit as its block change."
   alias Valimc.ItemMotionState
   alias Valimc.Physics.ContainerScatter
   alias Valimc.World.{CookingEntry, Entities}

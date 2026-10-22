@@ -1,12 +1,7 @@
 defmodule Valimc.PlacementRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-
-  alias Valimc.World.{
-    MiningTransfers,
-    PlacementTransfers,
-    Region
-  }
+  alias Valimc.World.{BlockBatch, Containers, Region}
 
   @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
 
@@ -17,14 +12,8 @@ defmodule Valimc.PlacementRegionTest do
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
-    position = {rx * span, 64, rz * span}
-    other = {rx * span + 1, 64, rz * span}
-    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.item_owner(key)
-    {:ok, observed} = Region.observe_blocks(owner, [position])
-    {:ok, reservation} = Region.reserve_placement(owner, observed.revision, observed.blocks)
-
-    transfer =
-      Map.merge(reservation, %{source: <<nonce::128>>, sequence: 1, edits: %{position => 1}})
+    position = {rx * span + 4, 64, rz * span + 4}
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
       for {live, _} <- Valimc.TestWorld.registered(key),
@@ -33,135 +22,30 @@ defmodule Valimc.PlacementRegionTest do
       File.rm_rf(base)
     end)
 
-    %{
-      base: base,
-      key: key,
-      pid: pid,
-      epoch: epoch,
-      owner: owner,
-      position: position,
-      other: other,
-      transfer: transfer
-    }
-  end
-
-  defp reserve(owner, positions) do
-    {:ok, observed} = Region.observe_blocks(owner, positions)
-    Region.reserve_placement(owner, observed.revision, observed.blocks)
-  end
-
-  defp writing(owner) do
-    Valimc.TestWait.until(fn ->
-      Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner))
-    end)
-
-    Valimc.TestRegion.section(owner)
+    %{base: base, key: key, pid: pid, owner: owner, position: position}
   end
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
 
-  defp receipt(ctx, owner, request, outcome) do
-    assert {:ok, {key, receipt}} = Region.item_transfer_receipt(owner, request.source)
-    assert key == ctx.key
-    assert {:ok, ^outcome} = PlacementTransfers.receipt_result(key, request, receipt)
-    receipt
-  end
-
-  test "a chest's block, empty contents and receipt apply together; the reply waits for them",
-       ctx do
-    {x, y, z} = ctx.position
-    position = {x + 4, y, z + 4}
-    {:ok, reservation} = reserve(ctx.owner, [position])
-    ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
-    request = %{ctx.transfer | edits: %{ctx.position => @chest}}
-    stripe = Valimc.TestDisk.stripe(ctx.base, ctx.key)
-    :sys.suspend(stripe)
-    task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, request) end)
-
-    try do
-      pending = writing(ctx.owner)
-      assert pending.containers.entries[ctx.position].rows == 3
-      # Shown at once (D2); the reply, the player's proof, waits for the frame.
-      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == @chest
-      assert Task.yield(task, 10) == nil
-      :sys.resume(stripe)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-    after
-      :sys.resume(stripe)
-      Task.shutdown(task, :brutal_kill)
-    end
-
-    {:ok, containers} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
+  test "a chest's block and empty contents apply in one placement; its break clears both", ctx do
+    {:ok, observed} = Region.observe_blocks(ctx.owner, [ctx.position])
+    {:ok, batch} = BlockBatch.prepare(%{ctx.position => @chest})
+    deadline = System.monotonic_time(:millisecond) + 200
+    assert {:ok, _} = Region.place_block(ctx.owner, observed.revision, batch, deadline)
+    assert Valimc.TestRegion.section(ctx.owner).containers.entries[ctx.position].rows == 3
+    assert :ok = Region.flush(ctx.pid)
+    {:ok, containers} = Containers.decode(disk(ctx), ctx.key)
     assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
-    assert containers.sequence == 1 and containers.receipts == %{}
     assert Valimc.TestBlocks.get(ctx.position) == @chest
-    receipt(ctx, ctx.owner, request, :applied)
+
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
-    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
+    {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert Valimc.TestRegion.section(owner).containers == containers
-    {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])
-    removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
-    assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)
+    assert :ok = Region.mine_block(owner, ctx.position, @chest, [])
     assert Valimc.TestBlocks.get(ctx.position) == Valimc.Registry.BlockFacts.fluid_remains(@chest)
-    {:ok, removed} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
-    assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
-  end
+    assert :ok = Region.flush(pid)
 
-  test "unrelated edits preserve permits; target ABA, release and changed context reject durably",
-       ctx do
-    assert :ok = Valimc.TestBlocks.set(ctx.other, 1)
-    assert {:ok, :applied} = Region.apply_placement_transfer(ctx.owner, ctx.transfer)
-    {:ok, reserved} = reserve(ctx.owner, [ctx.other])
-
-    request =
-      Map.merge(ctx.transfer, reserved) |> Map.merge(%{sequence: 2, edits: %{ctx.other => 10}})
-
-    assert :ok = Valimc.TestBlocks.set(ctx.other, 10)
-    assert :ok = Valimc.TestBlocks.set(ctx.other, 1)
-    assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    assert {:ok, :already_rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    assert Valimc.TestBlocks.get(ctx.other) == 1
-    receipt(ctx, ctx.owner, request, :rejected)
-    {:ok, released} = reserve(ctx.owner, [ctx.other])
-    assert :ok = Region.release_placement(ctx.owner, released.permit)
-    request = Map.merge(request, released) |> Map.put(:sequence, 3)
-    assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    {:ok, observed} = Region.observe_blocks(ctx.owner, [ctx.other])
-
-    assert {:error, :placement_context_changed} =
-             Region.reserve_placement(ctx.owner, observed.revision, %{ctx.other => 0})
-
-    assert :ok = Valimc.TestBlocks.set(ctx.position, 10)
-
-    assert {:error, :stale_revision} =
-             Region.reserve_placement(ctx.owner, observed.revision, observed.blocks)
-  end
-
-  test "mining permits, receipt hashes and malformed requests cannot authorize placement", ctx do
-    {:ok, mining} = Region.reserve_mining(ctx.owner, [ctx.position])
-    request = Map.merge(ctx.transfer, mining)
-    assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    actual = receipt(ctx, ctx.owner, request, :rejected)
-
-    assert {:error, :transfer_conflict} =
-             MiningTransfers.receipt_result(
-               ctx.key,
-               request |> Map.delete(:edits) |> Map.put(:records, []),
-               actual
-             )
-
-    assert {:error, :transfer_conflict} = Region.apply_placement_transfer(ctx.owner, ctx.transfer)
-
-    assert {:error, :invalid_placement_request} =
-             Region.apply_placement_transfer(ctx.owner, %{ctx.transfer | sequence: 0})
-
-    assert {:error, :invalid_placement_reservation} = Region.reserve_placement(ctx.owner, 0, %{})
-
-    assert {:error, {:retry, :stale_owner}} =
-             Region.release_placement({ctx.pid, make_ref()}, ctx.transfer.permit)
-
-    assert Valimc.TestBlocks.get(ctx.position) == 0
+    assert disk(ctx) == nil or
+             match?({:ok, %{entries: e}} when e == %{}, Containers.decode(disk(ctx), ctx.key))
   end
 end

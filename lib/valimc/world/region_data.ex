@@ -12,13 +12,12 @@ defmodule Valimc.World.RegionData do
     BlockSnapshot,
     Chunk,
     CookingRuntime,
-    ContainerRequest,
-    ContainerTransfers,
-    ContainerPermits,
     ContainerViewers,
+    ContainerClicks,
     ContainerLifecycle,
     ContainerSpills,
     Entities,
+    ExperienceOrbs,
     Jobs,
     RegionEntities,
     EntityHandoffs,
@@ -27,19 +26,12 @@ defmodule Valimc.World.RegionData do
     ItemPortals,
     ItemMerges,
     ItemCrossMergeQuery,
-    ItemTransfers,
-    PickupPermits,
-    PickupTransfers,
-    MiningPermits,
-    MiningTransfers,
-    PlacementPermits,
-    PlacementTransfers,
     RegionGeneration,
     RegionStorage,
     Tickets
   }
 
-  alias Valimc.Error
+  alias Valimc.{Error, Inventory}
   alias Valimc.Protocol.Packets
   alias Valimc.Txn.Permits
   alias Valimc.Block.Rules
@@ -164,7 +156,6 @@ defmodule Valimc.World.RegionData do
       entities: %RegionEntities{
         store: items,
         tracking: %EntityTracking{tick: loaded.game_tick},
-        receipts: loaded.receipts,
         persistent: loaded.persistent,
         simulate: Valimc.config(:item_simulation, key)
       },
@@ -204,7 +195,6 @@ defmodule Valimc.World.RegionData do
   def parts(state),
     do: %{
       items: state.entities.store,
-      receipts: state.entities.receipts,
       containers: state.containers,
       ticks: state.scheduled_ticks,
       block_entities: state.block_entities,
@@ -216,6 +206,16 @@ defmodule Valimc.World.RegionData do
 
   def item_tick(state, now) do
     state = travel_item(state)
+
+    state =
+      if state.entities.dropped != [] and not planning?(state),
+        do:
+          adopt_drops(
+            %{state | entities: %{state.entities | dropped: []}},
+            state.entities.dropped
+          ),
+        else: state
+
     state = if Tickets.simulating?(state.tickets), do: simulate_items(state, now), else: state
     track_entities(state)
   end
@@ -538,76 +538,151 @@ defmodule Valimc.World.RegionData do
         Entities.remove(state.entities.store, epoch, id, revision)
       end)
 
-  def handle_call({:reserve_pickup, epoch, actor, item_uuid, deadline}, from, state) do
-    cond do
-      epoch != state.epoch ->
-        {:reply, Error.retry(:stale_owner), state}
+  def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
+      when is_pid(viewer) do
+    {decision, state} = menu_request(state, epoch, viewer, position, grant)
+    {:reply, decision, state}
+  end
 
-      not state.entities.persistent ->
-        {:reply, {:error, :transfer_storage_disabled}, state}
+  # A click in a container menu (VMC-077i3), from the player's group: applied
+  # to the container and `inventory` at once; an earned furnace output spawns
+  # its orbs. The clicking view has seen the new revision; other viewers learn
+  # of it. `{:ok, inventory, entry, learned}` or `{:error, reason}`.
+  def handle_call({:container_click, epoch, viewer, ref, position, actor, click}, _from, state) do
+    now = System.monotonic_time(:millisecond)
+    block = if valid_block_query?([position], :any), do: Blocks.get(state.blocks, position)
+    menu = Valimc.MenuAccess.menu(block)
 
-      busy = write_busy(state) ->
-        {:reply, {:error, busy}, state}
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         true <- in_region?(state, position) or {:error, :wrong_region},
+         nil <- write_busy(state),
+         true <- menu in [:chest, :cooking] or {:error, :missing_container},
+         :ok <- Valimc.MenuAccess.authorize_action(menu, block, position, actor, now),
+         {:ok, containers, inventory, orbs, learned} <-
+           ContainerClicks.apply(
+             state.containers,
+             position,
+             click.inventory,
+             click.action,
+             click.slot,
+             click.button,
+             actor.position
+           ) do
+      state = %{state | containers: containers}
+      state = if orbs == [], do: state, else: adopt_drops(state, orbs)
+      entry = state.containers.entries[position]
 
-      not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
-        {:reply, {:error, :expired_item_step}, state}
+      viewers =
+        ContainerViewers.observed(state.container_viewers, viewer, ref, entry.revision)
 
-      true ->
-        case PickupPermits.issue(
-               state.permits,
-               state.entities.receipts,
-               state.entities.store,
-               actor,
-               item_uuid,
-               System.monotonic_time(:millisecond)
-             ) do
-          {:ok, permits, grant} ->
-            {:reply, {:ok, grant}, %{state | permits: permits}}
-
-          {:error, :pickup_receipt_slot_required} ->
-            with {:ok, {_, id, _}} <- Entities.find(state.entities.store, item_uuid),
-                 true <-
-                   Valimc.Physics.ItemPickup.eligible?(actor, state.entities.store.entries[id]) do
-              actor = Map.take(actor, [:uuid, :entity_id, :box, :game_mode, :health, :passenger])
-              plan_item_change(:pickup_admission, {actor, item_uuid, deadline}, from, state)
-            else
-              _ -> {:reply, {:error, :pickup_not_available}, state}
-            end
-
-          error ->
-            {:reply, error, state}
-        end
+      state = notify_container_changed(%{state | container_viewers: viewers}, position)
+      entry = Map.put(entry, :generation, Map.get(state.cooking_progress, position, 0))
+      {:reply, {:ok, inventory, entry, learned}, state}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 
-  def handle_call({:pickup_transfer, epoch, request}, from, state) do
+  # A survival player breaks the block at `position` it mined (VMC-077i3): the
+  # block is still `expected`, it is removed (a container's contents spill),
+  # and the drops `records` are adopted, in one plain call from its group.
+  def handle_call({:mine_block, epoch, position, expected, records}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         true <-
+           (valid_block_query?([position], :any) and in_region?(state, position)) or
+             {:error, :wrong_region},
+         nil <- write_busy(state),
+         true <- Blocks.get(state.blocks, position) == expected or {:error, :stale_block},
+         # Breaking a chest drops its contents, which unpacks loot with no
+         # player (luck 0), as `Containers.dropContents` does.
+         state = unpack_to_break(state, position, expected),
+         {:ok, batch} <- BlockBatch.prepare(%{position => Valimc.Block.after_removal(expected)}),
+         {:ok, plan} <-
+           block_container_metadata(
+             %{expected: %{position => expected}, batch: batch, items: state.entities.store},
+             state.containers,
+             state.key
+           ),
+         {:ok, proposal} <- block_proposal(state, batch, Map.get(plan, :removed, [])) do
+      state = publish_blocks(state, batch, proposal)
+      state = %{state | containers: Map.get(plan, :containers, state.containers)}
+      state = publish_item_views(%{state | entities: %{state.entities | store: plan.items}})
+      {:reply, :ok, adopt_drops(state, records)}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # A player's item interactions (VMC-077i3) are plain calls from its group:
+  # a drop adopts its records (after a running plan, whose result replaces the
+  # store), a pickup takes what fits `inventory` of an item the player touches,
+  # an XP pickup one unit of an orb. Each change is in the section's next frame.
+  def handle_call({:drop_items, epoch, records}, _from, state) do
     cond do
       epoch != state.epoch ->
         {:reply, Error.retry(:stale_owner), state}
 
-      not state.entities.persistent ->
-        {:reply, {:error, :transfer_storage_disabled}, state}
-
-      busy = write_busy(state) ->
-        {:reply, {:error, busy}, state}
+      planning?(state) ->
+        entities = %{state.entities | dropped: state.entities.dropped ++ records}
+        {:reply, :ok, %{state | entities: entities}}
 
       true ->
-        {permits, grant, eligible} =
-          PickupPermits.consume(
-            state.permits,
-            state.entities.store,
-            request,
-            System.monotonic_time(:millisecond)
+        {:reply, :ok, adopt_drops(state, records)}
+    end
+  end
+
+  def handle_call({:take_item, epoch, actor, uuid, inventory}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {epoch, id, revision}} <- Entities.find(store, uuid),
+         %{kind: :item, stack: stack} = entry <- store.entries[id],
+         true <- Valimc.Physics.ItemPickup.eligible?(actor, entry) or {:error, :not_eligible},
+         {:ok, inventory, remainder, _} <- Inventory.pickup_stack(inventory, stack),
+         true <- remainder != stack or {:error, :inventory_full},
+         {:ok, items} <- take(store, epoch, id, revision, remainder) do
+      taken = stack.count - if(remainder, do: remainder.count, else: 0)
+      state = publish_item_views(%{state | entities: %{state.entities | store: items}})
+
+      if remainder == nil,
+        do:
+          Valimc.World.publish(
+            route_key(state),
+            {:item_pickup, epoch, id, actor.entity_id, taken}
           )
 
-        # This owner admits the decision now and freezes item mutations while
-        # planning/persisting. Expiry after admission cannot change its ordering.
-        effect = pickup_effect(state.entities.store, request, grant, eligible)
+      {:reply, {:ok, inventory, taken}, state}
+    else
+      {:error, _} = error -> {:reply, error, state}
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      _ -> {:reply, {:error, :pickup_not_available}, state}
+    end
+  end
 
-        case plan_item_change(:item_pickup, {request, eligible, effect}, from, state) do
-          {:noreply, next} -> {:noreply, %{next | permits: permits}}
-          reply -> reply
-        end
+  def handle_call({:take_orb, epoch, actor, uuid, value}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, _}} <- Entities.find(store, uuid),
+         %{kind: :orb, value: ^value, entity: %{x: x, y: y, z: z}} <- store.entries[id],
+         true <- ExperienceOrbs.contact?(actor.box, {x, y, z}) or {:error, :not_eligible},
+         {:ok, items, id} <- Entities.take_orb(store, uuid, value) do
+      state = publish_item_views(%{state | entities: %{state.entities | store: items}})
+
+      Valimc.World.publish(
+        route_key(state),
+        {:experience_pickup, state.epoch, id, actor.entity_id}
+      )
+
+      {:reply, :ok, state}
+    else
+      {:error, _} = error -> {:reply, error, state}
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      _ -> {:reply, {:error, :pickup_not_available}, state}
     end
   end
 
@@ -668,19 +743,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:item_transfer, epoch, transfer}, from, state) do
-    cond do
-      epoch != state.epoch ->
-        {:reply, Error.retry(:stale_owner), state}
-
-      busy = write_busy(state) ->
-        {:reply, {:error, busy}, state}
-
-      true ->
-        plan_transfer(transfer, from, state)
-    end
-  end
-
   def handle_call({:handoff_items, epoch, destination, steps, deadline}, from, state) do
     cond do
       epoch != state.epoch ->
@@ -712,121 +774,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:reserve_mining, epoch, positions}, _from, state) do
-    cond do
-      epoch != state.epoch ->
-        {:reply, Error.retry(:stale_owner), state}
-
-      not valid_block_query?(positions, :any) or positions == [] ->
-        {:reply, {:error, :invalid_mining_reservation}, state}
-
-      not Enum.all?(positions, fn {x, y, z} ->
-        Chunk.valid_y?(y) and Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key
-      end) ->
-        {:reply, {:error, :wrong_region}, state}
-
-      block_transfer_writing?(state) ->
-        {:reply, Error.retry(:mining_storage_busy), state}
-
-      true ->
-        blocks = Map.new(positions, &{&1, Blocks.get(state.blocks, &1)})
-
-        case MiningPermits.reserve(
-               state.permits,
-               blocks,
-               System.monotonic_time(:millisecond)
-             ) do
-          {:ok, permits, token} ->
-            {:reply, {:ok, %{permit: token, expected: blocks}}, %{state | permits: permits}}
-
-          error ->
-            {:reply, error, state}
-        end
-    end
-  end
-
-  def handle_call({:renew_mining, epoch, permit}, _from, state) do
-    if epoch == state.epoch do
-      case MiningPermits.renew(state.permits, permit, System.monotonic_time(:millisecond)) do
-        {:ok, permits, blocks} ->
-          {:reply, {:ok, blocks}, %{state | permits: permits}}
-
-        error ->
-          {:reply, error, state}
-      end
-    else
-      {:reply, Error.retry(:stale_owner), state}
-    end
-  end
-
-  def handle_call({:release_mining, epoch, permit}, _from, state) do
-    if epoch == state.epoch,
-      do: {:reply, :ok, %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
-      else: {:reply, Error.retry(:stale_owner), state}
-  end
-
-  def handle_call({:mining_transfer, epoch, transfer}, from, state) do
-    cond do
-      epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
-      not state.entities.persistent -> {:reply, {:error, :transfer_storage_disabled}, state}
-      busy = write_busy(state) -> {:reply, {:error, busy}, state}
-      true -> plan_block_transfer(:mining, transfer, from, unpack_to_break(state, transfer))
-    end
-  end
-
-  def handle_call({:reserve_placement, epoch, revision, expected}, _from, state) do
-    cond do
-      epoch != state.epoch ->
-        {:reply, Error.retry(:stale_owner), state}
-
-      not is_map(expected) or map_size(expected) not in 1..2 ->
-        {:reply, {:error, :invalid_placement_reservation}, state}
-
-      not valid_block_query?(Map.keys(expected), revision) ->
-        {:reply, {:error, :invalid_placement_reservation}, state}
-
-      not fence_current?(state, revision) ->
-        {:reply, {:error, :stale_revision}, state}
-
-      not Enum.all?(expected, fn {{x, y, z}, block} ->
-        Chunk.valid_y?(y) and Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
-            Blocks.get(state.blocks, {x, y, z}) == block
-      end) ->
-        {:reply, {:error, :placement_context_changed}, state}
-
-      block_transfer_writing?(state) ->
-        {:reply, Error.retry(:mining_storage_busy), state}
-
-      true ->
-        case PlacementPermits.reserve(
-               state.permits,
-               expected,
-               System.monotonic_time(:millisecond)
-             ) do
-          {:ok, permits, token} ->
-            {:reply, {:ok, %{permit: token, expected: expected}}, %{state | permits: permits}}
-
-          error ->
-            {:reply, error, state}
-        end
-    end
-  end
-
-  def handle_call({:release_placement, epoch, permit}, _from, state) do
-    if epoch == state.epoch,
-      do: {:reply, :ok, %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
-      else: {:reply, Error.retry(:stale_owner), state}
-  end
-
-  def handle_call({:placement_transfer, epoch, transfer}, from, state) do
-    cond do
-      epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
-      not state.entities.persistent -> {:reply, {:error, :transfer_storage_disabled}, state}
-      busy = write_busy(state) -> {:reply, {:error, busy}, state}
-      true -> plan_block_transfer(:placement, transfer, from, state)
-    end
-  end
-
   def handle_call({:find_item, epoch, uuid}, _from, state) do
     result =
       if epoch == state.epoch,
@@ -840,69 +787,6 @@ defmodule Valimc.World.RegionData do
       end
 
     {:reply, reply, state}
-  end
-
-  def handle_call({:container_transfer, epoch, request}, from, state) do
-    container_request(state, epoch, fn ->
-      if award_handoff_busy?(state, request) do
-        # Its orbs would be handed to another owner, whose one outgoing slot is taken.
-        {:reply, Error.retry(:item_handoff_busy), state}
-      else
-        start_container_transfer(state, request, from)
-      end
-    end)
-  end
-
-  def handle_call({:admit_container_transfer, epoch, request, actor}, from, state) do
-    container_request(state, epoch, fn ->
-      case container_access(state, request, actor) do
-        :ok ->
-          containers = state.containers
-          items = state.entities.store
-          key = state.key
-
-          start_container_work(state, from, {:admit, actor}, container_position(request), fn ->
-            request = %{request | permit: :crypto.strong_rand_bytes(16)}
-
-            with {:ok, digest} <- ContainerRequest.digest(key, request),
-                 true <- container_admission_matches?(containers, items, request, actor),
-                 {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
-                 {:ok, _} <- Valimc.World.Containers.encode(key, reserved),
-                 do: {:ok, %{containers: reserved, result: {:admitted, request, digest}}},
-                 else: (_ -> {:error, :invalid_container_admission})
-          end)
-
-        error ->
-          {:reply, error, state}
-      end
-    end)
-  end
-
-  def handle_call({:container_transfer_receipt, epoch, source}, from, state) do
-    result =
-      cond do
-        epoch != state.epoch -> Error.retry(:stale_owner)
-        not state.entities.persistent -> {:error, :transfer_storage_disabled}
-        not (is_binary(source) and byte_size(source) == 16) -> {:error, :invalid_transfer_source}
-        state.containers.receipts[source] == nil -> {:error, :missing_container_receipt}
-        true -> {:ok, {state.key, state.containers.receipts[source]}}
-      end
-
-    # A receipt is destination proof: it leaves only once durable.
-    {:noreply, reply_when_durable(state, from, result)}
-  end
-
-  def handle_call({:item_transfer_receipt, epoch, source}, from, state) do
-    result =
-      cond do
-        epoch != state.epoch -> Error.retry(:stale_owner)
-        not state.entities.persistent -> {:error, :transfer_storage_disabled}
-        not (is_binary(source) and byte_size(source) == 16) -> {:error, :invalid_transfer_source}
-        state.entities.receipts[source] == nil -> {:error, :missing_transfer_receipt}
-        true -> {:ok, {state.key, state.entities.receipts[source]}}
-      end
-
-    {:noreply, reply_when_durable(state, from, result)}
   end
 
   def handle_call({:chunk, key} = message, from, state) do
@@ -1151,9 +1035,6 @@ defmodule Valimc.World.RegionData do
       not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
-      block_transfer_writing?(state) ->
-        {:reply, Error.retry(:mining_storage_busy), state}
-
       true ->
         case block_proposal(state, batch, [], entities) do
           {:ok, proposal} ->
@@ -1230,7 +1111,7 @@ defmodule Valimc.World.RegionData do
 
     case Permits.lookup(state.permits, :box_edit, token, now) do
       {:ok, grant} when epoch == state.epoch ->
-        if block_transfer_writing?(state) or (entries != %{} and write_busy(state) != nil) do
+        if entries != %{} and write_busy(state) != nil do
           {:reply, Error.retry(:box_edit_busy), state}
         else
           state = %{state | permits: Permits.release(state.permits, token)}
@@ -1327,9 +1208,6 @@ defmodule Valimc.World.RegionData do
     cond do
       Permits.locked?(state.permits, [position], System.monotonic_time(:millisecond)) ->
         {:reply, {:error, :box_edit_pending}, state}
-
-      block_transfer_writing?(state) ->
-        {:reply, Error.retry(:mining_storage_busy), state}
 
       protected_container_change?(state, %{position => block}) ->
         {:reply, {:error, :occupied_container}, state}
@@ -1500,10 +1378,9 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  # A reply a cross-owner transfer step depends on (a receipt, an applied
-  # delivery) waits for its frame to be durable; everything else replies now.
+  # A reply a cross-owner step depends on (an entity handoff's departure or
+  # arrival) waits for its frame to be durable; everything else replies now.
   # Their frame is cut at once rather than at the next commit tick.
-  defp reply_when_durable(state, from, reply), do: wait_durable(state, [{:reply, from, reply}])
 
   @doc false
   def wait_durable(state, waits) do
@@ -1618,8 +1495,8 @@ defmodule Valimc.World.RegionData do
   # dependent blocks' due `ticks`, across the group's sections (VMC-077j):
   # the run stops only at the group's edge. Each section's writes commit as
   # one batch, with the loot of the blocks they destroyed, in the group's next
-  # frame; that batch starts no updates of its own. Behind a planning
-  # transfer in a section the run drops loot in, it waits for the next tick,
+  # frame; that batch starts no updates of its own. Behind a running item
+  # plan in a section the run drops loot in, it waits for the next tick,
   # whole.
   defp rule_updates(state, previous, []) when map_size(previous) == 0, do: state
 
@@ -1972,31 +1849,12 @@ defmodule Valimc.World.RegionData do
 
   defp item_result({:error, _} = error, _from, state), do: {:reply, error, state}
 
-  # Entities (and receipts) are adopted at once and the caller is answered at
+  # Entities are adopted at once and the caller is answered at
   # once (D2); the next frame holds their records (VMC-077f).
-  defp commit_items(items, reply, from, state),
-    do: commit_items(items, reply, from, state, state.entities.receipts)
-
-  defp commit_items(items, reply, from, state, receipts) do
-    state =
-      publish_item_views(%{
-        state
-        | entities: %{state.entities | store: items, receipts: receipts}
-      })
+  defp commit_items(items, reply, from, state) do
+    state = publish_item_views(%{state | entities: %{state.entities | store: items}})
 
     {:noreply, finish_item_reply(state, from, reply)}
-  end
-
-  # The same for a transfer step another owner acts on: the reply waits for
-  # the frame that holds the change (and its receipt) to be durable.
-  defp commit_transfer(items, reply, from, state, receipts) do
-    state =
-      publish_item_views(%{
-        state
-        | entities: %{state.entities | store: items, receipts: receipts}
-      })
-
-    {:noreply, reply_when_durable(state, from, reply)}
   end
 
   @doc """
@@ -2100,196 +1958,31 @@ defmodule Valimc.World.RegionData do
     %{state | entities: %{state.entities | tracking: tracking}}
   end
 
-  defp plan_transfer(transfer, from, state),
-    do: plan_item_change(:item_transfer, transfer, from, state)
+  # Players' drops become entities here; a record that cannot (it left the
+  # section, a duplicate uuid) is logged and dropped, never retried.
+  defp adopt_drops(state, records) do
+    items =
+      Enum.reduce(records, state.entities.store, fn record, items ->
+        case Entities.create_record(items, state.key, record) do
+          {:ok, next, _} ->
+            next
 
-  defp container_request(state, epoch, start) do
-    cond do
-      epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
-      not state.entities.persistent -> {:reply, {:error, :transfer_storage_disabled}, state}
-      busy = write_busy(state) -> {:reply, {:error, busy}, state}
-      true -> start.()
-    end
-  end
-
-  defp container_block(state, %{position: position}) do
-    if valid_block_query?([position], :any) and
-         Valimc.World.region_key(Valimc.World.chunk_key(elem(position, 0), elem(position, 2))) ==
-           state.key,
-       do: Blocks.get(state.blocks, position),
-       else: nil
-  end
-
-  defp container_block(_, _), do: nil
-
-  defp container_position(%{position: position}), do: position
-  defp container_position(_), do: nil
-
-  defp container_access(_state, %{kind: :experience, source: source}, %{
-         uuid: source,
-         game_mode: %{current: mode},
-         health: %{value: hp},
-         expires: expires
-       })
-       when mode in [:survival, :adventure, :creative] and hp > 0 do
-    if System.monotonic_time(:millisecond) < expires,
-      do: :ok,
-      else: {:error, :expired_experience_contact}
-  end
-
-  defp container_access(
-         state,
-         %{
-           source: source,
-           position: position,
-           rows: 3,
-           inventory: %Valimc.Inventory{} = inventory
-         } =
-           request,
-         %{uuid: source, mode: mode} = actor
-       ) do
-    if inventory.infinite_materials == (mode == :creative),
-      do:
-        Valimc.MenuAccess.authorize_action(
-          :chest,
-          container_block(state, request),
-          position,
-          actor,
-          System.monotonic_time(:millisecond)
-        ),
-      else: {:error, :invalid_container_context}
-  end
-
-  defp container_access(
-         state,
-         %{
-           source: source,
-           kind: kind,
-           position: position,
-           inventory: %Valimc.Inventory{} = inventory
-         } = request,
-         %{uuid: source, mode: mode} = actor
-       ) do
-    block = container_block(state, request)
-
-    if inventory.infinite_materials == (mode == :creative) and
-         (request[:award] == nil or request.award.position == actor[:position]) and
-         Valimc.CookingBlocks.kind(block) == kind,
-       do:
-         Valimc.MenuAccess.authorize_action(
-           :cooking,
-           block,
-           position,
-           actor,
-           System.monotonic_time(:millisecond)
-         ),
-       else: {:error, :invalid_container_context}
-  end
-
-  defp container_access(_, _, _), do: {:error, :invalid_container_context}
-
-  defp container_admission_matches?(_containers, items, %{kind: :experience} = request, actor),
-    do:
-      Valimc.World.ExperienceTransfers.eligible?(
-        items,
-        request,
-        actor,
-        System.monotonic_time(:millisecond)
-      )
-
-  defp container_admission_matches?(containers, _items, request, _actor),
-    do:
-      match?({:ok, _}, Valimc.World.Containers.observe(containers, request.position)) and
-        ContainerRequest.matches_entry?(request, containers.entries[request.position])
-
-  defp container_block_matches?(%{kind: :experience}, _), do: true
-  defp container_block_matches?(%{rows: _}, block), do: Valimc.Block.Chest.single?(block)
-
-  defp container_block_matches?(%{kind: kind}, block),
-    do: Valimc.CookingBlocks.kind(block) == kind
-
-  defp container_block_matches?(_, _), do: false
-
-  # A container decision adopts its permits at once; the reply, viewer notices and
-  # the orb pickup leave only once every write the decision read is durable.
-  defp adopt_container_result(state, pending) do
-    case {pending.operation, pending.decision.result} do
-      {{:admit, actor}, {:admitted, request, digest}} ->
-        with :ok <- container_access(state, request, actor),
-             {:ok, permits} <-
-               ContainerPermits.issue(
-                 state.permits,
-                 state.containers.receipts,
-                 request,
-                 digest,
-                 System.monotonic_time(:millisecond)
-               ) do
-          {{:ok, request}, %{state | permits: permits}}
-        else
-          error -> {error, state}
+          {:error, reason} ->
+            require Logger
+            Logger.warning("Player drop not adopted: #{inspect(reason)}")
+            items
         end
+      end)
 
-      {_, result} ->
-        {{:ok, result}, state}
-    end
+    publish_item_views(%{state | entities: %{state.entities | store: items}})
   end
 
-  defp award_handoff_busy?(state, %{award: %{position: {x, _, z}}}) do
-    Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key and
-      state.entities.store.ledger.outgoing != nil
+  defp take(items, epoch, id, revision, nil), do: Entities.remove(items, epoch, id, revision)
+
+  defp take(items, epoch, id, revision, remainder) do
+    with {:ok, next, _} <- Entities.replace(items, epoch, id, revision, remainder),
+         do: {:ok, next}
   end
-
-  defp award_handoff_busy?(_state, _request), do: false
-
-  defp start_container_transfer(state, request, from) do
-    containers = state.containers
-    items = state.entities.store
-    key = state.key
-    route = route_key(state)
-    block = container_block(state, request)
-
-    {permits, grant} =
-      ContainerPermits.take(state.permits, request, System.monotonic_time(:millisecond))
-
-    state = %{state | permits: permits}
-
-    start_container_work(state, from, :deliver, container_position(request), fn ->
-      with {:ok, digest} <- ContainerRequest.digest(key, request),
-           {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
-        eligible =
-          ContainerPermits.eligible?(grant, request, digest) and
-            container_block_matches?(request, block)
-
-        if request[:kind] == :experience,
-          do: Valimc.World.ExperienceTransfers.plan(reserved, items, key, request, eligible),
-          else:
-            reserved
-            |> ContainerTransfers.plan(key, request, eligible)
-            |> spawn_orbs(items, route)
-      end
-    end)
-  end
-
-  # A furnace withdrawal's orbs spawn in the same commit as its decision: here,
-  # or handed over to the owner of their position (VMC-077h).
-  defp spawn_orbs({:ok, %{orbs: [_ | _] = orbs} = decision}, items, key) do
-    with {:ok, items} <- EntityHandoffs.spawn(items, key, orbs),
-         do: {:ok, decision |> Map.delete(:orbs) |> Map.put(:items, items)}
-  end
-
-  defp spawn_orbs({:ok, decision}, _items, _key), do: {:ok, Map.delete(decision, :orbs)}
-  defp spawn_orbs(error, _items, _key), do: error
-
-  defp container_effects(pending) do
-    case Map.get(pending.decision, :experience) do
-      nil -> [{:container_changed, pending.position}]
-      request -> [{:container_changed, pending.position}, {:experience_pickup, request}]
-    end
-  end
-
-  defp start_container_work(state, from, operation, position, work),
-    do:
-      start_plan(state, %{kind: :container, operation: operation, position: position}, from, work)
 
   # The planning slot (`:plan` job): a worker plans a durable mutation from
   # values while the owner keeps answering; `pending` (with the caller) is
@@ -2316,7 +2009,6 @@ defmodule Valimc.World.RegionData do
 
   defp plan_item_change(kind, request, from, state) do
     items = state.entities.store
-    receipts = state.entities.receipts
     key = if kind in @handoff_plans, do: route_key(state), else: state.key
 
     acceptance_deadline =
@@ -2333,45 +2025,14 @@ defmodule Valimc.World.RegionData do
       state,
       %{kind: kind, acceptance_deadline: acceptance_deadline},
       from,
-      fn -> item_plan(kind, items, receipts, key, request) end
+      fn -> item_plan(kind, items, key, request) end
     )
   end
 
-  defp item_plan(:item_transfer, items, receipts, key, transfer) do
-    case ItemTransfers.plan(items, receipts, key, transfer) do
-      {:ok, next, receipts, :applied} -> {:write, next, receipts, {:ok, :applied}}
-      {:ok, _, _, :already_applied} -> {:reply, {:ok, :already_applied}}
-      error -> error
-    end
-  end
-
-  defp item_plan(:pickup_admission, items, receipts, _key, {actor, item_uuid, deadline}) do
-    reply = {:pickup_grant, actor, item_uuid, deadline}
-
-    case Valimc.Txn.Receipts.reserve(receipts, actor.uuid) do
-      {:ok, _, :existing} -> {:reply, reply}
-      {:ok, reserved, :reserved} -> {:write, items, reserved, reply}
-      error -> error
-    end
-  end
-
-  defp item_plan(:item_pickup, items, receipts, key, {request, eligible, effect}) do
-    case PickupTransfers.plan(items, receipts, key, request, eligible) do
-      {:ok, %{result: result}} when result in [:already_applied, :already_rejected] ->
-        {:reply, {:ok, result}}
-
-      {:ok, plan} ->
-        {:write, plan.items, plan.receipts, {:pickup_result, plan.result, effect}}
-
-      error ->
-        error
-    end
-  end
-
-  defp item_plan(:item_handoff_in, items, receipts, key, transfer) do
+  defp item_plan(:item_handoff_in, items, key, transfer) do
     case EntityHandoffs.accept(items, key, transfer) do
       {:ok, next, result} when result in [:applied, :rejected] ->
-        {:write, next, receipts, {:ok, result}}
+        {:write, next, {:ok, result}}
 
       {:ok, _, result} ->
         {:reply, {:ok, result}}
@@ -2381,91 +2042,38 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp item_plan(:item_handoff_out, items, receipts, key, {destination, steps, _}) do
+  defp item_plan(:item_handoff_out, items, key, {destination, steps, _}) do
     with {:ok, next, request} <-
            EntityHandoffs.depart(items, key, items.epoch, destination, steps),
-         do: {:write, next, receipts, {:ok, request.sequence}}
+         do: {:write, next, {:ok, request.sequence}}
   end
 
-  defp item_plan(:item_merge_out, items, receipts, key, {donor, destination, target, _}) do
+  defp item_plan(:item_merge_out, items, key, {donor, destination, target, _}) do
     with {:ok, next, request} <-
            EntityHandoffs.depart_merge(items, key, items.epoch, donor, destination, target),
-         do: {:write, next, receipts, {:ok, request.sequence}}
+         do: {:write, next, {:ok, request.sequence}}
   end
 
-  defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest, result}) do
+  defp item_plan(:item_handoff_clear, items, key, {sequence, digest, result}) do
     with {:ok, next} <- EntityHandoffs.finish(items, key, sequence, digest, result),
-         do: {:write, next, receipts, {:ok, result}}
+         do: {:write, next, {:ok, result}}
   end
 
-  defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
-    merge_plan(items, receipts, pairs)
-  end
+  defp item_plan(:item_merge, items, _key, {pairs, _deadline}), do: merge_plan(items, pairs)
 
-  defp item_plan(:item_merge_auto, items, receipts, _key, _) do
+  defp item_plan(:item_merge_auto, items, _key, _) do
     case ItemMerges.candidates(items) do
       [] -> {:reply, {:ok, []}}
-      pairs -> merge_plan(items, receipts, pairs)
+      pairs -> merge_plan(items, pairs)
     end
   end
 
-  defp merge_plan(items, receipts, pairs) do
+  defp merge_plan(items, pairs) do
     case ItemMerges.plan(items, items.epoch, pairs) do
       {:ok, ^items, changes} -> {:reply, {:ok, changes}}
-      {:ok, next, changes} -> {:write, next, receipts, {:ok, changes}}
+      {:ok, next, changes} -> {:write, next, {:ok, changes}}
       error -> error
     end
-  end
-
-  defp block_transfer_writing?(state),
-    do: match?(%{kind: kind} when kind in [:container, :container_blocks], planning(state))
-
-  defp permit_matches?(state, kind, %{permit: token, expected: expected}) do
-    {module, permits} = permit_store(state, kind)
-    module.lookup(permits, token, System.monotonic_time(:millisecond)) == {:ok, expected}
-  end
-
-  defp permit_matches?(_, _, _), do: false
-  defp permit_store(state, :mining), do: {MiningPermits, state.permits}
-  defp permit_store(state, :placement), do: {PlacementPermits, state.permits}
-  defp transfer_module(:mining), do: MiningTransfers
-  defp transfer_module(:placement), do: PlacementTransfers
-
-  defp plan_block_transfer(kind, transfer, from, state) do
-    items = state.entities.store
-    receipts = state.entities.receipts
-    containers = state.containers
-    key = state.key
-    eligible = permit_matches?(state, kind, transfer)
-    module = transfer_module(kind)
-
-    start_plan(state, %{kind: kind}, from, fn ->
-      with {:ok, plan} <- module.plan(items, receipts, key, transfer, eligible) do
-        plan = Map.put(plan, :kind, kind)
-
-        if plan.result == :applied do
-          changes =
-            if kind == :placement do
-              plan.edits
-            else
-              Map.new(plan.expected, fn {pos, block} ->
-                {pos, Valimc.Block.after_removal(block)}
-              end)
-            end
-
-          with {:ok, batch} <- BlockBatch.prepare(changes) do
-            plan = Map.put(plan, :batch, batch)
-
-            case block_container_metadata(plan, containers, key) do
-              {:ok, plan} -> {:ok, plan}
-              {:error, _} -> {:ok, module.reject(plan, items, receipts)}
-            end
-          end
-        else
-          {:ok, plan}
-        end
-      end
-    end)
   end
 
   defp container_metadata_affected?(containers, expected, edits) do
@@ -2483,15 +2091,17 @@ defmodule Valimc.World.RegionData do
     pending = %{
       kind: :container_blocks,
       reply: reply,
-      batch: batch,
-      receipts: state.entities.receipts
+      batch: batch
     }
 
-    start_plan(state, pending, from, fn ->
+    # A container's block change plans here, at once: a player's placement or
+    # break is a plain call from its group (VMC-077i3) that cannot wait.
+    result =
       with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, batch.edits),
            {:ok, next} <- ContainerSpills.add(items, key, change.removed),
            do: {:ok, Map.put(change, :items, next)}
-    end)
+
+    job_done(:plan, Map.put(pending, :from, from), result, state)
   end
 
   defp block_container_metadata(plan, containers, key) do
@@ -2597,22 +2207,11 @@ defmodule Valimc.World.RegionData do
 
   defp unpack_to_open(state, _, _), do: state
 
-  # Breaking a chest reads its contents to drop them, which unpacks it with no
-  # player (luck 0), as `Containers.dropContents` does.
-  defp unpack_to_break(state, %{expected: expected} = transfer) when is_map(expected) do
-    if permit_matches?(state, :mining, transfer) do
-      Enum.reduce(expected, state, fn {position, block}, acc ->
-        if in_region?(acc, position) and Blocks.get(acc.blocks, position) == block and
-             not Valimc.Block.Chest.single?(Valimc.Block.after_removal(block)),
-           do: unpack_loot(acc, position, 0.0),
-           else: acc
-      end)
-    else
-      state
-    end
+  defp unpack_to_break(state, position, block) do
+    if Valimc.Block.Chest.single?(Valimc.Block.after_removal(block)),
+      do: state,
+      else: unpack_loot(state, position, 0.0)
   end
-
-  defp unpack_to_break(state, _), do: state
 
   # An imported block entity holding data ValiMC cannot drop or spill keeps its
   # block (VMC-021e1).
@@ -2814,53 +2413,6 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  defp commit_block_transfer(plan, pending, state) do
-    cond do
-      plan.result in [:already_applied, :already_rejected] ->
-        {:noreply, reply_when_durable(state, pending.from, {:ok, plan.result})}
-
-      plan.result == :rejected ->
-        commit_rejected_block_transfer(plan, pending.from, state)
-
-      not permit_matches?(state, plan.kind, plan) or
-          not isolated_chest_changes?(state, plan.batch) ->
-        commit_rejected_block_transfer(
-          transfer_module(plan.kind).reject(plan, state.entities.store, state.entities.receipts),
-          pending.from,
-          state
-        )
-
-      true ->
-        case block_proposal(state, plan.batch, Map.get(plan, :removed, [])) do
-          {:ok, proposal} ->
-            # Blocks, items and receipts are adopted and shown now; the reply
-            # (the other owner's proof) waits for their frame.
-            state = publish_blocks(state, plan.batch, proposal)
-            state = %{state | containers: Map.get(plan, :containers, state.containers)}
-
-            commit_transfer(plan.items, {:ok, :applied}, pending.from, state, plan.receipts)
-
-          {:error, _} ->
-            commit_rejected_block_transfer(
-              transfer_module(plan.kind).reject(
-                plan,
-                state.entities.store,
-                state.entities.receipts
-              ),
-              pending.from,
-              state
-            )
-        end
-    end
-  end
-
-  defp commit_rejected_block_transfer(plan, from, state) do
-    state = %{state | permits: Valimc.Txn.Permits.release(state.permits, plan.permit)}
-
-    # The rejection receipt is the other owner's proof too.
-    commit_transfer(state.entities.store, {:ok, :rejected}, from, state, plan.receipts)
-  end
-
   # A chunk's packet is encoded as job `{:encode, chunk}`; `encodes` holds the
   # callers waiting for it.
   defp start_encode(state, key) do
@@ -2932,9 +2484,6 @@ defmodule Valimc.World.RegionData do
     {:ok, job, jobs} = Jobs.down(state.jobs, ref)
     job_failed(job.kind, job.data, {:down, reason}, %{state | jobs: jobs})
   end
-
-  def handle_info({:release_pickup, token, source}, state),
-    do: {:noreply, %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
 
   def handle_info(
         {:item_handoff_wake, token},
@@ -3025,8 +2574,21 @@ defmodule Valimc.World.RegionData do
     {:noreply, maybe_checkpoint(state)}
   end
 
-  def handle_info({:table_request, epoch, connection, ref, position, grant}, state)
-      when is_pid(connection) and is_reference(ref) do
+  def handle_info({:container_unsubscribe, connection, ref}, state) do
+    {:noreply,
+     apply_container_viewers(
+       state,
+       ContainerViewers.unregister(state.container_viewers, connection, ref)
+     )}
+  end
+
+  def handle_info(_, state), do: {:noreply, state}
+
+  # A block menu's grant (VMC-077i3): opening, checking or refreshing a
+  # chest, furnace or crafting table, decided at once by a plain call from the
+  # player's group (`MenuAccess`). Container views subscribe their connection
+  # (`viewer`) to changes.
+  defp menu_request(state, epoch, viewer, position, grant) do
     state =
       if epoch == state.epoch and valid_block_query?([position], :any) and
            in_region?(state, position),
@@ -3083,25 +2645,8 @@ defmodule Valimc.World.RegionData do
           end
       end
 
-    {decision, state} = container_view_decision(state, connection, position, grant, decision)
-
-    Valimc.Connection.deliver(
-      connection,
-      {:table_admitted, ref, {self(), state.epoch}, decision}
-    )
-
-    {:noreply, state}
+    container_view_decision(state, viewer, position, grant, decision)
   end
-
-  def handle_info({:container_unsubscribe, connection, ref}, state) do
-    {:noreply,
-     apply_container_viewers(
-       state,
-       ContainerViewers.unregister(state.container_viewers, connection, ref)
-     )}
-  end
-
-  def handle_info(_, state), do: {:noreply, state}
 
   # A container viewer went down.
   defp viewer_down(state, ref, pid),
@@ -3336,48 +2881,6 @@ defmodule Valimc.World.RegionData do
   defp reply_item({:deliver, pid}, message), do: Valimc.Connection.deliver(pid, message)
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
 
-  defp pickup_effect(items, %{remainder: nil} = request, %{actor: %{entity_id: collector}}, true)
-       when is_integer(collector) and collector in 1..2_147_483_647 do
-    with {:ok, {epoch, id, _}} <- Entities.find(items, request.item_uuid),
-         do: {:item_pickup, epoch, id, collector, request.before.count},
-         else: (_ -> nil)
-  end
-
-  defp pickup_effect(_, _, _, _), do: nil
-
-  defp finish_item_reply(state, from, {:pickup_result, result, effect}) do
-    if result == :applied and effect != nil, do: Valimc.World.publish(route_key(state), effect)
-    reply_item(from, {:ok, result})
-    state
-  end
-
-  defp finish_item_reply(state, from, {:pickup_grant, actor, item_uuid, deadline}) do
-    now = System.monotonic_time(:millisecond)
-
-    result =
-      if now < deadline,
-        do:
-          PickupPermits.issue(
-            state.permits,
-            state.entities.receipts,
-            state.entities.store,
-            actor,
-            item_uuid,
-            now
-          ),
-        else: {:error, :expired_item_step}
-
-    case result do
-      {:ok, permits, grant} ->
-        reply_item(from, {:ok, grant})
-        %{state | permits: permits}
-
-      error ->
-        reply_item(from, error)
-        state
-    end
-  end
-
   defp finish_item_reply(state, from, reply) do
     reply_item(from, reply)
     state
@@ -3589,9 +3092,8 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Work that an unload would cut short: queued or planned writes, jobs, an
-  # outbox still being delivered, generation, waiting calls, open containers and
-  # granted permits.
+  # Work that an unload would cut short: queued or planned writes, jobs,
+  # generation, waiting calls, open containers and box edit locks.
   # A job's result (`Valimc.World.Jobs`), by kind.
   defp job_done(:cooking, job, {:ok, plan}, state),
     do: {:noreply, accept_cooking_plan(state, job, plan)}
@@ -3616,37 +3118,6 @@ defmodule Valimc.World.RegionData do
   end
 
   # A planned durable mutation, by what it plans.
-  defp job_done(:plan, %{kind: :container} = pending, result, state) do
-    case result do
-      {:ok, %{containers: containers} = decision} ->
-        pending = Map.put(pending, :decision, decision)
-        state = %{state | containers: containers}
-
-        # The orbs it spawned or the XP unit it took, in the same commit.
-        state =
-          case decision do
-            %{items: items} ->
-              publish_item_views(%{state | entities: %{state.entities | store: items}})
-
-            _ ->
-              state
-          end
-
-        {reply, state} = adopt_container_result(state, pending)
-
-        # A replayed step may read a receipt whose frame is still in flight.
-        waits =
-          Enum.map(container_effects(pending), &{:effect, &1}) ++
-            [{:reply, pending.from, reply}, resume_handoff(state)]
-
-        {:noreply, wait_durable(state, waits)}
-
-      {:error, _} = error ->
-        GenServer.reply(pending.from, error)
-        {:noreply, item_plan_failed(state, pending)}
-    end
-  end
-
   defp job_done(:plan, %{kind: :container_blocks} = pending, result, state) do
     with {:ok, %{containers: containers, removed: removed, items: items}} <- result,
          {:ok, proposal} <- block_proposal(state, pending.batch, removed) do
@@ -3654,23 +3125,11 @@ defmodule Valimc.World.RegionData do
       state = publish_blocks(state, pending.batch, proposal)
       state = %{state | containers: containers}
       reply = if pending.reply == :ok, do: :ok, else: {:ok, state.revision}
-      commit_items(items, reply, pending.from, state, pending.receipts)
+      commit_items(items, reply, pending.from, state)
     else
       {:error, _} = error ->
         GenServer.reply(pending.from, error)
         {:noreply, item_plan_failed(state, pending)}
-    end
-  end
-
-  defp job_done(:plan, %{kind: kind} = pending, result, state)
-       when kind in [:mining, :placement] do
-    case result do
-      {:ok, %{kind: ^kind} = plan} ->
-        commit_block_transfer(plan, pending, state)
-
-      {:error, _} = error ->
-        GenServer.reply(pending.from, error)
-        {:noreply, state}
     end
   end
 
@@ -3682,8 +3141,8 @@ defmodule Valimc.World.RegionData do
          else: result
 
     case result do
-      {:write, items, receipts, reply} ->
-        state = %{state | entities: %{state.entities | store: items, receipts: receipts}}
+      {:write, items, reply} ->
+        state = %{state | entities: %{state.entities | store: items}}
         # A cleared handoff is over once adopted; the next one starts from its
         # resume. A rejected merge's donor is back: it waits before trying again.
         state =
@@ -3781,7 +3240,7 @@ defmodule Valimc.World.RegionData do
     # A clean stop (unload, shutdown) cuts the last frame, waits for it and
     # leaves a checkpoint, so nothing of the region stays in the log. Replies
     # still waiting on a frame (a failed one, or any after a crash) learn its
-    # outcome is uncertain; a retry or the transfer's recovery resolves it.
+    # outcome is uncertain; a retry resolves it.
     state =
       if reason in [:normal, :shutdown] or match?({:shutdown, _}, reason),
         do: save_now(state),

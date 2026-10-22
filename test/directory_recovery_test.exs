@@ -6,8 +6,8 @@ defmodule Valimc.DirectoryRecoveryTest do
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerStore}
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.World.{Directory, Entities, Region, RegionStorage}
-  alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
+  alias Valimc.World.{Directory, Entities, Region}
+  alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -43,19 +43,17 @@ defmodule Valimc.DirectoryRecoveryTest do
     end)
   end
 
-  test "directory loss fences owners, writers and routes, restores durable state, replays an unacknowledged committed transfer once and permits reconnect",
+  test "directory loss fences owners and routes, restores durable state and permits reconnect",
        %{base: base} do
     {:ok, owner = {pid, epoch}} = Valimc.TestWorld.owner({0, 0})
     :ok = Valimc.TestBlocks.set({2, 64, 2}, 1)
-    :ok = Region.flush(pid)
     {:ok, _handle} = Region.create_item(owner, ItemStack.new("stone", 7), {2.5, 64.5, 3.5})
+    :ok = Region.flush(pid)
     [record] = Entities.records(Valimc.TestRegion.section(owner).entities.store)
     {^pid, admission, %{publication: publication}} = Valimc.TestWorld.lookup({0, 0})
     [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {:overworld, 0, 0})
     name = "DirRecovery"
     uuid = Valimc.Connection.offline_uuid(name)
-    source_path = PlayerStore.path(base, uuid)
-    refute File.exists?(source_path)
 
     initial =
       PlayerState.capture(
@@ -64,40 +62,10 @@ defmodule Valimc.DirectoryRecoveryTest do
       )
 
     {:ok, source_bytes} = PlayerState.encode(uuid, initial)
-    File.mkdir_p!(Path.dirname(source_path))
-    File.write!(source_path, source_bytes)
+    File.mkdir_p!(Path.dirname(PlayerStore.path(base, uuid)))
+    File.write!(PlayerStore.path(base, uuid), source_bytes)
     {^uuid, client} = Client.login(name)
-    client = Client.load_world(client)
-    writer = Valimc.TestDisk.stripe(base, {0, 0})
-    :sys.suspend(writer)
-
-    Client.send_packet(client, :play, "player_action", [
-      Wire.varint(ItemTypes.action_id("drop_item")),
-      Wire.position({0, 0, 0}),
-      <<0, 0>>
-    ])
-
-    assert wait_until(
-             fn -> Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner)) end,
-             500,
-             5
-           )
-
-    {:ok, intent} = PlayerState.decode(File.read!(source_path), uuid)
-    assert intent.transfer_sequence == 1
-    [drop] = intent.outbox.records
-    assert intent.inventory.slots[36].count == 6
-    # Commit on disk while the destination owner cannot acknowledge or publish it.
-    :sys.suspend(pid)
-    :sys.resume(writer)
-    :ok = Valimc.Storage.Log.sync(base, {:region, :overworld, {0, 0}})
-    {:ok, %{items: committed, receipts: receipts}} = RegionStorage.read(base, :overworld, {0, 0})
-    assert Enum.map(committed, & &1.uuid) |> Enum.sort() == Enum.sort([record.uuid, drop.uuid])
-    assert receipts[uuid].sequence == 1
-    # The owner adopted and shows the drop at once (D2); only the player's reply waited.
-    assert length(Entities.records(Valimc.TestRegion.section(owner).entities.store)) == 2
-    assert map_size(Valimc.TestWorld.item_snapshot({0, 0})) == 2
-    assert {:ok, ^intent} = PlayerState.decode(File.read!(source_path), uuid)
+    _client = Client.load_world(client)
 
     old_directory = Process.whereis(Directory)
     old_listener = Process.whereis(Valimc.Listener)
@@ -119,26 +87,13 @@ defmodule Valimc.DirectoryRecoveryTest do
              10
            )
 
-    Client.close(client)
     assert :ets.info(publication) == :undefined
     assert {:error, {:retry, :region_unavailable}} = Region.observe_blocks(owner, [])
-
-    case Valimc.TestWorld.existing_owner({0, 0}) do
-      {:error, {:retry, :region_unavailable}} ->
-        :ok
-
-      {:ok, {recovering, recovered_epoch}} ->
-        assert recovering != pid and recovered_epoch != epoch
-    end
-
     {:ok, replacement = {next, next_epoch}} = Valimc.TestWorld.owner({0, 0})
     assert next != pid and next_epoch != epoch
     assert Valimc.TestBlocks.get({2, 64, 2}) == 1
-    recovered_records = Entities.records(Valimc.TestRegion.section(replacement).entities.store)
-    # Stored records name their kind (VMC-077h).
-    expected = Enum.map([record, drop], &Map.put(&1, :kind, :item))
-    assert Enum.sort_by(recovered_records, & &1.uuid) == Enum.sort_by(expected, & &1.uuid)
-    {:ok, recovered} = Region.find_item(replacement, record.uuid)
+    recovered = Entities.records(Valimc.TestRegion.section(replacement).entities.store)
+    assert Enum.map(recovered, & &1.uuid) == [record.uuid]
 
     assert {:error, :stale_admission} =
              Directory.publish({:overworld, 0, 0}, admission, %{
@@ -149,24 +104,14 @@ defmodule Valimc.DirectoryRecoveryTest do
     send(Directory, {:DOWN, monitor, :process, pid, :killed})
     assert {:ok, ^next} = Valimc.TestWorld.admit({0, 0})
     assert {:ok, ^replacement} = Valimc.TestWorld.existing_owner({0, 0})
-    # The closed session delivers its outbox and closes its store first.
+    # The player lost its owner with the world domain; it joins again.
     Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     {^uuid, reconnected} = Client.login(name)
     reconnected = Client.load_world(reconnected)
     {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
-    assert saved.outbox == nil
-    assert saved.transfer_sequence == 1
-    assert saved.inventory.slots[36].count == 6
-
-    assert {:ok, :already_applied} =
-             Region.apply_item_transfer(replacement, %{source: uuid, sequence: 1, records: [drop]})
-
-    assert Entities.records(Valimc.TestRegion.section(replacement).entities.store) ==
-             recovered_records
-
-    :ok = Region.remove_item(recovered)
-    {:ok, dropped} = Region.find_item(replacement, drop.uuid)
-    :ok = Region.remove_item(dropped)
+    assert saved.inventory.slots[36].count == 7
+    {:ok, item} = Region.find_item(replacement, record.uuid)
+    :ok = Region.remove_item(item)
     :ok = Valimc.TestBlocks.set({2, 64, 2}, 0)
     Client.close(reconnected)
   end

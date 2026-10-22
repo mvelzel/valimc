@@ -8,7 +8,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   alias Valimc.TestClient, as: Client
 
   # Mining tool rules, loot and attempt timing are compared by the mining oracles;
-  # these tests guard the live journal, fencing and recovery around them.
+  # these tests guard the live attempt, its break and its drops around them.
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -146,16 +146,12 @@ defmodule Valimc.PlayerMiningConnectionTest do
     ])
   end
 
-  defp saved(ctx) do
-    {:ok, snapshot} =
-      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+  defp finished(pid), do: state(pid).mining == nil
 
-    snapshot
-  end
-
-  defp finished(pid), do: state(pid).mining == nil and state(pid).recovery == nil
-
+  # The drops as their owner's frames hold them, once it wrote them.
   defp drops(ctx) do
+    {:ok, {pid, _}} = Valimc.TestWorld.item_owner(ctx.key)
+    :ok = Valimc.World.Region.flush(pid)
     Enum.map(Valimc.TestDisk.read(ctx.base, ctx.key, :items).records, & &1.stack)
   end
 
@@ -185,39 +181,12 @@ defmodule Valimc.PlayerMiningConnectionTest do
     action(client, "stop_destroy_block", ctx.target, 2)
     tick_until(pid, fn -> finished(pid) and Valimc.TestBlocks.get(ctx.target) == 0 end)
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert drops(ctx) == [ItemStack.new("cobblestone")]
 
     {_fresh, pid} = reconnect(ctx, client)
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
     assert Valimc.TestBlocks.get(ctx.target) == 0
-  end
-
-  test "a pending ordinary save holds ready mining without cancelling or resampling it", ctx do
-    seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
-    {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-    tick_until(pid, fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    ticks(pid, 12)
-    writer = state(pid).player_store
-    :ok = :sys.suspend(writer)
-
-    try do
-      send(pid, :save_player)
-      wait(fn -> state(pid).save_ref != nil end)
-      action(client, "stop_destroy_block", ctx.target, 2)
-      tick_until(pid, fn -> match?(%{attempt: %{phase: :ready}}, state(pid).mining) end)
-      assert Valimc.TestBlocks.get(ctx.target) == Data.block("stone")
-      assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
-      assert state(pid).recovery == nil
-    after
-      :ok = :sys.resume(writer)
-    end
-
-    tick_until(pid, fn -> finished(pid) and Valimc.TestBlocks.get(ctx.target) == 0 end)
-    assert saved(ctx).transfer_sequence == 1
-    assert drops(ctx) == [ItemStack.new("cobblestone")]
   end
 
   test "nearby peers receive changed cracks and competing attempts commit only one drop and wear",
@@ -257,12 +226,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
     assert Enum.sort(damages) == [0, 1]
     assert drops(ctx) == [ItemStack.new("cobblestone")]
-    assert saved(ctx).outbox == nil and saved(peer).outbox == nil
   end
 
   test "filled chest mining consumes only tool wear while its owner releases exact stored patches",
        ctx do
-    alias Valimc.World.{Containers, Region}
+    alias Valimc.World.Containers
 
     stored = %{
       ItemStack.new("diamond", 3)
@@ -275,8 +243,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     {:ok, containers, _} =
       Containers.replace(containers, ctx.target, entry.revision, put_elem(entry.slots, 0, stored))
 
-    typed = %{ctx.uuid => %{sequence: 5, digest: <<7::256>>}}
-    {:ok, bytes} = Containers.encode(ctx.key, %{containers | receipts: typed})
+    {:ok, bytes} = Containers.encode(ctx.key, containers)
     File.mkdir_p!(ctx.base)
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => chest})
@@ -287,20 +254,15 @@ defmodule Valimc.PlayerMiningConnectionTest do
     tick_until(pid, fn -> finished(pid) and Valimc.TestBlocks.get(ctx.target) == 0 end)
     expected = Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
     assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
 
     {:ok, containers} =
       Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
-    assert containers.entries == %{} and containers.sequence == 3 and containers.receipts == typed
+    assert containers.entries == %{} and containers.sequence == 3
 
     {_fresh, fresh_pid} = reconnect(ctx, client)
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
-    {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
-    assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
-    assert receipt.sequence == 1
     assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
   end
 end

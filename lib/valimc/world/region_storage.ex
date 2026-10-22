@@ -12,9 +12,8 @@ defmodule Valimc.World.RegionStorage do
   | `{:cell, position}` | a block state changed since the column image |
   | `{:post, chunk}` | what a generated chunk leaves for fluids |
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
-  | `{:receipt, source}` | a player transfer's receipt |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
-  | `{:container, position}`, `{:container_receipt, source}`, `{:containers, :sequence}` | containers |
+  | `{:container, position}`, `{:containers, :sequence}` | containers |
   | `{:tick, position, block}` | a scheduled block tick, `{due, priority}` |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `:game_tick` | the region's game tick when the frame was cut |
@@ -22,9 +21,10 @@ defmodule Valimc.World.RegionStorage do
   The owner adopts every change in memory at once and replies at once (D2).
   Every 50 ms (`@commit_ms`) the changes since the last frame are one frame:
   cells and columns as they were made, every other part as the difference of
-  its keyed records from the last frame's. Only the replies of cross-owner
-  transfer steps wait for their frame to be durable (`after_durable/2`), so
-  a crash can lose the last frames but never one half of a transfer.
+  its keyed records from the last frame's. Only the replies of entity
+  handoffs between owners wait for their frame to be durable
+  (`after_durable/2`), so a crash can lose the last frames but never one half
+  of a handoff.
 
   A cut frame waits in the section's outbox; its group process sends the
   frames of all its sections from one commit as one record (VMC-077j,
@@ -55,7 +55,7 @@ defmodule Valimc.World.RegionStorage do
   @autosave_ms 300_000
   # Item motion is written at most this often, like the item checkpoints before.
   @motion_ms 1000
-  @parts [:items, :receipts, :containers, :ticks, :block_entities]
+  @parts [:items, :containers, :ticks, :block_entities]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
 
@@ -206,8 +206,8 @@ defmodule Valimc.World.RegionStorage do
 
   @doc """
   Run `item` once everything adopted so far is durable: `{:reply, from,
-  reply}` or `{:effect, term}` (returned by `durable/2`). Only cross-owner
-  transfer steps need this.
+  reply}` or `{:effect, term}` (returned by `durable/2`). Only entity
+  handoffs between owners need this.
   """
   def after_durable(storage, item), do: %{storage | waits: storage.waits ++ [item]}
 
@@ -460,7 +460,7 @@ defmodule Valimc.World.RegionStorage do
 
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
-  `Valimc.World.Entities`), `receipts`, `containers`, `ticks` (a
+  `Valimc.World.Entities`), `containers`, `ticks` (a
   `ScheduledTicks`), `block_entities` and `game_tick`.
   """
   def diff_parts(storage, parts) do
@@ -595,15 +595,9 @@ defmodule Valimc.World.RegionStorage do
     )
   end
 
-  def part_records(:receipts, receipts),
-    do: for({source, receipt} <- receipts, into: %{}, do: {{:receipt, source}, receipt})
-
   def part_records(:containers, %Containers{} = c) do
     %{{:containers, :sequence} => c.sequence}
     |> Map.merge(for {pos, entry} <- c.entries, into: %{}, do: {{:container, pos}, entry})
-    |> Map.merge(
-      for {source, receipt} <- c.receipts, into: %{}, do: {{:container_receipt, source}, receipt}
-    )
   end
 
   def part_records(:ticks, %ScheduledTicks{index: index}),
@@ -651,7 +645,6 @@ defmodule Valimc.World.RegionStorage do
       cells: %{},
       post_processing: %{},
       items: [],
-      receipts: %{},
       ledger: Entities.empty_ledger(),
       containers: %Containers{},
       ticks: [],
@@ -673,9 +666,6 @@ defmodule Valimc.World.RegionStorage do
       {{:entity, _}, record}, acc ->
         %{acc | items: [record | acc.items]}
 
-      {{:receipt, source}, receipt}, acc ->
-        put_in(acc, [:receipts, source], receipt)
-
       {{:handoff, field}, value}, acc when field in [:sequence, :outgoing] ->
         %{acc | ledger: Map.put(acc.ledger, field, value)}
 
@@ -686,15 +676,6 @@ defmodule Valimc.World.RegionStorage do
         %{
           acc
           | containers: %{acc.containers | entries: Map.put(acc.containers.entries, pos, entry)}
-        }
-
-      {{:container_receipt, source}, receipt}, acc ->
-        %{
-          acc
-          | containers: %{
-              acc.containers
-              | receipts: Map.put(acc.containers.receipts, source, receipt)
-            }
         }
 
       {{:containers, :sequence}, value}, acc ->

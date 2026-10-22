@@ -108,7 +108,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.effects[id] == [{39, 0, false, true, true}]
-    assert saved.inventory.slots == %{} and saved.outbox == nil and saved.transfer_sequence == 1
+    assert saved.inventory.slots == %{}
     [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()
 
     {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =

@@ -146,44 +146,7 @@ defmodule Valimc.GameModeConnectionTest do
     close(ctx, client)
   end
 
-  test "pending journal recovery retains saved mode without granting creative permission", ctx do
-    mode = %GameMode{current: :adventure, previous: :creative}
-    player = Map.merge(ctx.pose, %{game_mode: mode, abilities: %PlayerAbilities{flying: false}})
-    before = PlayerState.capture(player, ctx.inventory)
-
-    after_state = %{
-      before
-      | inventory: %{
-          before.inventory
-          | slots: Map.put(before.inventory.slots, 36, ItemStack.new("stone", 6))
-        }
-    }
-
-    record = %{
-      uuid: :crypto.strong_rand_bytes(16),
-      x: ctx.pose.x,
-      y: 65.0,
-      z: ctx.pose.z,
-      stack: ItemStack.new("stone")
-    }
-
-    {:ok, pending} =
-      Valimc.PlayerTransfers.prepare(ctx.uuid, 0, before, after_state, ctx.key, [record])
-
-    {:ok, bytes} = PlayerState.encode(ctx.uuid, pending)
-    File.write!(ctx.path, bytes)
-    client = login(ctx)
-    s = state(ctx)
-    assert s.player.game_mode == mode and client.abilities.flags == 0
-    assert not s.inventory.infinite_materials and s.inventory.slots[36].count == 6
-    assert s.recovery == nil
-    saved = :sys.get_state(s.player_store).snapshot
-    assert saved.game_mode == mode and saved.transfer_sequence == 1 and saved.outbox == nil
-    assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
-    close(ctx, client)
-  end
-
-  test "spectator click/drop/swap and forged creative creation leave owned contents and journal unchanged",
+  test "spectator click/drop/swap and forged creative creation leave owned contents unchanged",
        ctx do
     seed(ctx, GameMode.new(:spectator))
     client = login(ctx)
@@ -204,8 +167,6 @@ defmodule Valimc.GameModeConnectionTest do
     client = barrier(client)
     s = state(ctx)
     assert s.inventory.slots == initial.inventory.slots and s.inventory.carried == nil
-    assert s.recovery == nil and s.creative_input.queued == 0
-    assert :sys.get_state(s.player_store).snapshot.transfer_sequence == 0
     assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
     close(ctx, client)
   end

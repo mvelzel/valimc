@@ -72,7 +72,6 @@ defmodule Valimc.ChestConnectionTest do
         {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.position, 3)
         slots = put_elem(entry.slots, 0, stock)
         {:ok, containers, _} = Containers.replace(containers, ctx.position, entry.revision, slots)
-        {:ok, containers, _} = Valimc.World.ContainerTransfers.reserve(containers, ctx.uuid)
         {:ok, bytes} = Containers.encode(ctx.key, containers)
         Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
       end
@@ -131,7 +130,7 @@ defmodule Valimc.ChestConnectionTest do
     client
   end
 
-  defp send_click(client, slot, button \\ 0, action \\ "pickup", id \\ nil) do
+  defp send_click(client, slot, button, action, id \\ nil) do
     Client.send_packet(client, :play, "container_click", [
       Wire.varint(id || client.inventory.container),
       <<0, slot::signed-16, button::signed-8>>,
@@ -152,7 +151,11 @@ defmodule Valimc.ChestConnectionTest do
     snapshot
   end
 
+  # The containers as their owner's frames hold them, once it wrote them.
   defp stored(ctx) do
+    with {:ok, {pid, _}} <- Valimc.TestWorld.existing_owner(ctx.key),
+         do: Valimc.World.Region.flush(pid)
+
     {:ok, containers} =
       Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
@@ -240,12 +243,9 @@ defmodule Valimc.ChestConnectionTest do
         &(&1.carried == nil and Enum.at(&1.items, 61) == ItemStack.new("oak_planks", 4))
       )
 
-    assert saved(ctx).transfer_sequence == 10 and saved(ctx).outbox == nil
-
     for {action, id} <- [{"throw", client.inventory.container}, {"pickup", 99}] do
       send_click(client, 54, 0, action, id)
       _corrected = content(client)
-      assert saved(ctx).transfer_sequence == 10 and saved(ctx).outbox == nil
     end
 
     client = click(client, 61, 0, "pickup", &(&1.carried == ItemStack.new("oak_planks", 4)))
@@ -263,58 +263,8 @@ defmodule Valimc.ChestConnectionTest do
              44 => ItemStack.new("oak_planks", 8)
            }
 
-    assert saved(ctx).transfer_sequence == 11 and saved(ctx).outbox == nil
     assert stored(ctx).entries[ctx.position].slots == Tuple.duplicate(nil, 27)
-    assert stored(ctx).receipts[ctx.uuid].sequence == 11
     assert stored(ctx).sequence == 8
-  end
-
-  test "close waits for a prepared action and conflicting inventory input cannot interleave",
-       ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    client = open(client, ctx)
-    writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
-    :sys.suspend(writer)
-
-    try do
-      send_click(client, 54)
-      wait(fn -> match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) end)
-      assert saved(ctx).outbox.kind == :container and saved(ctx).transfer_sequence == 1
-      assert saved(ctx).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
-
-      Client.send_packet(
-        client,
-        :play,
-        "container_close",
-        Wire.varint(client.inventory.container)
-      )
-
-      Client.send_packet(client, :play, "set_carried_item", <<2::signed-16>>)
-      Client.send_packet(client, :play, "container_click", <<0, 0, 36::signed-16, 0, 0, 0, 0>>)
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await_stats(client)
-
-      assert Valimc.TestConn.state(pid).table_menu == nil and
-               Valimc.TestConn.state(pid).table_closing
-
-      assert Valimc.TestConn.state(pid).inventory.selected == 0
-      assert stored(ctx).receipts[ctx.uuid].sequence == 0
-      :sys.resume(writer)
-      _client = content(client, &(&1.container == 0 and &1.carried == nil))
-
-      wait(fn ->
-        Valimc.TestConn.state(pid).recovery == nil and
-          not Valimc.TestConn.state(pid).table_closing
-      end)
-
-      assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert stored(ctx).receipts[ctx.uuid].sequence == 1
-      assert elem(stored(ctx).entries[ctx.position].slots, 0) == ItemStack.new("diamond", 3)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
   end
 
   defp viewer_state(ctx) do
@@ -325,7 +275,7 @@ defmodule Valimc.ChestConnectionTest do
   defp subscribed(pid) do
     wait(fn ->
       state = Valimc.TestConn.state(pid)
-      state.table_menu && state.table_menu.subscribed && state.table_job == nil
+      state.table_menu != nil
     end)
   end
 

@@ -3,7 +3,6 @@ defmodule Valimc.DisconnectedInventoryTest do
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerStore, Players}
   alias Valimc.Player.State, as: PlayerState
-  alias Valimc.World.Region
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
 
@@ -104,7 +103,6 @@ defmodule Valimc.DisconnectedInventoryTest do
   defp verify(ctx, snapshot, records) do
     assert snapshot.inventory.slots == Map.take(ctx.inventory.slots, [38, 45])
     assert snapshot.inventory.carried == nil and snapshot.inventory.selected == 2
-    assert snapshot.outbox == nil
 
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([ctx.inventory.carried | Enum.map(1..4, &ctx.inventory.slots[&1])])
@@ -124,7 +122,7 @@ defmodule Valimc.DisconnectedInventoryTest do
 
   defp idle(ctx), do: wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
 
-  test "socket exit commits all five whole stacks offline and normal/restarted login cannot repeat them",
+  test "a closed socket drops the cursor and grid stacks once; logins cannot repeat them",
        ctx do
     seed(ctx, %{
       ctx.snapshot
@@ -147,9 +145,9 @@ defmodule Valimc.DisconnectedInventoryTest do
     departed(ctx)
     idle(ctx)
     owner = region(ctx)
+    :ok = Valimc.World.Region.flush(elem(owner, 0))
     first = records(owner)
     verify(ctx, saved(ctx), first)
-    assert saved(ctx).transfer_sequence == 1
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
     assert records(region(ctx)) == first
     {^uuid, second} = Client.login(ctx.name)
@@ -159,72 +157,6 @@ defmodule Valimc.DisconnectedInventoryTest do
     Client.close(second)
     departed(ctx)
     idle(ctx)
-    assert records(region(ctx)) == first and saved(ctx).transfer_sequence == 1
-  end
-
-  test "reconnect adopts a closing writer, fences old messages and replays its exact journal",
-       ctx do
-    owner = region(ctx)
-    disk = Valimc.TestDisk.stripe(ctx.base, ctx.key)
-    :sys.suspend(disk)
-    parent = self()
-
-    old_owner =
-      spawn(fn ->
-        {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
-        :ok = PlayerStore.close_session(writer, fence, ctx.snapshot)
-        send(parent, {:closed, writer, fence})
-      end)
-
-    try do
-      assert_receive {:closed, writer, old_fence}
-
-      closing =
-        wait(fn ->
-          state = :sys.get_state(writer)
-
-          if state.closing.job && Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)),
-            do: state
-        end)
-
-      assert not Process.alive?(old_owner) and Process.alive?(writer)
-      pending = saved(ctx)
-      assert length(pending.outbox.records) == 5 and records(owner) == []
-      {:ok, ^writer, adopted, fence} = PlayerStore.open(ctx.uuid)
-      assert fence != old_fence and adopted.outbox == pending.outbox
-      refute adopted.inventory.infinite_materials
-      assert adopted.inventory.state_id == 0 and adopted.inventory.drag == nil
-      ref = make_ref()
-      PlayerStore.checkpoint(writer, old_fence, ctx.snapshot, ref)
-      assert_receive {:player_saved, ^ref, {:error, :stale_player_snapshot}}
-
-      send(
-        writer,
-        {:transfer_delivered, closing.closing.job.pid, closing.closing.job.token, {:ok, :applied}}
-      )
-
-      send(writer, {:close_deadline, closing.closing.id})
-      send(writer, {:retry_close, closing.closing.id, closing.closing.retry_token})
-      send(writer, {:deliver_close, closing.closing.id})
-      send(writer, {:DOWN, closing.monitor, :process, old_owner, :normal})
-      assert :sys.get_state(writer).snapshot.outbox == pending.outbox
-      assert :sys.get_state(writer).closing == nil
-      :sys.resume(disk)
-      wait(fn -> not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)) end)
-      {:ok, _, request, _} = PlayerState.transfer_request(ctx.uuid, adopted)
-      {:ok, handle} = Valimc.TestWorld.item_owner(ctx.key)
-      assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)
-      ref = make_ref()
-      PlayerStore.complete_transfer(writer, fence, ref)
-      assert_receive {:player_transfer_saved, ^ref, {:ok, fence, completed}}
-      verify(ctx, completed, records(owner))
-
-      assert MapSet.new(Enum.map(records(owner), & &1.uuid)) ==
-               MapSet.new(Enum.map(pending.outbox.records, & &1.uuid))
-
-      assert :ok = PlayerStore.close(writer, fence, completed)
-    after
-      if Process.alive?(disk), do: :sys.resume(disk)
-    end
+    assert records(region(ctx)) == first
   end
 end

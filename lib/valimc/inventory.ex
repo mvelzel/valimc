@@ -107,7 +107,7 @@ defmodule Valimc.Inventory do
     cleanup_batch(inventory, :connected)
   end
 
-  @doc "Plans at most five whole cursor/grid drops; disconnected cleanup never merges storage."
+  @doc "Drops the whole cursor and grid stacks; disconnected cleanup never merges storage."
   def disconnect(inventory), do: cleanup_batch(inventory, :disconnected)
 
   defp transient_slots(inventory),
@@ -129,20 +129,16 @@ defmodule Valimc.Inventory do
   end
 
   defp cleanup_batch(inventory, mode) do
-    {next, drops, _count} =
-      Enum.reduce_while(transient_slots(inventory), {cancel_drag(inventory), [], 0}, fn
-        _, {_, _, 5} = result ->
-          {:halt, result}
+    {next, drops} =
+      Enum.reduce(transient_slots(inventory), {cancel_drag(inventory), []}, fn slot,
+                                                                               {next, drops} ->
+        stack = owned_stack(next, slot)
+        next = put_owned(next, slot, nil)
 
-        slot, {next, drops, count} ->
-          stack = owned_stack(next, slot)
-          next = put_owned(next, slot, nil)
+        {next, remainder} =
+          if mode == :connected, do: return_stack(next, stack), else: {next, stack}
 
-          {next, remainder} =
-            if mode == :connected, do: return_stack(next, stack), else: {next, stack}
-
-          {:cont,
-           if(remainder, do: {next, [remainder | drops], count + 1}, else: {next, drops, count})}
+        if remainder, do: {next, [remainder | drops]}, else: {next, drops}
       end)
 
     with {:ok, next} <- next |> put(0, nil) |> clear_empty_table() |> finish(),
@@ -151,8 +147,11 @@ defmodule Valimc.Inventory do
 
   @death_slots Enum.to_list(36..44) ++
                  Enum.to_list(9..35) ++ [45, 8, 7, 6, 5, :carried, 1, 2, 3, 4]
-  @doc "Plan at most five death drops; native equipment-drop prevention excludes cursor/grid items."
-  def death_batch(%__MODULE__{} = inventory) do
+  @doc """
+  A death's drops: every stack but those with Curse of Vanishing, which are
+  destroyed. `{:ok, empty, drops, destroyed}`.
+  """
+  def death(%__MODULE__{} = inventory) do
     {next, destroyed} =
       Enum.reduce(5..45, {cancel_drag(inventory), []}, fn slot, {next, destroyed} ->
         case get(next, slot) do
@@ -175,7 +174,6 @@ defmodule Valimc.Inventory do
         {slot, owned_stack(next, slot)}
       end)
       |> Enum.reject(fn {_, stack} -> stack == nil end)
-      |> Enum.take(5)
 
     next =
       Enum.reduce(drops, next, fn {slot, _}, next -> put_owned(next, slot, nil) end)

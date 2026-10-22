@@ -167,7 +167,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert state(pid).food_tick_origin == state(pid).simulation_clock.tick
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.health.value == 20.0
-    assert saved.transfer_sequence == 2 and saved.outbox == nil and saved.inventory.slots == %{}
+    assert saved.inventory.slots == %{}
   end
 
   defp assert_health(<<health::float-32, rest::binary>>, expected, food) do
@@ -203,7 +203,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == food and saved.health.value == 4.0
-    assert saved.inventory.slots == inventory.slots and saved.transfer_sequence == 0
+    assert saved.inventory.slots == inventory.slots
     {client, pid} = login(ctx, 4.0, food)
     assert {:ok, :dead} = Connection.fall_damage(pid, 4.0)
     {_, client} = Client.await(client, :play, "player_combat_kill")
@@ -214,6 +214,6 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert Valimc.TestConn.state(pid).player.food == %PlayerFood{}
     assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.air_supply == 300
-    assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
+    assert saved.inventory.slots == %{}
   end
 end

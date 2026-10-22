@@ -98,7 +98,6 @@ defmodule Valimc.PlayerHealthConnectionTest do
       assert saved.health.value == 7.25 and saved.health.hurt_ticks <= 7
       assert saved.fire_ticks in 1..300
       assert saved.inventory.slots == inventory.slots
-      assert saved.outbox == nil and saved.transfer_sequence == 0
     end
   end
 

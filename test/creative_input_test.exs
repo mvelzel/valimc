@@ -21,32 +21,4 @@ defmodule Valimc.CreativeInputTest do
     assert {:ok, idle} = CreativeInput.charge(admitted, 10_000)
     assert idle.level == 20
   end
-
-  test "FIFO queue bounds command count and releases exactly each charged cost" do
-    queue =
-      Enum.reduce(1..160, CreativeInput.new(0), fn n, queue ->
-        assert {:ok, next} = CreativeInput.push(queue, {:slot, n}, 3)
-        next
-      end)
-
-    assert queue.queued == 160 and queue.bytes == 160 * 67
-    assert {:error, :creative_queue_limit} = CreativeInput.push(queue, :extra, 0)
-
-    empty =
-      Enum.reduce(1..160, queue, fn n, queue ->
-        assert {:ok, {:slot, ^n}, next} = CreativeInput.pop(queue)
-        next
-      end)
-
-    assert empty.queued == 0 and empty.bytes == 0 and CreativeInput.pop(empty) == :empty
-  end
-
-  test "encoded byte cap rejects whole commands and clear never resets throttle credit" do
-    assert {:ok, charged} = CreativeInput.charge(CreativeInput.new(0), 0)
-    assert {:ok, queue} = CreativeInput.push(charged, :large, 524_288 - 64)
-    assert queue.queued == 1 and queue.bytes == 524_288
-    assert {:error, :creative_queue_limit} = CreativeInput.push(queue, :extra, 0)
-    empty = CreativeInput.clear(queue)
-    assert empty.level == 20 and empty.tick == 0 and empty.queued == 0 and empty.bytes == 0
-  end
 end

@@ -129,9 +129,6 @@ defmodule Valimc.InventoryPersistenceTest do
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([stone, ItemStack.new("egg", 3)])
 
-    {:ok, saved} = PlayerState.decode(File.read!(path), uuid)
-    assert saved.transfer_sequence == 1 and saved.outbox == nil
-
     {^uuid, second} = login(username)
     state = Valimc.TestConn.state(player(username).pid)
     assert state.inventory.slots == expected.slots and state.inventory.carried == nil

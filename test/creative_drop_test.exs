@@ -88,12 +88,12 @@ defmodule Valimc.CreativeDropTest do
         Enum.map(commands, fn {slot, stack} -> frame(client, slot, stack) end)
       )
 
-  defp completed(ctx, sequence),
-    do:
-      wait(ctx, fn s ->
-        s.recovery == nil && s.creative_input.queued == 0 && not s.creative_drain_scheduled &&
-          saved(ctx).transfer_sequence == sequence && saved(ctx).outbox == nil
-      end)
+  # The drops are in the owner once the session took them, in the callback
+  # that changed its inventory (VMC-077i3).
+  defp completed(ctx, count) do
+    Valimc.TestWait.until(fn -> length(records(ctx)) == count end)
+    wait(ctx, fn _ -> true end)
+  end
 
   test "two creative drop/write pairs in one TCP batch retain exact ordered state and recover",
        ctx do
@@ -106,6 +106,7 @@ defmodule Valimc.CreativeDropTest do
       {45, nil}
     ])
 
+    client = Client.barrier(client)
     {_, state} = completed(ctx, 2)
     assert state.inventory.slots == %{36 => %{ctx.stone | count: 6}}
     original = records(ctx)
@@ -118,7 +119,7 @@ defmodule Valimc.CreativeDropTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     second = login(ctx)
     assert second.inventory.items == Inventory.contents(state.inventory)
-    assert records(ctx) == original and saved(ctx).transfer_sequence == 2
+    assert records(ctx) == original
     depart(ctx, second)
   end
 end

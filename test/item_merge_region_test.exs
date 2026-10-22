@@ -30,9 +30,7 @@ defmodule Valimc.ItemMergeRegionTest do
             hops: if(i == 2, do: 3, else: 0)
           }
 
-    receipts = %{<<99::128>> => %{sequence: 4, digest: :crypto.hash(:sha256, "birth")}}
-
-    Valimc.TestDisk.write(base, key, :items, %{records: records, receipts: receipts})
+    Valimc.TestDisk.write(base, key, :items, %{records: records})
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
@@ -41,7 +39,7 @@ defmodule Valimc.ItemMergeRegionTest do
       File.rm_rf(base)
     end)
 
-    %{owner: owner, key: key, base: base, records: records, receipts: receipts}
+    %{owner: owner, key: key, base: base, records: records}
   end
 
   def state(owner), do: Valimc.TestRegion.section(owner)
@@ -69,13 +67,12 @@ defmodule Valimc.ItemMergeRegionTest do
     assert record.uuid == <<2::128>> and record.stack.count == 5
     assert record.motion.age == 100 and record.motion.pickup_delay == 20
 
-    assert disk(ctx).receipts == ctx.receipts and record.hops == 3
+    assert record.hops == 3
 
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
     assert {:ok, next} = Valimc.TestWorld.item_owner(ctx.key)
     assert Entities.records(state(next).entities.store) == [record]
-    assert state(next).entities.receipts == ctx.receipts
   end
 end

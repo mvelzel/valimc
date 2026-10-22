@@ -25,7 +25,6 @@ defmodule Valimc.ItemVoidRegionTest do
     }
 
     boundary = %{below | uuid: <<n::64, 2::64>>, y: -128.0, hops: 4}
-    receipts = %{<<n::64, 3::64>> => %{sequence: 11, digest: <<12::256>>}}
 
     ledger = %{
       sequence: 8,
@@ -33,7 +32,7 @@ defmodule Valimc.ItemVoidRegionTest do
       incoming: %{{elem(key, 0) - 1, elem(key, 1)} => %{sequence: 6, digest: <<7::256>>}}
     }
 
-    data = %{records: [below, boundary], receipts: receipts, ledger: ledger}
+    data = %{records: [below, boundary], ledger: ledger}
     Valimc.TestDisk.write(base, key, :items, data)
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
@@ -51,7 +50,6 @@ defmodule Valimc.ItemVoidRegionTest do
       owner: owner,
       below: below,
       boundary: boundary,
-      receipts: receipts,
       ledger: ledger
     }
   end
@@ -67,7 +65,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   defp disk(c), do: Valimc.TestDisk.read(c.base, c.key, :items)
 
-  test "void removal applies at once, retains receipts and survives owner reopening", c do
+  test "void removal applies at once, keeps the handoff ledger and survives owner reopening", c do
     enable(c.owner)
     wait(fn -> map_size(state(c.owner).entities.store.entries) == 1 end)
 
@@ -79,8 +77,7 @@ defmodule Valimc.ItemVoidRegionTest do
     assert :ok = Region.flush(pid)
     saved = disk(c)
 
-    assert Enum.map(saved.records, &{&1.uuid, &1.hops}) == [{c.boundary.uuid, 4}] and
-             saved.receipts == c.receipts
+    assert Enum.map(saved.records, &{&1.uuid, &1.hops}) == [{c.boundary.uuid, 4}]
 
     assert saved.ledger == c.ledger
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)

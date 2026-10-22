@@ -182,8 +182,6 @@ defmodule Valimc.Player.Movement do
     if result.pose != state.player.pose,
       do: send_packets(state, [Packets.player_pose(player)])
 
-    send(state.connection, :resume_inputs)
-
     next =
       %{state | player: player, pose_checked: nil}
       |> Valimc.Player.Vitals.apply_movement_exhaustion(result.exhaustion)
@@ -216,19 +214,12 @@ defmodule Valimc.Player.Movement do
   # entering velocity, VMC-026b).
   def relocate(state, player, reset_motion \\ true, delta \\ {0.0, 0.0, 0.0}) do
     state = Valimc.Player.Mining.cancel_mining(state)
-
-    state =
-      if state.table_job && state.table_job.kind == :open,
-        do: Valimc.Player.Menus.fail_table_query(state),
-        else: state
-
-    state = Valimc.Player.Menus.begin_table_close(state)
+    state = Valimc.Player.Menus.close(state)
     player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport, delta)])
     Players.update(state.connection, player)
-    send(state.connection, :resume_inputs)
 
     # The connection's view follows the new pose (`Valimc.Session.Link`).
     %{

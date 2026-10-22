@@ -1,5 +1,5 @@
 defmodule Valimc.Net.LoginFlow do
-  @moduledoc "Login and world entry: finishing login, reconciling a saved player, starting the session and entering the world (VMC-069)."
+  @moduledoc "Login and world entry: finishing login, loading a saved player, starting the session and entering the world (VMC-069)."
 
   require Logger
 
@@ -8,7 +8,6 @@ defmodule Valimc.Net.LoginFlow do
     Wire
   }
 
-  alias Valimc.Player.Transfers
   alias Valimc.Session.Replication
   alias Valimc.Player.Movement
   alias Valimc.Player.ItemUse
@@ -25,11 +24,8 @@ defmodule Valimc.Net.LoginFlow do
     PlayerKinetics,
     PlayerLife,
     PlayerMotion,
-    PlayerStore,
-    PlayerTransfers
+    PlayerStore
   }
-
-  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.TickClock
 
@@ -59,44 +55,6 @@ defmodule Valimc.Net.LoginFlow do
     ])
 
     state
-  end
-
-  def reconcile_login(state) do
-    before = PlayerState.capture(state.player, state.inventory)
-    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_cleanup(before)
-
-    if records == [] do
-      state = %{state | inventory: Transfers.recovered_inventory(state, after_snapshot)}
-
-      if state.player.living.health.value <= 0,
-        do: Vitals.checkpoint_life(state, :death_done, after_snapshot),
-        else: finish_login(state)
-    else
-      ref = make_ref()
-
-      recovery = %{
-        Transfers.new_recovery(state, :login, :prepare, nil)
-        | ref: ref,
-          plan: %{key: key, records: records, inventory: after_snapshot.inventory}
-      }
-
-      prepare =
-        if state.player.living.health.value <= 0,
-          do: &PlayerStore.prepare_death/7,
-          else: &PlayerStore.prepare_transfer/7
-
-      prepare.(
-        state.player_store,
-        state.store_fence,
-        before,
-        after_snapshot,
-        key,
-        records,
-        ref
-      )
-
-      %{state | step: :recover, recovery: recovery}
-    end
   end
 
   # `PlayerList.placeNewPlayer`'s duplicate check (VMC-010e): a session of the
@@ -180,14 +138,14 @@ defmodule Valimc.Net.LoginFlow do
         reject(state, reason)
     end
 
-    {store, fence, player, inventory, pending} =
+    {store, fence, player, inventory} =
       case PlayerStore.open(player.uuid) do
         {:ok, pid, nil, fence} ->
           # A new player appears near the world spawn (VMC-027e).
           player = Map.merge(player, Valimc.World.PlayerSpawn.find())
 
           {pid, fence, player,
-           %{state.inventory | infinite_materials: player.abilities.infinite_materials}, nil}
+           %{state.inventory | infinite_materials: player.abilities.infinite_materials}}
 
         {:ok, pid, snapshot, fence} ->
           mode = snapshot.game_mode || player.game_mode
@@ -200,9 +158,6 @@ defmodule Valimc.Net.LoginFlow do
             snapshot.inventory
             | infinite_materials: abilities.infinite_materials
           }
-
-          pending =
-            if snapshot.outbox != nil, do: Map.take(snapshot, [:outbox, :transfer_sequence])
 
           player = %{
             Map.merge(player, snapshot.pose)
@@ -231,7 +186,7 @@ defmodule Valimc.Net.LoginFlow do
           unless Enum.all?(player.living.effects, fn {id, _} -> id in @live_effects end),
             do: reject(state, "Saved status effect is not implemented in this preview")
 
-          {pid, fence, player, inventory, pending}
+          {pid, fence, player, inventory}
 
         {:error, reason} ->
           Logger.warning("Player state load failed: #{inspect(reason)}")
@@ -242,22 +197,26 @@ defmodule Valimc.Net.LoginFlow do
     Valimc.Dimension.put(player.dimension)
     Players.update(state.connection, player)
 
+    # A dead player's drops (if a crash came before them) and a cursor or grid
+    # left from a lost connection settle at its group once it plays (`:entered`).
     state = %{
       state
       | player: player,
-        life_stage: if(player.living.health.value <= 0, do: :sealing_death, else: :alive),
+        life_stage: life_stage(player, inventory),
         player_store: store,
         store_fence: fence,
         inventory: inventory,
         store_monitor: Process.monitor(store)
     }
 
-    if pending do
-      recovery = Transfers.new_recovery(state, :login, :delivery, pending)
+    finish_login(state)
+  end
 
-      Transfers.deliver_recovery(%{state | step: :recover, recovery: recovery})
-    else
-      reconcile_login(state)
+  defp life_stage(player, inventory) do
+    cond do
+      player.living.health.value > 0 -> :alive
+      Valimc.Inventory.contents(inventory) == [] and inventory.carried == nil -> :dead
+      true -> :sealing_death
     end
   end
 
@@ -360,6 +319,8 @@ defmodule Valimc.Net.LoginFlow do
       if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
 
     # In play the session runs at the group that owns the player's section.
-    Valimc.Session.Link.host(state)
+    link = Valimc.Session.Link.host(state)
+    Valimc.Session.Link.forward(link, :entered)
+    link
   end
 end

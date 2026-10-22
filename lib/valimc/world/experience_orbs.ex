@@ -1,6 +1,7 @@
 defmodule Valimc.World.ExperienceOrbs do
   @moduledoc """
-  Experience orbs as entities (VMC-077h): the records a cooking award spawns.
+  Experience orbs as entities (VMC-077h): the records a cooking award spawns,
+  and what a player touches to pick one up.
 
   Vanilla awards each recipe's experience separately (`ExperienceOrb.award`),
   splitting it greedily into orb values (`getExperienceValue`); orbs of one
@@ -23,6 +24,17 @@ defmodule Valimc.World.ExperienceOrbs do
   end
 
   def split(_), do: {:error, :invalid_experience}
+
+  @doc "Whether a player's `box` touches the orb at `{x, y, z}` (its pickup box, inflated)."
+  def contact?(box, {x, y, z}) do
+    with {:ok, query} <- Valimc.Physics.ItemPickup.query_box(box),
+         do:
+           Valimc.Physics.Box.intersects?(
+             query,
+             {x - 0.25, y, z - 0.25, x + 0.25, y + 0.5, z + 0.25}
+           ),
+         else: (_ -> false)
+  end
 
   @doc """
   The orb records of a cooking award (`CookingAwards.plan/2`) at `position`,

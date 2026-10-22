@@ -112,16 +112,11 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     assert Valimc.TestBlocks.set(ctx.sign, 0) == {:error, :unsupported_block_entity}
     assert Valimc.TestBlocks.get(ctx.sign) == @sign
 
-    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    ref = make_ref()
-    assert :ok = Region.request_table(owner, self(), ref, ctx.sign, grant(ctx.sign))
-
-    assert_receive {:event, {:table_admitted, ^ref, ^owner, {:error, :unsupported_block_entity}}}
+    assert {:error, :unsupported_block_entity} =
+             Region.menu(owner, self(), ctx.sign, grant(ctx.sign))
 
     # A secondary use with an item does not reach the block in vanilla: it places.
-    ref = make_ref()
-    assert :ok = Region.request_table(owner, self(), ref, ctx.sign, grant(ctx.sign, true))
-    assert_receive {:event, {:table_admitted, ^ref, ^owner, :pass}}
+    assert :pass = Region.menu(owner, self(), ctx.sign, grant(ctx.sign, true))
   end
 
   test "a refused change's correction can resend the sign's data", ctx do
@@ -142,10 +137,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
 
   test "an imported chest opens with its contents", ctx do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
-    Valimc.TestWorld.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    ref = make_ref()
-    assert :ok = Region.request_table(owner, self(), ref, ctx.chest, grant(ctx.chest))
-    assert_receive {:event, {:table_admitted, ^ref, ^owner, {:chest, @chest, view}}}
+    assert {:chest, @chest, view} = Region.menu(owner, self(), ctx.chest, grant(ctx.chest))
     assert elem(view.slots, 4) == ItemStack.new("stone", 9)
   end
 end

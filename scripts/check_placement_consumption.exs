@@ -1,4 +1,3 @@
-alias Valimc.PlayerPlacementIntent
 alias Valimc.Protocol.ItemStack
 [cases_path] = System.argv()
 rows = cases_path |> File.read!() |> JSON.decode!()
@@ -25,39 +24,14 @@ for row <- rows do
     }
   }
 
-  if row["infinite"] do
-    unless row["after"] == row["before"] and not row["empty"],
-      do: raise("Native creative consumption changed")
-  else
-    after_stack = if row["empty"], do: nil, else: %{before | count: row["after"]}
+  # Every case's item places a block the facts know.
+  Map.fetch!(states, row["item"])
+  expected = if row["empty"], do: nil, else: %{before | count: row["after"]}
 
-    intent = %{
-      kind: :placement,
-      key: {0, 0},
-      permit: <<2::128>>,
-      slot: 36,
-      before: before,
-      after: after_stack,
-      expected: %{{1, 64, 1} => 0},
-      edits: %{{1, 64, 1} => Map.fetch!(states, row["item"])},
-      request: %{
-        hand: :main,
-        position: {1, 64, 1},
-        face: 1,
-        cursor: {0.5, 0.5, 0.5},
-        inside: false,
-        border: false,
-        sequence: 1
-      }
-    }
-
-    {:ok, encoded} = PlayerPlacementIntent.encode(<<1::128>>, 1, intent)
-    {:ok, ^intent} = PlayerPlacementIntent.decode(<<1::128>>, 1, encoded)
-  end
+  unless Valimc.Player.Placement.used(before, row["infinite"]) == expected,
+    do: raise("Native placement consumption differs: #{inspect(row)}")
 end
 
 unless length(rows) == 3510, do: raise("Missing native placement consumption cases")
 
-IO.puts(
-  "PASS: 3,510 native survival/creative consumption cases; 1,755 canonical source-intent round trips."
-)
+IO.puts("PASS: 3,510 native survival/creative consumption cases.")

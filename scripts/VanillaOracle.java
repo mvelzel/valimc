@@ -616,14 +616,11 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
       second.awaitItemCount(stone,1);
-      // Source completion sends a second inventory update; wait for it before the next action.
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ALL_ITEMS, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
       // A new drop may merge before this observer's next publication. Validate
       // the whole visible scene rather than requiring its intermediate entity.
       second.awaitItemCount(stone,7);
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
       System.out.println("PASS: Mojang 26.3 Q/Ctrl+Q action codecs, authoritative depleted inventory, exact patched item metadata and empty-hand correction.");
@@ -633,7 +630,6 @@ public class VanillaOracle implements AutoCloseable {
         predictions, HashedStack.create(invented, component -> 0x12345678)));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
       second.awaitItemCount(stone,8);
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(9).isEmpty() && ItemStack.matches(c.carriedItem(), stone.copyWithCount(6)));
@@ -644,12 +640,10 @@ public class VanillaOracle implements AutoCloseable {
         predictions, HashedStack.create(invented, component -> 0x12345678)));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
       second.awaitItemCount(stone,9);
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.QUICK_MOVE,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
       second.awaitItemCount(stone,14);
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.PICKUP,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());

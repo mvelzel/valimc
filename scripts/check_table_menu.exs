@@ -60,12 +60,7 @@ Enum.each(facts["cleanup"], fn [
 
   cleanup = if disconnected, do: &Inventory.disconnect/1, else: &Inventory.close/1
 
-  {next, actual} =
-    Enum.reduce(1..3, {inventory, []}, fn _, {inventory, drops} ->
-      {:ok, next, batch} = cleanup.(inventory)
-      unless length(batch) <= 5, do: raise("Unbounded cleanup batch")
-      {next, drops ++ batch}
-    end)
+  {:ok, next, actual} = cleanup.(inventory)
 
   unless Inventory.contents(next) == Enum.map(expected, stack) and
            next.carried == stack.(carried) and next.table_inputs == nil and
@@ -77,5 +72,5 @@ Enum.each(facts["cleanup"], fn [
 end)
 
 IO.puts(
-  "PASS:24 actual table cleanup contexts through bounded batches, both permissions/disconnect states, exact nine inputs/cursor/patch/overflow order."
+  "PASS:24 actual table cleanup contexts, both permissions/disconnect states, exact nine inputs/cursor/patch/overflow order."
 )

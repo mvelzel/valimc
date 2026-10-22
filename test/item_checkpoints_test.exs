@@ -24,8 +24,7 @@ defmodule Valimc.ItemCheckpointsTest do
       motion: %ItemMotionState{}
     }
 
-    transfer = %{source: <<91::128>>, sequence: 1, records: [record]}
-    assert {:ok, :applied} = Region.apply_item_transfer(owner, transfer)
+    assert :ok = Region.drop_items(owner, [record])
     assert {:ok, handle} = Region.find_item(owner, record.uuid)
 
     on_exit(fn ->
@@ -41,8 +40,7 @@ defmodule Valimc.ItemCheckpointsTest do
       pid: pid,
       owner: owner,
       position: position,
-      handle: handle,
-      transfer: transfer
+      handle: handle
     }
   end
 
@@ -82,8 +80,5 @@ defmodule Valimc.ItemCheckpointsTest do
 
     assert [%{motion: %{age: 1}}] =
              Entities.records(Valimc.TestRegion.section(owner).entities.store)
-
-    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
-    assert map_size(Valimc.TestRegion.section(owner).entities.store.entries) == 1
   end
 end

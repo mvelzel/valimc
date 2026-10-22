@@ -36,7 +36,7 @@ defmodule Valimc.StorageTest do
 
   defp resource(owner), do: Valimc.TestRegion.section(owner)
 
-  test "a block edit answers while its frame waits for the disk; a receipt waits for it", ctx do
+  test "a block edit answers while its frame waits for the disk", ctx do
     owner = owner(ctx)
     stripe = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(stripe)
@@ -45,11 +45,6 @@ defmodule Valimc.StorageTest do
       assert :ok = Valimc.TestBlocks.set(ctx.position, 1)
       assert Valimc.TestBlocks.get(ctx.position) == 1
       Valimc.TestWait.until(fn -> Valimc.TestRegion.in_flight?(resource(owner)) end)
-
-      receipt = Task.async(fn -> Region.item_transfer_receipt(owner, <<1::128>>) end)
-      assert Task.yield(receipt, 100) == nil
-      :sys.resume(stripe)
-      assert {:error, :missing_transfer_receipt} = Task.await(receipt)
     after
       :sys.resume(stripe)
     end
@@ -162,7 +157,6 @@ defmodule Valimc.StorageTest do
 
     parts = %{
       items: Entities.new(),
-      receipts: %{},
       containers: %Containers{},
       ticks: ScheduledTicks.new(),
       block_entities: %BlockEntities{},

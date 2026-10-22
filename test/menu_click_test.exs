@@ -5,7 +5,6 @@ defmodule Valimc.MenuClickTest do
   use ExUnit.Case, async: true
   alias Valimc.{CookingBlocks, Inventory, Menu, MenuClick}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.ContainerRequest
 
   defp furnace do
     {:ok, block} = CookingBlocks.placement(:furnace, 0.0)
@@ -53,28 +52,5 @@ defmodule Valimc.MenuClickTest do
              MenuClick.plan(Menu.chest(3), storage, inventory, :quick_move, 54, 0)
 
     assert next.slots == inventory.slots
-  end
-
-  test "a container request carries no drag and no gesture that drops into the world" do
-    request = %{
-      rows: 3,
-      slots: Tuple.duplicate(nil, 27),
-      inventory: %Inventory{carried: ItemStack.new("stone", 2)},
-      action: :pickup,
-      slot: -999,
-      button: 0
-    }
-
-    assert ContainerRequest.plan(request) == {:error, :world_drop_required}
-
-    assert ContainerRequest.plan(%{request | action: :throw}) ==
-             {:error, :unsupported_container_click}
-
-    dragging = %{
-      request
-      | inventory: %{request.inventory | drag: %{mode: 0, slots: MapSet.new()}}
-    }
-
-    assert ContainerRequest.plan(%{dragging | slot: 0}) == {:error, :unsupported_container_click}
   end
 end

@@ -6,27 +6,16 @@ defmodule Valimc.Player.State do
   The file is a checkpoint of keyed records (`Valimc.Storage.Checkpoint`): one
   record per field, `{:player, field}`, and one per occupied inventory slot,
   `{:slot, n}`, so a player's changes diff into records as a section's do. No
-  other format is read (D4). A save keeps every durable field
-  (`merge/2` keeps the transfer-bound ones of the older state).
+  other format is read (D4).
 
-  `game_mode` nil means the server's default. `transfer_sequence` and `outbox`
-  belong to the player-sourced transfers until those become owner calls
-  (VMC-077i3).
+  `game_mode` nil means the server's default.
   """
   alias Valimc.{GameMode, Inventory, PlayerFood, PlayerProgression, PlayerStore}
-
-  alias Valimc.{
-    PlayerContainerIntent,
-    PlayerMiningIntent,
-    PlayerPickupIntent,
-    PlayerPlacementIntent
-  }
 
   alias Valimc.Living
   alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.Storage.Checkpoint
-  alias Valimc.World.ItemTransfers
 
   defstruct pose: %{x: 0.0, y: 64.0, z: 0.0, yaw: 0.0, pitch: 0.0},
             dimension: :overworld,
@@ -46,19 +35,13 @@ defmodule Valimc.Player.State do
             last_death: nil,
             death_dimension: :overworld,
             portal_cooldown: 0,
-            seen_credits: false,
-            transfer_sequence: 0,
-            outbox: nil
+            seen_credits: false
 
   @type t :: %__MODULE__{}
 
   @dimensions [:overworld, :the_nether, :the_end]
-  @max_sequence 18_446_744_073_709_551_615
   @inventory_bytes 524_288
-  @outbox_bytes 1_048_576
   @max_bytes 4_194_304
-  # What a save of a live player may not overwrite while a transfer is pending.
-  @transfer_bound [:inventory, :transfer_sequence, :outbox]
 
   def max_bytes, do: @max_bytes
 
@@ -92,13 +75,6 @@ defmodule Valimc.Player.State do
       })
     )
   end
-
-  @doc "A save of `live` over `base`: every durable field, but the transfer-bound ones of `base`."
-  def merge(base, live),
-    do: struct(new(live), Map.take(new(base), @transfer_bound))
-
-  @doc "The state without a pending transfer (what a transfer's plan checks it against)."
-  def strip(state), do: %{new(state) | transfer_sequence: 0, outbox: nil}
 
   @doc "A state from a map of its fields (a fixture's partial map takes the defaults)."
   def new(%__MODULE__{} = state), do: state
@@ -167,7 +143,7 @@ defmodule Valimc.Player.State do
   def decode(_, _), do: {:error, :invalid_player_file}
 
   @doc "Whether every field holds what the file may hold: `:ok` or the first refusal."
-  def validate(uuid, %{pose: _} = state) do
+  def validate(_uuid, %{pose: _} = state) do
     state = new(state)
 
     checks = [
@@ -190,13 +166,8 @@ defmodule Valimc.Player.State do
       invalid_last_death: Valimc.PlayerLife.valid_location?(state.last_death),
       invalid_portal_cooldown:
         is_integer(state.portal_cooldown) and state.portal_cooldown in 0..2_147_483_647,
-      invalid_seen_credits: is_boolean(state.seen_credits),
-      invalid_transfer_sequence:
-        is_integer(state.transfer_sequence) and state.transfer_sequence in 0..@max_sequence and
-          (state.transfer_sequence > 0 or state.outbox == nil)
+      invalid_seen_credits: is_boolean(state.seen_credits)
     ]
-
-    checks = checks ++ [{outbox_refusal(state.outbox), outbox?(uuid, state)}]
 
     case Enum.find(checks, fn {_, valid} -> valid != true end) do
       nil -> :ok
@@ -241,59 +212,4 @@ defmodule Valimc.Player.State do
   end
 
   defp stack_bytes(_), do: :error
-
-  defp outbox_refusal(%{kind: :mining}), do: :invalid_mining_snapshot
-  defp outbox_refusal(%{kind: :placement}), do: :invalid_placement_snapshot
-  defp outbox_refusal(%{kind: :pickup}), do: :invalid_pickup_snapshot
-  defp outbox_refusal(%{kind: :container}), do: :invalid_container_snapshot
-  defp outbox_refusal(_), do: :invalid_outbox
-
-  # A pending transfer's intent, as its kind encodes and checks it.
-  defp outbox?(_uuid, %{outbox: nil}), do: true
-
-  defp outbox?(uuid, %{transfer_sequence: sequence, outbox: outbox, inventory: inventory} = state) do
-    case outbox do
-      %{kind: :mining} ->
-        match?({:ok, _}, PlayerMiningIntent.encode(uuid, sequence, outbox)) and
-          PlayerMiningIntent.matches_inventory?(outbox, inventory)
-
-      %{kind: :placement} ->
-        match?({:ok, _}, PlayerPlacementIntent.encode(uuid, sequence, outbox)) and
-          PlayerPlacementIntent.matches_inventory?(outbox, inventory)
-
-      %{kind: :pickup} ->
-        match?({:ok, _}, PlayerPickupIntent.encode(uuid, sequence, outbox)) and
-          PlayerPickupIntent.matches_snapshot?(outbox, state)
-
-      %{kind: :container} ->
-        match?({:ok, _}, PlayerContainerIntent.encode(uuid, sequence, outbox)) and
-          PlayerContainerIntent.matches_snapshot?(outbox, state)
-
-      %{key: key, records: records} ->
-        case ItemTransfers.encode_request(key, %{
-               source: uuid,
-               sequence: sequence,
-               records: records
-             }) do
-          {:ok, bytes, _digest} -> byte_size(bytes) <= @outbox_bytes
-          _ -> false
-        end
-
-      _ ->
-        false
-    end
-  end
-
-  @doc "The pending item transfer's request: `{:ok, key, request, digest}`."
-  def transfer_request(_uuid, %{outbox: %{kind: _}}), do: {:error, :wrong_transfer_kind}
-
-  def transfer_request(<<_::128>> = uuid, %{
-        transfer_sequence: sequence,
-        outbox: %{key: key, records: records}
-      }) do
-    request = %{source: uuid, sequence: sequence, records: records}
-    with {:ok, digest} <- ItemTransfers.digest(key, request), do: {:ok, key, request, digest}
-  end
-
-  def transfer_request(_, _), do: {:error, :no_pending_transfer}
 end

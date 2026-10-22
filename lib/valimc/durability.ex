@@ -3,8 +3,7 @@ defmodule Valimc.Durability do
   Item wear (vanilla `ItemStack.hurtAndBreak`), shared by tools and armor: the
   stack's damage grows by the cost minus the points Unbreaking removes (from
   the data pack's `item_damage` effects), clamped to its maximum; at the
-  maximum the item breaks. Callers sample once before journaling and never
-  again on delivery retry.
+  maximum the item breaks.
   """
   alias Valimc.MiningTools
   alias Valimc.Protocol.{ItemStack, ItemTypes}

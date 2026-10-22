@@ -25,7 +25,7 @@ defmodule Valimc.World.Entities do
 
   def new, do: %__MODULE__{epoch: make_ref()}
 
-  @doc "Rebase worker-created items onto current motion/counters; never replace existing items or receipts."
+  @doc "Rebase worker-created items onto current motion/counters; never replace existing items."
   def merge_created(%{epoch: epoch} = current, %{epoch: epoch} = original, original),
     do: {:ok, current}
 
@@ -289,8 +289,9 @@ defmodule Valimc.World.Entities do
   def create(_, _, _, _), do: {:error, :invalid_item_position}
 
   @doc """
-  Creates a stable-UUID inbox record; the caller commits its receipt
-  atomically. A record handed over by another owner keeps its `entity_id`.
+  Creates the entity of a stable-UUID record (a player's drop, a handed-over
+  entity, an awarded orb). A record handed over by another owner keeps its
+  `entity_id`.
   """
   def create_record(state, key, %{uuid: <<_::128>> = uuid, x: x, y: y, z: z} = record) do
     cond do

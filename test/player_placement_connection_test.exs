@@ -122,7 +122,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
     client = ack(client, 3)
     assert Valimc.TestBlocks.get({x + 1, y, z}) == 0
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
 
     send_place(client, c.target, 1, 0.5, 0, 4)
@@ -138,10 +137,9 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {_fresh, fresh_pid} = login(c)
     assert Valimc.TestConn.state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
     assert Valimc.TestConn.state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     containers = Valimc.TestRegion.section(owner).containers
-    assert containers.sequence == 2 and containers.receipts == %{}
+    assert containers.sequence == 2
     assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
     assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
     assert Valimc.TestWorld.item_snapshot(c.key) == %{}
@@ -196,7 +194,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     client = ack(client, 3)
     assert Valimc.TestBlocks.get(c.target) == 15_182
     assert Valimc.TestConn.state(pid).inventory.slots[45].count == 9
-    assert saved(c).transfer_sequence == 3 and saved(c).outbox == nil
     assert Valimc.TestWorld.item_snapshot(c.key) == %{}
     Client.close(client)
 
@@ -208,11 +205,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestConn.state(fresh_pid).inventory.slots[36].count == 6
     assert Valimc.TestConn.state(fresh_pid).inventory.slots[45].count == 9
     assert Valimc.TestBlocks.get(c.target) == 15_182
-  end
-
-  defp saved(c) do
-    {:ok, snapshot} = PlayerState.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
-    snapshot
   end
 
   test "survival body, occupied, reach and unloaded refusals preserve source stacks and counters",
@@ -236,7 +228,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     _client = ack(client, 4)
     assert Valimc.TestBlocks.get({x, y + 1, z}) == 15
     assert Valimc.TestConn.state(pid).inventory.slots == before
-    assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence == 0
   end
 
   test "a block cannot be placed into another player standing there", c do
@@ -267,33 +258,5 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     _client = ack(client)
     assert Valimc.TestBlocks.get(c.target) == 0
     assert Valimc.TestConn.state(pid).inventory.slots == before
-  end
-
-  test "disconnect during destination storage recovers the already-consumed stack exactly once",
-       c do
-    seed(c, :survival)
-    {client, pid} = login(c)
-    {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
-    writer = Valimc.TestDisk.stripe(c.base, c.key)
-    :sys.suspend(writer)
-
-    try do
-      send_place(client, c.target)
-      wait(fn -> Valimc.TestRegion.in_flight?(Valimc.TestRegion.section(owner)) end)
-      assert saved(c).outbox.kind == :placement
-      assert saved(c).inventory.slots[36].count == 6
-      # Shown at once (D2); the player's proof waits for the frame.
-      assert Valimc.TestRegion.published_block(owner, c.target) == 1
-      Client.close(client)
-      wait(fn -> not Process.alive?(pid) end)
-      :sys.resume(writer)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
-      {_fresh, fresh_pid} = login(c)
-      assert Valimc.TestBlocks.get(c.target) == 1
-      assert Valimc.TestConn.state(fresh_pid).inventory.slots[36].count == 6
-      assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
   end
 end

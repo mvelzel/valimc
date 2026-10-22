@@ -2,16 +2,15 @@ defmodule Valimc.World.RegionEntities do
   @moduledoc """
   The entity part of a region owner's state (VMC-077g): its entity store
   (`Valimc.World.Entities`, VMC-077h), its replication state
-  (`Valimc.World.EntityTracking`), and the players' transfer receipts it
-  answers to, whether they are saved
-  (`persistent`) and simulated (`simulate`), and the item work the owner
+  (`Valimc.World.EntityTracking`), whether they are saved (`persistent`) and
+  simulated (`simulate`), and the item work the owner
   schedules: the outgoing handoff, a portal arrival, automatic merges in the
-  region and across owners, and ageing owed while planning.
+  region and across owners, and ageing owed while planning, and players'
+  drops waiting for a plan to finish (VMC-077i3).
   """
 
   defstruct store: nil,
             tracking: %Valimc.World.EntityTracking{},
-            receipts: %{},
             persistent: false,
             simulate: false,
             handoff: nil,
@@ -20,5 +19,6 @@ defmodule Valimc.World.RegionEntities do
             merge_next: nil,
             cross_next: nil,
             cross_stamp: nil,
-            age_debt: 0
+            age_debt: 0,
+            dropped: []
 end

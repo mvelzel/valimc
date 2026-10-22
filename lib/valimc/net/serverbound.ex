@@ -362,20 +362,15 @@ defmodule Valimc.Net.Serverbound do
 
         case Inventory.select(state.inventory, slot) do
           {:ok, inventory} ->
-            if Menus.selection_pending?(state) do
-              send_packets(state, [Packets.held_slot(state.inventory.selected)])
-              CreativeInventory.resync_inventory(state)
-            else
-              send_packets(state, [Packets.held_slot(slot)])
+            send_packets(state, [Packets.held_slot(slot)])
 
-              state =
-                if slot != state.inventory.selected and
-                     match?(%PlayerUse{hand: :main}, state.active_use),
-                   do: ItemUse.stop_item_use(state),
-                   else: state
+            state =
+              if slot != state.inventory.selected and
+                   match?(%PlayerUse{hand: :main}, state.active_use),
+                 do: ItemUse.stop_item_use(state),
+                 else: state
 
-              %{state | inventory: inventory}
-            end
+            %{state | inventory: inventory}
 
           {:error, _} ->
             reject(state, "Invalid hotbar slot")
@@ -390,9 +385,7 @@ defmodule Valimc.Net.Serverbound do
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)
         # Native close retires the current menu regardless of the supplied ID.
-        if state.table_menu,
-          do: Menus.begin_table_close(state),
-          else: CreativeInventory.inventory_close(state)
+        if state.table_menu, do: Menus.close(state), else: Menus.closed(state)
 
       "use_item_on" ->
         Placement.place_block(state, payload)
