@@ -3,7 +3,6 @@ defmodule Valimc.PlayerAirConnectionTest do
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
 
@@ -114,7 +113,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     {:ok, effect} = Effects.new(-1, 4)
 
     assert {:ok, true} =
-             Connection.add_effect(pid, Valimc.Data.EffectTypes.id("resistance"), effect)
+             Valimc.TestConn.add_effect(pid, Valimc.Data.EffectTypes.id("resistance"), effect)
 
     assert living(pid).health.value == 18.0 and living(pid).air_supply == 0
     put_living(pid, &%{&1 | air_supply: -19, health: %{&1.health | cooldown: 0}})

@@ -145,7 +145,7 @@ defmodule Valimc.DecoratedWorldTest do
     assert ScheduledTicks.size(ticks) == length(parts.ticks)
 
     for {position, state, 0, 0} <- Enum.take(parts.ticks, 50),
-        do: assert(ScheduledTicks.scheduled?(ticks, position, state))
+        do: assert(Map.has_key?(ticks.index, {position, state}))
 
     # The region serves the blocks of the full chunks.
     {:ok, blocks} = World.Blocks.new(@key, %{}, parts.columns)

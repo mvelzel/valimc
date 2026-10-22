@@ -125,9 +125,6 @@ defmodule Valimc.Player.CreativeInventory do
     %{state | inventory: inventory}
   end
 
-  @doc "The client closed its inventory screen: the cursor and grid return."
-  def inventory_close(state), do: Menus.closed(state)
-
   def inventory_click(state, payload) do
     slots =
       case state.table_menu do

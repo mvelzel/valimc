@@ -59,20 +59,6 @@ defmodule Valimc.Player.Jobs do
     {%{jobs | active: Map.put(jobs.active, kind, job)} |> index(job), job}
   end
 
-  @doc "Replace an active job's task or process (a later stage), keeping ref and timer."
-  def attach(%__MODULE__{} = jobs, kind, target) do
-    case get(jobs, kind) do
-      nil ->
-        raise ArgumentError, "job #{inspect(kind)} is not active"
-
-      job ->
-        jobs = unindex(jobs, job)
-        stop_target(job)
-        job = put_target(%{job | task: nil, pid: nil, monitor: nil}, target)
-        {%{jobs | active: Map.put(jobs.active, kind, job)} |> index(job), job}
-    end
-  end
-
   @doc "Merge domain fields into an active job."
   def update(%__MODULE__{} = jobs, kind, fields) when is_map(fields) do
     case get(jobs, kind) do

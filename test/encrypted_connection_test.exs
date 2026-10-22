@@ -3,7 +3,7 @@ defmodule Valimc.EncryptedConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Encryption, Wire}
-  alias Valimc.Net.{KeyExchange, LoginKeys}
+  alias Valimc.Net.{LoginJobs, LoginKeys}
   alias Valimc.Player.PlayerList
 
   setup do
@@ -124,11 +124,11 @@ defmodule Valimc.EncryptedConnectionTest do
     pair = LoginKeys.pair()
     nonce = Encryption.challenge()
     body = response(pair, nonce, <<0::128>>)
-    limit = :sys.get_state(KeyExchange).limit
+    limit = :sys.get_state(LoginJobs.pool(:key)).limit
 
     jobs =
       for _ <- 1..limit do
-        assert {:ok, job} = KeyExchange.start(self(), make_ref(), pair, nonce, body)
+        assert {:ok, job} = LoginJobs.key_exchange(self(), make_ref(), pair, nonce, body)
         job
       end
 
@@ -144,11 +144,11 @@ defmodule Valimc.EncryptedConnectionTest do
     after
       for job <- jobs do
         Process.demonitor(job.monitor, [:flush])
-        KeyExchange.cancel(job)
+        LoginJobs.cancel(job)
       end
     end
 
-    eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:key)).jobs) == 0 end)
   end
 
   test "pending deadline, late valid results and stale messages cannot grant a lease" do
@@ -159,10 +159,10 @@ defmodule Valimc.EncryptedConnectionTest do
 
       Valimc.TestConn.replace(pid, fn state ->
         token = make_ref()
-        {:ok, job} = KeyExchange.start(self(), token, pair, nonce, body)
+        {:ok, job} = LoginJobs.key_exchange(self(), token, pair, nonce, body)
         deadline = System.monotonic_time(:millisecond) + if(late, do: -1, else: 100)
         timer = Process.send_after(self(), {:key_deadline, token}, if(late, do: 5000, else: 100))
-        if late, do: KeyExchange.activate(job)
+        if late, do: LoginJobs.activate(job)
 
         %{
           state
@@ -181,7 +181,7 @@ defmodule Valimc.EncryptedConnectionTest do
       Client.close(client)
     end
 
-    eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:key)).jobs) == 0 end)
   end
 
   test "stalled admission is bounded and existing encrypted gameplay remains responsive" do
@@ -197,7 +197,7 @@ defmodule Valimc.EncryptedConnectionTest do
     previous = Valimc.config(:admission_call_ms)
     Application.put_env(:valimc, :admission_call_ms, 50)
     on_exit(fn -> Application.put_env(:valimc, :admission_call_ms, previous) end)
-    :sys.suspend(KeyExchange)
+    :sys.suspend(LoginJobs.pool(:key))
 
     try do
       client = Client.send_packet(client, :login, "key", response(pair, nonce, secret))
@@ -208,12 +208,12 @@ defmodule Valimc.EncryptedConnectionTest do
       eventually(fn -> not Process.alive?(pid) end)
       assert_no_lease(pid, "AdmissionWait")
     after
-      :sys.resume(KeyExchange)
+      :sys.resume(LoginJobs.pool(:key))
       Client.close(client)
       Client.close(live)
     end
 
-    eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:key)).jobs) == 0 end)
   end
 end
 
@@ -221,7 +221,7 @@ defmodule Valimc.KeyExchangeTest do
   # Socket-free, but the key-exchange pool is global.
   use ExUnit.Case, async: false
   alias Valimc.Protocol.{Encryption, Wire}
-  alias Valimc.Net.{KeyExchange, LoginKeys}
+  alias Valimc.Net.{LoginJobs, LoginKeys}
 
   defp response(pair, nonce, secret) do
     for value <- [secret, nonce], into: <<>> do
@@ -240,7 +240,7 @@ defmodule Valimc.KeyExchangeTest do
 
     caller =
       spawn(fn ->
-        {:ok, job} = KeyExchange.start(self(), make_ref(), pair, nonce, body)
+        {:ok, job} = LoginJobs.key_exchange(self(), make_ref(), pair, nonce, body)
         send(parent, {:dormant_worker, job.pid})
 
         receive do
@@ -252,6 +252,6 @@ defmodule Valimc.KeyExchangeTest do
     ref = Process.monitor(worker)
     Process.exit(caller, :kill)
     assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
-    Valimc.TestWait.until(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
+    Valimc.TestWait.until(fn -> map_size(:sys.get_state(LoginJobs.pool(:key)).jobs) == 0 end)
   end
 end

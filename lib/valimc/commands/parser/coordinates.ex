@@ -200,7 +200,4 @@ defmodule Valimc.Commands.Parser.Coordinates do
 
   defp get({true, value}, origin), do: value + origin
   defp get({false, value}, _origin), do: value
-
-  def relative?({:world, components}, index), do: elem(Enum.at(components, index), 0)
-  def relative?({:local, _, _, _}, _index), do: true
 end

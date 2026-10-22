@@ -14,9 +14,6 @@ defmodule Valimc.World.ScheduledTicks do
   def new, do: %__MODULE__{}
   def size(%__MODULE__{index: index}), do: map_size(index)
 
-  def scheduled?(%__MODULE__{index: index}, position, block),
-    do: Map.has_key?(index, {position, block})
-
   @doc "Schedule `block` at `position` for game tick `due` (no-op if already scheduled)."
   def schedule(%__MODULE__{} = ticks, position, block, due, priority \\ 0)
       when is_integer(due) and is_integer(priority) do

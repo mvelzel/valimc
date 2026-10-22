@@ -167,19 +167,6 @@ defmodule Valimc.Text.Reader do
 
   def read_unquoted_string(r), do: take_while(r, &unquoted_char?/1)
 
-  def read_quoted_string(r) do
-    cond do
-      not can_read?(r) ->
-        {"", r}
-
-      peek(r) in [?", ?'] ->
-        read_string_until(skip(r), peek(r))
-
-      true ->
-        Error.throw!(Error.with_context("parsing.quote.expected.start", [], r))
-    end
-  end
-
   def read_string_until(r, terminator), do: read_until(r, terminator, [], false)
 
   defp read_until(r, terminator, acc, escaped) do

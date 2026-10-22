@@ -40,9 +40,8 @@ ALLOWED = {
     # connection's half and the session's half removes these.
     ("lib/valimc/player/host.ex", "lib/valimc/session/messages.ex"): "hosted session router",
     ("lib/valimc/session/messages.ex", "lib/valimc/net/auth/profile.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/auth/session_jobs.ex"): "hosted session router",
     ("lib/valimc/session/messages.ex", "lib/valimc/net/connection.ex"): "hosted session router",
-    ("lib/valimc/session/messages.ex", "lib/valimc/net/key_exchange.ex"): "hosted session router",
+    ("lib/valimc/session/messages.ex", "lib/valimc/net/login_jobs.ex"): "hosted session router",
     ("lib/valimc/session/messages.ex", "lib/valimc/net/login_flow.ex"): "hosted session router",
     ("lib/valimc/session/messages.ex", "lib/valimc/net/serverbound.ex"): "hosted session router",
     # Block behaviours read their level's build height from the owner's

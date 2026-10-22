@@ -461,6 +461,4 @@ defmodule Valimc.Text.Selector do
     |> then(&if &1.rot_y, do: add(&1, {:rot_y, &1.rot_y}), else: &1)
     |> then(&if &1.level, do: add(&1, {:level, &1.level}), else: &1)
   end
-
-  def self_selector?(s), do: s.current_entity
 end

@@ -3,7 +3,6 @@ defmodule Valimc.PlayerUseConnectionTest do
   alias Valimc.Living.{Attributes, Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{Food, PlayerList}
   alias Valimc.Player.State, as: PlayerState
@@ -355,7 +354,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
     client = speed_attribute(client, pid)
 
-    assert {:ok, true} = Connection.add_effect(pid, 0, [{1, 1, false, true, true}])
+    assert {:ok, true} = Valimc.TestConn.add_effect(pid, 0, [{1, 1, false, true, true}])
     client = speed_attribute(client, pid)
     tick(pid)
     client = speed_attribute(client, pid)
@@ -366,7 +365,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = speed_attribute(client, pid)
     assert living(pid).effects == %{}
     assert state(pid).inventory.slots[45] == ItemStack.new("bucket")
-    assert {:ok, true} = Connection.add_effect(pid, 1, [{1, 3, false, true, true}])
+    assert {:ok, true} = Valimc.TestConn.add_effect(pid, 1, [{1, 3, false, true, true}])
     client = speed_attribute(client, pid)
     tick(pid)
     _client = speed_attribute(client, pid)
@@ -390,11 +389,11 @@ defmodule Valimc.PlayerUseConnectionTest do
 
       for id <- ids do
         {:ok, effect} = Effects.new(600, 0)
-        assert {:ok, true} = Connection.add_effect(pid, id, effect)
+        assert {:ok, true} = Valimc.TestConn.add_effect(pid, id, effect)
       end
 
       {:ok, hidden} = Effects.new(200, 2)
-      assert {:ok, true} = Connection.add_effect(pid, 11, hidden)
+      assert {:ok, true} = Valimc.TestConn.add_effect(pid, 11, hidden)
       client = use_hand(client, pid, unquote(hand))
       ticks(pid, 31)
 
@@ -517,7 +516,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     {client, pid} = login(ctx, 20.0, food)
     assert state(pid).inventory.slots[36] == bread and state(pid).active_use == nil
     _client = use_hand(client, pid)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 100.0)
+    assert {:ok, :dead} = Valimc.TestConn.fall_damage(pid, 100.0)
     assert state(pid).active_use == nil and state(pid).player.use_flags == 0
     wait(fn -> state(pid).life_stage == :dead end)
     assert state(pid).player.food == food

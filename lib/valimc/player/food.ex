@@ -14,7 +14,6 @@ defmodule Valimc.Player.Food do
 
   def valid?(_), do: false
   def state(player), do: Map.get(player, :food, %__MODULE__{})
-  def enough?(%__MODULE__{level: level}), do: level > 6
   def needs?(%__MODULE__{level: level}), do: level < 20
 
   @doc "Rule-independent no-op outside peaceful recovery boundaries; phase comes from the body clock."

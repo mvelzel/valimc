@@ -159,7 +159,7 @@ defmodule Valimc.Session.Messages do
       ) do
     Process.cancel_timer(job.timer)
     Process.demonitor(job.monitor, [:flush])
-    Valimc.Net.KeyExchange.cancel(job)
+    Valimc.Net.LoginJobs.cancel(job)
     state = %{state | key_job: nil}
 
     guard(state, fn ->
@@ -181,11 +181,11 @@ defmodule Valimc.Session.Messages do
             digest = Encryption.server_hash(secret, state.key_public)
             token = make_ref()
 
-            case Valimc.Net.Auth.SessionJobs.start(self(), token, state.login_name, digest) do
+            case Valimc.Net.LoginJobs.session(self(), token, state.login_name, digest) do
               {:ok, job} ->
                 timeout = max(job.deadline - System.monotonic_time(:millisecond), 0)
                 timer = Process.send_after(self(), {:session_deadline, token}, timeout)
-                Valimc.Net.Auth.SessionJobs.activate(job)
+                Valimc.Net.LoginJobs.activate(job)
 
                 {:noreply,
                  %{
@@ -217,7 +217,7 @@ defmodule Valimc.Session.Messages do
       ) do
     Process.cancel_timer(job.timer)
     Process.demonitor(job.monitor, [:flush])
-    Valimc.Net.Auth.SessionJobs.cancel(job)
+    Valimc.Net.LoginJobs.cancel(job)
     state = %{state | auth_job: nil}
 
     guard(state, fn ->

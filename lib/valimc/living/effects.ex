@@ -37,7 +37,6 @@ defmodule Valimc.Living.Effects do
   @regeneration EffectTypes.id("regeneration")
   @poison EffectTypes.id("poison")
   @wither EffectTypes.id("wither")
-  @hunger EffectTypes.id("hunger")
   @periods %{@regeneration => 50, @poison => 25, @wither => 40}
   @hunger_coefficient 0.004999999888241291
   @milk ItemTypes.id("milk_bucket")
@@ -353,9 +352,6 @@ defmodule Valimc.Living.Effects do
   end
 
   def hunger(_), do: {:error, :invalid_hunger_effect}
-
-  @doc "The Hunger effect's registry id."
-  def hunger_id, do: @hunger
 
   # ---- consume effects (stock food, milk, honey) ----
 

@@ -2,7 +2,6 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -66,7 +65,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   defp effect(pid, name, duration, amplifier \\ 0) do
     id = Valimc.Data.EffectTypes.id(name)
     {:ok, incoming} = Effects.new(duration, amplifier)
-    assert {:ok, true} = Connection.add_effect(pid, id, incoming)
+    assert {:ok, true} = Valimc.TestConn.add_effect(pid, id, incoming)
     id
   end
 

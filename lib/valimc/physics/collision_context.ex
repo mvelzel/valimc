@@ -13,13 +13,6 @@ defmodule Valimc.Physics.CollisionContext do
 
   def empty, do: %__MODULE__{}
 
-  def with_piston_movement(context, direction) do
-    unless valid?(context) and movement?(direction),
-      do: raise(ArgumentError, "invalid movement exclusion")
-
-    %{context | piston_movement: direction}
-  end
-
   def entity(bottom, descending \\ false, placement \\ false)
 
   def entity(bottom, descending, placement)

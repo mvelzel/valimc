@@ -113,18 +113,6 @@ defmodule Valimc.Physics.Kernel do
     |> error()
   end
 
-  @doc "`isEntityCollidingWithAnythingNew`: a collider of `new` outside `old`."
-  def new_collision?(view, old, new, context, extra \\ @none),
-    do:
-      Native.physics_new_collision(
-        native(view, union(old, new)),
-        old,
-        new,
-        context(context),
-        extra
-      )
-      |> error()
-
   @doc """
   The fluid cells `body` touches (scan order) and the water and lava depths:
   `{:ok, nil}` for a degenerate body.
@@ -165,9 +153,6 @@ defmodule Valimc.Physics.Kernel do
     end
   end
 
-  @doc "Whether any cell of `body` holds fluid: `{:ok, nil | boolean}`."
-  def any_liquid?(view, body), do: Native.physics_any_liquid(native(view, body), body) |> error()
-
   @doc "The flow of the fluid at a position."
   def flow(view, {x, y, z} = position) do
     region = {x - 1.0, y - 1.0, z - 1.0, x + 2.0, y + 2.0, z + 2.0}
@@ -207,44 +192,6 @@ defmodule Valimc.Physics.Kernel do
       {:error, :limit} ->
         {:error, :body_sweep_limit}
     end
-  end
-
-  @doc """
-  Where a grounded body stands: `support` (`findSupportingBlock` under its
-  feet, else behind a horizontal `movement`; nil when none), `below` (the
-  block deciding friction and bounce, `getOnPos(0.500001F)`), `legacy` (the
-  landing block, `getOnPos(0.2F)`) and `feet`, each `%{position, state}`.
-  """
-  def footing(view, body, position, movement, context) do
-    region = body |> grow(1.0) |> expand(scale(movement, -1.0))
-
-    case Native.physics_footing(
-           native(view, region),
-           body,
-           floats(position),
-           floats(movement),
-           context(context)
-         ) do
-      {:ok, {support, below, legacy, feet}} ->
-        {:ok,
-         %{support: cell(support), below: cell(below), legacy: cell(legacy), feet: cell(feet)}}
-
-      other ->
-        error(other)
-    end
-  end
-
-  defp cell(nil), do: nil
-  defp cell({position, state}), do: %{position: position, state: state}
-
-  @doc """
-  Whether a body moving by `movement` is inside a visited `state` at
-  `position` whose inside shape is its collision shape for `context`
-  (powder snow): empty and full shapes always are.
-  """
-  def inside_shape?(state, position, context, body, movement) do
-    BlockFacts.install!()
-    Native.physics_inside_shape(state, position, context(context), body, floats(movement))
   end
 
   @doc "Whether `state`'s collision shape at `position` meets any of `bodies`."
@@ -333,7 +280,6 @@ defmodule Valimc.Physics.Kernel do
   def error(other), do: other
 
   defp floats({x, y, z}), do: {x * 1.0, y * 1.0, z * 1.0}
-  defp scale({x, y, z}, f), do: {x * f, y * f, z * f}
 
   defp expand({x0, y0, z0, x1, y1, z1}, {dx, dy, dz}),
     do:

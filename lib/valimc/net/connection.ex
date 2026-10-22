@@ -42,30 +42,6 @@ defmodule Valimc.Net.Connection do
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
-  @doc "Server-authorized relocation; expires rather than applying an abandoned queued call."
-  def teleport(pid, destination) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    GenServer.call(pid, {:teleport, destination, deadline}, 1500)
-  end
-
-  @doc "Set a bounded server-authorized velocity without replacing the accepted position."
-  def set_velocity(pid, velocity) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    GenServer.call(pid, {:set_velocity, velocity, deadline}, 1500)
-  end
-
-  @doc "Apply server-authorized fall damage on its player owner; landing validation is separate."
-  def fall_damage(pid, amount) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    GenServer.call(pid, {:fall_damage, amount, deadline}, 1500)
-  end
-
-  @doc "Apply a supported effect on its player owner; duration state is bounded and server-authorized."
-  def add_effect(pid, effect_id, incoming) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    GenServer.call(pid, {:effect, effect_id, incoming, deadline}, 1500)
-  end
-
   @impl true
   # A playing session's calls (`Valimc.Player.Calls`) go to its owner, which
   # answers the caller; before play the connection holds the session itself.
@@ -283,13 +259,13 @@ defmodule Valimc.Net.Connection do
     if state.key_job do
       Process.cancel_timer(state.key_job.timer)
       Process.demonitor(state.key_job.monitor, [:flush])
-      Valimc.Net.KeyExchange.cancel(state.key_job)
+      Valimc.Net.LoginJobs.cancel(state.key_job)
     end
 
     if state.auth_job do
       Process.cancel_timer(state.auth_job.timer)
       Process.demonitor(state.auth_job.monitor, [:flush])
-      Valimc.Net.Auth.SessionJobs.cancel(state.auth_job)
+      Valimc.Net.LoginJobs.cancel(state.auth_job)
     end
   end
 end

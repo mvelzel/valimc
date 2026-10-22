@@ -198,26 +198,6 @@ defmodule Valimc.Blocks.Placement do
   defp mth_cos(v), do: sine(trunc(Float32.round(v * 10430.378 + 16384.0)))
   defp sine(i), do: Float32.round(:math.sin(Bitwise.band(i, 65535) * :math.pi() * 2.0 / 65536.0))
 
-  @doc "Validate a saved edit independently of transient player yaw; destination permissions still fence its exact block state."
-  def saved_candidate(item, clicked, adjacent, request, edits)
-      when item in @facing_items and is_map(edits) and is_map(request) do
-    case Map.to_list(edits) do
-      [{position, state}] ->
-        Enum.find_value([0.0, 90.0, 180.0, 270.0], {:error, :invalid_context}, fn yaw ->
-          case candidate(item, clicked, adjacent, Map.put(request, :yaw, yaw)) do
-            {:ok, %{position: ^position, state: ^state}} = result -> result
-            _ -> nil
-          end
-        end)
-
-      _ ->
-        {:error, :invalid_context}
-    end
-  end
-
-  def saved_candidate(item, clicked, adjacent, request, _edits),
-    do: candidate(item, clicked, adjacent, request)
-
   defp candidate_state(item, state, face, upper, request),
     do: Valimc.Blocks.placement(item, state, face, upper, request)
 

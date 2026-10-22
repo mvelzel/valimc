@@ -6,7 +6,6 @@ defmodule Valimc.Player.Progression do
   @ids Valimc.Blocks.CookingRecipes.ids()
   defstruct experience: %Experience{}, recipes: MapSet.new()
   def recipe_ids, do: @ids
-  def recipe_names, do: @recipes
   def bytes, do: 26
 
   def valid?(%__MODULE__{experience: xp, recipes: %MapSet{} = recipes}),

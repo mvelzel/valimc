@@ -5,8 +5,6 @@ defmodule Valimc.Player.Drops do
   alias Valimc.Entity.ItemDrop
   alias Valimc.Data.PlayerPose
   alias Valimc.Protocol.ItemStack
-  @poses [:standing, :crouching, :swimming, :sleeping, :fall_flying, :spin_attack, :dying]
-  @height_offset 0.30000001192092896
 
   def records(player, stacks, kind) when is_list(stacks) and kind in [:directed, :scattered] do
     with {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)),
@@ -52,15 +50,4 @@ defmodule Valimc.Player.Drops do
       error -> error
     end
   end
-
-  @doc "Source inventory authority admits native player eye origins, independent of render pose storage."
-  def at_source?(%{x: x, y: y, z: z}, %{x: source_x, y: source_y, z: source_z}) do
-    x == source_x and z == source_z and
-      Enum.any?(@poses, fn pose ->
-        {:ok, dimensions} = PlayerPose.dimensions(pose)
-        y == source_y + dimensions["eye_height"] - @height_offset
-      end)
-  end
-
-  def at_source?(_, _), do: false
 end

@@ -1,7 +1,6 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
@@ -84,7 +83,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {client, pid} = login(hd(ctx.names))
     top = %{ctx.pos | y: 68.0}
     client = Client.teleport(client, pid, top)
-    assert :ok = Connection.set_velocity(pid, {12.0, 0.0, 0.0})
+    assert :ok = Valimc.TestConn.set_velocity(pid, {12.0, 0.0, 0.0})
     moved = %{top | x: top.x + 12.0}
     move(client, moved, 0)
 
@@ -103,22 +102,16 @@ defmodule Valimc.PlayerMotionConnectionTest do
     assert state(pid).player.x == moved.x
   end
 
-  test "expired or out-of-bound velocity calls cannot replace velocity", ctx do
+  test "out-of-bound velocities cannot replace velocity", ctx do
     {_client, pid} = login(hd(ctx.names))
-    assert :ok = Connection.set_velocity(pid, {0.2, 0.5, 0.0})
+    assert :ok = Valimc.TestConn.set_velocity(pid, {0.2, 0.5, 0.0})
 
-    assert {:error, :invalid_or_expired_velocity} =
-             Connection.set_velocity(pid, {65.0, 0.0, 0.0})
+    assert {:error, :invalid_velocity} =
+             Valimc.TestConn.set_velocity(pid, {65.0, 0.0, 0.0})
 
     # Finite values must also fit the player's bounded query.
-    assert {:error, :invalid_or_expired_velocity} =
-             Connection.set_velocity(pid, {64.0, 0.0, 0.0})
-
-    assert {:error, :invalid_or_expired_velocity} =
-             GenServer.call(
-               pid,
-               {:set_velocity, {1.0, 1.0, 1.0}, System.monotonic_time(:millisecond) - 1}
-             )
+    assert {:error, :invalid_velocity} =
+             Valimc.TestConn.set_velocity(pid, {64.0, 0.0, 0.0})
 
     {x, _, _} = state(pid).player.motion.velocity
     assert x <= 0.2
@@ -130,7 +123,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {uuid, client} = Client.login(name)
     pid = owner(name)
     # An unloaded client has not started simulation; socket exit still saves its impulse.
-    assert :ok = Connection.set_velocity(pid, {0.25, 0.75, -0.5})
+    assert :ok = Valimc.TestConn.set_velocity(pid, {0.25, 0.75, -0.5})
     Client.close(client)
 
     wait(fn ->
@@ -212,13 +205,13 @@ defmodule Valimc.PlayerMotionConnectionTest do
   test "server relocation fences unacknowledged input", ctx do
     {client, pid} = login(hd(ctx.names))
     destination = %{ctx.pos | x: ctx.pos.x + 0.3}
-    :ok = Connection.teleport(pid, destination)
+    :ok = Valimc.TestConn.teleport(pid, destination)
     move(client, %{ctx.pos | x: ctx.pos.x + 1})
     client = correction(client, pid, destination)
     move(client, %{ctx.pos | x: ctx.pos.x + 0.4})
     wait(fn -> state(pid).player.x == ctx.pos.x + 0.4 end)
 
-    assert {:error, :invalid_or_expired_teleport} =
-             Connection.teleport(pid, Map.put(destination, :extra, 1))
+    assert {:error, :invalid_teleport} =
+             Valimc.TestConn.teleport(pid, Map.put(destination, :extra, 1))
   end
 end

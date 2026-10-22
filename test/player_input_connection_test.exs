@@ -110,7 +110,7 @@ defmodule Valimc.PlayerInputConnectionTest do
 
   defp relocate(client, player, x) do
     :ok =
-      Valimc.Net.Connection.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
+      Valimc.TestConn.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
 
     {body, client} = Client.await(client, :play, "player_position")
     client |> Client.auto_reply(:play, "player_position", body) |> barrier()

@@ -7,6 +7,17 @@ defmodule Valimc.PlayerDropsTest do
   defp player(pose \\ :standing),
     do: %{x: 7.5, y: 64.0, z: 3.5, yaw: 0.0, pitch: 0.0, pose: pose}
 
+  # A drop leaves at its thrower's eye height in some pose, less 0.3.
+  defp at_source?(%{x: x, y: y, z: z}, %{x: source_x, y: source_y, z: source_z}) do
+    poses = [:standing, :crouching, :swimming, :sleeping, :fall_flying, :spin_attack, :dying]
+
+    x == source_x and z == source_z and
+      Enum.any?(poses, fn pose ->
+        {:ok, dimensions} = Valimc.Data.PlayerPose.dimensions(pose)
+        y == source_y + dimensions["eye_height"] - 0.30000001192092896
+      end)
+  end
+
   test "accepted posture controls launch origin with exact stacks and native motion" do
     stack = %{
       ItemStack.new("stone", 3)
@@ -17,7 +28,7 @@ defmodule Valimc.PlayerDropsTest do
     assert {:ok, {0, 0}, [record]} = Drops.records(player(:crouching), [stack], :directed)
     assert record.stack == stack and record.x == 7.5 and record.z == 3.5
     assert record.y == 64.0 + eye - 0.30000001192092896
-    assert Drops.at_source?(record, player())
+    assert at_source?(record, player())
     assert ItemMotionState.valid?(record.motion)
     assert record.motion.pickup_delay == 40 and not record.motion.no_gravity
     {x, y, z} = record.motion.velocity
@@ -45,7 +56,7 @@ defmodule Valimc.PlayerDropsTest do
 
     assert {:ok, {0, 0}, []} = Drops.records(player(), [], :directed)
     assert {:ok, _, [record]} = Drops.records(%{player() | x: 0, z: 0}, [stone], :directed)
-    assert Drops.at_source?(record, %{player() | x: 0, z: 0})
-    refute Drops.at_source?(%{record | x: 1.0}, %{player() | x: 0, z: 0})
+    assert at_source?(record, %{player() | x: 0, z: 0})
+    refute at_source?(%{record | x: 1.0}, %{player() | x: 0, z: 0})
   end
 end

@@ -36,7 +36,7 @@ defmodule Valimc.TestClient do
   end
 
   def teleport(client, pid, pose) do
-    :ok = Valimc.Net.Connection.teleport(pid, pose)
+    :ok = Valimc.TestConn.teleport(pid, pose)
     {body, client} = await(client, :play, "player_position")
     client = auto_reply(client, :play, "player_position", body)
     await_teleport_ack(pid, 200)
@@ -524,6 +524,96 @@ defmodule Valimc.TestConn do
 
   @doc "The connection's active job of `kind` (`:mining`, `:placement`, ...), or nil."
   def job(state, kind), do: Valimc.Player.Jobs.get(state.jobs, kind)
+
+  @doc "Run `fun` on the session wherever it runs; `fun.(state)` answers as a call does."
+  def call(pid, fun), do: GenServer.call(pid, {:debug_call, fun}, 30_000)
+
+  # Server-authorized changes tests make to a playing session.
+
+  @doc "Relocate the player to `destination` (x, y, z, yaw and pitch)."
+  def teleport(pid, destination) do
+    call(pid, fn
+      %{phase: :play, life_stage: :alive} = state ->
+        if is_map(destination) and map_size(destination) == 5 and
+             Enum.all?([:x, :y, :z, :yaw, :pitch], &Map.has_key?(destination, &1)) and
+             Valimc.Player.State.valid_pose?(destination) do
+          next = Valimc.Player.Movement.relocate(state, Map.merge(state.player, destination))
+          {:reply, :ok, next}
+        else
+          {:reply, {:error, :invalid_teleport}, state}
+        end
+
+      state ->
+        {:reply, {:error, :not_playing}, state}
+    end)
+  end
+
+  @doc "Set a bounded velocity without replacing the accepted position."
+  def set_velocity(pid, velocity) do
+    alias Valimc.Player.{Kinetics, Movement}
+
+    call(pid, fn
+      %{phase: :play, life_stage: :alive} = state ->
+        if Kinetics.valid_velocity?(velocity) and Kinetics.admissible?(state.player, velocity) do
+          velocity = velocity |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
+          motion = %{state.player.motion | velocity: velocity, settled: false}
+          player = %{state.player | motion: motion}
+          Valimc.Player.PlayerList.update(state.connection, player)
+          state = %{state | player: player, pose_checked: nil, login_velocity_pending: false}
+          state = Movement.send_velocity(state, velocity)
+          {:reply, :ok, Movement.sample_pose(state)}
+        else
+          {:reply, {:error, :invalid_velocity}, state}
+        end
+
+      state ->
+        {:reply, {:error, :not_playing}, state}
+    end)
+  end
+
+  @doc "Apply fall damage through the player's hurt window."
+  def fall_damage(pid, amount) do
+    call(pid, fn
+      %{phase: :play} = state ->
+        case Valimc.Living.Health.hurt_window(state.player.living.health, amount) do
+          {:ok, selected} ->
+            try do
+              {result, next} = Valimc.Player.Vitals.apply_damage(state, selected, :fall)
+              {:reply, {:ok, result}, next}
+            catch
+              {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+            end
+
+          error ->
+            {:reply, error, state}
+        end
+
+      state ->
+        {:reply, {:error, :not_playing}, state}
+    end)
+  end
+
+  @doc "Apply an effect the live game supports."
+  def add_effect(pid, id, incoming) do
+    call(pid, fn
+      %{phase: :play, life_stage: :alive} = state ->
+        if id in Valimc.Living.Effects.live() do
+          try do
+            case Valimc.Player.Vitals.apply_effect(state, id, incoming) do
+              {:ok, changed, next} -> {:reply, {:ok, changed}, next}
+              {:error, _} = error -> {:reply, error, state}
+            end
+          catch
+            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+          end
+        else
+          {:reply, {:error, :invalid_effect}, state}
+        end
+
+      state ->
+        {:reply, {:error, :not_playing}, state}
+    end)
+  end
 end
 
 defmodule Valimc.TestRegion do

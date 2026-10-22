@@ -41,8 +41,6 @@ defmodule Valimc.PlayerVitalsBoundsTest do
 
   test "bounded canonical state excludes damaged persistence and supports native eligibility" do
     assert Food.valid?(%Food{})
-    assert Food.enough?(%Food{level: 7})
-    refute Food.enough?(%Food{level: 6})
     assert Food.needs?(%Food{level: 19})
     refute Food.needs?(%Food{})
 

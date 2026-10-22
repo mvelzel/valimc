@@ -3,7 +3,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   import Valimc.TestPlayer, only: [living: 1]
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.PlayerList
   alias Valimc.Player.State, as: PlayerState
@@ -117,7 +116,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
     {client, pid} = login(name)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 100)
+    assert {:ok, :dead} = Valimc.TestConn.fall_damage(pid, 100)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
     monitor = Process.monitor(pid)
@@ -136,7 +135,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert state(pid).player.pose == :dying and state(pid).inventory.slots == %{}
     client = respawn(client, pid)
     assert state(pid).player.last_death == {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
-    assert {:ok, :dead} = Connection.fall_damage(pid, 100)
+    assert {:ok, :dead} = Valimc.TestConn.fall_damage(pid, 100)
     wait(fn -> state(pid).life_stage == :dead end)
     assert state(pid).player.last_death == {0, 64, 0}
     _client = respawn(client, pid)
@@ -146,17 +145,14 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     Client.close(client)
   end
 
-  test "creative immunity, living/duplicate respawn requests and expired damage cannot resurrect or mutate",
+  test "creative immunity and living/duplicate respawn requests cannot resurrect or mutate",
        ctx do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{}, :creative)
     {client, pid} = login(name)
     health = living(pid).health
-    assert {:ok, :immune} = Connection.fall_damage(pid, 100)
-    assert {:error, :invalid_health} = Connection.fall_damage(pid, :bad)
-
-    assert {:error, :expired_damage} =
-             GenServer.call(pid, {:fall_damage, 100, System.monotonic_time(:millisecond) - 1})
+    assert {:ok, :immune} = Valimc.TestConn.fall_damage(pid, 100)
+    assert {:error, :invalid_health} = Valimc.TestConn.fall_damage(pid, :bad)
 
     Client.send_packet(client, :play, "client_command", <<0>>)
     Client.send_packet(client, :play, "client_command", <<0>>)

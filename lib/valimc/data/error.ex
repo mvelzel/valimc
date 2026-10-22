@@ -19,8 +19,4 @@ defmodule Valimc.Data.Error do
   def reject(detail), do: {:error, {:reject, detail}}
   def conflict(detail), do: {:error, {:conflict, detail}}
   def invalid(detail), do: {:error, {:invalid, detail}}
-
-  @doc "Whether the same request may simply be made again."
-  def retryable?({:error, {:retry, _}}), do: true
-  def retryable?(_), do: false
 end

@@ -3,7 +3,6 @@ defmodule Valimc.PlayerFoodConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{Food, PlayerList}
   alias Valimc.Player.State, as: PlayerState
@@ -199,7 +198,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
 
     Valimc.TestPlayer.save(ctx, player, inventory)
     {client, pid} = login(ctx, 5.0, food)
-    assert {:ok, :hurt} = Connection.fall_damage(pid, 1.0)
+    assert {:ok, :hurt} = Valimc.TestConn.fall_damage(pid, 1.0)
     {body, client} = Client.await(client, :play, "set_health")
     assert_health(body, 4.0, food)
     Client.close(client)
@@ -208,7 +207,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert saved.food == food and saved.health.value == 4.0
     assert saved.inventory.slots == inventory.slots
     {client, pid} = login(ctx, 4.0, food)
-    assert {:ok, :dead} = Connection.fall_damage(pid, 4.0)
+    assert {:ok, :dead} = Valimc.TestConn.fall_damage(pid, 4.0)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, client} = Client.await(client, :play, "respawn")

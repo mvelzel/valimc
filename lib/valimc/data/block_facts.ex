@@ -263,9 +263,6 @@ defmodule Valimc.Data.BlockFacts do
 
   def air?(state), do: (flags(state) &&& 1) == 1
 
-  @doc "Sturdy full faces as a mask over vanilla `Direction` order (down, up, north, south, west, east)."
-  def sturdy_faces(state), do: flags(state) >>> 5 &&& 63
-
   def motion(state), do: elem(@motion, :binary.at(@motion_states, state))
 
   @doc "The contained fluid: kind (`:empty`, `:water`, `:lava`), amount, height, source, falling."
@@ -308,12 +305,6 @@ defmodule Valimc.Data.BlockFacts do
 
   def heightmap?(state, type),
     do: (heightmap(state) >>> Map.fetch!(@heightmap_bits, type) &&& 1) == 1
-
-  @doc "Whether a sky source stops between `above` and `below` (`isEdgeOccluded`)."
-  def sky_blocked?(above, below) do
-    offset = :binary.at(@sky, above) * @sky_classes + :binary.at(@sky, below)
-    (:binary.at(@sky_pairs, div(offset, 8)) >>> rem(offset, 8) &&& 1) == 1
-  end
 
   @doc "The block entity type each block with one creates, by block name."
   def block_entity_types, do: @block_entity_types

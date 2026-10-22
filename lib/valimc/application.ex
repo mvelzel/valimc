@@ -84,9 +84,9 @@ defmodule Valimc.Application do
 
     players = [
       Valimc.Player.PlayerList,
-      {Valimc.Net.KeyExchange, []},
+      {Valimc.Net.LoginJobs, :key},
       {Valimc.Net.Auth.DiscoverySupervisor, []},
-      {Valimc.Net.Auth.SessionJobs, []},
+      {Valimc.Net.LoginJobs, :session},
       # Players' command jobs: at most one per connection (VMC-077a).
       {Task.Supervisor,
        name: Valimc.CommandWorkers, max_children: Valimc.config(:max_connections)},

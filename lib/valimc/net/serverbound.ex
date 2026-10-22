@@ -107,11 +107,17 @@ defmodule Valimc.Net.Serverbound do
     if byte_size(payload) > 266, do: reject(state, "Invalid login encryption response")
     token = make_ref()
 
-    case Valimc.Net.KeyExchange.start(self(), token, state.key_pair, state.key_challenge, payload) do
+    case Valimc.Net.LoginJobs.key_exchange(
+           self(),
+           token,
+           state.key_pair,
+           state.key_challenge,
+           payload
+         ) do
       {:ok, job} ->
         timeout = max(job.deadline - System.monotonic_time(:millisecond), 0)
         job = Map.put(job, :timer, Process.send_after(self(), {:key_deadline, token}, timeout))
-        Valimc.Net.KeyExchange.activate(job)
+        Valimc.Net.LoginJobs.activate(job)
 
         %{state | step: :key_job, key_job: job, key_pair: nil, key_challenge: nil}
 

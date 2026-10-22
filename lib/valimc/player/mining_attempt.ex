@@ -67,11 +67,6 @@ defmodule Valimc.Player.MiningAttempt do
   def cancel(%__MODULE__{} = attempt),
     do: {:ok, %{attempt | phase: :cancelled, crack: -1}, [{:crack, -1}]}
 
-  def current?(%__MODULE__{token: token, phase: phase}, token),
-    do: phase in [:active, :finishing, :ready]
-
-  def current?(_, _), do: false
-
   defp ready(attempt),
     do: {:ok, %{attempt | phase: :ready, crack: -1}, [{:crack, -1}, :ready]}
 

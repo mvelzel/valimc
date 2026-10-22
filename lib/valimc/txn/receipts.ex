@@ -20,7 +20,6 @@ defmodule Valimc.Txn.Receipts do
   """
 
   @max_sequence 18_446_744_073_709_551_615
-  @reserved %{sequence: 0, digest: <<0::256>>}
 
   def max_sequence, do: @max_sequence
 
@@ -30,28 +29,6 @@ defmodule Valimc.Txn.Receipts do
     do: is_integer(sequence) and sequence in 1..@max_sequence
 
   def valid?(_), do: false
-
-  @doc """
-  Reserve a slot for `source` before granting it anything; existing slots stay
-  exact. Tables are keyed records (VMC-077f), so the number of sources has no
-  cap (VMC-077h).
-  """
-  def reserve(receipts, source)
-      when is_map(receipts) and
-             ((is_binary(source) and byte_size(source) == 16) or
-                (is_tuple(source) and tuple_size(source) == 2)) do
-    case Map.fetch(receipts, source) do
-      {:ok, receipt} ->
-        if valid?(receipt),
-          do: {:ok, receipts, :existing},
-          else: {:error, :invalid_receipt_reservation}
-
-      :error ->
-        {:ok, Map.put(receipts, source, @reserved), :reserved}
-    end
-  end
-
-  def reserve(_, _, _), do: {:error, :invalid_receipt_reservation}
 
   @doc """
   Classify a request against its source's receipt: `:new`, `{:duplicate,

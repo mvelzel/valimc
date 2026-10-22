@@ -4,7 +4,6 @@ defmodule Valimc.PlayerLandingConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.Net.Connection
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{Motion, PlayerList}
   alias Valimc.Player.State, as: PlayerState
@@ -162,7 +161,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
        ctx do
     seed(ctx, y: 65.0, distance: 8.0)
     {client, pid} = login(ctx)
-    assert :ok = Connection.set_velocity(pid, {0.0, -2.0, 0.0})
+    assert :ok = Valimc.TestConn.set_velocity(pid, {0.0, -2.0, 0.0})
     wait(fn -> state(pid).player.motion.physical_ground end)
     assert living(pid).health.value == 20.0 and state(pid).player.y == 65.0
     move(client, pid, 63.0, 1)

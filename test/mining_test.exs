@@ -9,6 +9,10 @@ defmodule Valimc.MiningTest do
   alias Valimc.Blocks.RandomMiningLoot
   alias Valimc.Protocol.{Data, ItemStack}
 
+  # The attempt still holds `token` and has not ended.
+  defp current?(attempt, token),
+    do: attempt.token == token and attempt.phase in [:active, :finishing, :ready]
+
   test "progress thresholds hold and malformed inputs are explicit errors" do
     {:ok, rate} = Mining.rate(Data.block("stone"), 1, true)
     assert {:ok, %{complete: false, stoppable: true}} = Mining.advance(rate, 31)
@@ -44,14 +48,14 @@ defmodule Valimc.MiningTest do
     token = attempt.token
     {:ok, finishing, []} = MiningAttempt.stop(attempt, stone, rate, 128)
     assert finishing.phase == :finishing
-    assert MiningAttempt.current?(finishing, token)
+    assert current?(finishing, token)
     {:ok, waiting, _} = MiningAttempt.tick(finishing, stone, rate, 166)
     assert waiting.phase == :finishing
     {:ok, ready, [{:crack, -1}, :ready]} = MiningAttempt.tick(waiting, stone, rate, 167)
     assert ready.phase == :ready
     assert {:ok, ^ready, []} = MiningAttempt.tick(ready, stone, rate, 168)
     {:ok, cancelled, [{:crack, -1}]} = MiningAttempt.cancel(finishing)
-    refute MiningAttempt.current?(cancelled, token)
+    refute current?(cancelled, token)
     assert {:ok, ^cancelled, []} = MiningAttempt.tick(cancelled, stone, rate, 1000)
     assert {:ok, ^cancelled, []} = MiningAttempt.cancel(cancelled)
   end
@@ -66,7 +70,7 @@ defmodule Valimc.MiningTest do
     {:ok, ready, [{:crack, -1}, :ready]} = MiningAttempt.stop(attempt, stone, rate, 100)
     assert ready.phase == :ready
     {:ok, replacement, _} = MiningAttempt.start(attempt.position, stone, rate, 101)
-    refute MiningAttempt.current?(replacement, attempt.token)
+    refute current?(replacement, attempt.token)
 
     {:ok, cancelled, [{:crack, -1}]} =
       MiningAttempt.tick(replacement, Data.block("dirt"), rate, 102)

@@ -79,10 +79,6 @@ defmodule Valimc.World.Jobs do
   def running?(%__MODULE__{entries: entries}, kind), do: Map.has_key?(entries, kind)
   def busy?(%__MODULE__{entries: entries}), do: map_size(entries) > 0
 
-  @doc "Replace the running job's `data`."
-  def put_data(%__MODULE__{} = jobs, kind, data),
-    do: %{jobs | entries: Map.update!(jobs.entries, kind, &%{&1 | data: data})}
-
   @doc """
   The job reported (`token`): `{:ok, job, jobs}` with its timer and monitor
   gone, or `:stale`.

@@ -20,7 +20,7 @@ defmodule Valimc.OnlineConnectionTest do
   alias Valimc.Protocol.{Data, Encryption, Wire}
   alias Valimc.Net.LoginKeys
   alias Valimc.Player.PlayerList
-  alias Valimc.Net.Auth.SessionJobs
+  alias Valimc.Net.LoginJobs
 
   setup do
     previous =
@@ -180,11 +180,11 @@ defmodule Valimc.OnlineConnectionTest do
 
   test "authentication saturation rejects a new peer while existing encrypted play responds" do
     {live, _} = verified("AuthLive")
-    limit = :sys.get_state(SessionJobs).limit
+    limit = :sys.get_state(LoginJobs.pool(:session)).limit
 
     jobs =
       for _ <- 1..limit do
-        {:ok, job} = SessionJobs.start(self(), make_ref(), "Dormant", "abc")
+        {:ok, job} = LoginJobs.session(self(), make_ref(), "Dormant", "abc")
         job
       end
 
@@ -199,13 +199,13 @@ defmodule Valimc.OnlineConnectionTest do
     after
       for job <- jobs do
         Process.demonitor(job.monitor, [:flush])
-        SessionJobs.cancel(job)
+        LoginJobs.cancel(job)
       end
 
       Client.close(live)
     end
 
-    eventually(fn -> map_size(:sys.get_state(SessionJobs).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:session)).jobs) == 0 end)
   end
 
   test "absolute deadlines reject late valid results and expire stalled verification" do
@@ -234,7 +234,7 @@ defmodule Valimc.OnlineConnectionTest do
       Client.close(client)
     end
 
-    eventually(fn -> map_size(:sys.get_state(SessionJobs).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:session)).jobs) == 0 end)
   end
 
   test "abrupt connection loss cancels its authentication worker and reclaims capacity" do
@@ -245,7 +245,7 @@ defmodule Valimc.OnlineConnectionTest do
     assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
     no_lease(pid, "AuthOwnerGone")
     Client.close(client)
-    eventually(fn -> map_size(:sys.get_state(SessionJobs).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:session)).jobs) == 0 end)
   end
 
   test "worker failure rejects its pending encrypted login" do
@@ -264,7 +264,7 @@ defmodule Valimc.OnlineConnectionTest do
     previous = Valimc.config(:admission_call_ms)
     Application.put_env(:valimc, :admission_call_ms, 50)
     on_exit(fn -> Application.put_env(:valimc, :admission_call_ms, previous) end)
-    :sys.suspend(SessionJobs)
+    :sys.suspend(LoginJobs.pool(:session))
 
     try do
       {client, pid, _} = key("SessionAdmission")
@@ -275,10 +275,10 @@ defmodule Valimc.OnlineConnectionTest do
       no_lease(pid, "SessionAdmission")
       Client.close(client)
     after
-      :sys.resume(SessionJobs)
+      :sys.resume(LoginJobs.pool(:session))
       Client.close(live)
     end
 
-    eventually(fn -> map_size(:sys.get_state(SessionJobs).jobs) == 0 end)
+    eventually(fn -> map_size(:sys.get_state(LoginJobs.pool(:session)).jobs) == 0 end)
   end
 end

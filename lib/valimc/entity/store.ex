@@ -601,8 +601,6 @@ defmodule Valimc.Entity.Store do
       motion.age != -32768 and motion.age < 6000 and
         motion.pickup_delay != 32767 and count < maximum
 
-  def return_capacity?(_state), do: true
-
   @doc "Whether `uuid` is in the outgoing handoff, so it cannot arrive back yet."
   def reserved_uuid?(%{ledger: %{outgoing: %{records: records}}}, uuid),
     do: Enum.any?(records, &(&1.uuid == uuid))
