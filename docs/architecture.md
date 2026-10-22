@@ -167,8 +167,10 @@ or player handed to it waits unread in its mailbox.
   owner's frames, never one half of a handoff or of a player's interaction
   with the world. A region's checkpoint file folds its cells into column images
   relit alone, so a load replays nothing older; the log then drops the frames
-  it holds. A section keeps its frames since its checkpoint to fold them, so
-  the log never rereads its segments for a checkpoint, and an unloading
+  it holds. A stripe indexes where each owner's uncovered frames are, so a
+  load reads only its own frames and one with none reads nothing; a section
+  keeps its frames since its checkpoint to fold them, so the log never
+  rereads its segments for a checkpoint, and an unloading
   section's checkpoint is written by a task after it is gone: writes of one
   file never overlap, and a section loading again waits for the one in
   progress. Simulation never waits for the disk.

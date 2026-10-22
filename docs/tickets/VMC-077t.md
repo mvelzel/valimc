@@ -70,7 +70,51 @@ outruns its own chunk here. The remaining mailbox peaks follow generation
 results, durable acknowledgements and chunk requests; terrain generation
 itself (the scheduler's lane) is the largest cost in the profile.
 
-Tests: `test/region_lifecycle_test.exs` (an unloaded section's change holds
+## Loads read only their owner's frames
+
+The flight samples' multi-second stalls had the player's group in a
+synchronous call while the stripe read and decoded files. Two paths made the
+stripe scan its whole log: the synchronous unload checkpoint (above) and
+every load of a section, or login of a player, that had ever written a
+frame (`Log.frames/3` reread all segments to find it, O(log) per load).
+
+- Each stripe keeps, per owner, where each uncovered frame is (segment,
+  offset, size): appends report it (`RegionLog.append_located/2`) and
+  recovery takes it from the frames it decodes. `frames/3` answers from that
+  index: nothing to read for an owner with no uncovered frame, otherwise a
+  `pread` of exactly those frames (`RegionLog.read_at/1`, each checked).
+- The caller finds an owner's stripes by keyed lookups and starts a world's
+  stripes once, not on every load.
+- A group blocks on the log only for `/save-all flush`, a shutdown, and an
+  unload with a reply waiting on a frame; section loads run in the loading
+  group's own `handle_continue`. Directory syncs happen once per new segment,
+  pruned segments or checkpoint file, never per frame.
+
+`bench/section_load.exs`: one stripe holding 256 MB of frames from 400
+owners (10 frames of 64 KiB each), 20 loads each, p50 / max in µs:
+
+| | Before (e06afee7) | After |
+|---|---|---|
+| Owner whose frames a checkpoint covers (a section loading again) | 54,796 / 67,909 | 3 / 20 |
+| Owner with 10 frames in the log | 55,502 / 74,964 | 7,115 / 12,370 |
+| Owner never written | 62 / 208 | 1 / 2 |
+| `RegionStorage.open/2` of a fresh section | 107 / 4,244 | 56 / 1,164 |
+
+An owner's frames are read as the group records they belong to, so the cost
+follows that owner's commits, not the log.
+
+A 120 s flight at 2.5 blocks a client tick (5.6 km, `bench/group_load.exs`
+now samples the dirty CPU schedulers in 250 ms windows): the longest run of
+windows under 10 % utilization was 500 ms before (e06afee7) and 250 ms after,
+the client's own chunk was missing once for 361 ms before and never after,
+and the group mailbox p95 went from 914 to 716. That flight never returns to
+sections it left, so it does not load covered owners; the section-load bench
+measures those.
+
+Tests: `test/storage_log_index_test.exs` (frames come from the index, so
+another owner's damaged frame mid-segment does not matter, where a scan
+refuses the segment; covered and never-written owners read nothing; a
+restarted stripe indexes again); `test/region_lifecycle_test.exs` (an unloaded section's change holds
 when it loads again at once; a load waits while its checkpoint file is
 written); the storage, checkpoint, group, generation and view tests pass
 unchanged.

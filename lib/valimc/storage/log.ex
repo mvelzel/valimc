@@ -28,8 +28,10 @@ defmodule Valimc.Storage.Log do
     writes what it finds), and `frames/3` reads only those, so one stalled
     stripe holds only the sections it holds frames of.
 
-  A segment is deleted once every frame in it is covered. On start a stripe
-  reads its segments: owners with frames newer than their checkpoint files
+  A stripe keeps, per owner, where each of its uncovered frames is (segment,
+  offset, size), so `frames/3` reads only those bytes, and an owner with none
+  costs a lookup: a load never scans the log. A segment is deleted once every
+  frame in it is covered. On start a stripe reads its segments: owners with frames newer than their checkpoint files
   are admitted (a section) or folded (a player), so they replay and
   checkpoint them. A stripe stops only once its world folder is
   gone (a removed test world): stopping a live one could lose a commit cast to
@@ -72,8 +74,17 @@ defmodule Valimc.Storage.Log do
 
   defp indexed(base, owner) do
     if :ets.whereis(@index) != :undefined,
-      do: :ets.match(@index, {{base, owner, :"$1"}}) |> List.flatten(),
+      do: Enum.filter(region_stripes(), &:ets.member(@index, {base, owner, &1})),
       else: Enum.to_list(region_stripes())
+  end
+
+  # Every stripe of a world recovers (and indexes) its segments when it
+  # starts; one with no directory has never held a frame. Once per world.
+  defp started(base) do
+    if :ets.whereis(@index) == :undefined or :ets.insert_new(@index, {{base, :started}}),
+      do: for(n <- region_stripes(), File.dir?(dir(base, n)), do: ensure_stripe(base, n))
+
+    :ok
   end
 
   @doc """
@@ -107,9 +118,7 @@ defmodule Valimc.Storage.Log do
   decides its stripe).
   """
   def frames(base, owner, seq) do
-    # Every stripe recovers (and indexes) its segments when it starts; one
-    # with no directory has never held a frame.
-    for n <- region_stripes(), File.dir?(dir(base, n)), do: ensure_stripe(base, n)
+    :ok = started(base)
 
     Enum.reduce_while(indexed(base, owner), [], fn n, acc ->
       case GenServer.call(ensure_stripe(base, n), {:frames, owner, seq}, 60_000) do
@@ -171,7 +180,8 @@ defmodule Valimc.Storage.Log do
       base: base,
       n: n,
       log: nil,
-      # owner => queue of {seq, lsn} of its frames no checkpoint covers yet
+      # owner => queue of {seq, lsn, {segment, offset, size}} of its frames
+      # no checkpoint covers yet
       pending: %{},
       # {commits, syncs, attempts} held after an unwritten append
       held: nil,
@@ -194,14 +204,16 @@ defmodule Valimc.Storage.Log do
     with :ok <- if(old == [], do: :ok, else: {:error, {:old_player_log, old}}),
          {:ok, log, %{frames: frames}} <- RegionLog.open(dir) do
       owners =
-        for %{lsn: lsn, ops: ops} <- frames, {:frame, owner, seq, _} <- ops, reduce: %{} do
-          acc -> Map.update(acc, owner, [{seq, lsn}], &[{seq, lsn} | &1])
+        for %{lsn: lsn, ops: ops, at: at} <- frames,
+            {:frame, owner, seq, _} <- ops,
+            reduce: %{} do
+          acc -> Map.update(acc, owner, [{seq, lsn, at}], &[{seq, lsn, at} | &1])
         end
 
       pending =
         for {owner, entries} <- owners,
             covered = checkpoint_seq(state.base, owner),
-            entries = Enum.filter(Enum.reverse(entries), fn {seq, _} -> seq > covered end),
+            entries = Enum.filter(Enum.reverse(entries), &(elem(&1, 0) > covered)),
             entries != [],
             into: %{},
             do: {owner, :queue.from_list(entries)}
@@ -258,7 +270,7 @@ defmodule Valimc.Storage.Log do
 
   defp drop_covered(entries, seq) do
     case :queue.peek(entries) do
-      {:value, {s, _}} when s <= seq -> drop_covered(:queue.drop(entries), seq)
+      {:value, {s, _, _}} when s <= seq -> drop_covered(:queue.drop(entries), seq)
       _ -> entries
     end
   end
@@ -266,22 +278,31 @@ defmodule Valimc.Storage.Log do
   @impl true
   # Only frames no checkpoint covers: a file written anew (a seeded or edited
   # player) does not replay the frames an earlier checkpoint holds.
+  # They are read where the index says they are, nothing else.
   def handle_call({:frames, owner, after_seq}, _from, state) do
-    uncovered =
-      MapSet.new(:queue.to_list(Map.get(state.pending, owner, :queue.new())), &elem(&1, 0))
+    wanted =
+      for {seq, _, at} <- :queue.to_list(Map.get(state.pending, owner, :queue.new())),
+          seq > after_seq,
+          do: {seq, at}
 
-    case RegionLog.read(dir(state.base, state.n)) do
-      {:ok, %{frames: frames}} ->
-        {:reply,
-         for(
-           %{ops: ops} <- frames,
-           {:frame, ^owner, seq, frame} <- ops,
-           seq > after_seq and MapSet.member?(uncovered, seq),
-           do: {seq, frame}
-         ), state, @idle_ms}
+    if wanted == [] do
+      {:reply, [], state, @idle_ms}
+    else
+      seqs = MapSet.new(wanted, &elem(&1, 0))
 
-      error ->
-        {:reply, error, state, @idle_ms}
+      case RegionLog.read_at(wanted |> Enum.map(&elem(&1, 1)) |> Enum.uniq()) do
+        {:ok, frames} ->
+          {:reply,
+           for(
+             %{ops: ops} <- frames,
+             {:frame, ^owner, seq, frame} <- ops,
+             MapSet.member?(seqs, seq),
+             do: {seq, frame}
+           ), state, @idle_ms}
+
+        error ->
+          {:reply, error, state, @idle_ms}
+      end
     end
   end
 
@@ -300,7 +321,11 @@ defmodule Valimc.Storage.Log do
       {:noreply, state, @idle_ms}
     else
       if :ets.whereis(@index) != :undefined,
-        do: :ets.match_delete(@index, {{state.base, :_, state.n}})
+        do:
+          (
+            :ets.match_delete(@index, {{state.base, :_, state.n}})
+            :ets.delete(@index, {state.base, :started})
+          )
 
       {:stop, :normal, state}
     end
@@ -333,12 +358,11 @@ defmodule Valimc.Storage.Log do
     frames = batches(units)
 
     with {:ok, state} <- ensure_open(state),
-         first = state.log.next_lsn,
-         {:ok, log, last} <- RegionLog.append(state.log, frames) do
+         {:ok, log, located} <- RegionLog.append_located(state.log, frames) do
       Valimc.Data.Metrics.add(:storage_bytes, Enum.sum(Enum.map(ops, &op_bytes/1)))
 
-      # Each record's lsn is its RegionLog frame's; owner frames come first.
-      lsns = for {frame, lsn} <- Enum.zip(frames, first..last//1), _ <- frame, do: lsn
+      # Each record's lsn and place are its RegionLog frame's.
+      lsns = for {frame, place} <- Enum.zip(frames, located), _ <- frame, do: place
 
       for {:commit, frames, notify} <- commits,
           {owner, seq, _} <- frames,
@@ -352,8 +376,9 @@ defmodule Valimc.Storage.Log do
           for {owner, seq, _} <- frames, do: {owner, seq}
         end)
         |> Enum.zip(lsns)
-        |> Enum.reduce(state.pending, fn {{owner, seq}, lsn}, acc ->
-          Map.update(acc, owner, :queue.from_list([{seq, lsn}]), &:queue.in({seq, lsn}, &1))
+        |> Enum.reduce(state.pending, fn {{owner, seq}, {lsn, at}}, acc ->
+          entry = {seq, lsn, at}
+          Map.update(acc, owner, :queue.from_list([entry]), &:queue.in(entry, &1))
         end)
 
       {:noreply, %{state | log: log, pending: pending}, @idle_ms}

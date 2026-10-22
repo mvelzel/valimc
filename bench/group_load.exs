@@ -55,6 +55,10 @@ defmodule Bench.GroupLoad do
     {_, ticks_before} = Valimc.World.TickRate.samples()
     stop = System.monotonic_time(:millisecond) + seconds * 1000
     sampler = Task.async(fn -> sample(pid, stop, []) end)
+
+    pools =
+      Task.async(fn -> pools(stop, Map.new(wall(), fn {id, a, t} -> {id, {a, t}} end), []) end)
+
     if System.get_env("PROFILE") == "calls", do: trace_calls()
     # `load_world/2` read the 49 nearest chunks.
     {cx, cz} = Valimc.Data.Grid.chunk_key(x, z)
@@ -63,6 +67,7 @@ defmodule Bench.GroupLoad do
     {client, last, lags} = fly(client, start, stop, [])
     if System.get_env("PROFILE") == "calls", do: report_calls()
     samples = Task.await(sampler, :infinity)
+    dirty = Task.await(pools, :infinity)
     {tick_samples, ticks_after} = Valimc.World.TickRate.samples()
     after_metrics = Valimc.Data.Metrics.snapshot()
     Client.close(client)
@@ -108,6 +113,8 @@ defmodule Bench.GroupLoad do
       own_chunk_missing_ms: Map.put(stats(gaps), :total, Enum.sum(gaps)),
       log_stripe_reductions_per_second: stats(stripe_rates),
       log_stripe_queue: stats(Enum.map(stripes, &elem(&1, 3))),
+      dirty_cpu_utilization: stats(dirty),
+      dirty_stall_longest_ms: longest_stall(dirty) * 250,
       corrections: corrections
     }
   end
@@ -262,6 +269,43 @@ defmodule Bench.GroupLoad do
     end
   end
 
+  # The dirty CPU schedulers' utilization (generation, light, encodes) in
+  # 250 ms windows: a stall shows as a run of windows near zero.
+  defp pools(stop, last, acc) do
+    if System.monotonic_time(:millisecond) >= stop do
+      Enum.reverse(acc)
+    else
+      Process.sleep(250)
+      next = wall()
+
+      {active, total} =
+        Enum.reduce(next, {0, 0}, fn {id, a, t}, {active, total} ->
+          {a0, t0} = Map.get(last, id, {a, t})
+          {active + a - a0, total + t - t0}
+        end)
+
+      pools(stop, Map.new(next, fn {id, a, t} -> {id, {a, t}} end), [
+        active / max(1, total) | acc
+      ])
+    end
+  end
+
+  # The dirty CPU schedulers' `{id, active, total}` wall times.
+  defp wall do
+    normal = :erlang.system_info(:schedulers)
+    dirty = (normal + 1)..(normal + :erlang.system_info(:dirty_cpu_schedulers))
+    for {id, a, t} <- :erlang.statistics(:scheduler_wall_time_all), id in dirty, do: {id, a, t}
+  end
+
+  # The longest run of windows below a tenth.
+  defp longest_stall(windows) do
+    windows
+    |> Enum.chunk_by(&(&1 < 0.1))
+    |> Enum.filter(&(hd(&1) < 0.1))
+    |> Enum.map(&length/1)
+    |> Enum.max(fn -> 0 end)
+  end
+
   # The log stripes (`Valimc.Storage.Log`): `{pid, reductions, at, queue}`.
   defp stripes do
     now = System.monotonic_time(:millisecond)
@@ -360,6 +404,7 @@ Application.put_env(:valimc, :generator, :vanilla)
 Application.put_env(:valimc, :view_distance, 32)
 Application.put_env(:valimc, :simulation_distance, 10)
 {:ok, _} = Application.ensure_all_started(:valimc)
+:erlang.system_flag(:scheduler_wall_time, true)
 
 seconds =
   case rest do

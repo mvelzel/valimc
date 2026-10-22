@@ -81,7 +81,7 @@ defmodule Valimc.Storage.RegionLog do
              <<lsn::64, incarnation::32, body::binary>> = payload,
              true <- lsn > last,
              {:ok, ops} when is_list(ops) <- safe_term(body) do
-          frame = %{lsn: lsn, incarnation: incarnation, ops: ops}
+          frame = %{lsn: lsn, incarnation: incarnation, ops: ops, at: {offset, 8 + len}}
           decode(bytes, offset + 8 + len, lsn, [frame | acc])
         else
           _ when last_frame? -> {:ok, Enum.reverse(acc), offset, :torn}
@@ -180,9 +180,26 @@ defmodule Valimc.Storage.RegionLog do
 
   @doc "Append one frame per ops list, then `datasync` once. Returns the last LSN."
   def append(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
+    with {:ok, log, located} <- append_located(log, batches),
+         do: {:ok, log, located |> List.last() |> elem(0)}
+  end
+
+  @doc """
+  `append/2`, returning where each frame went: `[{lsn, {path, offset,
+  size}}]`, for `read_at/1`.
+  """
+  def append_located(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
     {frames, next} =
       Enum.map_reduce(batches, log.next_lsn, fn ops, lsn ->
         {encode_frame(lsn, log.incarnation, ops), lsn + 1}
+      end)
+
+    {located, _} =
+      frames
+      |> Enum.zip(log.next_lsn..(next - 1)//1)
+      |> Enum.map_reduce(log.segment_bytes, fn {frame, lsn}, offset ->
+        size = byte_size(frame)
+        {{lsn, {log.segment, offset, size}}, offset + size}
       end)
 
     with :ok <- write_segment(log.segment, frames),
@@ -191,9 +208,49 @@ defmodule Valimc.Storage.RegionLog do
       log = if log.segment_bytes >= @segment_limit, do: rotate(log), else: {:ok, log}
 
       case log do
-        {:ok, log} -> {:ok, log, next - 1}
+        {:ok, log} -> {:ok, log, located}
         error -> error
       end
+    end
+  end
+
+  @doc """
+  The frames at `locations` (`[{path, offset, size}]`, as `append_located/2`
+  and `open/1` give them), each checked: `{:ok, [frame]}` in the order given,
+  reading only those bytes.
+  """
+  def read_at(locations) do
+    locations
+    |> Enum.group_by(&elem(&1, 0))
+    |> Enum.reduce_while({:ok, %{}}, fn {path, ranges}, {:ok, acc} ->
+      case with_file(path, [:read, :binary, :raw], fn fd ->
+             :file.pread(fd, Enum.map(ranges, fn {_, offset, size} -> {offset, size} end))
+           end) do
+        {:ok, chunks} ->
+          decoded =
+            Enum.zip_with(ranges, chunks, fn range, bytes ->
+              case is_binary(bytes) && decode_frames(bytes) do
+                {:ok, [frame], _, :clean} -> {range, frame}
+                _ -> {range, :corrupt}
+              end
+            end)
+
+          {:cont, {:ok, Map.merge(acc, Map.new(decoded))}}
+
+        error ->
+          {:halt, {:error, {:read_at, path, error}}}
+      end
+    end)
+    |> case do
+      {:ok, by_range} ->
+        frames = Enum.map(locations, &Map.fetch!(by_range, &1))
+
+        if :corrupt in frames,
+          do: {:error, :corrupt_frame},
+          else: {:ok, frames}
+
+      error ->
+        error
     end
   end
 
@@ -287,6 +344,16 @@ defmodule Valimc.Storage.RegionLog do
       path = Path.join(dir, file)
 
       case decode_frames(read!(path), last) do
+        {:ok, frames, valid, tail} ->
+          frames =
+            Enum.map(frames, fn %{at: {offset, size}} = f -> %{f | at: {path, offset, size}} end)
+
+          {:ok, frames, valid, tail}
+
+        other ->
+          other
+      end
+      |> case do
         {:ok, frames, _, :clean} ->
           {:cont, {:ok, acc ++ frames, {path, nil}, last_lsn(frames, last)}}
 
