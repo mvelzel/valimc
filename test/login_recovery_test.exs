@@ -99,7 +99,7 @@ defmodule Valimc.LoginRecoveryTest do
     {:ok, owner} = World.item_owner(ctx.key)
 
     assert [record] =
-             Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.entities.items)
+             Valimc.World.Entities.records(:sys.get_state(elem(owner, 0)).resource.entities.store)
 
     assert record.motion == motion
     assert {:ok, handle} = Region.find_item(owner, record.uuid)

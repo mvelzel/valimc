@@ -1,6 +1,6 @@
 defmodule Valimc.PickupBench do
   alias Valimc.{GameMode, Inventory, PlayerFood, PlayerSnapshot, PlayerStore, TransferDelivery}
-  alias Valimc.World.{Items, Region, RegionStorage}
+  alias Valimc.World.{Entities, Region, RegionStorage}
 
   def source(base, owner, key, uuid, records) do
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
@@ -172,7 +172,7 @@ defmodule Valimc.PickupBench do
 
     for {key, {pid, _}} <- owners do
       :ok = Region.flush(pid)
-      true = Items.records(:sys.get_state(pid).resource.items) == []
+      true = Entities.records(:sys.get_state(pid).resource.entities.store) == []
       {:ok, saved} = RegionStorage.read(base, :overworld, key)
       true = saved.items == [] and map_size(saved.receipts) == 4
       DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)

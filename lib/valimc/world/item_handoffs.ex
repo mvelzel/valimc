@@ -10,7 +10,7 @@ defmodule Valimc.World.ItemHandoffs do
   plain, with their original bytes.
   """
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{ItemLedger, ItemRecords, Items}
+  alias Valimc.World.{ItemLedger, ItemRecords, Entities}
   @max_sequence 18_446_744_073_709_551_615
 
   @doc "Withdraw a freshly fenced cohort into one durable destination intent."
@@ -37,10 +37,10 @@ defmodule Valimc.World.ItemHandoffs do
     # Steps of a crossing are in the destination's coordinates.
     region = if crossing?(destination), do: plain(destination), else: destination
 
-    with {:ok, moved, handles} <- Items.advance(items, region, items.epoch, steps),
+    with {:ok, moved, handles} <- Entities.advance(items, region, items.epoch, steps),
          {:ok, withdrawn} <- withdraw(moved, handles) do
       uuids = MapSet.new(handles, fn {_, id, _} -> moved.entries[id].entity.uuid end)
-      records = moved |> Items.records() |> Enum.filter(&MapSet.member?(uuids, &1.uuid))
+      records = moved |> Entities.records() |> Enum.filter(&MapSet.member?(uuids, &1.uuid))
       hops = Map.new(records, &{&1.uuid, Map.get(items.ledger.generations, &1.uuid, 0) + 1})
       outgoing = %{destination: destination, records: records, generations: hops}
 
@@ -49,7 +49,7 @@ defmodule Valimc.World.ItemHandoffs do
         | ledger: %{withdrawn.ledger | sequence: items.ledger.sequence + 1, outgoing: outgoing}
       }
 
-      with {:ok, _} <- ItemLedger.encode(source, Items.records(next), %{}, next.ledger),
+      with {:ok, _} <- ItemLedger.encode(source, Entities.records(next), %{}, next.ledger),
            {:ok, transfer} <- request(next, source),
            do: {:ok, next, transfer}
     end
@@ -57,7 +57,7 @@ defmodule Valimc.World.ItemHandoffs do
 
   defp withdraw(items, handles) do
     Enum.reduce_while(handles, {:ok, items}, fn {epoch, id, revision}, {:ok, current} ->
-      case Items.remove(current, epoch, id, revision) do
+      case Entities.remove(current, epoch, id, revision) do
         {:ok, next} -> {:cont, {:ok, next}}
         error -> {:halt, error}
       end
@@ -154,16 +154,13 @@ defmodule Valimc.World.ItemHandoffs do
         {:error, :transfer_conflict} ->
           {:error, :item_handoff_conflict}
 
-        {:error, :transfer_source_limit} ->
-          {:error, :item_handoff_source_limit}
-
         :new ->
           with :ok <- unreserved(items, transfer.records),
                {:ok, next} <- adopt(items, key, transfer),
                incoming =
                  Receipts.record(next.ledger.incoming, source, sequence, digest, :plain, :applied),
                ledger = %{next.ledger | incoming: incoming},
-               {:ok, _} <- ItemLedger.encode(key, Items.records(next), %{}, ledger),
+               {:ok, _} <- ItemLedger.encode(key, Entities.records(next), %{}, ledger),
                do: {:ok, %{next | ledger: ledger}, :applied}
       end
     end
@@ -174,7 +171,7 @@ defmodule Valimc.World.ItemHandoffs do
   defp unreserved(%{ledger: %{outgoing: nil}}, _), do: :ok
 
   defp unreserved(items, records) do
-    if not Enum.any?(records, &Items.reserved_uuid?(items, &1.uuid)),
+    if not Enum.any?(records, &Entities.reserved_uuid?(items, &1.uuid)),
       do: :ok,
       else: {:error, :item_handoff_busy}
   end
@@ -187,7 +184,7 @@ defmodule Valimc.World.ItemHandoffs do
 
     Enum.reduce_while(transfer.records, {:ok, %{items | ledger: ledger}}, fn record,
                                                                              {:ok, current} ->
-      case Items.create_record(current, key, record) do
+      case Entities.create_record(current, key, record) do
         {:ok, next, _} -> {:cont, {:ok, next}}
         error -> {:halt, error}
       end

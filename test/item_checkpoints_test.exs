@@ -3,7 +3,7 @@ defmodule Valimc.ItemCheckpointsTest do
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, World}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemRecords, Items, Region}
+  alias Valimc.World.{ItemRecords, Entities, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -84,9 +84,9 @@ defmodule Valimc.ItemCheckpointsTest do
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
 
     assert [%{motion: %{age: 1}}] =
-             Items.records(Valimc.TestConn.state(pid).resource.entities.items)
+             Entities.records(Valimc.TestConn.state(pid).resource.entities.store)
 
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
-    assert map_size(Valimc.TestConn.state(pid).resource.entities.items.entries) == 1
+    assert map_size(Valimc.TestConn.state(pid).resource.entities.store.entries) == 1
   end
 end

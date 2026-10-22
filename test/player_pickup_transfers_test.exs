@@ -11,7 +11,7 @@ defmodule Valimc.PlayerPickupTransfersTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Items, PickupTransfers}
+  alias Valimc.World.{Entities, PickupTransfers}
   @uuid <<81::128>>
 
   defp source(mode) do
@@ -64,7 +64,7 @@ defmodule Valimc.PlayerPickupTransfersTest do
       motion: %ItemMotionState{}
     }
 
-    {:ok, items} = Items.restore({0, 0}, [record])
+    {:ok, items} = Entities.restore({0, 0}, [record])
     items
   end
 
@@ -102,6 +102,6 @@ defmodule Valimc.PlayerPickupTransfersTest do
     assert resolved.inventory.slots == inventory.slots and
              resolved.inventory.table_inputs == inventory.table_inputs
 
-    assert resolved.inventory.infinite_materials and Items.records(withdrawn.items) == []
+    assert resolved.inventory.infinite_materials and Entities.records(withdrawn.items) == []
   end
 end

@@ -7,7 +7,7 @@ defmodule Valimc.Physics.OrbMotion do
 
   @doc "Three supplied native uniform double draws; spawn escape and cosmetic yaw are separate."
   def launch(position, direction, {a, b, c} = draws) do
-    if Valimc.World.Items.valid_position?(position) and vector?(direction, 64) and
+    if Valimc.World.Entities.valid_position?(position) and vector?(direction, 64) and
          Enum.all?(Tuple.to_list(draws), &(is_float(&1) and &1 >= 0 and &1 < 1)) do
       velocity = {(a * 0.2 - 0.1) * 2.0, b * 0.2 * 2.0, (c * 0.2 - 0.1) * 2.0}
 
@@ -18,7 +18,7 @@ defmodule Valimc.Physics.OrbMotion do
 
       at = add(position, scale(normalize(direction), 0.25))
 
-      if Valimc.World.Items.valid_position?(at),
+      if Valimc.World.Entities.valid_position?(at),
         do: {:ok, %{position: at, velocity: velocity}},
         else: {:error, :orb_motion_limit}
     else

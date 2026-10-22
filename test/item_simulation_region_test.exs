@@ -65,7 +65,7 @@ defmodule Valimc.ItemSimulationRegionTest do
   end
 
   def state(ctx), do: :sys.get_state(elem(ctx.owner, 0)).resource
-  def entry(ctx), do: state(ctx).entities.items.entries |> Map.values() |> hd()
+  def entry(ctx), do: state(ctx).entities.store.entries |> Map.values() |> hd()
 
   # Owners tick only when stepped: advance every live owner around the test's
   # region one tick (items move within the tick, VMC-077l).
@@ -92,10 +92,10 @@ defmodule Valimc.ItemSimulationRegionTest do
   @tag count: 256
   test "one owner advances every active item at its cadence", ctx do
     wait(ctx, fn ->
-      Enum.all?(state(ctx).entities.items.entries, fn {_, e} -> e.entity.y < 67.8 end)
+      Enum.all?(state(ctx).entities.store.entries, fn {_, e} -> e.entity.y < 67.8 end)
     end)
 
-    entries = Map.values(state(ctx).entities.items.entries)
+    entries = Map.values(state(ctx).entities.store.entries)
     assert length(entries) == 256
     assert length(Enum.uniq(Enum.map(entries, & &1.motion.age))) == 1
     assert Enum.all?(entries, &(&1.motion.age >= 3))
@@ -106,7 +106,7 @@ defmodule Valimc.ItemSimulationRegionTest do
   @tag motion: %ItemMotionState{age: 5998}
   test "despawn is durable and original source replay cannot recreate the item", ctx do
     wait(ctx, fn ->
-      state(ctx).entities.items.entries == %{} and not Valimc.TestRegion.writing?(state(ctx))
+      state(ctx).entities.store.entries == %{} and not Valimc.TestRegion.writing?(state(ctx))
     end)
 
     assert :ok = Region.flush(elem(ctx.owner, 0))
@@ -117,7 +117,7 @@ defmodule Valimc.ItemSimulationRegionTest do
     assert saved.records == [] and saved.receipts == ctx.receipts
     transfer = %{source: <<99::128>>, sequence: 1, records: ctx.records}
     assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, transfer)
-    assert state(ctx).entities.items.entries == %{}
+    assert state(ctx).entities.store.entries == %{}
   end
 
   @tag edge: true, motion: %ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}

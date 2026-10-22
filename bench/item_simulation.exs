@@ -14,7 +14,7 @@ Application.put_env(:valimc, :port, 0)
 snapshot = fn owners ->
   for {pid, _} <- owners do
     state = :sys.get_state(pid).resource
-    %{entries: state.items.entries}
+    %{entries: state.entities.store.entries}
   end
 end
 

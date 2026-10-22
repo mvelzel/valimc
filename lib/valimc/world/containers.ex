@@ -23,7 +23,6 @@ defmodule Valimc.World.Containers do
 
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
-  @max_sources Valimc.Txn.Receipts.max_sources()
   @contents_bytes 524_288
   @max_bytes 8_388_608
   def max_bytes, do: @max_bytes
@@ -400,7 +399,7 @@ defmodule Valimc.World.Containers do
   defp take_receipt_count(bytes, minimum \\ 1)
 
   defp take_receipt_count(<<count::16, body::binary>>, minimum) do
-    true = count >= minimum and count <= Valimc.Txn.Receipts.max_sources()
+    true = count >= minimum
     {count, body}
   end
 
@@ -420,7 +419,7 @@ defmodule Valimc.World.Containers do
     )
   end
 
-  defp valid_receipts?(receipts) when is_map(receipts) and map_size(receipts) <= @max_sources do
+  defp valid_receipts?(receipts) do
     Enum.all?(receipts, fn
       {<<_::128>>, receipt} when is_map(receipt) and map_size(receipt) == 2 ->
         Valimc.Txn.Receipts.valid?(receipt)
@@ -429,8 +428,6 @@ defmodule Valimc.World.Containers do
         false
     end)
   end
-
-  defp valid_receipts?(_), do: false
 
   defp valid_slots?(rows, slots) do
     slot_bytes(rows, slots)

@@ -11,7 +11,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:column, chunk}` | the chunk's column image (generation, `/fillbiome`, checkpoints) |
   | `{:cell, position}` | a block state changed since the column image |
   | `{:post, chunk}` | what a generated chunk leaves for fluids |
-  | `{:item, uuid}` | an item's record |
+  | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:receipt, source}` | a player transfer's receipt |
   | `{:ledger, field}`, `{:ledger_in, source}`, `{:generation, uuid}` | the item handoff ledger |
   | `{:container, position}`, `{:container_receipt, source}`, `{:containers, field}` | containers |
@@ -40,7 +40,7 @@ defmodule Valimc.World.RegionStorage do
   """
   require Logger
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Items, ScheduledTicks}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Entities, ScheduledTicks}
 
   @commit_ms 50
   @checkpoint_bytes 1024 * 1024
@@ -117,6 +117,14 @@ defmodule Valimc.World.RegionStorage do
         {:error, _} = error -> error
       end
     end
+  catch
+    {:old_region_format, record} ->
+      Logger.error(
+        "Region #{inspect(key)} holds a record from before VMC-077h (#{inspect(record)}); " <>
+          "ValiMC no longer reads it (no migration)"
+      )
+
+      {:error, {:old_region_format, record}}
   end
 
   # D4: the per-region logs and per-file snapshots of older worlds are refused.
@@ -416,7 +424,7 @@ defmodule Valimc.World.RegionStorage do
 
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
-  `Valimc.World.Items`), `receipts`, `containers`, `ticks` (a
+  `Valimc.World.Entities`), `receipts`, `containers`, `ticks` (a
   `ScheduledTicks`), `block_entities` and `game_tick`.
   """
   def diff_parts(storage, parts) do
@@ -506,7 +514,7 @@ defmodule Valimc.World.RegionStorage do
   # Whether a changed record may wait: `:counters` when only its tick counters
   # moved (an item's age and delays, a furnace burning on), `:motion` when an
   # item only moved and this is not a motion pass; nil when it goes now.
-  defp wait({:item, _}, %{motion: _} = old, %{motion: _} = new, full) do
+  defp wait({:entity, _}, %{motion: _} = old, %{motion: _} = new, full) do
     cond do
       counters(old) == counters(new) -> :counters
       not full and moved(old) == moved(new) -> :motion
@@ -538,10 +546,10 @@ defmodule Valimc.World.RegionStorage do
   end
 
   @doc false
-  def part_records(:items, %Items{} = items) do
+  def part_records(:items, %Entities{} = items) do
     ledger = items.ledger
 
-    for(record <- Items.records(items), into: %{}, do: {{:item, record.uuid}, record})
+    for(record <- Entities.records(items), into: %{}, do: {{:entity, record.uuid}, record})
     |> Map.merge(%{
       {:ledger, :sequence} => ledger.sequence,
       {:ledger, :outgoing} => ledger.outgoing
@@ -635,7 +643,7 @@ defmodule Valimc.World.RegionStorage do
       {{:post, chunk}, value}, acc ->
         put_in(acc, [:post_processing, chunk], value)
 
-      {{:item, _}, record}, acc ->
+      {{:entity, _}, record}, acc ->
         %{acc | items: [record | acc.items]}
 
       {{:receipt, source}, receipt}, acc ->
@@ -676,6 +684,10 @@ defmodule Valimc.World.RegionStorage do
 
       {:game_tick, _}, acc ->
         acc
+
+      # A record of an older format (D4): no migration, no legacy reader.
+      {key, _}, _acc ->
+        throw({:old_region_format, key})
     end)
     |> Map.update!(:items, &Enum.sort_by(&1, fn r -> r.uuid end))
   end
@@ -722,7 +734,7 @@ defmodule Valimc.World.RegionStorage do
           |> Map.merge(
             for record <- Map.get(parts, :items, []),
                 into: %{},
-                do: {{:item, record.uuid}, record}
+                do: {{:entity, record.uuid}, record}
           )
 
         extra = Map.take(parts, [:chunk_extras, :entities])
@@ -775,6 +787,8 @@ defmodule Valimc.World.RegionStorage do
   def read(base, dimension, key) do
     with {:ok, _seq, records} <- records(base, dimension, key),
          do: {:ok, restore(records, true)}
+  catch
+    {:old_region_format, record} -> {:error, {:old_region_format, record}}
   end
 
   @doc """

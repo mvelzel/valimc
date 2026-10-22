@@ -2,7 +2,7 @@ defmodule Valimc.World.ItemMergePermits do
   @moduledoc "Recipient contact grants in the owner's `Valimc.Txn.Permits` after durable regional receipt admission."
   alias Valimc.{ItemMotionState, Physics.ItemMerge}
   alias Valimc.Txn.Permits
-  alias Valimc.World.{ItemMergeTransfer, Items, OwnerItemReceipts}
+  alias Valimc.World.{ItemMergeTransfer, Entities, OwnerItemReceipts}
 
   @doc "Run outside the owner; canonicalization and native component decisions can be expensive."
   def prepare(
@@ -17,7 +17,7 @@ defmodule Valimc.World.ItemMergePermits do
         } = proposal
       )
       when map_size(proposal) == 5 do
-    with {:ok, {_, id, _}} <- Items.find(items, target),
+    with {:ok, {_, id, _}} <- Entities.find(items, target),
          entry = items.entries[id],
          recipient = record(entry),
          true <- donor.stack.count != recipient.stack.count or source < destination,
@@ -72,7 +72,7 @@ defmodule Valimc.World.ItemMergePermits do
                  request.recipient_generation == accepted.recipient_generation and
                  request.donor.uuid == accepted.donor.uuid and
                  request.donor.stack == accepted.donor.stack,
-             {:ok, {_, id, _}} <- Items.find(items, request.recipient.uuid),
+             {:ok, {_, id, _}} <- Entities.find(items, request.recipient.uuid),
              entry = items.entries[id],
              true <-
                entry.stack == accepted.recipient.stack and

@@ -1,6 +1,6 @@
 defmodule Valimc.World.ItemMerges do
   @moduledoc "Atomic bounded same-owner merge plans; persist the result before publication."
-  alias Valimc.{ItemMotionState, Physics.ItemMerge, World.Items}
+  alias Valimc.{ItemMotionState, Physics.ItemMerge, World.Entities}
 
   @doc "Discover at most32 disjoint owned pairs off the owner; input is already bounded to256 items."
   def candidates(items) do
@@ -71,9 +71,9 @@ defmodule Valimc.World.ItemMerges do
         if decision.recipient == :a, do: {a, left, b, right}, else: {b, right, a, left}
 
       with {:ok, next, {epoch, ^rid, revision}} <-
-             Items.replace(items, items.epoch, rid, recipient.revision, decision.stack),
+             Entities.replace(items, items.epoch, rid, recipient.revision, decision.stack),
            {:ok, next, [recipient_handle]} <-
-             Items.advance(
+             Entities.advance(
                next,
                Valimc.World.region_key(
                  Valimc.World.chunk_key(recipient.entity.x, recipient.entity.z)
@@ -105,11 +105,11 @@ defmodule Valimc.World.ItemMerges do
   end
 
   defp donor(items, id, revision, nil) do
-    with {:ok, next} <- Items.remove(items, items.epoch, id, revision), do: {:ok, next, nil}
+    with {:ok, next} <- Entities.remove(items, items.epoch, id, revision), do: {:ok, next, nil}
   end
 
   defp donor(items, id, revision, stack),
-    do: Items.replace(items, items.epoch, id, revision, stack)
+    do: Entities.replace(items, items.epoch, id, revision, stack)
 
   # Persisted item records currently have no exclusive pickup target. Targeted
   # lifecycle support must retain that authority before entering this planner.

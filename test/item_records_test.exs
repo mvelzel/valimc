@@ -43,7 +43,6 @@ defmodule Valimc.ItemRecordsTest do
           %{source => %{receipt | sequence: 18_446_744_073_709_551_616}},
           %{source => %{receipt | digest: <<0>>}},
           %{<<0>> => receipt},
-          Map.put(all, <<4097::128>>, receipt),
           []
         ],
         do: assert({:error, :invalid_item_records} == ItemRecords.encode({-1, -1}, [], bad))

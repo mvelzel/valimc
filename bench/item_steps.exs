@@ -1,4 +1,4 @@
-alias Valimc.{ItemMotionState, World.EntityReplication, World.Items}
+alias Valimc.{ItemMotionState, World.EntityReplication, World.Entities}
 alias Valimc.Protocol.ItemStack
 
 rich = %{
@@ -14,8 +14,8 @@ rows =
     owners =
       for rx <- 0..3 do
         items =
-          Enum.reduce(1..count, Items.new(), fn n, items ->
-            {:ok, next, _} = Items.create(items, {rx, 0}, stack, {rx * 128 + n / 4, 64.5, 0.5})
+          Enum.reduce(1..count, Entities.new(), fn n, items ->
+            {:ok, next, _} = Entities.create(items, {rx, 0}, stack, {rx * 128 + n / 4, 64.5, 0.5})
             next
           end)
 
@@ -67,7 +67,7 @@ rows =
                     }
                   end)
 
-                {:ok, next, _} = Items.advance(items, key, items.epoch, steps)
+                {:ok, next, _} = Entities.advance(items, key, items.epoch, steps)
                 {key, next, ids}
               end)
 
@@ -76,7 +76,7 @@ rows =
           end)
 
         {owners, observer, [elapsed | times], packets + length(emitted),
-         bytes + Enum.sum(Enum.map(emitted, &Items.packet_bytes/1))}
+         bytes + Enum.sum(Enum.map(emitted, &Entities.packet_bytes/1))}
       end)
 
     :erlang.garbage_collect()

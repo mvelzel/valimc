@@ -4,7 +4,7 @@ defmodule Valimc.Anvil.Entity do
   holds them (VMC-021e2).
 
   A dropped item ValiMC can represent becomes an item record of the entity model
-  (`Valimc.World.Items`), read as vanilla's `Entity.load` and
+  (`Valimc.World.Entities`), read as vanilla's `Entity.load` and
   `ItemEntity.readAdditionalSaveData` read it: a motion component beyond ±10 is
   zero, `Age` and `PickupDelay` are shorts. An XP orb becomes an imported orb
   birth (VMC-021e4, `CookingOrbs.import_orbs/3`) with its UUID, value, count and
@@ -13,7 +13,7 @@ defmodule Valimc.Anvil.Entity do
   """
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemData
-  alias Valimc.World.Items
+  alias Valimc.World.Entities
 
   @doc """
   `{:item, record}` for an importable dropped item, `{:orb, orb}` for an XP orb,
@@ -23,7 +23,7 @@ defmodule Valimc.Anvil.Entity do
     with nil <- fields["Passengers"],
          {:ok, uuid} <- uuid(fields["UUID"]),
          {:ok, position} <- doubles(fields["Pos"]),
-         true <- Items.valid_position?(position),
+         true <- Entities.valid_position?(position),
          {:ok, motion} <- motion(fields["Motion"]),
          {:short, value} when value in 1..32_767 <- fields["Value"],
          count when count in 1..2_147_483_647 <- orb_count(fields["Count"]) do
@@ -50,7 +50,7 @@ defmodule Valimc.Anvil.Entity do
          nil <- fields["Passengers"],
          {:ok, uuid} <- uuid(fields["UUID"]),
          {:ok, {x, y, z} = position} <- doubles(fields["Pos"]),
-         true <- Items.valid_position?(position),
+         true <- Entities.valid_position?(position),
          {:ok, motion} <- motion(fields["Motion"]),
          {:ok, stack} when stack != nil <- ItemData.stack(fields["Item"]) do
       state = %ItemMotionState{

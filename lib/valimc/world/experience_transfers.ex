@@ -59,9 +59,6 @@ defmodule Valimc.World.ExperienceTransfers do
         {:duplicate, result} ->
           {:ok, %{containers: reserved, result: result}}
 
-        {:error, :transfer_source_limit} ->
-          {:error, :transfer_source_limit}
-
         {:error, _} = error ->
           error
 

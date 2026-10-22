@@ -1,5 +1,5 @@
 defmodule Valimc.ItemPortalRegionTest do
-  # Items through portals (VMC-026c) between live owners. Serial: the End's
+  # Entities through portals (VMC-026c) between live owners. Serial: the End's
   # arrival platform is shared by every test that enters the End.
   use ExUnit.Case, async: false
   @moduletag :slow
@@ -8,7 +8,7 @@ defmodule Valimc.ItemPortalRegionTest do
   alias Valimc.Portal.{Access, Blocks}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemRecords, Items, Region}
+  alias Valimc.World.{ItemRecords, Entities, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -83,7 +83,8 @@ defmodule Valimc.ItemPortalRegionTest do
     end)
   end
 
-  defp holds?(owner, uuid), do: match?({:ok, _}, Items.find(resource(owner).entities.items, uuid))
+  defp holds?(owner, uuid),
+    do: match?({:ok, _}, Entities.find(resource(owner).entities.store, uuid))
 
   # The item, searched in the regions around `position` of `dimension`.
   defp found(dimension, {x, _, z}) do
@@ -93,8 +94,8 @@ defmodule Valimc.ItemPortalRegionTest do
       |> Enum.find_value(fn key ->
         {:ok, owner} = World.item_owner(key)
 
-        case Items.find(resource(owner).entities.items, <<7::128>>) do
-          {:ok, {_, id, _}} -> resource(owner).entities.items.entries[id]
+        case Entities.find(resource(owner).entities.store, <<7::128>>) do
+          {:ok, {_, id, _}} -> resource(owner).entities.store.entries[id]
           _ -> nil
         end
       end)
@@ -115,7 +116,7 @@ defmodule Valimc.ItemPortalRegionTest do
     :ok = Access.commit(frame(ctx.origin) ++ portal)
 
     run(source, fn ->
-      not holds?(source, <<7::128>>) and resource(source).entities.items.ledger.outgoing == nil
+      not holds?(source, <<7::128>>) and resource(source).entities.store.ledger.outgoing == nil
     end)
 
     approx = {(x + 1.0) / 8, 64.0, (z + 0.5) / 8}

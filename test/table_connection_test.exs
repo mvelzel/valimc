@@ -202,6 +202,6 @@ defmodule Valimc.TableConnectionTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Valimc.World.Items.records(Valimc.TestConn.state(pid).resource.entities.items)
+    Valimc.World.Entities.records(Valimc.TestConn.state(pid).resource.entities.store)
   end
 end

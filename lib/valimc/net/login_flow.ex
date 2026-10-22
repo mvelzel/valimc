@@ -134,7 +134,7 @@ defmodule Valimc.Net.LoginFlow do
       name: name,
       uuid: if(profile, do: profile.uuid, else: Valimc.Connection.offline_uuid(name)),
       properties: if(profile, do: profile.properties, else: []),
-      entity_id: System.unique_integer([:positive]),
+      entity_id: elem(Valimc.World.EntityIds.next(), 1),
       address: Valimc.Admin.Login.address(state.socket),
       x: Valimc.World.Spawn.pose().x,
       y: Valimc.World.Spawn.pose().y,

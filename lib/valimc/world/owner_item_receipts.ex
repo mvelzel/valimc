@@ -10,7 +10,7 @@ defmodule Valimc.World.OwnerItemReceipts do
         {:error, :invalid_item_receipt}
 
       true ->
-        Valimc.Txn.Receipts.reserve(receipts, source, :item_handoff_source_limit)
+        Valimc.Txn.Receipts.reserve(receipts, source)
     end
   end
 

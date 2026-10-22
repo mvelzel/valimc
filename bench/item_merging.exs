@@ -1,5 +1,5 @@
 alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-alias Valimc.World.{Items, Region, RegionStorage}
+alias Valimc.World.{Entities, Region, RegionStorage}
 [base] = System.argv()
 base = Path.expand(base)
 false = File.exists?(base)
@@ -57,7 +57,7 @@ results =
     before = Valimc.Metrics.snapshot()
     started = System.monotonic_time(:microsecond)
 
-    # Items simulate and merge only while a ticket makes the region tick.
+    # Entities simulate and merge only while a ticket makes the region tick.
     owners =
       for key <- keys,
           do:
@@ -71,7 +71,9 @@ results =
     wait.(fn ->
       Enum.all?(owners, fn {pid, _} ->
         s = :sys.get_state(pid).resource
-        s.item_pending == nil and Valimc.World.ItemMerges.candidates(s.items) == []
+
+        not Valimc.World.RegionData.planning?(s) and
+          Valimc.World.ItemMerges.candidates(s.entities.store) == []
       end)
     end)
 
@@ -86,7 +88,7 @@ results =
       for {pid, _} <- owners do
         :ok = Region.flush(pid)
         s = :sys.get_state(pid).resource
-        records = Items.records(s.items)
+        records = Entities.records(s.entities.store)
         ^count = Enum.sum(Enum.map(records, & &1.stack.count))
         {:ok, disk} = RegionStorage.read(base, :overworld, s.key)
 

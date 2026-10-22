@@ -19,11 +19,9 @@ defmodule Valimc.Txn.Receipts do
   where `flag` is `<<1>>` for applied and `<<0>>` for rejected.
   """
 
-  @max_sources 4096
   @max_sequence 18_446_744_073_709_551_615
   @reserved %{sequence: 0, digest: <<0::256>>}
 
-  def max_sources, do: @max_sources
   def max_sequence, do: @max_sequence
 
   def valid?(%{sequence: 0, digest: <<0::256>>}), do: true
@@ -33,10 +31,12 @@ defmodule Valimc.Txn.Receipts do
 
   def valid?(_), do: false
 
-  @doc "Reserve capacity for `source` before granting it anything; existing slots stay exact."
-  def reserve(receipts, source, limit \\ :transfer_source_limit)
-
-  def reserve(receipts, source, limit)
+  @doc """
+  Reserve a slot for `source` before granting it anything; existing slots stay
+  exact. Tables are keyed records (VMC-077f), so the number of sources has no
+  cap (VMC-077h).
+  """
+  def reserve(receipts, source)
       when is_map(receipts) and
              ((is_binary(source) and byte_size(source) == 16) or
                 (is_tuple(source) and tuple_size(source) == 2)) do
@@ -46,11 +46,8 @@ defmodule Valimc.Txn.Receipts do
           do: {:ok, receipts, :existing},
           else: {:error, :invalid_receipt_reservation}
 
-      :error when map_size(receipts) < @max_sources ->
-        {:ok, Map.put(receipts, source, @reserved), :reserved}
-
       :error ->
-        {:error, limit}
+        {:ok, Map.put(receipts, source, @reserved), :reserved}
     end
   end
 
@@ -59,7 +56,7 @@ defmodule Valimc.Txn.Receipts do
   @doc """
   Classify a request against its source's receipt: `:new`, `{:duplicate,
   :already_applied | :already_rejected}`, or `{:error, :stale_transfer |
-  :transfer_conflict | :transfer_source_limit}`.
+  :transfer_conflict}`.
   """
   def classify(receipts, source, sequence, digest, scheme) do
     case receipts[source] do
@@ -72,9 +69,6 @@ defmodule Valimc.Txn.Receipts do
           :rejected -> {:duplicate, :already_rejected}
           :conflict -> {:error, :transfer_conflict}
         end
-
-      nil when map_size(receipts) >= @max_sources ->
-        {:error, :transfer_source_limit}
 
       _ ->
         :new

@@ -1,22 +1,22 @@
 defmodule Valimc.World.ItemMergeEscrow do
   @moduledoc "Pure source withdrawal/receipt-backed return; the caller must persist before publication."
   alias Valimc.ItemMotionState
-  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Items}
+  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Entities}
 
   def prepare(items, key, epoch, request) do
     with true <- items.epoch == epoch and request.source == key,
          true <- items.ledger.outgoing == nil and request.sequence == items.ledger.sequence + 1,
-         {:ok, {^epoch, id, revision}} <- Items.find(items, request.donor.uuid),
+         {:ok, {^epoch, id, revision}} <- Entities.find(items, request.donor.uuid),
          entry = items.entries[id],
          true <- entry.stack == request.donor.stack,
          true <-
            Map.get(items.ledger.generations, request.donor.uuid, 0) == request.donor_generation,
          request = %{request | donor: record(entry)},
          {:ok, escrow} <- ItemMergeTransfer.escrow(request),
-         {:ok, next} <- Items.remove(items, epoch, id, revision),
+         {:ok, next} <- Entities.remove(items, epoch, id, revision),
          next = %{next | ledger: %{next.ledger | sequence: request.sequence, outgoing: escrow}},
-         true <- Items.return_capacity?(next),
-         {:ok, _} <- ItemLedger.encode(key, Items.records(next), %{}, next.ledger) do
+         true <- Entities.return_capacity?(next),
+         {:ok, _} <- ItemLedger.encode(key, Entities.records(next), %{}, next.ledger) do
       {:ok, next}
     else
       _ -> {:error, :item_merge_not_prepared}
@@ -37,7 +37,7 @@ defmodule Valimc.World.ItemMergeEscrow do
          stack = if(result == :rejected, do: request.donor.stack, else: decision.donor_stack),
          next = %{items | ledger: %{items.ledger | outgoing: nil}},
          {:ok, next} <- restore(next, key, request, stack),
-         {:ok, _} <- ItemLedger.encode(key, Items.records(next), %{}, next.ledger) do
+         {:ok, _} <- ItemLedger.encode(key, Entities.records(next), %{}, next.ledger) do
       {:ok, next, result}
     else
       _ -> {:error, :item_merge_proof_conflict}
@@ -54,7 +54,7 @@ defmodule Valimc.World.ItemMergeEscrow do
 
     items = %{items | ledger: %{items.ledger | generations: generations}}
 
-    case Items.create_record(items, key, %{request.donor | stack: stack}) do
+    case Entities.create_record(items, key, %{request.donor | stack: stack}) do
       {:ok, next, _} -> {:ok, next}
       error -> error
     end

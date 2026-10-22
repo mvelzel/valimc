@@ -1,7 +1,7 @@
 defmodule Valimc.World.ItemMergeInbox do
   @moduledoc "Pure recipient update and terminal proof; an expired/stale contact rejects without granting."
   alias Valimc.ItemMotionState
-  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Items, OwnerItemReceipts}
+  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Entities, OwnerItemReceipts}
 
   def apply(items, key, request, permitted) when is_boolean(permitted) do
     with true <- request.destination == key,
@@ -56,13 +56,13 @@ defmodule Valimc.World.ItemMergeInbox do
     {:ok, proof} = ItemMergeTransfer.receipt(request, result)
     ledger = %{next.ledger | incoming: Map.put(next.ledger.incoming, request.source, proof)}
 
-    with {:ok, _} <- ItemLedger.encode(key, Items.records(next), %{}, ledger),
+    with {:ok, _} <- ItemLedger.encode(key, Entities.records(next), %{}, ledger),
          do: {:ok, %{next | ledger: ledger}, result}
   end
 
   defp update(items, key, request, counters_only \\ false) do
-    with {:error, :missing_item} <- Items.find(items, request.donor.uuid),
-         {:ok, {epoch, id, revision}} <- Items.find(items, request.recipient.uuid),
+    with {:error, :missing_item} <- Entities.find(items, request.donor.uuid),
+         {:ok, {epoch, id, revision}} <- Entities.find(items, request.recipient.uuid),
          current = items.entries[id],
          true <- current.stack == request.recipient.stack,
          true <-
@@ -74,9 +74,9 @@ defmodule Valimc.World.ItemMergeInbox do
            not counters_only or
              (decision.stack == current.stack and decision.donor_stack == request.donor.stack),
          {:ok, next, {^epoch, ^id, revision}} <-
-           Items.replace(items, epoch, id, revision, decision.stack),
+           Entities.replace(items, epoch, id, revision, decision.stack),
          {:ok, next, [_]} <-
-           Items.advance(next, key, epoch, [
+           Entities.advance(next, key, epoch, [
              %{
                id: id,
                revision: revision,

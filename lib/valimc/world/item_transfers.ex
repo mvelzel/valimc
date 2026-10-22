@@ -1,7 +1,7 @@
 defmodule Valimc.World.ItemTransfers do
   @moduledoc "Pure region inbox plans. Callers must enforce a durable, fenced source outbox."
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{ItemRecords, Items}
+  alias Valimc.World.{ItemRecords, Entities}
   @max_batch 5
   @max_sequence 18_446_744_073_709_551_615
 
@@ -52,7 +52,7 @@ defmodule Valimc.World.ItemTransfers do
 
   defp add_items(items, key, records) do
     Enum.reduce_while(records, {:ok, items}, fn record, {:ok, current} ->
-      case Items.create_record(current, key, record) do
+      case Entities.create_record(current, key, record) do
         {:ok, next, _} -> {:cont, {:ok, next}}
         error -> {:halt, error}
       end

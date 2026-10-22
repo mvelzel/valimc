@@ -1,11 +1,18 @@
-defmodule Valimc.World.Items do
-  @moduledoc "Bounded scene items and accepted steps. Only the enclosing region mutates these."
+defmodule Valimc.World.Entities do
+  @moduledoc """
+  A region owner's entity store (VMC-077h): every entity it owns, by network
+  id with a uuid index, each of a kind (`:item` now, `:orb` with VMC-077h's
+  orbs, mobs and projectiles later), with its published view and the handoff
+  ledger. Only the owner mutates it.
+
+  An entity keeps its network id (`Valimc.World.EntityIds`) for the life of the
+  VM: a record handed over between owners carries it. Records are persisted
+  one by one (`RegionStorage`), so the store has no count or size cap.
+  """
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes}
-  alias Valimc.World.{EntityView, ItemLedger}
-  defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0, ledger: %ItemLedger{}
-  @max_items 256
-  @max_bytes 524_288
+  alias Valimc.World.{EntityIds, EntityView, ItemLedger}
+  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: %ItemLedger{}
   @max_steps 32
 
   def new, do: %__MODULE__{epoch: make_ref()}
@@ -17,23 +24,16 @@ defmodule Valimc.World.Items do
   def merge_created(current, original, proposed) do
     original_ids = Map.keys(original.entries)
     added = Map.drop(proposed.entries, original_ids)
-    added_bytes = proposed.bytes - original.bytes
 
     cond do
       current.epoch != original.epoch or proposed.epoch != original.epoch or
         proposed.ledger != original.ledger or
-        Map.take(proposed.entries, original_ids) != original.entries or added_bytes < 0 ->
+          Map.take(proposed.entries, original_ids) != original.entries ->
         {:error, :invalid_item_additions}
-
-      map_size(current.entries) + map_size(added) + return_slots(current) > @max_items ->
-        {:error, :item_count_limit}
-
-      current.bytes + added_bytes > @max_bytes ->
-        {:error, :item_bytes_limit}
 
       Enum.any?(added, fn {id, entry} ->
         Map.has_key?(current.entries, id) or reserved_uuid?(current, entry.entity.uuid) or
-            match?({:ok, _}, find(current, entry.entity.uuid))
+            Map.has_key?(current.uuids, entry.entity.uuid)
       end) ->
         {:error, :duplicate_item_uuid}
 
@@ -42,8 +42,8 @@ defmodule Valimc.World.Items do
          %{
            current
            | entries: Map.merge(current.entries, added),
-             views: Map.merge(current.views, Map.take(proposed.views, Map.keys(added))),
-             bytes: current.bytes + added_bytes
+             uuids: Enum.into(added, current.uuids, fn {id, e} -> {e.entity.uuid, id} end),
+             views: Map.merge(current.views, Map.take(proposed.views, Map.keys(added)))
          }}
     end
   end
@@ -101,13 +101,8 @@ defmodule Valimc.World.Items do
   def restore(key, records, ledger \\ %ItemLedger{})
 
   def restore(key, records, %ItemLedger{} = ledger) when is_list(records) do
-    prefix = Enum.take(records, @max_items + 1)
-
-    if length(prefix) > @max_items or
-         not match?({:ok, _}, ItemLedger.encode(key, prefix, %{}, ledger)) do
-      {:error, :invalid_item_file}
-    else
-      Enum.reduce_while(prefix, {:ok, %{new() | ledger: ledger}, MapSet.new()}, fn
+    begin(fn ->
+      Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}, MapSet.new()}, fn
         %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record, {:ok, state, seen} ->
           with true <-
                  is_binary(uuid) and byte_size(uuid) == 16 and not MapSet.member?(seen, uuid),
@@ -115,15 +110,9 @@ defmodule Valimc.World.Items do
                true <- valid_record_motion?(record),
                true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key,
                {:ok, _} <- metadata(1, stack),
+               {:ok, id} <- EntityIds.next(),
                {:ok, next, _} <-
-                 build_entity(
-                   state,
-                   stack,
-                   {x, y, z},
-                   System.unique_integer([:positive]),
-                   uuid,
-                   Map.get(record, :motion)
-                 ) do
+                 build_entity(state, stack, {x, y, z}, id, uuid, Map.get(record, :motion)) do
             {:cont, {:ok, next, MapSet.put(seen, uuid)}}
           else
             _ -> {:halt, {:error, :invalid_item_file}}
@@ -136,17 +125,23 @@ defmodule Valimc.World.Items do
         {:ok, state, _} -> {:ok, state}
         error -> error
       end
-    end
-  rescue
-    _ -> {:error, :invalid_item_file}
+    end)
   end
 
   def restore(_, _, _), do: {:error, :invalid_item_file}
 
+  # A record whose fields are not what the store wrote is an invalid file.
+  defp begin(fun) do
+    fun.()
+  rescue
+    ArgumentError -> {:error, :invalid_item_file}
+    FunctionClauseError -> {:error, :invalid_item_file}
+  end
+
   def find(state, <<_::128>> = uuid) do
-    case Enum.find(state.entries, fn {_, entry} -> entry.entity.uuid == uuid end) do
-      {id, entry} -> {:ok, {state.epoch, id, entry.revision}}
-      nil -> {:error, :missing_item}
+    case state.uuids do
+      %{^uuid => id} -> {:ok, {state.epoch, id, state.entries[id].revision}}
+      _ -> {:error, :missing_item}
     end
   end
 
@@ -156,14 +151,16 @@ defmodule Valimc.World.Items do
     cond do
       not valid_position?(position) -> {:error, :invalid_item_position}
       Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key -> {:error, :wrong_region}
-      map_size(state.entries) + return_slots(state) >= @max_items -> {:error, :item_count_limit}
       true -> build_new(state, stack, {x, y, z})
     end
   end
 
   def create(_, _, _, _), do: {:error, :invalid_item_position}
 
-  @doc "Creates a stable-UUID inbox record; the caller commits its receipt atomically."
+  @doc """
+  Creates a stable-UUID inbox record; the caller commits its receipt
+  atomically. A record handed over by another owner keeps its `entity_id`.
+  """
   def create_record(
         state,
         key,
@@ -179,30 +176,29 @@ defmodule Valimc.World.Items do
       Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key ->
         {:error, :wrong_region}
 
-      match?({:ok, _}, find(state, uuid)) ->
+      Map.has_key?(state.uuids, uuid) ->
         {:error, :duplicate_item_uuid}
 
       reserved_uuid?(state, uuid) ->
         {:error, :item_handoff_busy}
 
-      map_size(state.entries) + return_slots(state) >= @max_items ->
-        {:error, :item_count_limit}
-
       true ->
         with {:ok, _} <- metadata(1, stack),
-             do:
-               build_entity(
-                 state,
-                 stack,
-                 {x, y, z},
-                 System.unique_integer([:positive]),
-                 uuid,
-                 Map.get(record, :motion)
-               )
+             {:ok, id} <- record_id(state, record),
+             do: build_entity(state, stack, {x, y, z}, id, uuid, Map.get(record, :motion))
     end
   end
 
   def create_record(_, _, _), do: {:error, :invalid_item}
+
+  # The id a handed-over record carries, unless this store already uses it.
+  defp record_id(state, %{entity_id: id}) when is_integer(id) do
+    if EntityIds.valid?(id) and not Map.has_key?(state.entries, id),
+      do: {:ok, id},
+      else: EntityIds.next()
+  end
+
+  defp record_id(_state, _record), do: EntityIds.next()
 
   def replace(state, epoch, id, revision, stack) do
     with {:ok, entry} <- current(state, epoch, id, revision),
@@ -225,41 +221,32 @@ defmodule Valimc.World.Items do
             )
           )
 
-        bytes = state.bytes - packet_bytes(state.views[id].metadata) + packet_bytes(metadata)
+        entry = %{
+          entry
+          | stack: stack,
+            revision: revision + 1,
+            physical_revision: entry.physical_revision + 1
+        }
 
-        if bytes + return_bytes(state) <= @max_bytes do
-          entry = %{
-            entry
-            | stack: stack,
-              revision: revision + 1,
-              physical_revision: entry.physical_revision + 1
-          }
+        next = %{
+          state
+          | entries: Map.put(state.entries, id, entry),
+            views: Map.put(state.views, id, view)
+        }
 
-          next = %{
-            state
-            | entries: Map.put(state.entries, id, entry),
-              views: Map.put(state.views, id, view),
-              bytes: bytes
-          }
-
-          {:ok, next, {epoch, id, revision + 1}}
-        else
-          {:error, :item_byte_limit}
-        end
+        {:ok, next, {epoch, id, revision + 1}}
       end
     end
   end
 
   def remove(state, epoch, id, revision) do
     with {:ok, entry} <- current(state, epoch, id, revision) do
-      view = state.views[id]
-
       {:ok,
        %{
          state
          | entries: Map.delete(state.entries, id),
+           uuids: Map.delete(state.uuids, entry.entity.uuid),
            views: Map.delete(state.views, id),
-           bytes: state.bytes - view_bytes(view),
            ledger: %{
              state.ledger
              | generations: Map.delete(state.ledger.generations, entry.entity.uuid)
@@ -349,29 +336,22 @@ defmodule Valimc.World.Items do
                 if(position == old.position and velocity == old.motion, do: 0, else: 1)
         }
 
-        bytes = state.bytes - view_bytes(old) + view_bytes(view)
+        entry =
+          %{
+            entry
+            | entity: entity,
+              revision: revision + 1,
+              no_gravity: motion.no_gravity,
+              physical_revision: physical_revision
+          }
+          |> Map.put(:motion, motion)
 
-        if bytes + return_bytes(state) <= @max_bytes do
-          entry =
-            %{
-              entry
-              | entity: entity,
-                revision: revision + 1,
-                no_gravity: motion.no_gravity,
-                physical_revision: physical_revision
-            }
-            |> Map.put(:motion, motion)
-
-          {:ok,
-           %{
-             state
-             | entries: Map.put(state.entries, id, entry),
-               views: Map.put(state.views, id, view),
-               bytes: bytes
-           }, {state.epoch, id, revision + 1}}
-        else
-          {:error, :item_byte_limit}
-        end
+        {:ok,
+         %{
+           state
+           | entries: Map.put(state.entries, id, entry),
+             views: Map.put(state.views, id, view)
+         }, {state.epoch, id, revision + 1}}
       end
     else
       false -> {:error, :invalid_item_step}
@@ -380,12 +360,6 @@ defmodule Valimc.World.Items do
   end
 
   defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
-
-  defp view_bytes(view),
-    do:
-      Enum.sum(Enum.map([view.spawn, view.metadata, view.position, view.motion], &packet_bytes/1))
-
-  defdelegate packet_bytes(packet), to: EntityView
 
   defp current(state, epoch, id, revision) do
     cond do
@@ -399,7 +373,7 @@ defmodule Valimc.World.Items do
   defp build_new(state, stack, {x, y, z}) do
     # Validate before allocating IDs/entropy. IDs share the VM-wide source used by players.
     with {:ok, _} <- metadata(1, stack),
-         {:ok, id} <- EntityView.id() do
+         {:ok, id} <- EntityIds.next() do
       build_entity(state, stack, {x, y, z}, id, :crypto.strong_rand_bytes(16))
     end
   end
@@ -423,39 +397,34 @@ defmodule Valimc.World.Items do
         Map.get(state.ledger.generations, uuid, 0)
       )
 
-    bytes = state.bytes + EntityView.bytes(base)
-
-    if bytes + return_bytes(state) <= @max_bytes do
-      view =
-        base
-        |> Map.merge(%{
-          revision: 1,
-          physical_revision: 1,
-          pickup_delay: if(motion, do: motion.pickup_delay, else: 0)
-        })
-        |> Map.merge(merge_hints(stack, motion || %ItemMotionState{no_gravity: no_gravity}))
-
-      entry = %{
-        entity: entity,
-        stack: stack,
+    view =
+      base
+      |> Map.merge(%{
         revision: 1,
         physical_revision: 1,
-        no_gravity: no_gravity
-      }
+        pickup_delay: if(motion, do: motion.pickup_delay, else: 0)
+      })
+      |> Map.merge(merge_hints(stack, motion || %ItemMotionState{no_gravity: no_gravity}))
 
-      entry = if motion, do: Map.put(entry, :motion, motion), else: entry
+    entry = %{
+      kind: :item,
+      entity: entity,
+      stack: stack,
+      revision: 1,
+      physical_revision: 1,
+      no_gravity: no_gravity
+    }
 
-      next = %{
-        state
-        | entries: Map.put(state.entries, id, entry),
-          views: Map.put(state.views, id, view),
-          bytes: bytes
-      }
+    entry = if motion, do: Map.put(entry, :motion, motion), else: entry
 
-      {:ok, next, {state.epoch, id, 1}}
-    else
-      {:error, :item_byte_limit}
-    end
+    next = %{
+      state
+      | entries: Map.put(state.entries, id, entry),
+        uuids: Map.put(state.uuids, uuid, id),
+        views: Map.put(state.views, id, view)
+    }
+
+    {:ok, next, {state.epoch, id, 1}}
   end
 
   defp build_entity(_, _, _, _, _, _), do: {:error, :entity_id_exhausted}
@@ -477,10 +446,7 @@ defmodule Valimc.World.Items do
       motion.age != -32768 and motion.age < 6000 and
         motion.pickup_delay != 32767 and count < maximum
 
-  def return_capacity?(state),
-    do:
-      map_size(state.entries) + return_slots(state) <= @max_items and
-        state.bytes + return_bytes(state) <= @max_bytes
+  def return_capacity?(_state), do: true
 
   def reserved_uuid?(%{ledger: %{outgoing: %{kind: :merge, request: request}}}, uuid),
     do: request.donor.uuid == uuid
@@ -489,11 +455,6 @@ defmodule Valimc.World.Items do
     do: Map.has_key?(generations, uuid)
 
   def reserved_uuid?(_, _), do: false
-
-  defp return_slots(%{ledger: %{outgoing: %{kind: :merge}}}), do: 1
-  defp return_slots(_), do: 0
-  defp return_bytes(%{ledger: %{outgoing: %{kind: :merge, return_bytes: bytes}}}), do: bytes
-  defp return_bytes(_), do: 0
 
   defp valid_record_motion?(record) do
     case Map.fetch(record, :motion) do

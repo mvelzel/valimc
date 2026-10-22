@@ -2,7 +2,7 @@ defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.Items
+  alias Valimc.World.Entities
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -123,7 +123,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
     expected = %{original | slots: Map.drop(original.slots, [1]), carried: nil}
     {:ok, {region, _}} = World.item_owner(key)
-    records = Items.records(:sys.get_state(region).resource.entities.items)
+    records = Entities.records(:sys.get_state(region).resource.entities.store)
 
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([stone, ItemStack.new("egg", 3)])
@@ -148,7 +148,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert third.inventory.items == Inventory.contents(expected) and
              third.inventory.carried == nil
 
-    assert Items.records(:sys.get_state(region).resource.entities.items) == records
+    assert Entities.records(:sys.get_state(region).resource.entities.store) == records
 
     close(third, username, uuid)
     other = name()

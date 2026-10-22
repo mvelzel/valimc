@@ -3,9 +3,9 @@ defmodule Valimc.ChestSpillRegionTest do
   alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{Containers, ItemLedger, Items, MiningTransfers, Region}
+  alias Valimc.World.{Containers, ItemLedger, Entities, MiningTransfers, Region}
 
-  setup context do
+  setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-chest-spill-#{nonce}")
     key = {82_000 + rem(nonce, 3_333) * 3, 1990}
@@ -36,21 +36,7 @@ defmodule Valimc.ChestSpillRegionTest do
     Valimc.TestDisk.write(base, key, :containers, bytes)
     Valimc.TestDisk.write(base, key, :blocks, %{position => chest})
 
-    initial =
-      if context[:capacity] do
-        {x, y, z} = position
-
-        for n <- 1..255,
-            do: %{
-              uuid: <<n::128>>,
-              x: x + 3.5,
-              y: y + 0.5,
-              z: z + 0.5,
-              stack: ItemStack.new("stone")
-            }
-      else
-        []
-      end
+    initial = []
 
     {:ok, bytes} = ItemLedger.encode(key, initial, %{}, %ItemLedger{})
     Valimc.TestDisk.write(base, key, :items, bytes)
@@ -124,7 +110,7 @@ defmodule Valimc.ChestSpillRegionTest do
       resource = Valimc.TestConn.state(c.pid).resource
       assert resource.containers.entries == %{}
 
-      assert quantities(Enum.map(Items.records(resource.entities.items), & &1.stack)) ==
+      assert quantities(Enum.map(Entities.records(resource.entities.store), & &1.stack)) ==
                quantities([ItemStack.new("chest") | c.stock])
 
       # Adopted and shown at once (D2); the reply, the player's proof, waits.
@@ -150,22 +136,5 @@ defmodule Valimc.ChestSpillRegionTest do
     {:ok, owner} = World.item_owner(c.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, c.transfer)
     assert audit(c, true) == saved
-  end
-
-  @tag capacity: true
-  test "insufficient item admission durably refuses the entire filled mining operation", c do
-    assert {:error, :item_count_limit} = Valimc.TestBlocks.remove(c.position)
-    assert Valimc.TestBlocks.get(c.position) == c.chest
-    assert :sys.get_state(c.pid).resource.containers == c.containers
-    assert {:ok, :rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
-    assert Valimc.TestBlocks.get(c.position) == c.chest
-    assert :sys.get_state(c.pid).resource.containers == c.containers
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
-    assert saved.records == c.initial
-
-    assert {:ok, :rejected} =
-             MiningTransfers.receipt_result(c.key, c.transfer, saved.receipts[c.source])
-
-    assert {:ok, :already_rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
   end
 end

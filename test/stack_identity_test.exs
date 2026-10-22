@@ -2,7 +2,7 @@ defmodule Valimc.StackIdentityTest do
   use ExUnit.Case, async: true
   alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemRecords, Items, ItemTransfers}
+  alias Valimc.World.{ItemRecords, Entities, ItemTransfers}
 
   defp redundant(count) do
     %{
@@ -91,11 +91,11 @@ defmodule Valimc.StackIdentityTest do
   test "exact raw transfer receipts survive serialization; semantic equivalence cannot change a pinned intent" do
     record = %{uuid: <<2::128>>, x: 0.5, y: 64.5, z: 0.5, stack: redundant(3)}
     request = %{source: <<1::128>>, sequence: 1, records: [record]}
-    {:ok, items, receipts, :applied} = ItemTransfers.plan(Items.new(), %{}, {0, 0}, request)
-    assert {:ok, bytes} = ItemRecords.encode({0, 0}, Items.records(items), receipts)
+    {:ok, items, receipts, :applied} = ItemTransfers.plan(Entities.new(), %{}, {0, 0}, request)
+    assert {:ok, bytes} = ItemRecords.encode({0, 0}, Entities.records(items), receipts)
     assert {:ok, saved} = ItemRecords.decode(bytes, {0, 0})
     assert saved.records == [record] and saved.receipts == receipts
-    {:ok, restored} = Items.restore({0, 0}, saved.records)
+    {:ok, restored} = Entities.restore({0, 0}, saved.records)
 
     assert {:ok, ^restored, ^receipts, :already_applied} =
              ItemTransfers.plan(restored, receipts, {0, 0}, request)

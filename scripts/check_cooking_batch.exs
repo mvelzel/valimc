@@ -3,7 +3,7 @@ raw = JSON.decode!(File.read!(path))
 alias Valimc.Cooking
 alias Valimc.CookingBlocks
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{Containers, CookingBatch, CookingRuntime, Items}
+alias Valimc.World.{Containers, CookingBatch, CookingRuntime, Entities}
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
@@ -42,14 +42,14 @@ for row <- raw["cases"] do
   containers = %Containers{sequence: 1, entries: %{position => entry}, receipts: receipts}
 
   {:ok, result} =
-    CookingRuntime.plan(containers, Items.new(), {0, 0}, %{position => block}, :all, MapSet.new())
+    CookingRuntime.plan(containers, Entities.new(), {0, 0}, %{position => block}, :all, MapSet.new())
 
   true = result.refused == %{}
   true = CookingBatch.awake?(entry, block) == (before != row["after"])
   actual = result.containers.entries[position]
   true = actual.cooking == state.(row["after"]) and actual.recipes == row["after"]["recipes"]
   true = Map.get(result.changes, position, block) == row["after"]["state"]
-  true = Enum.map(Items.records(result.items), & &1.stack) == Enum.map(row["drops"], stack)
+  true = Enum.map(Entities.records(result.items), & &1.stack) == Enum.map(row["drops"], stack)
   true = result.containers.receipts == receipts
   content_changed = entry.cooking.slots != actual.cooking.slots or entry.recipes != actual.recipes
   true = actual.revision == if(content_changed, do: 2, else: 1)

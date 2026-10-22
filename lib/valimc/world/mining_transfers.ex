@@ -1,7 +1,7 @@
 defmodule Valimc.World.MiningTransfers do
   @moduledoc "Internal mining inbox plans; delivery requires a durable, fenced player intent."
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{ItemRecords, Items, MiningRecord}
+  alias Valimc.World.{ItemRecords, Entities, MiningRecord}
   @max_sequence 18_446_744_073_709_551_615
   @scheme {:prefix, "VMCMINE-RESULT"}
 
@@ -76,7 +76,7 @@ defmodule Valimc.World.MiningTransfers do
 
   defp add_items(items, key, records) do
     Enum.reduce_while(records, {:ok, items}, fn record, {:ok, current} ->
-      case Items.create_record(current, key, record) do
+      case Entities.create_record(current, key, record) do
         {:ok, next, _} -> {:cont, {:ok, next}}
         error -> {:halt, error}
       end

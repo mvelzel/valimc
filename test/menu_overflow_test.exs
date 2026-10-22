@@ -3,7 +3,7 @@ defmodule Valimc.MenuOverflowTest do
   alias Valimc.Living.Health
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.Items
+  alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -151,7 +151,7 @@ defmodule Valimc.MenuOverflowTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(Valimc.TestConn.state(pid).resource.entities.items)
+    Entities.records(Valimc.TestConn.state(pid).resource.entities.store)
   end
 
   defp completed(ctx) do

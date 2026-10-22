@@ -1,11 +1,11 @@
 defmodule Valimc.EntityReplicationTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.{Data, ItemStack, Wire}
-  alias Valimc.World.{EntityReplication, Items}
+  alias Valimc.World.{EntityReplication, Entities}
 
   defp views(count, stack \\ ItemStack.new("stone")) do
-    Enum.reduce(1..count, Items.new(), fn _, state ->
-      {:ok, next, _} = Items.create(state, {0, 0}, stack, {0, 64, 0})
+    Enum.reduce(1..count, Entities.new(), fn _, state ->
+      {:ok, next, _} = Entities.create(state, {0, 0}, stack, {0, 64, 0})
       next
     end).views
   end
@@ -76,7 +76,7 @@ defmodule Valimc.EntityReplicationTest do
     assert map_size(state.tracked) == 1024
     {cleared, [packet]} = EntityReplication.reconcile(state, %{})
     assert cleared.tracked == %{}
-    assert Items.packet_bytes(packet) < 262_144
+    assert Valimc.World.EntityView.packet_bytes(packet) < 262_144
     assert {1024, _} = Wire.take_varint(elem(packet, 1))
   end
 end

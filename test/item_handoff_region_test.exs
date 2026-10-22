@@ -4,7 +4,7 @@ defmodule Valimc.ItemHandoffRegionTest do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, ItemRecords, Items, Region}
+  alias Valimc.World.{ItemLedger, ItemRecords, Entities, Region}
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -70,7 +70,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     {rx, rz} = destination
 
     Enum.map(uuids, fn uuid ->
-      {:ok, {epoch, id, revision}} = Items.find(state.entities.items, uuid)
+      {:ok, {epoch, id, revision}} = Entities.find(state.entities.store, uuid)
       assert epoch == elem(owner, 1)
 
       %{
@@ -86,7 +86,7 @@ defmodule Valimc.ItemHandoffRegionTest do
   defp complete({pid, _} = owner) do
     wait(fn ->
       s = resource(owner)
-      s.entities.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
+      s.entities.store.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
     end)
 
     :ok = Region.flush(pid)
@@ -162,8 +162,8 @@ defmodule Valimc.ItemHandoffRegionTest do
     complete(ctx.other)
     records = disk(ctx, ctx.key).records ++ disk(ctx, ctx.destination).records
     assert length(records) == 512 and length(Enum.uniq_by(records, & &1.uuid)) == 512
-    assert map_size(resource(ctx.owner).entities.items.entries) == 256
-    assert map_size(resource(ctx.other).entities.items.entries) == 256
+    assert map_size(resource(ctx.owner).entities.store.entries) == 256
+    assert map_size(resource(ctx.other).entities.store.entries) == 256
     assert Enum.all?(a_uuids, &published(ctx.other, &1))
     assert Enum.all?(b_uuids, &published(ctx.owner, &1))
   end

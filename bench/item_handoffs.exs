@@ -1,6 +1,6 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{ItemHandoffs, ItemLedger, EntityReplication, Items}
+alias Valimc.World.{ItemHandoffs, ItemLedger, EntityReplication, Entities}
 
 measure = fn run ->
   for _ <- 1..20, do: run.()
@@ -36,7 +36,7 @@ end
 
 handoffs =
   for {active, count, bytes} <- [{1, 1, 0}, {32, 32, 0}, {256, 32, 0}, {32, 32, 4096}] do
-    {:ok, initial} = Items.restore({0, 0}, Enum.map(1..active, &record.(&1, bytes)))
+    {:ok, initial} = Entities.restore({0, 0}, Enum.map(1..active, &record.(&1, bytes)))
 
     steps =
       initial.entries
@@ -47,7 +47,7 @@ handoffs =
 
     run = fn ->
       {:ok, source, transfer} = ItemHandoffs.depart(initial, {0, 0}, initial.epoch, {1, 0}, steps)
-      {:ok, destination, :applied} = ItemHandoffs.accept(Items.new(), {1, 0}, transfer)
+      {:ok, destination, :applied} = ItemHandoffs.accept(Entities.new(), {1, 0}, transfer)
       {:ok, digest} = ItemHandoffs.digest({1, 0}, transfer)
       {:ok, source} = ItemHandoffs.finish(source, {0, 0}, transfer.sequence, digest)
       true = map_size(source.entries) + map_size(destination.entries) == active
@@ -65,7 +65,7 @@ replication =
       for index <- 0..div(unique - 1, 256) do
         first = index * 256 + 1
         last = min(first + 255, unique)
-        {:ok, items} = Items.restore({0, 0}, Enum.map(first..last, &record.(&1, 0)))
+        {:ok, items} = Entities.restore({0, 0}, Enum.map(first..last, &record.(&1, 0)))
         items
       end
 
@@ -73,14 +73,14 @@ replication =
 
     views =
       if torn do
-        records = items |> hd() |> Items.records() |> Enum.take(min(div(count, 2), 32))
+        records = items |> hd() |> Entities.records() |> Enum.take(min(div(count, 2), 32))
 
         if records == [] do
           views
         else
           records = Enum.map(records, &%{&1 | x: 128.5})
           ledger = %ItemLedger{generations: Map.new(records, &{&1.uuid, 1})}
-          {:ok, adopted} = Items.restore({1, 0}, records, ledger)
+          {:ok, adopted} = Entities.restore({1, 0}, records, ledger)
           Map.merge(views, adopted.views)
         end
       else

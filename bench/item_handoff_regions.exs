@@ -1,7 +1,7 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
 alias Valimc.World
-alias Valimc.World.{Items, Region, RegionStorage}
+alias Valimc.World.{Entities, Region, RegionStorage}
 
 [base] = System.argv()
 base = Path.expand(base)
@@ -75,7 +75,7 @@ rows =
         {source, destination, source_key, destination_key} =
           if rem(turn, 2) == 1, do: {a, b, a_key, b_key}, else: {b, a, b_key, a_key}
 
-        items = :sys.get_state(elem(source, 0)).resource.items
+        items = :sys.get_state(elem(source, 0)).resource.entities.store
 
         steps =
           Enum.map(items.entries, fn {id, entry} ->
@@ -97,12 +97,14 @@ rows =
         :ok =
           wait.(fn ->
             state = :sys.get_state(elem(source, 0)).resource
-            state.items.ledger.outgoing == nil and state.item_pending == nil
+
+            state.entities.store.ledger.outgoing == nil and
+              not Valimc.World.RegionData.planning?(state)
           end)
 
         settled = System.monotonic_time(:microsecond) - started
-        source_items = :sys.get_state(elem(source, 0)).resource.items
-        destination_items = :sys.get_state(elem(destination, 0)).resource.items
+        source_items = :sys.get_state(elem(source, 0)).resource.entities.store
+        destination_items = :sys.get_state(elem(destination, 0)).resource.entities.store
         true = source_items.entries == %{} and map_size(destination_items.entries) == count
 
         # The last steps are durable within a commit tick of settling.
@@ -111,7 +113,7 @@ rows =
             wait.(fn ->
               {:ok, saved} = RegionStorage.read(base, :overworld, key)
 
-              uncounted.(saved.items) == uncounted.(Items.records(expected)) and
+              uncounted.(saved.items) == uncounted.(Entities.records(expected)) and
                 saved.ledger == expected.ledger
             end)
         end
@@ -130,7 +132,8 @@ rows =
       settled: percentiles.(Enum.map(measured, & &1.settled)),
       log_frames: Map.get(Valimc.Metrics.snapshot(), :storage_records, 0) - frames,
       last_generations:
-        Map.values(:sys.get_state(elem(a, 0)).resource.items.ledger.generations) |> Enum.uniq()
+        Map.values(:sys.get_state(elem(a, 0)).resource.entities.store.ledger.generations)
+        |> Enum.uniq()
     }
   end
 

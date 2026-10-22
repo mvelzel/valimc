@@ -2,7 +2,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Items, Region}
+  alias Valimc.World.{ItemLedger, Entities, Region}
 
   setup do
     n = System.unique_integer([:positive])
@@ -72,7 +72,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       Enum.all?([c.source, c.target], fn owner ->
         s = state(owner)
 
-        s.entities.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
+        s.entities.store.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
           not Valimc.World.Jobs.running?(s.jobs, :cross_merge)
       end)
 
@@ -80,11 +80,11 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     do:
       Enum.sum(
         for o <- [c.source, c.target],
-            {_, e} <- state(o).entities.items.entries,
+            {_, e} <- state(o).entities.store.entries,
             do: e.stack.count
       )
 
-  defp converged(c), do: map_size(state(c.source).entities.items.entries) == 0 and idle(c)
+  defp converged(c), do: map_size(state(c.source).entities.store.entries) == 0 and idle(c)
 
   defp disk(c, k) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, k, :items), k)
@@ -97,7 +97,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert total(c) == 5
 
     assert [%{uuid: uuid, stack: %{count: 5}, motion: motion}] =
-             Items.records(state(c.target).entities.items)
+             Entities.records(state(c.target).entities.store)
 
     assert uuid == c.recipient.uuid and motion.age < 90
     assert disk(c, c.key).records == [] and disk(c, c.key).ledger.sequence == 1
@@ -106,6 +106,8 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert :ok = Region.flush(pid)
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, restarted} = World.item_owner(c.target_key)
-    assert [%{uuid: ^uuid, stack: %{count: 5}}] = Items.records(state(restarted).entities.items)
+
+    assert [%{uuid: ^uuid, stack: %{count: 5}}] =
+             Entities.records(state(restarted).entities.store)
   end
 end

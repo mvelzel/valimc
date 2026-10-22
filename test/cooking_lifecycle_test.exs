@@ -3,7 +3,7 @@ defmodule Valimc.CookingLifecycleTest do
   alias Valimc.Cooking
   alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ContainerLifecycle, Containers, ContainerSpills, Items}
+  alias Valimc.World.{ContainerLifecycle, Containers, ContainerSpills, Entities}
 
   test "items, remaining heat, progress and recipe uses independently block processor removal" do
     pos = {0, 64, 0}
@@ -22,7 +22,7 @@ defmodule Valimc.CookingLifecycleTest do
                ContainerLifecycle.plan(occupied, {0, 0}, %{pos => block}, %{pos => 0})
 
       assert {:error, :occupied_cooking_entry} =
-               ContainerSpills.add(Items.new(), {0, 0}, [
+               ContainerSpills.add(Entities.new(), {0, 0}, [
                  %{position: pos, entry: occupied.entries[pos]}
                ])
     end

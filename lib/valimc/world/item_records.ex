@@ -3,11 +3,12 @@ defmodule Valimc.World.ItemRecords do
   import Bitwise
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  alias Valimc.World.Items
+  alias Valimc.World.Entities
   @data_version 5023
   @max_count 256
   @item_bytes 524_288
-  @max_sources Valimc.Txn.Receipts.max_sources()
+  # The format counts receipt sources in 16 bits.
+  @max_sources 65_535
   @max_bytes @item_bytes + 57 + @max_sources * 56
   def max_bytes, do: @max_bytes
   def max_sources, do: @max_sources
@@ -212,7 +213,7 @@ defmodule Valimc.World.ItemRecords do
 
   defp position_valid?(key, {x, _, z} = position),
     do:
-      Items.valid_position?(position) and
+      Entities.valid_position?(position) and
         Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key
 
   defp check(true), do: :ok

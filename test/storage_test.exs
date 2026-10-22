@@ -12,7 +12,7 @@ defmodule Valimc.StorageTest do
   alias Valimc.Storage.{Checkpoint, Log}
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, Containers, Items, Region, RegionLog, RegionStorage}
+  alias Valimc.World.{BlockEntities, Containers, Entities, Region, RegionLog, RegionStorage}
   alias Valimc.World.ScheduledTicks
 
   setup do
@@ -162,7 +162,7 @@ defmodule Valimc.StorageTest do
     columns = for x <- 0..9, into: %{}, do: {{x, 0}, :crypto.strong_rand_bytes(1024 * 1024)}
 
     parts = %{
-      items: Items.new(),
+      items: Entities.new(),
       receipts: %{},
       containers: %Containers{},
       ticks: ScheduledTicks.new(),

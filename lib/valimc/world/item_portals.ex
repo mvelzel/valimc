@@ -1,6 +1,6 @@
 defmodule Valimc.World.ItemPortals do
   @moduledoc """
-  Items in portals (VMC-026c), as vanilla's `ItemEntity` uses them, for the
+  Entities in portals (VMC-026c), as vanilla's `ItemEntity` uses them, for the
   region owner that simulates them:
 
   - A simulated step that meets a portal on its way (`Valimc.Portal.Contact`,
@@ -17,7 +17,7 @@ defmodule Valimc.World.ItemPortals do
   """
   alias Valimc.{Dimension, ItemMotionState, World}
   alias Valimc.Portal.{Contact, Destination, EndPortal, GatewayDestination}
-  alias Valimc.World.Items
+  alias Valimc.World.Entities
 
   @cooldown 300
   @size {0.25, 0.25}
@@ -85,7 +85,7 @@ defmodule Valimc.World.ItemPortals do
   this one), `{:local, step}`, or `:gone` once the item no longer exists.
   """
   def arrival(items, key, uuid, target) do
-    case Items.find(items, uuid) do
+    case Entities.find(items, uuid) do
       {:ok, {_epoch, id, revision}} ->
         entry = items.entries[id]
         motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})

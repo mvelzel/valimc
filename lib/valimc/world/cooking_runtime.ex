@@ -10,7 +10,7 @@ defmodule Valimc.World.CookingRuntime do
             capacity: nil,
             retry_at: nil
 
-  def capacity(items), do: {map_size(items.entries), items.bytes, items.ledger.outgoing}
+  def capacity(items), do: {map_size(items.entries), items.ledger.outgoing}
 
   def due?(runtime, containers, edits, items, now) do
     runtime.seen != {containers, edits} or MapSet.size(runtime.active) > 0 or

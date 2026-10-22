@@ -345,7 +345,7 @@ defmodule Valimc.TestDisk do
   written as its checkpoint while the region does not run.
   """
   alias Valimc.Storage.{Checkpoint, Log}
-  alias Valimc.World.{Containers, ItemLedger, Items, RegionStorage}
+  alias Valimc.World.{Containers, ItemLedger, Entities, RegionStorage}
 
   @junk "corrupt"
 
@@ -411,7 +411,7 @@ defmodule Valimc.TestDisk do
 
   defp records(:items, key, bytes) do
     {:ok, data} = ItemLedger.decode(bytes, key)
-    {:ok, items} = Items.restore(key, data.records, data.ledger)
+    {:ok, items} = Entities.restore(key, data.records, data.ledger)
 
     Map.merge(
       RegionStorage.part_records(:items, items),

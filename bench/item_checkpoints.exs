@@ -1,6 +1,6 @@
 alias Valimc.{ItemMotionState, World}
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{Items, Region, RegionStorage}
+alias Valimc.World.{Entities, Region, RegionStorage}
 
 [base] = System.argv()
 File.mkdir_p!(base)
@@ -46,14 +46,14 @@ results =
 
     :ok = RegionStorage.import(Path.expand(base), :overworld, key, %{items: records})
     {:ok, {pid, _} = owner} = World.item_owner(key)
-    original = :sys.get_state(pid).resource.items
+    original = :sys.get_state(pid).resource.entities.store
     origin = Map.new(original.entries, fn {id, %{entity: e}} -> {id, {e.x, e.y, e.z}} end)
     {frames, checkpoints} = {metric.(:storage_records), metric.(:region_checkpoints)}
     started = System.monotonic_time(:microsecond)
 
     times =
       for tick <- 1..100 do
-        items = :sys.get_state(pid).resource.items
+        items = :sys.get_state(pid).resource.entities.store
 
         steps =
           Enum.map(items.entries, fn {id, entry} ->
@@ -81,7 +81,7 @@ results =
     {flush_us, :ok} = :timer.tc(fn -> Region.flush(pid) end)
     elapsed = System.monotonic_time(:microsecond) - started
     {:ok, disk} = RegionStorage.read(Path.expand(base), :overworld, key)
-    true = disk.items == Items.records(:sys.get_state(pid).resource.items)
+    true = disk.items == Entities.records(:sys.get_state(pid).resource.entities.store)
     true = Enum.all?(disk.items, &(&1.motion.age == 100))
     sorted = Enum.sort(times)
 

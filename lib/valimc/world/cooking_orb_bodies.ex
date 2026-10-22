@@ -1,7 +1,7 @@
 defmodule Valimc.World.CookingOrbBodies do
   @moduledoc "Bounded stored XP bodies; per-award initialization markers and terminal expiry never rewrite births."
   alias Valimc.Physics.OrbMotion
-  alias Valimc.World.{Containers, CookingOrbs, Items}
+  alias Valimc.World.{Containers, CookingOrbs, Entities}
   @max 18_446_744_073_709_551_615
   @max_bytes 10 + 256 * 33 + 2816 * 81
   def new, do: %{revision: 0, awards: %{}}
@@ -276,7 +276,7 @@ defmodule Valimc.World.CookingOrbBodies do
             } = row
 
             true = map_size(row) == 7 and is_integer(rev) and rev in 1..revision
-            true = Items.valid_position?(row.position) and owned?(key, row.position)
+            true = Entities.valid_position?(row.position) and owned?(key, row.position)
 
             true =
               Enum.all?([x, y, z, vx, vy, vz], &is_float/1) and

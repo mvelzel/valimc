@@ -34,6 +34,7 @@ defmodule Valimc.Application do
     Valimc.LoginKeys.init!()
     Valimc.Commands.init!()
     Valimc.Metrics.init!()
+    Valimc.World.EntityIds.init!()
     Valimc.World.Saving.init!()
     Valimc.Worldgen.Pool.init!()
 

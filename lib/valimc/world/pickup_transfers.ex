@@ -1,7 +1,7 @@
 defmodule Valimc.World.PickupTransfers do
   @moduledoc "Pure receipt-backed withdrawal; only the region's fresh permit can authorize eligibility."
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{Items, PickupRequest}
+  alias Valimc.World.{Entities, PickupRequest}
   @scheme {:prefix, "VMCPICK-RESULT"}
 
   def plan(items, receipts, key, request, eligible) when is_boolean(eligible) do
@@ -36,7 +36,7 @@ defmodule Valimc.World.PickupTransfers do
   end
 
   defp withdraw(items, key, request) do
-    with {:ok, {epoch, id, revision}} <- Items.find(items, request.item_uuid),
+    with {:ok, {epoch, id, revision}} <- Entities.find(items, request.item_uuid),
          entry = items.entries[id],
          true <-
            Valimc.World.region_key(Valimc.World.chunk_key(entry.entity.x, entry.entity.z)) == key,
@@ -44,10 +44,10 @@ defmodule Valimc.World.PickupTransfers do
          true <- Map.get(items.ledger.generations, request.item_uuid, 0) == request.generation,
          true <- Map.get(Map.get(entry, :motion, %{}), :pickup_delay, 0) == 0 do
       if request.remainder == nil,
-        do: Items.remove(items, epoch, id, revision),
+        do: Entities.remove(items, epoch, id, revision),
         else:
           with(
-            {:ok, next, _} <- Items.replace(items, epoch, id, revision, request.remainder),
+            {:ok, next, _} <- Entities.replace(items, epoch, id, revision, request.remainder),
             do: {:ok, next}
           )
     else

@@ -6,17 +6,8 @@ defmodule Valimc.World.EntityView do
   """
   alias Valimc.Protocol.{EntityPackets, Wire}
 
-  @max_id 2_147_483_647
-
-  @doc "A network entity id from the VM-wide source players also use."
-  def id do
-    case System.unique_integer([:positive]) do
-      id when id <= @max_id -> {:ok, id}
-      _ -> {:error, :entity_id_exhausted}
-    end
-  end
-
-  def valid_id?(id), do: is_integer(id) and id in 1..@max_id
+  defdelegate id, to: Valimc.World.EntityIds, as: :next
+  defdelegate valid_id?(id), to: Valimc.World.EntityIds, as: :valid?
 
   @doc """
   A new view of `kind` (`:item` or `:orb`). `entity` holds `entity_id`, `uuid`,

@@ -2,7 +2,7 @@ defmodule Valimc.WorldItemsTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{Items, Region}
+  alias Valimc.World.{Entities, Region}
   alias Valimc.Protocol.ItemStack
 
   defp large do
@@ -15,31 +15,24 @@ defmodule Valimc.WorldItemsTest do
     }
   end
 
-  test "count and aggregate byte limits reject admission and replacement atomically" do
-    full =
-      Enum.reduce(1..256, Items.new(), fn _, items ->
-        {:ok, items, _} = Items.create(items, {0, 0}, ItemStack.new("stone"), {0.5, 64, 0.5})
+  test "a store holds any number of items and stacks of any accepted size (VMC-077h)" do
+    many =
+      Enum.reduce(1..300, Entities.new(), fn _, items ->
+        {:ok, items, _} = Entities.create(items, {0, 0}, ItemStack.new("stone"), {0.5, 64, 0.5})
         items
       end)
 
-    assert {:error, :item_count_limit} =
-             Items.create(full, {0, 0}, ItemStack.new("stone"), {0, 64, 0})
-
-    bulky =
-      Enum.reduce(1..8, Items.new(), fn _, items ->
-        {:ok, items, _} = Items.create(items, {0, 0}, large(), {0, 64, 0})
-        items
-      end)
-
-    assert {:error, :item_byte_limit} = Items.create(bulky, {0, 0}, large(), {0, 64, 0})
+    assert map_size(many.entries) == 300 and map_size(many.uuids) == 300
 
     assert {:ok, bulky, {epoch, id, rev}} =
-             Items.create(bulky, {0, 0}, ItemStack.new("egg"), {0, 64, 0})
+             Entities.create(many, {0, 0}, ItemStack.new("egg"), {0, 64, 0})
 
-    assert {:error, :item_byte_limit} = Items.replace(bulky, epoch, id, rev, large())
-    assert bulky.entries[id].stack == ItemStack.new("egg")
-    assert {:ok, removed} = Items.remove(bulky, epoch, id, rev)
-    assert removed.bytes < bulky.bytes
+    assert {:ok, replaced, {^epoch, ^id, next}} = Entities.replace(bulky, epoch, id, rev, large())
+    assert replaced.entries[id].stack == large()
+    assert {:ok, removed} = Entities.remove(replaced, epoch, id, next)
+
+    assert map_size(removed.entries) == 300 and
+             not Map.has_key?(removed.uuids, replaced.entries[id].entity.uuid)
   end
 
   test "racing replacements serialize one revision" do

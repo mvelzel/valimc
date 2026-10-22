@@ -70,7 +70,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   test "void removal applies at once, retains receipts and survives owner reopening", c do
     enable(c.owner)
-    wait(fn -> map_size(state(c.owner).entities.items.entries) == 1 end)
+    wait(fn -> map_size(state(c.owner).entities.store.entries) == 1 end)
 
     wait(fn ->
       Enum.map(Map.values(World.item_snapshot(c.key)), & &1.uuid) == [c.boundary.uuid]
@@ -86,7 +86,7 @@ defmodule Valimc.ItemVoidRegionTest do
     assert saved.ledger == %{c.ledger | generations: %{c.boundary.uuid => 4}}
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, reopened} = World.item_owner(c.key)
-    assert map_size(state(reopened).entities.items.entries) == 1
+    assert map_size(state(reopened).entities.store.entries) == 1
     assert Enum.map(disk(c).records, & &1.uuid) == [c.boundary.uuid]
   end
 end

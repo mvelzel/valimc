@@ -71,7 +71,9 @@ defmodule Valimc.CrossMergeBench do
     wait(fn ->
       Enum.all?(owners, fn {_, {pid, _}} ->
         s = :sys.get_state(pid).resource
-        s.items.ledger.outgoing == nil and s.item_pending == nil and s.item_cross_job == nil
+
+        s.entities.store.ledger.outgoing == nil and not Valimc.World.RegionData.planning?(s) and
+          not Valimc.World.Jobs.running?(s.jobs, :cross_merge)
       end)
     end)
 
@@ -114,7 +116,7 @@ defmodule Valimc.CrossMergeBench do
       rejected_transfers:
         Enum.sum_by(groups, fn g ->
           {pid, _} = g.owners |> Map.new() |> Map.fetch!(g.key)
-          :sys.get_state(pid).resource.items.ledger.sequence - 32
+          :sys.get_state(pid).resource.entities.store.ledger.sequence - 32
         end),
       timeouts: delta(after_run, before, :item_cross_timeouts),
       idle_jobs: delta(after_run, idle_before, :item_cross_jobs),

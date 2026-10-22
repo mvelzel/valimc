@@ -2,7 +2,7 @@ defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Items, Region}
+  alias Valimc.World.{ItemLedger, Entities, Region}
 
   setup :scope
 
@@ -48,9 +48,9 @@ defmodule Valimc.ItemMergeRegionTest do
   def state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   def pairs(owner) do
-    items = state(owner).entities.items
-    {:ok, {_, a, ar}} = Items.find(items, <<1::128>>)
-    {:ok, {_, b, br}} = Items.find(items, <<2::128>>)
+    items = state(owner).entities.store
+    {:ok, {_, a, ar}} = Entities.find(items, <<1::128>>)
+    {:ok, {_, b, br}} = Entities.find(items, <<2::128>>)
     [%{a: {a, ar}, b: {b, br}}]
   end
 
@@ -82,7 +82,7 @@ defmodule Valimc.ItemMergeRegionTest do
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
     assert {:ok, next} = World.item_owner(ctx.key)
-    assert Items.records(state(next).entities.items) == [record]
+    assert Entities.records(state(next).entities.store) == [record]
     assert state(next).entities.receipts == ctx.receipts
   end
 

@@ -2,7 +2,7 @@ defmodule Valimc.World.PickupPermits do
   @moduledoc "Short contact grants in the owner's `Valimc.Txn.Permits`; their source receipt slot must already be durable."
   alias Valimc.Physics.ItemPickup
   alias Valimc.Txn.Permits
-  alias Valimc.World.{Items}
+  alias Valimc.World.{Entities}
 
   def issue(
         %Permits{} = permits,
@@ -16,7 +16,7 @@ defmodule Valimc.World.PickupPermits do
     with :ok <- Permits.admit(permits, :pickup, source, now),
          true <-
            Valimc.Txn.Receipts.valid?(receipts[source]) || {:error, :pickup_receipt_slot_required},
-         {:ok, {_, id, _}} <- Items.find(items, item_uuid),
+         {:ok, {_, id, _}} <- Entities.find(items, item_uuid),
          entry = items.entries[id],
          true <- ItemPickup.eligible?(actor, entry) do
       grant = %{
@@ -56,7 +56,7 @@ defmodule Valimc.World.PickupPermits do
              true <-
                request.item_uuid == grant.item_uuid and request.before == grant.before and
                  request.generation == grant.generation,
-             {:ok, {_, id, _}} <- Items.find(items, grant.item_uuid),
+             {:ok, {_, id, _}} <- Entities.find(items, grant.item_uuid),
              entry = items.entries[id],
              true <-
                entry.stack == grant.before and
