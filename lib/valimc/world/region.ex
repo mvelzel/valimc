@@ -50,6 +50,7 @@ defmodule Valimc.World.Region do
   alias Valimc.Player.Host
 
   @forward_ms 120_000
+  @housekeep_ms 1_000
 
   # A group starts with its first section, by key `{dimension, sx, sz}`, or empty.
   def start_link({:empty, dimension}),
@@ -482,6 +483,9 @@ defmodule Valimc.World.Region do
       commit_timer: nil,
       commit_ms: RegionStorage.commit_ms(),
       forward_timer: nil,
+      # A group without sections does not tick: its players and forwards are
+      # looked after on this timer instead.
+      housekeep_timer: nil,
       # Players this group hosts (`Valimc.Player.Host`): uuid => entry.
       players: %{},
       # Players handed to other groups: uuid => {pid, until}.
@@ -870,14 +874,15 @@ defmodule Valimc.World.Region do
   def handle_info({:adopt_player, session, from}, state),
     do: {:noreply, host_player(state, session, from)}
 
-  def handle_info({:player_held, uuid}, state), do: {:noreply, Host.held(state, uuid)}
+  def handle_info({:player_held, uuid, target}, state),
+    do: {:noreply, Host.held(state, uuid, target)}
 
   def handle_info({:player_checkpointed, uuid, ref, seq, result}, state),
     do: {:noreply, Host.checkpointed(state, uuid, ref, seq, result)}
 
   def handle_info({:player_closed, uuid, _result}, state) do
     state = Host.closed(state, uuid)
-    if idle?(state), do: {:stop, :normal, state}, else: {:noreply, state}
+    if stoppable?(state), do: {:stop, :normal, state}, else: {:noreply, state}
   end
 
   def handle_info({:player_claim, hops, message}, state) do
@@ -999,7 +1004,7 @@ defmodule Valimc.World.Region do
 
       {_, nil} ->
         case Host.claim(state, info) do
-          {:ok, state} -> {:noreply, state}
+          {:ok, state} -> {:noreply, housekeep_soon(state)}
           :error -> broadcast(state, info)
         end
 
@@ -1053,6 +1058,15 @@ defmodule Valimc.World.Region do
     do: {:noreply, state}
 
   def handle_info(:forward_expired, state), do: maybe_forwarder(%{state | forward_timer: nil})
+
+  # What a tick does for players and forwards, in a group without sections.
+  def handle_info(:housekeep, state) do
+    state = %{state | housekeep_timer: nil}
+
+    if state.sections == %{},
+      do: state |> Host.tick() |> commit_frames() |> maybe_forwarder(),
+      else: {:noreply, state}
+  end
 
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
@@ -1132,12 +1146,9 @@ defmodule Valimc.World.Region do
         end
       end)
 
-    state =
-      if state.players == %{} and state.player_moves == %{}, do: state, else: Host.tick(state)
+    state = state |> Host.tick() |> commit_frames()
 
-    state = commit_frames(state)
-
-    if idle?(state),
+    if stoppable?(state),
       do: {:stop, :normal, state},
       else: {:noreply, schedule_tick(state, state.tick_clock, delay)}
   end
@@ -1165,11 +1176,18 @@ defmodule Valimc.World.Region do
     end
   end
 
-  # A group without sections, forwards or players stops.
-  defp idle?(state),
+  # A group without sections, forwards or players stops, unless a section or
+  # a player handed to it waits in its mailbox: that is taken, never lost
+  # with the group.
+  defp stoppable?(state),
     do:
       state.sections == %{} and state.moved == %{} and state.players == %{} and
-        state.player_moves == %{} and state.player_leaving == %{}
+        state.player_moves == %{} and state.player_leaving == %{} and not adopting?()
+
+  defp adopting? do
+    {:messages, messages} = Process.info(self(), :messages)
+    Enum.any?(messages, &(match?({:adopt, _, _, _, _}, &1) or match?({:adopt_player, _, _}, &1)))
+  end
 
   # A group with sections ticks on its timer, unless tests step it.
   defp schedule_tick(state, clock, delay) do
@@ -1179,8 +1197,14 @@ defmodule Valimc.World.Region do
       if not state.manual and state.sections != %{},
         do: Process.send_after(self(), {:tick, clock.token}, delay)
 
-    %{state | tick_clock: clock, tick_timer: timer}
+    housekeep_soon(%{state | tick_clock: clock, tick_timer: timer})
   end
+
+  defp housekeep_soon(%{sections: sections, housekeep_timer: nil} = state)
+       when sections == %{},
+       do: %{state | housekeep_timer: Process.send_after(self(), :housekeep, @housekeep_ms)}
+
+  defp housekeep_soon(state), do: state
 
   ## Commits
 
@@ -1270,7 +1294,9 @@ defmodule Valimc.World.Region do
     targets =
       Map.put_new_lazy(state.targets, target, fn -> Process.monitor(target) end)
 
-    %{state | moved: Map.merge(state.moved, moved), targets: targets} |> arm_forward()
+    %{state | moved: Map.merge(state.moved, moved), targets: targets}
+    |> arm_forward()
+    |> housekeep_soon()
   end
 
   defp collect_soon(%{collect: true} = state), do: state
@@ -1292,14 +1318,9 @@ defmodule Valimc.World.Region do
     state = %{state | moved: moved}
 
     cond do
-      idle?(state) ->
-        {:stop, :normal, state}
-
-      moved != %{} and state.forward_timer == nil ->
-        {:noreply, arm_forward(state)}
-
-      true ->
-        {:noreply, state}
+      stoppable?(state) -> {:stop, :normal, state}
+      moved != %{} -> {:noreply, state |> arm_forward() |> housekeep_soon()}
+      true -> {:noreply, housekeep_soon(state)}
     end
   end
 

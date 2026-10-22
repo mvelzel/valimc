@@ -109,7 +109,10 @@ callback. A pickup, a drop, a placement, a container or table click, an XP
 pickup and a death's drops are plain calls inside the group, so the inventory
 and the world change in one callback and are durable in one record. A player
 crossing into another group's section is handed over, with its storage, once
-its frames are sent; one whose section moves goes along. A group that crashes
+its frames are sent; one whose section moves goes along. The group keeps the
+player until the new one holds it: a target that stops first never ran what
+was forwarded to it, so the old group resumes the player and replays that in
+order. A group that crashes
 disconnects its players, whose clients hold state newer than what is durable;
 their next login loads every durable frame.
 
@@ -124,7 +127,9 @@ store to the new owner (`region_give`: the NIF's owner check follows it), its
 table with `:ets.give_away/3` and its state in one message; the adopting group
 takes the route and the section keeps its epoch. The group it left forwards
 what still arrives for the section for two minutes; one left without sections
-then stops.
+then stops. A group without sections does not tick, so a timer expires its
+forwards and moves its players on instead, and no group stops while a section
+or player handed to it waits unread in its mailbox.
 
 ## Foundations
 

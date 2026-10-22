@@ -121,7 +121,9 @@ defmodule Valimc.Session.Replication do
     %{state | wanted: wanted}
   end
 
-  # An owner that restarted since it was told lost the view's wants.
+  # An owner that restarted since it was told lost the view's wants, even
+  # when every chunk of its section was sent: its section loads again only
+  # once it is wanted again.
   defp refresh_wants(%{view: {_, _}} = state) do
     current = fn key ->
       case Directory.lookup(key) do
@@ -137,9 +139,16 @@ defmodule Valimc.Session.Replication do
 
   defp refresh_wants(state), do: state
 
-  @doc "A 50 ms tick of the chunk stream: refill the send quota, then stream."
+  @doc """
+  A 50 ms tick of the chunk stream: tell owners that restarted what the view
+  wants, refill the send quota, then stream.
+  """
   def chunk_tick(state),
-    do: stream_chunks(%{state | chunk_sender: ChunkSender.tick(state.chunk_sender)})
+    do:
+      stream_chunks(%{
+        refresh_wants(state)
+        | chunk_sender: ChunkSender.tick(state.chunk_sender)
+      })
 
   @doc """
   Send the nearest pending chunks the quota allows as one batch; chunks whose
@@ -149,8 +158,6 @@ defmodule Valimc.Session.Replication do
   play teleport.
   """
   def stream_chunks(%{phase: :play, teleport_pending: false, pending: [_ | _]} = state) do
-    state = refresh_wants(state)
-
     case ChunkSender.batch_size(state.chunk_sender) do
       0 ->
         state

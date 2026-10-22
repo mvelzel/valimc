@@ -1,5 +1,5 @@
 # A player's group under a wide view (VMC-077s): a fresh generated world, one
-# creative player flying fast at view distance 32 with simulation distance 10,
+# spectator flying fast (through terrain) at view distance 32 with simulation distance 10,
 # the way a live test found the group process saturated (scheduled ticks of
 # unsimulated chunks churned every tick, and every tick's storage diff rebuilt
 # every record).
@@ -8,7 +8,9 @@
 #
 # Every 50 ms it samples the process hosting the player: its mailbox length and
 # reductions. Reported: those per second, the server's tick times (`TickRate`),
-# the movement corrections and how far the player got.
+# the movement corrections, the player's handoffs between groups, how far the
+# chunk center the server last sent trails the client (in chunks: past the
+# view distance the client shows nothing) and how far the player got.
 Code.require_file("test/support/client.ex")
 
 defmodule Bench.GroupLoad do
@@ -39,7 +41,7 @@ defmodule Bench.GroupLoad do
       end)
 
     Valimc.TestConn.replace(pid, fn s ->
-      {_, s} = Valimc.Player.GameModes.set(s, :creative)
+      {_, s} = Valimc.Player.GameModes.set(s, :spectator)
       s
     end)
 
@@ -51,7 +53,7 @@ defmodule Bench.GroupLoad do
     {_, ticks_before} = Valimc.World.TickRate.samples()
     stop = System.monotonic_time(:millisecond) + seconds * 1000
     sampler = Task.async(fn -> sample(pid, stop, []) end)
-    {client, last} = fly(client, start, stop, 0)
+    {client, last, lags} = fly(Map.put(client, :center, nil), start, stop, [])
     samples = Task.await(sampler, :infinity)
     {tick_samples, ticks_after} = Valimc.World.TickRate.samples()
     after_metrics = Valimc.Data.Metrics.snapshot()
@@ -66,7 +68,8 @@ defmodule Bench.GroupLoad do
 
     corrections =
       for {key, value} <- after_metrics,
-          String.contains?(to_string(key), "correction"),
+          String.contains?(to_string(key), "correction") or
+            String.contains?(to_string(key), "handoffs"),
           value != Map.get(metrics, key, 0),
           into: %{},
           do: {key, value - Map.get(metrics, key, 0)}
@@ -78,14 +81,15 @@ defmodule Bench.GroupLoad do
       tick_ms: stats(Enum.map(recent, &(&1 / 1_000_000))),
       group_queue: stats(queue),
       group_reductions_per_second: stats(reductions),
+      center_lag_chunks: stats(lags),
       corrections: corrections
     }
   end
 
   # East along x at `@speed` blocks a client tick, climbing to y 140 first.
-  defp fly(client, pose, stop, step) do
+  defp fly(client, pose, stop, lags) do
     if System.monotonic_time(:millisecond) >= stop do
-      {client, pose}
+      {client, pose, lags}
     else
       pose = %{pose | x: pose.x + @speed, y: min(pose.y + @speed, 140.0)}
 
@@ -100,8 +104,16 @@ defmodule Bench.GroupLoad do
         |> Map.put(:corrected, nil)
         |> drain(System.monotonic_time(:millisecond) + 50)
 
-      fly(client, corrected(client, pose), stop, step + 1)
+      lags = if client.center, do: [lag(client.center, pose) | lags], else: lags
+      fly(client, corrected(client, pose), stop, lags)
     end
+  end
+
+  defp signed(n), do: if(n >= 0x80000000, do: n - 0x100000000, else: n)
+
+  defp lag({cx, cz}, pose) do
+    {x, z} = Valimc.Data.Grid.chunk_key(pose.x, pose.z)
+    max(abs(x - cx), abs(z - cz))
   end
 
   # A correction moves the player back: the client continues from there.
@@ -116,11 +128,18 @@ defmodule Bench.GroupLoad do
         client = Client.auto_reply(client, :play, name, body)
 
         client =
-          if name == "player_position" do
-            {_, <<x::float-64, y::float-64, z::float-64, _::binary>>} = Wire.take_varint(body)
-            Map.put(client, :corrected, %{x: x, y: y, z: z})
-          else
-            client
+          case name do
+            "player_position" ->
+              {_, <<x::float-64, y::float-64, z::float-64, _::binary>>} = Wire.take_varint(body)
+              Map.put(client, :corrected, %{x: x, y: y, z: z})
+
+            "set_chunk_cache_center" ->
+              {x, rest} = Wire.take_varint(body)
+              {z, _} = Wire.take_varint(rest)
+              Map.put(client, :center, {signed(x), signed(z)})
+
+            _ ->
+              client
           end
 
         drain(client, until)
