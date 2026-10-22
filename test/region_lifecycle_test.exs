@@ -112,4 +112,39 @@ defmodule Valimc.RegionLifecycleTest do
     {:ok, _} = Region.step(owner, 1)
     assert Valimc.TestBlocks.get(idle) == @dead
   end
+
+  test "an unloaded section's checkpoint is written off its group; a load waits for it", ctx do
+    key = {rx, rz} = Enum.at(ctx.keys, 5)
+
+    edit =
+      {rx * Valimc.Data.Grid.region_size() * 16 + 5, 70, rz * Valimc.Data.Grid.region_size() * 16}
+
+    path = Valimc.Storage.Checkpoint.path(ctx.base, {:region, :overworld, key})
+
+    {:ok, pid} = Valimc.TestWorld.region(key)
+    Region.ticket(pid, key, :player_loading, hd(chunks(key)), chunks(key))
+    {:ok, _} = Valimc.TestWorld.owner(key)
+    :ok = Valimc.TestBlocks.set(edit, @coral)
+    Region.ticket(pid, key, :player_loading, nil, [])
+    Valimc.TestWait.until(fn -> gone?(key) end)
+    # Loaded again at once, it holds the change, whether the checkpoint was
+    # done or not.
+    {:ok, _} = Valimc.TestWorld.owner(key)
+    assert Valimc.TestBlocks.get(edit) == @coral
+    {:ok, {pid, _}} = Valimc.TestWorld.owner(key)
+    Region.ticket(pid, key, :player_loading, nil, [])
+    Valimc.TestWait.until(fn -> gone?(key) end)
+
+    # While a checkpoint of its file is written, a section does not load.
+    Valimc.TestWait.until(fn ->
+      Registry.lookup(Valimc.StorageRegistry, {:checkpoint, path}) == []
+    end)
+
+    {:ok, _} = Registry.register(Valimc.StorageRegistry, {:checkpoint, path}, nil)
+    loading = Task.async(fn -> Valimc.TestWorld.owner(key) end)
+    assert Task.yield(loading, 300) == nil
+    Registry.unregister(Valimc.StorageRegistry, {:checkpoint, path})
+    assert {:ok, _} = Task.await(loading, 30_000)
+    assert Valimc.TestBlocks.get(edit) == @coral
+  end
 end

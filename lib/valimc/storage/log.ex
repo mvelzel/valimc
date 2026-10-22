@@ -174,7 +174,9 @@ defmodule Valimc.Storage.Log do
       # owner => queue of {seq, lsn} of its frames no checkpoint covers yet
       pending: %{},
       # {commits, syncs, attempts} held after an unwritten append
-      held: nil
+      held: nil,
+      # The floor the segments were last pruned to.
+      pruned: nil
     }
 
     case open(state) do
@@ -208,9 +210,7 @@ defmodule Valimc.Storage.Log do
       # checkpoint them, so the log can be pruned.
       for {owner, _} <- pending, do: index(state.base, owner, state.n)
       for {owner, _} <- pending, do: recover(state.base, owner)
-      state = %{state | log: log, pending: pending}
-      prune(state)
-      {:ok, state}
+      {:ok, prune(%{state | log: log, pending: pending})}
     end
   rescue
     error in [File.Error, ArgumentError] -> {:error, {:storage_log, Exception.message(error)}}
@@ -253,9 +253,7 @@ defmodule Valimc.Storage.Log do
           pending
       end
 
-    state = %{state | pending: pending}
-    prune(state)
-    {:noreply, state, @idle_ms}
+    {:noreply, prune(%{state | pending: pending}), @idle_ms}
   end
 
   defp drop_covered(entries, seq) do
@@ -436,13 +434,19 @@ defmodule Valimc.Storage.Log do
   defp op_bytes({:frame, _, _, frame}), do: byte_size(frame) + 64
 
   # Everything at or below the first uncovered frame of any owner is covered;
-  # segments wholly below it go.
-  defp prune(%{log: nil}), do: :ok
+  # segments wholly below it go. The directory is listed only when that
+  # floor moved.
+  defp prune(%{log: nil} = state), do: state
 
   defp prune(state) do
     floors = Enum.map(Map.values(state.pending), fn entries -> elem(:queue.get(entries), 1) end)
-
     floor = if floors == [], do: state.log.next_lsn, else: Enum.min(floors)
-    RegionLog.prune(state.log, floor - 1)
+
+    if floor == state.pruned do
+      state
+    else
+      RegionLog.prune(state.log, floor - 1)
+      %{state | pruned: floor}
+    end
   end
 end

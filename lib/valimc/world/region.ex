@@ -143,6 +143,15 @@ defmodule Valimc.World.Region do
     :ok
   end
 
+  @doc """
+  Several tickets of the caller for sections of the group `pid`, as one
+  message: `[{key, type, center, chunks}]` (a view's tickets per group).
+  """
+  def tickets(pid, entries) when is_pid(pid) and is_list(entries) do
+    send(pid, {:tickets, self(), entries})
+    :ok
+  end
+
   # Owner call budgets (and the deadlines requests carry) scale with
   # `owner_call_scale`: 1 in play; tests on a loaded host raise it, and pin it back to
   # 1 for an owner whose timeout they exercise (VMC-073).
@@ -957,6 +966,25 @@ defmodule Valimc.World.Region do
       else: elsewhere(state, {:key, key}, {:info, info})
   end
 
+  # A view's tickets for this group's sections in one message: one commit
+  # after all of them.
+  def handle_info({:tickets, holder, entries}, state) when is_pid(holder) and is_list(entries) do
+    entries
+    |> Enum.reduce({:noreply, state}, fn
+      {key, type, center, chunks}, {:noreply, acc} when is_atom(type) and is_list(chunks) ->
+        if Map.has_key?(acc.sections, key),
+          do: section_apply(acc, key, {:ticket, holder, type, center, chunks}),
+          else: elsewhere(acc, {:key, key}, {:info, {:ticket, key, holder, type, center, chunks}})
+
+      _, result ->
+        result
+    end)
+    |> case do
+      {:noreply, state} -> {:noreply, commit_frames(state)}
+      stop -> stop
+    end
+  end
+
   def handle_info({:halo, key, payload} = info, state) do
     if Map.has_key?(state.sections, key),
       do: section_info(state, key, {:halo, payload}),
@@ -1079,9 +1107,16 @@ defmodule Valimc.World.Region do
   end
 
   defp section_info(state, key, message) do
+    case section_apply(state, key, message) do
+      {:noreply, state} -> {:noreply, commit_frames(state)}
+      stop -> stop
+    end
+  end
+
+  defp section_apply(state, key, message) do
     case RegionData.handle_info(message, enter(state, key)) do
       {:noreply, resource} ->
-        {:noreply, state |> put_resource(key, resource) |> deliver_rules(key) |> commit_frames()}
+        {:noreply, state |> put_resource(key, resource) |> deliver_rules(key)}
 
       {:stop, reason, resource} ->
         {:stop, reason, put_resource(state, key, resource)}

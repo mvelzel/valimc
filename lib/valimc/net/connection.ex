@@ -119,6 +119,8 @@ defmodule Valimc.Net.Connection do
        pickup_cursor: 0,
        creative_input: DropThrottle.new(CreativeInventory.creative_tick()),
        chunks: MapSet.new(),
+       # Since when the client lacks the chunk the player is in (`Link`).
+       own_chunk_missing: nil,
        regions: MapSet.new(),
        # Region => owner told which chunks the view wants (VMC-075).
        wanted: %{},

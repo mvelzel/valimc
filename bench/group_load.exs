@@ -18,7 +18,9 @@ defmodule Bench.GroupLoad do
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
 
-  @speed 1.0
+  # Blocks a client tick (`SPEED`): 1.0 keeps up with generation here; a
+  # faster flight outruns it.
+  defp speed, do: String.to_float(System.get_env("SPEED", "1.0"))
 
   def run(base, seconds) do
     name = "Flyer"
@@ -53,7 +55,13 @@ defmodule Bench.GroupLoad do
     {_, ticks_before} = Valimc.World.TickRate.samples()
     stop = System.monotonic_time(:millisecond) + seconds * 1000
     sampler = Task.async(fn -> sample(pid, stop, []) end)
-    {client, last, lags} = fly(Map.put(client, :center, nil), start, stop, [])
+    if System.get_env("PROFILE") == "calls", do: trace_calls()
+    # `load_world/2` read the 49 nearest chunks.
+    {cx, cz} = Valimc.Data.Grid.chunk_key(x, z)
+    loaded = MapSet.new(for dx <- -3..3, dz <- -3..3, do: {cx + dx, cz + dz})
+    client = Map.merge(client, %{center: nil, loaded: loaded, missing: nil, gaps: []})
+    {client, last, lags} = fly(client, start, stop, [])
+    if System.get_env("PROFILE") == "calls", do: report_calls()
     samples = Task.await(sampler, :infinity)
     {tick_samples, ticks_after} = Valimc.World.TickRate.samples()
     after_metrics = Valimc.Data.Metrics.snapshot()
@@ -61,6 +69,19 @@ defmodule Bench.GroupLoad do
 
     queue = Enum.map(samples, & &1.queue)
     reductions = samples |> Enum.map(& &1.reductions) |> rates()
+
+    stripes = Enum.flat_map(samples, & &1.stripes)
+
+    stripe_rates =
+      stripes
+      |> Enum.group_by(&elem(&1, 0), fn {pid, r, t, _} -> {pid, r, t} end)
+      |> Enum.flat_map(fn {_, points} -> rates(points) end)
+
+    gaps =
+      if client.missing,
+        do: [System.monotonic_time(:millisecond) - client.missing | client.gaps],
+        else: client.gaps
+
     ticks = ticks_after - ticks_before
 
     recent =
@@ -68,8 +89,10 @@ defmodule Bench.GroupLoad do
 
     corrections =
       for {key, value} <- after_metrics,
-          String.contains?(to_string(key), "correction") or
-            String.contains?(to_string(key), "handoffs"),
+          Enum.any?(
+            ["correction", "handoffs", "own_chunk", "checkpoints"],
+            &String.contains?(to_string(key), &1)
+          ),
           value != Map.get(metrics, key, 0),
           into: %{},
           do: {key, value - Map.get(metrics, key, 0)}
@@ -82,16 +105,21 @@ defmodule Bench.GroupLoad do
       group_queue: stats(queue),
       group_reductions_per_second: stats(reductions),
       center_lag_chunks: stats(lags),
+      own_chunk_missing_ms: Map.put(stats(gaps), :total, Enum.sum(gaps)),
+      log_stripe_reductions_per_second: stats(stripe_rates),
+      log_stripe_queue: stats(Enum.map(stripes, &elem(&1, 3))),
       corrections: corrections
     }
   end
 
-  # East along x at `@speed` blocks a client tick, climbing to y 140 first.
+  # East along x at `speed/0` blocks a client tick, climbing to y 140 first.
+  # Each step notes whether the client has the chunk it is in: the vanilla
+  # client renders nothing while its own chunk is missing.
   defp fly(client, pose, stop, lags) do
     if System.monotonic_time(:millisecond) >= stop do
       {client, pose, lags}
     else
-      pose = %{pose | x: pose.x + @speed, y: min(pose.y + @speed, 140.0)}
+      pose = %{pose | x: pose.x + speed(), y: min(pose.y + speed(), 140.0)}
 
       client =
         client
@@ -105,7 +133,24 @@ defmodule Bench.GroupLoad do
         |> drain(System.monotonic_time(:millisecond) + 50)
 
       lags = if client.center, do: [lag(client.center, pose) | lags], else: lags
-      fly(client, corrected(client, pose), stop, lags)
+      pose = corrected(client, pose)
+      fly(own_chunk(client, pose), pose, stop, lags)
+    end
+  end
+
+  defp own_chunk(client, pose) do
+    here = MapSet.member?(client.loaded, Valimc.Data.Grid.chunk_key(pose.x, pose.z))
+    now = System.monotonic_time(:millisecond)
+
+    case {here, client.missing} do
+      {false, nil} ->
+        %{client | missing: now}
+
+      {true, since} when since != nil ->
+        %{client | missing: nil, gaps: [now - since | client.gaps]}
+
+      _ ->
+        client
     end
   end
 
@@ -132,6 +177,14 @@ defmodule Bench.GroupLoad do
             "player_position" ->
               {_, <<x::float-64, y::float-64, z::float-64, _::binary>>} = Wire.take_varint(body)
               Map.put(client, :corrected, %{x: x, y: y, z: z})
+
+            "level_chunk_with_light" ->
+              <<x::signed-32, z::signed-32, _::binary>> = body
+              %{client | loaded: MapSet.put(client.loaded, {x, z})}
+
+            "forget_level_chunk" ->
+              <<z::signed-32, x::signed-32>> = body
+              %{client | loaded: MapSet.delete(client.loaded, {x, z})}
 
             "set_chunk_cache_center" ->
               {x, rest} = Wire.take_varint(body)
@@ -194,7 +247,8 @@ defmodule Bench.GroupLoad do
             [
               %{
                 queue: queue,
-                reductions: {owner, reductions, System.monotonic_time(:millisecond)}
+                reductions: {owner, reductions, System.monotonic_time(:millisecond)},
+                stripes: stripes()
               }
               | acc
             ]
@@ -206,6 +260,69 @@ defmodule Bench.GroupLoad do
       Process.sleep(50)
       sample(pid, stop, acc)
     end
+  end
+
+  # The log stripes (`Valimc.Storage.Log`): `{pid, reductions, at, queue}`.
+  defp stripes do
+    now = System.monotonic_time(:millisecond)
+    spec = [{{{:_, :"$1"}, :"$2", :_}, [{:is_integer, :"$1"}], [:"$2"]}]
+
+    for pid <- Registry.select(Valimc.StorageRegistry, spec),
+        [reductions: r, message_queue_len: q] <-
+          [Process.info(pid, [:reductions, :message_queue_len])],
+        do: {pid, r, now, q}
+  end
+
+  # `PROFILE=calls`: every function of the storage, group and native modules
+  # timed across all processes during the flight (`call_time`).
+  @traced [
+    Valimc.Storage.Log,
+    Valimc.Storage.RegionLog,
+    Valimc.Storage.Checkpoint,
+    Valimc.Storage.DurableFile,
+    Valimc.World.Region,
+    Valimc.World.RegionData,
+    Valimc.World.RegionStorage,
+    Valimc.World.RegionGeneration,
+    Valimc.World.LightHalo,
+    Valimc.World.ScheduledTicks,
+    Valimc.Native,
+    :file,
+    :prim_file,
+    :zlib
+  ]
+
+  defp trace_calls do
+    for module <- @traced, do: :erlang.trace_pattern({module, :_, :_}, true, [:call_time])
+    :erlang.trace(:all, true, [:call])
+  end
+
+  defp report_calls do
+    :erlang.trace(:all, false, [:call])
+
+    rows =
+      for module <- @traced,
+          {function, arity} <- module.module_info(:functions),
+          {:call_time, [_ | _] = times} <-
+            [:erlang.trace_info({module, function, arity}, :call_time)] do
+        {calls, us} =
+          Enum.reduce(times, {0, 0}, fn {_pid, c, s, u}, {calls, us} ->
+            {calls + c, us + s * 1_000_000 + u}
+          end)
+
+        {"#{inspect(module)}.#{function}/#{arity}", calls, us}
+      end
+
+    for module <- @traced, do: :erlang.trace_pattern({module, :_, :_}, false, [:call_time])
+
+    rows
+    |> Enum.sort_by(&(-elem(&1, 2)))
+    |> Enum.take(45)
+    |> Enum.each(fn {name, calls, us} ->
+      IO.puts(
+        "CALLS #{String.pad_leading(Integer.to_string(div(us, 1000)), 7)} ms #{String.pad_leading(Integer.to_string(calls), 8)} x #{name}"
+      )
+    end)
   end
 
   # Reductions per second between samples of the same process.

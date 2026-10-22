@@ -167,7 +167,11 @@ or player handed to it waits unread in its mailbox.
   owner's frames, never one half of a handoff or of a player's interaction
   with the world. A region's checkpoint file folds its cells into column images
   relit alone, so a load replays nothing older; the log then drops the frames
-  it holds. Simulation never waits for the disk.
+  it holds. A section keeps its frames since its checkpoint to fold them, so
+  the log never rereads its segments for a checkpoint, and an unloading
+  section's checkpoint is written by a task after it is gone: writes of one
+  file never overlap, and a section loading again waits for the one in
+  progress. Simulation never waits for the disk.
 - **Cross-owner effects.** Entity handoffs between groups and box edits use
   shared primitives: `Txn.Permits` (one owner permit table) and `Txn.Receipts`
   (one idempotency classifier over the receipt tables) (VMC-064). A player's
@@ -267,7 +271,10 @@ Chunk tickets drive load, simulation and unload, as vanilla's `TicketType`s do
 distance)` of the player), `forced` from `/forceload`, timed `portal`,
 `post_teleport`, `player_spawn` and `spawn_search` tickets of readers that need
 chunks loaded, and a fresh owner's one-tick `unknown` ticket of its own
-admission. Untimed tickets end with their holder process. An owner without
+admission. Untimed tickets end with their holder process. A view's tickets
+reach each group as one message for all its sections, and a connection
+re-sends them to a section's new owner whenever that owner changed. An owner
+without
 tickets and work in flight (writes, jobs, outboxes, deferred calls, open
 containers, permits) for `region_unload_delay_ms` retires its route, saves its
 volatile state and leaves its group; a world without a path and `/save-off` keep

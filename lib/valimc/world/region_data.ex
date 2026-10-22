@@ -1363,19 +1363,30 @@ defmodule Valimc.World.RegionData do
     }
   end
 
-  # Commit, send and wait until the frames are appended, then checkpoint here.
-  defp save_now(%{storage: %{base: nil}} = state), do: commit(state)
+  # Commit, send and wait until the frames are appended, then checkpoint here
+  # (`detach: true`, a section its group unloads: in a task that outlives it;
+  # a shutdown keeps its order).
+  defp save_now(state, opts \\ [])
+  defp save_now(%{storage: %{base: nil}} = state, _opts), do: commit(state)
 
-  defp save_now(state) do
+  defp save_now(state, opts) do
     state = commit(state)
-    state = %{state | storage: RegionStorage.send_now(state.storage)}
-    state = drain_durable(state)
+    # An unload whose checkpoint holds its frames waits for them only when a
+    # reply depends on them.
+    sync = !opts[:detach] or RegionStorage.waiting?(state.storage)
+    state = %{state | storage: RegionStorage.send_now(state.storage, sync)}
+    state = if sync, do: drain_durable(state), else: state
 
     if Valimc.World.Saving.auto?(),
       do: %{
         state
         | storage:
-            RegionStorage.checkpoint(state.storage, parts(state), state.blocks, sync: true),
+            RegionStorage.checkpoint(
+              state.storage,
+              parts(state),
+              state.blocks,
+              if(opts[:detach], do: [detach: true], else: [sync: true])
+            ),
           scheduled_ticks: ScheduledTicks.settled(state.scheduled_ticks)
       },
       else: state
@@ -3348,7 +3359,7 @@ defmodule Valimc.World.RegionData do
     # outcome is uncertain; a retry resolves it.
     state =
       if reason in [:normal, :shutdown] or match?({:shutdown, _}, reason),
-        do: save_now(state),
+        do: save_now(state, detach: reason == :normal),
         else: state
 
     for {:reply, from, _} <-

@@ -87,12 +87,12 @@ defmodule Valimc.Session.Replication do
     reach = min(Valimc.config(:simulation_distance), distance)
     size = Grid.region_size()
 
-    wanted =
+    {wanted, tickets} =
       loading
       |> Enum.sort_by(fn {{rx, rz}, _} ->
         (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
       end)
-      |> Map.new(fn {key, chunks} ->
+      |> Enum.map_reduce(%{}, fn {key, chunks}, tickets ->
         section = Grid.section(state.player.dimension, key, :section)
 
         case World.region(section) do
@@ -100,23 +100,36 @@ defmodule Valimc.Session.Replication do
             simulated =
               Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
 
-            Region.ticket(pid, key, :player_loading, center, chunks)
-            Region.ticket(pid, key, :player_simulation, center, simulated)
-            {section, pid}
+            entries = [
+              {key, :player_simulation, center, simulated},
+              {key, :player_loading, center, chunks}
+            ]
+
+            {{section, pid}, Map.update(tickets, pid, entries, &(entries ++ &1))}
 
           _ ->
-            {section, nil}
+            {{section, nil}, tickets}
         end
       end)
+
+    wanted = Map.new(wanted)
 
     # A section that moved to another group took the tickets with it
     # (VMC-077j): only sections the view left (or of the dimension the player
     # left) are told to drop them.
-    for {section, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, section) do
-      {_, key} = Grid.split_section(section)
-      Region.ticket(pid, key, :player_loading, nil, [])
-      Region.ticket(pid, key, :player_simulation, nil, [])
-    end
+    tickets =
+      for {section, pid} <- state.wanted,
+          pid != nil,
+          not Map.has_key?(wanted, section),
+          reduce: tickets do
+        acc ->
+          {_, key} = Grid.split_section(section)
+          entries = [{key, :player_loading, nil, []}, {key, :player_simulation, nil, []}]
+          Map.update(acc, pid, entries, &(&1 ++ entries))
+      end
+
+    # One message per group, nearest sections first.
+    for {pid, entries} <- tickets, do: Region.tickets(pid, Enum.reverse(entries))
 
     %{state | wanted: wanted}
   end

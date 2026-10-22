@@ -15,6 +15,7 @@ defmodule Valimc.Net.Link do
   pose and teleport state, a view reset on respawn or travel), in order.
   """
   alias Valimc.Data.Grid
+  require Logger
   alias Valimc.Protocol.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
   alias Valimc.Session.{ChunkSender, Events, Replication}
@@ -43,6 +44,7 @@ defmodule Valimc.Net.Link do
     :keepalive,
     :active,
     :chunks,
+    :own_chunk_missing,
     :regions,
     :wanted,
     :pending,
@@ -275,7 +277,7 @@ defmodule Valimc.Net.Link do
   # The connection's 50 ms replication: chunks, entities and players and the
   # world's clocks, weather, border and difficulty, as one write.
   defp replicate(state) do
-    state = Replication.chunk_tick(state)
+    state = state |> Replication.chunk_tick() |> own_chunk()
 
     # One tracker for every entity kind, players included (VMC-077i4);
     # unchanged chunks are not re-read. Only entities within vanilla's
@@ -308,6 +310,36 @@ defmodule Valimc.Net.Link do
     state = Replication.replicate_world(state)
     Codec.send_packets(state, state.outbound |> Enum.reverse() |> List.flatten())
     %{state | outbound: []}
+  end
+
+  # The vanilla client draws nothing while it lacks the chunk the player is
+  # in. How long that lasts: `own_chunk_missing_ms` in all, `own_chunk_gaps`
+  # how often, `own_chunk_missing_max_ms` the longest; a gap over a second is
+  # logged with the player's name.
+  defp own_chunk(state) do
+    here = MapSet.member?(state.chunks, Grid.chunk_key(state.player.x, state.player.z))
+    now = System.monotonic_time(:millisecond)
+
+    case {here, state.own_chunk_missing} do
+      {false, nil} ->
+        %{state | own_chunk_missing: now}
+
+      {true, since} when since != nil ->
+        gap = now - since
+        Valimc.Data.Metrics.add(:own_chunk_missing_ms, gap)
+        Valimc.Data.Metrics.add(:own_chunk_gaps)
+
+        if gap > Valimc.Data.Metrics.get(:own_chunk_missing_max_ms),
+          do: Valimc.Data.Metrics.put(:own_chunk_missing_max_ms, gap)
+
+        if gap > 1000,
+          do: Logger.info("#{state.player.name} lacked its own chunk for #{gap} ms")
+
+        %{state | own_chunk_missing: nil}
+
+      _ ->
+        state
+    end
   end
 
   # Another online player; a spectator only to spectators, as vanilla's

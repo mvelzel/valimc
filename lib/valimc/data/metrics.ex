@@ -14,6 +14,9 @@ defmodule Valimc.Data.Metrics do
 
   def add(key, value \\ 1), do: :counters.add(cell(key), 1, value)
 
+  @doc "A counter's or gauge's value."
+  def get(key), do: :counters.get(cell(key), 1)
+
   @doc "Set a gauge (a value one owner keeps current)."
   def put(key, value), do: :counters.put(cell(key), 1, value)
 
