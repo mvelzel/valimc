@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerDropsTest do
   use ExUnit.Case, async: true
   alias Valimc.Living.{Freezing, Health}
-  alias Valimc.{Inventory, ItemMotionState, PlayerDrops, PlayerSnapshot, PlayerTransfers}
+  alias Valimc.{Inventory, ItemMotionState, PlayerDrops, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
 
   defp player(pose \\ :standing),
@@ -22,17 +23,17 @@ defmodule Valimc.PlayerDropsTest do
       assert record.motion.pickup_delay == 40 and not record.motion.no_gravity
       {x, y, z} = record.motion.velocity
       assert abs(x) <= 0.02 and y >= 0 and y <= 0.2 and z >= 0.28 and z <= 0.32
-      source = PlayerSnapshot.capture(player(), %Inventory{slots: %{36 => stack}})
+      source = PlayerState.capture(player(), %Inventory{slots: %{36 => stack}})
       target = %{source | inventory: %Inventory{}}
 
       assert {:ok, pending} =
                PlayerTransfers.prepare(<<77::128>>, 3, source, target, {0, 0}, [record])
 
-      assert {:ok, bytes} = PlayerSnapshot.encode(<<77::128>>, pending)
-      assert {:ok, restored} = PlayerSnapshot.decode(bytes, <<77::128>>)
+      assert {:ok, bytes} = PlayerState.encode(<<77::128>>, pending)
+      assert {:ok, restored} = PlayerState.decode(bytes, <<77::128>>)
       assert restored.outbox == pending.outbox
       assert restored.outbox.records == [record]
-      assert {:ok, {0, 0}, request, _} = PlayerSnapshot.transfer_request(<<77::128>>, restored)
+      assert {:ok, {0, 0}, request, _} = PlayerState.transfer_request(<<77::128>>, restored)
       assert request.records == [record] and request.sequence == 4
     end
   end
@@ -41,7 +42,7 @@ defmodule Valimc.PlayerDropsTest do
     stone = ItemStack.new("stone", 3)
 
     source =
-      PlayerSnapshot.capture(
+      PlayerState.capture(
         Map.merge(player(), %{
           living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}},
           motion: %Valimc.PlayerMotion{},
@@ -67,7 +68,7 @@ defmodule Valimc.PlayerDropsTest do
   end
 
   test "recipe drop authorization accepts the launch origin of a crouching player" do
-    before = PlayerSnapshot.capture(player(), %Inventory{slots: %{1 => ItemStack.new("oak_log")}})
+    before = PlayerState.capture(player(), %Inventory{slots: %{1 => ItemStack.new("oak_log")}})
     {:ok, inventory, stacks} = Inventory.plan_click(before.inventory, :throw, 0, 0)
     assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(:crouching), stacks, :directed)
     after_snapshot = %{before | inventory: inventory}

@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerTransfers do
   @moduledoc "Conserved source plans and explicit, separately authorized creative creation."
-  alias Valimc.{Inventory, PlayerDrops, PlayerSnapshot}
+  alias Valimc.{Inventory, PlayerDrops}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.ItemTransfers
   @max_sequence 18_446_744_073_709_551_615
@@ -55,8 +56,8 @@ defmodule Valimc.PlayerTransfers do
 
   defp prepare_conserved(uuid, sequence, before, after_snapshot, key, records, destroyed)
        when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence do
-    with {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(before)),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(after_snapshot)),
+    with {:ok, _} <- PlayerState.encode(uuid, strip_journal(before)),
+         {:ok, _} <- PlayerState.encode(uuid, strip_journal(after_snapshot)),
          {:ok, _, _} <-
            ItemTransfers.encode_request(key, %{
              source: uuid,
@@ -88,7 +89,7 @@ defmodule Valimc.PlayerTransfers do
       when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence do
     with %{inventory: %Inventory{infinite_materials: true}} <- snapshot,
          %{stack: %ItemStack{}} <- record,
-         {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(snapshot)),
+         {:ok, _} <- PlayerState.encode(uuid, strip_journal(snapshot)),
          {:ok, _, _} <-
            ItemTransfers.encode_request(key, %{
              source: uuid,
@@ -113,28 +114,7 @@ defmodule Valimc.PlayerTransfers do
 
   def prepare_creative_drop(_, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
 
-  defp strip_journal(%{pose: _, inventory: _} = snapshot),
-    do:
-      Map.take(snapshot, [
-        :pose,
-        :inventory,
-        :flying,
-        :game_mode,
-        :fall_distance,
-        :frozen_ticks,
-        :air_supply,
-        :fire_ticks,
-        :effects,
-        :food,
-        :velocity,
-        :health,
-        :last_death,
-        :dimension,
-        :death_dimension,
-        :portal_cooldown,
-        :seen_credits,
-        :progression
-      ])
+  defp strip_journal(snapshot), do: PlayerState.strip(snapshot)
 
   defp owned(%Inventory{} = inventory), do: Inventory.contents(inventory) ++ [inventory.carried]
 

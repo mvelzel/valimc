@@ -1,6 +1,7 @@
 defmodule Valimc.PortalTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.Portals
 
   defp player(mode, cooldown \\ 0),
@@ -62,19 +63,5 @@ defmodule Valimc.PortalTest do
     assert Warm.regions({-18, -18, 18, 18}) == [{-1, -1}, {-1, 0}, {0, -1}, {0, 0}]
     assert {:the_end, {98, -2, 102, 2} = platform} = Warm.area(:end_portal, {0, 64, 0})
     assert Warm.regions(platform) == [{0, -1}, {0, 0}]
-  end
-
-  test "snapshots keep whether the player saw the credits (v23)" do
-    uuid = <<77::128>>
-    base = %{pose: %{x: 1.5, y: 64.0, z: 2.5, yaw: 0.0, pitch: 0.0}, inventory: %Inventory{}}
-
-    assert {:ok, <<"VMCPOSE", 2, _::binary>>} =
-             PlayerSnapshot.encode(uuid, Map.put(base, :seen_credits, false))
-
-    snapshot = Map.merge(base, %{seen_credits: true, dimension: :the_end})
-    assert {:ok, <<"VMCPOSE", 23, _::binary>> = bytes} = PlayerSnapshot.encode(uuid, snapshot)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid)
-    assert restored.seen_credits and restored.dimension == :the_end
-    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid, restored)
   end
 end

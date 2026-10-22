@@ -2,7 +2,8 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, state: 1]
@@ -85,7 +86,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert living(pid).effects[id] == [{149, 0, false, true, true}]
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.effects[id] == [{149, 0, false, true, true}]
     {_client, owner} = login(ctx, {id, 149, 0, 6})
     assert living(owner).health.value == 12.0
@@ -105,7 +106,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert {:ok, {:compound, %{"translate" => {:string, "death.attack.wither"}}}, <<>>} =
              Valimc.NBT.take(message)
 
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.effects[id] == [{39, 0, false, true, true}]
     assert saved.inventory.slots == %{} and saved.outbox == nil and saved.transfer_sequence == 1
     [view] = Valimc.TestWorld.item_snapshot(ctx.key) |> Map.values()

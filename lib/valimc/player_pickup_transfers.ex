@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerPickupTransfers do
   @moduledoc "Persist the original inventory; grant only after matching terminal region proof."
-  alias Valimc.{PlayerPickupIntent, PlayerSnapshot}
+  alias Valimc.PlayerPickupIntent
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.PickupTransfers
   @max_sequence 18_446_744_073_709_551_615
 
@@ -14,7 +15,7 @@ defmodule Valimc.PlayerPickupTransfers do
          {:ok, canonical} <- PlayerPickupIntent.decode(uuid, sequence + 1, bytes),
          true <- PlayerPickupIntent.matches_snapshot?(canonical, snapshot),
          next = Map.merge(snapshot, %{transfer_sequence: sequence + 1, outbox: canonical}),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, next) do
+         {:ok, _} <- PlayerState.encode(uuid, next) do
       {:ok, next}
     else
       _ -> {:error, :invalid_pickup_plan}

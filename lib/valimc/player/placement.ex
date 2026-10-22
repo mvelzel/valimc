@@ -17,14 +17,8 @@ defmodule Valimc.Player.Placement do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    Inventory,
-    PlayerInput,
-    PlayerPlacementQuery,
-    PlayerSnapshot,
-    PlayerStore,
-    World
-  }
+  alias Valimc.{Inventory, PlayerInput, PlayerPlacementQuery, PlayerStore, World}
+  alias Valimc.Player.State, as: PlayerState
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
@@ -291,7 +285,7 @@ defmodule Valimc.Player.Placement do
       PlayerStore.prepare_placement(
         state.player_store,
         state.store_fence,
-        PlayerSnapshot.capture(state.player, state.inventory),
+        PlayerState.capture(state.player, state.inventory),
         intent,
         ref
       )

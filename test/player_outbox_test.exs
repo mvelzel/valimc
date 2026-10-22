@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerOutboxTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, TestScope}
+  alias Valimc.{Inventory, PlayerStore, TestScope}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
   import ExUnit.CaptureLog
@@ -13,10 +14,10 @@ defmodule Valimc.PlayerOutboxTest do
     TestScope.isolate([uuid, key], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    before = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
+    before = PlayerState.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
 
     after_state =
-      PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 4)}})
+      PlayerState.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 4)}})
 
     {rx, rz} = key
 
@@ -75,13 +76,13 @@ defmodule Valimc.PlayerOutboxTest do
   end
 
   defp deliver(ctx, snapshot) do
-    {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, snapshot)
+    {:ok, key, request, _} = PlayerState.transfer_request(ctx.uuid, snapshot)
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
     Region.apply_item_transfer(owner, request)
   end
 
   defp saved(ctx),
-    do: PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+    do: PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
   defp kill_writer(ctx) do
     monitor = Process.monitor(ctx.writer)
@@ -292,7 +293,7 @@ defmodule Valimc.PlayerOutboxTest do
         :sys.resume(region)
       end
 
-    {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, recovered)
+    {:ok, _, request, _} = PlayerState.transfer_request(ctx.uuid, recovered)
     assert {:ok, disposition} = Region.apply_item_transfer(owner, request)
     assert disposition in [:applied, :already_applied]
     assert {:ok, next_fence, cleared} = complete(ctx, recovered_fence)
@@ -307,7 +308,7 @@ defmodule Valimc.PlayerOutboxTest do
 
   test "destination receipt must match the exact source sequence and batch", ctx do
     {fence, pending} = prepare(ctx)
-    {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
+    {:ok, key, request, _} = PlayerState.transfer_request(ctx.uuid, pending)
     [record] = request.records
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
@@ -421,7 +422,7 @@ defmodule Valimc.PlayerOutboxTest do
     TestScope.isolate(ctx.key, world_path: nil)
     {:ok, owner} = Valimc.TestWorld.item_owner(ctx.key)
     {fence, pending} = prepare(ctx)
-    {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
+    {:ok, _, request, _} = PlayerState.transfer_request(ctx.uuid, pending)
     assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
     assert {:error, :transfer_destination_ephemeral} = complete(ctx, fence)
     assert saved(ctx) == {:ok, pending}
@@ -478,7 +479,7 @@ defmodule Valimc.PlayerOutboxTest do
     exhausted =
       Map.merge(ctx.before, %{transfer_sequence: 18_446_744_073_709_551_615, outbox: nil})
 
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, exhausted)
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, exhausted)
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.write!(path, bytes)
     {:ok, writer, recovered, fence} = PlayerStore.open(ctx.uuid)

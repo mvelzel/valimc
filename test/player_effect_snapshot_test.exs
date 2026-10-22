@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerEffectSnapshotTest do
   use ExUnit.Case, async: true
   alias Valimc.Living.Effects
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   @uuid <<94::128>>
   @pose %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
@@ -30,73 +31,5 @@ defmodule Valimc.PlayerEffectSnapshotTest do
         ] do
       assert Effects.take(bytes) == {:error, :invalid_player_effects}
     end
-  end
-
-  test "v18 wraps an ordinary pending death transfer without changing inventory or receipt request bytes" do
-    bare = %{pose: @pose, inventory: %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}}
-
-    pending =
-      Map.merge(bare, %{
-        transfer_sequence: 9,
-        outbox: %{
-          key: {0, 0},
-          records: [
-            %{uuid: <<95::128>>, x: 0.5, y: 64.5, z: 0.5, stack: ItemStack.new("egg", 3)}
-          ]
-        }
-      })
-
-    for snapshot <- [bare, pending],
-        fire <- [nil, -20, 300],
-        table <- [nil, {ItemStack.new("dirt"), nil, nil, nil, nil, nil, nil, nil, nil}] do
-      snapshot = put_in(snapshot.inventory.table_inputs, table)
-      snapshot = if fire == nil, do: snapshot, else: Map.put(snapshot, :fire_ticks, fire)
-      {:ok, legacy} = PlayerSnapshot.encode(@uuid, snapshot)
-      {:ok, old} = PlayerSnapshot.decode(legacy, @uuid)
-      refute Map.has_key?(old, :effects)
-
-      for effects <- [%{}, @effects] do
-        assert {:ok, <<"VMCPOSE", 18, _::binary>> = bytes} =
-                 PlayerSnapshot.encode(@uuid, Map.put(snapshot, :effects, effects))
-
-        assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-        assert restored == Map.put(old, :effects, effects)
-        assert {:ok, ^bytes} = PlayerSnapshot.encode(@uuid, restored)
-
-        assert PlayerSnapshot.transfer_request(@uuid, restored) ==
-                 PlayerSnapshot.transfer_request(@uuid, old)
-      end
-    end
-  end
-
-  test "maximum payload and malformed wrappers retain snapshot boundaries" do
-    snapshot = PlayerSnapshot.capture(@pose, %Inventory{}) |> Map.put(:effects, @effects)
-    {:ok, bytes} = PlayerSnapshot.encode(@uuid, snapshot)
-    {:ok, effect_bytes} = Effects.encode(@effects)
-    effect_size = byte_size(effect_bytes)
-    body_size = byte_size(bytes) - 93 - effect_size
-
-    <<header::binary-size(60), base, _effects::binary-size(^effect_size),
-      body::binary-size(^body_size), _::binary-size(32)>> = bytes
-
-    for payload <- [
-          header <> <<18>> <> effect_bytes <> body,
-          header <> <<base, 41>> <> body,
-          header <> <<base>> <> effect_bytes,
-          header <> <<base>> <> effect_bytes <> body <> <<0>>
-        ] do
-      assert PlayerSnapshot.decode(seal(payload), @uuid) == {:error, :invalid_player_file}
-    end
-
-    assert PlayerSnapshot.encode(@uuid, %{snapshot | effects: %{11 => []}}) ==
-             {:error, :invalid_player_effects}
-
-    assert PlayerSnapshot.decode(bytes, <<96::128>>) == {:error, :invalid_player_file}
-    full_chain = Enum.map(255..0//-1, &{-1, &1, true, true, true})
-    full = %{snapshot | effects: Map.new(0..39, &{&1, full_chain})}
-    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, full)
-    assert byte_size(bytes) <= PlayerSnapshot.max_bytes()
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored.effects == full.effects
   end
 end

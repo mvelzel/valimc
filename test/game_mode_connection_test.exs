@@ -1,7 +1,8 @@
 defmodule Valimc.GameModeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore}
+  alias Valimc.{GameMode, Inventory, Players, PlayerAbilities, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -47,7 +48,7 @@ defmodule Valimc.GameModeConnectionTest do
 
   defp seed(ctx, mode, flying \\ true) do
     player = Map.merge(ctx.pose, %{game_mode: mode, abilities: %PlayerAbilities{flying: flying}})
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, ctx.inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, ctx.inventory))
     File.write!(ctx.path, bytes)
   end
 
@@ -148,7 +149,7 @@ defmodule Valimc.GameModeConnectionTest do
   test "pending journal recovery retains saved mode without granting creative permission", ctx do
     mode = %GameMode{current: :adventure, previous: :creative}
     player = Map.merge(ctx.pose, %{game_mode: mode, abilities: %PlayerAbilities{flying: false}})
-    before = PlayerSnapshot.capture(player, ctx.inventory)
+    before = PlayerState.capture(player, ctx.inventory)
 
     after_state = %{
       before
@@ -169,7 +170,7 @@ defmodule Valimc.GameModeConnectionTest do
     {:ok, pending} =
       Valimc.PlayerTransfers.prepare(ctx.uuid, 0, before, after_state, ctx.key, [record])
 
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, pending)
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, pending)
     File.write!(ctx.path, bytes)
     client = login(ctx)
     s = state(ctx)

@@ -1,7 +1,8 @@
 defmodule Valimc.CreativeDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.World.Entities
   alias Valimc.TestClient, as: Client
@@ -25,7 +26,7 @@ defmodule Valimc.CreativeDropTest do
 
     inv = %Inventory{slots: %{36 => stone, 45 => ItemStack.new("egg", 3)}}
     path = PlayerStore.path(base, uuid)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, inv))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, inv))
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -63,7 +64,7 @@ defmodule Valimc.CreativeDropTest do
   end
 
   defp saved(ctx) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
   end
 

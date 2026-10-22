@@ -2,7 +2,8 @@ defmodule Valimc.MovementFoodConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerFood, PlayerSnapshot}
+  alias Valimc.{Inventory, PlayerFood}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [login: 1, state: 1, tick: 1]
@@ -76,7 +77,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     saved_food = state(pid).player.food
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == saved_food and saved.inventory.slots[36] == ItemStack.new("stone", 7)
     assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx)

@@ -4,15 +4,8 @@ defmodule Valimc.ExperienceTransfersTest do
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
-  alias Valimc.{
-    Connection,
-    GameMode,
-    Inventory,
-    PlayerExperience,
-    PlayerProgression,
-    PlayerSnapshot,
-    PlayerStore
-  }
+  alias Valimc.{Connection, GameMode, Inventory, PlayerExperience, PlayerProgression, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.{Entities, ExperienceOrbs}
 
@@ -59,7 +52,7 @@ defmodule Valimc.ExperienceTransfersTest do
     }
 
     snapshot =
-      PlayerSnapshot.capture(player, %Inventory{})
+      PlayerState.capture(player, %Inventory{})
       |> Map.merge(%{transfer_sequence: 0, outbox: nil})
 
     request = %{
@@ -103,7 +96,7 @@ defmodule Valimc.ExperienceTransfersTest do
        ctx do
     name = "XpPickup" <> Integer.to_string(System.unique_integer([:positive]))
     uuid = Connection.offline_uuid(name)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, ctx.snapshot)
+    {:ok, bytes} = PlayerState.encode(uuid, ctx.snapshot)
     path = PlayerStore.path(ctx.base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -132,7 +125,7 @@ defmodule Valimc.ExperienceTransfersTest do
     Valimc.TestClient.close(client)
     wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
-    {:ok, disk} = PlayerSnapshot.decode(File.read!(path), uuid)
+    {:ok, disk} = PlayerState.decode(File.read!(path), uuid)
     assert disk.progression.experience.total == 6 and disk.outbox == nil
     Process.exit(elem(ctx.owner, 0), :kill)
     wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)

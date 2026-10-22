@@ -2,7 +2,8 @@ defmodule Valimc.PlayerVoidConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, login: 1, state: 1, tick: 1, ticks: 2]
@@ -84,7 +85,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     assert living(pid).health.value == 12.0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.pose.y == -129.0
     assert saved.inventory.slots[36] == ItemStack.new("stone", 7)
     assert saved.transfer_sequence == 0 and saved.outbox == nil
@@ -160,7 +161,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
       {<<20.0::float-32, _::binary>>, _client} = Client.await(client, :play, "set_health")
       assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
       assert state(pid).player.y == 64.0 and living(pid).air_supply == 300
-      {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.health.value == 20.0 and saved.transfer_sequence == 2 and saved.outbox == nil
       assert saved.last_death == {floor(ctx.pose.x), -129, floor(ctx.pose.z)}
       records = Valimc.TestWorld.item_snapshot(ctx.key)

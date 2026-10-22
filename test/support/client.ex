@@ -797,7 +797,8 @@ defmodule Valimc.TestPlayer do
   to join with a parked clock and `tick/2` for one owner tick.
   """
   import ExUnit.Assertions
-  alias Valimc.{Connection, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.TestClient, as: Client
   alias Valimc.World.Clock
 
@@ -860,7 +861,7 @@ defmodule Valimc.TestPlayer do
 
   @doc "Write `player` (a pose and saved fields) with `inventory` as the saved player."
   def save(ctx, player, inventory) do
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
   end

@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerCraftingTransfers do
   @moduledoc "Exact recipe-conversion authorization before durable output delivery."
-  alias Valimc.{Inventory, PlayerSnapshot, World}
+  alias Valimc.{Inventory, World}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.ItemTransfers
   @max_sequence 18_446_744_073_709_551_615
 
@@ -16,8 +17,8 @@ defmodule Valimc.PlayerCraftingTransfers do
          true <- is_list(records) and Enum.map(records, & &1.stack) == stacks,
          true <- key == World.region_key(World.chunk_key(before.pose.x, before.pose.z)),
          true <- Enum.all?(records, &at_source?(&1, before.pose)),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(before)),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(after_snapshot)),
+         {:ok, _} <- PlayerState.encode(uuid, strip_journal(before)),
+         {:ok, _} <- PlayerState.encode(uuid, strip_journal(after_snapshot)),
          {:ok, _, _} <-
            ItemTransfers.encode_request(key, %{
              source: uuid,
@@ -46,5 +47,5 @@ defmodule Valimc.PlayerCraftingTransfers do
   defp at_source?(record, pose),
     do: Valimc.PlayerDrops.at_source?(record, pose)
 
-  defp strip_journal(snapshot), do: Map.drop(snapshot, [:transfer_sequence, :outbox])
+  defp strip_journal(snapshot), do: PlayerState.strip(snapshot)
 end

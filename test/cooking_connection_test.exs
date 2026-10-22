@@ -1,7 +1,8 @@
 defmodule Valimc.CookingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
   alias Valimc.TestClient, as: Client
@@ -87,7 +88,7 @@ defmodule Valimc.CookingConnectionTest do
         abilities: Valimc.PlayerAbilities.for_mode(mode)
       })
 
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -163,7 +164,7 @@ defmodule Valimc.CookingConnectionTest do
 
   defp saved(ctx) do
     {:ok, snapshot} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     snapshot
   end

@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.PlayerStore, as: Store
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
   import ExUnit.CaptureLog
 
   setup do
@@ -10,7 +11,7 @@ defmodule Valimc.PlayerStoreTest do
     %{base: base}
   end
 
-  def snapshot, do: PlayerSnapshot.capture(pose(), Inventory.new())
+  def snapshot, do: PlayerState.capture(pose(), Inventory.new())
   def pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
 
   # A fresh identity whose store writes under `base`.
@@ -65,7 +66,7 @@ defmodule Valimc.PlayerStoreTest do
     for invalid <- [
           "bad",
           valid <> "extra",
-          :binary.copy(<<0>>, PlayerSnapshot.max_bytes() + 1),
+          :binary.copy(<<0>>, PlayerState.max_bytes() + 1),
           payload <> <<0::256>>,
           future_version <> :crypto.hash(:sha256, future_version),
           out_of_bounds <> :crypto.hash(:sha256, out_of_bounds),
@@ -123,7 +124,7 @@ defmodule Valimc.PlayerStoreTest.Connection do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.PlayerStore, as: Store
-  alias Valimc.PlayerSnapshot
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Wire}
   import ExUnit.CaptureLog
@@ -165,7 +166,7 @@ defmodule Valimc.PlayerStoreTest.Connection do
     wait_for_departure(name, uuid)
 
     assert {:ok, %{effects: %{}}} =
-             PlayerSnapshot.decode(File.read!(Store.path(base, uuid)), uuid)
+             PlayerState.decode(File.read!(Store.path(base, uuid)), uuid)
 
     {^uuid, second} = Client.login(name)
     assert second.pose == pose()

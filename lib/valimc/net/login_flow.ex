@@ -17,18 +17,8 @@ defmodule Valimc.Net.LoginFlow do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    GameMode,
-    Players,
-    PlayerFood,
-    PlayerInput,
-    PlayerKinetics,
-    PlayerLife,
-    PlayerMotion,
-    PlayerSnapshot,
-    PlayerStore,
-    PlayerTransfers
-  }
+  alias Valimc.{GameMode, Players, PlayerFood, PlayerInput, PlayerKinetics, PlayerLife, PlayerMotion, PlayerStore, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.TickClock
 
@@ -61,7 +51,7 @@ defmodule Valimc.Net.LoginFlow do
   end
 
   def reconcile_login(state) do
-    before = PlayerSnapshot.capture(state.player, state.inventory)
+    before = PlayerState.capture(state.player, state.inventory)
     {:ok, after_snapshot, key, records} = PlayerTransfers.plan_cleanup(before)
 
     if records == [] do
@@ -189,11 +179,9 @@ defmodule Valimc.Net.LoginFlow do
            %{state.inventory | infinite_materials: player.abilities.infinite_materials}, nil}
 
         {:ok, pid, snapshot, fence} ->
-          mode = Map.get(snapshot, :game_mode, player.game_mode)
-          abilities = GameMode.abilities(mode, Map.get(snapshot, :flying, false))
-
-          {:ok, velocity} =
-            PlayerKinetics.restore_velocity(Map.get(snapshot, :velocity, {0.0, 0.0, 0.0}))
+          mode = snapshot.game_mode || player.game_mode
+          abilities = GameMode.abilities(mode, snapshot.flying)
+          {:ok, velocity} = PlayerKinetics.restore_velocity(snapshot.velocity)
 
           {:ok, living} = Valimc.Living.restore(snapshot)
 
@@ -210,21 +198,21 @@ defmodule Valimc.Net.LoginFlow do
             | game_mode: mode,
               abilities: abilities,
               living: living,
-              last_death: Map.get(snapshot, :last_death),
-              dimension: Map.get(snapshot, :dimension, :overworld),
-              death_dimension: Map.get(snapshot, :death_dimension, :overworld),
-              portal_cooldown: Map.get(snapshot, :portal_cooldown, 0),
-              seen_credits: Map.get(snapshot, :seen_credits, false),
+              last_death: snapshot.last_death,
+              dimension: snapshot.dimension,
+              death_dimension: snapshot.death_dimension,
+              portal_cooldown: snapshot.portal_cooldown,
+              seen_credits: snapshot.seen_credits,
               motion:
                 PlayerMotion.flight(
                   %PlayerMotion{
-                    fall_distance: Map.get(snapshot, :fall_distance, 0.0),
+                    fall_distance: snapshot.fall_distance,
                     velocity: velocity
                   },
                   abilities.flying
                 ),
-              progression: Map.get(snapshot, :progression, %Valimc.PlayerProgression{}),
-              food: Map.get(snapshot, :food, %PlayerFood{})
+              progression: snapshot.progression,
+              food: snapshot.food
           }
 
           player = if living.health.value <= 0, do: PlayerLife.dead(player), else: player

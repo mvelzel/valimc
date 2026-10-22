@@ -5,14 +5,8 @@ defmodule Valimc.DimensionTravelConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 180_000
-  alias Valimc.{
-    Connection,
-    Dimension,
-    Inventory,
-    PlayerSnapshot,
-    PlayerStore,
-    Players
-  }
+  alias Valimc.{Connection, Dimension, Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -76,7 +70,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
       })
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("obsidian", 12)}}
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
   end
@@ -240,7 +234,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     wait(fn -> {0, 0} in elem(Valimc.World.RegionStorage.keys(ctx.base, :the_nether), 1) end)
 
     # The arrival was saved before the switch.
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.dimension == :the_nether and saved.pose.x == 8.5
 
     # A reconnect rejoins in the Nether.
@@ -265,7 +259,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     _client = Client.auto_reply(client, :play, "player_position", position)
     assert context(pid) == :overworld
     wait(fn -> match?({:ok, %{dimension: :overworld}}, Players.get(pid)) end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert Map.get(saved, :dimension, :overworld) == :overworld
   end
 
@@ -304,7 +298,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     wait(fn -> state(pid).life_stage == :alive end)
     assert context(pid) == :overworld
     assert state(pid).player.dimension == :overworld
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.death_dimension == :the_nether and saved.dimension == :overworld
   end
 
@@ -313,8 +307,8 @@ defmodule Valimc.DimensionTravelConnectionTest do
     other = ctx.name <> "b"
     {:ok, bytes} = File.read(ctx.path)
     other_uuid = Connection.offline_uuid(other)
-    {:ok, snapshot} = PlayerSnapshot.decode(bytes, ctx.uuid)
-    {:ok, other_bytes} = PlayerSnapshot.encode(other_uuid, snapshot)
+    {:ok, snapshot} = PlayerState.decode(bytes, ctx.uuid)
+    {:ok, other_bytes} = PlayerState.encode(other_uuid, snapshot)
     File.write!(PlayerStore.path(ctx.base, other_uuid), other_bytes)
 
     on_exit(fn ->

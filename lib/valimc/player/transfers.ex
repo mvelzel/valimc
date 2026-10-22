@@ -7,15 +7,8 @@ defmodule Valimc.Player.Transfers do
   import Valimc.Net.Codec,
     only: [reject: 2]
 
-  alias Valimc.{
-    Inventory,
-    PlayerInput,
-    PlayerPickupQuery,
-    PlayerSnapshot,
-    PlayerStore,
-    TransferDelivery,
-    World
-  }
+  alias Valimc.{Inventory, PlayerInput, PlayerPickupQuery, PlayerStore, TransferDelivery, World}
+  alias Valimc.Player.State, as: PlayerState
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
@@ -167,7 +160,7 @@ defmodule Valimc.Player.Transfers do
               PlayerStore.container_candidate(
                 state.player_store,
                 state.store_fence,
-                PlayerSnapshot.capture(state.player, state.inventory),
+                PlayerState.capture(state.player, state.inventory),
                 intent,
                 ref
               )
@@ -261,7 +254,7 @@ defmodule Valimc.Player.Transfers do
            {:ok, _next, remainder, _callback} <-
              Inventory.pickup_stack(state.inventory, reservation.grant.before),
            true <- remainder != reservation.grant.before do
-        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+        snapshot = PlayerState.capture(state.player, state.inventory)
 
         intent = %{
           kind: :pickup,
@@ -320,8 +313,8 @@ defmodule Valimc.Player.Transfers do
         plan: %{key: key, records: records, inventory: inventory}
     }
 
-    before = PlayerSnapshot.capture(state.player, state.inventory)
-    after_snapshot = PlayerSnapshot.capture(state.player, inventory)
+    before = PlayerState.capture(state.player, state.inventory)
+    after_snapshot = PlayerState.capture(state.player, inventory)
 
     if crafting,
       do:

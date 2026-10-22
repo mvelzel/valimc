@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerPlacementConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -64,7 +65,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
         )
     }
 
-    {:ok, bytes} = PlayerSnapshot.encode(c.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(c.uuid, PlayerState.capture(player, inventory))
     path = PlayerStore.path(c.base, c.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -210,7 +211,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   end
 
   defp saved(c) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
     snapshot
   end
 
@@ -252,7 +253,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
         abilities: Valimc.PlayerAbilities.for_mode(:survival)
       })
 
-    {:ok, bytes} = PlayerSnapshot.encode(other_uuid, PlayerSnapshot.capture(peer, %Inventory{}))
+    {:ok, bytes} = PlayerState.encode(other_uuid, PlayerState.capture(peer, %Inventory{}))
     path = PlayerStore.path(c.base, other_uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)

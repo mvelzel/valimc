@@ -2,7 +2,8 @@ defmodule Valimc.DeathStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.Living.{Freezing, Health}
   alias Valimc.TestScope
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Inventory, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
 
   setup do
@@ -42,11 +43,11 @@ defmodule Valimc.DeathStoreTest do
       last_death: nil
     }
 
-    PlayerSnapshot.capture(player, inventory)
+    PlayerState.capture(player, inventory)
   end
 
   defp saved(ctx),
-    do: PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+    do: PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
   defp destination(ctx) do
     %{records: records} = Valimc.TestDisk.read(ctx.base, ctx.key, :items)

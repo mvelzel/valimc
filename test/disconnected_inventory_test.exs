@@ -1,7 +1,8 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Region
   alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
@@ -40,7 +41,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       }
     }
 
-    snapshot = PlayerSnapshot.capture(pose, inventory)
+    snapshot = PlayerState.capture(pose, inventory)
     path = PlayerStore.path(base, uuid)
 
     on_exit(fn ->
@@ -75,12 +76,12 @@ defmodule Valimc.DisconnectedInventoryTest do
   defp wait(predicate, _budget \\ nil), do: Valimc.TestWait.until(predicate)
 
   defp saved(ctx) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
   end
 
   defp seed(ctx, snapshot) do
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, snapshot)
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, snapshot)
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
   end
@@ -205,7 +206,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert :sys.get_state(writer).closing == nil
       :sys.resume(disk)
       wait(fn -> not Valimc.TestRegion.writing?(Valimc.TestRegion.section(owner)) end)
-      {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, adopted)
+      {:ok, _, request, _} = PlayerState.transfer_request(ctx.uuid, adopted)
       {:ok, handle} = Valimc.TestWorld.item_owner(ctx.key)
       assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)
       ref = make_ref()

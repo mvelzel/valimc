@@ -2,7 +2,8 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.TestClient, as: Client
 
@@ -20,7 +21,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
       uuid = Valimc.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 2}
       path = PlayerStore.path(base, uuid)
-      {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, Inventory.new()))
+      {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
     end
@@ -74,7 +75,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
         food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
       })
 
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
     File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
   end
 

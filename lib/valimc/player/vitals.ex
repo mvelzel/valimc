@@ -10,18 +10,8 @@ defmodule Valimc.Player.Vitals do
   import Valimc.Net.Codec,
     only: [send_packets: 2]
 
-  alias Valimc.{
-    CreativeInput,
-    Inventory,
-    Players,
-    PlayerFood,
-    PlayerInput,
-    PlayerLife,
-    PlayerSnapshot,
-    PlayerStore,
-    PlayerTransfers,
-    World
-  }
+  alias Valimc.{CreativeInput, Inventory, Players, PlayerFood, PlayerInput, PlayerLife, PlayerStore, PlayerTransfers, World}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Living.{
     Air,
@@ -349,10 +339,10 @@ defmodule Valimc.Player.Vitals do
   def continue_life(%{recovery: recovery} = state) when recovery != nil, do: state
 
   def continue_life(%{life_stage: :sealing_death, phase: :play} = state),
-    do: checkpoint_life(state, :death_mark, PlayerSnapshot.capture(state.player, state.inventory))
+    do: checkpoint_life(state, :death_mark, PlayerState.capture(state.player, state.inventory))
 
   def continue_life(%{life_stage: :dropping, phase: :play} = state) do
-    before = PlayerSnapshot.capture(state.player, state.inventory)
+    before = PlayerState.capture(state.player, state.inventory)
     {:ok, after_snapshot, key, records} = PlayerTransfers.plan_death(before)
 
     if records == [] do
@@ -383,7 +373,7 @@ defmodule Valimc.Player.Vitals do
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
     spawn = Valimc.World.PlayerSpawn.find()
     player = PlayerLife.respawn(state.player, spawn)
-    snapshot = PlayerSnapshot.capture(player, Inventory.new(player.abilities.infinite_materials))
+    snapshot = PlayerState.capture(player, Inventory.new(player.abilities.infinite_materials))
     checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
   end
 

@@ -1,5 +1,6 @@
 defmodule Valimc.PickupBench do
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerSnapshot, PlayerStore, TransferDelivery}
+  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerStore, TransferDelivery}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.{Entities, Region, RegionStorage}
 
   def source(base, owner, key, uuid, records) do
@@ -32,7 +33,7 @@ defmodule Valimc.PickupBench do
       end)
 
     :ok = PlayerStore.close(writer, fence, snapshot)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
     true = saved.outbox == nil
     total = saved.inventory.slots |> Map.values() |> Enum.sum_by(& &1.count)
     ^total = length(records)

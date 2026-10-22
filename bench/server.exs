@@ -17,8 +17,8 @@ if scatter or fluid do
       pitch: 0.0
     }
 
-    snapshot = Valimc.PlayerSnapshot.capture(pose, Valimc.Inventory.new())
-    {:ok, bytes} = Valimc.PlayerSnapshot.encode(uuid, snapshot)
+    snapshot = Valimc.Player.State.capture(pose, Valimc.Inventory.new())
+    {:ok, bytes} = Valimc.Player.State.encode(uuid, snapshot)
     target = Valimc.PlayerStore.path(Valimc.config(:world_path), uuid)
     File.mkdir_p!(Path.dirname(target))
     File.write!(target, bytes)

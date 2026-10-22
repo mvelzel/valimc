@@ -1,6 +1,7 @@
 defmodule Valimc.DeathInventoryTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
+  alias Valimc.{Inventory, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
 
   defp cursed,
@@ -36,8 +37,8 @@ defmodule Valimc.DeathInventoryTest do
              PlayerTransfers.prepare_death(<<1::128>>, 0, before, after_snapshot, key, records)
 
     assert pending.health == before.health and pending.transfer_sequence == 1
-    assert {:ok, bytes} = PlayerSnapshot.encode(<<1::128>>, pending)
-    assert {:ok, loaded} = PlayerSnapshot.decode(bytes, <<1::128>>)
+    assert {:ok, bytes} = PlayerState.encode(<<1::128>>, pending)
+    assert {:ok, loaded} = PlayerState.decode(bytes, <<1::128>>)
     assert loaded.health == before.health and loaded.inventory.slots == %{}
     assert Enum.sort_by(loaded.outbox.records, & &1.uuid) == Enum.sort_by(records, & &1.uuid)
 

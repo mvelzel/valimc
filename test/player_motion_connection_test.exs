@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, PackedVelocity, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -17,8 +18,8 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     for {name, index} <- Enum.with_index(names) do
       uuid = Connection.offline_uuid(name)
-      snapshot = PlayerSnapshot.capture(%{pos | x: pos.x + index * 256}, Inventory.new())
-      {:ok, bytes} = PlayerSnapshot.encode(uuid, snapshot)
+      snapshot = PlayerState.capture(%{pos | x: pos.x + index * 256}, Inventory.new())
+      {:ok, bytes} = PlayerState.encode(uuid, snapshot)
       path = PlayerStore.path(base, uuid)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
@@ -139,7 +140,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end)
 
     {:ok, saved} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
 
     assert saved.velocity == {0.25, 0.75, -0.5}
     {^uuid, second} = Client.login(name)
@@ -196,7 +197,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     uuid = state(pid).player.uuid
 
     {:ok, saved} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
 
     assert saved.transfer_sequence == 1 and saved.outbox == nil
   end

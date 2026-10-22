@@ -17,7 +17,8 @@ defmodule Valimc.Player.Travel do
 
   import Valimc.Net.Codec, only: [send_packets: 2]
 
-  alias Valimc.{PlayerSnapshot, Players, World}
+  alias Valimc.{Players, World}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.{Movement, Vitals}
   alias Valimc.Protocol.Packets
 
@@ -73,7 +74,7 @@ defmodule Valimc.Player.Travel do
   def continue(%{travel: target} = state) do
     if settled?(state) do
       player = arrive(state.player, target)
-      snapshot = PlayerSnapshot.capture(player, state.inventory)
+      snapshot = PlayerState.capture(player, state.inventory)
 
       Vitals.checkpoint_life(
         %{state | travel: Map.put(target, :saving, true)},

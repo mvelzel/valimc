@@ -8,11 +8,12 @@ defmodule Valimc.PlayerStore do
     PlayerMiningTransfers,
     PlayerPlacementTransfers,
     PlayerPickupTransfers,
-    PlayerSnapshot,
     PlayerTransfers,
     TransferDelivery,
     World
   }
+
+  alias Valimc.Player.State, as: PlayerState
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
   @keys [:x, :y, :z, :yaw, :pitch]
@@ -146,8 +147,8 @@ defmodule Valimc.PlayerStore do
     cancel_closing(closing)
     Process.demonitor(state.monitor, [:flush])
     Registry.update_value(Valimc.PlayerStoreRegistry, state.uuid, fn _ -> nil end)
-    {:ok, bytes} = PlayerSnapshot.encode(state.uuid, state.snapshot)
-    {:ok, snapshot} = PlayerSnapshot.decode(bytes, state.uuid)
+    {:ok, bytes} = PlayerState.encode(state.uuid, state.snapshot)
+    {:ok, snapshot} = PlayerState.decode(bytes, state.uuid)
 
     state = %{
       state
@@ -188,41 +189,21 @@ defmodule Valimc.PlayerStore do
       ) do
     # Preserve the newest accepted raw contents first. A failed cleanup prepare must
     # leave a recoverable source rather than only an older periodic checkpoint.
-    next =
-      if fence == state.fence and not pending?(state),
-        do: Map.merge(snapshot, %{transfer_sequence: sequence(state), outbox: nil}),
-        else: state.snapshot
-
-    next = if next && valid_pose?(snapshot.pose), do: %{next | pose: snapshot.pose}, else: next
+    # With a transfer pending, the save keeps every durable field of the live
+    # player but the transfer-bound ones (`PlayerState.merge/2`).
+    live = PlayerState.strip(snapshot)
 
     next =
-      if next && is_boolean(Map.get(snapshot, :flying)),
-        do: Map.put(next, :flying, snapshot.flying),
-        else: next
+      cond do
+        fence == state.fence and not pending?(state) ->
+          %{live | transfer_sequence: sequence(state)}
 
-    next =
-      if next && Valimc.PlayerMotion.valid_distance?(Map.get(snapshot, :fall_distance)),
-        do:
-          Map.merge(
-            next,
-            Map.take(snapshot, [
-              :fall_distance,
-              :game_mode,
-              :frozen_ticks,
-              :air_supply,
-              :fire_ticks,
-              :effects,
-              :food,
-              :velocity,
-              :health,
-              :last_death,
-              :dimension,
-              :death_dimension,
-              :portal_cooldown,
-              :seen_credits
-            ])
-          ),
-        else: next
+        state.snapshot != nil and PlayerState.validate(state.uuid, live) == :ok ->
+          PlayerState.merge(state.snapshot, snapshot)
+
+        true ->
+          state.snapshot
+      end
 
     with :ok <- save(state, next),
          {:ok, state} <- prepare_closing(%{state | snapshot: next}) do
@@ -259,7 +240,14 @@ defmodule Valimc.PlayerStore do
         %{owner: owner} = state
       ) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerTransfers.prepare(state.uuid, sequence(state), before, after_snapshot, key, records)
+      PlayerTransfers.prepare(
+        state.uuid,
+        sequence(state),
+        source(state, before),
+        source(state, after_snapshot),
+        key,
+        records
+      )
     end)
   end
 
@@ -271,8 +259,8 @@ defmodule Valimc.PlayerStore do
       PlayerTransfers.prepare_death(
         state.uuid,
         sequence(state),
-        before,
-        after_snapshot,
+        source(state, before),
+        source(state, after_snapshot),
         key,
         records
       )
@@ -287,8 +275,8 @@ defmodule Valimc.PlayerStore do
       Valimc.PlayerCraftingTransfers.prepare(
         state.uuid,
         sequence(state),
-        before,
-        after_snapshot,
+        source(state, before),
+        source(state, after_snapshot),
         key,
         records,
         gesture
@@ -301,13 +289,19 @@ defmodule Valimc.PlayerStore do
         %{owner: owner} = state
       ) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerTransfers.prepare_creative_drop(state.uuid, sequence(state), snapshot, key, record)
+      PlayerTransfers.prepare_creative_drop(
+        state.uuid,
+        sequence(state),
+        source(state, snapshot),
+        key,
+        record
+      )
     end)
   end
 
   def handle_cast({:prepare_mining, owner, fence, snapshot, intent, ref}, %{owner: owner} = state) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerMiningTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+      PlayerMiningTransfers.prepare(state.uuid, sequence(state), source(state, snapshot), intent)
     end)
   end
 
@@ -316,13 +310,18 @@ defmodule Valimc.PlayerStore do
         %{owner: owner} = state
       ) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerPlacementTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+      PlayerPlacementTransfers.prepare(
+        state.uuid,
+        sequence(state),
+        source(state, snapshot),
+        intent
+      )
     end)
   end
 
   def handle_cast({:prepare_pickup, owner, fence, snapshot, intent, ref}, %{owner: owner} = state) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerPickupTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+      PlayerPickupTransfers.prepare(state.uuid, sequence(state), source(state, snapshot), intent)
     end)
   end
 
@@ -331,7 +330,12 @@ defmodule Valimc.PlayerStore do
         %{owner: owner} = state
       ) do
     prepare_plan(state, fence, ref, fn ->
-      PlayerContainerTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+      PlayerContainerTransfers.prepare(
+        state.uuid,
+        sequence(state),
+        source(state, snapshot),
+        intent
+      )
     end)
   end
 
@@ -453,6 +457,7 @@ defmodule Valimc.PlayerStore do
     else
       with {:ok, after_snapshot, key, records} <- PlayerTransfers.plan_cleanup(state.snapshot) do
         if records == [] do
+          after_snapshot = PlayerState.new(after_snapshot)
           with :ok <- save(state, after_snapshot), do: {:ok, %{state | snapshot: after_snapshot}}
         else
           prepare =
@@ -470,6 +475,7 @@ defmodule Valimc.PlayerStore do
                    key,
                    records
                  ),
+               next = PlayerState.new(next),
                :ok <- save(state, next),
                do: {:ok, start_closing(%{state | snapshot: next, fence: make_ref()})}
         end
@@ -535,6 +541,13 @@ defmodule Valimc.PlayerStore do
   end
 
   defp sequence(state), do: if(state.snapshot, do: state.snapshot.transfer_sequence, else: 0)
+
+  # A live capture as the store's source: the store owns the transfer sequence.
+  defp source(_state, nil), do: nil
+
+  defp source(state, snapshot),
+    do: %{PlayerState.strip(snapshot) | transfer_sequence: sequence(state)}
+
   defp pending?(state), do: state.snapshot != nil and state.snapshot.outbox != nil
 
   defp lease_guard(state, fence) do
@@ -569,7 +582,7 @@ defmodule Valimc.PlayerStore do
       if pending?(state) do
         {:error, :transfer_pending}
       else
-        {:ok, Map.merge(snapshot, %{transfer_sequence: sequence(state), outbox: nil})}
+        {:ok, %{PlayerState.strip(snapshot) | transfer_sequence: sequence(state)}}
       end
     end
   end
@@ -577,6 +590,8 @@ defmodule Valimc.PlayerStore do
   defp checkpoint_snapshot(_, _, _), do: {:error, :invalid_player_state}
 
   defp commit_transfer(state, snapshot, ref) do
+    snapshot = PlayerState.new(snapshot)
+
     case save(state, snapshot) do
       :ok ->
         fence = make_ref()
@@ -596,7 +611,7 @@ defmodule Valimc.PlayerStore do
 
   # A pending outbox targets the snapshot's dimension (VMC-026b): a player
   # changes dimension only with no transfer pending.
-  defp dimension(snapshot), do: Map.get(snapshot, :dimension, :overworld)
+  defp dimension(snapshot), do: snapshot.dimension
 
   # What the destination's durable receipt proves about the pending outbox.
   defp destination_proof(%{snapshot: %{outbox: outbox} = snapshot} = state) when outbox != nil,
@@ -628,16 +643,18 @@ defmodule Valimc.PlayerStore do
     :exit, _ -> Valimc.Error.retry(:transfer_destination_unavailable)
   end
 
-  defp resolved_snapshot(uuid, snapshot, proof),
-    do: Valimc.Txn.Operation.of(snapshot).resolve(uuid, snapshot, proof)
+  defp resolved_snapshot(uuid, snapshot, proof) do
+    with {:ok, next} <- Valimc.Txn.Operation.of(snapshot).resolve(uuid, snapshot, proof),
+         do: {:ok, PlayerState.new(next)}
+  end
 
   defp load(nil, _), do: {:ok, nil}
 
   defp load(path, uuid) do
     case File.open(path, [:read, :binary], fn io ->
-           IO.binread(io, PlayerSnapshot.max_bytes() + 1)
+           IO.binread(io, PlayerState.max_bytes() + 1)
          end) do
-      {:ok, bytes} when is_binary(bytes) -> PlayerSnapshot.decode(bytes, uuid)
+      {:ok, bytes} when is_binary(bytes) -> PlayerState.decode(bytes, uuid)
       {:error, :enoent} -> {:ok, nil}
       {:ok, :eof} -> {:error, :invalid_player_file}
       {:ok, {:error, reason}} -> {:error, reason}
@@ -647,7 +664,7 @@ defmodule Valimc.PlayerStore do
 
   defp save(state, snapshot) do
     result =
-      with {:ok, bytes} <- PlayerSnapshot.encode(state.uuid, snapshot),
+      with {:ok, bytes} <- PlayerState.encode(state.uuid, snapshot),
            do: write(state.path, bytes)
 
     case result do

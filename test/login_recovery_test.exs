@@ -1,7 +1,8 @@
 defmodule Valimc.LoginRecoveryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers}
+  alias Valimc.{Inventory, PlayerStore, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Region
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -31,8 +32,8 @@ defmodule Valimc.LoginRecoveryTest do
     name = "Recover" <> Integer.to_string(System.unique_integer([:positive]))
     uuid = Valimc.Connection.offline_uuid(name)
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    before = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
-    kept = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 4)}})
+    before = PlayerState.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
+    kept = PlayerState.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 4)}})
     {rx, rz} = ctx.key
 
     records = [
@@ -48,7 +49,7 @@ defmodule Valimc.LoginRecoveryTest do
     records = if motion, do: Enum.map(records, &Map.put(&1, :motion, motion)), else: records
 
     {:ok, pending} = PlayerTransfers.prepare(uuid, 0, before, kept, ctx.key, records)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, pending)
+    {:ok, bytes} = PlayerState.encode(uuid, pending)
     path = PlayerStore.path(ctx.base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -82,7 +83,7 @@ defmodule Valimc.LoginRecoveryTest do
     assert uuid == fixture.uuid
     client = Client.load_world(client)
     assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 4)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(fixture.path), uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(fixture.path), uuid)
     assert saved.outbox == nil and saved.transfer_sequence == 1
     player = Enum.find(Valimc.Players.all(), &(&1.name == fixture.name))
     state = :sys.get_state(player.pid)

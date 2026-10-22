@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerMiningTransfers do
   @moduledoc "Trusted source mining plans and receipt-backed compensation; no RNG or destination mutation."
-  alias Valimc.{Durability, GameMode, Inventory, PlayerMiningIntent, PlayerSnapshot}
+  alias Valimc.{Durability, GameMode, Inventory, PlayerMiningIntent}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.MiningTools
   @max_sequence 18_446_744_073_709_551_615
 
@@ -33,7 +34,7 @@ defmodule Valimc.PlayerMiningTransfers do
            snapshot
            |> Map.put(:inventory, replace(inventory, intent.slot, intent.after))
            |> Map.merge(%{transfer_sequence: sequence + 1, outbox: canonical}),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, next) do
+         {:ok, _} <- PlayerState.encode(uuid, next) do
       {:ok, next}
     else
       _ -> {:error, :invalid_mining_plan}

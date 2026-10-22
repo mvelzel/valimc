@@ -1,7 +1,8 @@
 defmodule Valimc.KeyboardDropTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -24,7 +25,7 @@ defmodule Valimc.KeyboardDropTest do
     }
 
     inventory = %Inventory{selected: 7, slots: %{43 => stone, 45 => ItemStack.new("egg", 3)}}
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, inventory))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, inventory))
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -83,7 +84,7 @@ defmodule Valimc.KeyboardDropTest do
   end
 
   defp saved(ctx) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
   end
 

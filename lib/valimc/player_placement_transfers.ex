@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerPlacementTransfers do
   @moduledoc "Leased source placement plans and receipt-backed exact-stack refunds."
-  alias Valimc.{GameMode, Inventory, PlayerPlacementIntent, PlayerSnapshot}
+  alias Valimc.{GameMode, Inventory, PlayerPlacementIntent}
+  alias Valimc.Player.State, as: PlayerState
   @max_sequence 18_446_744_073_709_551_615
 
   def prepare(
@@ -26,7 +27,7 @@ defmodule Valimc.PlayerPlacementTransfers do
            snapshot
            |> Map.put(:inventory, replace(inventory, intent.slot, intent.after))
            |> Map.merge(%{transfer_sequence: sequence + 1, outbox: canonical}),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, next) do
+         {:ok, _} <- PlayerState.encode(uuid, next) do
       {:ok, next}
     else
       _ -> {:error, :invalid_placement_plan}

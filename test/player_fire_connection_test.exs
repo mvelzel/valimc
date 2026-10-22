@@ -2,7 +2,8 @@ defmodule Valimc.PlayerFireConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, state: 1]
@@ -133,7 +134,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
     assert living(pid).fire_ticks == 0
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.fire_ticks == 0 and saved.outbox == nil
     assert saved.transfer_sequence == 1 and saved.inventory.slots == %{}
     Client.send_packet(client, :play, "client_command", <<0>>)

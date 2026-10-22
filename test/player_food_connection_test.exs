@@ -3,7 +3,8 @@ defmodule Valimc.PlayerFoodConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, Players, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory, PlayerFood, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -88,7 +89,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert state(pid).player.food == saved_food
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == saved_food and saved.health.value == expected
     {_client, owner} = login(ctx, expected, saved_food)
     assert state(owner).player.food == saved_food and state(owner).food_tick_origin == 0
@@ -164,7 +165,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert_health(body, 20.0, %PlayerFood{})
     assert state(pid).player.food == %PlayerFood{}
     assert state(pid).food_tick_origin == state(pid).simulation_clock.tick
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.health.value == 20.0
     assert saved.transfer_sequence == 2 and saved.outbox == nil and saved.inventory.slots == %{}
   end
@@ -200,7 +201,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert_health(body, 4.0, food)
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == food and saved.health.value == 4.0
     assert saved.inventory.slots == inventory.slots and saved.transfer_sequence == 0
     {client, pid} = login(ctx, 4.0, food)
@@ -211,7 +212,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {body, _client} = Client.await(client, :play, "set_health")
     assert_health(body, 20.0, %PlayerFood{})
     assert Valimc.TestConn.state(pid).player.food == %PlayerFood{}
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.air_supply == 300
     assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
   end

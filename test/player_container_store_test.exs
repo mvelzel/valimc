@@ -2,15 +2,8 @@ defmodule Valimc.PlayerContainerStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
 
-  alias Valimc.{
-    GameMode,
-    Inventory,
-    PlayerContainerIntent,
-    PlayerFood,
-    PlayerSnapshot,
-    PlayerStore,
-    TransferDelivery
-  }
+  alias Valimc.{GameMode, Inventory, PlayerContainerIntent, PlayerFood, PlayerStore, TransferDelivery}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Containers, ContainerTransfers, Region}
@@ -102,7 +95,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert pending.inventory == ctx.snapshot.inventory and pending.outbox.kind == :container
 
     assert {:ok, disk} =
-             PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+             PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert disk.inventory == pending.inventory and disk.outbox == pending.outbox
     {writer, next_fence, pending}
@@ -157,7 +150,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert_receive {:player_transfer_saved, ^ref, {:error, :no_pending_transfer}}
 
     assert {:ok, %{outbox: nil, transfer_sequence: 1, inventory: inventory}} =
-             PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+             PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert inventory.carried == nil and inventory.slots == sealed.inventory.slots
   end

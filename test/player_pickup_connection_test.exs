@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerPickupConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.World.Region
   alias Valimc.TestClient, as: Client
@@ -57,7 +58,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
       })
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(c.uuid, PlayerSnapshot.capture(player, %Inventory{slots: slots}))
+      PlayerState.encode(c.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
     path = PlayerStore.path(c.base, c.uuid)
     File.mkdir_p!(Path.dirname(path))
@@ -85,7 +86,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   end
 
   defp saved(c) do
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
     saved
   end
 

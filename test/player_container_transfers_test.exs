@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerContainerTransfersTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.{GameMode, Inventory, PlayerContainerTransfers, PlayerFood, PlayerSnapshot}
+  alias Valimc.{GameMode, Inventory, PlayerContainerTransfers, PlayerFood}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Containers, ContainerTransfers}
@@ -66,14 +67,13 @@ defmodule Valimc.PlayerContainerTransfersTest do
         ] do
       base = Map.drop(snapshot, [:fire_ticks, :effects, :absorption] -- keys)
       assert {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, base, intent)
-      assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-      assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+      assert {:ok, bytes} = PlayerState.encode(@uuid, pending)
+      assert {:ok, restored} = PlayerState.decode(bytes, @uuid)
 
       assert restored.outbox.kind == :container and
                restored.inventory.carried == snapshot.inventory.carried
 
       assert restored.transfer_sequence == 10
-      if keys == [], do: assert(<<"VMCPOSE", 20, _::binary>> = bytes)
     end
   end
 end

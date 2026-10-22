@@ -2,7 +2,8 @@ defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.Health
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -44,12 +45,12 @@ defmodule Valimc.MenuOverflowTest do
     {:ok, after_inventory, drops} = Inventory.close(original)
     # Transient menu contents belong to this live session; login now cleans orphans.
     seed_inventory = %{original | slots: Map.drop(original.slots, [1, 2, 3, 4]), carried: nil}
-    {:ok, seed_bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, seed_inventory))
+    {:ok, seed_bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, seed_inventory))
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(
+      PlayerState.encode(
         uuid,
-        Map.merge(PlayerSnapshot.capture(pose, original), %{
+        Map.merge(PlayerState.capture(pose, original), %{
           health: %Health{},
           air_supply: 300,
           fire_ticks: 0,
@@ -145,7 +146,7 @@ defmodule Valimc.MenuOverflowTest do
   end
 
   defp saved(ctx) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
   end
 

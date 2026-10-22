@@ -14,11 +14,8 @@ defmodule Valimc.Session.JobHandlers do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    PlayerMiningQuery,
-    PlayerSnapshot,
-    PlayerStore
-  }
+  alias Valimc.{PlayerMiningQuery, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
 
   def job_result(:pickup, job, result, state) do
     Valimc.Connection.guard_connection(state, fn ->
@@ -76,7 +73,7 @@ defmodule Valimc.Session.JobHandlers do
            true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit) do
         state = Transfers.cancel_experience_query(state)
         ref = make_ref()
-        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+        snapshot = PlayerState.capture(state.player, state.inventory)
         intent = %{job.intent | request: request}
 
         recovery = %{

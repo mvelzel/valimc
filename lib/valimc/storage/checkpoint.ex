@@ -3,8 +3,9 @@ defmodule Valimc.Storage.Checkpoint do
   An owner's checkpoint file (VMC-077f): its records as of its `seq`-th
   frame, `"VMCREG01" <> <<seq::64>> <> term <> sha256`, replaced crash-safely
   (`Valimc.DurableFile`). A region's is `r.X.Z.vmc` in its dimension's folder,
-  with its export-only imported data beside it in `r.X.Z.extra`. The header
-  alone tells the log what a checkpoint covers.
+  with its export-only imported data beside it in `r.X.Z.extra`; a player's
+  file has the same form (`Valimc.Player.State`, VMC-077i1). The header alone
+  tells the log what a checkpoint covers.
   """
   alias Valimc.Dimension
 
@@ -18,9 +19,13 @@ defmodule Valimc.Storage.Checkpoint do
   @doc "The export-only side file of a region checkpoint."
   def extra(path), do: Path.rootname(path) <> ".extra"
 
-  def write(path, seq, records) when is_integer(seq) and is_map(records) do
+  def write(path, seq, records) when is_integer(seq) and is_map(records),
+    do: Valimc.DurableFile.write(path, encode(seq, records))
+
+  @doc "A checkpoint's bytes (iodata): its records as of its `seq`-th frame."
+  def encode(seq, records) when is_integer(seq) and is_map(records) do
     body = [@magic, <<seq::64>>, :erlang.term_to_binary(records)]
-    Valimc.DurableFile.write(path, [body, :crypto.hash(:sha256, body)])
+    [body, :crypto.hash(:sha256, IO.iodata_to_binary(body))]
   end
 
   @doc """
@@ -46,7 +51,8 @@ defmodule Valimc.Storage.Checkpoint do
     end
   end
 
-  defp decode(bytes) when byte_size(bytes) > 48 do
+  @doc "A checkpoint's `seq` and records from its bytes."
+  def decode(bytes) when is_binary(bytes) and byte_size(bytes) > 48 do
     size = byte_size(bytes) - 32
     <<body::binary-size(^size), digest::binary-size(32)>> = bytes
 
@@ -61,5 +67,5 @@ defmodule Valimc.Storage.Checkpoint do
     ArgumentError -> {:error, :invalid_checkpoint}
   end
 
-  defp decode(_), do: {:error, :invalid_checkpoint}
+  def decode(_), do: {:error, :invalid_checkpoint}
 end

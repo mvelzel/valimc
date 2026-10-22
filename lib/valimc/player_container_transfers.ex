@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerContainerTransfers do
   @moduledoc "Prepare original items, then seal only a matching durable container outcome."
-  alias Valimc.{PlayerContainerIntent, PlayerSnapshot}
+  alias Valimc.PlayerContainerIntent
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.ContainerTransfers
   @max_sequence 18_446_744_073_709_551_615
 
@@ -13,7 +14,7 @@ defmodule Valimc.PlayerContainerTransfers do
          {:ok, bytes} <- PlayerContainerIntent.encode(uuid, sequence + 1, bound),
          {:ok, canonical} <- PlayerContainerIntent.decode(uuid, sequence + 1, bytes),
          next = Map.merge(snapshot, %{transfer_sequence: sequence + 1, outbox: canonical}),
-         {:ok, _} <- PlayerSnapshot.encode(uuid, next) do
+         {:ok, _} <- PlayerState.encode(uuid, next) do
       {:ok, next}
     else
       _ -> {:error, :invalid_container_plan}

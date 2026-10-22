@@ -3,7 +3,8 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   import Valimc.TestPlayer, only: [living: 1]
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerSnapshot, Players, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -49,9 +50,9 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       })
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(
+      PlayerState.encode(
         Connection.offline_uuid(name),
-        PlayerSnapshot.capture(player, inventory)
+        PlayerState.capture(player, inventory)
       )
 
     path = path(ctx, name)
@@ -62,7 +63,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   defp path(ctx, name), do: PlayerStore.path(ctx.base, Connection.offline_uuid(name))
 
   defp saved(ctx, name),
-    do: PlayerSnapshot.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
+    do: PlayerState.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
 
   defp state(pid), do: Valimc.TestConn.state(pid)
 

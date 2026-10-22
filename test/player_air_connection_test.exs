@@ -3,7 +3,8 @@ defmodule Valimc.PlayerAirConnectionTest do
   alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -94,7 +95,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     assert living(pid).air_supply == -7
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.air_supply == -7 and saved.health.value == 16.0
     assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx)
@@ -132,7 +133,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     tick(pid)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.air_supply == 0
     assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1

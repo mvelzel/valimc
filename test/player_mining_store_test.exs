@@ -2,15 +2,8 @@ defmodule Valimc.PlayerMiningStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.Durability
 
-  alias Valimc.{
-    Connection,
-    GameMode,
-    Inventory,
-    PlayerFood,
-    PlayerSnapshot,
-    PlayerStore,
-    TransferDelivery
-  }
+  alias Valimc.{Connection, GameMode, Inventory, PlayerFood, PlayerStore, TransferDelivery}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World.Region
@@ -109,7 +102,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert Inventory.get(snapshot.inventory, 43) == ctx.intent.after
 
     assert {:ok, saved} =
-             PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+             PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert saved == persisted(snapshot)
 
@@ -117,7 +110,11 @@ defmodule Valimc.PlayerMiningStoreTest do
   end
 
   defp persisted(snapshot),
-    do: %{snapshot | inventory: %{snapshot.inventory | state_id: 0, drag: nil}}
+    do:
+      PlayerState.new(%{
+        snapshot
+        | inventory: %{snapshot.inventory | state_id: 0, drag: nil, infinite_materials: false}
+      })
 
   defp complete(ctx, fence) do
     ref = make_ref()
@@ -158,7 +155,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}
 
     assert {:ok, saved} =
-             PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+             PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert saved == persisted(final)
 

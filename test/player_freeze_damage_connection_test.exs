@@ -3,7 +3,8 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Inventory, PlayerSnapshot}
+  alias Valimc.Inventory
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -66,7 +67,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     assert state(pid).inventory == inventory
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 18.0 and saved.frozen_ticks == 140
 
     assert saved.inventory.slots == inventory.slots and saved.transfer_sequence == 0 and
@@ -87,7 +88,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     ticks(pid, 40)
     {_, client} = Client.await(client, :play, "player_combat_kill")
     wait(fn -> state(pid).life_stage == :dead end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.transfer_sequence == 2 and saved.outbox == nil
     assert saved.inventory.slots == %{} and map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 8
     assert state(pid).pose_checked == nil

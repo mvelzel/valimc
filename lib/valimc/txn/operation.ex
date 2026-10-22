@@ -47,7 +47,7 @@ defmodule Valimc.Txn.Operation do
   defmodule Items do
     @moduledoc false
     @behaviour Valimc.Txn.Operation
-    def request(uuid, snapshot), do: Valimc.PlayerSnapshot.transfer_request(uuid, snapshot)
+    def request(uuid, snapshot), do: Valimc.Player.State.transfer_request(uuid, snapshot)
     def apply(owner, request), do: Region.apply_item_transfer(owner, request)
     def receipt(owner, uuid), do: Region.item_transfer_receipt(owner, uuid)
 

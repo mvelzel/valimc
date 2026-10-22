@@ -1,7 +1,8 @@
 defmodule Valimc.InteractionRangeConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -20,7 +21,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
       Map.merge(pose, %{game_mode: GameMode.new(:creative), abilities: %Valimc.PlayerAbilities{}})
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, inventory))
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)

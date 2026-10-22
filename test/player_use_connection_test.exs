@@ -3,7 +3,8 @@ defmodule Valimc.PlayerUseConnectionTest do
   alias Valimc.Living.{Attributes, Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, Players, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory, PlayerFood, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
   alias Valimc.TestClient, as: Client
@@ -243,7 +244,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).inventory.slots[45] == ItemStack.new("glass_bottle")
     assert living(pid).effects == %{11 => [{9600, 0, false, true, true}]}
     wait(fn -> state(pid).use_save == nil end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.effects == living(pid).effects
     assert saved.inventory.slots == state(pid).inventory.slots
     assert saved.outbox == nil and saved.transfer_sequence == 0
@@ -330,7 +331,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.effects == %{11 => [{3591, 0, false, true, true}]}
       assert saved.inventory.slots == %{36 => ItemStack.new("glass_bottle")}
     after
@@ -371,7 +372,7 @@ defmodule Valimc.PlayerUseConnectionTest do
                }}, <<>>} = Valimc.NBT.take(message)
 
       assert names == [ctx.name, ctx.name]
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
       assert saved.transfer_sequence == 1 and saved.outbox == nil
       assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
@@ -380,7 +381,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       {_client, restored} = login(ctx, 0.0, food)
 
       assert living(restored).health.value == 0.0
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.transfer_sequence == 1 and saved.outbox == nil
 
       assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
@@ -500,7 +501,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       wait(fn -> state(pid).use_save == nil end)
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
 
       assert saved.effects == %{} and
                saved.inventory.slots[unquote(slot)] == ItemStack.new("bucket")
@@ -543,7 +544,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     ticks(pid, 3)
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.inventory.slots[36].count == 1 and saved.inventory.slots[45].count == 1
     assert saved.food == %PlayerFood{level: 13, saturation: 12.0}
     assert saved.transfer_sequence == 0 and saved.outbox == nil
@@ -619,7 +620,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).player.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.food == %PlayerFood{level: 10, saturation: 5.0, exhaustion: 1.0}
       assert saved.inventory.slots[36].count == 2 and saved.transfer_sequence == 0
     after

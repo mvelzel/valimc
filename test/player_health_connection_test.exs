@@ -2,7 +2,8 @@ defmodule Valimc.PlayerHealthConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -70,7 +71,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     }
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -93,7 +94,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
       Client.close(client)
       assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
       departed(ctx)
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(path), ctx.uuid)
+      assert {:ok, saved} = PlayerState.decode(File.read!(path), ctx.uuid)
       assert saved.health.value == 7.25 and saved.health.hurt_ticks <= 7
       assert saved.fire_ticks in 1..300
       assert saved.inventory.slots == inventory.slots
@@ -104,7 +105,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
   test "legacy health defaults and timers progress despite pending teleport, with stale/early ticks inert",
        ctx do
     legacy = %{pose: %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}, inventory: %Inventory{}}
-    {:ok, <<"VMCPOSE", 2, _::binary>> = bytes} = PlayerSnapshot.encode(ctx.uuid, legacy)
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, legacy)
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)

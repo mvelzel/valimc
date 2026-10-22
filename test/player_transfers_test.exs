@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerTransfersTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
+  alias Valimc.{Inventory, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   defp pose, do: %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
 
@@ -14,7 +15,7 @@ defmodule Valimc.PlayerTransfersTest do
     }
 
   defp record(n, item), do: %{uuid: <<n::128>>, x: 0.5, y: 64.5, z: 0.5, stack: item}
-  defp capture(inv), do: PlayerSnapshot.capture(pose(), inv)
+  defp capture(inv), do: PlayerState.capture(pose(), inv)
 
   test "creative creation requires live permission and exactly one valid bounded nonempty record" do
     snapshot = capture(Inventory.new())

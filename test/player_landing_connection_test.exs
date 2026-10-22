@@ -4,14 +4,8 @@ defmodule Valimc.PlayerLandingConnectionTest do
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{
-    Connection,
-    Inventory,
-    PlayerMotion,
-    PlayerSnapshot,
-    PlayerStore,
-    Players
-  }
+  alias Valimc.{Connection, Inventory, PlayerMotion, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
@@ -76,7 +70,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
       })
 
     inventory = Keyword.get(opts, :inventory, %Inventory{})
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
   end
@@ -145,7 +139,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert living(pid).health.value == 15.0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 15.0
     {second, owner} = login(ctx)
     assert living(owner).health.value == saved.health.value

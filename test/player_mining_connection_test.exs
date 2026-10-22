@@ -2,7 +2,8 @@ defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -58,7 +59,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       })
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, %Inventory{slots: slots}))
+      PlayerState.encode(ctx.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
@@ -147,7 +148,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   defp saved(ctx) do
     {:ok, snapshot} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     snapshot
   end

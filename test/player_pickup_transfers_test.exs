@@ -1,14 +1,8 @@
 defmodule Valimc.PlayerPickupTransfersTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.{
-    GameMode,
-    Inventory,
-    ItemMotionState,
-    PlayerFood,
-    PlayerPickupTransfers,
-    PlayerSnapshot
-  }
+  alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerPickupTransfers}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Entities, PickupTransfers}
@@ -68,9 +62,14 @@ defmodule Valimc.PlayerPickupTransfersTest do
     items
   end
 
-  defp persisted(state), do: %{state | inventory: %{state.inventory | state_id: 0, drag: nil}}
+  defp persisted(state),
+    do:
+      PlayerState.new(%{
+        state
+        | inventory: %{state.inventory | state_id: 0, drag: nil, infinite_materials: false}
+      })
 
-  test "creative overflow permissions survive v16 and a table wrapper without trusting saved inventory flags" do
+  test "creative overflow permissions survive a pending pickup and an open table without trusting saved inventory flags" do
     {state, intent} = source(:creative)
 
     inventory = %Inventory{
@@ -81,16 +80,13 @@ defmodule Valimc.PlayerPickupTransfersTest do
     state = %{state | inventory: inventory}
     assert {:ok, pending} = PlayerPickupTransfers.prepare(@uuid, 9, state, intent)
     assert pending.inventory == inventory
-    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-    assert <<"VMCPOSE", 15, _::binary-size(52), 16, _::binary>> = bytes
+    assert {:ok, bytes} = PlayerState.encode(@uuid, pending)
     burning = Map.put(pending, :fire_ticks, 300)
+    assert {:ok, fire_bytes} = PlayerState.encode(@uuid, burning)
 
-    assert {:ok, <<"VMCPOSE", 17, _::binary>> = fire_bytes} =
-             PlayerSnapshot.encode(@uuid, burning)
-
-    assert {:ok, restored_fire} = PlayerSnapshot.decode(fire_bytes, @uuid)
+    assert {:ok, restored_fire} = PlayerState.decode(fire_bytes, @uuid)
     assert restored_fire == persisted(burning)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+    assert {:ok, restored} = PlayerState.decode(bytes, @uuid)
     assert restored == persisted(pending)
 
     assert {:ok, withdrawn} =

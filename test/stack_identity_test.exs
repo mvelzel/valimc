@@ -1,6 +1,7 @@
 defmodule Valimc.StackIdentityTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
+  alias Valimc.{Inventory, PlayerTransfers}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ItemRecords, Entities, ItemTransfers}
 
@@ -58,23 +59,23 @@ defmodule Valimc.StackIdentityTest do
              PlayerTransfers.prepare(
                <<1::128>>,
                8,
-               PlayerSnapshot.capture(pose, inv),
-               PlayerSnapshot.capture(pose, next),
+               PlayerState.capture(pose, inv),
+               PlayerState.capture(pose, next),
                {0, 0},
                [record]
              )
 
     assert prepared.transfer_sequence == 9 and prepared.outbox.records == [record]
-    assert {:ok, bytes} = PlayerSnapshot.encode(<<1::128>>, prepared)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, <<1::128>>)
+    assert {:ok, bytes} = PlayerState.encode(<<1::128>>, prepared)
+    assert {:ok, restored} = PlayerState.decode(bytes, <<1::128>>)
     assert restored.outbox == prepared.outbox
 
     assert {:error, :item_conservation_failed} =
              PlayerTransfers.prepare(
                <<1::128>>,
                8,
-               PlayerSnapshot.capture(pose, inv),
-               PlayerSnapshot.capture(pose, next),
+               PlayerState.capture(pose, inv),
+               PlayerState.capture(pose, next),
                {0, 0},
                [
                  %{

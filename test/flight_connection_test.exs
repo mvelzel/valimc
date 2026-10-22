@@ -1,7 +1,8 @@
 defmodule Valimc.FlightConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerAbilities, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Inventory, Players, PlayerAbilities, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -17,7 +18,7 @@ defmodule Valimc.FlightConnectionTest do
     pose = %{x: rx * 128 + 64.5, y: 70.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}, selected: 0}
     path = PlayerStore.path(base, uuid)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, inventory))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, inventory))
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
@@ -51,7 +52,7 @@ defmodule Valimc.FlightConnectionTest do
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp saved(ctx) do
-    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
   end
 

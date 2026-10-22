@@ -16,16 +16,8 @@ defmodule Valimc.Player.ItemUse do
 
   alias Valimc.Living.{Armor, Effects}
 
-  alias Valimc.{
-    FoodItems,
-    Inventory,
-    Players,
-    PlayerEquipment,
-    PlayerInput,
-    PlayerSnapshot,
-    PlayerStore,
-    PlayerUse
-  }
+  alias Valimc.{FoodItems, Inventory, Players, PlayerEquipment, PlayerInput, PlayerStore, PlayerUse}
+  alias Valimc.Player.State, as: PlayerState
 
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects Effects.live()
@@ -237,7 +229,7 @@ defmodule Valimc.Player.ItemUse do
           PlayerStore.checkpoint(
             state.player_store,
             state.store_fence,
-            PlayerSnapshot.capture(state.player, state.inventory),
+            PlayerState.capture(state.player, state.inventory),
             ref
           )
 

@@ -5,7 +5,8 @@ defmodule Valimc.WorldBorderConnectionTest do
   # Drives sockets and changes the server's one overworld border and the app-wide
   # respawn radius (VMC-027b/c/e).
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Connection, Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
   alias Valimc.World.{Border, Clock, Spawn}
@@ -132,7 +133,7 @@ defmodule Valimc.WorldBorderConnectionTest do
         })
 
       path = PlayerStore.path(base, uuid)
-      {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, %Inventory{}))
+      {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, %Inventory{}))
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
       %{name: name, pose: pose}

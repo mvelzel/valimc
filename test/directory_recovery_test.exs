@@ -4,7 +4,8 @@ defmodule Valimc.DirectoryRecoveryTest do
   # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.{Directory, Entities, Region, RegionStorage}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -57,12 +58,12 @@ defmodule Valimc.DirectoryRecoveryTest do
     refute File.exists?(source_path)
 
     initial =
-      PlayerSnapshot.capture(
+      PlayerState.capture(
         %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0},
         %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
       )
 
-    {:ok, source_bytes} = PlayerSnapshot.encode(uuid, initial)
+    {:ok, source_bytes} = PlayerState.encode(uuid, initial)
     File.mkdir_p!(Path.dirname(source_path))
     File.write!(source_path, source_bytes)
     {^uuid, client} = Client.login(name)
@@ -83,7 +84,7 @@ defmodule Valimc.DirectoryRecoveryTest do
              5
            )
 
-    {:ok, intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
+    {:ok, intent} = PlayerState.decode(File.read!(source_path), uuid)
     assert intent.transfer_sequence == 1
     [drop] = intent.outbox.records
     assert intent.inventory.slots[36].count == 6
@@ -97,7 +98,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     # The owner adopted and shows the drop at once (D2); only the player's reply waited.
     assert length(Entities.records(Valimc.TestRegion.section(owner).entities.store)) == 2
     assert map_size(Valimc.TestWorld.item_snapshot({0, 0})) == 2
-    assert {:ok, ^intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
+    assert {:ok, ^intent} = PlayerState.decode(File.read!(source_path), uuid)
 
     old_directory = Process.whereis(Directory)
     old_listener = Process.whereis(Valimc.Listener)
@@ -155,7 +156,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     {^uuid, reconnected} = Client.login(name)
     reconnected = Client.load_world(reconnected)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
     assert saved.outbox == nil
     assert saved.transfer_sequence == 1
     assert saved.inventory.slots[36].count == 6

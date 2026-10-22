@@ -21,7 +21,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
 | Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through their own connections |
 | Encoding, placement and mining jobs, auth/crypto, transfer recovery | Bounded worker pools (the placement and mining pool partitioned per caller) |
-| Region checkpoints, the write-ahead log and player snapshots | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
+| Region checkpoints, the write-ahead log and player files | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
 frame and receive-buffer caps (small before configuration), a connection heap
@@ -338,8 +338,9 @@ of checksummed frames, not Anvil: vanilla worlds are imported into checkpoints
 and exported from them offline
 (`mix valimc.import`, `mix valimc.export`, VMC-021; 26.2 chunks upgraded as vanilla's
 data fixers upgrade them, VMC-028d), and what ValiMC does not model
-yet is preserved for export in a side file. Player snapshots are files whose
-bytes are logged on the player stripes before the file is written. The log holds
+yet is preserved for export in a side file. A player's file is a checkpoint
+of its state's keyed records (`Player.State`, one schema and codec), logged on
+the player stripes before the file is written. The log holds
 no file descriptor between operations, so descriptors are bounded by its
 stripes; an append that cannot open its segment wrote nothing and is retried
 for 30 seconds. Worlds stored before the shared log are refused with a clear

@@ -1,15 +1,8 @@
 defmodule Valimc.PlayerPlacementStoreTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.{
-    Connection,
-    GameMode,
-    Inventory,
-    PlayerFood,
-    PlayerSnapshot,
-    PlayerStore,
-    TransferDelivery
-  }
+  alias Valimc.{Connection, GameMode, Inventory, PlayerFood, PlayerStore, TransferDelivery}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
@@ -97,11 +90,15 @@ defmodule Valimc.PlayerPlacementStoreTest do
   end
 
   defp persisted(snapshot),
-    do: %{snapshot | inventory: %{snapshot.inventory | state_id: 0, drag: nil}}
+    do:
+      PlayerState.new(%{
+        snapshot
+        | inventory: %{snapshot.inventory | state_id: 0, drag: nil, infinite_materials: false}
+      })
 
   defp read(ctx) do
     {:ok, saved} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     saved
   end

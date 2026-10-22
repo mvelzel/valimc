@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerPoseConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -19,7 +20,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       uuid = Valimc.Connection.offline_uuid(name)
       pose = %{pos | x: pos.x + index * 256}
       path = PlayerStore.path(base, uuid)
-      {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, Inventory.new()))
+      {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)
     end

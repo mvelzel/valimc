@@ -1,6 +1,7 @@
 defmodule Valimc.DimensionTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Dimension, Inventory, PlayerSnapshot}
+  alias Valimc.{Dimension, Inventory}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Anvil.Light
   alias Valimc.Protocol.Wire
 
@@ -17,38 +18,6 @@ defmodule Valimc.DimensionTest do
     end)
 
     assert Dimension.current() == :overworld
-  end
-
-  test "snapshots name the dimension, the death's dimension and the portal cooldown" do
-    base = %{pose: pose(), inventory: %Inventory{}}
-    assert {:ok, <<"VMCPOSE", 2, _::binary>> = plain} = PlayerSnapshot.encode(uuid(), base)
-
-    # Overworld players off cooldown keep the version they had.
-    overworld =
-      Map.merge(base, %{dimension: :overworld, death_dimension: :overworld, portal_cooldown: 0})
-
-    assert {:ok, ^plain} = PlayerSnapshot.encode(uuid(), overworld)
-
-    nether =
-      Map.merge(base, %{dimension: :the_nether, death_dimension: :the_end, portal_cooldown: 7})
-
-    assert {:ok, <<"VMCPOSE", 22, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), nether)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
-
-    assert {restored.dimension, restored.death_dimension, restored.portal_cooldown} ==
-             {:the_nether, :the_end, 7}
-
-    assert restored.pose == pose()
-    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
-
-    assert {:error, :invalid_dimension} =
-             PlayerSnapshot.encode(uuid(), %{nether | dimension: :moon})
-
-    player =
-      Map.merge(pose(), %{dimension: :the_end, death_dimension: :overworld, portal_cooldown: 3})
-
-    captured = PlayerSnapshot.capture(player, %Inventory{})
-    assert {captured.dimension, captured.portal_cooldown} == {:the_end, 3}
   end
 
   # The light part as {sky mask, block mask, empty sky, empty block, sky arrays, block arrays}.

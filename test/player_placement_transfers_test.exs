@@ -1,13 +1,8 @@
 defmodule Valimc.PlayerPlacementTransfersTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.{
-    GameMode,
-    Inventory,
-    PlayerFood,
-    PlayerPlacementTransfers,
-    PlayerSnapshot
-  }
+  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerPlacementTransfers}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.ItemStack
   @uuid <<83::128>>
@@ -69,7 +64,12 @@ defmodule Valimc.PlayerPlacementTransfersTest do
     {state, intent}
   end
 
-  defp persisted(state), do: %{state | inventory: %{state.inventory | state_id: 0, drag: nil}}
+  defp persisted(state),
+    do:
+      PlayerState.new(%{
+        state
+        | inventory: %{state.inventory | state_id: 0, drag: nil, infinite_materials: false}
+      })
 
   test "terminal resolution keeps consumption or refunds the exact stack without replaying the source" do
     for {hand, count, outcome} <- [{:main, 2, :applied}, {:off, 1, :rejected}] do
@@ -97,8 +97,8 @@ defmodule Valimc.PlayerPlacementTransfersTest do
       assert {:error, :invalid_placement_plan} =
                PlayerPlacementTransfers.resolve(resolved, outcome)
 
-      assert {:ok, <<"VMCPOSE", 12, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, resolved)
-      assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+      assert {:ok, bytes} = PlayerState.encode(@uuid, resolved)
+      assert {:ok, restored} = PlayerState.decode(bytes, @uuid)
       assert restored == persisted(resolved)
     end
   end

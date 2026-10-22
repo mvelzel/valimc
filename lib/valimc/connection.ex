@@ -24,16 +24,8 @@ defmodule Valimc.Connection do
   import Valimc.Net.Codec,
     only: [reject: 2, reset_window: 1]
 
-  alias Valimc.{
-    ChatThrottle,
-    CreativeInput,
-    Inventory,
-    Metrics,
-    Players,
-    PlayerKinetics,
-    PlayerSnapshot,
-    PlayerStore
-  }
+  alias Valimc.{ChatThrottle, CreativeInput, Inventory, Metrics, Players, PlayerKinetics, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.{ChestLidReplication, EntityReplication}
   import Bitwise
@@ -474,7 +466,7 @@ defmodule Valimc.Connection do
             snapshot
 
           _ ->
-            PlayerSnapshot.capture(state.player, state.inventory)
+            PlayerState.capture(state.player, state.inventory)
         end
 
       try do

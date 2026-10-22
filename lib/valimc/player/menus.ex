@@ -16,17 +16,8 @@ defmodule Valimc.Player.Menus do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
-  alias Valimc.{
-    ChestAccess,
-    Inventory,
-    PlayerContainerQuery,
-    PlayerInput,
-    PlayerSnapshot,
-    PlayerStore,
-    TableAccess,
-    TableMenu,
-    World
-  }
+  alias Valimc.{ChestAccess, Inventory, PlayerContainerQuery, PlayerInput, PlayerStore, TableAccess, TableMenu, World}
+  alias Valimc.Player.State, as: PlayerState
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
@@ -429,7 +420,7 @@ defmodule Valimc.Player.Menus do
       PlayerStore.container_candidate(
         state.player_store,
         state.store_fence,
-        PlayerSnapshot.capture(state.player, state.inventory),
+        PlayerState.capture(state.player, state.inventory),
         intent,
         ref
       )
@@ -508,7 +499,7 @@ defmodule Valimc.Player.Menus do
   def prepare_chest_action(state, intent) do
     state = cancel_table_query(state)
     ref = make_ref()
-    snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+    snapshot = PlayerState.capture(state.player, state.inventory)
 
     recovery = %{
       Transfers.new_recovery(:play, :prepare, nil)

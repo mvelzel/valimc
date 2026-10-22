@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerMiningIntentTest do
   use ExUnit.Case, async: true
-  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerMiningIntent, PlayerSnapshot}
+  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerMiningIntent}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World.MiningTransfers
   @uuid <<51::128>>
@@ -47,8 +48,6 @@ defmodule Valimc.PlayerMiningIntentTest do
     }
   end
 
-  defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
-
   test "typed intent roundtrips stable drops and exact refund with the complete v13 player journal" do
     intent = intent()
     assert {:ok, encoded} = PlayerMiningIntent.encode(@uuid, 9, intent)
@@ -60,20 +59,19 @@ defmodule Valimc.PlayerMiningIntentTest do
     assert request.permit == intent.permit and request.records == intent.records
 
     state = snapshot(intent)
-    assert {:ok, <<"VMCPOSE", 13, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, state)
-    assert byte_size(bytes) <= PlayerSnapshot.max_bytes()
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored == state
-    assert {:ok, ^bytes} = PlayerSnapshot.encode(@uuid, restored)
-    assert {:error, :wrong_transfer_kind} = PlayerSnapshot.transfer_request(@uuid, restored)
+    assert {:ok, bytes} = PlayerState.encode(@uuid, state)
+    assert byte_size(bytes) <= PlayerState.max_bytes()
+    assert {:ok, restored} = PlayerState.decode(bytes, @uuid)
+    assert restored == PlayerState.new(state)
+    assert {:error, :wrong_transfer_kind} = PlayerState.transfer_request(@uuid, restored)
 
     # Existing ordinary transfers keep the old codec and digest domain.
     ordinary = %{state | outbox: Map.take(intent, [:key, :records])}
-    assert {:ok, <<"VMCPOSE", 12, _::binary>> = old} = PlayerSnapshot.encode(@uuid, ordinary)
-    assert {:ok, ordinary} = PlayerSnapshot.decode(old, @uuid)
-    assert {:ok, _, _, ordinary_digest} = PlayerSnapshot.transfer_request(@uuid, ordinary)
+    assert {:ok, old} = PlayerState.encode(@uuid, ordinary)
+    assert {:ok, ordinary} = PlayerState.decode(old, @uuid)
+    assert {:ok, _, _, ordinary_digest} = PlayerState.transfer_request(@uuid, ordinary)
     refute ordinary_digest == digest
-    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(bytes, <<52::128>>)
+    assert {:error, :invalid_player_file} = PlayerState.decode(bytes, <<52::128>>)
   end
 
   test "bounds, target binding, canonical body and selected-hand mismatch fail closed" do
@@ -110,34 +108,14 @@ defmodule Valimc.PlayerMiningIntentTest do
     state = snapshot(intent)
 
     assert {:error, :invalid_mining_snapshot} =
-             PlayerSnapshot.encode(@uuid, %{state | inventory: %{state.inventory | selected: 0}})
+             PlayerState.encode(@uuid, %{state | inventory: %{state.inventory | selected: 0}})
 
     assert {:error, :invalid_mining_snapshot} =
-             PlayerSnapshot.encode(@uuid, %{
+             PlayerState.encode(@uuid, %{
                state
                | inventory: %{state.inventory | slots: %{43 => intent.before}}
              })
 
-    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, state)
-
-    payload_size = byte_size(bytes) - 40
-
-    <<"VMCPOSE", 13, payload::binary-size(^payload_size), _checksum::binary-size(32)>> =
-      bytes
-
-    # A valid outer checksum cannot turn the typed intent into an ordinary v12 outbox.
-    assert {:error, :invalid_player_file} =
-             PlayerSnapshot.decode(seal(<<"VMCPOSE", 12, payload::binary>>), @uuid)
-
-    {:ok, intent_bytes} = PlayerMiningIntent.encode(@uuid, 9, intent)
-    {start, _} = :binary.match(bytes, "VMCMOUT")
-    inventory_start = start + byte_size(intent_bytes)
-    rest_size = byte_size(bytes) - inventory_start - 33
-
-    <<prefix::binary-size(^inventory_start), _selected, inventory_rest::binary-size(^rest_size),
-      _checksum::binary-size(32)>> = bytes
-
-    assert {:error, :invalid_player_file} =
-             PlayerSnapshot.decode(seal(<<prefix::binary, 0, inventory_rest::binary>>), @uuid)
+    assert {:ok, _bytes} = PlayerState.encode(@uuid, state)
   end
 end

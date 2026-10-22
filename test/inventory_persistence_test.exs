@@ -1,7 +1,8 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.World.Entities
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
@@ -86,7 +87,7 @@ defmodule Valimc.InventoryPersistenceTest do
     key = {60_000 + rem(System.unique_integer([:positive]), 3_333) * 3, 400}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, Inventory.new()))
+    {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(pose, Inventory.new()))
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
@@ -128,7 +129,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([stone, ItemStack.new("egg", 3)])
 
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(path), uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(path), uuid)
     assert saved.transfer_sequence == 1 and saved.outbox == nil
 
     {^uuid, second} = login(username)
@@ -214,7 +215,7 @@ defmodule Valimc.InventoryPersistenceTest do
              {id, body, _} = Client.read(client)
              assert id == Data.id(:login, :clientbound, "login_disconnect")
              assert :binary.match(body, "Player save unavailable") != :nomatch
-           end) =~ "unsupported_player_file"
+           end) =~ "invalid_player_file"
 
     Client.close(client)
     assert File.read!(path) == legacy

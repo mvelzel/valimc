@@ -2,16 +2,8 @@ defmodule Valimc.CookingOrbConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.{
-    Connection,
-    CookingAwards,
-    GameMode,
-    Inventory,
-    Players,
-    PlayerSnapshot,
-    PlayerStore,
-    World
-  }
+  alias Valimc.{Connection, CookingAwards, GameMode, Inventory, Players, PlayerStore, World}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
   alias Valimc.World.{Entities, ExperienceOrbs, Region}
@@ -57,7 +49,7 @@ defmodule Valimc.CookingOrbConnectionTest do
         })
 
       uuid = Connection.offline_uuid(name)
-      {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, %Inventory{}))
+      {:ok, bytes} = PlayerState.encode(uuid, PlayerState.capture(player, %Inventory{}))
       path = PlayerStore.path(base, uuid)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, bytes)

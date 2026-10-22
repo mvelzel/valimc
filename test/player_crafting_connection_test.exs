@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerCraftingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerStore}
+  alias Valimc.Player.State, as: PlayerState
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -48,7 +49,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
       })
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, %Inventory{slots: slots}))
+      PlayerState.encode(ctx.uuid, PlayerState.capture(player, %Inventory{slots: slots}))
 
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
@@ -108,7 +109,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert inv.slots == %{36 => ItemStack.new("oak_planks", 8)}
 
     {:ok, saved} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+      PlayerState.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert saved.inventory.slots == inv.slots and saved.outbox == nil and
              saved.transfer_sequence == 0

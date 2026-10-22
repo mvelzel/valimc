@@ -4,14 +4,8 @@ defmodule Valimc.PortalConnectionTest do
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 240_000
-  alias Valimc.{
-    Connection,
-    Dimension,
-    Inventory,
-    PlayerSnapshot,
-    PlayerStore,
-    Players
-  }
+  alias Valimc.{Connection, Dimension, Inventory, PlayerStore, Players}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.Portal.Blocks
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -91,7 +85,7 @@ defmodule Valimc.PortalConnectionTest do
     }
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("flint_and_steel", 1)}}
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, PlayerState.capture(player, inventory))
     File.mkdir_p!(Path.dirname(ctx.path))
     File.write!(ctx.path, bytes)
   end
@@ -237,9 +231,9 @@ defmodule Valimc.PortalConnectionTest do
     {x, y, z} = ctx.origin
     seed(ctx, :creative)
     {:ok, bytes} = File.read(ctx.path)
-    {:ok, snapshot} = PlayerSnapshot.decode(bytes, ctx.uuid)
+    {:ok, snapshot} = PlayerState.decode(bytes, ctx.uuid)
     snapshot = put_in(snapshot.inventory.slots[36], ItemStack.new("ender_eye", 3))
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, snapshot)
+    {:ok, bytes} = PlayerState.encode(ctx.uuid, snapshot)
     File.write!(ctx.path, bytes)
     interior = {x, y, z}
     set(ring(interior, 11))
@@ -291,7 +285,7 @@ defmodule Valimc.PortalConnectionTest do
     {position, client} = Client.await(client, :play, "player_position")
     _client = Client.auto_reply(client, :play, "player_position", position)
     wait(fn -> state(pid).player.dimension == :overworld end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, saved} = PlayerState.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.seen_credits and Map.get(saved, :dimension, :overworld) == :overworld
   end
 end

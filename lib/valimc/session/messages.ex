@@ -25,17 +25,8 @@ defmodule Valimc.Session.Messages do
   import Valimc.Net.Codec,
     only: [send_packets: 2, crypt_bytes: 3, reject: 2, reset_window: 1]
 
-  alias Valimc.{
-    Metrics,
-    Players,
-    PlayerContainerQuery,
-    PlayerInput,
-    PlayerPickupIntent,
-    PlayerSnapshot,
-    PlayerStore,
-    TransferDelivery,
-    World
-  }
+  alias Valimc.{Metrics, Players, PlayerContainerQuery, PlayerInput, PlayerPickupIntent, PlayerStore, TransferDelivery, World}
+  alias Valimc.Player.State, as: PlayerState
 
   alias Valimc.World.TickClock
 
@@ -335,7 +326,7 @@ defmodule Valimc.Session.Messages do
       PlayerStore.checkpoint(
         state.player_store,
         state.store_fence,
-        PlayerSnapshot.capture(state.player, state.inventory),
+        PlayerState.capture(state.player, state.inventory),
         ref
       )
 
@@ -535,10 +526,7 @@ defmodule Valimc.Session.Messages do
       previous_progression = state.player.progression
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
 
-      state =
-        if Map.has_key?(snapshot, :progression),
-          do: put_in(state.player.progression, snapshot.progression),
-          else: state
+      state = put_in(state.player.progression, snapshot.progression)
 
       state =
         if recovery.intent.outbox[:request] &&
