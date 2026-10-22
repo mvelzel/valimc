@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-077z Placement across a section line](../tickets/VMC-077z.md) | `0487ba62`; a block placed against a block in a sibling section of the same group; client run October 22 |
+| [VMC-005b2c Creative clone and fill](../tickets/VMC-005b2c.md) | `61e6677`; server CLONE and quick-craft type 2 from an ordinary chest menu in creative, refused in survival; client run October 22 |
 | [VMC-079 Ticket hygiene](../tickets/VMC-079.md) | stale In progress and Foundation tickets resolved against the code (43 Done, 6 parked); backlog reduced to open work |
 | [VMC-077 Foundations II](../tickets/VMC-077.md) | `316a7452`; pre-M3 audit and rebuild: groups own everything that interacts, one striped log with per-tick frames, entity store, players in owners, Rust physics, block rules, light and generation scheduling, layered layout; lib 67.9k → 56.5k lines; final client run and rechecks |
 | [VMC-077j1](../tickets/VMC-077j1.md), [077j2](../tickets/VMC-077j2.md), [077j3](../tickets/VMC-077j3.md) Regionizer | group processes own 8 × 8 sections that merge and split by Folia's rule; dimension-explicit section keys; entities cross sections inside a group in one commit |

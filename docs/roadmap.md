@@ -74,9 +74,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 | [VMC-043a](tickets/VMC-043a.md) | Summoned zombie and primed TNT seen, killed, teleported across a group line and kept over a restart |
-| [VMC-077z](tickets/VMC-077z.md) | A block placed against a block across an 8 × 8 section line |
 
 ## Retrieve and update
 

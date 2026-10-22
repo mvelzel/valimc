@@ -1,7 +1,7 @@
 # VMC-005b2c — Authoritative creative clone and fill
 
-Status: Awaiting client
-Note: Awaiting client-generated clone/fill validation. Updated: October 20, 2026. Depends on VMC-005b1/005b2a. Its automated checkpoint was published through main `61e6677` on October 14 with this gate pending. Actual clone/fill validation remains required before declaring Done.
+Status: Done
+Depends on: VMC-005b1/005b2a. Closed by the October 22, 2026 client run below.
 
 ## Scope and acceptance
 
@@ -113,3 +113,12 @@ October 20 client run (`5b7cf61`): in creative, an ordinary chest and furnace me
 with a carried stack; the client did not even predict a clone, so no CLONE or
 type-2 click reached the server. Next step: check whether the client sees
 `hasInfiniteMaterials` (abilities instabuild) inside ordinary menus. Gate pending.
+
+October 22 client run (`579c2ebb`, fresh world, seed 20261020): PASS. In an
+ordinary chest menu in creative, middle-click on 7 stone with an empty cursor
+gave a cursor of 64 and kept the source at 7. Holding 7 and middle-dragging
+over four empty slots filled each to 64 and emptied the cursor (vanilla's
+accounting: 7 − 4 × 64 is not positive). In survival, middle-click changed
+nothing. Closing and reopening the chest showed the server's slots matching
+each step; the bridge acknowledged every input this time, unlike the
+October 20 attempt. Server log clean. Evidence: `.local/client-tests/gates-20261022/`.

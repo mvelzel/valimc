@@ -1,6 +1,6 @@
 # VMC-077z — Placement across a section line
 
-Status: Awaiting client
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077i](VMC-077i.md) (placement in the player's owner),
 [VMC-077j1](VMC-077j1.md) (groups), [VMC-077y](VMC-077y.md) (found by its
@@ -43,8 +43,7 @@ across any boundary.
 - The placement tests (`placement_region_test`, `placement_test`,
   `player_placement_connection_test`, `place_connection_test`) and `mix test
   --stale` pass; `check_vanilla.py --changed`.
-- Client: the repro above places the block. Rides along with the next client
-  run.
+- Client: the repro above places the block.
 
 ## Results
 
@@ -56,3 +55,12 @@ across any boundary.
 - The one `--stale` failure, `worldgen_scheduler_test.exs:214` (no spills
   counted), passes with its file and fails alone on the base commit too: it
   depends on test order, not on this change.
+
+## Client
+
+October 22, 2026, Java 26.3 against `579c2ebb`, fresh world, seed 20261020:
+PASS. From (2.5, 87, 0.5) facing west, obsidian placed against the obsidian
+at (-1, 88, 0) appears at (0, 88, 0) and stays, in creative and in survival
+(16 → 15); break and place again works. A `/setblock` probe confirms the
+server holds it; the server log has no refusal, error or warning. Evidence:
+`.local/client-tests/gates-20261022/`.
