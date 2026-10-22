@@ -4,27 +4,13 @@ defmodule Valimc.Worldgen.Frontier do
   `Valimc.Worldgen.Scheduler` runs it on the generation pool, and spawn search
   runs it inline at world creation.
 
-  One model decides what is made and in which order (VMC-077x1):
-
-  - **Goals** (`Frontier.Goals`): requesters want sets of chunks, some urgent;
-    the wanted chunks not sent yet are goals, ordered urgent first, then by
-    their score from the nearest player (`focus/4`), else by key. That order
-    is the only priority.
-  - **Dependencies** (`Frontier.Dependencies`): chunk statuses, decoration
-    numbers and what each numbered decoration still waits for. `next/3` finds
-    the work to start from the goals in order: final chunks and chunks made
-    alone, then the decorations and terrain the goals need, as far as the
-    room allows. Nothing polls or answers busy: what cannot start is not
-    returned until what it waits for is done.
-  - **Memory** (`Frontier.Memory`): proto cells past `cap` are dropped or
-    spilled, least recently used first.
-  - **Runners** (`Frontier.Runners`): the closures jobs run.
-
-  `next/3` returns jobs as closures for the caller to run (anywhere) and report
-  with `done/3`, or give back with `cancel/2`. A final chunk is made full for
-  whoever wants it and becomes `:handed` once its region persisted it
-  (`handed_over/2`). In a world generated before decoration a chunk is final
-  once it has terrain; a flat-layer world's chunks are full at once.
+  One model decides what is made and in which order (VMC-077x1): the wanted
+  chunks not sent yet are goals in one order, the only priority
+  (`Frontier.Goals`), and `next/3` finds the work to start from them through
+  what each needs (`Frontier.Dependencies`); `Frontier.Memory` bounds the
+  proto cells and `Frontier.Runners` holds the jobs' closures. `next/3` returns
+  jobs for the caller to run (anywhere) and report with `done/3`, or give back
+  with `cancel/2`; nothing polls or answers busy.
   """
   alias Valimc.Native
   alias Valimc.Worldgen.Frontier.{Dependencies, Goals, Memory, Runners}
@@ -213,22 +199,9 @@ defmodule Valimc.Worldgen.Frontier do
       |> claim(:full, Goals.sort(f, f.finals))
       |> claim(:alone, Goals.sort(f, f.alone))
 
-    {candidates, left} =
-      case f.kind do
-        :flat ->
-          flat =
-            Dependencies.take(
-              :gb_sets.iterator(f.goals),
-              capacity + 1,
-              &(not Map.has_key?(f.busy, &1))
-            )
-
-          {[{:flat, Enum.take(flat, capacity)}], length(flat) > capacity}
-
-        :noise ->
-          {decorations, terrain, more} = Dependencies.resolve(f, capacity, bulk)
-          {[{:decorate, decorations}, {:terrain, terrain}], more}
-      end
+    {decorations, terrain, left} = Dependencies.resolve(f, capacity, bulk)
+    kind = if f.kind == :flat, do: :flat, else: :terrain
+    candidates = [{:decorate, decorations}, {kind, terrain}]
 
     claimed = length(jobs)
 

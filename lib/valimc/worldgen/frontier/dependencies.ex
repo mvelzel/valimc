@@ -22,15 +22,9 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   (decorated, or blocked by a frozen chunk), and it re-checks the decorations
   within 2 that waited for it.
 
-  `resolve/3` finds the work to start from the goals in order, at dispatch:
-  through each goal's decorations, transitively the earlier ones they wait
-  for, and the terrain those lack, memoized within the walk, until the room is
-  filled or everything that can start was found (`ready` and `terrain` say
-  how much there is). A walk looks at no more than #{1_000} decorations and
-  goals, so its cost does not grow with the backlog; what room is left then
-  goes to the other needed work, ready decorations by number first. A chunk wanted again after it was handed over, or one that needs a
-  decoration that can no longer run (a neighbour handed over or failed), is
-  made alone (`alone`).
+  `resolve/3` finds the work to start from the goals in order. A chunk wanted
+  again after it was handed over, or one that needs a decoration that can no
+  longer run (a neighbour handed over or failed), is made alone (`alone`).
   """
   alias Valimc.Worldgen.Frontier
   alias Valimc.Worldgen.Frontier.Goals
@@ -89,11 +83,8 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
     f = Enum.reduce(lost, f, fn g, f -> Enum.reduce(around(g, 1), f, &need(&2, &1, -1)) end)
     f = number(f, added)
 
-    f =
-      Enum.reduce(lost, f, fn g, f ->
-        %{f | finals: MapSet.delete(f.finals, g), alone: MapSet.delete(f.alone, g)}
-      end)
-
+    lost = MapSet.new(lost)
+    f = %{f | finals: MapSet.difference(f.finals, lost), alone: MapSet.difference(f.alone, lost)}
     f = find_alone(f, gained)
     Enum.reduce(gained, f, &check_final(&2, &1))
   end
@@ -284,9 +275,15 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   can start was found, or after `@budget` steps. Room it leaves goes to the
   other needed work.
   """
-  def resolve(%Frontier{final_after_terrain: true} = f, _d, t) do
-    terrain = take(:gb_sets.iterator(f.goals), t + 1, &needs_terrain?(f, &1))
-    {[], Enum.take(terrain, t), length(terrain) > t}
+  # Flat worlds: the goals not held; worlds final after terrain: their terrain.
+  def resolve(%Frontier{final_after_terrain: true} = f, d, t) do
+    {keep, n} =
+      if f.kind == :flat,
+        do: {&(not Map.has_key?(f.busy, &1)), d},
+        else: {&needs_terrain?(f, &1), t}
+
+    chunks = take(:gb_sets.iterator(f.goals), n + 1, keep, [])
+    {[], Enum.take(chunks, n), length(chunks) > n}
   end
 
   def resolve(f, d, t) do
@@ -335,11 +332,10 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
       else: other_terrain(:maps.next(next), f, walk, t - 1, [c | acc])
   end
 
-  @doc "Up to `n` goals that pass `keep`, in goal order."
-  def take(goals, n, keep, acc \\ [])
-  def take(_goals, 0, _keep, acc), do: Enum.reverse(acc)
+  # Up to `n` goals that pass `keep`, in goal order.
+  defp take(_goals, 0, _keep, acc), do: Enum.reverse(acc)
 
-  def take(goals, n, keep, acc) do
+  defp take(goals, n, keep, acc) do
     case :gb_sets.next(goals) do
       :none ->
         Enum.reverse(acc)
