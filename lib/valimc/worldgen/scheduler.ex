@@ -22,8 +22,10 @@ defmodule Valimc.Worldgen.Scheduler do
   ready in one pass per section and finished chunks never queue in its
   mailbox.
 
-  Work starts when the scheduler's mailbox is empty, as far as the pool has
-  room; when the pool is full the next job to end wakes it.
+  Work starts as soon as what it waits for changed, a job's result included,
+  as far as the pool has room (VMC-077x); while the pool is full the next job
+  to end wakes it. Wants and players' focus change the priorities only where
+  they changed; a full rebuild runs at most four times a second.
 
   Proto chunks and starts live only here. A graceful stop waits briefly for
   running jobs and writes them as the dimension's snapshot
@@ -52,6 +54,10 @@ defmodule Valimc.Worldgen.Scheduler do
   # Unacknowledged deliveries per requester process, and chunks per delivery.
   @credit 2
   @delivery 64
+  # Priorities that went up or away are rebuilt at most this often (ms).
+  @refresh 250
+  # Proto cells spilled per eviction pass.
+  @spills 64
 
   defstruct [
     :world,
@@ -72,9 +78,12 @@ defmodule Valimc.Worldgen.Scheduler do
     calls: %{},
     waiting: false,
     dirty: false,
+    # When the priorities were last rebuilt (monotonic ms).
+    refreshed: nil,
     gauged: nil,
     # The scratch file spilled cells go to: `%{path, file}` (opened at the
-    # first spill), and the cells in memory when an eviction last freed none.
+    # first spill), and the cells in memory when an eviction pass last ended
+    # over the cap with nothing more it could free.
     scratch: nil,
     stuck: nil
   ]
@@ -196,7 +205,9 @@ defmodule Valimc.Worldgen.Scheduler do
   def init({world, dimension}) do
     Process.flag(:trap_exit, true)
     Valimc.World.Dimension.put(dimension)
-    {:ok, %__MODULE__{world: world, dimension: dimension}, {:continue, :load}}
+
+    state = %__MODULE__{world: world, dimension: dimension, refreshed: now_ms()}
+    {:ok, state, {:continue, :load}}
   end
 
   @impl true
@@ -222,7 +233,7 @@ defmodule Valimc.Worldgen.Scheduler do
         }
 
         {frontier, state} = restore(state.frontier, state)
-        {:noreply, %{state | frontier: frontier}, @idle}
+        noreply(%{state | frontier: frontier})
 
       other ->
         {:stop, {:shutdown, {:not_generated, other}}, state}
@@ -280,10 +291,12 @@ defmodule Valimc.Worldgen.Scheduler do
   defp open_scratch(state), do: state
 
   # Past the cap: drop and spill what work does not need soon, a batch per
-  # dispatch, and not again until more cells came in if none could go.
+  # dispatch. A pass looks at every cell in memory: after one that could not
+  # get under the cap, the next waits for an eighth of the cap more cells.
   defp spill(%{frontier: %{cap: cap, in_memory: n}} = state)
-       when is_integer(cap) and n > cap and (state.stuck == nil or n > state.stuck) do
-    {frontier, spills} = Frontier.evictions(state.frontier)
+       when is_integer(cap) and n > cap and
+              (state.stuck == nil or n >= state.stuck + max(div(cap, 8), 1)) do
+    {frontier, spills} = Frontier.evictions(state.frontier, @spills)
     state = if spills == [], do: state, else: open_scratch(state)
     file = state.scratch.file
 
@@ -298,7 +311,8 @@ defmodule Valimc.Worldgen.Scheduler do
     frontier = Frontier.spilled(frontier, locations)
     Valimc.Data.Metrics.add(:worldgen_spills, length(locations))
     Valimc.Data.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
-    stuck = if frontier.in_memory == n, do: n
+    # A full batch: more may go at the next dispatch.
+    stuck = if frontier.in_memory > cap and length(spills) < @spills, do: frontier.in_memory
     %{state | frontier: frontier, stuck: stuck}
   end
 
@@ -439,6 +453,10 @@ defmodule Valimc.Worldgen.Scheduler do
           {:job, _, started} = Map.fetch!(state.monitors, monitor)
           Process.demonitor(monitor, [:flush])
           Valimc.Data.Metrics.add(:worldgen_microseconds, now() - started)
+
+          with %{kind: kind} <- state.frontier.jobs[ref],
+               do: Valimc.Data.Metrics.add(:"worldgen_#{kind}_microseconds", now() - started)
+
           monitors = Map.delete(state.monitors, monitor)
           %{state | monitors: monitors, job_monitors: job_monitors}
       end
@@ -493,22 +511,37 @@ defmodule Valimc.Worldgen.Scheduler do
   def handle_info({Pool, :free}, state),
     do: noreply(%{state | waiting: false, dirty: true})
 
-  def handle_info(:timeout, %{dirty: true} = state), do: noreply(dispatch(state))
-
   def handle_info(:timeout, state) do
-    if idle?(state),
-      do: {:stop, :normal, state},
-      else: {:noreply, state, @idle}
+    cond do
+      state.dirty or state.frontier.stale -> noreply(%{state | dirty: true})
+      idle?(state) -> {:stop, :normal, state}
+      true -> {:noreply, state, @idle}
+    end
   end
 
   def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
   def handle_info(_message, state), do: noreply(state)
 
-  # Dispatch once the mailbox is empty; idle-stop after a while otherwise.
-  defp noreply(%{dirty: true} = state), do: {:noreply, state, 0}
-  defp noreply(state), do: {:noreply, state, @idle}
+  # Work starts as soon as anything changed, as far as the pool has room
+  # (VMC-077x): a job's result starts the next one at once.
+  defp noreply(state) do
+    state = if state.dirty, do: dispatch(state), else: state
+    {:noreply, state, timeout(state)}
+  end
 
-  defp reply(value, state), do: {:reply, value, state, if(state.dirty, do: 0, else: @idle)}
+  defp reply(value, state) do
+    state = if state.dirty, do: dispatch(state), else: state
+    {:reply, value, state, timeout(state)}
+  end
+
+  # Back at once when a dispatch asked for it; when a refresh is pending, once
+  # it is due; else idle-stop after a while.
+  defp timeout(%{dirty: true}), do: 0
+
+  defp timeout(%{frontier: %{stale: true}} = state),
+    do: max(state.refreshed + @refresh - now_ms(), 0)
+
+  defp timeout(_state), do: @idle
 
   defp idle?(state) do
     f = state.frontier
@@ -518,13 +551,12 @@ defmodule Valimc.Worldgen.Scheduler do
   ## Work
 
   defp dispatch(state) do
-    state = %{state | dirty: false} |> spill() |> gauges()
+    state = %{state | dirty: false} |> spill() |> gauges() |> refresh()
     room = Pool.free()
 
     if room == 0 do
-      wait(state)
+      wait(state, false)
     else
-      if state.frontier.stale, do: Valimc.Data.Metrics.add(:worldgen_refreshes)
       started = now()
       {jobs, frontier} = Frontier.next(state.frontier, room, Pool.free(true))
       Valimc.Data.Metrics.add(:worldgen_dispatch_microseconds, now() - started)
@@ -532,38 +564,63 @@ defmodule Valimc.Worldgen.Scheduler do
       Valimc.Data.Metrics.put(:"worldgen_wanted_#{state.dimension}", map_size(frontier.priority))
       scheduler = self()
 
-      Enum.reduce(jobs, %{state | frontier: frontier}, fn job, state ->
-        run = job.run
-        ref = job.ref
-        work = fn -> send(scheduler, {:job, ref, Frontier.safe(run)}) end
-        started = if job.bulk, do: Pool.start_bulk(work), else: Pool.start(work)
+      state =
+        Enum.reduce(jobs, %{state | frontier: frontier}, fn job, state ->
+          run = job.run
+          ref = job.ref
+          work = fn -> send(scheduler, {:job, ref, Frontier.safe(run)}) end
+          started = if job.bulk, do: Pool.start_bulk(work), else: Pool.start(work)
 
-        case started do
-          {:ok, pid} ->
-            Valimc.Data.Metrics.add(:"worldgen_#{job.kind}_jobs")
-            monitor = Process.monitor(pid)
+          case started do
+            {:ok, pid} ->
+              Valimc.Data.Metrics.add(:"worldgen_#{job.kind}_jobs")
+              monitor = Process.monitor(pid)
 
-            %{
-              state
-              | monitors: Map.put(state.monitors, monitor, {:job, ref, now()}),
-                job_monitors: Map.put(state.job_monitors, ref, monitor)
-            }
+              %{
+                state
+                | monitors: Map.put(state.monitors, monitor, {:job, ref, now()}),
+                  job_monitors: Map.put(state.job_monitors, ref, monitor)
+              }
 
-          {:error, :busy} ->
-            # Another user of the pool took the slot.
-            wait(%{state | frontier: Frontier.cancel(state.frontier, ref)})
-        end
-      end)
+            {:error, :busy} ->
+              # Another user of the pool took the slot.
+              wait(%{state | frontier: Frontier.cancel(state.frontier, ref)}, job.bulk)
+          end
+        end)
+
+      # Terrain left out while its slots are taken: the next to free one
+      # wakes the scheduler, whoever's job held it.
+      if Pool.free(true) == 0 and :gb_sets.size(state.frontier.queue) > 0,
+        do: wait(state, true),
+        else: state
     end
   end
 
-  # Woken by the next job that ends anywhere in the pool.
-  defp wait(%{waiting: true} = state), do: state
+  # The whole rebuild of the priorities, at most every `@refresh` ms.
+  defp refresh(%{frontier: %{stale: true}} = state) do
+    at = now_ms()
 
-  defp wait(state) do
+    if at - state.refreshed >= @refresh do
+      started = now()
+      frontier = Frontier.refresh(state.frontier)
+      Valimc.Data.Metrics.add(:worldgen_refreshes)
+      Valimc.Data.Metrics.add(:worldgen_refresh_microseconds, now() - started)
+      %{state | frontier: frontier, refreshed: at}
+    else
+      state
+    end
+  end
+
+  defp refresh(state), do: state
+
+  # Woken by the next job that ends anywhere in the pool (with a slot bulk
+  # work may take, for bulk).
+  defp wait(%{waiting: true} = state, _bulk), do: state
+
+  defp wait(state, bulk) do
     Pool.notify()
     # A job that ended before the notice was registered woke nobody.
-    if Pool.free() > 0,
+    if Pool.free(bulk) > 0,
       do: %{state | dirty: true},
       else: %{state | waiting: true}
   end
@@ -699,6 +756,7 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   defp now, do: System.monotonic_time(:microsecond)
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   ## Gauges and stop
 

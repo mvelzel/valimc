@@ -19,7 +19,8 @@
 # every region group every 2 s (sections, reductions, mailbox, memory) and how
 # often the largest is running or runnable (every 10 ms); `stacks` prints
 # where the largest group spends its busy time (its stack every 2 ms);
-# `scheduler_stacks` the same for the generation scheduler.
+# `scheduler_stacks` the same for the generation scheduler; `waits` what the
+# player's chunk waits for in the scheduler while it is missing (VMC-077x).
 alias Valimc.Protocol.{Data, Wire}
 alias Valimc.Worldgen.Pool
 
@@ -447,10 +448,151 @@ stack_sampler =
     end)
   end
 
+# The chunk the player is in and since when it is missing (ms, 0: there).
+here = :atomics.new(3, signed: true)
+
+# While the player's chunk has been missing for over a second, every 500 ms
+# (VMC-077x): what it waits for in the scheduler. The undecorated chunks of
+# its 3 × 3 and, transitively, the earlier decorations within 2 they wait for
+# (`chain`); of those, how many could run now and the terrain they lack;
+# where that terrain stands in the queue; and the pool and the queues.
+waits_sampler =
+  if "waits" in sample do
+    spawn_link(fn ->
+      around = &Valimc.Worldgen.Frontier.around/2
+
+      status = fn f, c ->
+        case f.chunks do
+          %{^c => %{status: s}} -> s
+          _ -> nil
+        end
+      end
+
+      decorated? = &(status.(&1, &2) in [:decorated, :handed])
+      cell? = &(status.(&1, &2) in [:terrain, :decorated])
+
+      earlier = fn f, n ->
+        seq = f.seqs[n]
+
+        for m <- around.(n, 2),
+            m != n,
+            s = f.seqs[m],
+            s != nil and seq != nil and s < seq,
+            do: m
+      end
+
+      chain = fn chain, f, todo, seen ->
+        case todo do
+          [] ->
+            seen
+
+          [n | rest] ->
+            new = earlier.(f, n) |> Enum.reject(&MapSet.member?(seen, &1))
+            chain.(chain, f, new ++ rest, Enum.into(new, seen))
+        end
+      end
+
+      analyse = fn f, own ->
+        start = for n <- around.(own, 1), not decorated?.(f, n), do: n
+        decos = chain.(chain, f, start, MapSet.new(start))
+
+        ready =
+          Enum.count(decos, fn n ->
+            Enum.all?(around.(n, 1), &cell?.(f, &1)) and earlier.(f, n) == []
+          end)
+
+        cells = decos |> Enum.flat_map(&around.(&1, 1)) |> Enum.uniq()
+        lacking = Enum.reject(cells, &cell?.(f, &1))
+        busy = Enum.count(lacking, &Map.has_key?(f.busy, &1))
+        queued = :gb_sets.to_list(f.queue)
+        queued_chunks = MapSet.new(queued, &elem(&1, 3))
+        in_queue = Enum.count(lacking, &MapSet.member?(queued_chunks, &1))
+        needs = for n <- decos, p = f.needs[n], p != nil, do: p
+        lacking_set = MapSet.new(lacking)
+        lacking_p = for {p, _, _, c} <- queued, MapSet.member?(lacking_set, c), do: p
+        best = Enum.min(lacking_p, fn -> nil end)
+        ahead = if best, do: Enum.count(queued, &(elem(&1, 0) < best)), else: nil
+        spilled = Enum.count(cells, &match?(%{cell: {:spilled, _, _}}, f.chunks[&1]))
+        kinds = f.jobs |> Map.values() |> Enum.frequencies_by(& &1.kind)
+
+        %{
+          own_status: status.(f, own),
+          own_priority: f.priority[own],
+          own_seq: f.seqs[own],
+          unnumbered: Enum.count(start, &(f.seqs[&1] == nil)),
+          chain: MapSet.size(decos),
+          chain_ready: ready,
+          chain_running: Enum.count(decos, &Map.has_key?(f.busy, &1)),
+          chain_needs: if(needs == [], do: nil, else: [Enum.min(needs), Enum.max(needs)]),
+          chain_unprioritized: MapSet.size(decos) - length(needs),
+          lacking_terrain: length(lacking),
+          lacking_running: busy,
+          lacking_queued: in_queue,
+          lacking_best_priority: best,
+          queued_ahead: ahead,
+          spilled: spilled,
+          alone: MapSet.member?(f.alone, own),
+          stale: f.stale,
+          wanted: map_size(f.priority),
+          queue: :gb_sets.size(f.queue),
+          ready: :gb_sets.size(f.ready),
+          finals: :gb_sets.size(f.finals),
+          jobs: kinds,
+          in_memory: f.in_memory
+        }
+      end
+
+      loop = fn loop, rows ->
+        receive do
+          :stop ->
+            send(bench, {:waits, Enum.reverse(rows)})
+        after
+          500 ->
+            since = :atomics.get(here, 3)
+            t = div(now.(), 1000)
+
+            rows =
+              if since != 0 and t - since > 1000 do
+                own = {:atomics.get(here, 1), :atomics.get(here, 2)}
+                {:message_queue_len, mailbox} = Process.info(scheduler, :message_queue_len)
+                state = :sys.get_state(scheduler, 10_000)
+                row = analyse.(state.frontier, own)
+
+                row =
+                  Map.merge(row, %{
+                    at: t,
+                    chunk: Tuple.to_list(own),
+                    missing_ms: t - since,
+                    mailbox: mailbox,
+                    pool: Pool.size() - Pool.free(),
+                    # Groups without credit, and full chunks waiting for one.
+                    outbox_blocked: Enum.count(state.outbox, fn {_, e} -> e.unacked >= 2 end),
+                    outbox_ready:
+                      state.outbox |> Enum.map(fn {_, e} -> length(e.ready) end) |> Enum.sum()
+                  })
+
+                IO.puts(
+                  "waits #{inspect(Map.take(row, [:chunk, :missing_ms, :own_status, :chain, :chain_ready, :lacking_terrain, :pool]))}"
+                )
+
+                [row | rows]
+              else
+                rows
+              end
+
+            loop.(loop, rows)
+        end
+      end
+
+      loop.(loop, [])
+    end)
+  end
+
 counters =
   ~w(worldgen_chunks worldgen_microseconds worldgen_wants worldgen_refreshes
      worldgen_dispatch_microseconds worldgen_terrain_jobs worldgen_decorate_jobs
-     worldgen_full_jobs worldgen_alone_jobs chunks_encoded)a
+     worldgen_full_jobs worldgen_alone_jobs chunks_encoded worldgen_refresh_microseconds
+     worldgen_terrain_microseconds worldgen_decorate_microseconds worldgen_full_microseconds)a
 
 before = Valimc.Data.Metrics.snapshot()
 
@@ -503,6 +645,15 @@ fly = fn fly, client, have, tick, pos, entered ->
           _ -> [{chunk, now.(), Map.get(have, chunk)} | entered]
         end
 
+      :atomics.put(here, 1, elem(chunk, 0))
+      :atomics.put(here, 2, elem(chunk, 1))
+
+      case {Map.has_key?(have, chunk), :atomics.get(here, 3)} do
+        {true, _} -> :atomics.put(here, 3, 0)
+        {false, 0} -> :atomics.put(here, 3, div(elem(hd(entered), 1), 1000))
+        _ -> :ok
+      end
+
       fly.(fly, client, have, tick + 1, {x, z}, entered)
     end
   end
@@ -512,6 +663,7 @@ end
   fly.(fly, client, have, 1, {start.x, start.z}, [])
 
 flown = now.()
+:atomics.put(here, 3, 0)
 
 # What fills the largest group mailbox at the end of the flight.
 {_, largest} =
@@ -556,6 +708,8 @@ util = collect.(:util)
 if group_sampler, do: send(group_sampler, :stop)
 if stack_sampler, do: send(stack_sampler, :stop)
 groups = if group_sampler, do: collect.(:groups), else: []
+if waits_sampler, do: send(waits_sampler, :stop)
+waits = if waits_sampler, do: collect.(:waits), else: []
 
 if stack_sampler do
   receive do
@@ -694,6 +848,13 @@ record = %{
   counters: delta,
   crossings: crossings,
   wants: Enum.map(wants, fn {t, w, r, m} -> [div(t - started, 1000), w, r, m] end),
+  waits:
+    Enum.map(waits, fn row ->
+      row
+      |> Map.put(:t, row.at - div(started, 1000))
+      |> Map.delete(:at)
+      |> Map.update!(:jobs, &Map.new(&1, fn {k, v} -> {Atom.to_string(k), v} end))
+    end),
   utilization: Enum.map(util, fn {t, n, d} -> [div(t - started, 1000), n, d] end),
   groups:
     Enum.map(groups, fn {t, entries, busy, tags} ->

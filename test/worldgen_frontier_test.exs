@@ -77,18 +77,21 @@ defmodule Valimc.WorldgenFrontierTest do
       Frontier.want(
         f,
         :region,
-        Map.new(chunks, fn {x, z} -> {{x, z}, (x - 40) ** 2 + (z - 40) ** 2} end)
+        Map.new(chunks, fn {x, z} -> {{x, z}, (x - 40) ** 2 + (z - 40) ** 2 + 1} end)
       )
 
     assert order(f, 5) == [{40, 40}, {0, 5}, {3, 0}, {0, 0}, {-3, 0}]
 
+    # The chunks near the player at once (VMC-077x), the rest once refreshed.
     f = Frontier.focus(f, :player, {0, 0}, {1.0, 0.0})
+    assert hd(order(f, 5)) == {0, 0}
+    f = Frontier.refresh(f)
     assert order(f, 5) == [{0, 0}, {3, 0}, {-3, 0}, {0, 5}, {40, 40}]
 
     # A call that waits stays first; a forgotten player orders nothing.
     f = Frontier.want(f, :call, %{{40, 40} => -1})
     assert hd(order(f, 5)) == {40, 40}
-    f = Frontier.focus(f, :player, nil, nil)
+    f = Frontier.focus(f, :player, nil, nil) |> Frontier.refresh()
     assert order(f, 5) == [{40, 40}, {0, 5}, {3, 0}, {0, 0}, {-3, 0}]
   end
 end

@@ -1,6 +1,6 @@
 # VMC-077x — Generation does not stall at the edge
 
-Status: Planned
+Status: In progress
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077w](VMC-077w.md) (a flying player's group keeps up; this
 is what it uncovered), [VMC-077u](VMC-077u.md) (generation follows the player).

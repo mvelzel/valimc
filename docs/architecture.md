@@ -326,16 +326,20 @@ first needs it (the request's chunks within one, Z outer and X inner), and
 conflicting decorations run in number order, so a chunk depends only on the
 order of requests. Work waits in priority queues (wanted final chunks,
 decorations that can run, needed terrain) whose priorities the work inherits
-from the wanted chunks; a finished job updates them around its chunk, and
-they are rebuilt only when wants or players' positions change. Each player's
+from the wanted chunks; a finished job updates them around its chunk. A want
+or a player's move looks only at the chunks whose priority changed: one that
+went down passes at once to the work its chunk needs, earlier decorations
+included, and one that went up or away waits for a whole rebuild, at most
+four times a second (VMC-077x). Each player's
 connection tells the scheduler which chunk the player entered and which way
 they move (`Scheduler.focus/5`), so the order does not wait for the regions'
 tickets. While a player is in the dimension, the player's own chunk goes
 first, then the chunks ahead of them before those beside and behind; calls
 that wait for a chunk go before all of these. The scheduler does not send a
 region a chunk again that it already sent to that section at the same epoch:
-the section's mailbox may still hold it. Nothing answers busy or polls; a full
-pool wakes the scheduler when a job ends. Terrain-only worlds are final after
+the section's mailbox may still hold it. Nothing answers busy or polls: a
+job's result starts the next job at once, and while work is left out for want
+of a slot, the next job to end anywhere in the pool wakes the scheduler. Terrain-only worlds are final after
 terrain; flat-layer worlds are full at once.
 
 Proto chunks and starts are not durable (D3): a graceful stop snapshots them
