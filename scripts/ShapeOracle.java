@@ -22,9 +22,12 @@ import net.minecraft.world.level.material.Fluid;
  * block and fluid ticks it schedules. Per state and direction a rule like the survival
  * facts' (`SupportOracle`): the cells the call reads (the neighbour always among them), a
  * partition of all states per cell, and a table over the class combinations, here of
- * outcome indices. Light reads answer as unlit chunks do (sky 15, block 0); a call that
- * reads scheduled ticks, draws randoms or reads more than eight cells, or a state whose search
- * takes more than the probe budget, is excluded.
+ * outcome indices. Light reads answer as unlit chunks do (sky 15, block 0); the registries are
+ * the built-in ones; a query for a scheduled tick answers none, which is exact because levels and
+ * proto chunks keep one tick per position and type (scheduling it again changes nothing). One
+ * `nextInt(bound)` draw makes an outcome of alternatives, one per drawn value (a vine plant whose
+ * head was removed becomes a head of random age). A call that draws more randoms or reads more
+ * than eight cells, or a state whose search takes more than the probe budget, is excluded.
  *
  * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
@@ -42,7 +45,8 @@ import net.minecraft.world.level.material.Fluid;
  * elsewhere) and vanilla's outcome (the new state and the ticks scheduled).
  *
  * Usage: ShapeOracle OUT.json. Output: partitions (runs), outcomes ([new state or -1 for
- * unchanged, [[dx, dy, dz, kind (0 block, 1 fluid), id, delay], ...]]), rules (offsets,
+ * unchanged, [[dx, dy, dz, kind (0 block, 1 fluid), id, delay], ...]], and for a random outcome
+ * the new state per drawn value 0..bound-1), rules (offsets,
  * partitions, table of outcome indices), per analyzed state its six rule ids (-1 unchanged,
  * -2 excluded), and the runs of states whose class overrides `updateShape` but which are not
  * analyzed (unmodelled).
@@ -55,6 +59,14 @@ public class ShapeOracle {
   static BlockState[] STATES;
   static int COUNT;
   static BlockState AIR;
+  static net.minecraft.core.RegistryAccess REGISTRIES;
+  /** Block ticks as a query sees them: none scheduled. */
+  static final net.minecraft.world.ticks.LevelTickAccess<?> NO_TICKS = (net.minecraft.world.ticks.LevelTickAccess<?>) Proxy.newProxyInstance(
+      net.minecraft.world.ticks.LevelTickAccess.class.getClassLoader(), new Class<?>[] {net.minecraft.world.ticks.LevelTickAccess.class},
+      (proxy, m, a) -> {
+        if (m.getName().equals("hasScheduledTick")) return false;
+        throw new Unsupported("ticks." + m.getName());
+      });
 
   static int index(int dx, int dy, int dz) { return ((dx + R) * W + (dy + R)) * W + (dz + R); }
   static int index(Direction d) { return index(d.getStepX(), d.getStepY(), d.getStepZ()); }
@@ -76,6 +88,7 @@ public class ShapeOracle {
     final LevelReader level = (LevelReader) Proxy.newProxyInstance(LevelReader.class.getClassLoader(), new Class<?>[] {LevelReader.class}, this);
     final ScheduledTickAccess tickAccess = (ScheduledTickAccess) Proxy.newProxyInstance(ScheduledTickAccess.class.getClassLoader(),
         new Class<?>[] {ScheduledTickAccess.class}, (proxy, m, a) -> {
+          if (m.getName().equals("getBlockTicks")) return NO_TICKS;
           if (!m.getName().equals("scheduleTick")) throw new Unsupported("ticks." + m.getName());
           var p = (BlockPos) a[0];
           var o = offsetOf(p);
@@ -83,8 +96,14 @@ public class ShapeOracle {
           else ticks.add(o[0] + "," + o[1] + "," + o[2] + ",1," + BuiltInRegistries.FLUID.getId((Fluid) a[1]) + "," + a[2]);
           return null;
         });
+    /** The bound of this call's one `nextInt` draw (0: none) and the value it returns. */
+    int drawBound, drawValue;
     final RandomSource random = (RandomSource) Proxy.newProxyInstance(RandomSource.class.getClassLoader(), new Class<?>[] {RandomSource.class},
-        (proxy, m, a) -> { throw new Unsupported("random"); });
+        (proxy, m, a) -> {
+          if (!m.getName().equals("nextInt") || a == null || a.length != 1 || drawBound != 0) throw new Unsupported("random");
+          drawBound = (Integer) a[0];
+          return drawValue;
+        });
 
     static int[] offsetOf(BlockPos p) {
       return new int[] {p.getX() - ORIGIN.getX(), p.getY() - ORIGIN.getY(), p.getZ() - ORIGIN.getZ()};
@@ -108,6 +127,8 @@ public class ShapeOracle {
         case "getMinY": if (a == null) return -64; break;
         case "getHeight": if (a == null) return 384; break;
         case "isClientSide": return false;
+        // Attached stems name the stem they become by registry key.
+        case "registryAccess": return REGISTRIES;
         case "getSeaLevel": return 63;
         case "enabledFeatures": return FeatureFlags.DEFAULT_FLAGS;
         case "getRawBrightness": case "getMaxLocalRawBrightness": return 15;
@@ -129,20 +150,37 @@ public class ShapeOracle {
 
     void clear() { for (int k = 0; k < setCount; k++) cells[set[k]] = null; setCount = 0; }
     void put(int i, BlockState s) { if (cells[i] == null) set[setCount++] = i; cells[i] = s; }
-    void begin() { generation++; readCount = 0; trace = 1; ticks.clear(); }
+    void begin() { generation++; readCount = 0; trace = 1; ticks.clear(); drawBound = 0; }
 
     /**
      * The outcome of `state.updateShape` toward `d` in the current cells: the new state id
      * (-1 unchanged) when nothing is scheduled, else an interned outcome above 2^32.
      */
     long outcome(BlockState state, Direction d) {
+      int id = call(state, d, 0);
+      if (drawBound == 0) {
+        if (ticks.isEmpty()) return id;
+        return (1L << 32) + outcomeId(id + "|" + String.join(";", ticks));
+      }
+      // A random outcome: the new state per drawn value, the same ticks and reads for each.
+      int bound = drawBound, trace0 = trace;
+      var scheduled = String.join(";", ticks);
+      var states = new StringJoiner(",");
+      for (int v = 0; v < bound; v++) {
+        int each = call(state, d, v);
+        if (drawBound != bound || trace != trace0 || !String.join(";", ticks).equals(scheduled)) throw new Unsupported("random reads");
+        states.add(Integer.toString(each == -1 ? Block.getId(state) : each));
+      }
+      return (1L << 32) + outcomeId("-1|" + scheduled + "|" + states);
+    }
+
+    int call(BlockState state, Direction d, int value) {
       begin();
+      drawValue = value;
       var neighborPos = ORIGIN.relative(d);
       var neighbor = at(neighborPos);
       var result = state.updateShape(level, tickAccess, ORIGIN, d, neighborPos, neighbor, random);
-      int id = result == state ? -1 : Block.getId(result);
-      if (ticks.isEmpty()) return id;
-      return (1L << 32) + outcomeId(id + "|" + String.join(";", ticks));
+      return result == state ? -1 : Block.getId(result);
     }
   }
 
@@ -361,6 +399,7 @@ public class ShapeOracle {
     MiningToolOracle.initialize();
     SupportOracle.bindFluidTags();
     COUNT = Block.BLOCK_STATE_REGISTRY.size();
+    REGISTRIES = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
     STATES = new BlockState[COUNT];
     AIR = Blocks.AIR.defaultBlockState();
     for (int n = 0; n < COUNT; n++) STATES[n] = Block.stateById(n);
@@ -465,6 +504,11 @@ public class ShapeOracle {
         }
       }
       o.add(ticks);
+      if (parts.length > 2) {
+        var drawn = new JsonArray();
+        for (var s : parts[2].split(",")) drawn.add(Integer.parseInt(s));
+        o.add(drawn);
+      }
       outcomes.add(o);
     }
     var excludedJson = new JsonArray();

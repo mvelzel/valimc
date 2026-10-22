@@ -13,9 +13,7 @@ defmodule Valimc.Blocks do
     Furnace,
     Coral,
     Default,
-    NetherPortal,
-    Pillar,
-    Slab
+    NetherPortal
   }
 
   alias Valimc.Blocks.CookingBlocks
@@ -26,9 +24,6 @@ defmodule Valimc.Blocks do
     "FurnaceBlock" => Furnace,
     "SmokerBlock" => Furnace,
     "BlastFurnaceBlock" => Furnace,
-    "SlabBlock" => Slab,
-    "WeatheringCopperSlabBlock" => Slab,
-    "RotatedPillarBlock" => Pillar,
     "CoralBlock" => Coral,
     "BuddingAmethystBlock" => BuddingAmethyst,
     "NetherPortalBlock" => NetherPortal,
@@ -95,26 +90,11 @@ defmodule Valimc.Blocks do
   def behaviour(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@modules, :binary.at(@by_state, state))
 
-  @doc "The behaviour module of the block an item places, or nil for non-block items."
-  def item_behaviour(item) do
-    case Valimc.Protocol.Data.item_block(item) do
-      nil -> nil
-      state -> behaviour(state)
-    end
-  end
-
   @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`) or nil; any term is accepted."
   def block_entity(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@entity_kinds, :binary.at(@entities, state))
 
   def block_entity(_), do: nil
-
-  @doc "The state `item` places over `previous`; see `c:Valimc.Blocks.Behaviour.placement/5`."
-  def placement(item, previous, face, upper, request),
-    do: item_behaviour(item).placement(item, previous, face, upper, request)
-
-  def replaceable?(state, item, face, upper, clicked),
-    do: behaviour(state).replaceable?(state, item, face, upper, clicked)
 
   def harvest_drops(state), do: behaviour(state).harvest_drops(state)
   def after_removal(state), do: behaviour(state).after_removal(state)

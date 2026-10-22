@@ -869,6 +869,40 @@ fn rules_scene(
     Ok(steps)
 }
 
+/// A placement case: the item, its inputs (by `placement::VARS`), the
+/// target and the cells around it (air elsewhere).
+type PlacementCase = (u16, Vec<u8>, (i32, i32, i32), Vec<(i32, i32, i32, u16)>);
+
+/// `PlacementOracle`'s coverage matrix on the placement rules (VMC-029d):
+/// per case what placing writes (`nil`: refused), draws answering 0.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rules_placement_cases(
+    rules: ResourceArc<crate::rules::BlockRules>,
+    cases: Vec<PlacementCase>,
+) -> Result<Vec<Option<Vec<(i32, i32, i32, u16)>>>, Atom> {
+    let rules = &rules.rules;
+    let air = rules
+        .table
+        .default_state("air")
+        .map_err(|_| atoms::invalid_state())?;
+    cases
+        .into_iter()
+        .map(|(item, values, (x, y, z), cells)| {
+            let values: [u8; 13] = values.try_into().map_err(|_| atoms::invalid_state())?;
+            let mut scene = Scene {
+                cells: cells.iter().map(|&(x, y, z, s)| ([x, y, z], s)).collect(),
+                air,
+                writes: Vec::new(),
+                ticks: Vec::new(),
+            };
+            let writes = rules
+                .place(&mut scene, item, &values, [x, y, z])
+                .map_err(|_| atoms::invalid_state())?;
+            Ok(writes.map(|w| w.into_iter().map(|(p, s)| (p[0], p[1], p[2], s)).collect()))
+        })
+        .collect()
+}
+
 // ---- Physics kernel primitives over explicit shapes (VMC-077l) ----
 
 use crate::facts::{shape as decode_shape, ShapeT};

@@ -1,7 +1,6 @@
 defmodule Valimc.Blocks.CookingBlocks do
   @moduledoc "Pinned furnace-family kinds, facing-preserving light states and empty placement."
   alias Valimc.Blocks.ChestPlacement
-  alias Valimc.Protocol.Data
   use Valimc.Data.Facts, "physics/cooking_blocks.json"
   @kinds {:furnace, :smoker, :blast_furnace}
   @states Map.new(@facts["states"], fn row -> {row["state"], elem(@kinds, row["kind"])} end)
@@ -21,7 +20,6 @@ defmodule Valimc.Blocks.CookingBlocks do
                 Map.new(table, fn {heading, state} -> {String.to_integer(heading), state} end)
               end)
               |> List.to_tuple()
-  @items Map.new(Tuple.to_list(@kinds), fn kind -> {Data.item(Atom.to_string(kind)), kind} end)
   unless map_size(@states) == 24 and tuple_size(@placements) == 3 and
            Enum.all?(Tuple.to_list(@placements), fn table ->
              Enum.sort(Map.keys(table)) == [2, 3, 4, 5] and
@@ -30,7 +28,6 @@ defmodule Valimc.Blocks.CookingBlocks do
          do: raise("Wrong native cooking-block facts")
 
   def kind(state), do: Map.get(@states, state)
-  def kind_for_item(item), do: Map.get(@items, item)
 
   def lit(state, value) when is_boolean(value) do
     case @lit do

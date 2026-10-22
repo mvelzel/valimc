@@ -53,44 +53,42 @@ defmodule Valimc.PlacementTest do
     refute Valimc.Living.Interaction.valid_hit?(decoded.position, decoded.cursor)
   end
 
-  test "a creative ladder tries the directions the player looks along, clicked face first" do
-    ladder = Valimc.Data.Blocks.default_state("ladder")
-    stone = Data.block("stone")
-    facings = &for(s <- &1, do: Map.new(Valimc.Data.Blocks.properties(s))["facing"])
+  test "a click replaces the clicked block only where vanilla's replacement says so" do
+    target = fn item, clicked, request ->
+      {:ok, %{position: position, replace_clicked: replace}} =
+        Placement.target(item(item), clicked, Map.merge(%{yaw: 0.0, pitch: 0.0}, request))
 
-    # On a floor while looking west (`Direction.orderedByNearest`): the wall
-    # looked at first.
-    floor = Map.merge(request(1), %{yaw: 90.0, pitch: 0.0})
+      {position, replace}
+    end
 
-    assert facings.(Placement.creative_states(ladder, stone, 0, floor)) ==
-             ~w(east south north west)
-
-    # On a wall's east face while looking down: that wall first, then the look.
-    wall = Map.merge(request(5), %{yaw: 0.0, pitch: 80.0})
-    assert hd(facings.(Placement.creative_states(ladder, stone, 0, wall))) == "east"
-
-    # On the front of a ladder: nothing, as `LadderBlock` refuses it.
-    front = Valimc.Data.Blocks.state("ladder", %{"facing" => "east"})
-    assert Placement.creative_states(ladder, front, 0, wall) == []
-    assert Placement.creative_states(stone, stone, 0, wall) == [stone]
+    slab = Valimc.Data.Blocks.state("oak_slab", %{"type" => "bottom"})
+    candle = Valimc.Data.Blocks.default_state("candle")
+    assert target.("stone", 0, request()) == {{0, 64, 0}, true}
+    assert target.("stone", Data.block("stone"), request()) == {{0, 65, 0}, false}
+    # A bottom slab yields to its own slab from above, not to another item.
+    assert target.("oak_slab", slab, request()) == {{0, 64, 0}, true}
+    assert target.("stone", slab, request()) == {{0, 65, 0}, false}
+    assert target.("oak_slab", slab, request(2, 0.25)) == {{0, 64, -1}, false}
+    # A candle takes another candle unless the player sneaks.
+    assert target.("candle", candle, request()) == {{0, 64, 0}, true}
+    assert target.("candle", candle, Map.put(request(), :secondary, true)) == {{0, 65, 0}, false}
+    assert {:error, :invalid_context} = Placement.target(item("stone"), -1, request())
   end
 
-  test "replaceable clicked cells win over the adjacent cell, but solids require free adjacency" do
-    stone = item("stone")
+  test "the click's inputs follow vanilla's view directions" do
+    values = fn yaw, pitch ->
+      Placement.values(Map.merge(request(), %{yaw: yaw, pitch: pitch}), false)
+    end
 
-    assert {:ok, %{position: {0, 64, 0}, state: 1, replace_clicked: true}} =
-             Placement.candidate(stone, 0, 1, request())
-
-    assert {:ok, %{position: {0, 65, 0}, state: 1, replace_clicked: false}} =
-             Placement.candidate(stone, 1, 0, request())
-
-    assert {:error, :occupied} = Placement.candidate(stone, 1, 1, request())
-
-    assert {:error, :unsupported_replacement} =
-             Placement.candidate(stone, Data.item_block(item("candle")), 0, request())
-
-    assert {:error, :unsupported_item} = Placement.candidate(item("grass_block"), 1, 0, request())
-    assert {:error, :invalid_context} = Placement.candidate(stone, -1, 0, request())
-    assert {:error, :invalid_context} = Placement.candidate(stone, 0, 0, request(6))
+    # Looking south and slightly down: horizontal south (0), vertical down.
+    [_order, vertical, horizontal | _] = values.(0.0, 10.0)
+    assert {vertical, horizontal} == {0, 0}
+    # Looking west and up.
+    [_order, vertical, horizontal | _] = values.(90.0, -30.0)
+    assert {vertical, horizontal} == {1, 1}
+    # The cursor at the middle of the clicked face's top edge, face up, not replacing.
+    assert Enum.slice(values.(0.0, 0.0), 4..12) == [1 * 9 + 1 * 3 + 1, 0, 1, 0, 0, 0, 0, 0, 0]
+    assert Placement.on_water?(item("lily_pad")) and not Placement.on_water?(item("oak_door"))
+    assert Placement.placeable?(item("oak_door"))
   end
 end

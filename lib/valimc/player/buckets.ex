@@ -54,8 +54,11 @@ defmodule Valimc.Player.Buckets do
     end
   end
 
-  # The player's ray to its block reach, through sources for an empty bucket.
-  defp aim(player, content) do
+  @doc """
+  The player's ray to its block reach (`getPlayerPOVHitResult`), through
+  sources for an empty bucket (`content` `:empty`): `Valimc.Physics.Clip`'s hit.
+  """
+  def aim(player, content) do
     {ex, ey, ez} = eye = Interaction.eye(player)
     {vx, vy, vz} = Clip.view_vector(player.pitch, player.yaw)
     range = Interaction.block_range(player.game_mode.current)

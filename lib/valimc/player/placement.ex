@@ -15,7 +15,7 @@ defmodule Valimc.Player.Placement do
   alias Valimc.Data.Grid
   alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.Blocks.Placement, as: Rules
-  alias Valimc.Protocol.{Data, Packets, UseItemOn}
+  alias Valimc.Protocol.{Packets, UseItemOn}
   alias Valimc.Player.Jobs
   alias Valimc.Player.{CreativeInventory, ItemUse, Menus, Mining}
   alias Valimc.Menus.Inventory
@@ -88,12 +88,13 @@ defmodule Valimc.Player.Placement do
           expires: System.monotonic_time(:millisecond) + 250
         }
 
-      Rules.supported_stack?(stack) ->
+      placeable?(state, request, stack) ->
         %{
           kind: :place,
           request:
             Map.merge(request, %{
               yaw: state.player.yaw,
+              pitch: state.player.pitch,
               secondary: Valimc.Player.Input.pressed?(state.player.input, :shift)
             }),
           item: stack.item_id,
@@ -103,36 +104,48 @@ defmodule Valimc.Player.Placement do
           body: body(state, request)
         }
 
-      stack != nil and Rules.supported_item?(stack.item_id) ->
-        %{kind: :correction, request: request}
-
-      # Creative placement of a block item without modelled placement: its
-      # block's default state beside the clicked face (VMC-077a).
-      block = creative_block(state, stack) ->
-        %{
-          kind: :place,
-          request: Map.merge(request, %{yaw: state.player.yaw, pitch: state.player.pitch}),
-          item: {:block, block},
-          stack: stack,
-          slot: slot,
-          mode: :creative,
-          body: body(state, request)
-        }
-
       # Anything else changes no block: vanilla still sends both blocks back.
       true ->
         %{kind: :correction, request: request}
     end
   end
 
-  # Container variants without an owned record are corrected, never written as empty shells.
-  defp creative_block(state, stack) do
-    with %{item_id: item} <- stack,
-         :creative <- state.player.game_mode.current,
-         block when is_integer(block) <- Data.item_block(item),
-         false <- Valimc.Blocks.BlockEntityTypes.unsupported?(block),
-         do: block,
-         else: (_ -> nil)
+  @doc """
+  A lily pad or frogspawn used from `hand` (`PlaceOnWaterBlockItem.use`): the
+  player's ray through water sources finds the source looked at, and the item
+  places as a click on the cell above it, without the checks a client's click
+  takes (vanilla's ray stays within reach).
+  """
+  def place_on_water(state, hand, sequence) do
+    case Valimc.Player.Buckets.aim(state.player, :empty) do
+      %{miss: false, position: {x, y, z}, face: face, location: {lx, ly, lz}} ->
+        request = %{
+          hand: hand,
+          position: {x, y + 1, z},
+          face: face,
+          cursor: {lx - x, ly - (y + 1), lz - z},
+          inside: false,
+          sequence: sequence,
+          on_water: true
+        }
+
+        if Jobs.active?(state.jobs, :placement),
+          do: CreativeInventory.resync_inventory(state),
+          else: run(state, command(state, request))
+
+      _ ->
+        CreativeInventory.resync_inventory(state)
+    end
+  end
+
+  # Operator blocks place only for creative operators (`GameMasterBlockItem`);
+  # lily pads and frogspawn only by use (`place_on_water/3`).
+  defp placeable?(state, request, stack) do
+    Rules.placeable_stack?(stack) and
+      Rules.on_water?(stack.item_id) == Map.get(request, :on_water, false) and
+      (not Rules.operator?(stack.item_id) or
+         (state.player.game_mode.current == :creative and
+            Valimc.Admin.Permissions.level(state.player) >= 2))
   end
 
   # The bodies a placement must not enter, when the player may place at all.
@@ -143,8 +156,9 @@ defmodule Valimc.Player.Placement do
          ((mode == :creative and state.inventory.infinite_materials) or
             (mode == :survival and not state.inventory.infinite_materials)) and
          Input.loaded?(state.player.input) and not state.teleport_pending and
-         Mining.reachable?(state, request.position) and
-         Valimc.Living.Interaction.valid_hit?(request.position, request.cursor) do
+         (Map.get(request, :on_water, false) or
+            (Mining.reachable?(state, request.position) and
+               Valimc.Living.Interaction.valid_hit?(request.position, request.cursor))) do
       %{boxes: [box(state.player) | peer_boxes(state)], chunks: near_chunks(state.player)}
     end
   end
@@ -225,13 +239,19 @@ defmodule Valimc.Player.Placement do
   def used(%{count: 1}, false), do: nil
   def used(stack, false), do: %{stack | count: stack.count - 1}
 
-  # A survival placement uses up one of the held stack, as the client predicted.
+  # A survival placement uses up one of the held stack, as the client
+  # predicted; a solid bucket leaves an empty bucket (`SolidBucketItem`).
   defp use_up(state, command) do
     stack = command.stack
 
     if Inventory.get(state.inventory, command.slot) == stack do
+      left =
+        if Rules.bucket?(stack.item_id) and not state.inventory.infinite_materials,
+          do: Valimc.Protocol.ItemStack.new("bucket"),
+          else: used(stack, state.inventory.infinite_materials)
+
       slots =
-        case used(stack, state.inventory.infinite_materials) do
+        case left do
           nil -> Map.delete(state.inventory.slots, command.slot)
           left -> Map.put(state.inventory.slots, command.slot, left)
         end
@@ -308,26 +328,43 @@ defmodule Valimc.Player.Placement do
       not Kernel.obstructs?(plan.candidate.state, plan.candidate.position, @placement, body.boxes)
   end
 
-  # The clicked neighbourhood in one group, the candidate state that survives
-  # there, and a single chest only beside no other chest. The two cells may
-  # lie in different sections of the group (VMC-077z): each is read at its
-  # own section and the block goes to the candidate's, whose survival check
-  # reads the clicked block across the line again as it commits. Cells in two
-  # groups are refused.
+  # The click's target (the clicked block, when the held item replaces it,
+  # else the cell beside the clicked face) and what vanilla writes there,
+  # which the owner's placement rules decide from the cells around it
+  # (VMC-029d): the placed block and a door's, bed's or tall plant's other
+  # half. The two cells may lie in different sections of the group
+  # (VMC-077z); the writes go to the target's, all of them in it. Cells in
+  # two groups are refused.
   defp plan(item, request) do
     adjacent = Rules.adjacent(request)
 
     with {:ok, sections} <- observe([request.position, adjacent]),
          blocks = sections |> Map.values() |> Enum.map(& &1.blocks) |> Enum.reduce(&Map.merge/2),
-         {:ok, candidate} <-
-           candidate(item, blocks[request.position], blocks[adjacent], request),
-         key = section_key(candidate.position),
+         {:ok, %{position: target, values: values}} <-
+           Rules.target(item, blocks[request.position], request),
+         key = section_key(target),
          %{owner: owner, fence: fence} = sections[key],
-         {:ok, candidate} <- surviving(owner, candidate),
-         {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
-         :ok <- single_chest(owner, key, candidate, request, fence) do
+         {:ok, writes} <- Region.placement(owner, item, values, target),
+         :ok <- in_section(writes, key),
+         candidate = main_write(writes, target),
+         :ok <- single_chest(candidate),
+         {:ok, batch} <- BlockBatch.prepare(Map.new(writes)) do
       {:ok, %{owner: owner, revision: fence, candidate: candidate, batch: batch}}
     end
+  end
+
+  # A door's or bed's other half across a section line is not placed yet.
+  defp in_section(writes, key) do
+    if Enum.all?(writes, fn {position, _} -> section_key(position) == key end),
+      do: :ok,
+      else: {:error, :cross_section_placement}
+  end
+
+  # The placed block: the one at the target, or the only one written (a
+  # scaffolding placed along a column).
+  defp main_write(writes, target) do
+    {position, state} = List.keyfind(writes, target, 0) || hd(writes)
+    %{position: position, state: state}
   end
 
   # `positions` read at their sections' owners, by section key, when one
@@ -365,68 +402,11 @@ defmodule Valimc.Player.Placement do
 
   defp section_key({x, _, z}), do: Grid.region_key(Grid.chunk_key(x, z))
 
-  # A creative block item without modelled placement (VMC-077a): its block on
-  # a replaceable block beside the clicked face, in the first of its candidate
-  # states that can survive there (`Rules.creative_states/4`).
-  defp candidate({:block, block}, clicked, adjacent, request) do
-    with true <- Rules.replaceable?(adjacent) || {:error, :occupied},
-         [_ | _] = states <- Rules.creative_states(block, clicked, adjacent, request) do
-      {:ok, %{position: Rules.adjacent(request), states: states, replace_clicked: false}}
-    else
-      [] -> {:error, :cannot_survive}
-      error -> error
-    end
-  end
-
-  defp candidate(item, clicked, adjacent, request),
-    do: Rules.candidate(item, clicked, adjacent, request)
-
-  defp surviving(owner, %{states: states} = candidate) do
-    with {:ok, state} <- Region.placement_state(owner, candidate.position, states),
-         do: {:ok, candidate |> Map.delete(:states) |> Map.put(:state, state)}
-  end
-
-  defp surviving(_owner, candidate), do: {:ok, candidate}
-
-  # A chest beside a chest stays single unless vanilla would join the two
-  # into a double chest, which is refused (not modelled yet). The four
-  # neighbours are read wherever they are: those in another section (a region
-  # line one block away) at their own owner, the player's group.
-  defp single_chest(owner, key, candidate, request, revision) do
-    if Valimc.Blocks.Chest.single?(candidate.state) do
-      read =
-        candidate.position
-        |> Valimc.Blocks.ChestPlacement.neighbors()
-        |> Enum.group_by(fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end)
-        |> Enum.reduce_while({:ok, %{}}, fn {neighbor_key, positions}, {:ok, acc} ->
-          observed =
-            if neighbor_key == key,
-              do: Region.observe_blocks(owner, positions, revision),
-              else:
-                with(
-                  {:ok, other} <- owner(hd(positions)),
-                  do: Region.observe_blocks(other, positions)
-                )
-
-          case observed do
-            {:ok, observed} -> {:cont, {:ok, Map.merge(acc, observed.blocks)}}
-            error -> {:halt, error}
-          end
-        end)
-
-      with {:ok, blocks} <- read do
-        if Valimc.Blocks.ChestPlacement.joins?(
-             candidate.state,
-             candidate.position,
-             request.face,
-             Map.get(request, :secondary, false),
-             &Map.get(blocks, &1)
-           ),
-           do: {:error, :unsupported_double_chest},
-           else: :ok
-      end
-    else
-      :ok
-    end
+  # A chest that would join its neighbour into a double chest is refused
+  # until double chests exist (VMC-032b).
+  defp single_chest(%{state: state}) do
+    if Valimc.Blocks.Chest.ordinary?(state) and not Valimc.Blocks.Chest.single?(state),
+      do: {:error, :unsupported_double_chest},
+      else: :ok
   end
 end

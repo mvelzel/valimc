@@ -147,10 +147,11 @@ defmodule Valimc.Native do
 
   def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
 
-  def block_first_surviving(_region, _siblings, _rules, _position, _states, _absent),
-    do: :erlang.nif_error(:nif_not_loaded)
-
   def rules_scene(_rules, _floor, _sets), do: :erlang.nif_error(:nif_not_loaded)
+  def rules_placement_cases(_rules, _cases), do: :erlang.nif_error(:nif_not_loaded)
+
+  def block_place(_region, _siblings, _rules, _item, _values, _position, _absent, _seed),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def fluid_scene(_rules, _cells, _actions, _ticks, _seed, _options),
     do: :erlang.nif_error(:nif_not_loaded)

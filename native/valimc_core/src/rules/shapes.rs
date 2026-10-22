@@ -2,8 +2,9 @@
 //! (`ShapeOracle`, `priv/worldgen/shapes.json`): per state and direction a rule over the
 //! cells the call reads (the neighbour among them), mapping class
 //! combinations to an outcome, the state it becomes and the ticks it
-//! schedules. States without a rule keep their state; states whose class
-//! overrides `updateShape` without facts fail rather than guess.
+//! schedules; a random outcome lists the state per value of one
+//! `nextInt(bound)` draw. States without a rule keep their state; states whose
+//! class overrides `updateShape` without facts fail rather than guess.
 
 use super::support::Partition;
 use crate::worldgen::json::Json;
@@ -23,6 +24,8 @@ struct Outcome {
     /// The new state, or `None` for unchanged.
     state: Option<u16>,
     ticks: Vec<Tick>,
+    /// A random outcome's new state per drawn value (empty otherwise).
+    random: Vec<u16>,
 }
 
 struct Rule {
@@ -74,9 +77,18 @@ impl Shapes {
                         })
                     })
                     .collect::<Result<Vec<_>, String>>()?;
+                let random = match o.get(2) {
+                    Some(states) => states
+                        .as_array()?
+                        .iter()
+                        .map(|s| s.as_i32().map(|s| s as u16))
+                        .collect::<Result<Vec<_>, String>>()?,
+                    None => Vec::new(),
+                };
                 Ok(Outcome {
                     state: (state >= 0).then_some(state as u16),
                     ticks,
+                    random,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -139,18 +151,19 @@ impl Shapes {
         !matches!(self.entries[state as usize][d], Entry::Unmodelled)
     }
 
-    /// `state.updateShape` at `pos` toward direction `d`: the new state and
-    /// the ticks to schedule (offsets from `pos`), reading cells through
-    /// `read`.
+    /// `state.updateShape` at `pos` toward direction `d`: the new state, the
+    /// ticks to schedule (offsets from `pos`) and, for a random outcome, the
+    /// new state per value of its `nextInt(len)` draw (then the caller draws),
+    /// reading cells through `read`.
     pub fn update(
         &self,
         state: u16,
         d: usize,
         pos: [i32; 3],
         read: &mut dyn FnMut([i32; 3]) -> u16,
-    ) -> Result<(u16, &[Tick]), String> {
+    ) -> Result<(u16, &[Tick], &[u16]), String> {
         let rule = match self.entries[state as usize][d] {
-            Entry::Unchanged => return Ok((state, &[])),
+            Entry::Unchanged => return Ok((state, &[], &[])),
             Entry::Unmodelled => {
                 return Err(format!(
                     "updateShape of state {state} toward direction {d} is not modelled"
@@ -165,6 +178,10 @@ impl Shapes {
             index = index * partition.radix + partition.class(cell);
         }
         let outcome = &self.outcomes[rule.table[index] as usize];
-        Ok((outcome.state.unwrap_or(state), &outcome.ticks))
+        Ok((
+            outcome.state.unwrap_or(state),
+            &outcome.ticks,
+            &outcome.random,
+        ))
     }
 }

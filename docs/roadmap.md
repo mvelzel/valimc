@@ -41,7 +41,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | Combat | Living damage, a projectile kernel, orb motion | 037n → 037o → 034n4c → 026d |
 | World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
 | Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
-| Blocks | Block rules, placement, mining | 029d → 029e → 039a → 032b |
+| Blocks | Block rules, placement, mining | 029e → 039a → 032b |
 | Fluids | A fluid module, fluid ticks | 031a → 031b |
 | Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
@@ -56,16 +56,15 @@ Phases:
    plus 034n4c, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
 5. **Last:** 045a, then the gate.
 
-When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b,
-029d, 029e, 031a, 047a, 042a, 043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a,
-034n4c, 026d, 043e, 044a, 032b, 045a, 078.
+When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e,
+031a, 047a, 042a, 043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 026d,
+043e, 044a, 032b, 045a, 078.
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused
 
-A furnace that holds items cannot be removed until its spill and stored
-experience exist ([VMC-034f](tickets/VMC-034f.md)).
+A furnace holding items stays until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 ## Pending client gates
 
@@ -77,6 +76,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
 | [VMC-050a1](tickets/VMC-050a1.md), [050a2](tickets/VMC-050a2.md) | TNT lit by flint and steel explodes (crater, drops, chained TNT, a player hurt and pushed); sand, gravel, powder and anvils fall and land |
 | [VMC-037n](tickets/VMC-037n.md) | A summoned zombie killed with a sword (cooldown, crits, knockback, drops, XP); a zombie's hits on armor and a raised shield |
+| [VMC-029d](tickets/VMC-029d.md) | Doors, beds, attached and oriented blocks, stacked candles and a lily pad placed and kept over a reconnect |
 
 ## Retrieve and update
 

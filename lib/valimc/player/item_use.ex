@@ -31,7 +31,14 @@ defmodule Valimc.Player.ItemUse do
           }
 
           PlayerList.update(state.connection, player)
-          begin_item_use(%{state | player: player}, request.hand)
+          state = %{state | player: player}
+          stack = Inventory.held(state.inventory, request.hand)
+
+          # Lily pads and frogspawn place on the water looked at (VMC-029d).
+          if (stack && Valimc.Blocks.Placement.on_water?(stack.item_id)) and
+               state.active_use == nil,
+             do: Valimc.Player.Placement.place_on_water(state, request.hand, request.sequence),
+             else: begin_item_use(state, request.hand)
         else
           state
         end

@@ -249,18 +249,21 @@ pub fn run(
     }))
 }
 
-/// The first of `states` that can survive at `pos` (placement's
-/// `canSurvive`, `Rules::live_survives`) over `stores` (as `run`). A rule
-/// that reads past the group's edge is not refused: the neighbour group
-/// holds that cell.
-pub fn first_surviving(
+/// What placing `item` at `target` writes (`Rules::place`, VMC-029d) over
+/// `stores` (as `run`), the click's inputs `values` by `placement::VARS`.
+/// The light and power inputs are filled in here from the target's light and
+/// its neighbours' signals; `seed` seeds the level random a placement draws
+/// from. A placement that reads past the group's edge is refused.
+pub fn place(
     rules: &Rules,
     stores: &[&ColumnStore],
     absent: &HashSet<(i32, i32)>,
-    pos: [i32; 3],
-    states: &[u16],
-) -> Result<Option<u16>, String> {
-    let mut random = Random::legacy(1);
+    item: u16,
+    mut values: [u8; 13],
+    target: [i32; 3],
+    seed: i64,
+) -> Result<Option<Vec<([i32; 3], u16)>>, String> {
+    let mut random = Random::legacy(seed);
     let mut world = Live {
         stores,
         absent,
@@ -273,10 +276,19 @@ pub fn first_surviving(
         crossed: false,
         random: &mut random,
     };
-    Ok(states.iter().copied().find(|&state| {
-        world.crossed = false;
-        rules.live_survives(&mut world, state, pos) || world.crossed
-    }))
+    let (sky, block) = world
+        .store((target[0] >> 4, target[2] >> 4))
+        .and_then(|store| store.light_at(target[0], target[1], target[2]))
+        .unwrap_or((0, 0));
+    // `getRawBrightness(pos, 0)` and `canSeeSky` (sky light at its maximum),
+    // and `hasNeighborSignal` at the target and above it.
+    values[8] = sky.max(block);
+    values[9] = u8::from(sky == 15);
+    values[10] = u8::from(rules.has_neighbor_signal(&mut world, target));
+    values[11] =
+        u8::from(rules.has_neighbor_signal(&mut world, [target[0], target[1] + 1, target[2]]));
+    let writes = rules.place(&mut world, item, &values, target)?;
+    Ok(if world.crossed { None } else { writes })
 }
 
 #[cfg(test)]

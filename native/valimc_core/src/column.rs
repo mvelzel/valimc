@@ -252,15 +252,21 @@ pub fn find(
     states: &[u16],
 ) -> Vec<(i32, i32, i32, u16)> {
     let mut out = Vec::new();
+    // Thousands of states are sought at once (signs, banners, VMC-029d).
+    let mut wanted = vec![false; states.iter().map(|&s| s as usize + 1).max().unwrap_or(0)];
+    for &s in states {
+        wanted[s as usize] = true;
+    }
+    let sought = |s: u16| wanted.get(s as usize).copied().unwrap_or(false);
     for (s, storage) in sections.iter().enumerate() {
         let candidate = match &**storage {
-            Storage::Single(state) => states.contains(state),
-            Storage::Indexed { palette, .. } => palette.iter().any(|p| states.contains(p)),
+            Storage::Single(state) => sought(*state),
+            Storage::Indexed { palette, .. } => palette.iter().any(|&p| sought(p)),
             Storage::Dense(_) => true,
         };
         if candidate {
             storage.for_each(|i, state| {
-                if states.contains(&state) {
+                if sought(state) {
                     let (x, z, y) = (i & 15, (i >> 4) & 15, i >> 8);
                     out.push((
                         chunk.0 * 16 + x as i32,
@@ -605,6 +611,24 @@ impl ColumnStore {
         let cells = self.area_cells(positions);
         self.with_light(|grid, blocks| grid.update(blocks, facts, &cells, budget))?;
         Ok(self.light_changes())
+    }
+
+    /// Sky and block light at a position of the region, `None` while its
+    /// chunk is unknown to light (a dimension without sky has sky light 0).
+    pub fn light_at(&self, x: i32, y: i32, z: i32) -> Option<(u8, u8)> {
+        let chunk = self.chunk_of(x, z).ok()?;
+        Self::check_y(y).ok()?;
+        let (ax, az) = self.area_chunk(chunk)?;
+        if !self.light.known(ax, az) {
+            return None;
+        }
+        let cell = self.area_cells(&[(x, y, z)])[0];
+        let sky = if self.sky {
+            self.light.get(Kind::Sky, cell)
+        } else {
+            0
+        };
+        Some((sky, self.light.get(Kind::Block, cell)))
     }
 
     /// Whether `chunk` is in the one-chunk ring around the region.

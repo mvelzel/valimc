@@ -29,14 +29,25 @@ defmodule Valimc.Blocks.BlockEntityTypes do
 
   # Block entities placed as plain blocks (VMC-026b3/b4): end portals keep
   # nothing; an end gateway's exit, once it has one, is a preserved entry.
-  # Chunk packets list them either way.
+  # Signs, banners, mob heads, decorated pots and bells a player places hold
+  # nothing yet either (VMC-029d): a blank sign, a plain banner. Chunk packets
+  # list them either way.
+  @plain_types ~w(minecraft:sign minecraft:hanging_sign minecraft:banner minecraft:skull
+                  minecraft:decorated_pot minecraft:bell)
   @plain [
-    Valimc.Data.Blocks.default_state("end_portal"),
-    Valimc.Data.Blocks.default_state("end_gateway")
-  ]
+           Valimc.Data.Blocks.default_state("end_portal"),
+           Valimc.Data.Blocks.default_state("end_gateway")
+         ] ++
+           for(
+             [_block, first, last, type] <- @facts["runs"],
+             type in @plain_types,
+             state <- first..last,
+             do: state
+           )
+  @plain_set MapSet.new(@plain)
 
   @doc "Whether a state's block entity holds no data (an end portal's)."
-  def plain?(state), do: state in @plain
+  def plain?(state), do: MapSet.member?(@plain_set, state)
 
   @doc "The states whose block entity holds no data."
   def plain_states, do: @plain

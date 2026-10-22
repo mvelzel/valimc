@@ -2,6 +2,7 @@ defmodule Valimc.PlacementRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.World.{BlockBatch, Containers, Region}
+  alias Valimc.Blocks.Placement
 
   @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
 
@@ -26,6 +27,35 @@ defmodule Valimc.PlacementRegionTest do
   end
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
+
+  defp put(ctx, position, state) do
+    {:ok, observed} = Region.observe_blocks(ctx.owner, [position])
+    {:ok, batch} = BlockBatch.prepare(%{position => state})
+    deadline = System.monotonic_time(:millisecond) + 200
+    {:ok, _} = Region.place_block(ctx.owner, observed.revision, batch, deadline)
+  end
+
+  test "a door places both halves where the owner's rules say, refused without a floor", ctx do
+    {x, y, z} = ctx.position
+    floor = {x, y - 1, z}
+    stone = Valimc.Data.Blocks.default_state("stone")
+    put(ctx, floor, stone)
+    door = Valimc.Protocol.ItemStack.new("oak_door").item_id
+    # Clicked on the floor's top, looking south: the door faces south.
+    request = %{position: floor, face: 1, cursor: {0.5, 1.0, 0.5}, yaw: 0.0, pitch: 30.0}
+    {:ok, %{position: target, values: values}} = Placement.target(door, stone, request)
+    assert target == ctx.position
+    assert {:ok, writes} = Region.placement(ctx.owner, door, values, target)
+    props = &Map.new(Valimc.Data.Blocks.properties(&1))
+
+    assert [{^target, lower}, {{^x, upper_y, ^z}, upper}] = Enum.sort(writes)
+    assert upper_y == y + 1
+    assert %{"half" => "lower", "facing" => "south"} = props.(lower)
+    assert %{"half" => "upper", "facing" => "south"} = props.(upper)
+
+    put(ctx, floor, 0)
+    assert {:error, :refused} = Region.placement(ctx.owner, door, values, target)
+  end
 
   test "a chest's block and empty contents apply in one placement; its break clears both", ctx do
     {:ok, observed} = Region.observe_blocks(ctx.owner, [ctx.position])

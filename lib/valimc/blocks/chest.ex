@@ -1,8 +1,7 @@
 defmodule Valimc.Blocks.Chest do
-  @moduledoc "Ordinary chest (`ChestBlock`): single chests own a container; yaw/water placement."
+  @moduledoc "Ordinary chest (`ChestBlock`): single chests own a container."
   use Valimc.Blocks.Behaviour
   use Valimc.Data.Facts, "protocol/chest_states.json"
-  alias Valimc.Blocks.ChestPlacement
   alias Valimc.Protocol.ItemStack
 
   @single MapSet.new(@facts["single_states"])
@@ -24,10 +23,6 @@ defmodule Valimc.Blocks.Chest do
 
   @impl true
   def block_entity(state), do: if(single?(state), do: :chest)
-
-  @impl true
-  def placement(_item, previous, _face, _upper, request),
-    do: ChestPlacement.single_state(request[:yaw], previous)
 
   @impl true
   def harvest_drops(state),

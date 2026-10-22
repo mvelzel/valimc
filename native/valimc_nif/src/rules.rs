@@ -143,23 +143,44 @@ pub(crate) struct Packed<'a> {
     options: u32,
 }
 
-/// The first of `states` that can survive at `position` in a section, read
-/// with its group's other sections (placement's `canSurvive`), or `nil`.
+/// What placing `item` at `position` writes (VMC-029d), reading the
+/// section and its group's other sections (`siblings`): `[{x, y, z, state}]`
+/// (the placed block first among them) or `nil` when vanilla refuses it.
+/// `values` are the click's inputs by `placement::VARS` (the light ones are
+/// read here); `seed` seeds the random a placement draws from.
 #[rustler::nif]
-fn block_first_surviving(
+#[allow(clippy::too_many_arguments)]
+fn block_place(
     region: ResourceArc<Region>,
     siblings: Vec<ResourceArc<Region>>,
     rules: ResourceArc<BlockRules>,
+    item: u16,
+    values: Vec<u8>,
     position: (i32, i32, i32),
-    states: Vec<u16>,
     absent: Vec<(i32, i32)>,
-) -> Result<Option<u16>, Atom> {
+    seed: i64,
+) -> Result<Option<Vec<(i32, i32, i32, u16)>>, Atom> {
+    let values: [u8; 13] = values.try_into().map_err(|_| atoms::invalid_state())?;
     let (x, y, z) = position;
     let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
     let guards = lock_group(&region, &siblings)?;
     let stores: Vec<&ColumnStore> = guards.iter().map(|guard| &**guard).collect();
-    valimc_core::rules::live::first_surviving(&rules.rules, &stores, &absent, [x, y, z], &states)
-        .map_err(|_| atoms::invalid_state())
+    let writes = valimc_core::rules::live::place(
+        &rules.rules,
+        &stores,
+        &absent,
+        item,
+        values,
+        [x, y, z],
+        seed,
+    )
+    .map_err(|_| atoms::invalid_state())?;
+    Ok(writes.map(|writes| {
+        writes
+            .into_iter()
+            .map(|(p, s)| (p[0], p[1], p[2], s))
+            .collect()
+    }))
 }
 
 /// The stores of a section and its group's others, locked. Every lock is the

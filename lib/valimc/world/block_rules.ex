@@ -17,7 +17,8 @@ defmodule Valimc.World.BlockRules do
   (`priv/physics/support.json`) and decoration's shape facts, in that order;
   a state none models keeps its state. Water and lava flow in the same engine
   (VMC-031a, `priv/physics/fluids.json`): due fluid ticks, buckets and a
-  generated chunk's post-processing marks are part of a run.
+  generated chunk's post-processing marks are part of a run. Placement
+  (`place/6`) comes from the placement facts (`priv/physics/placement.json`).
   """
   import Bitwise
   alias Valimc.{Native, Worldgen}
@@ -52,7 +53,8 @@ defmodule Valimc.World.BlockRules do
       "support" => Worldgen.fact("survival"),
       "shapes" => Worldgen.fact("shapes"),
       "live_support" => Valimc.Data.Facts.read!("physics/support.json"),
-      "fluids" => Valimc.Blocks.Fluids.native_facts()
+      "fluids" => Valimc.Blocks.Fluids.native_facts(),
+      "placement" => Valimc.Data.Facts.read!("physics/placement.json")
     }
   end
 
@@ -158,14 +160,19 @@ defmodule Valimc.World.BlockRules do
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
 
   @doc """
-  The first of `states` that can survive at `position` in a section's storage
-  (placement's `canSurvive`, `BlockItem.canPlace`), read with `siblings` as
-  `run/5` does, or `nil`; `absent` lists their chunks not generated yet.
+  What placing `item` at `position` writes (VMC-029d), read with `siblings`
+  as `run/4` reads: `[{position, state}]`, or nil when vanilla refuses it.
+  `values` are the click's inputs (`Valimc.Blocks.Placement.values/2`); the
+  rules read the target's light and redstone power themselves.
   """
-  def first_surviving(%Valimc.World.Blocks{ref: ref}, siblings, position, states, absent) do
+  def place(%Valimc.World.Blocks{ref: ref}, siblings, item, values, position, absent) do
     stores = for %Valimc.World.Blocks{ref: sibling} <- siblings, do: sibling
-    {:ok, state} = Native.block_first_surviving(ref, stores, native(), position, states, absent)
-    state
+    seed = :rand.uniform(1 <<< 62)
+
+    case Native.block_place(ref, stores, native(), item, values, position, absent, seed) do
+      {:ok, nil} -> nil
+      {:ok, writes} -> for {x, y, z, state} <- writes, do: {{x, y, z}, state}
+    end
   end
 
   defp pack(records),

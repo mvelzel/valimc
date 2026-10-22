@@ -325,12 +325,13 @@ defmodule Valimc.World.Region do
   end
 
   @doc """
-  The first of `states` that can survive at `position` (a placement's choice
-  among its candidate states): `{:ok, state}` or `{:error, :cannot_survive}`.
+  What placing `item` at `position` writes (VMC-029d), the click's inputs
+  `values` (`Valimc.Blocks.Placement.target/3`): `{:ok, [{position, state}]}`
+  or `{:error, :refused}` when vanilla places nothing.
   """
-  def placement_state({pid, epoch}, position, states)
-      when is_pid(pid) and is_reference(epoch) and is_list(states) do
-    call(pid, {:placement_state, epoch, position, states}, budget(pid, 1000))
+  def placement({pid, epoch}, item, values, position)
+      when is_pid(pid) and is_reference(epoch) and is_integer(item) and is_list(values) do
+    call(pid, {:placement, epoch, item, values, position}, budget(pid, 1000))
   catch
     :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end

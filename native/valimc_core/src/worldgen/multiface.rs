@@ -195,6 +195,38 @@ impl<'t> MossyCarpet<'t> {
         }
     }
 
+    /// A player's placement (`getStateForPlacement`, then `setPlacedBy`): the
+    /// carpet with every side it can attach to, and the topper drawn over it
+    /// (`next_bool` the level random's), which sees the carpet below it.
+    pub fn place(
+        &self,
+        read: &mut dyn FnMut([i32; 3]) -> u16,
+        pos: [i32; 3],
+        next_bool: &mut dyn FnMut() -> bool,
+    ) -> (u16, Option<u16>) {
+        let base = self.updated(read, self.default, pos, true);
+        let above = offset(pos, [0, 1, 0]);
+        let previous = read(above);
+        let carpet_above = self.is_carpet(previous);
+        if (carpet_above && self.base(previous))
+            || (!carpet_above && !self.table.flag(previous, REPLACEABLE))
+        {
+            return (base, None);
+        }
+        let no_base = self.with(self.default, "bottom", "false");
+        let mut read_placed = |p: [i32; 3]| if p == pos { base } else { read(p) };
+        let mut state = self.updated(&mut read_placed, no_base, above, true);
+        for (_, face) in CARPET_SIDES {
+            if self.side(state, face) != "none" && !next_bool() {
+                state = self.with(state, face, "none");
+            }
+        }
+        (
+            base,
+            (self.has_faces(state) && state != previous).then_some(state),
+        )
+    }
+
     /// `placeAt`.
     pub fn place_at(&self, region: &mut Region, pos: [i32; 3]) {
         let adjusted = self.updated(&mut |p| region.get(p), self.default, pos, true);

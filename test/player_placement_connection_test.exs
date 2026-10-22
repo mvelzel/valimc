@@ -238,6 +238,38 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestRegion.section(owner).containers.entries == %{}
   end
 
+  test "a lily pad places by use on the water looked at, not by a click on a block", c do
+    seed(c, :survival, %{36 => ItemStack.new("lily_pad", 2)})
+    {bx, _, bz} = {floor(c.pose.x), 64, floor(c.pose.z)}
+    water = {bx, 63, bz + 2}
+    :ok = Valimc.TestBlocks.set(water, Valimc.Data.Blocks.default_state("water"))
+
+    for position <- [{bx, 64, bz + 1}, {bx, 64, bz + 2}, {bx, 65, bz + 1}, {bx, 65, bz + 2}],
+        do: :ok = Valimc.TestBlocks.set(position, 0)
+
+    {client, pid} = login(c)
+
+    # A click on the water's cell as on a block places nothing (`PlaceOnWaterBlockItem.useOn`).
+    send_place(client, water, 1)
+    client = ack(client)
+    assert Valimc.TestBlocks.get({bx, 64, bz + 2}) == 0
+
+    # Used looking south and down at the water two blocks ahead: the pad goes on it.
+    Client.send_packet(client, :play, "use_item", [
+      Wire.varint(0),
+      Wire.varint(2),
+      <<0.0::float-32, 41.0::float-32>>
+    ])
+
+    _client = ack(client, 2)
+
+    wait(fn ->
+      Valimc.TestBlocks.get({bx, 64, bz + 2}) == Valimc.Data.Blocks.default_state("lily_pad")
+    end)
+
+    assert Valimc.TestConn.state(pid).inventory.slots[36].count == 1
+  end
+
   # The client's predicted block in the target air cell is reset.
   defp corrected(client, position) do
     {bytes, client} = Client.await(client, :play, "block_update")

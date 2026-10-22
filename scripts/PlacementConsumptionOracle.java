@@ -18,10 +18,9 @@ public class PlacementConsumptionOracle {
     var player=(Probe)((sun.misc.Unsafe)uf.get(null)).allocateInstance(Probe.class);var abilities=new Abilities();
     var nativeAbilities=Player.class.getDeclaredField("abilities");nativeAbilities.setAccessible(true);nativeAbilities.set(player,abilities);
     var facts=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();var items=new TreeSet<Integer>();
-    for(var key:facts.getAsJsonObject("plain").keySet())items.add(Integer.parseInt(key));
-    for(var slab:facts.getAsJsonArray("slabs"))items.add(slab.getAsJsonObject().get("item").getAsInt());
-    for(var pillar:facts.getAsJsonArray("pillars"))items.add(pillar.getAsJsonObject().get("item").getAsInt());
-    if(items.size()!=351)throw new AssertionError("Changed placement admission");
+    // Every placed block item but the solid buckets, which leave a bucket instead (VMC-029d).
+    var buckets=new HashSet<Integer>();for(var bucket:facts.getAsJsonArray("buckets"))buckets.add(bucket.getAsInt());
+    for(var row:facts.getAsJsonArray("items")){int item=row.getAsJsonArray().get(0).getAsInt();if(!buckets.contains(item))items.add(item);}
     var rows=new JsonArray();
     for(int item:items)for(int count:new int[]{1,2,17,64,99})for(boolean infinite:new boolean[]{false,true}){
       abilities.instabuild=infinite;var stack=new ItemStack(BuiltInRegistries.ITEM.byId(item),count);
@@ -31,6 +30,6 @@ public class PlacementConsumptionOracle {
       var row=new JsonObject();row.addProperty("item",item);row.addProperty("before",count);row.addProperty("infinite",infinite);row.addProperty("after",stack.getCount());row.addProperty("empty",stack.isEmpty());rows.add(row);
     }
     Files.writeString(Path.of(args[1]),new Gson().toJson(rows));
-    System.out.println("PASS: "+rows.size()+" actual native placement-item consume calls across 351 admitted items; exact nonempty components retained.");
+    System.out.println("PASS: "+rows.size()+" actual native placement-item consume calls across "+items.size()+" placed items; exact nonempty components retained.");
   }
 }

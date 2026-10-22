@@ -286,8 +286,12 @@ was sent to.
   What water and lava read beyond the table (containers' fluids, waterlogging,
   bucket pickups, dimension attributes) is `physics/fluids.json`
   (`Valimc.Blocks.Fluids`, VMC-031a); a bucket's ray reads outline shapes
-  (`physics/outlines.json`, `Valimc.Physics.Clip`). Block behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the
-  generated class (VMC-068).
+  (`physics/outlines.json`, `Valimc.Physics.Clip`). Placement is one decision
+  diagram over every block item (VMC-029d): the click's inputs and the cells
+  around the target decide what `BlockItem.useOn` writes; Elixir picks the
+  target and the inputs, the owner's Rust rules read the cells. Block
+  behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the generated
+  class (VMC-068).
 - **Connection.** `Valimc.Net.Connection` is a thin GenServer shell. `Net.*`
   holds the login flow, the pre-play packets and the connection's own
   messages (`Net.Messages`: socket data, login jobs, keepalives, the chunk
@@ -433,7 +437,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
-| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
+| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Effects that leave the owner (drops, events) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players. Effects on living state (burning, landing damage, air, rain) come back as observations |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8

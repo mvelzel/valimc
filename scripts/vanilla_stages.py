@@ -57,12 +57,12 @@ ALIASES = {
 
 # Oracles that fill every core with their own thread pool. One runs at a time, with
 # `-XX:ActiveProcessorCount` set to the cores the run's other jobs leave free.
-THREADED = {'SupportOracle', 'ShapeOracle'}
+THREADED = {'SupportOracle', 'ShapeOracle', 'PlacementOracle'}
 
 # Wall seconds of the heaviest stages (October 2026, five jobs on ten cores), used to
 # order a run until `.local/oracle-cache/timings.json` has measured ones; others 15 s.
 ESTIMATES = {
-    'worldgen_survival': 986, 'place': 703, 'worldgen_shapes': 695, 'worldgen_decoration': 671,
+    'worldgen_survival': 986, 'placement': 3800, 'place': 703, 'worldgen_shapes': 695, 'worldgen_decoration': 671,
     'worldgen_structures': 620, 'support': 534, 'locate': 386, 'worldgen_structure_placement_jigsaw': 327,
     'worldgen_structure_placement': 310, 'worldgen_live_structures': 290, 'spawn': 283, 'world_settings': 185,
     'collision_shapes': 120, 'anvil_content': 143, 'worldgen_structure_placement_pieces': 92,
