@@ -31,13 +31,12 @@ and waves 1–3 have landed; layout and the final client run remain.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077h](tickets/VMC-077h.md) | Entity store: items and orbs as keyed entities, stable ids, replication encoded once | Awaiting client |
-| [VMC-077i](tickets/VMC-077i.md) | Players owned by their group; interactions are calls; saves in the group's frames | Awaiting client |
+| [VMC-077i](tickets/VMC-077i.md) | Players owned by their group; final-run fixes: portal arrival, death experience, chest menus, chests at region lines | Awaiting client |
 | [VMC-077k](tickets/VMC-077k.md) | Living rules for any entity | Foundation |
 | VMC-077r | Phase 6: domain layout, layering check, docs of the new model | In progress |
 
 Done in foundations II: phase 0, VMC-077a–g, 077j1–j3, 077l, 077m, 077n, 077o,
-077p, 077q. The final client run plays the frozen release of 38f8a86a.
+077h, 077p, 077q. The final client run passed apart from the fixes listed above.
 
 ## M3 onward
 

@@ -1,6 +1,6 @@
 # VMC-077h — One entity store per owner
 
-Status: Awaiting client
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (phase 3, D1), [VMC-077f](VMC-077f.md) (keyed
 records), [VMC-077g](VMC-077g.md) (owner skeleton), [VMC-077l](VMC-077l.md)
@@ -133,3 +133,5 @@ records without their kind, is fixed), the changed vanilla stages
 `cooking_experience`, `item_void`, `cooking_tick` and `tcp`), the audit, and
 `bench/entity_store.exs`, `bench/item_steps.exs` and `bench/item_handoffs.exs`
 under `MIX_ENV=bench`.
+
+Client: the final VMC-077 run on the frozen release of `38f8a86a` (October 22, 2026): items dropped, merged and picked up across region lines, furnace orbs collected, death drops scattered and picked up. PASS.
