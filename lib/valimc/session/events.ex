@@ -252,14 +252,14 @@ defmodule Valimc.Session.Events do
     do: Replication.track_peer(state, player)
 
   def event(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
-    if match?({^epoch, _}, state.entity_replication.tracked[id]),
+    if match?(%{epoch: ^epoch}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, 1)])
 
     state
   end
 
   def event(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
-    if match?({^epoch, _}, state.entity_replication.tracked[id]),
+    if match?(%{epoch: ^epoch}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, count)])
 
     state

@@ -1,6 +1,6 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{EntityHandoffs, EntityReplication, Entities}
+alias Valimc.World.{EntityHandoffs, EntityReplication, EntityTracking, Entities}
 
 measure = fn run ->
   for _ <- 1..20, do: run.()
@@ -88,14 +88,23 @@ replication =
         views
       end
 
+    # Published as an owner's tracker publishes them; no frames are pending.
+    views =
+      %EntityTracking{}
+      |> EntityTracking.sync(views, nil)
+      |> EntityTracking.published(views)
+      |> Map.new(fn {id, view} -> {id, Map.put(view, :tick, 0)} end)
+
+    frames = fn _region, _last -> {:ok, 0, []} end
+
     tracked =
       Enum.reduce(1..16, EntityReplication.new(), fn _, state ->
-        {next, _} = EntityReplication.reconcile(state, views)
+        {next, _} = EntityReplication.reconcile(state, views, frames)
         next
       end)
 
     true = map_size(tracked.tracked) == unique
-    run = fn -> {^tracked, []} = EntityReplication.reconcile(tracked, views) end
+    run = fn -> {^tracked, []} = EntityReplication.reconcile(tracked, views, frames) end
     Map.merge(measure.(run), %{sampled_views: map_size(views), unique_items: unique, torn: torn})
   end
 

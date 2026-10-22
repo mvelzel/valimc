@@ -116,7 +116,11 @@ defmodule Bench.EntityStore do
                 {desired, cache} = World.visible_entities([key], chunks, cache)
 
                 {replication, _packets} =
-                  Valimc.World.EntityReplication.reconcile(replication, desired)
+                  Valimc.World.EntityReplication.reconcile(
+                    replication,
+                    desired,
+                    &World.entity_frames/2
+                  )
 
                 {replication, cache}
               end

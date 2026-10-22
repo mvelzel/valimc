@@ -1,24 +1,38 @@
 defmodule Valimc.World.EntityPublication do
   @moduledoc """
-  One published entity view table per region for every entity kind (VMC-067).
+  One published entity table per region for every entity kind (VMC-067,
+  VMC-077h).
 
-  Observer rows are `{{:entities, chunk}, {epoch, revision}, %{entity_id => view}}`.
-  The owner republishes its store's views (every kind, VMC-077h) only once they
-  are durable. It keeps the last durable views (`{:entity_source, :items}`) and a
-  chunk index of view hashes
-  (`:entity_index`) in the same table, and rewrites only the chunk rows whose
-  views changed, each with a fresh revision. Observers read the small stamp
-  first and copy a chunk's views only when it changed.
+  Observer rows are `{{:entities, chunk}, {epoch, revision}, %{entity_id =>
+  view}}`: the owner rewrites only the rows whose views changed, each with a
+  fresh revision, and every view of a rewritten row carries the tick its
+  tracker last ran (`tick`). Observers read the small stamp first and copy a
+  chunk's views only when it changed.
+
+  Each tick's frame, `%{entity_id => packets}` encoded once by the owner's
+  trackers, goes into a ring of the last #{64} ticks
+  (`{{:frame, slot}, tick, frame}`), and `{:frame_tick, tick}` names the newest.
+  An observer forwards, for each entity it tracks, the packets of the frames
+  after the view it spawned from; one that fell behind the ring resyncs.
+
+  The table also keeps the owner's full views (`{:entity_source, :items}`, what
+  cross-region merge discovery reads) and a chunk index of row hashes
+  (`:entity_index`).
   """
 
-  @kinds [:items]
+  @ring 64
 
-  @doc "Publish `kind`'s durable `views`, rewriting only changed chunk rows."
-  def publish(table, epoch, kind, views) when kind in @kinds do
-    :ets.insert(table, {{:entity_source, kind}, views})
+  def ring, do: @ring
+
+  @doc """
+  Publish the observed `views` as of tracking tick `tick`, rewriting only
+  changed chunk rows, then `frame`; `source` is the owner's full views.
+  """
+  def publish(table, epoch, tick, views, frame \\ %{}, source \\ nil) do
+    :ets.insert(table, {{:entity_source, :items}, source || views})
 
     by_chunk =
-      for kind <- @kinds, {id, view} <- source(table, kind), reduce: %{} do
+      for {id, view} <- views, reduce: %{} do
         acc -> Map.update(acc, view.chunk, %{id => view}, &Map.put(&1, id, view))
       end
 
@@ -43,19 +57,59 @@ defmodule Valimc.World.EntityPublication do
             if index[chunk] == hash do
               {index, revision}
             else
-              :ets.insert(table, {{:entities, chunk}, {epoch, revision + 1}, chunk_views})
+              stamped =
+                Map.new(chunk_views, fn {id, view} -> {id, Map.put(view, :tick, tick)} end)
+
+              :ets.insert(table, {{:entities, chunk}, {epoch, revision + 1}, stamped})
               {Map.put(index, chunk, hash), revision + 1}
             end
         end
       end)
 
     :ets.insert(table, {:entity_index, index, revision})
+
+    # Rows first: an observer that reads the new frame tick also reads its rows.
+    if frame != %{} do
+      :ets.insert(table, {{:frame, rem(tick, @ring)}, tick, frame})
+      :ets.insert(table, {:frame_tick, tick})
+    end
+
     :ok
   end
 
-  @doc "The last durable views of one kind."
-  def source(table, kind) do
-    case :ets.lookup(table, {:entity_source, kind}) do
+  @doc """
+  The frames of `table` after tick `last`: `{:ok, newest, [{tick, frame}]}`,
+  or `{:gap, newest}` when the ring no longer holds them all. `last` nil (a
+  region the observer starts reading) or past the newest (an owner that came
+  back) reads none.
+  """
+  def frames(table, last) do
+    newest =
+      case :ets.lookup(table, :frame_tick) do
+        [{:frame_tick, tick}] -> tick
+        [] -> 0
+      end
+
+    cond do
+      last == nil or last >= newest ->
+        {:ok, newest, []}
+
+      newest - last > @ring ->
+        {:gap, newest}
+
+      true ->
+        frames =
+          for tick <- (last + 1)..newest,
+              [{_, ^tick, frame}] <- [:ets.lookup(table, {:frame, rem(tick, @ring)})],
+              do: {tick, frame}
+
+        {:ok, newest, frames}
+    end
+  end
+
+  @doc "The last published views."
+  def source(table, :items) do
+    case :ets.lookup(table, {:entity_source, :items}) do
       [{_, views}] -> views
       [] -> %{}
     end

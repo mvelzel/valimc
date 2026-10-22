@@ -1,8 +1,10 @@
 defmodule Valimc.World.EntityView do
   @moduledoc """
-  The replication view every entity kind publishes (VMC-067): identity, chunk and
-  the four pre-encoded packets observers send (spawn, metadata, position,
-  motion). Kinds add their own fields (an item's stack revision, an orb's value).
+  The view every entity kind publishes (VMC-067, VMC-077h): identity, chunk,
+  position and motion as values, and the encoded metadata packet. Kinds add
+  their own fields (an item's stack hints, an orb's value). The owner's tracker
+  (`Valimc.World.EntityTracking`) adds what observers send at publication: the
+  spawn packet at the position clients were last sent, and that position.
   """
   alias Valimc.Protocol.{EntityPackets, Wire}
 
@@ -24,27 +26,27 @@ defmodule Valimc.World.EntityView do
       epoch: epoch,
       ownership_generation: ownership_generation,
       metadata_revision: 1,
-      motion_revision: 1,
       chunk: Valimc.World.chunk_key(x, z),
       at: {x, y, z},
-      spawn: packet(spawn(kind, entity)),
-      metadata: metadata,
-      position: packet(EntityPackets.position(Map.put_new(entity, :on_ground, false))),
-      motion: packet(EntityPackets.motion(id, Map.get(entity, :velocity, {0.0, 0.0, 0.0})))
+      velocity: Map.get(entity, :velocity, {0.0, 0.0, 0.0}),
+      on_ground: Map.get(entity, :on_ground, false),
+      metadata: metadata
     }
   end
 
-  @doc "Bytes an observer receives to spawn the view."
-  def bytes(view),
-    do:
-      Enum.sum(
-        for p <- [view.spawn, view.metadata, view.position, view.motion], do: packet_bytes(p)
-      )
+  @doc "The spawn packet of `view` at `{x, y, z}` moving at `velocity`."
+  def spawn(view, {x, y, z}, velocity) do
+    entity = %{entity_id: view.entity_id, uuid: view.uuid, x: x, y: y, z: z, velocity: velocity}
+
+    packet(
+      case view.kind do
+        :item -> EntityPackets.spawn_item(entity)
+        :orb -> EntityPackets.spawn_experience_orb(entity)
+      end
+    )
+  end
 
   def packet_bytes({id, payload}), do: byte_size(Wire.varint(id)) + byte_size(payload)
 
   def packet({id, body}), do: {id, IO.iodata_to_binary(body)}
-
-  defp spawn(:item, entity), do: EntityPackets.spawn_item(entity)
-  defp spawn(:orb, entity), do: EntityPackets.spawn_experience_orb(entity)
 end

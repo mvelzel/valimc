@@ -97,14 +97,8 @@ defmodule Valimc.CookingOrbConnectionTest do
     # Only the two orbs are tracked; there are no items.
     assert map_size(:sys.get_state(player).entity_replication.tracked) == 2
 
-    {body, client} = Client.await(client, :play, "entity_position_sync")
-
-    {orb_id, <<0, x::float-64, y::float-64, z::float-64, 0::float-32, 0::float-32, 0>>} =
-      Wire.take_varint(body)
-
-    assert {_, {^x, ^y, ^z}} = spawns[orb_id]
-    {body, client} = Client.await(client, :play, "set_entity_motion")
-    assert {^orb_id, <<0>>} = Wire.take_varint(body)
+    # Resting orbs need no movement packets (no more "predicted" resends).
+    orb_id = spawns |> Map.keys() |> Enum.min()
 
     assert World.visible_items(MapSet.new([key]), MapSet.new([World.chunk_key(pose.x, pose.z)])) ==
              %{}

@@ -813,7 +813,8 @@ defmodule Valimc.Session.Messages do
             for({id, %{kind: :orb} = v} <- desired, into: %{}, do: {id, v})
           )
 
-        {replication, packets} = EntityReplication.reconcile(state.entity_replication, desired)
+        {replication, packets} =
+          EntityReplication.reconcile(state.entity_replication, desired, &World.entity_frames/2)
 
         state =
           Replication.emit_peer_packets(

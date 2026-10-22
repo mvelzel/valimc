@@ -68,7 +68,7 @@ defmodule Valimc.ItemConnectionTest do
     assert :binary.match(body, "schedulers") != :nomatch
   end
 
-  test "accepted item steps reach the existing observer and fresh tracking at the latest position" do
+  test "accepted item steps reach the existing observer as a relative move, fresh tracking at the latest position" do
     {_, client} = Client.login(name())
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
@@ -87,12 +87,11 @@ defmodule Valimc.ItemConnectionTest do
 
     assert {:ok, [handle]} = Region.advance_items(owner, [step])
     on_exit(fn -> if Process.alive?(pid), do: Region.remove_item(handle) end)
-    {body, client} = await_entity(client, "entity_position_sync", id)
-
-    assert {^id, <<0, 6.5::float-64, 64.5::float-64, 4.5::float-64, 0::64, 0>>} =
-             Wire.take_varint(body)
-
-    {_velocity, _client} = await_entity(client, "set_entity_motion", id)
+    # The owner's tracker sends at the item's update interval: its motion,
+    # then a relative move of 2 blocks (8192 / 4096) from the spawn.
+    {_velocity, client} = await_entity(client, "set_entity_motion", id)
+    {body, _client} = await_entity(client, "move_entity_pos", id)
+    assert {^id, <<0, 8192::signed-16, 0::16, 0::16>>} = Wire.take_varint(body)
     {_, late} = Client.login(name())
     on_exit(fn -> Client.close(late) end)
     {body, late} = await_entity(late, "add_entity", id)

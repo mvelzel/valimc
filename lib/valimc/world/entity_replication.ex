@@ -1,91 +1,142 @@
 defmodule Valimc.World.EntityReplication do
-  @moduledoc "Bounded observer-local entity updates; position and metadata revisions are independent."
+  @moduledoc """
+  One observer's tracked entities (VMC-077h): it forwards the frames its
+  regions' owners encoded once, for the entities it tracks, and encodes
+  nothing on the hot path.
+
+  - A newly visible entity spawns from its row: the spawn packet at its
+    tracker's base and its metadata, paced by a batch budget. Frames up to the
+    row's tick are already in that spawn.
+  - A tracked entity gets each later frame's packets, in tick order.
+  - An entity seen under another owner (a handoff keeps its id; the reader
+    keeps the newer owner's view while both publish it) or in a region whose
+    frames the observer fell behind on resyncs: an absolute position, its
+    motion and metadata, never a respawn.
+  - An entity no longer visible is removed.
+  """
   alias Valimc.Protocol.EntityPackets
   alias Valimc.World.EntityView
-  defstruct tracked: %{}, cursor: 0
+
+  defstruct tracked: %{}, regions: %{}
   @max_visible 1024
-  @max_changes 64
+  @max_spawns 64
   @max_bytes 262_144
 
   def new, do: %__MODULE__{}
   def max_visible, do: @max_visible
 
   @doc """
-  Bring one observer's tracked entities toward `desired` views of any kind,
-  within a rotating batch budget. Orb views are client-predicted: their motion is
-  corrected every pass rather than only when it changed.
+  Bring the observer toward `desired` views of any kind. `frames` reads a
+  region's frames after a tick (`Valimc.World.EntityPublication.frames/2`):
+  `fn region, last -> {:ok, newest, frames} | {:gap, newest} end`.
+  Returns `{state, packets}`.
   """
-  def reconcile(state, desired) when map_size(desired) <= @max_visible do
-    desired = newest_owners(desired)
-
-    removed =
-      for {id, {epoch, _}} <- state.tracked,
-          not Map.has_key?(desired, id) or desired[id].epoch != epoch,
-          do: id
+  def reconcile(state, desired, frames) when map_size(desired) <= @max_visible do
+    {tracked, removed} =
+      Enum.reduce(state.tracked, {state.tracked, []}, fn {id, _}, {tracked, removed} ->
+        if is_map_key(desired, id),
+          do: {tracked, removed},
+          else: {Map.delete(tracked, id), [id | removed]}
+      end)
 
     removal =
       if removed == [], do: [], else: [binary_packet(EntityPackets.remove(Enum.sort(removed)))]
 
-    retained = Map.drop(state.tracked, removed)
-    ids = desired |> Map.keys() |> Enum.sort()
-    {earlier, later} = Enum.split_while(ids, &(&1 <= state.cursor))
-    bytes = Enum.reduce(removal, 0, &(EntityView.packet_bytes(&1) + &2))
-
-    {tracked, cursor, packets, _bytes, _changes} =
-      Enum.reduce_while(later ++ earlier, {retained, state.cursor, [], bytes, 0}, fn id, acc ->
-        {tracked, _cursor, packets, bytes, changes} = acc
+    # An entity seen under another owner: its id survived a handoff.
+    {tracked, resyncs} =
+      Enum.reduce(tracked, {tracked, []}, fn {id, entry}, {tracked, packets} ->
         view = desired[id]
-        predicted? = Map.get(view, :kind) == :orb
-        version = {view.epoch, {view.metadata_revision, view.motion_revision}}
 
-        delta =
-          case tracked[id] do
-            nil ->
-              [view.spawn, view.metadata]
+        if view.epoch == entry.epoch,
+          do: {tracked, packets},
+          else: resync(tracked, packets, id, view)
+      end)
 
-            ^version when not predicted? ->
-              []
+    # A region read for the first time starts at its entities' oldest view.
+    reads =
+      tracked
+      |> Enum.reduce(%{}, fn {_, entry}, acc ->
+        Map.update(acc, entry.region, entry.since, &min(&1, entry.since))
+      end)
+      |> Map.new(fn {region, since} ->
+        {region, frames.(region, Map.get(state.regions, region, since))}
+      end)
 
-            {_, {metadata_revision, motion_revision}} ->
-              moved =
-                if motion_revision == view.motion_revision and not predicted?,
-                  do: [],
-                  else: [view.position, view.motion]
+    {tracked, updates} =
+      Enum.reduce(reads, {tracked, resyncs}, fn
+        {region, {:gap, _}}, {tracked, packets} ->
+          for({id, %{region: ^region}} <- tracked, do: id)
+          |> Enum.reduce({tracked, packets}, fn id, {tracked, packets} ->
+            resync(tracked, packets, id, desired[id])
+          end)
 
-              moved ++
-                if(metadata_revision == view.metadata_revision, do: [], else: [view.metadata])
+        {region, {:ok, _, ticks}}, acc ->
+          for {tick, frame} <- ticks, {id, sent} <- frame, reduce: acc do
+            {tracked, packets} ->
+              case tracked do
+                %{^id => %{region: ^region, since: since}} when tick > since ->
+                  {tracked, Enum.reverse(sent, packets)}
+
+                _ ->
+                  {tracked, packets}
+              end
           end
-
-        cost = Enum.reduce(delta, 0, &(EntityView.packet_bytes(&1) + &2))
-
-        if delta != [] and (changes >= @max_changes or bytes + cost > @max_bytes) do
-          {:halt, acc}
-        else
-          next =
-            {Map.put(tracked, id, version), id, Enum.reverse(delta, packets), bytes + cost,
-             changes + if(delta == [], do: 0, else: 1)}
-
-          {:cont, next}
-        end
       end)
 
-    {%{state | tracked: tracked, cursor: cursor}, removal ++ Enum.reverse(packets)}
+    {tracked, spawns, spawned} = spawn(tracked, desired)
+
+    regions =
+      spawned
+      |> Enum.reject(fn {region, _} -> is_map_key(reads, region) end)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Map.new(fn {region, ticks} -> {region, Enum.min(ticks)} end)
+      |> Map.merge(Map.new(reads, fn {region, read} -> {region, elem(read, 1)} end))
+
+    {%{state | tracked: tracked, regions: regions}, removal ++ Enum.reverse(updates) ++ spawns}
   end
 
-  # Sequential ETS reads may span a handoff. Choose ownership before removals,
-  # spawning or pacing so the old and adopted runtime IDs cannot coexist.
-  defp newest_owners(desired) do
+  defp resync(tracked, packets, id, view) do
+    entry = %{epoch: view.epoch, since: view.tick, region: region(view)}
+    {x, y, z} = view.base
+    entity = %{entity_id: id, x: x, y: y, z: z, on_ground: view.on_ground}
+
+    sync = [
+      binary_packet(EntityPackets.position(entity)),
+      binary_packet(EntityPackets.motion(id, view.velocity)),
+      view.metadata
+    ]
+
+    {Map.put(tracked, id, entry), Enum.reverse(sync, packets)}
+  end
+
+  # New entities in id order, within the batch budget; the rest wait a pass.
+  # A region first read for spawned entities starts after the oldest spawn's
+  # tick; the frames up to each spawn's own tick are skipped by `since`.
+  defp spawn(tracked, desired) do
     desired
-    |> Enum.reduce(%{}, fn {id, view}, by_uuid ->
-      Map.update(by_uuid, view.uuid, {id, view}, fn {old_id, old} ->
-        if {view.ownership_generation, id} > {old.ownership_generation, old_id},
-          do: {id, view},
-          else: {old_id, old}
-      end)
+    |> Enum.reject(fn {id, _} -> is_map_key(tracked, id) end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce_while({tracked, [], [], 0}, fn {id, view},
+                                                  {tracked, packets, spawned, bytes} ->
+      bundle = [view.spawn, view.metadata]
+      cost = Enum.reduce(bundle, 0, &(EntityView.packet_bytes(&1) + &2))
+
+      if length(spawned) >= @max_spawns or bytes + cost > @max_bytes do
+        {:halt, {tracked, packets, spawned, bytes}}
+      else
+        entry = %{epoch: view.epoch, since: view.tick, region: region(view)}
+
+        {:cont,
+         {Map.put(tracked, id, entry), Enum.reverse(bundle, packets),
+          [{entry.region, view.tick} | spawned], bytes + cost}}
+      end
     end)
-    |> Map.values()
-    |> Map.new()
+    |> then(fn {tracked, packets, spawned, _} ->
+      {tracked, Enum.reverse(packets), spawned}
+    end)
   end
+
+  defp region(view), do: Valimc.World.region_key(view.chunk)
 
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 end

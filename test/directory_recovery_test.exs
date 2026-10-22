@@ -137,7 +137,9 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert next != pid and next_epoch != epoch
     assert Valimc.TestBlocks.get({2, 64, 2}) == 1
     recovered_records = Entities.records(:sys.get_state(next).resource.entities.store)
-    assert Enum.sort_by(recovered_records, & &1.uuid) == Enum.sort_by([record, drop], & &1.uuid)
+    # Stored records name their kind (VMC-077h).
+    expected = Enum.map([record, drop], &Map.put(&1, :kind, :item))
+    assert Enum.sort_by(recovered_records, & &1.uuid) == Enum.sort_by(expected, & &1.uuid)
     {:ok, recovered} = Region.find_item(replacement, record.uuid)
 
     assert {:error, :stale_admission} =

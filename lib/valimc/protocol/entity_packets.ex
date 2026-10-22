@@ -79,6 +79,25 @@ defmodule Valimc.Protocol.EntityPackets do
 
   def position(_), do: raise(ArgumentError, "invalid entity position")
 
+  @doc """
+  A relative move (26.3 `ClientboundMoveEntityPacket.Pos`): a linear delta in
+  1/4096 blocks from the position the client last received, and the ground flag.
+  """
+  def move(id, {dx, dy, dz}, on_ground) do
+    entity_id!(id)
+
+    check(
+      Enum.all?([dx, dy, dz], &(is_integer(&1) and &1 in -32768..32767)) and is_boolean(on_ground),
+      "invalid entity move"
+    )
+
+    # Properties: the ground flag and a step count of 0 (a linear delta).
+    Packets.packet("move_entity_pos", [
+      Wire.varint(id),
+      <<if(on_ground, do: 1, else: 0), dx::signed-16, dy::signed-16, dz::signed-16>>
+    ])
+  end
+
   def equipment(id, changes) do
     entity_id!(id)
     changes = bounded_list!(changes, 8, "invalid equipment batch")

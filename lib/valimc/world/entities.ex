@@ -438,11 +438,6 @@ defmodule Valimc.World.Entities do
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key do
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
-
-      position =
-        binary_packet(EntityPackets.position(Map.put(entity, :on_ground, motion.on_ground)))
-
-      velocity = binary_packet(EntityPackets.motion(id, motion.velocity))
       old = state.views[id]
 
       metadata =
@@ -473,15 +468,11 @@ defmodule Valimc.World.Entities do
             pickup_delay: motion.pickup_delay,
             merge_open: merge_open?(entry.stack.count, state.views[id].merge_max, motion),
             chunk: Valimc.World.chunk_key(x, z),
-            spawn: binary_packet(EntityPackets.spawn_item(entity)),
-            position: position,
-            motion: velocity,
+            velocity: motion.velocity,
+            on_ground: motion.on_ground,
             metadata: metadata,
             metadata_revision:
-              old.metadata_revision + if(metadata == old.metadata, do: 0, else: 1),
-            motion_revision:
-              old.motion_revision +
-                if(position == old.position and velocity == old.motion, do: 0, else: 1)
+              old.metadata_revision + if(metadata == old.metadata, do: 0, else: 1)
         }
 
         entry =

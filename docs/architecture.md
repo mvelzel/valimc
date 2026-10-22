@@ -12,9 +12,9 @@ authority. The M1 foundations below are in place; later milestones on the
 | Socket, protocol, AES stream, session inventory/input/pose, move validation | One connection process per player; each move packet is validated synchronously by the physics kernel |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
-| Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
+| Blocks (Rust paletted sections), block entities, entities (items, XP orbs) | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
 | Generated chunks before they are full | Generation scheduler per dimension (`Worldgen.Scheduler`): statuses, proto chunks as native cells, structure starts; terrain, decoration and full chunks as jobs on the generation pool |
-| Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
+| Entity observations | Region-owned protected ETS: per-chunk views and per-tick frames encoded once by the owner's trackers |
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
@@ -40,8 +40,9 @@ on accept errors (VMC-077a).
 
 A region owner's state is its key and epoch (its incarnation: handles and
 messages of an older one are stale), its publication table, its blocks and
-block entities, its entities (`RegionEntities`: items, receipts and the item
-work it schedules), its commit state (`RegionStorage`) and its job table
+block entities, its entities (`RegionEntities`: the entity store, its
+replication trackers, the players' transfer receipts and the entity work it
+schedules), its commit state (`RegionStorage`) and its job table
 (`Jobs`). Every piece of background work runs on that table: at most one job
 per kind under a bounded pool, each with a token, a monitor and a deadline,
 reported, overrun and lost through one path; a crashed worker is a failed job.
@@ -70,31 +71,50 @@ classified where they are made (`Valimc.Error`): a caller retries
   and player files on two, each written by one process that drains its queue
   into one append with one `datasync` (plus `F_FULLFSYNC` on macOS). An owner
   adopts, publishes and answers every change at once and cuts one frame of
-  keyed records every 50 ms (cells, items by UUID, receipts, container entries
-  by position, scheduled ticks, block entities); only a cross-owner transfer's
+  keyed records every 50 ms (cells, entities by UUID, receipts, container
+  entries by position, scheduled ticks, block entities); only a cross-owner transfer's
   reply (its receipt, the proof the other owner acts on) waits for its frame. A
   crash loses at most a suffix of an owner's frames, never one half of a
   transfer. A region's checkpoint file folds its cells into column images
   relit alone, so a load replays nothing older; the log then drops the frames
   it holds. Simulation never waits for the disk.
 - **One transaction engine.** Cross-owner effects (pickup, mining drops, container
-  exchanges, merges, handoffs, XP) are idempotent operations keyed by source,
+  exchanges, XP pickup, entity handoffs) are idempotent operations keyed by source,
   sequence and digest. Shared primitives: `Txn.Permits` (one owner permit table),
   `Txn.Receipts` (one idempotency classifier over the per-sequence-space receipt
   tables), `Txn.Delivery` (bounded attempts) and `Txn.Operation` (the per-kind
   source half: request, apply, receipt, proof, resolve) (VMC-064).
 - **Tick pipeline.** Each region tick runs `TickPipeline` phases on the owner's
   game tick: scheduled block ticks, random ticks (a native per-section sampler),
-  items, cooking, orb lifetime, orbs. Block ticks and item motion run only in
-  chunks a simulation ticket covers; cooking and orb ageing while any chunk of
-  the region does (VMC-077e). What a commit starts (neighbour and shape updates,
+  entities, cooking. Block ticks and item motion run only in chunks a
+  simulation ticket covers; cooking while any chunk of the region does
+  (VMC-077e). What a commit starts (neighbour and shape updates,
   survival, redstone wire power) and dependent blocks' due ticks run in the Rust
   block-update engine in one call per commit (VMC-077m); blocks with effects of
   their own (portals, containers, cooking) keep `Valimc.Block.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
-- **Entities.** Items and orbs share one view (`EntityView`), one per-chunk
-  publication with revision stamps (`EntityPublication`; observers copy only
-  changed chunks) and one replication tracker per connection (VMC-067).
+- **Entities.** Each region owner holds one entity store (`Entities`,
+  VMC-077h): every entity it owns, items and XP orbs now, mobs and
+  projectiles later, by network id with a uuid index, persisted one record per
+  entity with no count or size cap. Network ids come from one `:atomics`
+  counter (`EntityIds`) for players and every kind, and an entity keeps its id
+  across handoffs within a VM. Entities move between owners through one
+  handoff (`EntityHandoffs`): the source withdraws a cohort into one durable
+  outgoing intent, the destination adopts it and records its receipt in the
+  same frame, and the source clears the intent once that receipt is durable. A
+  cross-region item merge is the donor handed over with its target, merged on
+  arrival or returned. A furnace withdrawal spawns its XP orbs in the same
+  commit, or hands them to the owner of their position.
+- **Replication.** The owner keeps one tracker per entity (`EntityTracker`,
+  vanilla's `ServerEntity`): each tick it encodes, once for every observer,
+  the packets of what changed (relative moves, motion, metadata, absolute
+  syncs) at the kind's update interval into a frame, and rewrites only the
+  chunk rows whose views changed (`EntityPublication`). A connection's tracker
+  (`EntityReplication`) spawns entities from their rows, at the position the
+  owner's tracker last sent, forwards the frames for the ids it tracks, and
+  resyncs one seen under another owner or behind the frame ring, never
+  respawning it. A departing entity stays published until its handoff clears.
+  Peer players still use their own path (VMC-077i).
 - **Data.** One generated fact source per concept and a single version module
   (`Valimc.Version`). Each `priv` file has one decoding module: it reads the
   file with `use Valimc.Facts`, which loads it once at compile time and checks
@@ -266,14 +286,17 @@ stripes; an append that cannot open its segment wrote nothing and is retried
 for 30 seconds. Worlds stored before the shared log are refused with a clear
 error, never migrated (D4). A crash loses at most the last frames (about 50 ms
 of changes); item motion reaches a frame at most once a second, and tick
-counters (item age and delays, furnace burn and progress) are saved by
+counters (entity ages and delays, furnace burn and progress) are saved by
 checkpoints, at the latest five minutes after they move, as vanilla's autosave.
+An entity record carries its kind, uuid, position and hops, never its
+network id; an outgoing handoff intent is stored without network ids, so one
+recovered after a restart delivers records that get fresh ones.
 Transfer proofs are always durable before they are sent. Item transfers
 journal a reduced source inventory plus one outbox before delivery; the region
 commits records and retry receipts before publication. Source clearing requires
 destination receipt proof. UUID writer leases, owner incarnations and revisions
 fence stale operations. Never fabricate recovery evidence or roll back one side of
-a committed transfer; receipt/counter limits are explicit admission failures.
+a committed transfer. Receipt tables are keyed records with no source cap.
 Contracts and tests: [VMC-019b1](tickets/VMC-019b1.md), [019b2](tickets/VMC-019b2.md),
 [019b3a](tickets/VMC-019b3a.md) and [disconnect cleanup](tickets/VMC-005b2d2b.md).
 

@@ -195,9 +195,27 @@ defmodule Valimc.World do
         true ->
           {views, next_cache} = chunk_views(table, chunk, cache, next_cache)
           visible = views |> Enum.sort_by(&elem(&1, 0)) |> Enum.take(limit - map_size(acc))
-          {:cont, {Map.merge(acc, Map.new(visible)), next_cache}}
+          {:cont, {Map.merge(acc, Map.new(visible), &newer/3), next_cache}}
       end
     end)
+  end
+
+  # An entity keeps its id across a handoff, and its source keeps publishing it
+  # until the handoff clears: the newer owner (more hops) wins.
+  defp newer(_id, old, view),
+    do: if(view.ownership_generation > old.ownership_generation, do: view, else: old)
+
+  @doc """
+  The entity frames of region `key` after tick `last`
+  (`Valimc.World.EntityPublication.frames/2`); none while it is not loaded.
+  """
+  def entity_frames(key, last) do
+    case Directory.lookup(key) do
+      {_, _, %{publication: table}} -> Valimc.World.EntityPublication.frames(table, last)
+      _ -> {:ok, last || 0, []}
+    end
+  rescue
+    ArgumentError -> {:ok, last || 0, []}
   end
 
   defp chunk_views(table, chunk, cache, next_cache) do

@@ -23,6 +23,7 @@ defmodule Valimc.World.RegionData do
     RegionEntities,
     EntityHandoffs,
     EntityHandoffDelivery,
+    EntityTracking,
     ItemPortals,
     ItemMerges,
     ItemCrossMergeQuery,
@@ -145,7 +146,6 @@ defmodule Valimc.World.RegionData do
 
     :ok = BlockSnapshot.publish_chunks(publication, blocks, present, 0)
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
-    EntityPublication.publish(publication, items.epoch, :items, items.views)
     send_after_epoch(items.epoch, :commit, RegionStorage.commit_ms())
 
     %__MODULE__{
@@ -154,6 +154,7 @@ defmodule Valimc.World.RegionData do
       publication: publication,
       entities: %RegionEntities{
         store: items,
+        tracking: %EntityTracking{tick: loaded.game_tick},
         receipts: loaded.receipts,
         persistent: loaded.persistent,
         simulate: Valimc.config(:item_simulation, key)
@@ -182,6 +183,7 @@ defmodule Valimc.World.RegionData do
       random_tick_speed: Valimc.config(:random_tick_speed, key),
       storage: storage
     }
+    |> publish_item_views()
     |> baseline_storage()
     |> resume_item_handoff()
   end
@@ -205,7 +207,8 @@ defmodule Valimc.World.RegionData do
 
   def item_tick(state, now) do
     state = travel_item(state)
-    if Tickets.simulating?(state.tickets), do: simulate_items(state, now), else: state
+    state = if Tickets.simulating?(state.tickets), do: simulate_items(state, now), else: state
+    track_entities(state)
   end
 
   defp simulate_items(state, now) do
@@ -371,7 +374,7 @@ defmodule Valimc.World.RegionData do
         now
       )
 
-    publish_item_views(%{state | entities: %{state.entities | store: plan.items}})
+    state = publish_item_views(%{state | entities: %{state.entities | store: plan.items}})
 
     state = %{
       state
@@ -477,7 +480,6 @@ defmodule Valimc.World.RegionData do
     if items == state.entities.store do
       state
     else
-      publish_item_views(%{state | entities: %{state.entities | store: items}})
       %{state | entities: %{state.entities | store: items}}
     end
   end
@@ -643,8 +645,8 @@ defmodule Valimc.World.RegionData do
             if items == state.entities.store do
               {:reply, {:ok, handles}, state}
             else
-              publish_item_views(%{state | entities: %{state.entities | store: items}})
-              {:reply, {:ok, handles}, %{state | entities: %{state.entities | store: items}}}
+              state = publish_item_views(%{state | entities: %{state.entities | store: items}})
+              {:reply, {:ok, handles}, state}
             end
 
           error ->
@@ -1643,8 +1645,7 @@ defmodule Valimc.World.RegionData do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          {:ok, proposal} <- block_proposal(state, batch) do
       {state, effects} = apply_blocks(state, batch, proposal, false, false)
-      state = %{state | entities: %{state.entities | store: items}}
-      publish_item_views(state)
+      state = publish_item_views(%{state | entities: %{state.entities | store: items}})
 
       state
       |> release_blocks(effects)
@@ -1781,16 +1782,24 @@ defmodule Valimc.World.RegionData do
     do: commit_items(items, reply, from, state, state.entities.receipts)
 
   defp commit_items(items, reply, from, state, receipts) do
-    state = %{state | entities: %{state.entities | store: items, receipts: receipts}}
-    publish_item_views(state)
+    state =
+      publish_item_views(%{
+        state
+        | entities: %{state.entities | store: items, receipts: receipts}
+      })
+
     {:noreply, finish_item_reply(state, from, reply)}
   end
 
   # The same for a transfer step another owner acts on: the reply waits for
   # the frame that holds the change (and its receipt) to be durable.
   defp commit_transfer(items, reply, from, state, receipts) do
-    state = %{state | entities: %{state.entities | store: items, receipts: receipts}}
-    publish_item_views(state)
+    state =
+      publish_item_views(%{
+        state
+        | entities: %{state.entities | store: items, receipts: receipts}
+      })
+
     {:noreply, reply_when_durable(state, from, reply)}
   end
 
@@ -1846,14 +1855,54 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  defp publish_item_views(state),
-    do:
+  # Publishes the store's views between ticks; new entities get their tracker
+  # here, so the spawn observers read and the frames that follow agree.
+  defp publish_item_views(state) do
+    store = state.entities.store
+    tracking = EntityTracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
+    views = EntityTracking.published(tracking, store.views)
+
+    :ok =
       EntityPublication.publish(
         state.publication,
         state.epoch,
-        :items,
-        state.entities.store.views
+        tracking.tick,
+        views,
+        %{},
+        store.views
       )
+
+    %{state | entities: %{state.entities | tracking: tracking}}
+  end
+
+  # The entities phase's end (VMC-077h): every tracker ticks once, and the frame
+  # of their changes is published with the rows.
+  defp track_entities(state) do
+    store = state.entities.store
+
+    {tracking, frame} =
+      EntityTracking.step(
+        state.entities.tracking,
+        store.views,
+        store.ledger.outgoing,
+        state.game_tick
+      )
+
+    views = EntityTracking.published(tracking, store.views)
+
+    :ok =
+      EntityPublication.publish(
+        state.publication,
+        state.epoch,
+        tracking.tick,
+        views,
+        frame,
+        store.views
+      )
+
+    Valimc.Metrics.add(:entity_frame_packets, Enum.sum(Enum.map(frame, &length(elem(&1, 1)))))
+    %{state | entities: %{state.entities | tracking: tracking}}
+  end
 
   defp plan_transfer(transfer, from, state),
     do: plan_item_change(:item_transfer, transfer, from, state)
@@ -3171,17 +3220,18 @@ defmodule Valimc.World.RegionData do
 
     {local, state} = portal_contacts(state, local)
 
+    # Motion waits while a plan holds the store; the tick's end publishes it.
     state =
-      Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
-        {:reply, _, next} =
-          handle_call(
-            {:publish_item_motion, acc.epoch, batch, System.monotonic_time(:millisecond) + 250},
-            nil,
-            acc
-          )
-
-        next
-      end)
+      if write_busy(state) != nil do
+        state
+      else
+        Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
+          case Entities.advance(acc.entities.store, acc.key, acc.epoch, batch) do
+            {:ok, items, _} -> %{acc | entities: %{acc.entities | store: items}}
+            {:error, _} -> acc
+          end
+        end)
+      end
 
     if borders != [] and state.entities.store.ledger.outgoing == nil and state.entities.persistent do
       {destination, batch} =
@@ -3369,9 +3419,7 @@ defmodule Valimc.World.RegionData do
         state =
           case decision do
             %{items: items} ->
-              state = %{state | entities: %{state.entities | store: items}}
-              publish_item_views(state)
-              state
+              publish_item_views(%{state | entities: %{state.entities | store: items}})
 
             _ ->
               state
@@ -3444,7 +3492,7 @@ defmodule Valimc.World.RegionData do
               state
           end
 
-        publish_item_views(state)
+        state = publish_item_views(state)
         {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
 
       {:reply, reply} ->
