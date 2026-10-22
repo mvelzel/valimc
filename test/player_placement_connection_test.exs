@@ -143,6 +143,27 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestWorld.item_snapshot(c.key) == %{}
   end
 
+  test "a chest places in the columns on either side of a region line", c do
+    {rx, _} = c.key
+    line = (rx + 1) * Valimc.Data.Grid.region_size() * 16
+    c = %{c | pose: %{c.pose | x: line - 1.5, yaw: 90.0}}
+    seed(c, :survival, %{36 => ItemStack.new("chest", 2)})
+    {_, _, z} = c.target
+    west = {line - 1, 64, z}
+    east = {line, 64, z + 2}
+    for position <- [west, east], do: :ok = Valimc.TestBlocks.set(position, 0)
+    {client, pid} = login(c)
+    {:ok, chest} = Valimc.Blocks.ChestPlacement.single_state(90.0, 0)
+
+    send_place(client, west)
+    client = ack(client)
+    assert Valimc.TestBlocks.get(west) == chest
+    send_place(client, east, 1, 0.5, 0, 2)
+    _client = ack(client, 2)
+    assert Valimc.TestBlocks.get(east) == chest
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
+  end
+
   test "unsupported block entities are corrected without a shell or item loss", c do
     # Default states the 26.3 client sent for a copper chest and a barrel; the owner
     # refuses them too (placement_owner_test).

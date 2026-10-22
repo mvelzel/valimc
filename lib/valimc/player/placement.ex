@@ -357,26 +357,36 @@ defmodule Valimc.Player.Placement do
 
   defp surviving(_owner, candidate), do: {:ok, candidate}
 
+  # Vanilla reads the four neighbours wherever they are: those in another
+  # section (a region line one block away) are read at their own owner, the
+  # player's group, which has them loaded.
   defp isolated_chest(owner, key, candidate, revision) do
     if Valimc.Blocks.Chest.single?(candidate.state) do
-      neighbors = Valimc.Blocks.ChestPlacement.neighbors(candidate.position)
+      candidate.position
+      |> Valimc.Blocks.ChestPlacement.neighbors()
+      |> Enum.group_by(fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end)
+      |> Enum.reduce_while(:ok, fn {neighbor_key, positions}, :ok ->
+        observed =
+          if neighbor_key == key,
+            do: Region.observe_blocks(owner, positions, revision),
+            else:
+              with(
+                {:ok, other} <- owner(hd(positions)),
+                do: Region.observe_blocks(other, positions)
+              )
 
-      if Enum.all?(neighbors, fn {x, _, z} ->
-           Grid.region_key(Grid.chunk_key(x, z)) == key
-         end) do
-        with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),
-             false <-
-               Enum.any?(observed.blocks, fn {_, state} ->
+        case observed do
+          {:ok, observed} ->
+            if Enum.any?(observed.blocks, fn {_, state} ->
                  Valimc.Blocks.Chest.ordinary?(state)
                end),
-             do: :ok,
-             else: (
-               true -> {:error, :adjacent_chest}
-               error -> error
-             )
-      else
-        {:error, :cross_owner_chest}
-      end
+               do: {:halt, {:error, :adjacent_chest}},
+               else: {:cont, :ok}
+
+          error ->
+            {:halt, error}
+        end
+      end)
     else
       :ok
     end

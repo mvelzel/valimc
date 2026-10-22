@@ -86,9 +86,15 @@ defmodule Valimc.Player.CreativeInventory do
     %{state | inventory: inventory}
   end
 
-  @doc false
-  def resync_inventory(state) do
-    inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
+  @doc """
+  Send the open menu's whole contents again; a drag in progress ends, unless
+  `drag: :keep` (the answer to a click, which may be one step of a drag).
+  """
+  def resync_inventory(state, opts \\ []) do
+    inventory =
+      if opts[:drag] == :keep, do: state.inventory, else: Inventory.cancel_drag(state.inventory)
+
+    inventory = Inventory.advance(inventory)
 
     packet =
       case state.table_menu do

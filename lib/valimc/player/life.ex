@@ -47,6 +47,9 @@ defmodule Valimc.Player.Life do
         pose: :standing
     }
     |> Map.put(:food, %Valimc.Player.Food{})
+    |> Map.update(:progression, %Valimc.Player.Progression{}, fn progression ->
+      %{progression | experience: %Valimc.Player.Experience{}}
+    end)
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})
     |> Map.put(:dimension, spawn.dimension)

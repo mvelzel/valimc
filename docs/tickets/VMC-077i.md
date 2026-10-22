@@ -78,3 +78,23 @@ changes every tick, so every observer copies the rows of every player near
 it (the connection's entity cache is most of its memory at 50 players).
 Follow-ups: publish a player's row only when its base moves, and diff the
 player's records only when its state changed.
+
+## Final client run (VMC-077-final) fixes
+
+- A player entering a portal mid-jump froze in the new level: the travel kept
+  its motion, whose recorded moves were the old level's, so every move
+  failed the geometry check and its correction kept them. The motion now
+  starts over with the arrival's velocity, and a correction clears the
+  recorded moves.
+- A death kept the player's experience: it now drops orbs worth seven
+  points a level, at most 100 (none for a spectator), with the death loot,
+  and the respawned player starts without experience. ValiMC has no
+  keepInventory rule yet, so both always apply.
+- Chest and furnace menus take every gesture of the click engine (drags,
+  double-click collect, throws, clone); what a click throws drops from the
+  player's session in the same callback, and a drag survives the answer to
+  each of its clicks.
+- A chest placed in the columns beside a region line was refused: its
+  neighbours across the line are read in the sibling section the group
+  holds.
+

@@ -51,7 +51,16 @@ defmodule Valimc.Player.Travel do
   end
 
   # Portals start the player's portal cooldown; command teleports do not.
+  # The motion starts over in the new level with only the arrival's velocity:
+  # the moves recorded since the last tick (`paths`) are the old level's, and
+  # checking a move there against them would correct every move (VMC-077i).
   defp arrive(player, target) do
+    motion =
+      Valimc.Player.Motion.flight(
+        %Valimc.Player.Motion{velocity: target.velocity},
+        player.abilities.flying
+      )
+
     player = %{
       player
       | dimension: target.dimension,
@@ -60,7 +69,7 @@ defmodule Valimc.Player.Travel do
         z: target.z,
         yaw: target.yaw,
         pitch: target.pitch,
-        motion: %{player.motion | velocity: target.velocity, fall_distance: 0.0}
+        motion: motion
     }
 
     if Map.get(target, :portal, false),

@@ -57,6 +57,8 @@ defmodule Valimc.Player.Motion do
   def flight(%__MODULE__{} = motion, true), do: %{motion | fall_distance: 0.0, swimming: false}
   def flight(%__MODULE__{} = motion, false), do: motion
 
+  # A correction puts the player back where the server had it: the moves the
+  # client made since are not the player's.
   def corrected(%__MODULE__{} = motion),
-    do: %{motion | known_movement: {0.0, 0.0, 0.0}, received: false}
+    do: %{motion | known_movement: {0.0, 0.0, 0.0}, received: false, paths: []}
 end

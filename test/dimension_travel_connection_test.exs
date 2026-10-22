@@ -287,6 +287,58 @@ defmodule Valimc.DimensionTravelConnectionTest do
     {respawn, client}
   end
 
+  test "a player arriving mid-jump walks on in the new level", ctx do
+    seed(ctx)
+    {client, pid} = enter(ctx)
+    %{x: x, y: y, z: z} = state(pid).player
+
+    # A jump into a portal: rising, with the moves since the last tick still
+    # recorded in the old level's coordinates.
+    Valimc.TestConn.replace(pid, fn s ->
+      motion = %{
+        s.player.motion
+        | velocity: {0.0, 0.1647, 0.0},
+          paths: [{{x, y, z}, {x, y + 0.1647, z + 0.04}, nil}]
+      }
+
+      %{s | player: %{s.player | motion: motion}}
+    end)
+
+    travel(pid, :the_nether, %{x: 8.5, y: 120.0, z: 8.5, yaw: 0.0, pitch: 0.0})
+    {_respawn, client} = arrive(client, pid)
+    assert state(pid).player.motion.paths == []
+    client = Client.load_world(client)
+
+    # Open air to walk through, whatever the Nether generated there.
+    Dimension.within(:the_nether, fn ->
+      for dx <- -1..1,
+          dy <- 0..2,
+          dz <- -2..0,
+          do: :ok = Valimc.TestBlocks.set({8 + dx, 120 + dy, 8 + dz}, 0)
+    end)
+
+    Client.send_packet(client, :play, "player_abilities", <<2>>)
+    wait(fn -> state(pid).player.abilities.flying end)
+    arrival = state(pid).player
+
+    # Flying in creative: each small step is accepted where it was sent.
+    for step <- 1..5 do
+      Client.send_packet(client, :play, "move_player_pos", <<
+        arrival.x::float-64,
+        arrival.y::float-64,
+        arrival.z - step * 0.1::float-64,
+        0
+      >>)
+
+      Process.sleep(60)
+
+      Client.send_packet(client, :play, "client_tick_end", <<>>)
+    end
+
+    wait(fn -> abs(state(pid).player.z - (arrival.z - 0.5)) < 1.0e-9 end)
+    refute state(pid).teleport_pending
+  end
+
   test "a death in the Nether respawns in the overworld with a Nether death location", ctx do
     seed(ctx)
     {client, pid} = enter(ctx)

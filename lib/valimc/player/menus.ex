@@ -262,9 +262,9 @@ defmodule Valimc.Player.Menus do
   defp refreshed(state, :valid),
     do: %{state | table_menu: %{state.table_menu | dirty: false, progress_dirty: false}}
 
-  defp refreshed(state, {_kind, block, view}) do
+  defp refreshed(state, {_kind, block, view}, opts \\ []) do
     menu = %{state.table_menu | block: block, view: view, dirty: false, progress_dirty: false}
-    CreativeInventory.resync_inventory(%{state | table_menu: menu})
+    CreativeInventory.resync_inventory(%{state | table_menu: menu}, opts)
   end
 
   @doc "A click in the open menu (`container_click` for its window)."
@@ -311,7 +311,8 @@ defmodule Valimc.Player.Menus do
       expires: System.monotonic_time(:millisecond) + 250
     }
 
-    click = Map.put(click, :inventory, state.inventory)
+    # Throws drop where the player stands, from its own group (VMC-077i3).
+    click = Map.merge(click, %{inventory: state.inventory, drops: Items.local?(state)})
 
     case Region.container_click(
            menu.owner,
@@ -321,9 +322,16 @@ defmodule Valimc.Player.Menus do
            actor,
            click
          ) do
-      {:ok, inventory, view, learned} ->
+      {:ok, inventory, view, learned, drops} ->
         state = learn(%{state | inventory: inventory}, learned)
-        refreshed(state, {menu.kind, menu.block, view})
+
+        state =
+          case Items.drop(state, inventory, drops) do
+            {:ok, state} -> state
+            :error -> state
+          end
+
+        refreshed(state, {menu.kind, menu.block, view}, drag: :keep)
 
       {:error, _} ->
         refresh(state, :refresh)

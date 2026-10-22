@@ -28,18 +28,24 @@ defmodule Valimc.Player.Items do
   holds: `{:ok, state}` with `inventory`, or `:error` with nothing changed
   when the player's section is not its group's.
   """
-  def drop(state, inventory, stacks, kind \\ :directed)
-  def drop(state, inventory, [], _kind), do: {:ok, %{state | inventory: inventory}}
+  def drop(state, inventory, stacks, kind \\ :directed, orbs \\ [])
+  def drop(state, inventory, [], _kind, []), do: {:ok, %{state | inventory: inventory}}
 
-  def drop(state, inventory, stacks, kind) do
+  def drop(state, inventory, stacks, kind, orbs) do
     with {:ok, owner} <- owner(state),
-         {:ok, _key, records} <- Drops.records(state.player, stacks, kind),
-         :ok <- Region.drop_items(owner, records) do
+         {:ok, _key, records} <- item_records(state.player, stacks, kind),
+         :ok <- Region.drop_items(owner, records ++ orbs) do
       {:ok, %{state | inventory: inventory}}
     else
       _ -> :error
     end
   end
+
+  defp item_records(_player, [], _kind), do: {:ok, nil, []}
+  defp item_records(player, stacks, kind), do: Drops.records(player, stacks, kind)
+
+  @doc "Whether the player's section is its group's, so it can drop items there."
+  def local?(state), do: match?({:ok, _}, owner(state))
 
   @doc "A creative player conjures `stack` and throws it, its inventory unchanged."
   def creative_drop(state, stack) do

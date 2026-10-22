@@ -243,10 +243,11 @@ defmodule Valimc.ChestConnectionTest do
         &(&1.carried == nil and Enum.at(&1.items, 61) == ItemStack.new("oak_planks", 4))
       )
 
-    for {action, id} <- [{"throw", client.inventory.container}, {"pickup", 99}] do
-      send_click(client, 54, 0, action, id)
-      _corrected = content(client)
-    end
+    # Q throws one diamond; a click naming a stale window changes nothing.
+    send_click(client, 54, 0, "throw")
+    client = content(client, &(Enum.at(&1.items, 54) == ItemStack.new("diamond", 2)))
+    send_click(client, 54, 0, "pickup", 99)
+    _corrected = content(client)
 
     client = click(client, 61, 0, "pickup", &(&1.carried == ItemStack.new("oak_planks", 4)))
     Client.send_packet(client, :play, "container_close", Wire.varint(client.inventory.container))
@@ -259,7 +260,7 @@ defmodule Valimc.ChestConnectionTest do
     assert Enum.all?(Enum.take(fresh.inventory.items, 27), &(&1 == nil))
 
     assert Valimc.TestConn.state(fresh_pid).inventory.slots == %{
-             36 => ItemStack.new("diamond", 3),
+             36 => ItemStack.new("diamond", 2),
              44 => ItemStack.new("oak_planks", 8)
            }
 
@@ -288,6 +289,53 @@ defmodule Valimc.ChestConnectionTest do
     {:ok, bytes} = PlayerState.encode(other.uuid, snapshot)
     File.write!(Valimc.Player.Storage.path(ctx.base, other.uuid), bytes)
     other
+  end
+
+  # The client predicts nothing here; the server's contents answer every click.
+  defp gesture(client, slot, button, action) do
+    Client.send_packet(client, :play, "container_click", [
+      Wire.varint(client.inventory.container),
+      <<0, slot::signed-16, button::signed-8>>,
+      Wire.varint(ItemTypes.input_id(action)),
+      <<0, 0>>
+    ])
+  end
+
+  test "a chest takes the whole click set: drags split, a double click collects, Q throws one",
+       ctx do
+    stone = fn count -> ItemStack.new("stone", count) end
+    seed(ctx, :survival, true, stone.(32))
+    {client, pid} = login(ctx)
+    client = open(client, ctx)
+    client = click(client, 0, 0, "pickup", &(&1.carried == stone.(32)))
+
+    # Vanilla's left drag: start outside, add four slots, end outside.
+    gesture(client, -999, 0, "quick_craft")
+    for slot <- 1..4, do: gesture(client, slot, 1, "quick_craft")
+    gesture(client, -999, 2, "quick_craft")
+
+    client =
+      content(client, fn inventory ->
+        inventory.carried == nil and
+          Enum.slice(inventory.items, 1..4) == List.duplicate(stone.(8), 4)
+      end)
+
+    # A double click picks one slot up and gathers the rest of its kind.
+    client = click(client, 1, 0, "pickup", &(&1.carried == stone.(8)))
+    gesture(client, 1, 0, "pickup_all")
+    client = content(client, &(&1.carried == stone.(32) and Enum.at(&1.items, 2) == nil))
+    client = click(client, 5, 0, "pickup", &(&1.carried == nil))
+
+    # Q throws one from the slot under the pointer into the world.
+    gesture(client, 5, 0, "throw")
+    _client = content(client, &(Enum.at(&1.items, 5) == stone.(31)))
+
+    wait(fn ->
+      Enum.any?(Valimc.TestWorld.item_snapshot(ctx.key), fn {_, view} -> view.kind == :item end)
+    end)
+
+    assert Valimc.TestConn.state(pid).inventory.carried == nil
+    assert elem(stored(ctx).entries[ctx.position].slots, 5) == stone.(31)
   end
 
   test "first/last viewers share one sound; intermediate and spectator views are silent; removal never replays a close sound",

@@ -145,6 +145,26 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     Client.close(client)
   end
 
+  test "a death drops orbs worth seven points a level and the respawned player starts without experience",
+       ctx do
+    [name | _] = ctx.names
+    seed(ctx, name, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
+    {client, pid} = login(name)
+    experience = %Valimc.Player.Experience{level: 5, progress: 0.25, total: 57}
+    Valimc.TestConn.replace(pid, &put_in(&1.player.progression.experience, experience))
+    assert {:ok, :dead} = Valimc.TestConn.fall_damage(pid, 100)
+    wait(fn -> state(pid).life_stage == :dead end)
+
+    orbs = for {_, %{kind: :orb} = view} <- Valimc.TestWorld.item_snapshot(ctx.key), do: view
+    assert Enum.sum(Enum.map(orbs, &(&1.value * &1.count))) == 35
+    # Vanilla's greedy denominations (`getExperienceValue`): 17 + 17 + 1.
+    assert Enum.sort(Enum.map(orbs, &{&1.value, &1.count})) == [{1, 1}, {17, 2}]
+    _client = respawn(client, pid)
+    assert state(pid).player.progression.experience == %Valimc.Player.Experience{}
+    {:ok, saved} = saved(ctx, name)
+    assert saved.progression.experience == %Valimc.Player.Experience{}
+  end
+
   test "creative immunity and living/duplicate respawn requests cannot resurrect or mutate",
        ctx do
     [name | _] = ctx.names

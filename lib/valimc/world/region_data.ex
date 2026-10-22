@@ -563,14 +563,12 @@ defmodule Valimc.World.RegionData do
          nil <- write_busy(state),
          true <- menu in [:chest, :cooking] or {:error, :missing_container},
          :ok <- Valimc.Menus.MenuAccess.authorize_action(menu, block, position, actor, now),
-         {:ok, containers, inventory, orbs, learned} <-
+         {:ok, containers, inventory, orbs, learned, drops} <-
            ContainerClicks.apply(
              state.containers,
              position,
              click.inventory,
-             click.action,
-             click.slot,
-             click.button,
+             click,
              actor.position
            ) do
       state = %{state | containers: containers}
@@ -582,7 +580,7 @@ defmodule Valimc.World.RegionData do
 
       state = notify_container_changed(%{state | container_viewers: viewers}, position)
       entry = Map.put(entry, :generation, Map.get(state.cooking_progress, position, 0))
-      {:reply, {:ok, inventory, entry, learned}, state}
+      {:reply, {:ok, inventory, entry, learned, drops}, state}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
@@ -2449,11 +2447,19 @@ defmodule Valimc.World.RegionData do
     Enum.all?(batch.edits, fn {position, block} ->
       if Valimc.Blocks.Chest.single?(block) and
            not Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) do
+        # A neighbour across a section line is read in its sibling, which the
+        # group holds; one outside the group refuses.
         Enum.all?(Valimc.Blocks.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
-          Grid.region_key(Grid.chunk_key(x, z)) == state.key and
-            not Valimc.Blocks.Chest.ordinary?(
-              Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
-            )
+          neighbor_state =
+            case Grid.region_key(Grid.chunk_key(x, z)) do
+              key when key == state.key ->
+                Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
+
+              key ->
+                with %{blocks: blocks} <- state.siblings[key], do: Blocks.get(blocks, neighbor)
+            end
+
+          neighbor_state != nil and not Valimc.Blocks.Chest.ordinary?(neighbor_state)
         end)
       else
         true

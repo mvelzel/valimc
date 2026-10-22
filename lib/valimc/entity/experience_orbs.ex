@@ -53,6 +53,19 @@ defmodule Valimc.Entity.ExperienceOrbs do
     end)
   end
 
+  @doc """
+  The orb records of `points` dropped at `position` (vanilla's
+  `ExperienceOrb.award` of a dying player's reward), one per value.
+  """
+  def drop(_position, 0), do: []
+
+  def drop({x, y, z}, points) when is_integer(points) and points > 0 do
+    {:ok, split} = split(points)
+
+    for {value, count} <- Enum.sort(split, :desc),
+        do: %{kind: :orb, uuid: uuid(), x: x, y: y, z: z, value: value, count: count, age: 0}
+  end
+
   # A version-4 UUID, as vanilla gives a new entity.
   defp uuid do
     <<a::48, _::4, b::12, _::2, c::62>> = :crypto.strong_rand_bytes(16)

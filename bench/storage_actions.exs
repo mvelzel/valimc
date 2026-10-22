@@ -97,7 +97,7 @@ defmodule Bench.StorageActions do
 
     click = %{inventory: inventory, action: :pickup, slot: 0, button: 0}
 
-    {:ok, inventory, _, _} =
+    {:ok, inventory, _, _, []} =
       Region.container_click(owner, self(), make_ref(), position, actor, click)
 
     inventory

@@ -309,13 +309,23 @@ defmodule Valimc.Player.Vitals do
   def continue_life(%{life_stage: :sealing_death, phase: :play} = state),
     do: continue_life(%{state | life_stage: :dropping})
 
-  # The death drops scatter at once (`Player.dropAllDeathLoot`); items with
-  # Curse of Vanishing are destroyed. Outside its group's sections the player
-  # keeps them until it is in one.
+  # The death drops scatter at once (`Player.dropAllDeathLoot`): the
+  # inventory, but items with Curse of Vanishing are destroyed, and orbs worth
+  # seven points a level, at most 100 (`getBaseExperienceReward`), none for a
+  # spectator. The respawned player starts without experience. Outside its
+  # group's sections the player keeps them until it is in one.
   def continue_life(%{life_stage: :dropping, phase: :play} = state) do
     {:ok, inventory, stacks, _destroyed} = Inventory.death(state.inventory)
+    player = state.player
 
-    case Valimc.Player.Items.drop(state, inventory, stacks, :scattered) do
+    points =
+      if player.game_mode.current == :spectator,
+        do: 0,
+        else: min(player.progression.experience.level * 7, 100)
+
+    orbs = Valimc.Entity.ExperienceOrbs.drop({player.x, player.y, player.z}, points)
+
+    case Valimc.Player.Items.drop(state, inventory, stacks, :scattered, orbs) do
       {:ok, state} ->
         continue_life(%{state | life_stage: :dead})
 
