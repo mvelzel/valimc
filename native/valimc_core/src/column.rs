@@ -4,8 +4,10 @@ use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
 use crate::light::LightFacts;
 use crate::light_grid::{light_alone, Blocks, ChunkLight, Kind, Layer, LightGrid, TooLarge};
 use crate::section::{index, Biomes, Storage, VOLUME};
+use crate::snapshot::ChunkSnapshot;
 use crate::wire;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub const MIN_Y: i32 = -64;
 pub const HEIGHT: usize = 384;
@@ -17,14 +19,25 @@ pub type ChunkImages = Vec<((i32, i32), Vec<u8>)>;
 /// Encoded chunk parts: section data, WORLD_SURFACE longs, MOTION_BLOCKING longs.
 pub type EncodedChunk = (Vec<u8>, Vec<u8>, Vec<u8>);
 
+/// A column's sections, bottom first, and biomes are shared with the chunk
+/// snapshots published from it (VMC-077p): a write clones a shared section
+/// first (`Arc::make_mut`), so a snapshot never changes and holds only the
+/// sections written since it was taken in memory of its own.
 #[derive(Clone, Debug)]
 pub struct Column {
-    pub sections: Vec<Storage>,
+    pub sections: Vec<Arc<Storage>>,
     /// Per-section biomes; `None` uses the region's default biome everywhere.
-    pub biomes: Option<Vec<Biomes>>,
+    pub biomes: Option<Arc<Vec<Biomes>>>,
 }
 
 impl Column {
+    pub fn new(sections: Vec<Storage>, biomes: Option<Vec<Biomes>>) -> Self {
+        Self {
+            sections: sections.into_iter().map(Arc::new).collect(),
+            biomes: biomes.map(Arc::new),
+        }
+    }
+
     /// A column whose every y level holds `layers[y - MIN_Y]`.
     pub fn from_layers(layers: &[u16; HEIGHT]) -> Self {
         let sections = (0..SECTIONS)
@@ -45,10 +58,7 @@ impl Column {
                 }
             })
             .collect();
-        Self {
-            sections,
-            biomes: None,
-        }
+        Self::new(sections, None)
     }
 
     #[inline]
@@ -67,65 +77,21 @@ impl Column {
         self.sections[s].get(i)
     }
 
+    /// Store `state` and return the previous one; a section shared with a
+    /// snapshot is cloned first, and only when the state changes.
     pub fn set(&mut self, x: i32, y: i32, z: i32, state: u16) -> u16 {
         let (s, i) = Self::locate(x, y, z);
-        self.sections[s].set(i, state)
+        let previous = self.sections[s].get(i);
+        if previous != state {
+            Arc::make_mut(&mut self.sections[s]).set(i, state);
+        }
+        previous
     }
 
     /// Heights (1 + highest matching y, relative to MIN_Y; 0 when none) per column
     /// in `z * 16 + x` order for one heightmap predicate bit.
     pub fn heights(&self, flags: &BlockFlags, mask: u8) -> [u16; 256] {
-        let mut out = [0u16; 256];
-        for (column, height) in out.iter_mut().enumerate() {
-            let (x, z) = (column & 15, column >> 4);
-            'scan: for s in (0..SECTIONS).rev() {
-                let section = &self.sections[s];
-                if let Storage::Single(state) = section {
-                    if flags.get(*state) & mask != 0 {
-                        *height = (s * 16 + 16) as u16;
-                        break 'scan;
-                    }
-                    continue;
-                }
-                for y in (0..16).rev() {
-                    if flags.get(section.get(index(x, y, z))) & mask != 0 {
-                        *height = (s * 16 + y + 1) as u16;
-                        break 'scan;
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// The lowest sky source of each column (`ChunkSkyLightSources`), relative
-    /// to MIN_Y in `z * 16 + x` order: one above the highest edge vertical sky
-    /// light cannot pass, 0 when there is none. Above the column is open sky
-    /// (air).
-    pub fn sky_sources(&self, facts: &LightFacts) -> [u16; 256] {
-        let mut out = [0u16; 256];
-        for (column, source) in out.iter_mut().enumerate() {
-            let (x, z) = (column & 15, column >> 4);
-            let mut above = 0u16;
-            'scan: for s in (0..SECTIONS).rev() {
-                let section = &self.sections[s];
-                if let Storage::Single(state) = section {
-                    if !facts.sky_blocked(above, *state) && !facts.sky_blocked(*state, *state) {
-                        above = *state;
-                        continue;
-                    }
-                }
-                for y in (0..16).rev() {
-                    let state = section.get(index(x, y, z));
-                    if facts.sky_blocked(above, state) {
-                        *source = (s * 16 + y + 1) as u16;
-                        break 'scan;
-                    }
-                    above = state;
-                }
-            }
-        }
-        out
+        std::array::from_fn(|c| height(&self.sections, c & 15, c >> 4, flags, mask))
     }
 
     /// A compact, versioned image of the column for the region log (VMC-021c):
@@ -136,7 +102,7 @@ impl Column {
     pub fn to_image(&self) -> Vec<u8> {
         let mut out = vec![IMAGE_VERSION, self.biomes.is_some() as u8];
         for storage in &self.sections {
-            match storage {
+            match &**storage {
                 Storage::Single(state) => {
                     out.push(0);
                     out.extend(state.to_be_bytes());
@@ -158,7 +124,7 @@ impl Column {
                 Storage::Dense(cells) => image_palette(&mut out, &cells[..]),
             }
         }
-        for biomes in self.biomes.iter().flatten() {
+        for biomes in self.biomes.iter().flat_map(|b| b.iter()) {
             match biomes {
                 Biomes::Single(biome) => {
                     out.push(0);
@@ -220,17 +186,101 @@ impl Column {
         };
         input
             .is_empty()
-            .then_some((Column { sections, biomes }, light))
+            .then(|| (Column::new(sections, biomes), light))
     }
 
     pub fn heap_bytes(&self) -> usize {
-        let biomes = self.biomes.as_ref().map_or(0, |b| {
-            b.iter()
-                .map(|s| if let Biomes::Cells(_) = s { 128 } else { 0 })
-                .sum()
-        });
-        self.sections.iter().map(Storage::heap_bytes).sum::<usize>() + biomes
+        let biomes = self
+            .biomes
+            .as_ref()
+            .map_or(0, |b| b.iter().map(Biomes::heap_bytes).sum());
+        self.sections.iter().map(|s| s.heap_bytes()).sum::<usize>() + biomes
     }
+}
+
+/// The height of column `(x, z)` of `sections` (bottom first) for one
+/// heightmap predicate bit: 1 + the highest matching y relative to MIN_Y, 0
+/// when none.
+pub fn height(sections: &[Arc<Storage>], x: usize, z: usize, flags: &BlockFlags, mask: u8) -> u16 {
+    for s in (0..sections.len()).rev() {
+        let section = &*sections[s];
+        if let Storage::Single(state) = section {
+            if flags.get(*state) & mask != 0 {
+                return (s * 16 + 16) as u16;
+            }
+            continue;
+        }
+        for y in (0..16).rev() {
+            if flags.get(section.get(index(x, y, z))) & mask != 0 {
+                return (s * 16 + y + 1) as u16;
+            }
+        }
+    }
+    0
+}
+
+/// The lowest sky source of column `(x, z)` of `sections` (bottom first,
+/// `ChunkSkyLightSources`) relative to MIN_Y: one above the highest edge
+/// vertical sky light cannot pass, 0 when there is none. Above the column is
+/// open sky (air).
+pub fn sky_source(sections: &[Arc<Storage>], x: usize, z: usize, facts: &LightFacts) -> u16 {
+    let mut above = 0u16;
+    for s in (0..sections.len()).rev() {
+        let section = &*sections[s];
+        if let Storage::Single(state) = section {
+            if !facts.sky_blocked(above, *state) && !facts.sky_blocked(*state, *state) {
+                above = *state;
+                continue;
+            }
+        }
+        for y in (0..16).rev() {
+            let state = section.get(index(x, y, z));
+            if facts.sky_blocked(above, state) {
+                return (s * 16 + y + 1) as u16;
+            }
+            above = state;
+        }
+    }
+    0
+}
+
+/// The blocks of `chunk` whose state is in `states`, scanning only sections
+/// whose palette holds one.
+pub fn find(
+    sections: &[Arc<Storage>],
+    chunk: (i32, i32),
+    states: &[u16],
+) -> Vec<(i32, i32, i32, u16)> {
+    let mut out = Vec::new();
+    for (s, storage) in sections.iter().enumerate() {
+        let candidate = match &**storage {
+            Storage::Single(state) => states.contains(state),
+            Storage::Indexed { palette, .. } => palette.iter().any(|p| states.contains(p)),
+            Storage::Dense(_) => true,
+        };
+        if candidate {
+            storage.for_each(|i, state| {
+                if states.contains(&state) {
+                    let (x, z, y) = (i & 15, (i >> 4) & 15, i >> 8);
+                    out.push((
+                        chunk.0 * 16 + x as i32,
+                        (s * 16 + y) as i32 + MIN_Y,
+                        chunk.1 * 16 + z as i32,
+                        state,
+                    ));
+                }
+            });
+        }
+    }
+    out
+}
+
+/// The stored biome of quart `(qx, qy, qz)` (y clamped to the column) in a
+/// column's per-section biomes.
+pub fn quart_biome(biomes: &[Biomes], (qx, qy, qz): (i32, i32, i32)) -> u16 {
+    let min = MIN_Y >> 2;
+    let qy = qy.clamp(min, min + (HEIGHT as i32 >> 2) - 1) - min;
+    biomes[(qy >> 2) as usize].get((((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize)
 }
 
 /// Version 2 added the stored light (VMC-077c); older images are refused.
@@ -367,7 +417,10 @@ pub type LightChange = ((i32, i32), u32, u32);
 /// The world positions where `new` differs from `old` in `chunk`.
 fn changed_cells(chunk: (i32, i32), old: &Column, new: &Column, out: &mut Vec<(i32, i32, i32)>) {
     for s in 0..SECTIONS {
-        if let (Storage::Single(a), Storage::Single(b)) = (&old.sections[s], &new.sections[s]) {
+        if Arc::ptr_eq(&old.sections[s], &new.sections[s]) {
+            continue;
+        }
+        if let (Storage::Single(a), Storage::Single(b)) = (&*old.sections[s], &*new.sections[s]) {
             if a == b {
                 continue;
             }
@@ -435,6 +488,11 @@ impl ColumnStore {
             halo: HashMap::new(),
             sky: true,
         }
+    }
+
+    /// A region chunk's column: its own, or the base profile's while untouched.
+    fn column(&self, chunk: (i32, i32)) -> &Column {
+        self.columns.get(&chunk).unwrap_or(&self.flat)
     }
 
     /// The area chunk of `chunk` if it is in the region or its ring.
@@ -767,11 +825,8 @@ impl ColumnStore {
         let mut previous = Vec::with_capacity(changes.len());
         for (x, y, z, state) in changes {
             let chunk = (x >> 4, z >> 4);
-            let layers = &self.layers;
-            let column = self
-                .columns
-                .entry(chunk)
-                .or_insert_with(|| Column::from_layers(layers));
+            let flat = &self.flat;
+            let column = self.columns.entry(chunk).or_insert_with(|| flat.clone());
             previous.push(column.set(*x, *y, *z, *state as u16));
         }
         Ok(previous)
@@ -795,14 +850,7 @@ impl ColumnStore {
             return Err(StoreError::InvalidY);
         }
         self.chunk_of(chunk.0 * 16, chunk.1 * 16)?;
-        let owned;
-        let column = match self.columns.get(&chunk) {
-            Some(column) => column,
-            None => {
-                owned = Column::from_layers(&self.layers);
-                &owned
-            }
-        };
+        let column = self.column(chunk);
         let mut sections = Vec::with_capacity(count * 16);
         for (s, storage) in column.sections.iter().enumerate().skip(first).take(count) {
             let biomes = match &column.biomes {
@@ -843,36 +891,7 @@ impl ColumnStore {
         states: &[u16],
     ) -> Result<Vec<(i32, i32, i32, u16)>, StoreError> {
         self.chunk_of(chunk.0 * 16, chunk.1 * 16)?;
-        let mut out = Vec::new();
-        let owned;
-        let column = match self.columns.get(&chunk) {
-            Some(column) => column,
-            None => {
-                owned = Column::from_layers(&self.layers);
-                &owned
-            }
-        };
-        for (s, storage) in column.sections.iter().enumerate() {
-            let candidate = match storage {
-                Storage::Single(state) => states.contains(state),
-                Storage::Indexed { palette, .. } => palette.iter().any(|p| states.contains(p)),
-                Storage::Dense(_) => true,
-            };
-            if candidate {
-                storage.for_each(|i, state| {
-                    if states.contains(&state) {
-                        let (x, z, y) = (i & 15, (i >> 4) & 15, i >> 8);
-                        out.push((
-                            chunk.0 * 16 + x as i32,
-                            (s * 16 + y) as i32 + MIN_Y,
-                            chunk.1 * 16 + z as i32,
-                            state,
-                        ));
-                    }
-                });
-            }
-        }
-        Ok(out)
+        Ok(find(&self.column(chunk).sections, chunk, states))
     }
 
     pub fn check_chunk(&self, chunk: (i32, i32)) -> Result<(), StoreError> {
@@ -885,12 +904,9 @@ impl ColumnStore {
     pub fn noise_biome(&self, (qx, qy, qz): (i32, i32, i32), default_biome: u16) -> Option<u16> {
         let chunk = (qx >> 2, qz >> 2);
         self.check_chunk(chunk).ok()?;
-        let min = MIN_Y >> 2;
-        let qy = qy.clamp(min, min + (HEIGHT as i32 >> 2) - 1) - min;
         Some(
             match self.columns.get(&chunk).and_then(|c| c.biomes.as_ref()) {
-                Some(biomes) => biomes[(qy >> 2) as usize]
-                    .get((((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize),
+                Some(biomes) => quart_biome(biomes, (qx, qy, qz)),
                 None => default_biome,
             },
         )
@@ -926,7 +942,7 @@ impl ColumnStore {
                     let chunk = (mx + dx, mz + dz);
                     for (s, &base_ticks) in base.iter().enumerate() {
                         let possible = match self.columns.get(&chunk) {
-                            Some(column) => match &column.sections[s] {
+                            Some(column) => match &*column.sections[s] {
                                 Storage::Single(state) => ticks(*state),
                                 Storage::Indexed { palette, .. } => {
                                     palette.iter().any(|&b| ticks(b))
@@ -1040,10 +1056,10 @@ impl ColumnStore {
             self.check_chunk(chunk)?;
             let mut column = match self.columns.get(&chunk) {
                 Some(column) => column.clone(),
-                None => Column::from_layers(&self.layers),
+                None => self.flat.clone(),
             };
             let mut biomes: Vec<Biomes> = match column.biomes.take() {
-                Some(stored) => stored,
+                Some(stored) => Arc::unwrap_or_clone(stored),
                 None => (0..SECTIONS)
                     .map(|_| Biomes::Single(default_biome))
                     .collect(),
@@ -1075,7 +1091,7 @@ impl ColumnStore {
                     }
                 }
             }
-            column.biomes = Some(biomes);
+            column.biomes = Some(Arc::new(biomes));
             if count != before {
                 images.push((chunk, column.to_image()));
                 self.columns.insert(chunk, column);
@@ -1112,41 +1128,27 @@ impl ColumnStore {
         Ok(self.columns.get(&chunk).map(Column::to_image))
     }
 
-    /// What readers of a chunk's published snapshot need beside its sections
-    /// (VMC-077e): per column (`z * 16 + x`) its MOTION_BLOCKING height and
-    /// lowest sky source, relative to MIN_Y, interleaved; and its stored biomes
-    /// (per section 64 quarts in `(y * 4 + z) * 4 + x` order), None when it
-    /// uses the region's default biome. An untouched chunk reads the base
-    /// profile.
-    pub fn column_facts(
+    /// `chunk` published at `revision` (VMC-077p), sharing its sections and
+    /// biomes; `previous` is its last publication. An untouched chunk
+    /// publishes the base profile.
+    pub fn snapshot(
         &self,
         chunk: (i32, i32),
-        flags: &BlockFlags,
-        light: &LightFacts,
-    ) -> Result<(Vec<u16>, Option<Vec<u16>>), StoreError> {
+        revision: u64,
+        previous: Option<&ChunkSnapshot>,
+    ) -> Result<ChunkSnapshot, StoreError> {
         self.check_chunk(chunk)?;
-        let owned;
-        let column = match self.columns.get(&chunk) {
-            Some(column) => column,
-            None => {
-                owned = Column::from_layers(&self.layers);
-                &owned
-            }
-        };
-        let motion = column.heights(flags, MOTION_BLOCKING);
-        let sky = column.sky_sources(light);
-        let heights = motion
-            .iter()
-            .zip(&sky)
-            .flat_map(|(m, s)| [*m, *s])
-            .collect();
-        let biomes = column.biomes.as_ref().map(|biomes| {
-            biomes
-                .iter()
-                .flat_map(|section| (0..64).map(move |i| section.get(i)))
-                .collect()
-        });
-        Ok((heights, biomes))
+        Ok(ChunkSnapshot::new(
+            chunk,
+            self.column(chunk),
+            revision,
+            previous,
+        ))
+    }
+
+    /// The store's columns and the base profile, for `snapshot::resident_bytes`.
+    pub fn all_columns(&self) -> impl Iterator<Item = &Column> {
+        self.columns.values().chain(std::iter::once(&self.flat))
     }
 
     /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
@@ -1157,14 +1159,7 @@ impl ColumnStore {
         default_biome: u16,
     ) -> Result<(Vec<u16>, Vec<u16>), StoreError> {
         self.check_chunk(chunk)?;
-        let owned;
-        let column = match self.columns.get(&chunk) {
-            Some(column) => column,
-            None => {
-                owned = Column::from_layers(&self.layers);
-                &owned
-            }
-        };
+        let column = self.column(chunk);
         let mut states = Vec::with_capacity(SECTIONS * VOLUME);
         for storage in &column.sections {
             storage.for_each(|_, state| states.push(state));
@@ -1199,7 +1194,7 @@ mod tests {
         }
         let mut biomes = vec![Biomes::Single(3); SECTIONS];
         biomes[5] = Biomes::Cells(Box::new(std::array::from_fn(|i| (i % 3) as u16)));
-        column.biomes = Some(biomes);
+        column.biomes = Some(Arc::new(biomes));
         let image = column.to_image();
         let back = Column::from_image(&image).unwrap();
         for s in 0..SECTIONS {
@@ -1309,7 +1304,7 @@ mod tests {
         let mut biomes = vec![Biomes::Single(1); SECTIONS];
         // Section 5 (y 16..31): biome = its cell index, (y * 4 + z) * 4 + x.
         biomes[5] = Biomes::Cells(Box::new(std::array::from_fn(|i| 100 + i as u16)));
-        column.biomes = Some(biomes);
+        column.biomes = Some(Arc::new(biomes));
         store.put_column((2, 3), column, &flags()).unwrap();
         // Quart (x 9, y 5, z 14): chunk (2, 3), local (1, 1, 2), section 5.
         assert_eq!(
@@ -1560,11 +1555,17 @@ mod tests {
     fn sky_sources_stop_at_the_highest_blocked_edge() {
         let mut column = Column::from_layers(&ground());
         column.set(3, 100, 5, 4);
-        let sources = column.sky_sources(&light_facts());
-        assert_eq!(sources[5 * 16 + 3], (101 - MIN_Y) as u16);
-        assert_eq!(sources[0], (60 - MIN_Y) as u16);
+        let facts = light_facts();
+        assert_eq!(
+            sky_source(&column.sections, 3, 5, &facts),
+            (101 - MIN_Y) as u16
+        );
+        assert_eq!(
+            sky_source(&column.sections, 0, 0, &facts),
+            (60 - MIN_Y) as u16
+        );
         let open = Column::from_layers(&Box::new([0u16; HEIGHT]));
-        assert_eq!(open.sky_sources(&light_facts()), [0u16; 256]);
+        assert!((0..256).all(|c| sky_source(&open.sections, c & 15, c >> 4, &facts) == 0));
     }
 
     #[test]

@@ -22,6 +22,7 @@
 
 use crate::light::{LightFacts, HEIGHT};
 use crate::section::{index, Storage};
+use std::sync::Arc;
 
 pub const SECTIONS: usize = HEIGHT / 16;
 
@@ -147,7 +148,7 @@ impl ChunkLight {
 pub struct Blocks<'a> {
     pub nx: usize,
     pub nz: usize,
-    pub chunks: Vec<Option<&'a [Storage]>>,
+    pub chunks: Vec<Option<&'a [Arc<Storage>]>>,
     /// Whether the dimension has sky light (the Nether has none, VMC-026b).
     pub sky: bool,
 }
@@ -438,7 +439,7 @@ impl LightGrid {
         }
         let slot = self.slots[si].as_mut().unwrap();
         for (s, section) in sections.iter().enumerate() {
-            let may_emit = match section {
+            let may_emit = match &**section {
                 Storage::Single(state) => facts.emission(*state) > 0,
                 Storage::Indexed { palette, .. } => palette.iter().any(|&p| facts.emission(p) > 0),
                 Storage::Dense(_) => true,
@@ -734,7 +735,7 @@ impl LightGrid {
 
 /// One chunk lit alone, its neighbours unknown: the light a chunk is stored
 /// with, which installing it adopts.
-pub fn light_alone(sections: &[Storage], facts: &LightFacts, sky: bool) -> ChunkLight {
+pub fn light_alone(sections: &[Arc<Storage>], facts: &LightFacts, sky: bool) -> ChunkLight {
     let mut grid = LightGrid::new(1, 1);
     let blocks = Blocks {
         nx: 1,
@@ -751,10 +752,10 @@ pub fn light_alone(sections: &[Storage], facts: &LightFacts, sky: bool) -> Chunk
 /// The lowest sky source of column `(x, z)` of a chunk (`ChunkSkyLightSources`):
 /// one above the first edge from the top of the world that the sky facts block,
 /// 0 when none does. Above the world is air.
-fn lowest_source(sections: &[Storage], facts: &LightFacts, x: usize, z: usize) -> usize {
+fn lowest_source(sections: &[Arc<Storage>], facts: &LightFacts, x: usize, z: usize) -> usize {
     let mut above = 0u16;
     for s in (0..SECTIONS).rev() {
-        let section = &sections[s];
+        let section = &*sections[s];
         if let Storage::Single(state) = *section {
             if facts.sky_blocked(above, state) {
                 return s * 16 + 16;
@@ -820,7 +821,7 @@ mod tests {
         nx: usize,
         nz: usize,
         states: Vec<u16>,
-        chunks: Vec<Vec<Storage>>,
+        chunks: Vec<Vec<Arc<Storage>>>,
         sky: bool,
     }
 
@@ -832,7 +833,11 @@ mod tests {
                 nz,
                 states: vec![0; wx * wz * HEIGHT],
                 chunks: (0..nx * nz)
-                    .map(|_| vec![Storage::Single(0); SECTIONS])
+                    .map(|_| {
+                        (0..SECTIONS)
+                            .map(|_| Arc::new(Storage::Single(0)))
+                            .collect()
+                    })
                     .collect(),
                 sky: true,
             };
@@ -848,7 +853,7 @@ mod tests {
 
         fn set(&mut self, (x, y, z): Cell, state: u16) {
             self.states[(x * self.nz * 16 + z) * HEIGHT + y] = state;
-            self.chunks[(x >> 4) * self.nz + (z >> 4)][y >> 4]
+            Arc::make_mut(&mut self.chunks[(x >> 4) * self.nz + (z >> 4)][y >> 4])
                 .set(index(x & 15, y & 15, z & 15), state);
         }
 

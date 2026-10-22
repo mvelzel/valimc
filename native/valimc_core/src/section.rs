@@ -271,6 +271,13 @@ impl Biomes {
             Biomes::Cells(cells) => cells[index],
         }
     }
+
+    pub fn heap_bytes(&self) -> usize {
+        match self {
+            Biomes::Single(_) => 0,
+            Biomes::Cells(_) => 128,
+        }
+    }
 }
 
 #[cfg(test)]

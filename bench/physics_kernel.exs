@@ -116,8 +116,8 @@ parallel =
     %{repetition: repetition, moves: moves, wall_us_per_move: wall_us / moves}
   end
 
-# One kernel call's fixed cost: the rows of the chunks around a player-sized
-# box handed to the NIF, which decodes their sections near it (kernel only).
+# One kernel call's fixed cost: the snapshots of the chunks around a
+# player-sized box handed to the NIF, which reads them in place (kernel only).
 call =
   if kernel? do
     alias Valimc.Physics.{CollisionContext, Kernel}

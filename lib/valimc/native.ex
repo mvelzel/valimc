@@ -67,13 +67,25 @@ defmodule Valimc.Native do
 
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def touched_chunks(_region), do: :erlang.nif_error(:nif_not_loaded)
-  def snapshot_chunk(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def set_random_ticking(_region, _bitmap), do: :erlang.nif_error(:nif_not_loaded)
   def random_ticks(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
   def random_ticks_dirty(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
-  def column_facts(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def biome_zoom(_zoom_seed, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
+
+  ## Published chunk snapshots (VMC-077p)
+
+  def snapshot_publish(_region, _chunks, _revision), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_get(_snapshot, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
+
+  def snapshot_blocks(_snapshots, _positions, _outside),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def snapshot_column(_snapshot, _x, _z), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_biome(_snapshot, _qx, _qy, _qz), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_find(_snapshot, _states), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_highest_filled(_snapshot, _below), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_revisions(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   def biome_temperature(_temperature, _frozen, _x, _y, _z, _sea_level),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -256,6 +268,7 @@ defmodule Valimc.Native do
 
   def put_column(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)
   def heap_bytes(_region), do: :erlang.nif_error(:nif_not_loaded)
+  def snapshot_resident(_region, _snapshots), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_columns(_images, _min_cx, _min_cz, _chunks_x, _chunks_z),
     do: :erlang.nif_error(:nif_not_loaded)

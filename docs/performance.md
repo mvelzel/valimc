@@ -61,6 +61,16 @@ too ([VMC-077l2](tickets/VMC-077l2.md), back to back at load 5–17), a move
 packet's validation takes 15–16 µs of CPU in one call, against 59–60 µs with
 the rules in Elixir around the kernel and 156–192 µs before the kernel.
 
+[Published chunk snapshots](tickets/VMC-077p.md)
+(`bench/snapshot_publication.exs`, four regions of decorated terrain at seed
+20261020, back to back with the revision before at load 6–12): with
+snapshots as Rust handles sharing copy-on-write sections with the store, a
+loaded region holds its blocks in 2.44–2.50 MB against 5.16–5.28 MB with
+published BEAM copies, and stays there after an edit in every chunk.
+Republishing a batch of 64 changed chunks takes 16–18 µs against
+1,069–1,108 µs, one chunk under 1 µs against 17 µs; move validation and light
+are unchanged.
+
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
 origin at seed 20261020 through `createStructures`, one thread, thread CPU time

@@ -80,29 +80,15 @@ defmodule Valimc.Portal.Access do
   """
   def chunk_top(chunk) do
     {:ok, view} = View.await([chunk], :portal, now() + @deadline)
-    sections = View.row(view, chunk)
     {min_y, height} = Valimc.Dimension.bounds()
     first = div(min_y + 64, 16)
-    count = div(height, 16)
+    top = View.highest_filled(view, chunk, first + div(height, 16))
 
-    Enum.find_value((first + count - 1)..first//-1, fn s ->
-      if not air_section?(sections && elem(sections, s)), do: s * 16 - 64 + 15
-    end)
+    if top != nil and top >= first, do: top * 16 - 64 + 15
   end
 
   @doc "Whether `chunk` holds air only (`getHighestFilledSectionIndex() == -1`)."
   def chunk_empty?(chunk), do: chunk_top(chunk) == nil
-
-  defp air_section?(nil), do: true
-  defp air_section?(state) when is_integer(state), do: Valimc.Portal.Gateway.air?(state)
-
-  defp air_section?({:dense, cells}),
-    do: Enum.all?(for(<<v::16 <- cells>>, uniq: true, do: v), &Valimc.Portal.Gateway.air?/1)
-
-  defp air_section?({palette, cells}) do
-    used = cells |> :binary.bin_to_list() |> Enum.uniq()
-    Enum.all?(used, &Valimc.Portal.Gateway.air?(elem(palette, &1)))
-  end
 
   @doc "The live preserved block entity at `position` (`%{type, nbt}`) or nil."
   def block_entity({x, _, z} = position) do
@@ -166,7 +152,7 @@ defmodule Valimc.Portal.Access do
       case World.owner(section(key)) do
         {:ok, _} ->
           view = View.load_chunks(View.new(), chunks)
-          Enum.flat_map(chunks, &View.find(View.row(view, &1), &1, states))
+          Enum.flat_map(chunks, &View.find(view, &1, states))
 
         {:error, reason} ->
           exit({:portal_read_failed, reason})

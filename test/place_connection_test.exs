@@ -77,6 +77,12 @@ defmodule Valimc.PlaceConnectionTest do
     {body, client} = Client.await(client, :play, "system_chat")
     assert :binary.match(body, "commands.fillbiome.success.count") != :nomatch
 
+    # Readers of the published chunk (rain) see the new biome too.
+    snapshot = Valimc.World.View.row(Valimc.World.View.new(), {0, 0})
+
+    assert Valimc.Native.snapshot_biome(snapshot, 0, 16, 0) ==
+             Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:desert")
+
     client =
       command(client, "fillbiome 0 64 0 8 68 8 minecraft:desert", "commands.fillbiome.no_changes")
 

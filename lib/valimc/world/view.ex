@@ -3,22 +3,24 @@ defmodule Valimc.World.View do
   One lazy read view over region owners' published chunk snapshots (VMC-077e):
   how collision, pose, fluid, climbing, portal and spawn code read blocks.
 
-  `load/2` copies the rows of the chunks a box covers out of their owners'
-  tables (one ETS lookup per chunk; sections share their binaries), and a read
-  of a chunk not loaded looks its row up directly, so no reader has to plan an
-  envelope. Each row is one owner commit of adopted blocks; a view is not one
-  revision of the world and fences nothing, since physics observations are not
-  transactions (commits stay fenced on section revisions). A chunk not generated
-  yet, or of a region not running, cannot be read: `fetch/2` is `:error` there,
-  so movement into unloaded chunks fails closed. Rows carry the MOTION_BLOCKING
-  heightmap, lowest sky sources and biomes Rust computes beside the sections
-  (`column/3`, `biome/2`). `await/4` waits for chunks to load and generate,
-  holding a timed ticket. `of/1` is a view of supplied states
-  for oracles and tests. A view reads one dimension, named when it is made
-  (VMC-077j: routing never reads the process's context).
+  `load/2` takes the snapshot handles of the chunks a box covers from their
+  owners' tables (one ETS lookup per chunk), and a read of a chunk not loaded
+  looks its handle up directly, so no reader has to plan an envelope. A handle
+  is the chunk as one owner commit published it, read in place by Rust
+  (VMC-077p): no copy, no lock, and the owner may publish newer ones
+  meanwhile. A view is not one revision of the world and fences nothing, since
+  physics observations are not transactions (commits stay fenced on section
+  revisions). A chunk not generated yet, or of a region not running, cannot be
+  read: `fetch/2` is `:error` there, so movement into unloaded chunks fails
+  closed. `column/3` and `biome/2` compute the MOTION_BLOCKING height, lowest
+  sky source and biome from the snapshot; `blocks/2` reads many positions in
+  one call. `await/4` waits for chunks to load and generate, holding a timed
+  ticket. `of/1` is a view of supplied states for oracles and tests. A view
+  reads one dimension, named when it is made (VMC-077j: routing never reads
+  the process's context).
   """
-  import Bitwise, only: [band: 2, bsl: 2, bsr: 2]
-  alias Valimc.World
+  import Bitwise, only: [bsr: 2]
+  alias Valimc.{Native, World}
   alias Valimc.World.{Chunk, Directory, Region}
 
   defstruct dimension: :overworld, chunks: %{}, owners: %{}, supplied: nil
@@ -64,11 +66,31 @@ defmodule Valimc.World.View do
   def fetch(%__MODULE__{supplied: supplied}, position) when supplied != nil,
     do: Map.fetch(supplied, position)
 
-  def fetch(%__MODULE__{} = view, {x, _, z} = position) do
+  def fetch(%__MODULE__{} = view, {x, y, z}) do
     case entry(view, {chunk(x), chunk(z)}) do
       :unavailable -> :error
-      {sections, _, _} -> {:ok, at(sections, position)}
+      _ when y < -64 or y > 319 -> {:ok, Chunk.base(y)}
+      snapshot -> {:ok, Native.snapshot_get(snapshot, x, y, z)}
     end
+  end
+
+  @doc """
+  The states at `positions`, in order, nil where one cannot be read: one
+  native call over the chunks they fall in.
+  """
+  def blocks(%__MODULE__{supplied: supplied}, positions) when supplied != nil,
+    do: Enum.map(positions, &Map.get(supplied, &1))
+
+  def blocks(%__MODULE__{} = view, positions) do
+    chunks = positions |> Enum.map(fn {x, _, z} -> {chunk(x), chunk(z)} end) |> Enum.uniq()
+    view = load_chunks(view, chunks)
+    snapshots = for c <- chunks, (s = view.chunks[c]) != :unavailable, do: s
+
+    packed =
+      for {x, y, z} <- positions, into: <<>>, do: <<x::32-signed, y::32-signed, z::32-signed>>
+
+    for <<state::16 <- Native.snapshot_blocks(snapshots, packed, Chunk.base(Chunk.min_y() - 1))>>,
+      do: if(state == 0xFFFF, do: nil, else: state)
   end
 
   @doc """
@@ -78,12 +100,12 @@ defmodule Valimc.World.View do
   """
   def column(%__MODULE__{supplied: nil} = view, x, z) do
     case entry(view, {chunk(x), chunk(z)}) do
-      {_, heights, _} when is_binary(heights) ->
-        <<motion::16, sky::16>> = binary_part(heights, (band(z, 15) * 16 + band(x, 15)) * 4, 4)
-        {:ok, %{motion_blocking: motion - 64, sky_source: sky - 64}}
-
-      _ ->
+      :unavailable ->
         :error
+
+      snapshot ->
+        {:ok, {motion, sky}} = Native.snapshot_column(snapshot, x, z)
+        {:ok, %{motion_blocking: motion, sky_source: sky}}
     end
   end
 
@@ -98,19 +120,21 @@ defmodule Valimc.World.View do
     {zoom_seed, _} =
       Valimc.World.Spec.client_info(Valimc.World.Spec.current(), view.dimension)
 
-    {:ok, {qx, qy, qz}} = Valimc.Native.biome_zoom(zoom_seed, x, y, z)
+    {:ok, {qx, qy, qz}} = Native.biome_zoom(zoom_seed, x, y, z)
 
     case entry(view, {bsr(qx, 2), bsr(qz, 2)}) do
       :unavailable ->
         :error
 
-      {_, _, nil} ->
-        {:ok, Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")}
+      snapshot ->
+        case Native.snapshot_biome(snapshot, qx, qy, qz) do
+          nil ->
+            {:ok,
+             Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")}
 
-      {_, _, biomes} ->
-        local = (qy |> max(-16) |> min(79)) + 16
-        quart = bsr(local, 2) * 64 + (band(local, 3) * 4 + band(qz, 3)) * 4 + band(qx, 3)
-        {:ok, :binary.decode_unsigned(binary_part(biomes, quart * 2, 2))}
+          id ->
+            {:ok, id}
+        end
     end
   end
 
@@ -124,14 +148,37 @@ defmodule Valimc.World.View do
     end
   end
 
+  @doc "A chunk's published snapshot handle (VMC-077p), or `:unavailable`."
+  def row(view, chunk), do: entry(view, chunk)
+
   @doc """
-  A chunk's row: its 24 published sections, nil for an untouched chunk of a flat
-  world (which reads the base profile), or `:unavailable`.
+  Positions and states in `chunk` whose state is in `states` (a list),
+  scanning only sections whose palette holds one; none where it cannot be read.
   """
-  def row(view, chunk) do
+  def find(view, chunk, states) do
     case entry(view, chunk) do
-      {sections, _, _} -> sections
-      :unavailable -> :unavailable
+      :unavailable ->
+        []
+
+      snapshot ->
+        for <<x::32-signed, y::32-signed, z::32-signed,
+              state::16 <- Native.snapshot_find(snapshot, states)>>,
+            do: {{x, y, z}, state}
+    end
+  end
+
+  @doc """
+  The index of `chunk`'s highest stored section (bottom 0) below `below`
+  holding a state other than air, nil if none does, or `:unavailable`.
+  """
+  def highest_filled(view, chunk, below) do
+    case entry(view, chunk) do
+      :unavailable ->
+        :unavailable
+
+      snapshot ->
+        {:ok, section} = Native.snapshot_highest_filled(snapshot, below)
+        section
     end
   end
 
@@ -190,25 +237,12 @@ defmodule Valimc.World.View do
     end
   end
 
-  @doc """
-  Positions and states in a chunk row whose state is in `states` (a list),
-  scanning only sections whose palette holds one.
-  """
-  def find(sections, _chunk, _states) when not is_tuple(sections), do: []
-
-  def find(sections, {cx, cz}, states) do
-    for {section, s} <- Enum.with_index(Tuple.to_list(sections)),
-        {index, state} <- matches(section, states),
-        do: {position(cx, cz, s, index), state}
-  end
-
   defp lookup(dimension, chunk) do
     case Directory.lookup(World.section(dimension, chunk)) do
       {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
-          [{_, _, :absent, _, _}] -> {:unavailable, nil}
-          [{_, _, sections, heights, biomes}] -> {{sections, heights, biomes}, {pid, epoch}}
-          [] -> {{nil, nil, nil}, {pid, epoch}}
+          [{_, snapshot}] when is_reference(snapshot) -> {snapshot, {pid, epoch}}
+          _ -> {:unavailable, nil}
         end
 
       _ ->
@@ -220,42 +254,4 @@ defmodule Valimc.World.View do
   end
 
   defp chunk(coordinate), do: bsr(coordinate, 4)
-
-  defp at(nil, {_, y, _}), do: Chunk.base(y)
-  defp at(_sections, {_, y, _}) when y < -64 or y > 319, do: Chunk.base(y)
-
-  defp at(sections, {x, y, z}) do
-    local = y + 64
-    index = bsl(band(local, 15), 8) + bsl(band(z, 15), 4) + band(x, 15)
-
-    case elem(sections, bsr(local, 4)) do
-      state when is_integer(state) -> state
-      {:dense, cells} -> :binary.decode_unsigned(binary_part(cells, index * 2, 2))
-      {palette, cells} -> elem(palette, :binary.at(cells, index))
-    end
-  end
-
-  defp matches(state, states) when is_integer(state),
-    do: if(state in states, do: for(i <- 0..4095, do: {i, state}), else: [])
-
-  defp matches({:dense, cells}, states) do
-    for <<value::16 <- cells>>, reduce: {0, []} do
-      {i, acc} -> {i + 1, if(value in states, do: [{i, value} | acc], else: acc)}
-    end
-    |> elem(1)
-  end
-
-  defp matches({palette, cells}, states) do
-    for {state, slot} <- Enum.with_index(Tuple.to_list(palette)),
-        state in states,
-        {offset, 1} <- :binary.matches(cells, <<slot>>),
-        do: {offset, state}
-  end
-
-  defp position(cx, cz, s, index) do
-    x = band(index, 15)
-    z = band(bsr(index, 4), 15)
-    y = bsr(index, 8)
-    {cx * 16 + x, s * 16 + y - 64, cz * 16 + z}
-  end
 end

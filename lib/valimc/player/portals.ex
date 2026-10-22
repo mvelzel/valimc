@@ -21,7 +21,6 @@ defmodule Valimc.Player.Portals do
   alias Valimc.Physics.PlayerPose
   alias Valimc.Player.Travel
   alias Valimc.Session.Jobs
-  alias Valimc.World
   alias Valimc.World.View
 
   @cooldown Travel.cooldown()
@@ -285,14 +284,9 @@ defmodule Valimc.Player.Portals do
 
   # States at `positions` from the loaded owners' published snapshots.
   defp read(positions) do
-    view =
-      View.load_chunks(
-        View.new(),
-        positions |> Enum.map(fn {x, _, z} -> World.chunk_key(x, z) end) |> Enum.uniq()
-      )
+    states = View.blocks(View.new(), positions)
 
-    for position <- positions,
-        state = View.block(view, position),
+    for {position, state} <- Enum.zip(positions, states),
         state != nil,
         into: %{},
         do: {position, state}

@@ -428,31 +428,13 @@ defmodule Valimc.Physics.Kernel do
   end
 
   defp view_of(%View{} = view, {x0, _, z0, x1, _, z1}) do
-    rows =
+    snapshots =
       for cx <- chunk(floor(x0) - 2)..chunk(floor(x1) + 2)//1,
           cz <- chunk(floor(z0) - 2)..chunk(floor(z1) + 2)//1,
-          (sections = View.row(view, {cx, cz})) != :unavailable,
-          do: {cx, cz, sections}
+          (snapshot = View.row(view, {cx, cz})) != :unavailable,
+          do: snapshot
 
-    {base, outside} = base()
-    {:rows, rows, base, outside}
-  end
-
-  defp base do
-    dimension = Valimc.Dimension.current()
-
-    case :persistent_term.get({__MODULE__, :base, dimension}, nil) do
-      nil ->
-        base =
-          {for(y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>),
-           Chunk.base(Chunk.min_y() - 1)}
-
-        :persistent_term.put({__MODULE__, :base, dimension}, base)
-        base
-
-      base ->
-        base
-    end
+    {:rows, snapshots, Chunk.base(Chunk.min_y() - 1)}
   end
 
   defp chunk(coordinate), do: coordinate >>> 4

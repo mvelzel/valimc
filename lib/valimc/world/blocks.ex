@@ -288,19 +288,19 @@ defmodule Valimc.World.Blocks do
     end
   end
 
-  @doc "An immutable read snapshot of one chunk (see `BlockSnapshot`), or nil if untouched."
-  def snapshot(%__MODULE__{} = blocks, {cx, cz}) do
-    {:ok, sections} = Native.snapshot_chunk(blocks.ref, cx, cz)
-    sections
-  end
-
   @doc """
-  A chunk's column facts for its published snapshot (VMC-077e): `{heights,
-  biomes}`, see `Valimc.World.View.column/3` and `biome/2`.
+  Snapshots of `chunks` (`{chunk, previous}`, `previous` its last published
+  handle or nil) at `revision`, in order (see `BlockSnapshot`).
   """
-  def column_facts(%__MODULE__{} = blocks, {cx, cz}) do
-    {:ok, facts} = Native.column_facts(blocks.ref, cx, cz)
-    facts
+  def snapshots(%__MODULE__{} = blocks, chunks, revision) do
+    {:ok, handles} =
+      Native.snapshot_publish(
+        blocks.ref,
+        for({{cx, cz}, previous} <- chunks, do: {cx, cz, previous}),
+        revision
+      )
+
+    handles
   end
 
   def touched_chunks(%__MODULE__{} = blocks) do

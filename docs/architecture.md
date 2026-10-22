@@ -94,12 +94,20 @@ then stops.
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
 - **Published reads.** After each block change, and before any client hears of
-  it, the owner publishes immutable chunk snapshots (VMC-065) with the
-  MOTION_BLOCKING heightmap, lowest sky sources and biomes Rust computes beside
-  them, so a client's next move is checked against what it was shown. Every physics, rain, portal and
-  spawn reader reads them through `World.View`, one lazy per-chunk view: no
-  owner call, no envelope to plan and no fence, since observations are not
-  transactions; a chunk not loaded or generated fails closed (VMC-077e). Only commits are fenced: block
+  it, the owner publishes an immutable snapshot of each changed chunk (VMC-065,
+  VMC-077p), so a client's next move is checked against what it was shown. A
+  snapshot is a Rust handle in the section's table that shares the chunk's
+  sections and biomes with the owner's store: the store clones a section only
+  when it writes one a snapshot still holds, so republishing a chunk copies 24
+  pointers, block memory is held once except for sections written since the
+  last publication, and each section carries the revision of the publication
+  that last changed it. Handles move with the table when a section changes
+  group. Every physics, rain, portal and spawn reader reads them through
+  `World.View`, one lazy per-chunk view: no owner call, no copy, no lock, no
+  envelope to plan and no fence, since observations are not transactions. The
+  kernel and the view's batch calls read the handles in place; heights, sky
+  sources and biomes are computed from the snapshot when asked. A chunk not
+  loaded or generated fails closed (VMC-077e). Only commits are fenced: block
   observations for placement, mining and commands carry section revisions, so
   they stale only when the sections they read change (VMC-064).
 - **Shared write-ahead log (D2).** Every owner commits to one striped log per
@@ -273,13 +281,13 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 
 | Rust | Why |
 |---|---|
-| Section/column storage and chunk packet encoding | Mutable 4096-entry arrays and bit packing; large memory win |
+| Section/column storage, published chunk snapshots and chunk packet encoding | Mutable 4096-entry arrays and bit packing; large memory win; snapshots share copy-on-write sections with the store (VMC-077p) |
 | World generation (M2) | The most CPU per chunk; pure; runs on dirty CPU schedulers behind a bounded pool |
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
-| Entity physics (VMC-077l, VMC-077l2) | One kernel (`valimc_core::physics`) for players and items: block scans over published section rows with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the connection; a region owner's items one call per tick. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Entity physics (VMC-077l, VMC-077l2) | One kernel (`valimc_core::physics`) for players and items: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the connection; a region owner's items one call per tick. Effects on living state (burning, landing damage, air, rain) come back as observations |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
@@ -290,8 +298,8 @@ is the native reader's parity reference.
 
 NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
-- The shim has one module per domain (`facts`, `region`, `rules`, `light`,
-  `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`); oracle
+- The shim has one module per domain (`facts`, `region`, `snapshot`, `rules`,
+  `light`, `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`); oracle
   and benchmark NIFs live in `parity` (the physics kernel's pieces in
   `physics_checks` and `player_parity`), built only with the `parity` cargo
   feature (dev, test and bench builds, not releases). One arity per NIF.
@@ -311,7 +319,9 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
   Shared Rust state is immutable and shared through an `Arc` (a seed's
   generation context, with bounded caches of pure values), or lent to one
   job at a time by its owner (the scheduler's proto cells and start table,
-  locked while a call uses them); readers get immutable binaries.
+  locked while a call uses them); readers get immutable binaries or
+  immutable handles (chunk snapshots), which a NIF borrows from its argument
+  for the call.
 - Positions cross as packed big-endian binaries; outputs are written straight
   into binaries, and large ones point into the Rust buffer without a copy.
 - Wire and disk input is validated with bounded lengths and no panicking

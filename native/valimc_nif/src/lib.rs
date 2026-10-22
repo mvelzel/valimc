@@ -33,6 +33,7 @@ mod player;
 mod player_parity;
 mod region;
 mod rules;
+mod snapshot;
 mod sys;
 mod worldgen;
 
@@ -51,7 +52,6 @@ mod atoms {
         poisoned,
         not_owner,
         flat,
-        dense,
         too_large,
         old_column_image,
     }

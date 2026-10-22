@@ -195,10 +195,7 @@ pub(crate) fn imported_column(
                 .ok_or(atoms::invalid_layers())?,
         );
     }
-    Ok(Column {
-        sections: storages,
-        biomes: Some(biomes),
-    })
+    Ok(Column::new(storages, Some(biomes)))
 }
 
 /// The column image of 24 imported sections, without a region (imports).
@@ -236,10 +233,10 @@ fn column_layers_image<'a>(
         }
     }
     let mut column = valimc_core::column::Column::from_layers(&states);
-    column.biomes = Some(vec![
+    column.biomes = Some(std::sync::Arc::new(vec![
         valimc_core::section::Biomes::Single(biome);
         valimc_core::column::SECTIONS
-    ]);
+    ]));
     Ok(bytes(env, column.to_image()))
 }
 

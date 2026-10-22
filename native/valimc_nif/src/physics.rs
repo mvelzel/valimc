@@ -3,13 +3,11 @@
 //! spawn obstruction and the border; the player's calls are in `player`, the
 //! oracle checks' one-by-one entry points in `physics_checks`.
 //!
-//! A view is `{:rows, rows, base, outside}` (`rows` a list of `{cx, cz,
-//! sections}`, `sections` nil for the base profile or a tuple of 24 section
-//! terms as `World.View` holds them; `base` 384 big-endian states; `outside`
-//! the state outside the stored height) or `{:states, packed}` (supplied
-//! `<<x::32, y::32, z::32, state::16>>` records, for oracles). A query only
-//! decodes the sections near its boxes; a cell it cannot read answers
-//! `{:error, {:unreadable, {x, y, z}}}`.
+//! A view is `{:rows, snapshots, outside}` (`snapshots` the published chunk
+//! handles `World.View` holds, VMC-077p, read in place; `outside` the state
+//! outside the stored height) or `{:states, packed}` (supplied
+//! `<<x::32, y::32, z::32, state::16>>` records, for oracles). A cell it
+//! cannot read answers `{:error, {:unreadable, {x, y, z}}}`.
 //!
 //! Boxes are `{x0, y0, z0, x1, y1, z1}`, vectors `{x, y, z}`. A context is
 //! `{{entity, bottom, descending, placement}, {present, fall_distance,
@@ -18,19 +16,20 @@
 //! `{min_x, min_z, max_x, max_z}`.
 
 use crate::facts::PHYSICS;
+use crate::snapshot::Snapshot;
 use rustler::{Atom, Binary, Encoder, Env, NifResult, Term};
 use std::collections::HashMap;
 use valimc_core::physics::border::Border;
 use valimc_core::physics::collide;
 use valimc_core::physics::facts::Facts;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
-use valimc_core::physics::source::{BlockSource, Rows, Section, States};
+use valimc_core::physics::source::{BlockSource, Rows, States};
 use valimc_core::physics::{Aabb, Context};
 
 pub(crate) mod atoms {
     rustler::atoms! {
         ok, error, rows, states, unreadable, inside, limit, facts_missing, invalid_view,
-        dense, water, lava,
+        water, lava,
     }
 }
 
@@ -96,28 +95,7 @@ impl BlockSource for View<'_> {
     }
 }
 
-fn section<'a>(term: Term<'a>) -> NifResult<Section<'a>> {
-    if let Ok(state) = term.decode::<u16>() {
-        return Ok(Section::Uniform(state));
-    }
-    let (first, cells): (Term<'a>, Binary<'a>) = term.decode()?;
-    if let Ok(tag) = first.decode::<Atom>() {
-        if tag == atoms::dense() && cells.len() == 8192 {
-            return Ok(Section::Dense(cells.as_slice()));
-        }
-        return Err(invalid());
-    }
-    let palette = rustler::types::tuple::get_tuple(first)?
-        .into_iter()
-        .map(|t| t.decode::<u16>())
-        .collect::<NifResult<Vec<u16>>>()?;
-    if cells.len() != 4096 {
-        return Err(invalid());
-    }
-    Ok(Section::Paletted(palette, cells.as_slice()))
-}
-
-/// Decode a view for the heights `region` covers (two blocks of margin).
+/// A view for the cells of `region` (two blocks of margin).
 pub(crate) fn view<'a>(term: Term<'a>, facts: &Facts, region: &Aabb) -> NifResult<View<'a>> {
     let tuple = rustler::types::tuple::get_tuple(term)?;
     let tag: Atom = tuple.first().ok_or(invalid())?.decode()?;
@@ -136,43 +114,23 @@ pub(crate) fn view<'a>(term: Term<'a>, facts: &Facts, region: &Aabb) -> NifResul
             .collect::<HashMap<_, _>>();
         return Ok(View::States(States(map)));
     }
-    if tag != atoms::rows() || tuple.len() != 4 {
+    if tag != atoms::rows() || tuple.len() != 3 {
         return Err(invalid());
     }
-    let rows: Vec<(i32, i32, Term<'a>)> = tuple[1].decode()?;
-    let base: Binary = tuple[2].decode()?;
-    let outside: u16 = tuple[3].decode()?;
-    let base: Vec<u16> = base
-        .as_slice()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|b| u16::from_be_bytes(*b))
-        .collect();
+    let snapshots: Vec<&'a Snapshot> = tuple[1].decode()?;
+    let outside: u16 = tuple[2].decode()?;
+    // Special colliders are looked up in the sections near the region only.
     let lowest = ((region.min[1] - 2.0).floor() as i32 + 64).max(0) >> 4;
     let highest = ((region.max[1] + 2.0).floor() as i32 + 64).clamp(0, 383) >> 4;
-    let mut decoded = Rows::new(base, outside);
-    for (cx, cz, sections) in rows {
-        let row = if sections.is_atom() {
-            None
-        } else {
-            let terms = rustler::types::tuple::get_tuple(sections)?;
-            if terms.len() != 24 {
-                return Err(invalid());
-            }
-            let mut out = Vec::with_capacity(24);
-            for (s, t) in terms.into_iter().enumerate() {
-                out.push(if (lowest..=highest).contains(&(s as i32)) {
-                    section(t)?
-                } else {
-                    Section::Unloaded
-                });
-            }
-            Some(out)
-        };
-        decoded.insert((cx, cz), row, &facts.shapes);
+    let mut rows = Rows::new(outside);
+    for snapshot in snapshots {
+        rows.insert(
+            &snapshot.0,
+            lowest as usize..=highest as usize,
+            &facts.shapes,
+        );
     }
-    Ok(View::Rows(decoded))
+    Ok(View::Rows(rows))
 }
 
 #[cfg(feature = "parity")]

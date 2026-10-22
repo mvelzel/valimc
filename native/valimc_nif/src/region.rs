@@ -8,12 +8,12 @@
 //! adds `<<state::16>>`, a change to write `<<state::32>>` (so an out-of-range
 //! state is refused, not wrapped).
 
-use crate::facts::{FLAGS, LIGHT};
-use crate::{atoms, binary, bytes, done};
+use crate::facts::FLAGS;
+use crate::{atoms, bytes, done};
 use rustler::{Atom, Binary, Encoder, Env, LocalPid, NewBinary, NifResult, ResourceArc, Term};
 use std::sync::Mutex;
 use valimc_core::column::HEIGHT;
-use valimc_core::{ColumnStore, Storage, StoreError};
+use valimc_core::{ColumnStore, StoreError};
 
 pub struct Region {
     owner: Mutex<LocalPid>,
@@ -111,7 +111,7 @@ fn positions(packed: &[u8]) -> Result<impl Iterator<Item = (i32, i32, i32)> + '_
 }
 
 /// Blocks at positions as packed `{x, y, z, state}` records.
-fn packed_blocks<'a>(env: Env<'a>, blocks: &[(i32, i32, i32, u16)]) -> Binary<'a> {
+pub(crate) fn packed_blocks<'a>(env: Env<'a>, blocks: &[(i32, i32, i32, u16)]) -> Binary<'a> {
     let mut out = NewBinary::new(env, blocks.len() * 14);
     for (record, (x, y, z, state)) in out
         .as_mut_slice()
@@ -267,54 +267,6 @@ fn touched_chunks(region: ResourceArc<Region>) -> Result<Vec<(i32, i32)>, Atom> 
     with_store(&region, |store| Ok(store.columns.keys().copied().collect()))
 }
 
-/// An immutable read snapshot of one chunk: 24 section terms, bottom first. A
-/// section is a state integer (uniform), `{palette_tuple, cells}` with one byte
-/// per cell, or `{:dense, cells}` with a big-endian u16 per cell. `nil` for an
-/// untouched chunk (readers use the base profile).
-#[rustler::nif]
-fn snapshot_chunk<'a>(
-    env: Env<'a>,
-    region: ResourceArc<Region>,
-    cx: i32,
-    cz: i32,
-) -> Result<Term<'a>, Atom> {
-    with_store(&region, |store| {
-        store.check_chunk((cx, cz)).map_err(error)?;
-        let Some(column) = store.columns.get(&(cx, cz)) else {
-            return Ok(rustler::types::atom::nil().encode(env));
-        };
-        let sections: Vec<Term<'a>> = column
-            .sections
-            .iter()
-            .map(|section| match section {
-                Storage::Single(state) => state.encode(env),
-                Storage::Indexed { palette, cells } => {
-                    let palette: Vec<Term<'a>> = palette.iter().map(|p| p.encode(env)).collect();
-                    (
-                        rustler::types::tuple::make_tuple(env, &palette),
-                        binary(env, &cells[..]),
-                    )
-                        .encode(env)
-                }
-                Storage::Dense(cells) => {
-                    let mut out = NewBinary::new(env, cells.len() * 2);
-                    for (bytes, cell) in out
-                        .as_mut_slice()
-                        .as_chunks_mut::<2>()
-                        .0
-                        .iter_mut()
-                        .zip(cells.iter())
-                    {
-                        *bytes = cell.to_be_bytes();
-                    }
-                    (atoms::dense(), Binary::from(out)).encode(env)
-                }
-            })
-            .collect();
-        Ok(sections.encode(env))
-    })
-}
-
 /// Install the region's randomly ticking states: one bit per state id (LSB first).
 #[rustler::nif]
 fn set_random_ticking(env: Env, region: ResourceArc<Region>, bitmap: Binary) -> NifResult<Atom> {
@@ -370,44 +322,6 @@ fn dump_column<'a>(
         store.dump_column((cx, cz), default_biome).map_err(error)
     })?;
     Ok((be_u16(env, &states), be_u16(env, &biomes)).encode(env))
-}
-
-/// A chunk's published column facts (VMC-077e) as `{heights, biomes}`:
-/// `heights` per column (`z * 16 + x`) a big-endian u16 MOTION_BLOCKING
-/// height and lowest sky source, relative to y = -64; `biomes` its stored
-/// biomes as big-endian u16 (24 sections × 64 quarts) or nil for the region's
-/// default biome.
-#[rustler::nif]
-fn column_facts<'a>(
-    env: Env<'a>,
-    region: ResourceArc<Region>,
-    cx: i32,
-    cz: i32,
-) -> Result<Term<'a>, Atom> {
-    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    let light = LIGHT.get().ok_or(atoms::light_facts_missing())?;
-    let (heights, biomes) = with_store(&region, |store| {
-        store.column_facts((cx, cz), flags, light).map_err(error)
-    })?;
-    let biomes = match biomes {
-        Some(biomes) => be_u16(env, &biomes).encode(env),
-        None => rustler::types::atom::nil().encode(env),
-    };
-    Ok((be_u16(env, &heights), biomes).encode(env))
-}
-
-fn be_u16<'a>(env: Env<'a>, values: &[u16]) -> Binary<'a> {
-    let mut out = NewBinary::new(env, values.len() * 2);
-    for (bytes, value) in out
-        .as_mut_slice()
-        .as_chunks_mut::<2>()
-        .0
-        .iter_mut()
-        .zip(values)
-    {
-        *bytes = value.to_be_bytes();
-    }
-    Binary::from(out)
 }
 
 /// The biome registry id at a block as `Level.getBiome` reads it (vanilla's
@@ -519,4 +433,18 @@ fn put_column_image(
                 .map_err(error)
         })
     })())
+}
+
+fn be_u16<'a>(env: Env<'a>, values: &[u16]) -> Binary<'a> {
+    let mut out = NewBinary::new(env, values.len() * 2);
+    for (bytes, value) in out
+        .as_mut_slice()
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(values)
+    {
+        *bytes = value.to_be_bytes();
+    }
+    Binary::from(out)
 }

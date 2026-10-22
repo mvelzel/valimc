@@ -7,18 +7,14 @@ for row <- rows do
   {x, z} = {row["x"], row["z"]}
   chunk = Valimc.World.chunk_key(x, z)
   {:ok, blocks} = Blocks.new(Valimc.World.region_key(chunk))
-  offset = (Integer.mod(z, 16) * 16 + Integer.mod(x, 16)) * 4
 
   Enum.each(row["steps"], fn [y, block, expected] ->
     :ok = Blocks.put(blocks, %{{x, y, z} => block})
-    {heights, _biomes} = Blocks.column_facts(blocks, chunk)
-    <<_::binary-size(offset), _motion::16, sky::16, _::binary>> = heights
+    [snapshot] = Blocks.snapshots(blocks, [{chunk, nil}], 0)
+    {:ok, {_motion, sky}} = Valimc.Native.snapshot_column(snapshot, x, z)
 
-    unless sky - 64 == max(-64, expected),
-      do:
-        raise(
-          "Native sky-source height differs: #{inspect({{x, y, z}, block, sky - 64, expected})}"
-        )
+    unless sky == max(-64, expected),
+      do: raise("Native sky-source height differs: #{inspect({{x, y, z}, block, sky, expected})}")
   end)
 end
 

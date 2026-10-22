@@ -994,6 +994,9 @@ defmodule Valimc.World.RegionData do
             changed = Map.keys(columns)
             biomes = Map.new(changed, &{&1, Blocks.encode_biomes(state.blocks, &1)})
 
+            # Readers see the new biomes (rain) before clients do.
+            state = publish_block_snapshots(state, changed)
+
             for {chunk, {:ok, bytes}} <- biomes,
                 do: Valimc.World.publish(route_key(state), {:chunks_biomes, [{chunk, bytes}]})
 

@@ -1799,13 +1799,7 @@ impl Worldgen {
                 }
             }
         }
-        Ok((
-            Column {
-                sections,
-                biomes: Some(section_biomes),
-            },
-            heights,
-        ))
+        Ok((Column::new(sections, Some(section_biomes)), heights))
     }
 
     /// A chunk's biomes as registry ids (sections from the bottom, each in

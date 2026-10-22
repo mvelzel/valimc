@@ -158,7 +158,7 @@ defmodule Valimc.World.PlayerSpawn do
   def column(x, z, deadline) do
     case View.await([World.chunk_key(x, z)], :spawn_search, deadline) do
       {:ok, view} ->
-        for(y <- Chunk.min_y()..319, do: View.block(view, {x, y, z})) |> List.to_tuple()
+        view |> View.blocks(for(y <- Chunk.min_y()..319, do: {x, y, z})) |> List.to_tuple()
 
       {:error, _} ->
         throw(:deadline)

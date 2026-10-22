@@ -12,6 +12,7 @@ pub mod nbt;
 pub mod physics;
 pub mod rules;
 pub mod section;
+pub mod snapshot;
 pub mod wire;
 pub mod worldgen;
 

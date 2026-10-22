@@ -9,7 +9,7 @@ defmodule Valimc.RegionGroupTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.Storage.Log
   alias Valimc.TestScope
-  alias Valimc.World.{Region, RegionLog}
+  alias Valimc.World.{Region, RegionLog, View}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -57,8 +57,14 @@ defmodule Valimc.RegionGroupTest do
        ctx do
     stone = BlockRegistry.default_state("stone")
     set({ctx.pb, ctx.eb}, position(ctx.b), stone)
+    {x, y, z} = position(ctx.b, 6)
+    chunk = Valimc.World.chunk_key(x, z)
+    published = View.row(View.new(), chunk)
     assert ctx.pa != ctx.pb
     merge(ctx)
+
+    # Its published snapshot moved with its table, unchanged (VMC-077p).
+    assert View.row(View.new(), chunk) == published
 
     # The route names the group that adopted it; the section is the same one.
     assert {:ok, {pa, eb}} = Valimc.TestWorld.owner(ctx.b)
@@ -72,6 +78,18 @@ defmodule Valimc.RegionGroupTest do
 
     # Both sections change through the one group and tick on one number.
     set({ctx.pa, ctx.eb}, position(ctx.b, 6), stone)
+
+    # The adopting group republishes the chunk; the old snapshot still reads
+    # what it published, and only the written section has the new revision.
+    republished = View.row(View.new(), chunk)
+    assert Valimc.Native.snapshot_get(republished, x, y, z) == stone
+    assert Valimc.Native.snapshot_get(published, x, y, z) != stone
+    {old, old_sections} = Valimc.Native.snapshot_revisions(published)
+    {new, new_sections} = Valimc.Native.snapshot_revisions(republished)
+    written = div(y + 64, 16)
+    assert new > old and Enum.at(new_sections, written) == new
+
+    assert List.delete_at(new_sections, written) == List.delete_at(old_sections, written)
     set({ctx.pa, ctx.ea}, position(ctx.a), stone)
     {:ok, tick} = Region.step({ctx.pa, ctx.ea}, 3)
 

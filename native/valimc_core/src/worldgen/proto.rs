@@ -251,7 +251,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     }
     let section_biomes = column.biomes.ok_or("a proto chunk without biomes")?;
     let mut biomes = Vec::with_capacity(sections * 64);
-    for section in &section_biomes {
+    for section in section_biomes.iter() {
         biomes.extend((0..64).map(|i| section.get(i)));
     }
     let mut non_air = [0u16; super::region::MAX_SECTIONS];
