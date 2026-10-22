@@ -271,7 +271,8 @@ defmodule Valimc.Net.Link do
     }
   end
 
-  # Vanilla tracking ranges, in chunks, of the entity kinds groups own (VMC-070).
+  # Vanilla tracking ranges, in chunks, of the entity kinds groups own (VMC-070);
+  # a body's row carries its type's (VMC-043a), at most the player's.
   @tracking_ranges %{
     item: Valimc.Data.EntityTypes.tracking_range("item"),
     orb: Valimc.Data.EntityTypes.tracking_range("experience_orb"),
@@ -296,7 +297,7 @@ defmodule Valimc.Net.Link do
 
     desired =
       for {_, %{kind: kind, at: {x, _, z}} = view} = entry <- desired,
-          Replication.sees?(state, {x, z}, @tracking_ranges[kind]),
+          Replication.sees?(state, {x, z}, Map.get(view, :range) || @tracking_ranges[kind]),
           kind != :player or shows?(state, view),
           into: %{},
           do: entry

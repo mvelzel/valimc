@@ -19,7 +19,6 @@ fails on unregistered scripts.
 # Sources that are compiled with the oracles but are not stages of their own.
 HELPERS = {
     "ProtocolMetadata": "registry/tag generator used by generate_protocol.py",
-    "EntityMetadata": "entity metadata generator used by generate_protocol.py",
     "VanillaOracle": "official-codec TCP client used by the `tcp` stage",
 }
 
@@ -331,6 +330,11 @@ STAGES = [
     ('block_facts', [
         ('regen', 'BlockFactsOracle', '@block-facts.json'),
         ('same', '@block-facts.json', 'priv/registry/block_facts.json'),
+    ]),
+    # VMC-043a: every entity type's facts (category, size, attributes, loot, spawning, tracking).
+    ('entity_facts', [
+        ('regen', 'EntityOracle', 'facts', '@entity-facts.json'),
+        ('same', '@entity-facts.json', 'priv/registry/entity_facts.json'),
     ]),
     ('enchantments', [
         ('regen', 'EnchantmentMetadata', '@enchantments.json'),

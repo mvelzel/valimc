@@ -8,7 +8,7 @@ defmodule Valimc.Commands.Players do
   alias Valimc.Data.Float32
   alias Valimc.Commands.Parser.Coordinates
   alias Valimc.Text.Error
-  alias Valimc.Commands.{Feedback, Names, Source, Targets}
+  alias Valimc.Commands.{Entities, Feedback, Names, Source, Targets}
   alias Valimc.Text
   alias Valimc.Commands.Remote
   alias Valimc.Player.CommandOps
@@ -98,13 +98,13 @@ defmodule Valimc.Commands.Players do
   def teleport(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Targets.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_any(source, selector)
         _ -> [Source.player!(source)]
       end
 
     case arguments do
       %{"destination" => selector} ->
-        destination = Targets.single_entity(source, selector)
+        destination = Targets.single_any(source, selector)
 
         # Into the destination's dimension, as vanilla's `teleportTo` level (VMC-026b).
         pose = %{
@@ -116,7 +116,7 @@ defmodule Valimc.Commands.Players do
           dimension: Map.get(destination, :dimension, :overworld)
         }
 
-        tracked = on_targets(targets, fn _ -> {:teleport, pose} end)
+        tracked = move(targets, fn _ -> pose end)
 
         total =
           respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
@@ -145,7 +145,7 @@ defmodule Valimc.Commands.Players do
         facing = facing(arguments, source)
 
         tracked =
-          on_targets(targets, fn target ->
+          move(targets, fn target ->
             {yaw, pitch} =
               case rotation do
                 nil ->
@@ -159,7 +159,7 @@ defmodule Valimc.Commands.Players do
             pose = %{x: x, y: y, z: z, yaw: yaw, pitch: clamp_pitch(pitch)}
             pose = if(facing, do: look_at(pose, facing), else: pose)
             # A location is in the source's dimension.
-            {:teleport, Map.put(pose, :dimension, source.dimension)}
+            Map.put(pose, :dimension, source.dimension)
           end)
 
         coordinates = Enum.map([x, y, z], &Valimc.Text.Number.fixed(&1 * 1.0, 6))
@@ -181,16 +181,23 @@ defmodule Valimc.Commands.Players do
     end
   end
 
+  # Players teleport in their own connections, bodies through their owners.
+  defp move(targets, pose_of) do
+    {bodies, players} = Enum.split_with(targets, &Entities.body?/1)
+    on_targets(players, &{:teleport, pose_of.(&1)}) ++ Entities.teleport(bodies, pose_of)
+  end
+
   defp facing(%{"facingLocation" => location}, source), do: Source.position(source, location)
 
   defp facing(%{"facingEntity" => selector} = arguments, source) do
-    entity = Targets.single_entity(source, selector)
+    entity = Targets.single_any(source, selector)
     eyes = Map.get(arguments, "facingAnchor", :feet) == :eyes
     {entity.x, entity.y + if(eyes, do: eye_height(entity), else: 0.0), entity.z}
   end
 
   defp facing(_arguments, _source), do: nil
 
+  defp eye_height(%{kind: :body, type: type}), do: Valimc.Data.EntityTypes.fetch(type).eye_height
   defp eye_height(%{pose: :crouching}), do: 1.27
   defp eye_height(_), do: 1.62
 
@@ -456,15 +463,19 @@ defmodule Valimc.Commands.Players do
 
   # ---- kill ----
 
-  @doc "`/kill [<targets>]` (`KillCommand`): players die by `genericKill`."
+  @doc """
+  `/kill [<targets>]` (`KillCommand`): players die by `genericKill`, as do
+  mobs; other entities are removed (VMC-043a).
+  """
   def kill(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Targets.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_any(source, selector)
         _ -> [Source.player!(source)]
       end
 
-    tracked = on_targets(targets, fn _ -> :kill end)
+    {bodies, players} = Enum.split_with(targets, &Entities.body?/1)
+    tracked = on_targets(players, fn _ -> :kill end) ++ Entities.kill(bodies)
 
     total =
       respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,

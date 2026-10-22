@@ -140,7 +140,8 @@ defmodule Valimc.Storage.Anvil.Export do
     containers = stored.containers
     {:ok, preserved} = BlockEntities.new(stored.block_entities)
     %{chunk_extras: extras, entities: kept} = RegionStorage.extra(source, :overworld, key)
-    records = stored.items
+    # Mobs and other bodies (VMC-043a) are not written to Anvil yet.
+    records = Enum.filter(stored.items, &(Map.get(&1, :kind, :item) in [:item, :orb]))
 
     entities =
       Enum.reduce(kept, %{}, fn {chunk, nbt}, acc ->

@@ -48,6 +48,21 @@ packets =
 
     packet =
       case name do
+        "body_spawn_" <> type ->
+          base
+          |> Map.merge(%{velocity: {0.0, 0.0, 0.0}, head_yaw: 45.0})
+          |> EntityPackets.spawn("minecraft:" <> type)
+
+        "body_metadata_mob" ->
+          EntityPackets.metadata(300, pose: :dying, health: 20.0, mob_flags: 2)
+
+        "body_metadata_tnt" ->
+          unstable = Valimc.Data.Blocks.state("tnt", %{"unstable" => "true"})
+          EntityPackets.metadata(300, tnt_fuse: 79, tnt_block_state: unstable)
+
+        "body_attributes_zombie" ->
+          Packets.attributes(300, Valimc.Entity.Mob.synced("minecraft:zombie", %{}))
+
         "spawn_" <> vector ->
           EntityPackets.spawn_item(Map.put(base, :velocity, by_name[vector]))
 

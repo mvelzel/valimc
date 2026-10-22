@@ -1,9 +1,10 @@
 defmodule Valimc.Entity.Store do
   @moduledoc """
   A region owner's entity store (VMC-077h): every entity it owns, by network
-  id with a uuid index, each of a kind (`:item` and `:orb` now, mobs and
-  projectiles later), with its published view and the handoff
-  ledger (`Valimc.Entity.Handoffs`). Only the owner mutates it.
+  id with a uuid index, each of a kind (`:item`, `:orb`, and every other type
+  as a body, `Valimc.Entity.Body`: `:mob` living, `:object` not, VMC-043a),
+  with its published view and the handoff ledger (`Valimc.Entity.Handoffs`).
+  Only the owner mutates it.
 
   An entity keeps its network id (`Valimc.Entity.Ids`) for the life of the
   VM: a record handed over between owners carries it. Its `hops` count the
@@ -14,13 +15,16 @@ defmodule Valimc.Entity.Store do
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes}
-  alias Valimc.Entity.{Ids, View}
+  alias Valimc.Entity.{Body, Ids, View}
 
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
   # the receipts of incoming handoffs by source.
   @ledger %{sequence: 0, outgoing: nil, incoming: %{}}
   defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger
   @max_steps 32
+  @bodies [:mob, :object]
+  # The entity events a view keeps for its tracker (each tick sends the new ones).
+  @kept_events 8
 
   def empty_ledger, do: @ledger
 
@@ -60,6 +64,26 @@ defmodule Valimc.Entity.Store do
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y()) do
     Enum.reduce(state.entries, {state, []}, fn
+      {id, %{kind: kind} = entry}, {items, expired} when kind in @bodies ->
+        # A body's timers (a dying mob's death animation); an inert one is unchanged.
+        {body, events, done} =
+          Enum.reduce_while(1..min(ticks, 40), {entry.body, [], false}, fn _, {body, events, _} ->
+            {body, more, done} = Body.tick(body)
+            {if(done, do: :halt, else: :cont), {body, events ++ more, done}}
+          end)
+
+        items =
+          if body == entry.body and events == [],
+            do: items,
+            else: put_body(items, id, body, events)
+
+        expired =
+          if done or entry.entity.y < minimum_y - 64,
+            do: [{items.epoch, id, items.entries[id].revision} | expired],
+            else: expired
+
+        {items, expired}
+
       {id, %{kind: :orb} = entry}, {items, expired} ->
         # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
         # handles and view stay.
@@ -131,6 +155,16 @@ defmodule Valimc.Entity.Store do
     if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
   end
 
+  def record(%{kind: kind, entity: entity, body: body} = entry) when kind in @bodies do
+    record =
+      entity
+      |> Map.take([:uuid, :x, :y, :z])
+      |> Map.put(:kind, kind)
+      |> Map.merge(Body.record(body))
+
+    if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
+  end
+
   def record(%{kind: :item, entity: entity, stack: stack} = entry) do
     record = entity |> Map.take([:uuid, :x, :y, :z]) |> Map.merge(%{kind: :item, stack: stack})
 
@@ -198,6 +232,13 @@ defmodule Valimc.Entity.Store do
       valid_record_motion?(record)
   end
 
+  def valid_record?(key, %{kind: kind, uuid: <<_::128>>, x: x, y: y, z: z} = record)
+      when kind in @bodies do
+    valid_position?({x, y, z}) and valid_hops?(record) and
+      Grid.region_key(Grid.chunk_key(x, z)) == key and
+      match?({:ok, %Body{}}, Body.restore(record)) and Body.kind(record.type) == kind
+  end
+
   def valid_record?(key, %{uuid: <<_::128>>, x: x, y: y, z: z, stack: stack} = record) do
     Map.get(record, :kind, :item) == :item and valid_position?({x, y, z}) and
       valid_record_motion?(record) and valid_hops?(record) and
@@ -218,6 +259,30 @@ defmodule Valimc.Entity.Store do
     case Map.get(record, :hops, 0) do
       hops when is_integer(hops) and hops >= 0 -> true
       _ -> false
+    end
+  end
+
+  defp build_record(state, id, %{kind: kind, uuid: uuid, x: x, y: y, z: z} = record)
+       when kind in @bodies do
+    with {:ok, body} <- Body.restore(record) do
+      entry = %{
+        kind: kind,
+        entity: %{entity_id: id, uuid: uuid, x: x, y: y, z: z},
+        body: body,
+        events: [],
+        event_seq: 0,
+        revision: 1,
+        physical_revision: 1,
+        hops: Map.get(record, :hops, 0)
+      }
+
+      {:ok,
+       %{
+         state
+         | entries: Map.put(state.entries, id, entry),
+           uuids: Map.put(state.uuids, uuid, id),
+           views: Map.put(state.views, id, body_view(state.epoch, entry))
+       }, {state.epoch, id, 1}}
     end
   end
 
@@ -452,6 +517,7 @@ defmodule Valimc.Entity.Store do
   defp advance_one(state, key, %{id: id} = step) do
     case state.entries do
       %{^id => %{kind: :orb}} -> advance_orb(state, key, step)
+      %{^id => %{kind: kind}} when kind in @bodies -> advance_body(state, key, step)
       _ -> advance_item(state, key, step)
     end
   end
@@ -568,6 +634,110 @@ defmodule Valimc.Entity.Store do
       false -> {:error, :invalid_item_step}
       error -> error
     end
+  end
+
+  # A body moved (a teleport, or a handoff's step), with its rotation when the
+  # step names one.
+  defp advance_body(state, key, %{id: id, revision: revision, position: {x, y, z}} = step) do
+    with {:ok, entry} <- current(state, state.epoch, id, revision),
+         true <- valid_position?({x, y, z}) and Grid.region_key(Grid.chunk_key(x, z)) == key do
+      body =
+        case step do
+          %{rotation: {yaw, pitch}} -> %{entry.body | yaw: yaw, pitch: pitch, head_yaw: yaw}
+          _ -> entry.body
+        end
+
+      entry = %{
+        entry
+        | entity: %{entry.entity | x: x, y: y, z: z},
+          body: body,
+          revision: revision + 1,
+          physical_revision: entry.physical_revision + 1
+      }
+
+      {:ok, put_entry(state, id, entry), {state.epoch, id, revision + 1}}
+    else
+      false -> {:error, :invalid_item_step}
+      error -> error
+    end
+  end
+
+  @doc """
+  The persistent record of a new body at `{x, y, z}` with `uuid` (`/summon`),
+  for `create_record/3`.
+  """
+  def body_record(%Body{} = body, <<_::128>> = uuid, {x, y, z}),
+    do: Map.merge(%{kind: Body.kind(body.type), uuid: uuid, x: x, y: y, z: z}, Body.record(body))
+
+  @doc """
+  `/kill` of entity `id`: a mob starts dying (its hurt and death events go
+  to its tracker), every other entity is removed. `{:ok, state}` or
+  `{:error, :missing_item}`.
+  """
+  def kill(state, id) do
+    case state.entries[id] do
+      %{kind: kind, body: body, revision: revision} when kind in @bodies ->
+        case Body.kill(body) do
+          :remove -> remove(state, state.epoch, id, revision)
+          :ignored -> {:ok, state}
+          {:dying, body, events} -> {:ok, put_body(state, id, body, events)}
+        end
+
+      %{revision: revision} ->
+        remove(state, state.epoch, id, revision)
+
+      nil ->
+        {:error, :missing_item}
+    end
+  end
+
+  # A body's new state and events, with its view rebuilt.
+  defp put_body(state, id, body, events) do
+    entry = state.entries[id]
+    seq = entry.event_seq
+
+    stamped =
+      Enum.with_index(events, fn event, index ->
+        {seq + index + 1, Body.event_packet(id, event)}
+      end)
+
+    entry = %{
+      entry
+      | body: body,
+        events: Enum.take(entry.events ++ stamped, -@kept_events),
+        event_seq: seq + length(events),
+        revision: entry.revision + 1
+    }
+
+    put_entry(state, id, entry)
+  end
+
+  defp put_entry(state, id, entry),
+    do: %{
+      state
+      | entries: Map.put(state.entries, id, entry),
+        views: Map.put(state.views, id, body_view(state.epoch, entry))
+    }
+
+  # A body's view: what every view has, the pairing packets as its metadata,
+  # its type and rotation, its body (trackers send what changed) and its
+  # latest entity events.
+  defp body_view(epoch, %{entity: entity, body: body} = entry) do
+    position = Map.merge(entity, %{velocity: body.velocity, on_ground: body.on_ground})
+
+    entry.kind
+    |> View.new(position, Body.pairing(entity.entity_id, body), epoch, entry.hops)
+    |> Map.merge(%{
+      revision: entry.revision,
+      physical_revision: entry.physical_revision,
+      type: body.type,
+      yaw: body.yaw,
+      pitch: body.pitch,
+      head_yaw: body.head_yaw,
+      body: body,
+      events: entry.events,
+      alive: Body.alive?(body)
+    })
   end
 
   defp current_item(state, epoch, id, revision) do

@@ -82,6 +82,7 @@ defmodule Valimc.Commands do
       "stop" => {C.Admin, :stop},
       "stopsound" => {C.Effects, :stopsound},
       "stopwatch" => {C.Timers, :stopwatch, suggest: true},
+      "summon" => {C.Entities, :summon},
       "teleport" => {C.Players, :teleport},
       "tellraw" => {C.Text, :tellraw},
       "tick" => {C.Timers, :tick},

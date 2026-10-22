@@ -227,9 +227,14 @@ was sent to.
   their own (portals, containers, cooking) keep `Valimc.Blocks.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Each region owner holds one entity store (`Entity.Store`,
-  VMC-077h): every entity it owns, items and XP orbs now, mobs and
-  projectiles later, by network id with a uuid index, persisted one record per
-  entity with no count or size cap. Network ids come from one `:atomics`
+  VMC-077h): every entity it owns, by network id with a uuid index, persisted
+  one record per entity with no count or size cap. Items and XP orbs have
+  their own records; every other type is a body (`Entity.Body`, VMC-043a), one
+  schema for living types (`:mob`, whose `Entity.Mob` holds its
+  `Valimc.Living` state, equipment, attribute overrides and AI slot) and the
+  rest (`:object`). Only modelled types are made: their entity data is known
+  field by field, and each type's facts (size, attributes, loot, spawning,
+  tracking) come from `Data.EntityTypes`. Network ids come from one `:atomics`
   counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
   across handoffs within a VM. Entities move between owners through one
   handoff (`Entity.Handoffs`): the source withdraws a cohort into one durable
@@ -241,7 +246,8 @@ was sent to.
 - **Replication.** The owner keeps one tracker per entity (`Entity.Tracker`,
   vanilla's `ServerEntity`): each tick it encodes, once for every observer,
   the packets of what changed (relative moves, motion, metadata, absolute
-  syncs) at the kind's update interval into a frame, and rewrites only the
+  syncs; for a body also its rotation, head yaw, attributes, equipment and
+  entity events) at the type's update interval into a frame, and rewrites only the
   chunk rows whose views changed (`Entity.Publication`). A connection's tracker
   (`Entity.Observer`) spawns entities from their rows, at the position the
   owner's tracker last sent, forwards the frames for the ids it tracks, and

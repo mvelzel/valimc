@@ -250,6 +250,28 @@ defmodule Valimc.World do
     ArgumentError -> {%{}, next_cache}
   end
 
+  @doc """
+  The bodies (mobs and other non-item entities, VMC-043a) the loaded sections
+  own, as `[{section key, view}]`: of `dimension`, or of every dimension
+  (nil). Read from published views, without asking an owner.
+  """
+  def bodies(dimension \\ nil) do
+    for {{dim, _, _} = key, _pid, _token, _monitor, %{publication: table}} <-
+          :ets.tab2list(Valimc.RegionRoutes),
+        dimension == nil or dim == dimension,
+        {_, %{kind: kind} = view} <- safe_source(table),
+        kind in [:mob, :object],
+        do: {key, view}
+  rescue
+    ArgumentError -> []
+  end
+
+  defp safe_source(table) do
+    Valimc.Entity.Publication.source(table, :items)
+  rescue
+    ArgumentError -> %{}
+  end
+
   def visible_items(regions, chunks), do: visible_kind(regions, chunks, :item)
 
   defp visible_kind(regions, chunks, kind) do

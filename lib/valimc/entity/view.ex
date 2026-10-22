@@ -13,7 +13,7 @@ defmodule Valimc.Entity.View do
   defdelegate valid_id?(id), to: Valimc.Entity.Ids, as: :valid?
 
   @doc """
-  A new view of `kind` (`:item` or `:orb`). `entity` holds `entity_id`, `uuid`,
+  A new view of `kind` (`:item`, `:orb`, `:mob` or `:object`). `entity` holds `entity_id`, `uuid`,
   `x`, `y`, `z` and optionally `velocity`/`on_ground`; `metadata` is the kind's
   encoded metadata packet.
   """
@@ -41,8 +41,17 @@ defmodule Valimc.Entity.View do
 
     packet(
       case view.kind do
-        :item -> EntityPackets.spawn_item(entity)
-        :orb -> EntityPackets.spawn_experience_orb(entity)
+        :item ->
+          EntityPackets.spawn_item(entity)
+
+        :orb ->
+          EntityPackets.spawn_experience_orb(entity)
+
+        # A body (VMC-043a) faces its rotation.
+        _ ->
+          entity
+          |> Map.merge(Map.take(view, [:yaw, :pitch, :head_yaw]))
+          |> EntityPackets.spawn(view.type)
       end
     )
   end

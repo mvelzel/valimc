@@ -16,6 +16,8 @@ import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.*;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.entity.monster.zombie.Zombie;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.ai.attributes.*;
 import net.minecraft.world.effect.MobEffects;
@@ -25,7 +27,10 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.network.LpVec3;
 
-/** Original independent fixtures using actual Mojang encoders/decoders, without gameplay. */
+/**
+ * Original independent fixtures using actual Mojang encoders/decoders, without gameplay, and
+ * (`facts`) every entity type's facts as one generated table (VMC-043a).
+ */
 public class EntityOracle {
   private static RegistryAccess.Frozen registries;
   private static EntityType<?> itemType;
@@ -130,6 +135,20 @@ public class EntityOracle {
       cases.put("frozen_"+ticks,new ClientboundSetEntityDataPacket(ID,List.of(value(frozen,ticks))));
     for (var selected : Pose.values())
       cases.put("pose_"+selected.getSerializedName(),new ClientboundSetEntityDataPacket(ID,List.of(value(pose,selected))));
+    // Bodies (VMC-043a): spawns facing their yaw and head, mob and primed TNT data, a zombie's attributes.
+    for (var type : List.of("zombie","tnt")) {
+      var entityType = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:"+type));
+      cases.put("body_spawn_"+type,new ClientboundAddEntityPacket(ID,UUID_VALUE,-3.25,64.2,1.75,22.5f,-91.0f,entityType,0,Vec3.ZERO,45.0));
+    }
+    cases.put("body_metadata_mob",new ClientboundSetEntityDataPacket(ID,List.of(value(pose,Pose.DYING),value(health,20f),value(accessor(Mob.class,"DATA_MOB_FLAGS_ID"),(byte)2))));
+    var unstable = net.minecraft.world.level.block.Blocks.TNT.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.UNSTABLE,true);
+    cases.put("body_metadata_tnt",new ClientboundSetEntityDataPacket(ID,List.of(value(accessor(PrimedTnt.class,"DATA_FUSE_ID"),79),value(accessor(PrimedTnt.class,"DATA_BLOCK_STATE_ID"),unstable))));
+    var zombie=new AttributeMap(DefaultAttributes.getSupplier(EntityTypes.ZOMBIE));
+    var synced=new ArrayList<AttributeInstance>();
+    BuiltInRegistries.ATTRIBUTE.listElements().forEach(h -> {
+      if (DefaultAttributes.getSupplier(EntityTypes.ZOMBIE).hasAttribute(h) && h.value().isClientSyncable()) synced.add(zombie.getInstance(h));
+    });
+    cases.put("body_attributes_zombie",new ClientboundUpdateAttributesPacket(ID,synced));
     cases.put("pickup",new ClientboundTakeItemEntityPacket(ID,COLLECTOR,7));
     cases.put("remove",new ClientboundRemoveEntitiesPacket(ID,COLLECTOR));
     cases.put("remove_empty",new ClientboundRemoveEntitiesPacket());
@@ -167,8 +186,108 @@ public class EntityOracle {
     } finally { buf.release(); }
   }
 
+  // ---- facts (VMC-043a): one table of every entity type ----
+
+  private static Map<String,Integer> field(Class<?> owner, String name) throws Exception {
+    var accessor = accessor(owner, name);
+    var facts = new TreeMap<String,Integer>();
+    facts.put("index", accessor.id());
+    facts.put("serializer", EntityDataSerializers.getSerializedId(accessor.serializer()));
+    return facts;
+  }
+
+  private static String placementName(SpawnPlacementType placement) throws Exception {
+    for (var f : SpawnPlacementTypes.class.getFields())
+      if (f.get(null) == placement) return f.getName().toLowerCase(Locale.ROOT);
+    throw new AssertionError("Unknown spawn placement type");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String,Object> facts() throws Exception {
+    var dataField = SpawnPlacements.class.getDeclaredField("DATA_BY_TYPE"); dataField.setAccessible(true);
+    var placements = (Map<EntityType<?>,?>)dataField.get(null);
+    var types = new TreeMap<String,Object>();
+    for (var type : BuiltInRegistries.ENTITY_TYPE) {
+      var name = BuiltInRegistries.ENTITY_TYPE.getKey(type).toString();
+      var dimensions = type.getDimensions();
+      var t = new TreeMap<String,Object>();
+      t.put("id", BuiltInRegistries.ENTITY_TYPE.getId(type));
+      t.put("category", type.getCategory().getName());
+      t.put("width", dimensions.width()); t.put("height", dimensions.height());
+      t.put("eye_height", dimensions.eyeHeight()); t.put("fixed", dimensions.fixed());
+      t.put("fire_immune", type.fireImmune()); t.put("summonable", type.canSummon());
+      t.put("saved", type.canSerialize()); t.put("peaceful", type.isAllowedInPeaceful());
+      t.put("spawn_far", type.canSpawnFarFromPlayer());
+      t.put("tracking_range", type.clientTrackingRange());
+      t.put("update_interval", type.updateInterval()); t.put("track_deltas", type.trackDeltas());
+      t.put("description", type.getDescriptionId());
+      t.put("loot_table", type.getDefaultLootTable().map(k -> k.identifier().toString()).orElse(null));
+      if (placements.containsKey(type)) {
+        t.put("spawn_placement", placementName(SpawnPlacements.getPlacementType(type)));
+        t.put("spawn_heightmap", SpawnPlacements.getHeightmapType(type).getSerializedName());
+      }
+      if (DefaultAttributes.hasSupplier(type)) {
+        @SuppressWarnings("rawtypes") var supplier = DefaultAttributes.getSupplier((EntityType)type);
+        var attributes = new TreeMap<String,Double>();
+        BuiltInRegistries.ATTRIBUTE.listElements().forEach(holder -> {
+          if (supplier.hasAttribute(holder)) attributes.put(holder.key().identifier().toString(), supplier.getBaseValue(holder));
+        });
+        t.put("attributes", attributes);
+      }
+      types.put(name, t);
+    }
+    var categories = new TreeMap<String,Object>();
+    for (var category : MobCategory.values()) {
+      var c = new TreeMap<String,Object>();
+      c.put("max", category.getMaxInstancesPerChunk()); c.put("friendly", category.isFriendly());
+      c.put("persistent", category.isPersistent()); c.put("despawn_distance", category.getDespawnDistance());
+      c.put("no_despawn_distance", category.getNoDespawnDistance());
+      categories.put(category.getName(), c);
+    }
+    var serializers = new TreeMap<String,Integer>();
+    for (var f : EntityDataSerializers.class.getFields())
+      if (java.lang.reflect.Modifier.isStatic(f.getModifiers()) && EntityDataSerializer.class.isAssignableFrom(f.getType()))
+        serializers.put(f.getName().toLowerCase(Locale.ROOT), EntityDataSerializers.getSerializedId((EntityDataSerializer<?>)f.get(null)));
+    var fields = new TreeMap<String,Object>();
+    fields.put("shared_flags", field(Entity.class, "DATA_SHARED_FLAGS_ID"));
+    fields.put("air_supply", field(Entity.class, "DATA_AIR_SUPPLY_ID"));
+    fields.put("custom_name", field(Entity.class, "DATA_CUSTOM_NAME"));
+    fields.put("custom_name_visible", field(Entity.class, "DATA_CUSTOM_NAME_VISIBLE"));
+    fields.put("silent", field(Entity.class, "DATA_SILENT"));
+    fields.put("no_gravity", field(Entity.class, "DATA_NO_GRAVITY"));
+    fields.put("pose", field(Entity.class, "DATA_POSE"));
+    fields.put("frozen_ticks", field(Entity.class, "DATA_TICKS_FROZEN"));
+    fields.put("item_stack", field(ItemEntity.class, "DATA_ITEM"));
+    fields.put("experience_value", field(ExperienceOrb.class, "DATA_VALUE"));
+    fields.put("living_flags", field(LivingEntity.class, "DATA_LIVING_ENTITY_FLAGS"));
+    fields.put("health", field(LivingEntity.class, "DATA_HEALTH_ID"));
+    fields.put("effect_particles", field(LivingEntity.class, "DATA_EFFECT_PARTICLES"));
+    fields.put("effect_ambience", field(LivingEntity.class, "DATA_EFFECT_AMBIENCE_ID"));
+    fields.put("arrow_count", field(LivingEntity.class, "DATA_ARROW_COUNT_ID"));
+    fields.put("stinger_count", field(LivingEntity.class, "DATA_STINGER_COUNT_ID"));
+    fields.put("sleeping_pos", field(LivingEntity.class, "SLEEPING_POS_ID"));
+    fields.put("absorption", field(Player.class, "DATA_PLAYER_ABSORPTION_ID"));
+    fields.put("mob_flags", field(Mob.class, "DATA_MOB_FLAGS_ID"));
+    fields.put("zombie_baby", field(Zombie.class, "DATA_BABY_ID"));
+    fields.put("zombie_special_type", field(Zombie.class, "DATA_SPECIAL_TYPE_ID"));
+    fields.put("zombie_drowned_conversion", field(Zombie.class, "DATA_DROWNED_CONVERSION_ID"));
+    fields.put("tnt_fuse", field(PrimedTnt.class, "DATA_FUSE_ID"));
+    fields.put("tnt_block_state", field(PrimedTnt.class, "DATA_BLOCK_STATE_ID"));
+    var version = SharedConstants.getCurrentVersion();
+    var out = new LinkedHashMap<String,Object>();
+    out.put("version", version.id()); out.put("data_version", version.dataVersion().version());
+    out.put("protocol", version.protocolVersion()); out.put("server_sha1", VersionMetadata.serverSha1());
+    out.put("serializers", serializers); out.put("fields", fields);
+    out.put("categories", categories); out.put("types", types);
+    return out;
+  }
+
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
+    if (args[0].equals("facts")) {
+      Files.writeString(Path.of(args[1]), new GsonBuilder().serializeNulls().setPrettyPrinting().create().toJson(facts()) + "\n");
+      return;
+    }
     var lookup = VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p -> p.apply());
     registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY).freeze();

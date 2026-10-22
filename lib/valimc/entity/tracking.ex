@@ -23,21 +23,31 @@ defmodule Valimc.Entity.Tracking do
       Enum.reduce(views, {tracking.trackers, tracking.spawns, %{}}, fn {id, view}, acc ->
         {trackers, spawns, frame} = acc
         tracker = trackers[id]
-        sync = sharp?(view, tracker)
-        metadata = if view.metadata_revision != tracker.metadata, do: view.metadata
-        {next, packets} = Tracker.tick(tracker, entity(view), sync, metadata)
-        next = %{next | previous: view.velocity, metadata: view.metadata_revision}
+        {next, packets} = tick(tracker, view)
 
         spawns =
-          if next.base != tracker.base or next.movement != tracker.movement,
-            do: Map.put(spawns, id, View.spawn(view, next.base, next.movement)),
-            else: spawns
+          if next.base != tracker.base or next.movement != tracker.movement or
+               next.rotation != tracker.rotation or next.head != tracker.head,
+             do: Map.put(spawns, id, View.spawn(view, next.base, next.movement)),
+             else: spawns
 
         frame = if packets == [], do: frame, else: Map.put(frame, id, packets)
         {Map.put(trackers, id, next), spawns, frame}
       end)
 
     {%{tracking | trackers: trackers, spawns: spawns, tick: tick}, frame}
+  end
+
+  defp tick(tracker, %{kind: kind} = view) when kind in [:mob, :object] do
+    {next, packets} = Tracker.tick_body(tracker, view)
+    {%{next | previous: view.velocity}, packets}
+  end
+
+  defp tick(tracker, view) do
+    sync = sharp?(view, tracker)
+    metadata = if view.metadata_revision != tracker.metadata, do: view.metadata
+    {next, packets} = Tracker.tick(tracker, entity(view), sync, metadata)
+    {%{next | previous: view.velocity, metadata: view.metadata_revision}, packets}
   end
 
   @doc """
@@ -75,11 +85,18 @@ defmodule Valimc.Entity.Tracking do
         if Map.has_key?(trackers, id) do
           {trackers, spawns}
         else
-          tracker = %{
-            Tracker.new(view.at, view.velocity, view.on_ground)
-            | previous: view.velocity,
-              metadata: view.metadata_revision
-          }
+          tracker =
+            case view do
+              %{kind: kind} when kind in [:mob, :object] ->
+                Tracker.new_body(view)
+
+              _ ->
+                %{
+                  Tracker.new(view.at, view.velocity, view.on_ground)
+                  | previous: view.velocity,
+                    metadata: view.metadata_revision
+                }
+            end
 
           {Map.put(trackers, id, tracker),
            Map.put(spawns, id, View.spawn(view, view.at, view.velocity))}
@@ -125,8 +142,16 @@ defmodule Valimc.Entity.Tracking do
     case view do
       %{kind: :item, pickup_delay: delay} -> Map.put(common, :pickup_delay, min(delay, 1))
       %{kind: :orb} -> Map.merge(common, Map.take(view, [:value, :consumed]))
+      # A body: what selectors and observers read (its type and range, rotation, life).
+      %{kind: kind} when kind in [:mob, :object] -> Map.merge(common, body_fields(view))
       _ -> common
     end
+  end
+
+  defp body_fields(view) do
+    view
+    |> Map.take([:type, :yaw, :pitch, :alive])
+    |> Map.put(:range, Valimc.Data.EntityTypes.tracking_range(view.type))
   end
 
   # Vanilla's `needsSync` for an item: its motion changed sharply this tick.

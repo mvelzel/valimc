@@ -510,10 +510,11 @@ defmodule Valimc.World.RegionData do
   # Store move in the items phase, all at once through the physics kernel over
   # published rows (VMC-077l); publishing the steps then starts merging.
   defp move_items(state, now) do
+    # Bodies (VMC-043a) are inert until VMC-015i moves them.
     {items, orbs} =
       state.entities.store.entries
-      |> Enum.filter(fn {_, %{entity: %{x: x, z: z}}} ->
-        Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
+      |> Enum.filter(fn {_, %{kind: kind, entity: %{x: x, z: z}}} ->
+        kind in [:item, :orb] and Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
       end)
       |> Enum.split_with(fn {_, entry} -> entry.kind == :item end)
 
@@ -692,6 +693,68 @@ defmodule Valimc.World.RegionData do
       {:error, _} = error -> {:reply, error, state}
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       _ -> {:reply, {:error, :pickup_not_available}, state}
+    end
+  end
+
+  # `/kill` over this section's entities (VMC-043a): a mob starts dying, any
+  # other entity is removed. The reply counts the entities killed.
+  def handle_call({:kill_entities, epoch, uuids}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state) do
+      {store, killed} =
+        Enum.reduce(uuids, {state.entities.store, 0}, fn uuid, {store, killed} ->
+          with {:ok, {_, id, _}} <- Store.find(store, uuid),
+               {:ok, next} <- Store.kill(store, id) do
+            {next, killed + 1}
+          else
+            _ -> {store, killed}
+          end
+        end)
+
+      {:reply, {:ok, killed}, put_entities(state, store)}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # A teleported entity (VMC-043a): it moves here, to a sibling section in
+  # the same group commit, or to another group by the durable handoff.
+  def handle_call({:move_entity, epoch, uuid, position, rotation}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, revision}} <- Store.find(store, uuid),
+         true <- Store.valid_position?(position) or {:error, :invalid_item_position} do
+      step = %{id: id, revision: revision, position: position, rotation: rotation}
+      {x, _, z} = position
+      destination = Grid.section(state.dimension, Grid.chunk_key(x, z))
+
+      cond do
+        destination == route_key(state) ->
+          case Store.advance(store, state.key, store.epoch, [step]) do
+            {:ok, next, _} -> {:reply, :ok, put_entities(state, next)}
+            error -> {:reply, error, state}
+          end
+
+        local_destination?(state, destination) ->
+          {:reply, :ok, move_to_sibling(state, destination, [step])}
+
+        store.ledger.outgoing != nil or not state.entities.persistent ->
+          {:reply, Error.retry(:item_handoff_busy), state}
+
+        true ->
+          deadline = System.monotonic_time(:millisecond) + 250
+
+          case plan_item_change(:item_handoff_out, {destination, [step], deadline}, nil, state) do
+            {:noreply, next} -> {:reply, :ok, next}
+            {:reply, reply, next} -> {:reply, reply, next}
+          end
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 

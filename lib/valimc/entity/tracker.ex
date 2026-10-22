@@ -9,7 +9,15 @@ defmodule Valimc.Entity.Tracker do
   Items and orbs update every 20 ticks (their type's update interval), sooner
   when their motion changes sharply; every 60 ticks the position is sent even
   unchanged, and after 400 ticks of relative moves an absolute sync replaces one.
+
+  A body (`Valimc.Entity.Body`, VMC-043a) updates at its type's interval and
+  whenever its entity data, attributes or equipment changed: its motion (when
+  the type tracks it), a relative move with its rotation (or the rotation
+  alone), what changed and its head's yaw, as `ServerEntity.sendChanges`. Its
+  entity events (hurt, death) go out the tick they happen.
   """
+  alias Valimc.Data.EntityTypes
+  alias Valimc.Entity.Body
   alias Valimc.Protocol.EntityPackets
 
   defstruct [
@@ -22,6 +30,13 @@ defmodule Valimc.Entity.Tracker do
     # Unique per tracker: one entity's new tracker under the same id and owner
     # (an item a sibling section handed back) must resync its observers.
     :incarnation,
+    # A body's: the rotation and head yaw sent (angle bytes), the body whose
+    # data observers have, the last event sent and whether motion is tracked.
+    :rotation,
+    :head,
+    :body,
+    event_seq: 0,
+    track_deltas: true,
     tick: 0,
     teleport_delay: 0,
     interval: 20
@@ -37,6 +52,111 @@ defmodule Valimc.Entity.Tracker do
       interval: interval,
       incarnation: System.unique_integer([:positive, :monotonic])
     }
+  end
+
+  @doc "The tracker of a body's `view` (its type's interval; events already in the view are sent)."
+  def new_body(view) do
+    type = EntityTypes.fetch(view.type)
+
+    %{
+      new(view.at, view.velocity, view.on_ground, type.update_interval)
+      | rotation: {EntityPackets.angle(view.yaw), EntityPackets.angle(view.pitch)},
+        head: EntityPackets.angle(view.head_yaw),
+        body: view.body,
+        event_seq: last_event(view),
+        track_deltas: type.track_deltas,
+        previous: view.velocity
+    }
+  end
+
+  defp last_event(%{events: []}), do: 0
+  defp last_event(%{events: events}), do: events |> List.last() |> elem(0)
+
+  @doc "One tick of a body's `view`: `{tracker, packets}`."
+  def tick_body(tracker, view) do
+    id = view.entity_id
+    events = for {seq, packet} <- view.events, seq > tracker.event_seq, do: packet
+    changes = Body.changes(id, tracker.body, view.body)
+
+    {tracker, packets} =
+      if rem(tracker.tick, tracker.interval) == 0 or changes != [] do
+        tracker = %{tracker | teleport_delay: tracker.teleport_delay + 1}
+        entity = %{entity(view) | yaw: view.yaw, pitch: view.pitch}
+
+        {tracker, motion} =
+          if tracker.track_deltas, do: motion(tracker, id, view.velocity), else: {tracker, []}
+
+        {tracker, move} = move_body(tracker, entity)
+        head = EntityPackets.angle(view.head_yaw)
+
+        turn =
+          if head != tracker.head, do: [binary(EntityPackets.rotate_head(id, head))], else: []
+
+        {%{tracker | head: head, body: view.body}, motion ++ move ++ changes ++ turn}
+      else
+        {tracker, []}
+      end
+
+    {%{tracker | tick: tracker.tick + 1, event_seq: last_event(view)}, events ++ packets}
+  end
+
+  defp entity(view) do
+    {x, y, z} = view.at
+
+    %{
+      entity_id: view.entity_id,
+      x: x,
+      y: y,
+      z: z,
+      yaw: 0.0,
+      pitch: 0.0,
+      velocity: view.velocity,
+      on_ground: view.on_ground
+    }
+  end
+
+  # `ServerEntity.createMovePacket`: a sync, a relative move (with the
+  # rotation when it turned), the rotation alone, or nothing.
+  defp move_body(tracker, entity) do
+    position = {entity.x, entity.y, entity.z}
+    rotation = {EntityPackets.angle(entity.yaw), EntityPackets.angle(entity.pitch)}
+    turned = rotation != tracker.rotation
+    {yaw, pitch} = rotation
+    delta = delta(tracker.base, position)
+    moved = distance_sq(position, tracker.base) >= @tolerance or rem(tracker.tick, 60) == 0
+
+    cond do
+      tracker.teleport_delay > 400 or tracker.on_ground != entity.on_ground or
+          (moved and not Enum.all?(Tuple.to_list(delta), &(&1 in -32768..32767))) ->
+        tracker = %{
+          tracker
+          | on_ground: entity.on_ground,
+            teleport_delay: 0,
+            base: position,
+            rotation: rotation
+        }
+
+        {tracker, [sync(entity, entity.on_ground)]}
+
+      moved and turned ->
+        {%{tracker | base: position, rotation: rotation},
+         [
+           binary(
+             EntityPackets.move_rotate(entity.entity_id, delta, yaw, pitch, entity.on_ground)
+           )
+         ]}
+
+      moved ->
+        {%{tracker | base: position},
+         [binary(EntityPackets.move(entity.entity_id, delta, entity.on_ground))]}
+
+      turned ->
+        {%{tracker | rotation: rotation},
+         [binary(EntityPackets.rotate(entity.entity_id, yaw, pitch, entity.on_ground))]}
+
+      true ->
+        {tracker, []}
+    end
   end
 
   @doc """

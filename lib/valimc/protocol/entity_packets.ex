@@ -10,7 +10,12 @@ defmodule Valimc.Protocol.EntityPackets do
   def spawn_item(entity), do: spawn(entity, "item")
   def spawn_experience_orb(entity), do: spawn(entity, "experience_orb")
 
-  defp spawn(%{entity_id: id, uuid: uuid, x: x, y: y, z: z} = entity, type) do
+  @doc """
+  The spawn of an entity of `type` (`ClientboundAddEntityPacket`): its
+  position, motion, pitch, yaw and head yaw (`head_yaw`, else its yaw) and the
+  type's spawn data (0 for every kind modelled so far).
+  """
+  def spawn(%{entity_id: id, uuid: uuid, x: x, y: y, z: z} = entity, type) do
     entity_id!(id)
     check(is_binary(uuid) and byte_size(uuid) == 16, "invalid entity UUID")
 
@@ -21,6 +26,7 @@ defmodule Valimc.Protocol.EntityPackets do
 
     pitch = pack_angle(Map.get(entity, :pitch, 0.0))
     yaw = pack_angle(Map.get(entity, :yaw, 0.0))
+    head = pack_angle(Map.get(entity, :head_yaw, Map.get(entity, :yaw, 0.0)))
 
     Packets.packet("add_entity", [
       Wire.varint(id),
@@ -28,15 +34,30 @@ defmodule Valimc.Protocol.EntityPackets do
       Wire.varint(EntityTypes.id(type)),
       <<x::float-64, y::float-64, z::float-64>>,
       PackedVelocity.encode(Map.get(entity, :velocity, {0.0, 0.0, 0.0})),
-      <<pitch, yaw, yaw, 0>>
+      <<pitch, yaw, head, 0>>
     ])
   end
 
-  defp spawn(_, _), do: raise(ArgumentError, "invalid entity")
+  def spawn(_, _), do: raise(ArgumentError, "invalid entity")
+
+  @doc "An angle in degrees as vanilla packs it (`Mth.packDegrees`), 0..255."
+  def angle(degrees), do: pack_angle(degrees)
+
+  @doc "An entity event (`ClientboundEntityEventPacket`): 3 death, 60 the death poof."
+  def entity_event(id, event) when is_integer(event) and event in 0..255 do
+    entity_id!(id)
+    Packets.packet("entity_event", <<id::signed-32, event>>)
+  end
+
+  @doc "An animation (`ClientboundAnimatePacket`): 0 main-hand swing, 3 off-hand swing."
+  def animate(id, action) when action in [0, 2, 3, 4, 5] do
+    entity_id!(id)
+    Packets.packet("animate", [Wire.varint(id), <<action>>])
+  end
 
   def metadata(id, changes) do
     entity_id!(id)
-    changes = bounded_list!(changes, 3, "invalid metadata batch")
+    changes = bounded_list!(changes, 16, "invalid metadata batch")
     entries = Enum.map(changes, &metadata_value/1)
     indices = Enum.map(entries, &elem(&1, 0))
     check(length(Enum.uniq(indices)) == length(indices), "duplicate metadata field")
@@ -189,13 +210,16 @@ defmodule Valimc.Protocol.EntityPackets do
               :health,
               :absorption,
               :air_supply,
-              :experience_value
+              :experience_value,
+              :mob_flags,
+              :tnt_fuse,
+              :tnt_block_state
             ] do
     fact = EntityTypes.field(name)
 
     payload =
       case name do
-        name when name in [:shared_flags, :living_flags] ->
+        name when name in [:shared_flags, :living_flags, :mob_flags] ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 
@@ -220,6 +244,14 @@ defmodule Valimc.Protocol.EntityPackets do
             "invalid air supply"
           )
 
+          Wire.varint(value)
+
+        :tnt_fuse ->
+          check(is_integer(value) and value in -2_147_483_648..2_147_483_647, "invalid fuse")
+          Wire.varint(value)
+
+        :tnt_block_state ->
+          check(is_integer(value) and value >= 0, "invalid block state")
           Wire.varint(value)
 
         :experience_value ->

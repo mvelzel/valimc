@@ -414,6 +414,18 @@ defmodule Valimc.World.Region do
   def take_orb({pid, epoch}, actor, uuid, value),
     do: call(pid, {:take_orb, epoch, actor, uuid, value}, budget(pid, 1000))
 
+  @doc "`/kill` of the entities `uuids` of a section: `{:ok, killed}` (VMC-043a)."
+  def kill_entities({pid, epoch}, uuids),
+    do: call(pid, {:kill_entities, epoch, uuids}, budget(pid, 1000))
+
+  @doc """
+  A teleport of the entity `uuid` of a section to `position`, facing
+  `rotation` (`{yaw, pitch}`) or as it faced (nil): `:ok` once it moved or its
+  handoff left (VMC-043a).
+  """
+  def move_entity({pid, epoch}, uuid, position, rotation),
+    do: call(pid, {:move_entity, epoch, uuid, position, rotation}, budget(pid, 1000))
+
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:

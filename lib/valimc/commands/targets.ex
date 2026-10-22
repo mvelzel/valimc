@@ -8,8 +8,11 @@ defmodule Valimc.Commands.Targets do
   rotation, health, game mode and progression); a selector limited to the
   source's level (`world_limited`: a distance, box or position option) takes
   only that dimension's players, and one with a bounded distance only the
-  players the spatial index holds in the regions it can reach. Players are
-  ValiMC's only selectable entities until mobs have owners.
+  players the spatial index holds in the regions it can reach.
+
+  Commands that act on any entity (`/kill`, `/teleport`) also select bodies
+  (mobs and other entities, VMC-043a) from the sections' published views
+  (`entities/2`); the rest select players.
   """
   alias Valimc.Data.Grid
   alias Valimc.Text.Error
@@ -79,10 +82,73 @@ defmodule Valimc.Commands.Targets do
     end
   end
 
+  @doc """
+  Every entity a selector picks, players and bodies (`findEntities`). A body
+  is `%{kind: :body, section, type, uuid, entity_id, dimension, x, y, z, yaw,
+  pitch, alive, width, height}`.
+  """
+  def entities(%Source{} = source, %Selector{includes_entities: false} = selector),
+    do: players(source, selector)
+
+  def entities(%Source{} = source, selector) do
+    players =
+      cond do
+        not selector.world_limited -> online(source)
+        reach = reach(selector, source) -> nearby(source, reach)
+        true -> Enum.filter(online(source), &(&1.dimension == source.dimension))
+      end
+
+    bodies = bodies(if(selector.world_limited, do: source.dimension))
+    own = source.player && Enum.find(players, &(&1.pid == source.player.pid))
+    find(selector, players ++ bodies, own, source.position)
+  end
+
+  @doc "`getEntities` over players and bodies: at least one, or `argument.entity.notfound.entity`."
+  def required_any(source, selector) do
+    case entities(source, selector) do
+      [] -> Error.fail!("argument.entity.notfound.entity")
+      entities -> entities
+    end
+  end
+
+  @doc "`getEntity` over players and bodies: exactly one."
+  def single_any(source, selector) do
+    case entities(source, selector) do
+      [entity] -> entity
+      [] -> Error.fail!("argument.entity.notfound.entity")
+      _ -> Error.fail!("argument.entity.toomany")
+    end
+  end
+
+  defp bodies(dimension) do
+    for {section, view} <- Valimc.World.bodies(dimension) do
+      {x, y, z} = view.at
+      type = Valimc.Data.EntityTypes.fetch(view.type)
+
+      %{
+        kind: :body,
+        section: section,
+        type: view.type,
+        uuid: view.uuid,
+        entity_id: view.entity_id,
+        dimension: elem(section, 0),
+        x: x,
+        y: y,
+        z: z,
+        yaw: view.yaw,
+        pitch: view.pitch,
+        alive: view.alive,
+        width: type.width,
+        height: type.height
+      }
+    end
+  end
+
   @doc "The online player with `uuid` as a projection, or nil."
   def by_uuid(uuid), do: Enum.find(projections(:all), &(&1.uuid == uuid))
 
   @doc "Whether a projection or player is alive (`Entity.isAlive`)."
+  def alive?(%{kind: :body, alive: alive}), do: alive
   def alive?(%{living: %{health: %{value: value}}}), do: value > 0
   def alive?(%{health: %{value: value}}), do: value > 0
   def alive?(_player), do: true
@@ -136,7 +202,7 @@ defmodule Valimc.Commands.Targets do
     cond do
       s.player_name ->
         players
-        |> Enum.filter(&(String.downcase(&1.name) == String.downcase(s.player_name)))
+        |> Enum.filter(&(String.downcase(&1[:name] || "") == String.downcase(s.player_name)))
         |> Enum.take(1)
 
       s.uuid ->
@@ -166,9 +232,13 @@ defmodule Valimc.Commands.Targets do
     {x0, x1} = span(s.dx || 0.0, x)
     {y0, y1} = span(s.dy || 0.0, y)
     {z0, z1} = span(s.dz || 0.0, z)
-    # The player's hitbox (0.6 x 1.8, smaller when crouching is ignored) intersects the box.
-    player.x + 0.3 > x0 and player.x - 0.3 < x1 and player.y + 1.8 > y0 and player.y < y1 and
-      player.z + 0.3 > z0 and player.z - 0.3 < z1
+    # The entity's hitbox (a player's 0.6 x 1.8, smaller when crouching is
+    # ignored; a body's its type's) intersects the box.
+    half = Map.get(player, :width, 0.6) / 2
+    height = Map.get(player, :height, 1.8)
+
+    player.x + half > x0 and player.x - half < x1 and player.y + height > y0 and
+      player.y < y1 and player.z + half > z0 and player.z - half < z1
   end
 
   defp span(delta, origin) when delta < 0, do: {origin + delta, origin + 1.0}
@@ -183,18 +253,19 @@ defmodule Valimc.Commands.Targets do
 
   # `Entity.isAlive` (commands audit E9: comparing the health struct with 0 was always true).
   defp predicate?(:alive, player), do: alive?(player)
-  defp predicate?({:name, name, inverted}, player), do: player.name == name != inverted
+
+  defp predicate?({:name, name, inverted}, entity),
+    do: Map.get(entity, :name) == name != inverted
 
   defp predicate?({:gamemode, mode, inverted}, player),
     do: game_mode(player) == mode != inverted
 
   defp predicate?({:team, team, inverted}, _player), do: team == "" != inverted
-  defp predicate?({:type, type, inverted}, _player), do: type == "minecraft:player" != inverted
+  defp predicate?({:type, type, inverted}, entity), do: type == type_of(entity) != inverted
 
-  defp predicate?({:type_tag, tag, inverted}, _player) do
+  defp predicate?({:type_tag, tag, inverted}, entity) do
     members = Registries.tag("minecraft:entity_type", tag) || []
-    player = Valimc.Data.EntityTypes.id("minecraft:player")
-    player in members != inverted
+    Valimc.Data.EntityTypes.id(type_of(entity)) in members != inverted
   end
 
   defp predicate?({:tag, "", inverted}, _player), do: not inverted
@@ -210,6 +281,9 @@ defmodule Valimc.Commands.Targets do
     do: Range.rotation?(range, Map.get(player, :pitch, 0.0))
 
   defp predicate?({:rot_y, range}, player), do: Range.rotation?(range, Map.get(player, :yaw, 0.0))
+
+  defp type_of(%{kind: :body, type: type}), do: type
+  defp type_of(_player), do: "minecraft:player"
 
   defp game_mode(%{game_mode: %{current: mode}}), do: mode
   defp game_mode(%{game_mode: mode}) when is_atom(mode), do: mode
