@@ -35,12 +35,12 @@ for seq <- 1..per_owner, chunk <- Enum.chunk_every(0..(owners - 1), 50) do
   frames = for n <- chunk, do: {owner.(n), seq, frame.(n, seq)}
   Log.commit_group(base, route, frames, self())
 
-  for {o, s, _} <- frames do
-    receive do
-      {:storage_durable, ^o, ^s} -> :ok
-    after
-      60_000 -> raise "no durable acknowledgement"
-    end
+  acks = for {o, s, _} <- frames, do: {o, s}
+
+  receive do
+    {:storage_durable, ^acks} -> :ok
+  after
+    60_000 -> raise "no durable acknowledgement"
   end
 end
 

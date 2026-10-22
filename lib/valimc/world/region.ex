@@ -1059,25 +1059,10 @@ defmodule Valimc.World.Region do
       else: elsewhere(state, {:key, key}, {:info, info})
   end
 
-  # The log (VMC-077f): acknowledgements name the section's or player's stream.
-  # A transfer waiting for frames to be durable is sent with the last one.
-  def handle_info({:storage_durable, {:player, uuid}, seq}, state),
-    do: {:noreply, state |> Host.durable(uuid, seq) |> send_ready()}
-
-  def handle_info({:storage_durable, owner, _seq} = info, state) do
-    case state.owners do
-      %{^owner => key} ->
-        with {:noreply, state} <- section_info(state, key, info),
-             do: {:noreply, state |> send_ready() |> commit_frames()}
-
-      _ ->
-        {:noreply, state}
-    end
-  end
-
-  # A record of several sections' and players' frames, acknowledged at once:
-  # one commit after all of them.
-  def handle_info({:storage_durable_all, acks}, state) when is_list(acks) do
+  # The log (VMC-077f): a record's acknowledgement names each section's or
+  # player's frame in it; one commit after all of them. A transfer waiting for
+  # frames to be durable is sent with the last one.
+  def handle_info({:storage_durable, acks}, state) when is_list(acks) do
     acks
     |> Enum.reduce({:noreply, state}, fn
       {{:player, uuid}, seq}, {:noreply, acc} ->
@@ -1085,7 +1070,7 @@ defmodule Valimc.World.Region do
 
       {owner, seq}, {:noreply, acc} ->
         case acc.owners do
-          %{^owner => key} -> section_apply(acc, key, {:storage_durable, owner, seq})
+          %{^owner => key} -> section_apply(acc, key, {:storage_durable, seq})
           _ -> {:noreply, acc}
         end
 

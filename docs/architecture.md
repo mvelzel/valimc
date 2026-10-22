@@ -196,13 +196,18 @@ was sent to.
   owner's frames, never one half of a handoff or of a player's interaction
   with the world. A region's checkpoint file folds its cells into column images
   relit alone, so a load replays nothing older; the log then drops the frames
-  it holds. A stripe indexes where each owner's uncovered frames are, so a
-  load reads only its own frames and one with none reads nothing; a section
-  keeps its frames since its checkpoint to fold them, so the log never
-  rereads its segments for a checkpoint, and an unloading
-  section's checkpoint is written by a task after it is gone: writes of one
-  file never overlap, and a section loading again waits for the one in
-  progress. Simulation never waits for the disk.
+  it holds. The log is a section's only frame source: a stripe indexes where
+  each owner's uncovered frames are, and a load or checkpoint reads exactly
+  those bytes itself (one with none reads nothing), so a stripe never reads
+  for anyone. Every checkpoint is written by a task holding the file's lock:
+  it waits until the log holds the section's frames, folds the last
+  checkpoint with them, writes the file and tells the log what it covers.
+  The commit tick's task reports back; a flush or shutdown waits for it; an
+  unloading section waits only until the task holds the lock, and a section
+  loading again waits for that task to end. A frame holds the records a
+  part's keyed entries changed into, found by identity (a chunk's scheduled
+  ticks, an entity, a container), so it costs what changed. Simulation never
+  waits for the disk.
 - **Cross-owner effects.** Entity handoffs between groups and box edits use
   shared primitives: `Txn.Permits` (one owner permit table) and `Txn.Receipts`
   (one idempotency classifier over the receipt tables) (VMC-064). A player's

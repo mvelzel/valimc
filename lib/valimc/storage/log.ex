@@ -11,31 +11,33 @@ defmodule Valimc.Storage.Log do
   wrote nothing; the stripe holds it and everything after it and tries again
   for up to #{30} seconds before failing them. Two kinds of record go in:
 
-  - **Owner frames** (`commit/5`): one owner's changes of a tick (a region
-    section, `Valimc.World.RegionStorage`, or a player,
-    `Valimc.Player.Storage`), an opaque binary of keyed records the owner
-    encodes, numbered per owner (`seq`). The stripe acknowledges `{:storage_durable,
-    owner, seq}` once it is durable; the section folds its frames into its own
-    checkpoint file and reports `covered/3` with the last `seq` it holds. A
-    loading section reads its frames after its checkpoint with `frames/3`.
-  - **Group frames** (`commit_group/4`, VMC-077j): the frames of every section
-    and hosted player of a group process from one commit, in one record, so a
-    crash keeps all of them or none. A section's frames go to the stripe of the group it is in, so
-    they may sit on several stripes over time: its group sends a frame to a new
-    stripe only once those before are durable. An index records the stripes a
-    section has sent frames to (the sender writes it before the frame, so a
-    load after a crash sees frames still in flight; a recovering stripe
-    writes what it finds), and `frames/3` reads only those, so one stalled
-    stripe holds only the sections it holds frames of.
+  Owner frames are one owner's changes of a tick (a region section,
+  `Valimc.World.RegionStorage`, or a player, `Valimc.Player.Storage`), an
+  opaque binary of keyed records the owner encodes, numbered per owner
+  (`seq`). A group process commits the frames of every section and hosted
+  player from one commit as one record (`commit_group/5`, VMC-077j), so a
+  crash keeps all of them or none, and the stripe acknowledges the record
+  once it is durable. A checkpoint folds an owner's frames (`frames/3`) into
+  its file and reports `covered/3` with the last `seq` it holds; a load reads
+  the frames after its checkpoint the same way.
 
-  A stripe keeps, per owner, where each of its uncovered frames is (segment,
-  offset, size), so `frames/3` reads only those bytes, and an owner with none
-  costs a lookup: a load never scans the log. A segment is deleted once every
-  frame in it is covered. On start a stripe reads its segments: owners with frames newer than their checkpoint files
-  are admitted (a section) or folded (a player), so they replay and
-  checkpoint them. A stripe stops only once its world folder is
-  gone (a removed test world): stopping a live one could lose a commit cast to
-  it on the way. Worlds written before this log (per-region `r.X.Z/` logs,
+  A section's frames go to the stripe of the group it is in, so they may sit
+  on several stripes over time: its group sends a frame to a new stripe only
+  once those before are durable. An index records the stripes a section has
+  sent frames to (the sender writes it before the frame, so a load after a
+  crash sees frames still in flight; a recovering stripe writes what it
+  finds), and `frames/3` asks only those, so one stalled stripe holds only
+  the sections it holds frames of. A stripe keeps, per owner, where each of
+  its uncovered frames is (segment, offset, size); `frames/3` reads only
+  those bytes, and an owner with none costs a lookup: a load or checkpoint
+  never scans the log. A segment is deleted once every frame in it is
+  covered.
+
+  On start a stripe reads its segments: owners with frames newer than their
+  checkpoint files are admitted (a section) or folded (a player), so they
+  replay and checkpoint them. A stripe stops only once its world folder is
+  gone (a removed test world): stopping a live one could lose a commit cast
+  to it on the way. Worlds written before this log (per-region `r.X.Z/` logs,
   `players/wal.<n>/`) are refused (D4).
   """
   alias Valimc.Data.Grid
@@ -46,6 +48,7 @@ defmodule Valimc.Storage.Log do
 
   @stripes 8
   @index Valimc.Storage.LogIndex
+  @started Valimc.Storage.LogStarted
   @idle_ms 15_000
   @retry_ms 100
   @retries 300
@@ -61,9 +64,13 @@ defmodule Valimc.Storage.Log do
 
   defp region_stripes, do: 0..(@stripes - 1)
 
-  @doc "Create the index of the stripes owners' frames are on; the application owns it."
+  @doc """
+  Create the index of the stripes owners' frames are on and the set of worlds
+  whose stripes started; the application owns them.
+  """
   def init! do
     :ets.new(@index, [:named_table, :public, :set, read_concurrency: true])
+    :ets.new(@started, [:named_table, :public, :set])
     :ok
   end
 
@@ -81,30 +88,21 @@ defmodule Valimc.Storage.Log do
   # Every stripe of a world recovers (and indexes) its segments when it
   # starts; one with no directory has never held a frame. Once per world.
   defp started(base) do
-    if :ets.whereis(@index) == :undefined or :ets.insert_new(@index, {{base, :started}}),
+    if :ets.whereis(@started) == :undefined or :ets.insert_new(@started, {base}),
       do: for(n <- region_stripes(), File.dir?(dir(base, n)), do: ensure_stripe(base, n))
 
     :ok
   end
 
   @doc """
-  Append `frame` (an owner's encoded records, its `seq`-th) for `owner` to its
-  stripe of the log under `base`; `notify` receives `{:storage_durable, seq}`
-  once it is durable or `{:storage_failed, seq, reason}`. Returns the stripe,
-  which the owner monitors: frames in flight on a stripe that went down may
-  or may not be durable.
-  """
-  def commit(base, owner, seq, frame, notify) when is_binary(frame) and is_pid(notify),
-    do: commit_group(base, owner, [{owner, seq, frame}], notify)
-
-  @doc """
-  Append `frames` (`[{owner, seq, frame}]`, several sections' frames of one
-  commit) as one record on the stripe of `route` (a group's key), so they are
-  durable together or not at all; `notify` receives `{:storage_durable, owner,
-  seq}` for each (`{:storage_durable_all, [{owner, seq}]}` once when they are
-  several owners'), or `{:storage_failed, owner, seq, reason}`. Returns the
-  stripe for the caller to monitor; a caller that monitors it already passes
-  it as `stripe` and nothing is looked up (VMC-077w).
+  Append `frames` (`[{owner, seq, frame}]`, the owners' frames of one commit)
+  as one record on the stripe of `route` (a group's key), so they are durable
+  together or not at all; `notify` receives `{:storage_durable, [{owner,
+  seq}]}` once for the record (VMC-077w), or `{:storage_failed, owner, seq,
+  reason}` for each frame. Returns the stripe for the caller to monitor
+  (frames in flight on a stripe that went down may or may not be durable); a
+  caller that monitors it already passes it as `stripe` and nothing is
+  looked up.
   """
   def commit_group(base, route, frames, notify, stripe \\ nil)
       when is_list(frames) and is_pid(notify) do
@@ -118,23 +116,29 @@ defmodule Valimc.Storage.Log do
   @doc """
   The frames of `owner` numbered after `seq` that no checkpoint covers, in
   order, as `[{seq, frame}]`, from every region stripe (a section's group
-  decides its stripe).
+  decides its stripe). The stripes say where they are; the caller reads
+  exactly those bytes (`RegionLog.read_at/1`), so a stripe never reads.
   """
   def frames(base, owner, seq) do
     :ok = started(base)
 
-    Enum.reduce_while(indexed(base, owner), [], fn n, acc ->
-      case GenServer.call(ensure_stripe(base, n), {:frames, owner, seq}, 60_000) do
-        frames when is_list(frames) -> {:cont, frames ++ acc}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      frames when is_list(frames) ->
-        frames |> Enum.sort_by(&elem(&1, 0)) |> Enum.dedup_by(&elem(&1, 0))
+    located =
+      for n <- indexed(base, owner),
+          entry <- GenServer.call(ensure_stripe(base, n), {:locate, owner, seq}, 60_000),
+          do: entry
 
-      error ->
-        error
+    seqs = MapSet.new(located, &elem(&1, 0))
+
+    with [_ | _] <- located,
+         {:ok, frames} <- RegionLog.read_at(located |> Enum.map(&elem(&1, 1)) |> Enum.uniq()) do
+      for(
+        %{ops: ops} <- frames,
+        {:frame, ^owner, seq, frame} <- ops,
+        MapSet.member?(seqs, seq),
+        do: {seq, frame}
+      )
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.dedup_by(&elem(&1, 0))
     end
   end
 
@@ -279,34 +283,17 @@ defmodule Valimc.Storage.Log do
   end
 
   @impl true
-  # Only frames no checkpoint covers: a file written anew (a seeded or edited
-  # player) does not replay the frames an earlier checkpoint holds.
-  # They are read where the index says they are, nothing else.
-  def handle_call({:frames, owner, after_seq}, _from, state) do
-    wanted =
+  # Where `owner`'s frames after `after_seq` are, `[{seq, {segment, offset,
+  # size}}]`: only frames no checkpoint covers, so a file written anew (a
+  # seeded or edited player) does not replay what an earlier checkpoint
+  # holds. Their segments stay until a checkpoint covers them.
+  def handle_call({:locate, owner, after_seq}, _from, state) do
+    located =
       for {seq, _, at} <- :queue.to_list(Map.get(state.pending, owner, :queue.new())),
           seq > after_seq,
           do: {seq, at}
 
-    if wanted == [] do
-      {:reply, [], state, @idle_ms}
-    else
-      seqs = MapSet.new(wanted, &elem(&1, 0))
-
-      case RegionLog.read_at(wanted |> Enum.map(&elem(&1, 1)) |> Enum.uniq()) do
-        {:ok, frames} ->
-          {:reply,
-           for(
-             %{ops: ops} <- frames,
-             {:frame, ^owner, seq, frame} <- ops,
-             MapSet.member?(seqs, seq),
-             do: {seq, frame}
-           ), state, @idle_ms}
-
-        error ->
-          {:reply, error, state, @idle_ms}
-      end
-    end
+    {:reply, located, state, @idle_ms}
   end
 
   # Held appends answer once they land or fail.
@@ -327,7 +314,7 @@ defmodule Valimc.Storage.Log do
         do:
           (
             :ets.match_delete(@index, {{state.base, :_, state.n}})
-            :ets.delete(@index, {state.base, :started})
+            :ets.delete(@started, state.base)
           )
 
       {:stop, :normal, state}
@@ -361,13 +348,14 @@ defmodule Valimc.Storage.Log do
     frames = batches(units)
 
     with {:ok, state} <- ensure_open(state),
-         {:ok, log, located} <- RegionLog.append_located(state.log, frames) do
+         {:ok, log, located} <- RegionLog.append(state.log, frames) do
       Valimc.Data.Metrics.add(:storage_bytes, Enum.sum(Enum.map(ops, &op_bytes/1)))
 
       # Each record's lsn and place are its RegionLog frame's.
       lsns = for {frame, place} <- Enum.zip(frames, located), _ <- frame, do: place
 
-      for {:commit, frames, notify} <- commits, do: acknowledge(notify, frames)
+      for {:commit, frames, notify} <- commits,
+          do: send(notify, {:storage_durable, for({owner, seq, _} <- frames, do: {owner, seq})})
 
       for from <- syncs, do: GenServer.reply(from, :ok)
 
@@ -404,15 +392,6 @@ defmodule Valimc.Storage.Log do
           _ -> reopen(state)
         end
     end
-  end
-
-  # One owner's frames are acknowledged one by one; a group's record of several
-  # owners' in one message (VMC-077w), so its mailbox does not grow with its
-  # sections.
-  defp acknowledge(notify, [{owner, _, _} | _] = frames) do
-    if Enum.all?(frames, &(elem(&1, 0) == owner)),
-      do: for({_, seq, _} <- frames, do: send(notify, {:storage_durable, owner, seq})),
-      else: send(notify, {:storage_durable_all, for({owner, seq, _} <- frames, do: {owner, seq})})
   end
 
   # A stripe whose segments will not open (its folder unwritable) keeps

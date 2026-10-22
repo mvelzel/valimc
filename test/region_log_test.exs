@@ -54,7 +54,7 @@ defmodule Valimc.World.RegionLogTest do
 
   test "open, append, reopen and recover with incarnations", %{tmp_dir: dir} do
     {:ok, log, %{checkpoint: nil, frames: [%{ops: [{:open, 1}]}]}} = RegionLog.open(dir)
-    {:ok, log, 3} = RegionLog.append(log, [[{:cells, 1}], [{:item_put, 2}]])
+    {:ok, log, [{2, _}, {3, _}]} = RegionLog.append(log, [[{:cells, 1}], [{:item_put, 2}]])
     :ok = RegionLog.close(log)
 
     {:ok, log, recovered} = RegionLog.open(dir)
@@ -104,7 +104,7 @@ defmodule Valimc.World.RegionLogTest do
 
   test "a drive flush (F_FULLFSYNC) follows each append when enabled", %{tmp_dir: dir} do
     {:ok, log, _} = RegionLog.open(dir)
-    {:ok, log, lsn} = RegionLog.append(%{log | full_sync: true}, [[{:a, 1}], [{:b, 2}]])
+    {:ok, log, [_, {lsn, _}]} = RegionLog.append(%{log | full_sync: true}, [[{:a, 1}], [{:b, 2}]])
     assert {:ok, %{frames: frames}} = RegionLog.read(dir)
     assert List.last(frames).lsn == lsn and ops(frames) |> Enum.take(-2) == [{:a, 1}, {:b, 2}]
     assert {:error, _} = Valimc.Native.full_sync(Path.join(dir, "missing"))

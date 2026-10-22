@@ -14,7 +14,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:containers, :sequence}` | containers |
-  | `{:ticks, chunk}`, `{:ticks, :shift}` | a chunk's scheduled block ticks in order, `[{due, priority, position, block}]`, dues relative to the shift |
+  | `{:ticks, chunk}`, `{:ticks, :shift}` | a chunk's scheduled block ticks (`ScheduledTicks.record/1`) |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `:game_tick` | the region's game tick when the frame was cut |
 
@@ -40,12 +40,11 @@ defmodule Valimc.World.RegionStorage do
 
   A checkpoint holds every record with cells folded into column images taken
   from the owner's Rust blocks (relit alone, VMC-077c) and replaces the file;
-  the log then forgets the frames it holds. The section keeps its frames since
-  its last checkpoint (up to #{64} MiB; past that the checkpoint reads them
-  from the log), so a checkpoint folds them without the log rereading its
-  segments. An unloading section's checkpoint is written off its group; the
-  writes of one file never overlap, and a section loading again waits for
-  the one in progress. Checkpoints follow appended bytes,
+  the log then forgets the frames it holds. Frames come only from the log,
+  which reads exactly the section's (`Log.frames/3`). Every checkpoint is
+  written by a task holding the file's lock, never in the group: the writes
+  of one file never overlap, and a section loading again waits for the one in
+  progress. Checkpoints follow appended bytes,
   frame count, moved counters, `/save-all` and unload; `/save-off` pauses
   them, not the log. A world without a path keeps everything in memory.
   """
@@ -64,8 +63,6 @@ defmodule Valimc.World.RegionStorage do
   @parts [:items, :containers, :ticks, :block_entities]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
-  # Frames kept for the next checkpoint (`/save-off` pauses checkpoints).
-  @kept_bytes 64 * 1024 * 1024
 
   defstruct [
     :base,
@@ -76,7 +73,7 @@ defmodule Valimc.World.RegionStorage do
     waits: [],
     in_flight: %{},
     committed: %{},
-    # The last written records of changes that wait (`diff_parts/2`).
+    # `{written, current}` records of changes that wait (`diff_parts/2`).
     deferred: %{},
     dirty_chunks: MapSet.new(),
     checkpoint_seq: 0,
@@ -89,10 +86,6 @@ defmodule Valimc.World.RegionStorage do
     motion_at: 0,
     # Frames cut but not yet sent (`[{owner, seq, frame}]`, newest first).
     outbox: [],
-    # Every frame since the checkpoint (`[{seq, frame}]`, newest first), or
-    # `:log` once they passed `@kept_bytes`; `kept_bytes` their size.
-    kept: [],
-    kept_bytes: 0,
     # The key whose stripe the section's group commits to.
     route: nil
   ]
@@ -119,22 +112,18 @@ defmodule Valimc.World.RegionStorage do
            {seq, records} =
              if(checkpoint, do: {checkpoint.seq, checkpoint.records}, else: {0, %{}}),
            frames when is_list(frames) <- Log.frames(base, owner, seq) do
-        records = fold(records, frames)
+        records = fold(records, ops(frames))
         last = frames |> List.last({seq, nil}) |> elem(0)
 
-        storage =
-          keep(
-            %__MODULE__{
-              base: base,
-              owner: owner,
-              route: owner,
-              path: path,
-              seq: last,
-              checkpoint_seq: seq,
-              frames_since_checkpoint: last - seq
-            },
-            frames
-          )
+        storage = %__MODULE__{
+          base: base,
+          owner: owner,
+          route: owner,
+          path: path,
+          seq: last,
+          checkpoint_seq: seq,
+          frames_since_checkpoint: last - seq
+        }
 
         if last == seq, do: Log.covered(base, owner, seq)
         {:ok, storage, restore(records, true)}
@@ -306,22 +295,9 @@ defmodule Valimc.World.RegionStorage do
     Enum.reduce(chunks, {storage, 0}, fn frame, {acc, bytes} ->
       seq = acc.seq + 1
 
-      acc =
-        keep(%{acc | seq: seq, outbox: [{acc.owner, seq, frame} | acc.outbox]}, [{seq, frame}])
-
-      {acc, bytes + byte_size(frame)}
+      {%{acc | seq: seq, outbox: [{acc.owner, seq, frame} | acc.outbox]},
+       bytes + byte_size(frame)}
     end)
-  end
-
-  # Frames (`[{seq, frame}]`, oldest first) the next checkpoint folds.
-  defp keep(%{kept: :log} = storage, _frames), do: storage
-
-  defp keep(storage, frames) do
-    bytes = Enum.reduce(frames, storage.kept_bytes, &(byte_size(elem(&1, 1)) + &2))
-
-    if bytes > @kept_bytes,
-      do: %{storage | kept: :log, kept_bytes: 0},
-      else: %{storage | kept: Enum.reverse(frames, storage.kept), kept_bytes: bytes}
   end
 
   @doc """
@@ -356,7 +332,7 @@ defmodule Valimc.World.RegionStorage do
   @doc """
   Whether a reply waits on a frame (an entity handoff's): a section that
   unloads with none needs no wait for its last frames, whose checkpoint
-  holds them (`checkpoint/4` with `detach: true`).
+  holds them (`checkpoint/4` with `wait: :locked`).
   """
   def waiting?(storage),
     do: storage.waits != [] or Enum.any?(storage.in_flight, fn {_, waits} -> waits != [] end)
@@ -376,7 +352,7 @@ defmodule Valimc.World.RegionStorage do
   @doc """
   Whether a checkpoint is due: requested, enough bytes or frames since the last
   one, or counters moved five minutes ago; none running, every frame cut and
-  appended (a checkpoint reads them back), and saving not paused.
+  durable, and saving not paused.
   """
   def checkpoint_due?(storage) do
     storage.base != nil and storage.checkpointing == nil and map_size(storage.pending) == 0 and
@@ -390,24 +366,34 @@ defmodule Valimc.World.RegionStorage do
   end
 
   @doc """
-  Start a checkpoint of `parts` (the owner's current parts, everything cut into
-  frames up to `storage.seq`) and `blocks`; a task merges the images of the
-  dirty chunks into the last checkpoint's and writes the file, then sends
-  `wrap.({:checkpointed, ref, seq, result})` to the owner (`:wrap`, a
-  section's epoch tag: the report reaches the section by its route, wherever
-  it moved meanwhile). `sync: true` writes it
-  here; `detach: true` (an unloading section) leaves it to the task, which
-  reports what it covers to the log itself.
+  Checkpoint `parts` (the owner's current parts, everything cut into frames
+  up to `storage.seq`) and `blocks`. A task holding the file's lock waits
+  until the log holds the section's frames, folds the last checkpoint and
+  the frames after it with the images of the dirty chunks, writes the file
+  and reports what it covers to the log. By `wait`:
+
+  - none: the task sends `wrap.({:checkpointed, ref, seq, result})` to the
+    owner (a section's epoch tag, so it reaches the section wherever it
+    moved meanwhile);
+  - `:written` (a flush, a shutdown): this returns once the file is written;
+  - `:locked` (an unloading section): this returns once the task holds the
+    lock, so a load after it waits for the write (`await_checkpoint/1`).
   """
   def checkpoint(storage, parts, blocks, opts \\ []) do
-    chunks = storage.dirty_chunks
+    # A checkpoint still running may land after this one; this one holds its
+    # chunks too.
+    chunks =
+      case storage.checkpointing do
+        {_, running} -> MapSet.union(storage.dirty_chunks, running)
+        nil -> storage.dirty_chunks
+      end
 
     job = %{
       base: storage.base,
       owner: storage.owner,
+      route: storage.route,
       path: storage.path,
       seq: storage.seq,
-      kept: storage.kept,
       records: parts |> records() |> Map.put(:game_tick, parts.game_tick),
       images:
         for(
@@ -424,133 +410,121 @@ defmodule Valimc.World.RegionStorage do
     # also holds the motion and counters that waited, so frames need not.
     storage = diff_parts(storage, parts)
 
-    storage =
-      %{
-        baseline(storage, parts)
-        | dirty_chunks: MapSet.new(),
-          requested: false,
-          counters_since: nil
-      }
+    storage = %{
+      baseline(storage, parts)
+      | dirty_chunks: MapSet.new(),
+        requested: false,
+        counters_since: nil
+    }
 
-    cond do
-      opts[:sync] ->
-        covered(storage, chunks, job.seq, write_checkpoint(job))
-
-      # The task holds the file before the section's route goes: a load
-      # after that waits for it (`await_checkpoint/1`).
-      opts[:detach] ->
-        parent = self()
-        tag = make_ref()
-        route = storage.route
-
-        {:ok, _} =
-          Task.start(
-            Valimc.World.Dimension.bind(fn ->
-              locked(job.path, fn ->
-                send(parent, {tag, :locked})
-
-                case fold_checkpoint(job) do
-                  # The log may still be appending the last frames: it learns
-                  # they are covered once it holds them.
-                  :ok ->
-                    :ok = Log.sync(job.base, route)
-                    Log.covered(job.base, job.owner, job.seq)
-
-                  {:error, reason} ->
-                    Logger.error("Region checkpoint failed: #{inspect(reason)}")
-                end
-              end)
-            end)
-          )
-
-        receive do
-          {^tag, :locked} -> storage
-        end
-
-      true ->
-        async_checkpoint(storage, job, chunks, Keyword.get(opts, :wrap, & &1))
-    end
-  end
-
-  defp async_checkpoint(storage, job, chunks, wrap) do
     owner = self()
     ref = make_ref()
+    wait = opts[:wait]
 
-    {:ok, _} =
+    report =
+      case wait do
+        nil -> Keyword.get(opts, :wrap, & &1)
+        :written -> & &1
+        :locked -> nil
+      end
+
+    {:ok, pid} =
       Task.start(
         Valimc.World.Dimension.bind(fn ->
-          send(owner, wrap.({:checkpointed, ref, job.seq, write_checkpoint(job)}))
+          locked(job.path, fn ->
+            if wait == :locked, do: send(owner, {ref, :locked})
+            result = write_checkpoint(job)
+            if report, do: send(owner, report.({:checkpointed, ref, job.seq, result}))
+          end)
         end)
       )
 
-    %{storage | checkpointing: {ref, chunks}}
+    await(%{storage | checkpointing: {ref, chunks}}, ref, pid, wait)
+  end
+
+  defp await(storage, _ref, _pid, nil), do: storage
+
+  defp await(storage, ref, pid, wait) do
+    monitor = Process.monitor(pid)
+
+    receive do
+      {^ref, :locked} when wait == :locked ->
+        Process.demonitor(monitor, [:flush])
+        storage
+
+      {:checkpointed, ^ref, seq, result} ->
+        Process.demonitor(monitor, [:flush])
+        checkpointed(storage, ref, seq, result)
+
+      {:DOWN, ^monitor, :process, ^pid, reason} ->
+        Logger.error("Region checkpoint failed: #{inspect(reason)}")
+        checkpointed(storage, ref, storage.seq, {:error, reason})
+    end
   end
 
   @doc "A checkpoint task finished."
-  def checkpointed(%{checkpointing: {ref, chunks}} = storage, ref, seq, result),
-    do: covered(%{storage | checkpointing: nil}, chunks, seq, result)
-
-  def checkpointed(storage, _ref, _seq, _result), do: storage
-
-  defp covered(storage, _chunks, seq, :ok) do
-    Log.covered(storage.base, storage.owner, seq)
-    Valimc.Data.Metrics.add(:region_checkpoints)
-
-    kept =
-      cond do
-        storage.kept != :log -> Enum.take_while(storage.kept, fn {s, _} -> s > seq end)
-        seq == storage.seq -> []
-        true -> :log
-      end
-
-    %{
+  def checkpointed(%{checkpointing: {ref, _}} = storage, ref, seq, :ok),
+    do: %{
       storage
-      | checkpoint_seq: seq,
+      | checkpointing: nil,
+        checkpoint_seq: seq,
         since_checkpoint: 0,
-        frames_since_checkpoint: storage.seq - seq,
-        kept: kept,
-        kept_bytes:
-          if(kept == :log, do: 0, else: Enum.reduce(kept, 0, &(byte_size(elem(&1, 1)) + &2)))
+        frames_since_checkpoint: storage.seq - seq
     }
-  end
 
   # A failed checkpoint leaves the log (only waiting motion and counters are
   # lost); its chunks stay dirty for the next one.
-  defp covered(storage, chunks, _seq, {:error, reason}) do
-    Logger.error("Region checkpoint failed: #{inspect(reason)}")
-    %{storage | dirty_chunks: MapSet.union(storage.dirty_chunks, chunks)}
+  def checkpointed(%{checkpointing: {ref, chunks}} = storage, ref, _seq, {:error, _}),
+    do: %{storage | checkpointing: nil, dirty_chunks: MapSet.union(storage.dirty_chunks, chunks)}
+
+  def checkpointed(storage, _ref, _seq, _result), do: storage
+
+  # In the task: the durable records through `seq` (the last checkpoint and
+  # the frames after it, read from the log once it holds them), with the
+  # owner's parts as they were at `seq` and the dirty chunks' images, relit
+  # alone, in place of their cells. A checkpoint never replaces a newer one.
+  defp write_checkpoint(job) do
+    result = fold_checkpoint(job)
+
+    if result == :ok do
+      Log.covered(job.base, job.owner, job.seq)
+      Valimc.Data.Metrics.add(:region_checkpoints)
+    else
+      Logger.error("Region checkpoint failed: #{inspect(result)}")
+    end
+
+    result
   end
 
-  # The durable records through `seq` (the last checkpoint and the frames
-  # after it), with the owner's parts as they were at `seq` and the dirty
-  # chunks' images, relit alone, in place of their cells.
-  defp write_checkpoint(job), do: locked(job.path, fn -> fold_checkpoint(job) end)
-
   defp fold_checkpoint(job) do
+    :ok = Log.sync(job.base, job.route)
+
     with {:ok, previous} <- Checkpoint.read(job.path),
-         {seq, records} = if(previous, do: {previous.seq, previous.records}, else: {0, %{}}),
-         frames when is_list(frames) <- since(job, seq) do
-      durable = fold(records, Enum.filter(frames, &(elem(&1, 0) <= job.seq)))
+         {seq, records} when seq <= job.seq <-
+           if(previous, do: {previous.seq, previous.records}, else: {0, %{}}),
+         frames when is_list(frames) <- Log.frames(job.base, job.owner, seq) do
+      durable = fold(records, ops(Enum.filter(frames, &(elem(&1, 0) <= job.seq))))
 
       kept =
         Map.filter(durable, fn {key, _} ->
-          match?({:column, _}, key) or match?({:post, _}, key)
+          match?({kind, _} when kind in [:column, :post], key)
         end)
 
       lit = Blocks.lit_images(job.images, job.sky)
       columns = for {chunk, image} <- lit, into: %{}, do: {{:column, chunk}, image}
       Checkpoint.write(job.path, job.seq, kept |> Map.merge(columns) |> Map.merge(job.records))
+    else
+      {newer, _} when is_integer(newer) -> :ok
+      error -> error
     end
   rescue
     error -> {:error, Exception.message(error)}
+  catch
+    :exit, reason -> {:error, reason}
   end
 
-  # The frames after `seq`, oldest first: those the section kept, or the log's.
-  defp since(%{kept: :log} = job, seq), do: Log.frames(job.base, job.owner, seq)
-  defp since(job, seq), do: job.kept |> Enum.filter(&(elem(&1, 0) > seq)) |> Enum.reverse()
-
   # One checkpoint write of a file at a time: an unloading section's may
-  # still run when it loads again.
+  # still run when it loads again. Only tasks hold the lock.
   defp locked(path, fun) do
     case Registry.register(Valimc.StorageRegistry, {:checkpoint, path}, nil) do
       {:ok, _} ->
@@ -578,10 +552,6 @@ defmodule Valimc.World.RegionStorage do
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> await_checkpoint(path)
-        after
-          100 ->
-            Process.demonitor(ref, [:flush])
-            await_checkpoint(path)
         end
     end
   end
@@ -590,60 +560,57 @@ defmodule Valimc.World.RegionStorage do
 
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
-  `Valimc.Entity.Store`), `containers`, `ticks` (a
-  `ScheduledTicks`), `block_entities` and `game_tick`.
+  `Valimc.Entity.Store`), `containers`, `ticks` (a `ScheduledTicks`),
+  `block_entities` and `game_tick`.
 
-  A frame carries only what changed, found in O(changes): the scheduled
-  ticks' journal (`ScheduledTicks.changes/1`) and, for the keyed maps of the
-  other parts, the entries that are no longer the ones last committed (an
-  unchanged entry is the same term and compares at once). A change that may
-  wait (`wait/4`) keeps its last written record in `deferred` until it
-  changes otherwise, or until the next motion pass writes it.
+  A frame carries only what changed, found in O(changes): each part is
+  described once as keyed maps of entries (`fields/2`), and only the entries
+  that are no longer the terms last committed become records (an unchanged
+  entry is the same term and compares at once). A change that may wait
+  (`wait/4`) keeps its last written and its current record in `deferred`
+  until it changes otherwise, or until the next motion pass writes it.
   """
   def diff_parts(storage, parts) do
     now = System.monotonic_time(:millisecond)
     full = storage.motion_waiting and now >= storage.motion_at
 
-    storage =
-      Enum.reduce(@parts, %{storage | motion_waiting: storage.motion_waiting and not full}, fn
-        part, acc ->
-          value = Map.fetch!(parts, part)
+    {changes, committed} =
+      Enum.reduce(@parts, {%{}, storage.committed}, fn part, {changes, committed} ->
+        value = Map.fetch!(parts, part)
 
-          case acc.committed do
-            %{^part => ^value} when not full ->
-              acc
+        case committed do
+          %{^part => ^value} ->
+            {changes, committed}
 
-            committed ->
-              changes = changes(part, Map.get(committed, part), value)
-              changes = if full, do: flush(acc.deferred, part, value, changes), else: changes
-              {pending, deferred, waits} = settle(acc.pending, acc.deferred, changes, full)
-
-              %{
-                acc
-                | pending: pending,
-                  deferred: deferred,
-                  committed: Map.put(committed, part, value),
-                  motion_waiting: acc.motion_waiting or :motion in waits,
-                  counters_since:
-                    if(:counters in waits and acc.counters_since == nil,
-                      do: now,
-                      else: acc.counters_since
-                    )
-              }
-          end
+          _ ->
+            {part_changes(part, committed[part], value, changes), Map.put(committed, part, value)}
+        end
       end)
 
-    storage = if full, do: %{storage | motion_at: now + @motion_ms}, else: storage
+    # A motion pass writes what waited and has not changed again since.
+    changes = if full, do: Map.merge(storage.deferred, changes), else: changes
+    {pending, deferred, waits} = settle(storage.pending, storage.deferred, changes, full)
+
+    storage = %{
+      storage
+      | pending: pending,
+        deferred: deferred,
+        committed: committed,
+        motion_waiting: (storage.motion_waiting and not full) or :motion in waits,
+        motion_at: if(full, do: now + @motion_ms, else: storage.motion_at),
+        counters_since:
+          if(:counters in waits and storage.counters_since == nil,
+            do: now,
+            else: storage.counters_since
+          )
+    }
 
     if map_size(storage.pending) > 0,
       do: %{storage | pending: Map.put(storage.pending, :game_tick, parts.game_tick)},
       else: storage
   end
 
-  @doc """
-  Take `parts` as what the log and checkpoint hold (after a load or a
-  checkpoint); the owner then settles its scheduled ticks' journal.
-  """
+  @doc "Take `parts` as what the log and checkpoint hold (after a load or a checkpoint)."
   def baseline(storage, parts) do
     %{
       storage
@@ -654,65 +621,76 @@ defmodule Valimc.World.RegionStorage do
     }
   end
 
-  # `%{key => {old, new}}` of the records that changed between the last
-  # committed value of `part` and `value` (`new` is `:deleted` for a gone
-  # record; `old` nil for a new one, `:unknown` where the part keeps no old).
-  defp changes(:ticks, previous, ticks) do
-    changes = ScheduledTicks.changes(ticks)
+  # Each stored part as keyed maps of its entries, each with how an entry
+  # becomes `{record key, record}`.
+  defp fields(:items, %Store{entries: entries, ledger: ledger}),
+    do: [
+      {entries, fn _id, entry -> {{:entity, entry.entity.uuid}, Store.record(entry)} end},
+      {ledger.incoming, &{{:handoff_in, &1}, &2}},
+      # Network ids are the VM's: a recovered intent delivers without them.
+      {%{sequence: ledger.sequence, outgoing: ledger.outgoing},
+       fn
+         :outgoing, nil ->
+           {{:handoff, :outgoing}, nil}
 
-    changes =
-      if match?(%ScheduledTicks{}, previous) and previous.shift == ticks.shift,
-        do: Map.delete(changes, {:ticks, :shift}),
-        else: changes
+         :outgoing, o ->
+           {{:handoff, :outgoing},
+            %{o | records: Enum.map(o.records, &Map.delete(&1, :entity_id))}}
 
-    Map.new(changes, fn {key, value} -> {key, {:unknown, value}} end)
-  end
+         :sequence, sequence ->
+           {{:handoff, :sequence}, sequence}
+       end}
+    ]
 
-  defp changes(:items, previous, %Store{} = items) do
-    old = if previous, do: previous.entries, else: %{}
+  defp fields(:containers, %Containers{entries: entries, sequence: sequence}),
+    do: [
+      {entries, &{{:container, &1}, &2}},
+      {%{sequence: sequence}, fn _, sequence -> {{:containers, :sequence}, sequence} end}
+    ]
 
-    entities =
-      keyed_changes(old, items.entries, fn _id, entry ->
-        {{:entity, entry.entity.uuid}, Store.record(entry)}
-      end)
+  defp fields(:ticks, %ScheduledTicks{containers: containers, shift: shift}),
+    do: [
+      {containers, &{{:ticks, &1}, ScheduledTicks.record(&2)}},
+      {%{shift: shift}, fn _, shift -> {{:ticks, :shift}, shift} end}
+    ]
 
-    old_ledger = if previous, do: ledger_records(previous.ledger), else: %{}
-    map_changes(old_ledger, ledger_records(items.ledger), entities)
-  end
+  defp fields(:block_entities, %BlockEntities{entries: entries}),
+    do: [{entries, fn pos, %{type: type, nbt: nbt} -> {{:block_entity, pos}, {type, nbt}} end}]
 
-  defp changes(:containers, previous, %Containers{} = c) do
-    old = if previous, do: previous.entries, else: %{}
-    changes = keyed_changes(old, c.entries, fn pos, entry -> {{:container, pos}, entry} end)
+  # `changes` with the records of `part` that changed between its last
+  # committed value and `value`: `key => {old, new}`, `new` `:deleted` for a
+  # gone record, `old` nil for a new one. A chunk's old ticks are `:unknown`:
+  # no wait depends on them, so they are not built.
+  defp part_changes(part, previous, value, changes) do
+    olds =
+      if previous,
+        do: Enum.map(fields(part, previous), &elem(&1, 0)),
+        else: Stream.repeatedly(fn -> %{} end)
 
-    if previous && previous.sequence == c.sequence,
-      do: changes,
-      else:
-        Map.put(changes, {:containers, :sequence}, {previous && previous.sequence, c.sequence})
-  end
+    before =
+      if part == :ticks,
+        do: fn _, _, _ -> :unknown end,
+        else: fn record, key, entry -> elem(record.(key, entry), 1) end
 
-  defp changes(:block_entities, previous, %BlockEntities{entries: entries}) do
-    old = if previous, do: previous.entries, else: %{}
-
-    keyed_changes(old, entries, fn pos, %{type: type, nbt: nbt} ->
-      {{:block_entity, pos}, {type, nbt}}
+    fields(part, value)
+    |> Enum.zip(olds)
+    |> Enum.reduce(changes, fn {{new, record}, old}, acc ->
+      keyed_changes(old, new, &before.(record, &1, &2), record, acc)
     end)
   end
 
-  # The records of the entries of `new` that are not the entries of `old`,
-  # and of those gone; `record` maps a key and entry to `{record key, record}`.
-  defp keyed_changes(old, new, _record) when old === new, do: %{}
+  defp keyed_changes(old, new, _before, _record, acc) when old === new, do: acc
 
-  defp keyed_changes(old, new, record) do
-    changed =
-      Enum.reduce(new, %{}, fn {key, entry}, acc ->
+  defp keyed_changes(old, new, before, record, acc) do
+    acc =
+      Enum.reduce(new, acc, fn {key, entry}, acc ->
         case old do
           %{^key => ^entry} ->
             acc
 
-          %{^key => before} ->
+          %{^key => was} ->
             {record_key, after_record} = record.(key, entry)
-            {_, before_record} = record.(key, before)
-            Map.put(acc, record_key, {before_record, after_record})
+            Map.put(acc, record_key, {before.(key, was), after_record})
 
           _ ->
             {record_key, after_record} = record.(key, entry)
@@ -720,76 +698,30 @@ defmodule Valimc.World.RegionStorage do
         end
       end)
 
-    Enum.reduce(old, changed, fn {key, before}, acc ->
-      if Map.has_key?(new, key) do
-        acc
-      else
-        {record_key, before_record} = record.(key, before)
-        Map.put(acc, record_key, {before_record, :deleted})
-      end
-    end)
-  end
-
-  defp map_changes(old, new, acc) do
-    acc =
-      Enum.reduce(new, acc, fn {key, value}, acc ->
-        case old do
-          %{^key => ^value} -> acc
-          _ -> Map.put(acc, key, {Map.get(old, key), value})
-        end
-      end)
-
-    Enum.reduce(old, acc, fn {key, value}, acc ->
-      if Map.has_key?(new, key), do: acc, else: Map.put(acc, key, {value, :deleted})
-    end)
-  end
-
-  defp ledger_records(ledger) do
-    %{
-      {:handoff, :sequence} => ledger.sequence,
-      {:handoff, :outgoing} => stored_outgoing(ledger.outgoing)
-    }
-    |> Map.merge(
-      for {source, receipt} <- ledger.incoming, into: %{}, do: {{:handoff_in, source}, receipt}
-    )
-  end
-
-  # A motion pass writes what waited: each deferred record of `part` that has
-  # not changed again since.
-  defp flush(deferred, part, value, changes) do
-    Enum.reduce(deferred, changes, fn {key, written}, acc ->
-      if Map.has_key?(acc, key) or part_of(key) != part,
+    Enum.reduce(old, acc, fn {key, entry}, acc ->
+      if Map.has_key?(new, key),
         do: acc,
-        else: Map.put(acc, key, {written, current(part, value, key)})
+        else: Map.put(acc, elem(record.(key, entry), 0), {before.(key, entry), :deleted})
     end)
   end
-
-  defp part_of({:entity, _}), do: :items
-  defp part_of({:container, _}), do: :containers
-  defp part_of(_), do: nil
-
-  defp current(:items, %Store{} = items, {:entity, uuid}) do
-    case items.uuids do
-      %{^uuid => id} -> Store.record(items.entries[id])
-      _ -> :deleted
-    end
-  end
-
-  defp current(:containers, %Containers{entries: entries}, {:container, pos}),
-    do: Map.get(entries, pos, :deleted)
 
   # `{pending, deferred, waits}`: changed records the next frame must carry go
-  # to `pending`; one whose change may wait keeps its last written record in
-  # `deferred`, and `waits` says what waits (`:motion`, `:counters`).
+  # to `pending`; one whose change may wait keeps `{written, current}` (the
+  # record the last frame wrote, the one it would write now) in `deferred`,
+  # and `waits` says what waits (`:motion`, `:counters`).
   defp settle(pending, deferred, changes, full) do
     {pending, deferred, waits} =
       Enum.reduce(changes, {pending, deferred, []}, fn {key, {before, value}},
                                                        {pending, deferred, waits} ->
-        written = Map.get(deferred, key, before)
+        {written, waited} =
+          case deferred do
+            %{^key => {written, _}} -> {written, true}
+            _ -> {before, false}
+          end
 
         cond do
           # Back to what the last frame wrote while it waited: nothing to write.
-          value == written and is_map_key(deferred, key) ->
+          value == written and waited ->
             {Map.delete(pending, key), Map.delete(deferred, key), waits}
 
           value == written ->
@@ -800,11 +732,8 @@ defmodule Valimc.World.RegionStorage do
 
           true ->
             case wait(key, written, value, full) do
-              nil ->
-                {Map.put(pending, key, value), Map.delete(deferred, key), waits}
-
-              kind ->
-                {pending, Map.put_new(deferred, key, written), [kind | waits]}
+              nil -> {Map.put(pending, key, value), Map.delete(deferred, key), waits}
+              kind -> {pending, Map.put(deferred, key, {written, value}), [kind | waits]}
             end
         end
       end)
@@ -840,54 +769,34 @@ defmodule Valimc.World.RegionStorage do
   defp burning(cooking),
     do: %{cooking | burn_left: cooking.burn_left > 0, progress: cooking.progress > 0}
 
-  defp records(parts) do
-    Enum.reduce(@parts, %{}, fn part, acc ->
-      Map.merge(acc, part_records(part, Map.fetch!(parts, part)))
-    end)
-  end
+  defp records(parts), do: Enum.reduce(@parts, %{}, &Map.merge(&2, part_records(&1, parts[&1])))
 
   @doc false
-  def part_records(:items, %Store{} = items) do
-    for(record <- Store.records(items), into: %{}, do: {{:entity, record.uuid}, record})
-    |> Map.merge(ledger_records(items.ledger))
-  end
-
-  def part_records(:containers, %Containers{} = c) do
-    %{{:containers, :sequence} => c.sequence}
-    |> Map.merge(for {pos, entry} <- c.entries, into: %{}, do: {{:container, pos}, entry})
-  end
-
-  def part_records(:ticks, %ScheduledTicks{} = ticks), do: ScheduledTicks.records(ticks)
-
-  def part_records(:block_entities, %BlockEntities{entries: entries}),
+  def part_records(part, value),
     do:
       for(
-        {pos, %{type: type, nbt: nbt}} <- entries,
+        {entries, record} <- fields(part, value),
+        {key, entry} <- entries,
         into: %{},
-        do: {{:block_entity, pos}, {type, nbt}}
+        do: record.(key, entry)
       )
 
-  # Network ids are the VM's: a recovered intent delivers without them.
-  defp stored_outgoing(nil), do: nil
+  # Decoded frames (`[{seq, frame}]`), in order.
+  defp ops(frames), do: Enum.map(frames, &:erlang.binary_to_term(elem(&1, 1), [:safe]))
 
-  defp stored_outgoing(outgoing),
-    do: %{outgoing | records: Enum.map(outgoing.records, &Map.delete(&1, :entity_id))}
+  @doc """
+  Records with `frames` (decoded ops lists, in order) applied. A frame's
+  column image replaces its chunk's earlier cells, and holds no cell of a
+  chunk it puts a column of (`columns/2`): the cells are kept apart, so a
+  column drops them without passing over every other record.
+  """
+  def fold(records, []), do: records
 
-  @doc false
-  def apply_ops(records, ops), do: fold(records, [{nil, :erlang.term_to_binary(ops)}])
-
-  # Records with `frames` (`[{seq, frame}]`, in order) applied. A frame's
-  # column image replaces its chunk's earlier cells, and holds no cell of a
-  # chunk it puts a column of (`columns/2`): the cells are kept apart, so a
-  # column drops them without passing over every other record.
-  defp fold(records, []), do: records
-
-  defp fold(records, frames) do
+  def fold(records, frames) do
     {cells, rest} = Map.split_with(records, fn {key, _} -> match?({:cell, _}, key) end)
 
     {cells, rest} =
-      Enum.reduce(frames, {cells, rest}, fn {_, frame}, {cells, rest} ->
-        ops = :erlang.binary_to_term(frame, [:safe])
+      Enum.reduce(frames, {cells, rest}, fn ops, {cells, rest} ->
         columns = for {:put, {:column, chunk}, _} <- ops, into: %{}, do: {chunk, true}
 
         Enum.reduce(ops, {drop_cells(cells, columns), rest}, fn
@@ -901,8 +810,13 @@ defmodule Valimc.World.RegionStorage do
     Map.merge(rest, cells)
   end
 
-  # The region's parts from its records.
+  # The region's parts from its records (the inverse of `fields/2`).
   defp restore(records, persistent) do
+    {ticks, records} =
+      Map.split_with(records, fn {key, _} ->
+        match?({:ticks, {_, _}}, key) or key == {:ticks, :shift}
+      end)
+
     empty = %{
       columns: %{},
       cells: %{},
@@ -910,7 +824,7 @@ defmodule Valimc.World.RegionStorage do
       items: [],
       ledger: Store.empty_ledger(),
       containers: %Containers{},
-      ticks: [],
+      ticks: ScheduledTicks.from_records(ticks),
       block_entities: %{},
       game_tick: Map.get(records, :game_tick, 0),
       persistent: persistent
@@ -926,60 +840,32 @@ defmodule Valimc.World.RegionStorage do
       {{:post, chunk}, value}, acc ->
         put_in(acc, [:post_processing, chunk], value)
 
+      {{:block_entity, pos}, value}, acc ->
+        put_in(acc, [:block_entities, pos], value)
+
       {{:entity, _}, record}, acc ->
         %{acc | items: [record | acc.items]}
+
+      {:game_tick, _}, acc ->
+        acc
 
       {{:handoff, field}, value}, acc when field in [:sequence, :outgoing] ->
         %{acc | ledger: Map.put(acc.ledger, field, value)}
 
       {{:handoff_in, source}, receipt}, acc ->
-        %{acc | ledger: %{acc.ledger | incoming: Map.put(acc.ledger.incoming, source, receipt)}}
+        update_in(acc.ledger.incoming, &Map.put(&1, source, receipt))
 
       {{:container, pos}, entry}, acc ->
-        %{
-          acc
-          | containers: %{acc.containers | entries: Map.put(acc.containers.entries, pos, entry)}
-        }
+        update_in(acc.containers.entries, &Map.put(&1, pos, entry))
 
       {{:containers, :sequence}, value}, acc ->
-        %{acc | containers: %{acc.containers | sequence: value}}
-
-      {{:ticks, :shift}, shift}, acc ->
-        Map.put(acc, :tick_shift, shift)
-
-      {{:ticks, {_, _}}, list}, acc ->
-        %{acc | ticks: [list | acc.ticks]}
-
-      {{:block_entity, pos}, value}, acc ->
-        put_in(acc, [:block_entities, pos], value)
-
-      {:game_tick, _}, acc ->
-        acc
+        put_in(acc.containers.sequence, value)
 
       # A record of an older format (D4): no migration, no legacy reader.
       {key, _}, _acc ->
         throw({:old_region_format, key})
     end)
     |> Map.update!(:items, &Enum.sort_by(&1, fn r -> r.uuid end))
-    |> shift_ticks()
-  end
-
-  # Stored dues are relative to the ticks' shift (`ScheduledTicks`).
-  defp shift_ticks(parts) do
-    {shift, parts} = Map.pop(parts, :tick_shift, 0)
-
-    # In vanilla order across chunks: due, then priority (each chunk's own
-    # order is kept).
-    %{
-      parts
-      | ticks:
-          for(
-            list <- parts.ticks,
-            {due, priority, pos, block} <- list,
-            do: {pos, block, due + shift, priority}
-          )
-          |> Enum.sort_by(fn {_, _, due, priority} -> {due, priority} end)
-    }
   end
 
   defp chunk(x, z), do: {Integer.floor_div(x, 16), Integer.floor_div(z, 16)}
@@ -1095,7 +981,7 @@ defmodule Valimc.World.RegionStorage do
       {seq, records} = if checkpoint, do: {checkpoint.seq, checkpoint.records}, else: {0, %{}}
 
       frames = Enum.sort(for {^owner, s, frame} <- log_frames(base), s > seq, do: {s, frame})
-      {:ok, frames |> List.last({seq, nil}) |> elem(0), fold(records, frames)}
+      {:ok, frames |> List.last({seq, nil}) |> elem(0), fold(records, ops(frames))}
     end
   end
 

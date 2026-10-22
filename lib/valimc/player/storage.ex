@@ -104,10 +104,13 @@ defmodule Valimc.Player.Storage do
 
     with {:ok, {seq, records}} <- read_file(path),
          frames when is_list(frames) <- Log.frames(base, owner, seq) do
-      {records, last} =
-        Enum.reduce(frames, {records, seq}, fn {seq, frame}, {acc, _} ->
-          {RegionStorage.apply_ops(acc, :erlang.binary_to_term(frame, [:safe])), seq}
-        end)
+      records =
+        RegionStorage.fold(
+          records,
+          for({_, frame} <- frames, do: :erlang.binary_to_term(frame, [:safe]))
+        )
+
+      last = frames |> List.last({seq, nil}) |> elem(0)
 
       storage = %__MODULE__{
         base: base,
@@ -230,7 +233,7 @@ defmodule Valimc.Player.Storage do
          %{
            storage
            | seq: seq,
-             committed: RegionStorage.apply_ops(committed, ops),
+             committed: RegionStorage.fold(committed, [ops]),
              outbox: [{storage.owner, seq, frame} | storage.outbox],
              in_flight: Map.put(storage.in_flight, seq, storage.waits),
              waits: [],

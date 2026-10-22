@@ -46,12 +46,13 @@ defmodule Valimc.TickPipelineTest do
              ScheduledTicks.take_due(t, 4, chunks)
 
     assert ScheduledTicks.size(t) == 1
-    assert ScheduledTicks.dump(t, 4) == [{{0, 0, 0}, 1, 1, 0}]
+    records = %{{:ticks, {0, 0}} => ScheduledTicks.record(t.containers[{0, 0}])}
+    assert records[{:ticks, {0, 0}}] == [{5, 0, {0, 0, 0}, 1}]
 
-    assert ScheduledTicks.load(ScheduledTicks.dump(t, 4), 100)
-           |> ScheduledTicks.take_due(101, chunks)
-           |> elem(0) ==
-             [{{0, 0, 0}, 1}]
+    # Stored dues are relative to the shift, which a rebase moves.
+    loaded = ScheduledTicks.from_records(Map.put(records, {:ticks, :shift}, 96))
+    assert {[], _} = ScheduledTicks.take_due(loaded, 100, chunks)
+    assert {[{{0, 0, 0}, 1}], _} = ScheduledTicks.take_due(loaded, 101, chunks)
   end
 
   test "ticks of chunks that do not tick stay untouched until their chunk ticks; a rebase keeps delays" do
@@ -62,16 +63,12 @@ defmodule Valimc.TickPipelineTest do
       end)
 
     {:ok, t} = ScheduledTicks.schedule(t, {0, 64, 0}, 7, 1, 0)
-    t = ScheduledTicks.settled(t)
     {due, after_take} = ScheduledTicks.take_due(t, 5, [{0, 0}])
     assert due == [{{0, 64, 0}, 7}]
     # Only the taken tick changed: the far chunk's thousand are the same term.
     assert after_take.containers[{2, 0}] === t.containers[{2, 0}]
 
-    assert ScheduledTicks.changes(after_take) == %{
-             {:ticks, {0, 0}} => :deleted,
-             {:ticks, :shift} => 0
-           }
+    refute Map.has_key?(after_take.containers, {0, 0})
 
     rebased = ScheduledTicks.rebase(after_take, 5, 1005)
     assert rebased.containers === after_take.containers

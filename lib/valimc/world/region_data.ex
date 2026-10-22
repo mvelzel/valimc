@@ -126,16 +126,6 @@ defmodule Valimc.World.RegionData do
         {:error, reason} -> exit({:item_load_failed, reason})
       end
 
-    # Scheduled ticks are due at the region's game tick, which continues.
-    scheduled =
-      ScheduledTicks.load(
-        for(
-          {pos, block, due, priority} <- loaded.ticks,
-          do: {pos, block, due - loaded.game_tick, priority}
-        ),
-        loaded.game_tick
-      )
-
     tick_index = TickBehaviours.index(TickBehaviours.modules(key))
 
     # The native sampler returns only states some behaviour handles randomly.
@@ -184,7 +174,7 @@ defmodule Valimc.World.RegionData do
       revision: 0,
       section_revisions: %{},
       game_tick: loaded.game_tick,
-      scheduled_ticks: scheduled,
+      scheduled_ticks: loaded.ticks,
       tick_index: tick_index,
       rule_backlog: [],
       random_tick_speed: Valimc.config(:random_tick_speed, key),
@@ -209,11 +199,7 @@ defmodule Valimc.World.RegionData do
     }
 
   defp baseline_storage(state),
-    do: settled(%{state | storage: RegionStorage.baseline(state.storage, parts(state))})
-
-  # The storage took the scheduled ticks' changes: their journal starts over.
-  defp settled(state),
-    do: %{state | scheduled_ticks: ScheduledTicks.settled(state.scheduled_ticks)}
+    do: %{state | storage: RegionStorage.baseline(state.storage, parts(state))}
 
   def item_tick(state, now) do
     state = travel_item(state)
@@ -1336,7 +1322,7 @@ defmodule Valimc.World.RegionData do
   # was already durable (none here) run at once.
   defp commit(state) do
     {storage, released} = RegionStorage.commit(state.storage, parts(state))
-    run_released(settled(%{state | storage: storage}), released)
+    run_released(%{state | storage: storage}, released)
   end
 
   @doc """
@@ -1383,9 +1369,9 @@ defmodule Valimc.World.RegionData do
     }
   end
 
-  # Commit, send and wait until the frames are appended, then checkpoint here
-  # (`detach: true`, a section its group unloads: in a task that outlives it;
-  # a shutdown keeps its order).
+  # Commit, send and wait until the frames are appended, then checkpoint
+  # (`detach: true`, a section its group unloads: until its task holds the
+  # file, which then outlives it; a flush or shutdown until it is written).
   defp save_now(state, opts \\ [])
   defp save_now(%{storage: %{base: nil}} = state, _opts), do: commit(state)
 
@@ -1401,23 +1387,21 @@ defmodule Valimc.World.RegionData do
       do: %{
         state
         | storage:
-            RegionStorage.checkpoint(
-              state.storage,
-              parts(state),
-              state.blocks,
-              if(opts[:detach], do: [detach: true], else: [sync: true])
-            ),
-          scheduled_ticks: ScheduledTicks.settled(state.scheduled_ticks)
+            RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
+              wait: if(opts[:detach], do: :locked, else: :written)
+            )
       },
       else: state
   end
 
   # This section's durable acknowledgements already in the mailbox (after a
-  # sync); its group's other sections take theirs as messages.
+  # sync); its group's other sections and players take theirs as a message.
   defp drain_durable(%{storage: %{owner: owner}} = state) do
     receive do
-      {:storage_durable, ^owner, seq} ->
-        {:noreply, state} = durable(state, seq)
+      {:storage_durable, [{^owner, _} | _] = acks} ->
+        {mine, others} = Enum.split_with(acks, &(elem(&1, 0) == owner))
+        if others != [], do: send(self(), {:storage_durable, others})
+        {:noreply, state} = durable(state, mine |> Enum.map(&elem(&1, 1)) |> Enum.max())
         drain_durable(state)
     after
       0 -> state
@@ -1431,14 +1415,13 @@ defmodule Valimc.World.RegionData do
 
   defp maybe_checkpoint(state) do
     if RegionStorage.checkpoint_due?(state.storage),
-      do:
-        settled(%{
-          state
-          | storage:
-              RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
-                wrap: &{:resource, state.epoch, &1}
-              )
-        }),
+      do: %{
+        state
+        | storage:
+            RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
+              wrap: &{:resource, state.epoch, &1}
+            )
+      },
       else: state
   end
 
@@ -2706,7 +2689,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_info({:storage_durable, _owner, seq}, state), do: durable(state, seq)
+  def handle_info({:storage_durable, seq}, state), do: durable(state, seq)
 
   # A frame that may be torn: only the log's recovery and a reload continue.
   def handle_info({:storage_failed, _owner, _seq, reason}, state),

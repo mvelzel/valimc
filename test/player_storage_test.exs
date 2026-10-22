@@ -27,10 +27,9 @@ defmodule Valimc.PlayerStorageTest do
     {frames, storage} = Storage.take(storage)
     Log.commit_group(base, route, frames, self())
 
-    Enum.reduce(frames, storage, fn {owner, seq, _}, acc ->
-      assert_receive {:storage_durable, ^owner, ^seq}, 5000
-      elem(Storage.durable(acc, seq), 0)
-    end)
+    acks = for {owner, seq, _} <- frames, do: {owner, seq}
+    assert_receive {:storage_durable, ^acks}, 5000
+    Enum.reduce(acks, storage, fn {_, seq}, acc -> elem(Storage.durable(acc, seq), 0) end)
   end
 
   test "frames carry what changed, volatile records at most once a second; a load folds them",

@@ -178,17 +178,11 @@ defmodule Valimc.Storage.RegionLog do
     error in File.Error -> {:error, {:file, error.reason, error.path}}
   end
 
-  @doc "Append one frame per ops list, then `datasync` once. Returns the last LSN."
-  def append(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
-    with {:ok, log, located} <- append_located(log, batches),
-         do: {:ok, log, located |> List.last() |> elem(0)}
-  end
-
   @doc """
-  `append/2`, returning where each frame went: `[{lsn, {path, offset,
-  size}}]`, for `read_at/1`.
+  Append one frame per ops list, then `datasync` once. Returns where each
+  frame went, `[{lsn, {path, offset, size}}]`, for `read_at/1`.
   """
-  def append_located(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
+  def append(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
     {frames, next} =
       Enum.map_reduce(batches, log.next_lsn, fn ops, lsn ->
         {encode_frame(lsn, log.incarnation, ops), lsn + 1}
@@ -215,7 +209,7 @@ defmodule Valimc.Storage.RegionLog do
   end
 
   @doc """
-  The frames at `locations` (`[{path, offset, size}]`, as `append_located/2`
+  The frames at `locations` (`[{path, offset, size}]`, as `append/2`
   and `open/1` give them), each checked: `{:ok, [frame]}` in the order given,
   reading only those bytes.
   """

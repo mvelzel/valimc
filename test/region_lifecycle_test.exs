@@ -140,10 +140,20 @@ defmodule Valimc.RegionLifecycleTest do
       Registry.lookup(Valimc.StorageRegistry, {:checkpoint, path}) == []
     end)
 
-    {:ok, _} = Registry.register(Valimc.StorageRegistry, {:checkpoint, path}, nil)
+    # Only a checkpoint task holds the lock; a load waits for it to go.
+    test = self()
+
+    writer =
+      spawn(fn ->
+        {:ok, _} = Registry.register(Valimc.StorageRegistry, {:checkpoint, path}, nil)
+        send(test, :locked)
+        receive do: (:done -> :ok)
+      end)
+
+    assert_receive :locked
     loading = Task.async(fn -> Valimc.TestWorld.owner(key) end)
     assert Task.yield(loading, 300) == nil
-    Registry.unregister(Valimc.StorageRegistry, {:checkpoint, path})
+    send(writer, :done)
     assert {:ok, _} = Task.await(loading, 30_000)
     assert Valimc.TestBlocks.get(edit) == @coral
   end

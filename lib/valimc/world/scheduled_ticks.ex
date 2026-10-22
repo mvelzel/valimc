@@ -11,16 +11,15 @@ defmodule Valimc.World.ScheduledTicks do
 
   Dues are stored relative to `shift`, so a section moving to a group on
   another game tick (`rebase/2`) keeps every delay without touching its ticks.
-  A chunk's ticks are one record (`{:ticks, chunk}`, its container in order,
-  VMC-077w): every change marks its chunk in a journal (`journal`), which the
-  section's storage turns into its next frame (`changes/1`) and then clears
-  (`settled/1`), so a frame costs what the changed chunks hold, not one
-  record per tick.
+  A chunk's ticks are one record (`{:ticks, chunk}`, its container in order
+  as `record/1` writes it, VMC-077w; `from_records/1` reads them back). A
+  container nothing changed stays the same term, so the section's storage
+  finds the changed chunks by identity and a frame costs what they hold.
   """
 
   @max_per_tick 65_536
 
-  defstruct containers: %{}, index: %{}, sequence: 0, shift: 0, journal: %{}
+  defstruct containers: %{}, index: %{}, sequence: 0, shift: 0
 
   def new, do: %__MODULE__{}
   def size(%__MODULE__{index: index}), do: map_size(index)
@@ -42,8 +41,7 @@ defmodule Valimc.World.ScheduledTicks do
          ticks
          | containers: containers,
            index: Map.put(ticks.index, {position, block}, entry),
-           sequence: ticks.sequence + 1,
-           journal: Map.put(ticks.journal, chunk, true)
+           sequence: ticks.sequence + 1
        }}
     end
   end
@@ -81,10 +79,7 @@ defmodule Valimc.World.ScheduledTicks do
         end)
       end)
 
-    journal =
-      Enum.reduce(by_chunk, ticks.journal, fn {chunk, _}, acc -> Map.put(acc, chunk, true) end)
-
-    %{ticks | containers: containers, index: index, sequence: sequence, journal: journal}
+    %{ticks | containers: containers, index: index, sequence: sequence}
   end
 
   @doc """
@@ -101,10 +96,8 @@ defmodule Valimc.World.ScheduledTicks do
         do: Enum.filter(Map.keys(ticks.containers), &MapSet.member?(chunks, &1)),
         else: chunks
 
-    {due, containers, journal} =
-      Enum.reduce(chunks, {[], ticks.containers, ticks.journal}, fn chunk, acc ->
-        {due, containers, journal} = acc
-
+    {due, containers} =
+      Enum.reduce(chunks, {[], ticks.containers}, fn chunk, {due, containers} = acc ->
         with %{^chunk => container} <- containers,
              {[_ | _] = taken, rest} <- take(container, stored, []) do
           containers =
@@ -112,16 +105,16 @@ defmodule Valimc.World.ScheduledTicks do
               do: Map.delete(containers, chunk),
               else: Map.put(containers, chunk, rest)
 
-          {taken ++ due, containers, Map.put(journal, chunk, true)}
+          {taken ++ due, containers}
         else
           _ -> acc
         end
       end)
 
-    if due == [], do: {[], ticks}, else: take_run(ticks, containers, journal, due)
+    if due == [], do: {[], ticks}, else: take_run(ticks, containers, due)
   end
 
-  defp take_run(ticks, containers, journal, due) do
+  defp take_run(ticks, containers, due) do
     {run, later} = due |> Enum.sort() |> Enum.split(@max_per_tick)
 
     containers =
@@ -132,8 +125,7 @@ defmodule Valimc.World.ScheduledTicks do
 
     keys = for {_, _, _, position, block} <- run, do: {position, block}
 
-    {keys,
-     %{ticks | containers: containers, index: Map.drop(ticks.index, keys), journal: journal}}
+    {keys, %{ticks | containers: containers, index: Map.drop(ticks.index, keys)}}
   end
 
   defp take(container, stored, acc) do
@@ -151,57 +143,30 @@ defmodule Valimc.World.ScheduledTicks do
   def rebase(%__MODULE__{} = ticks, from, to), do: %{ticks | shift: ticks.shift + to - from}
 
   @doc """
-  The section's records of its scheduled ticks: `{:ticks, chunk}` keyed by
-  the chunk's ticks in order, `[{due, priority, position, block}]` (dues
-  relative to `{:ticks, :shift}`).
+  A chunk's stored ticks (the value of its `{:ticks, chunk}` record): its
+  container in order, `[{due, priority, position, block}]`, dues relative to
+  the `{:ticks, :shift}` record.
   """
-  def records(%__MODULE__{containers: containers, shift: shift}) do
-    for({chunk, container} <- containers, into: %{}, do: {{:ticks, chunk}, record(container)})
-    |> Map.put({:ticks, :shift}, shift)
-  end
-
-  @doc """
-  The records of the chunks the journal marked since the last `settled/1`:
-  each its ticks or `:deleted`, and the shift.
-  """
-  def changes(%__MODULE__{containers: containers, journal: journal, shift: shift}) do
-    for({chunk, _} <- journal, into: %{}) do
-      case containers do
-        %{^chunk => container} -> {{:ticks, chunk}, record(container)}
-        _ -> {{:ticks, chunk}, :deleted}
-      end
-    end
-    |> Map.put({:ticks, :shift}, shift)
-  end
-
-  defp record(container),
+  def record(container),
     do:
       for(
         {due, priority, _, position, block} <- :gb_sets.to_list(container),
         do: {due, priority, position, block}
       )
 
-  @doc "The journal is in a frame (or a checkpoint): it starts over."
-  def settled(%__MODULE__{journal: journal} = ticks) when map_size(journal) == 0, do: ticks
-  def settled(%__MODULE__{} = ticks), do: %{ticks | journal: %{}}
+  @doc """
+  The ticks of a section's `{:ticks, _}` records, in vanilla order across
+  chunks (due, then priority; each chunk's own order is kept).
+  """
+  def from_records(records) do
+    entries =
+      for(
+        {{:ticks, {_, _}}, list} <- records,
+        {due, priority, pos, block} <- list,
+        do: {pos, block, due, priority}
+      )
+      |> Enum.sort_by(fn {_, _, due, priority} -> {due, priority} end)
 
-  @doc "Persisted form: entries relative to `tick`, so they survive a restart."
-  def dump(%__MODULE__{index: index, shift: shift}, tick),
-    do:
-      index
-      |> Map.values()
-      |> Enum.sort()
-      |> Enum.map(fn {due, priority, _, position, block} ->
-        {position, block, due + shift - tick, priority}
-      end)
-
-  @doc "Rebuild from `dump/2` at game tick `tick`."
-  def load(entries, tick) when is_list(entries) do
-    new()
-    |> schedule_all(
-      for {position, block, delay, priority} <- entries,
-          do: {position, block, tick + delay, priority}
-    )
-    |> settled()
+    %{schedule_all(new(), entries) | shift: Map.get(records, {:ticks, :shift}, 0)}
   end
 end

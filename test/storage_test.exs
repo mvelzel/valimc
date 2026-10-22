@@ -105,15 +105,21 @@ defmodule Valimc.StorageTest do
       %{state | log: %{log | segment: Path.join([log.dir, "missing", "log"])}}
     end)
 
-    Log.commit(ctx.base, owner, 1, :erlang.term_to_binary([{:put, :game_tick, 7}]), self())
+    Log.commit_group(
+      ctx.base,
+      owner,
+      [{owner, 1, :erlang.term_to_binary([{:put, :game_tick, 7}])}],
+      self()
+    )
+
     Valimc.TestWait.until(fn -> :sys.get_state(stripe).held != nil end)
-    refute_received {:storage_durable, ^owner, 1}
+    refute_received {:storage_durable, _}
 
     :sys.replace_state(stripe, fn %{log: log} = state ->
       %{state | log: %{log | segment: segment}}
     end)
 
-    assert_receive {:storage_durable, ^owner, 1}, 5_000
+    assert_receive {:storage_durable, [{^owner, 1}]}, 5_000
     assert [{1, _}] = Log.frames(ctx.base, owner, 0)
   end
 
@@ -135,7 +141,8 @@ defmodule Valimc.StorageTest do
     # The group sends the cut frames (VMC-077j).
     {frames, _} = RegionStorage.take(storage)
     Log.commit_group(ctx.base, owner, frames, self())
-    assert_receive {:storage_durable, ^owner, seq} when seq == storage.seq, 10_000
+    assert_receive {:storage_durable, acks}, 10_000
+    assert List.last(acks) == {owner, storage.seq}
     frames = Log.frames(ctx.base, owner, 0)
     assert length(frames) == storage.seq
     assert Enum.all?(frames, fn {_, frame} -> byte_size(frame) < RegionLog.max_frame() end)

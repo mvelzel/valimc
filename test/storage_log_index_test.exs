@@ -14,16 +14,9 @@ defmodule Valimc.StorageLogIndexTest do
   defp commit(base, route, frames) do
     Log.commit_group(base, route, frames, self())
 
-    # Several owners' frames are acknowledged in one message (VMC-077w).
-    case Enum.uniq_by(frames, &elem(&1, 0)) do
-      [_] ->
-        for {owner, seq, _} <- frames,
-            do: assert_receive({:storage_durable, ^owner, ^seq}, 10_000)
-
-      _ ->
-        acks = for {owner, seq, _} <- frames, do: {owner, seq}
-        assert_receive {:storage_durable_all, ^acks}, 10_000
-    end
+    # A record's frames are acknowledged in one message (VMC-077w).
+    acks = for {owner, seq, _} <- frames, do: {owner, seq}
+    assert_receive {:storage_durable, ^acks}, 10_000
   end
 
   test "frames are read from the index: another owner's damaged frame does not matter", ctx do
