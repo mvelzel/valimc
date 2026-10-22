@@ -117,9 +117,18 @@ Checks (October 22, 2026): the touched test files by name while working
 full `mix test`, 709 of 710 (104.5 s; the one failure was the block batch
 test still expecting the old 4,096-edit limit, since fixed and passing), and
 `check_vanilla.py --changed` from before the first commit: 131 of 131 stages
-(`NBT`, `ItemStack` and the text modules reach nearly every stage). No client run: the milestone handoff covers `/clone … move`
-across regions, `/fill` in a region with activity and `/give` with
-components.
+(`NBT`, `ItemStack` and the text modules reach nearly every stage).
+
+Client: the VMC-077 interim run (release b8646a33) found two faults, both
+fixed with server-side tests. Solid `/fill` wrote only the box's shell (a
+binding in the plan's comprehension acted as a filter and dropped every
+interior cell; hollow left its interior unchanged), so a filled water pool
+was air on the server; `test/command_box_edit_test.exs` now reads every
+cell of solid, hollow and outline fills. `/give` named the bare item
+instead of the stack (`ItemData.display_name/1` is now vanilla's
+`getDisplayName` for every stack). The milestone handoff still covers
+`/clone … move` across regions, `/fill` in a region with activity and
+`/give` with components.
 
 Size: lib, native and config +2,423 / −2,854 lines over six commits; tests
 +248 / −23. Gone: the path table and its trampolines, `Command.ComponentCodec`,
