@@ -6,6 +6,7 @@ defmodule Valimc.Commands.Parser.ParticleInput do
   not encode yet (`item`, `vibration`, `trail`, `shriek`, `sculk_charge`,
   geyser particles, `dust_color_transition`) are refused when given options.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Text.{Error, Reader, Snbt}
   alias Valimc.Text.Identifier
   alias Valimc.Protocol.Wire
@@ -102,7 +103,7 @@ defmodule Valimc.Commands.Parser.ParticleInput do
   end
 
   defp float({:float, <<v::float-32>>}), do: {:ok, v}
-  defp float({:double, <<v::float-64>>}), do: {:ok, Valimc.Text.Reader.to_float32(v)}
+  defp float({:double, <<v::float-64>>}), do: {:ok, Float32.round_or_infinity(v)}
   defp float({type, v}) when type in [:byte, :short, :int, :long], do: {:ok, v * 1.0}
   defp float(_), do: {:error, "Not a number"}
 

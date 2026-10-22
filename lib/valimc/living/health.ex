@@ -4,6 +4,7 @@ defmodule Valimc.Living.Health do
   entity (vanilla `LivingEntity`). Damage selection (the hurt window), defenses
   and application are separate steps; the owner commits and replicates.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Living.{Attributes, Effects}
   @float_max 3.4028234663852886e38
   @max_absorption Attributes.max_absorption()
@@ -31,7 +32,7 @@ defmodule Valimc.Living.Health do
 
   def set(%__MODULE__{} = state, value) do
     if valid?(state) and bounded?(value, -@float_max, @float_max),
-      do: {:ok, %{state | value: clamp(f32(value), 0.0, f32(state.maximum))}},
+      do: {:ok, %{state | value: clamp(Float32.round(value), 0.0, Float32.round(state.maximum))}},
       else: {:error, :invalid_health}
   end
 
@@ -39,7 +40,7 @@ defmodule Valimc.Living.Health do
   def heal(%__MODULE__{} = state, amount) do
     if valid?(state) and bounded?(amount, -@float_max, @float_max) do
       if state.value > 0,
-        do: set(state, f32(state.value + f32(amount))),
+        do: set(state, Float32.round(state.value + Float32.round(amount))),
         else: {:ok, state}
     else
       {:error, :invalid_health}
@@ -49,7 +50,7 @@ defmodule Valimc.Living.Health do
   @doc "Select damage after blocking, before armor/absorption and owner commit."
   def hurt_window(%__MODULE__{} = state, amount, bypass_cooldown \\ false) do
     if valid?(state) and bounded?(amount, -@float_max, @float_max) and is_boolean(bypass_cooldown) do
-      amount = max(0.0, f32(amount))
+      amount = max(0.0, Float32.round(amount))
       protected = state.cooldown > 10 and not bypass_cooldown
 
       cond do
@@ -61,7 +62,7 @@ defmodule Valimc.Living.Health do
            %{
              state: %{state | last_hurt: amount},
              accepted: true,
-             damage: f32(amount - state.last_hurt),
+             damage: Float32.round(amount - state.last_hurt),
              notify: false
            }}
 
@@ -82,7 +83,7 @@ defmodule Valimc.Living.Health do
   @doc "Apply already-resolved damage; invulnerability, armor, absorption and death belong to the caller."
   def reduce(%__MODULE__{} = state, amount) do
     if valid?(state) and bounded?(amount, 0, @float_max),
-      do: set(state, f32(state.value - f32(amount))),
+      do: set(state, Float32.round(state.value - Float32.round(amount))),
       else: {:error, :invalid_health}
   end
 
@@ -90,7 +91,11 @@ defmodule Valimc.Living.Health do
     if valid?(state),
       do:
         {:ok,
-         %{value: f32(state.value), hurt_ticks: state.hurt_ticks, death_ticks: state.death_ticks}},
+         %{
+           value: Float32.round(state.value),
+           hurt_ticks: state.hurt_ticks,
+           death_ticks: state.death_ticks
+         }},
       else: {:error, :invalid_health}
   end
 
@@ -105,7 +110,7 @@ defmodule Valimc.Living.Health do
 
   def restore(nil, maximum) do
     if bounded?(maximum, 1, 1024),
-      do: {:ok, %__MODULE__{maximum: f32(maximum), value: f32(maximum)}},
+      do: {:ok, %__MODULE__{maximum: Float32.round(maximum), value: Float32.round(maximum)}},
       else: {:error, :invalid_health}
   end
 
@@ -113,7 +118,12 @@ defmodule Valimc.Living.Health do
     if bounded?(maximum, 1, 1024) and valid_saved?(saved),
       do:
         set(
-          %__MODULE__{maximum: f32(maximum), value: 0.0, hurt_ticks: hurt, death_ticks: death},
+          %__MODULE__{
+            maximum: Float32.round(maximum),
+            value: 0.0,
+            hurt_ticks: hurt,
+            death_ticks: death
+          },
           value
         ),
       else: {:error, :invalid_health}
@@ -123,7 +133,8 @@ defmodule Valimc.Living.Health do
 
   # ---- absorption (golden hearts) ----
 
-  def valid_absorption?(pool), do: bounded?(pool, 0, @max_absorption) and f32(pool) == pool
+  def valid_absorption?(pool),
+    do: bounded?(pool, 0, @max_absorption) and Float32.round(pool) == pool
 
   @doc "Clamp the pool to the effects' maximum; `incoming` starts a newly applied dose's amplifier."
   def reconcile_absorption(pool, effects, incoming \\ nil) do
@@ -140,7 +151,7 @@ defmodule Valimc.Living.Health do
 
   def set_absorption(amount, maximum) do
     if bounded?(amount, -@float_max, @float_max) and bounded?(maximum, 0, @max_absorption),
-      do: {:ok, min(f32(maximum), max(0.0, f32(amount)))},
+      do: {:ok, min(Float32.round(maximum), max(0.0, Float32.round(amount)))},
       else: {:error, :invalid_absorption}
   end
 
@@ -156,11 +167,11 @@ defmodule Valimc.Living.Health do
   @doc "Spend after defenses using native float subtraction, retaining rounding at large damage."
   def spend_absorption(pool, damage) do
     if bounded?(pool, 0, @max_absorption) and bounded?(damage, 0, @float_max) do
-      pool = f32(pool)
-      damage = f32(damage)
-      remaining = max(0.0, f32(damage - pool))
-      consumed = f32(damage - remaining)
-      {:ok, %{pool: max(0.0, f32(pool - consumed)), damage: remaining}}
+      pool = Float32.round(pool)
+      damage = Float32.round(damage)
+      remaining = max(0.0, Float32.round(damage - pool))
+      consumed = Float32.round(damage - remaining)
+      {:ok, %{pool: max(0.0, Float32.round(pool - consumed)), damage: remaining}}
     else
       {:error, :invalid_absorption}
     end
@@ -177,10 +188,5 @@ defmodule Valimc.Living.Health do
 
   defp clamp(value, lo, hi), do: min(max(value, lo), hi)
   defp bounded?(n, lo, hi), do: is_number(n) and n >= lo and n <= hi
-  defp canonical?(n, lo, hi), do: bounded?(n, lo, hi) and f32(n) == n
-
-  defp f32(n) do
-    <<value::float-32>> = <<n::float-32>>
-    value
-  end
+  defp canonical?(n, lo, hi), do: bounded?(n, lo, hi) and Float32.round(n) == n
 end

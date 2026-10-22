@@ -20,6 +20,7 @@ defmodule Valimc.Entity.Handoffs do
   under the source's key. Sections of one group move entities directly
   instead (`RegionData`), in one group commit.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Txn.Receipts
   alias Valimc.Entity.{Store, ItemMerges}
 
@@ -55,7 +56,7 @@ defmodule Valimc.Entity.Handoffs do
   """
   def spawn(items, {dimension, _, _} = source, [%{x: x, z: z} | _] = records)
       when length(records) <= @max_records do
-    case Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z)) do
+    case Grid.section(dimension, Grid.chunk_key(x, z)) do
       ^source ->
         create(items, plain(source), records)
 
@@ -75,7 +76,7 @@ defmodule Valimc.Entity.Handoffs do
       items.ledger.outgoing != nil ->
         {:error, :item_handoff_busy}
 
-      not Valimc.Data.Grid.section?(destination) or source == destination ->
+      not Grid.section?(destination) or source == destination ->
         {:error, :invalid_item_handoff}
 
       true ->
@@ -112,7 +113,7 @@ defmodule Valimc.Entity.Handoffs do
              is_list(records) do
     merge = Map.get(transfer, :merge, :missing)
 
-    if Valimc.Data.Grid.section?(source) and Valimc.Data.Grid.section?(destination) and
+    if Grid.section?(source) and Grid.section?(destination) and
          source != destination and
          length(Enum.take(records, @max_records + 1)) in 1..@max_records and
          Enum.all?(records, &match?(%{uuid: <<_::128>>}, &1)) and

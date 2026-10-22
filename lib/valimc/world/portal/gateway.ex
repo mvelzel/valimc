@@ -12,6 +12,7 @@ defmodule Valimc.World.Portal.Gateway do
   - A traveller arrives above the tallest block within 5 of 2 above the exit
     (bedrock excluded), or at the exit itself when it is exact.
   """
+  alias Valimc.Data.Float32
   alias Valimc.World.Portal.JavaRandom
   alias Valimc.Data.BlockFacts
   alias Valimc.Data.Blocks, as: Registry
@@ -151,31 +152,27 @@ defmodule Valimc.World.Portal.Gateway do
   def island(origin) do
     random = JavaRandom.new(JavaRandom.block_long(origin))
     {n, random} = JavaRandom.next_int(random, 3)
-    discs(origin, f32(n + 4.0), 0, random, [])
+    discs(origin, Float32.round(n + 4.0), 0, random, [])
   end
 
   defp discs({ox, oy, oz} = origin, size, y, random, acc) do
     if size > 0.5 do
-      reach = f32(size + 1.0)
+      reach = Float32.round(size + 1.0)
 
       layer =
         for x <- floor(-size)..ceil(size),
             z <- floor(-size)..ceil(size),
-            x * x + z * z <= f32(reach * reach),
+            x * x + z * z <= Float32.round(reach * reach),
             do: {{ox + x, oy + y, oz + z}, @end_stone}
 
       {n, random} = JavaRandom.next_int(random, 2)
-      discs(origin, f32(size - f32(n + 0.5)), y - 1, random, acc ++ layer)
+      discs(origin, Float32.round(size - Float32.round(n + 0.5)), y - 1, random, acc ++ layer)
     else
       acc
     end
   end
 
   # Vanilla does this arithmetic in floats.
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 
   @doc "Whether a chunk's sections hold only air (`getHighestFilledSectionIndex() == -1`)."
   def air?(state), do: BlockFacts.air?(state)

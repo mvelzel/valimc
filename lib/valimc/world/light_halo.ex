@@ -23,6 +23,7 @@ defmodule Valimc.World.LightHalo do
   the block updates itself. Those from adopted images reach every client that
   has the chunk, since no block update tells a client about them.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Native
   alias Valimc.Protocol.Packets
   alias Valimc.World
@@ -33,7 +34,7 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Whether `chunk` is in the one-chunk ring around region `key`."
   def ring?({rx, rz}, {cx, cz}) do
-    size = Valimc.Data.Grid.region_size()
+    size = Grid.region_size()
     {mx, mz} = {rx * size, rz * size}
     inside = cx in mx..(mx + size - 1) and cz in mz..(mz + size - 1)
     not inside and cx in (mx - 1)..(mx + size) and cz in (mz - 1)..(mz + size)
@@ -41,7 +42,7 @@ defmodule Valimc.World.LightHalo do
 
   # This region's generated chunks that lie in `other`'s ring.
   defp ring_chunks(state, other) do
-    size = Valimc.Data.Grid.region_size()
+    size = Grid.region_size()
     {rx, rz} = state.key
 
     for cx <- (rx * size)..(rx * size + size - 1),
@@ -90,7 +91,7 @@ defmodule Valimc.World.LightHalo do
     for key <- neighbours(state.key), pid = owner(state, key), pid != nil do
       list =
         for {{x, y, z}, block} <- edits,
-            ring?(key, Valimc.Data.Grid.chunk_key(x, z)),
+            ring?(key, Grid.chunk_key(x, z)),
             do: {x, y, z, block}
 
       if list != [], do: send(pid, {:halo, key, {:edits, state.key, list}})

@@ -8,6 +8,7 @@ defmodule Valimc.World.ForcedChunks do
   is removed is told to withdraw it. A region that restarted is told again
   every few seconds.
   """
+  alias Valimc.Data.Grid
   use GenServer
   alias Valimc.World.Dimension
 
@@ -74,9 +75,9 @@ defmodule Valimc.World.ForcedChunks do
   # The `:forced` ticket of every region with chunks in `chunks` (the old or
   # new set) over its chunks in `forced`; empty withdraws it.
   defp ticket(dimension, chunks, forced) do
-    for key <- chunks |> Enum.map(&Valimc.Data.Grid.region_key/1) |> Enum.uniq(),
-        {:ok, pid} <- [Valimc.World.region(Valimc.Data.Grid.section(dimension, key, :section))] do
-      held = Enum.filter(forced, &(Valimc.Data.Grid.region_key(&1) == key))
+    for key <- chunks |> Enum.map(&Grid.region_key/1) |> Enum.uniq(),
+        {:ok, pid} <- [Valimc.World.region(Grid.section(dimension, key, :section))] do
+      held = Enum.filter(forced, &(Grid.region_key(&1) == key))
       Valimc.World.Region.ticket(pid, key, :forced, List.first(held), held)
     end
   end

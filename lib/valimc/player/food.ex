@@ -1,5 +1,6 @@
 defmodule Valimc.Player.Food do
   @moduledoc "Player-owned food transitions; the owner commits health effects on its admitted clock."
+  alias Valimc.Data.Float32
   alias Valimc.Living.Health
   defstruct level: 20, saturation: 5.0, exhaustion: 0.0, timer: 0
   @float_max 3.4028234663852886e38
@@ -24,7 +25,7 @@ defmodule Valimc.Player.Food do
 
   def exhaust(%__MODULE__{} = food, amount)
       when is_number(amount) and amount >= 0 and amount <= @float_max,
-      do: %{food | exhaustion: min(40.0, f32(food.exhaustion + f32(amount)))}
+      do: %{food | exhaustion: min(40.0, Float32.round(food.exhaustion + Float32.round(amount)))}
 
   def eat(%__MODULE__{} = food, nutrition, saturation)
       when is_integer(nutrition) and nutrition in 0..2_147_483_647 and is_number(saturation) and
@@ -33,7 +34,11 @@ defmodule Valimc.Player.Food do
     # Native int addition wraps negative at the maximum nutrition component value.
     level = if total > 2_147_483_647, do: 0, else: min(20, total)
     # Saturation is the absolute food component value, not the legacy modifier.
-    %{food | level: level, saturation: min(level * 1.0, f32(food.saturation + f32(saturation)))}
+    %{
+      food
+      | level: level,
+        saturation: min(level * 1.0, Float32.round(food.saturation + Float32.round(saturation)))
+    }
   end
 
   def tick(%__MODULE__{} = food, %Health{} = health, difficulty, regeneration)
@@ -76,7 +81,7 @@ defmodule Valimc.Player.Food do
 
       food =
         if twentieth and food.saturation < 20,
-          do: %{food | saturation: f32(food.saturation + 1.0)},
+          do: %{food | saturation: Float32.round(food.saturation + 1.0)},
           else: food
 
       food =
@@ -89,10 +94,10 @@ defmodule Valimc.Player.Food do
   end
 
   defp spend(%{exhaustion: exhaustion} = food, difficulty) when exhaustion > 4.0 do
-    food = %{food | exhaustion: f32(exhaustion - 4.0)}
+    food = %{food | exhaustion: Float32.round(exhaustion - 4.0)}
 
     cond do
-      food.saturation > 0 -> %{food | saturation: max(0.0, f32(food.saturation - 1.0))}
+      food.saturation > 0 -> %{food | saturation: max(0.0, Float32.round(food.saturation - 1.0))}
       difficulty != 0 -> %{food | level: max(0, food.level - 1)}
       true -> food
     end
@@ -102,15 +107,12 @@ defmodule Valimc.Player.Food do
 
   defp advance(food, threshold, exhaustion) do
     if food.timer + 1 >= threshold,
-      do: {%{exhaust(food, exhaustion) | timer: 0}, %{heal: f32(exhaustion / 6.0), damage: 0.0}},
+      do:
+        {%{exhaust(food, exhaustion) | timer: 0},
+         %{heal: Float32.round(exhaustion / 6.0), damage: 0.0}},
       else: {%{food | timer: food.timer + 1}, %{heal: 0.0, damage: 0.0}}
   end
 
   defp canonical?(number, lo, hi),
-    do: is_number(number) and number >= lo and number <= hi and f32(number) == number
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
-  end
+    do: is_number(number) and number >= lo and number <= hi and Float32.round(number) == number
 end

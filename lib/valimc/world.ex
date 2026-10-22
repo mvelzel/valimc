@@ -3,7 +3,7 @@ defmodule Valimc.World do
   Section ownership and spatial topics. There is no global world mutation
   process: each section belongs to one group process (VMC-077j), found
   through the Directory's routes by its dimension-explicit key
-  (`Valimc.Data.Grid.section/2`); routing never reads the calling process's
+  (`Grid.section/2`); routing never reads the calling process's
   context.
   """
   alias Valimc.Data.Grid

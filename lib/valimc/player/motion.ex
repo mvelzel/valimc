@@ -1,5 +1,6 @@
 defmodule Valimc.Player.Motion do
   @moduledoc "Player-owned accepted movement observations; ground flags are client reports."
+  alias Valimc.Data.Float32
   import Bitwise
 
   defstruct fall_distance: 0.0,
@@ -26,7 +27,7 @@ defmodule Valimc.Player.Motion do
              is_number(dy) and abs(dy) <= 60_000_000 and is_boolean(ground) and
              is_boolean(water) do
     # Native fallDistance is double, but each downward delta is cast to float.
-    <<rounded::float-32>> = <<dy::float-32>>
+    rounded = Float32.round(dy)
     distance = if dy < 0 and not water, do: distance - rounded, else: distance * 1.0
     landed = if ground and distance > 0, do: distance
     {if(ground, do: 0.0, else: distance), landed}

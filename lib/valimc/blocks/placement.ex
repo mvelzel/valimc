@@ -7,6 +7,7 @@ defmodule Valimc.Blocks.Placement do
   @chest_item Valimc.Protocol.Data.item("chest")
   @cooking_items Enum.map(~w(furnace smoker blast_furnace), &Valimc.Protocol.Data.item/1)
   @facing_items [@chest_item | @cooking_items]
+  alias Valimc.Data.Float32
   use Valimc.Data.Facts, "physics/placement.json"
   alias Valimc.Data.BlockFacts
   @count BlockFacts.count()
@@ -166,15 +167,15 @@ defmodule Valimc.Blocks.Placement do
 
   # `Direction.orderedByNearest`, in float as vanilla computes it with `Mth`.
   defp ordered_by_nearest(yaw, pitch) do
-    pitch = f32(pitch * f32(:math.pi() / 180.0))
-    yaw = f32(-yaw * f32(:math.pi() / 180.0))
+    pitch = Float32.round(pitch * Float32.round(:math.pi() / 180.0))
+    yaw = Float32.round(-yaw * Float32.round(:math.pi() / 180.0))
     {pitch_sin, pitch_cos} = {mth_sin(pitch), mth_cos(pitch)}
     {yaw_sin, yaw_cos} = {mth_sin(yaw), mth_cos(yaw)}
     {x_pos, y_pos, z_pos} = {yaw_sin > 0.0, pitch_sin < 0.0, yaw_cos > 0.0}
     x_yaw = if x_pos, do: yaw_sin, else: -yaw_sin
     y_mag = if y_pos, do: -pitch_sin, else: pitch_sin
     z_yaw = if z_pos, do: yaw_cos, else: -yaw_cos
-    {x_mag, z_mag} = {f32(x_yaw * pitch_cos), f32(z_yaw * pitch_cos)}
+    {x_mag, z_mag} = {Float32.round(x_yaw * pitch_cos), Float32.round(z_yaw * pitch_cos)}
     # down, up, north, south, west, east
     {ax, ay, az} =
       {if(x_pos, do: 5, else: 4), if(y_pos, do: 1, else: 0), if(z_pos, do: 3, else: 2)}
@@ -193,14 +194,9 @@ defmodule Valimc.Blocks.Placement do
   end
 
   # `Mth.sin` and `Mth.cos`: a 65,536-entry table of float sines.
-  defp mth_sin(v), do: sine(trunc(f32(v * 10430.378)))
-  defp mth_cos(v), do: sine(trunc(f32(v * 10430.378 + 16384.0)))
-  defp sine(i), do: f32(:math.sin(Bitwise.band(i, 65535) * :math.pi() * 2.0 / 65536.0))
-
-  defp f32(v) do
-    <<f::float-32>> = <<v::float-32>>
-    f
-  end
+  defp mth_sin(v), do: sine(trunc(Float32.round(v * 10430.378)))
+  defp mth_cos(v), do: sine(trunc(Float32.round(v * 10430.378 + 16384.0)))
+  defp sine(i), do: Float32.round(:math.sin(Bitwise.band(i, 65535) * :math.pi() * 2.0 / 65536.0))
 
   @doc "Validate a saved edit independently of transient player yaw; destination permissions still fence its exact block state."
   def saved_candidate(item, clicked, adjacent, request, edits)

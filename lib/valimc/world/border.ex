@@ -11,6 +11,7 @@ defmodule Valimc.World.Border do
   kind with a fresh number, so observers resend exactly the packets vanilla's
   border listeners send.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Physics.BorderSnapshot
 
   @max_size 59_999_968.0
@@ -263,8 +264,7 @@ defmodule Valimc.World.Border do
 
       if dist < 0.0 and per_block > 0.0 do
         # `hurtServer` takes a float.
-        <<amount::float-32>> = <<max(1, java_int(Float.floor(-dist * per_block)))::float-32>>
-        amount
+        Float32.round(max(1, java_int(Float.floor(-dist * per_block))))
       else
         0.0
       end

@@ -7,6 +7,7 @@ defmodule Valimc.Living.Attributes do
   `{id, base, modifiers}` for replication. Only active (head) amplifiers matter,
   never durations.
   """
+  alias Valimc.Data.Float32
   use Valimc.Data.Facts, "protocol/attributes.json"
   import Bitwise
   alias Valimc.Living.Effects
@@ -61,7 +62,7 @@ defmodule Valimc.Living.Attributes do
         Enum.reduce(modifiers, @base_speed, fn {_, amount, 2}, value -> value * (1 + amount) end)
 
       value = min(@movement["max"], max(@movement["min"], value))
-      <<travel_speed::float-32>> = <<value::float-32>>
+      travel_speed = Float32.round(value)
 
       {:ok,
        %{
@@ -105,11 +106,15 @@ defmodule Valimc.Living.Attributes do
   def jump_power(factor, amplifier)
       when is_number(factor) and factor >= 0 and factor <= 4 and
              is_integer(amplifier) and amplifier >= -1 and amplifier <= 255,
-      do: {:ok, f32(f32(f32(0.42) * f32(factor)) + jump_bonus(amplifier))}
+      do:
+        {:ok,
+         Float32.round(
+           Float32.round(Float32.round(0.42) * Float32.round(factor)) + jump_bonus(amplifier)
+         )}
 
   def jump_power(_, _), do: {:error, :invalid_jump_boost}
   defp jump_bonus(-1), do: 0.0
-  defp jump_bonus(amplifier), do: f32(f32(0.1) * (amplifier + 1))
+  defp jump_bonus(amplifier), do: Float32.round(Float32.round(0.1) * (amplifier + 1))
 
   # ---- travel effects ----
 
@@ -160,7 +165,7 @@ defmodule Valimc.Living.Attributes do
       {:ok,
        %{
          attribute: {@max_absorption["id"], base, modifiers},
-         maximum: f32(min(@max_absorption["max"], value))
+         maximum: Float32.round(min(@max_absorption["max"], value))
        }}
     else
       {:error, :invalid_absorption}
@@ -169,9 +174,4 @@ defmodule Valimc.Living.Attributes do
 
   @doc "Whether a protocol input's sprint flag is set."
   def sprinting?(shared_flags), do: (shared_flags &&& 8) != 0
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 end

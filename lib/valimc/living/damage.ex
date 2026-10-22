@@ -6,6 +6,7 @@ defmodule Valimc.Living.Damage do
   enchantment protection, absorption, then health. Every decision asks the
   damage source's tags. Pure: the owner commits, replicates and runs death.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Living.{Armor, DamageSource, Health}
   alias Valimc.Data.EffectTypes
   alias Valimc.Protocol.EnchantmentEffects
@@ -95,7 +96,7 @@ defmodule Valimc.Living.Damage do
           {:ok, damage} = armor_absorb(amount, attributes.armor, attributes.toughness)
           damage
         else
-          f32(amount)
+          Float32.round(amount)
         end
 
       if DamageSource.is?(source, :bypasses_effects) do
@@ -105,8 +106,8 @@ defmodule Valimc.Living.Damage do
           if resisted <= 0 or DamageSource.is?(source, :bypasses_enchantments) do
             {:ok, resisted}
           else
-            fraction = f32(min(protection(equipment, source), 20) / 25.0)
-            {:ok, f32(resisted * f32(1.0 - fraction))}
+            fraction = Float32.round(min(protection(equipment, source), 20) / 25.0)
+            {:ok, Float32.round(resisted * Float32.round(1.0 - fraction))}
           end
         end
       end
@@ -126,11 +127,20 @@ defmodule Valimc.Living.Damage do
       when is_number(amount) and amount >= 0 and amount <= @float_max and
              is_number(armor) and armor >= 0 and armor <= 30 and
              is_number(toughness) and toughness >= 0 and toughness <= 20 do
-    amount = f32(amount)
-    armor = f32(armor)
-    divisor = f32(2.0 + f32(f32(toughness) / 4.0))
-    effective = min(20.0, max(f32(armor * f32(0.2)), f32(armor - f32(amount / divisor))))
-    {:ok, f32(amount * f32(1.0 - f32(effective / 25.0)))}
+    amount = Float32.round(amount)
+    armor = Float32.round(armor)
+    divisor = Float32.round(2.0 + Float32.round(Float32.round(toughness) / 4.0))
+
+    effective =
+      min(
+        20.0,
+        max(
+          Float32.round(armor * Float32.round(0.2)),
+          Float32.round(armor - Float32.round(amount / divisor))
+        )
+      )
+
+    {:ok, Float32.round(amount * Float32.round(1.0 - Float32.round(effective / 25.0)))}
   end
 
   def armor_absorb(_, _, _), do: {:error, :invalid_armor_damage}
@@ -139,7 +149,7 @@ defmodule Valimc.Living.Damage do
   def resistance(amount, source, effects)
       when is_number(amount) and amount >= 0 and amount <= @float_max do
     if DamageSource.known?(source) and Valimc.Living.Effects.valid?(effects) do
-      amount = f32(amount)
+      amount = Float32.round(amount)
 
       case effects[@resistance] do
         nil ->
@@ -171,7 +181,7 @@ defmodule Valimc.Living.Damage do
         @float_max
 
       <<product::float-32>> ->
-        max(0.0, f32(product / 25.0))
+        max(0.0, Float32.round(product / 25.0))
     end
   end
 
@@ -192,9 +202,4 @@ defmodule Valimc.Living.Damage do
       when is_number(y) and abs(y) <= 1_000_000 and is_integer(minimum) and
              abs(minimum) <= 1_000_000,
       do: if(y < minimum - 64, do: 4.0, else: 0.0)
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
-  end
 end

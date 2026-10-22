@@ -16,6 +16,7 @@ defmodule Valimc.World.PlayerTracker do
   Observers spawn the player from its row (`view/5`): at the tracker's base,
   with all of its data and equipment.
   """
+  alias Valimc.Data.Grid
   import Bitwise
 
   alias Valimc.Living.Attributes
@@ -147,7 +148,7 @@ defmodule Valimc.World.PlayerTracker do
         epoch: epoch,
         ownership_generation: generation,
         tracker: tracker.incarnation,
-        chunk: Valimc.Data.Grid.chunk_key(x, z),
+        chunk: Grid.chunk_key(x, z),
         at: {player.x, player.y, player.z},
         base: tracker.base,
         yaw: player.yaw,

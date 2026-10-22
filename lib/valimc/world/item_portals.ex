@@ -15,6 +15,7 @@ defmodule Valimc.World.ItemPortals do
     dimension (tagged) or region (plain), or a local move. The arrival keeps
     the item's stack, age and pickup delay, with a fresh cooldown.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.World.Portal.{Contact, Destination, EndPortal, GatewayDestination}
   alias Valimc.Entity.Store
@@ -97,9 +98,9 @@ defmodule Valimc.World.ItemPortals do
           motion: %{motion | velocity: target.velocity, portal_cooldown: @cooldown}
         }
 
-        case Valimc.Data.Grid.section(
+        case Grid.section(
                target.dimension,
-               Valimc.Data.Grid.chunk_key(target.x, target.z)
+               Grid.chunk_key(target.x, target.z)
              ) do
           ^key -> {:local, step}
           destination -> {:handoff, destination, step}

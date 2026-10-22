@@ -1,5 +1,6 @@
 defmodule Valimc.World.BlockBatch do
   @moduledoc "Bounded owner-local edits and shared section frames, prepared outside the owner."
+  alias Valimc.Data.Grid
   import Bitwise
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.World.Chunk
@@ -17,7 +18,7 @@ defmodule Valimc.World.BlockBatch do
         end)
 
       chunks = sections |> Map.keys() |> Enum.map(fn {x, _, z} -> {x, z} end) |> Enum.uniq()
-      regions = chunks |> Enum.map(&Valimc.Data.Grid.region_key/1) |> Enum.uniq()
+      regions = chunks |> Enum.map(&Grid.region_key/1) |> Enum.uniq()
 
       case regions do
         [region] ->

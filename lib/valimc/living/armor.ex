@@ -9,6 +9,7 @@ defmodule Valimc.Living.Armor do
   `:feet`, `:mainhand`, `:offhand`); `equipment/1` reads it from a player
   inventory and `put_equipment/2` writes worn armor back.
   """
+  alias Valimc.Data.Float32
   use Valimc.Data.Facts, "protocol/item_armor_wear.json"
   alias Valimc.Living.Durability
   alias Valimc.Menus.Inventory
@@ -144,7 +145,7 @@ defmodule Valimc.Living.Armor do
       when is_map(equipment) and is_number(amount) and amount >= 0 and amount <= 4 and
              is_boolean(infinite) and is_function(random, 0) do
     if DamageSource.known?(source) do
-      <<amount::float-32>> = <<amount::float-32>>
+      amount = Float32.round(amount)
 
       if infinite or amount == 0 or not DamageSource.wears_armor?(source) do
         {:ok, equipment, []}

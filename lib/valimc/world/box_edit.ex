@@ -18,6 +18,7 @@ defmodule Valimc.World.BoxEdit do
   them can keep some (one frame per owner per tick and a shared log are
   VMC-077f's).
   """
+  alias Valimc.Data.Grid
   alias Valimc.World
   alias Valimc.World.Region
 
@@ -34,7 +35,7 @@ defmodule Valimc.World.BoxEdit do
 
     Enum.reduce_while(parts, {:ok, %{}}, fn {key, min, max}, {:ok, acc} ->
       with {:ok, owner} <-
-             World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section)),
+             World.existing_owner(Grid.section(dimension, key, :section)),
            {:ok, states} <- Region.read_box(owner, min, max) do
         {:cont, {:ok, Map.merge(acc, Map.new(Enum.zip(positions(min, max), decode(states))))}}
       else
@@ -53,7 +54,7 @@ defmodule Valimc.World.BoxEdit do
 
     owners =
       Enum.reduce_while(Enum.sort(parts), {:ok, []}, fn {key, part}, {:ok, acc} ->
-        case World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section)) do
+        case World.existing_owner(Grid.section(dimension, key, :section)) do
           {:ok, owner} -> {:cont, {:ok, [{owner, part} | acc]}}
           _ -> {:halt, {:error, :unloaded}}
         end
@@ -106,14 +107,14 @@ defmodule Valimc.World.BoxEdit do
   @doc "Group `edits` (`position => state`) by region key."
   def by_region(edits) do
     Enum.group_by(edits, fn {{x, _, z}, _} ->
-      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+      Grid.region_key(Grid.chunk_key(x, z))
     end)
     |> Map.new(fn {key, cells} -> {key, Map.new(cells)} end)
   end
 
   # The box split by region: `{key, {min, max}}` (y as given).
   defp split({x0, y0, z0}, {x1, y1, z1}) do
-    size = Valimc.Data.Grid.region_size() * 16
+    size = Grid.region_size() * 16
 
     for rx <- Integer.floor_div(x0, size)..Integer.floor_div(x1, size),
         rz <- Integer.floor_div(z0, size)..Integer.floor_div(z1, size) do

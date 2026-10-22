@@ -35,6 +35,7 @@ defmodule Valimc.Player.Host do
   to the group that made them; the session that claims one handles it, and an
   unclaimed one follows the players this group handed on.
   """
+  alias Valimc.Data.Grid
   require Logger
   alias Valimc.Player.State, as: PlayerState
   alias Valimc.Player.Storage
@@ -518,7 +519,7 @@ defmodule Valimc.Player.Host do
   ## Moves
 
   defp key(player),
-    do: Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(player.x, player.z))
+    do: Grid.region_key(Grid.chunk_key(player.x, player.z))
 
   defp home?(state, entry),
     do:
@@ -534,7 +535,7 @@ defmodule Valimc.Player.Host do
     if home?(state, %{entry | key: key}) do
       state
     else
-      section = Valimc.Data.Grid.section(entry.session.player.dimension, key, :section)
+      section = Grid.section(entry.session.player.dimension, key, :section)
 
       case World.existing_owner(section) do
         {:ok, {pid, _}} when pid != self() -> handoff(state, uuid, pid)

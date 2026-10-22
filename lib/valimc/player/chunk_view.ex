@@ -9,6 +9,7 @@ defmodule Valimc.Player.ChunkView do
   a circle of that radius: the extra ring gives the client the neighbours it needs
   to render the edge, so distance 2 is a full 7×7 square.
   """
+  alias Valimc.Data.Grid
 
   @min 2
   @max 32
@@ -84,9 +85,9 @@ defmodule Valimc.Player.ChunkView do
 
   @doc "The sections (routing keys) holding any chunk of the view."
   def regions({{cx, cz}, distance} = view, dimension) do
-    size = Valimc.Data.Grid.region_size()
-    {rx0, rz0} = Valimc.Data.Grid.region_key({cx - distance - 1, cz - distance - 1})
-    {rx1, rz1} = Valimc.Data.Grid.region_key({cx + distance + 1, cz + distance + 1})
+    size = Grid.region_size()
+    {rx0, rz0} = Grid.region_key({cx - distance - 1, cz - distance - 1})
+    {rx1, rz1} = Grid.region_key({cx + distance + 1, cz + distance + 1})
 
     for rx <- rx0..rx1,
         rz <- rz0..rz1,

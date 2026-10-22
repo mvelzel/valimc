@@ -1,5 +1,6 @@
 defmodule Valimc.Protocol.PotionContents do
   @moduledoc "Bounded potion component codec, native equality and pure scaled delivery."
+  alias Valimc.Data.Float32
   alias Valimc.Data.{EffectTypes, PotionTypes}
   alias Valimc.Protocol.Wire
   @max_custom 64
@@ -61,7 +62,7 @@ defmodule Valimc.Protocol.PotionContents do
     validate!(value)
     unless valid_scale?(scale), do: raise(ArgumentError, "invalid potion duration scale")
     base = if value.potion == nil, do: [], else: PotionTypes.effects(value.potion)
-    scale = float32(scale)
+    scale = Float32.round(scale)
 
     Enum.map(base ++ value.effects, fn {id, [{ticks, amp, ambient, particles, icon} | _]} ->
       {id, [{scaled_ticks(ticks, scale), amp, ambient, particles, icon}]}
@@ -72,21 +73,16 @@ defmodule Valimc.Protocol.PotionContents do
   defp scaled_ticks(ticks, _) when ticks < 0, do: 1
 
   defp scaled_ticks(ticks, scale) do
-    product = float32(ticks) * scale
+    product = Float32.round(ticks) * scale
 
     if product > @float_max do
       @int_max
     else
-      product |> float32() |> floor() |> max(1) |> min(@int_max)
+      product |> Float32.round() |> floor() |> max(1) |> min(@int_max)
     end
   end
 
   defp valid_scale?(value), do: is_number(value) and value >= 0 and value <= @float_max
-
-  defp float32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 
   defp valid_effects?([], _, _), do: true
 

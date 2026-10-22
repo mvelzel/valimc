@@ -12,6 +12,7 @@ defmodule Valimc.Commands.Source do
   console's English lines) and `{:collect, pid, ref}` (RCON, whose client
   collects `{ref, text}` messages after the command).
   """
+  alias Valimc.Data.Grid
   alias Valimc.Commands.Parser.Coordinates
   alias Valimc.Text.Error
   alias Valimc.Text
@@ -129,7 +130,7 @@ defmodule Valimc.Commands.Source do
   is not loaded is not started (`argument.pos.unloaded` for the caller).
   """
   def owner(%__MODULE__{dimension: dimension}, key),
-    do: Valimc.World.existing_owner(Valimc.Data.Grid.section(dimension, key, :section))
+    do: Valimc.World.existing_owner(Grid.section(dimension, key, :section))
 
   def self?(%__MODULE__{player: nil}, _target), do: false
   def self?(%__MODULE__{player: player}, target), do: target.pid == player.pid

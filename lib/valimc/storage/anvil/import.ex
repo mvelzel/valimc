@@ -31,6 +31,7 @@ defmodule Valimc.Storage.Anvil.Import do
       mix valimc.import VANILLA_WORLD VALIMC_WORLD
       bin/valimc eval 'Valimc.Storage.Anvil.Import.cli(["VANILLA_WORLD", "VALIMC_WORLD"])'
   """
+  alias Valimc.Data.Grid
   alias Valimc.Storage.Anvil.{BlockEntity, Chunk, Entity, RegionFile}
   alias Valimc.Data.NBT
   alias Valimc.Native
@@ -233,7 +234,7 @@ defmodule Valimc.Storage.Anvil.Import do
 
     groups =
       Enum.reduce(chunks, %{}, fn %{chunk: chunk} = entry, groups ->
-        Map.update(groups, Valimc.Data.Grid.region_key(chunk), %{empty | chunks: [entry]}, fn g ->
+        Map.update(groups, Grid.region_key(chunk), %{empty | chunks: [entry]}, fn g ->
           %{g | chunks: [entry | g.chunks]}
         end)
       end)
@@ -242,15 +243,14 @@ defmodule Valimc.Storage.Anvil.Import do
       {key, field, value} =
         case Entity.convert(tag) do
           {:item, record} ->
-            key = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(record.x, record.z))
+            key = Grid.region_key(Grid.chunk_key(record.x, record.z))
             {key, :items, {chunk, tag, record}}
 
           {:orb, %{position: {x, _, z}} = orb} ->
-            {Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)), :orbs,
-             {chunk, tag, orb}}
+            {Grid.region_key(Grid.chunk_key(x, z)), :orbs, {chunk, tag, orb}}
 
           :preserve ->
-            {Valimc.Data.Grid.region_key(chunk), :preserved, {chunk, tag}}
+            {Grid.region_key(chunk), :preserved, {chunk, tag}}
         end
 
       Map.update(

@@ -4,6 +4,7 @@ defmodule Valimc.Commands.Parser.Coordinates do
   coordinates for `vec3`, `block_pos`, `vec2` and `rotation`, with vanilla's
   centring of integer `vec3` components and errors.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Text.{Error, Reader}
 
   # {:world, [{relative, value}, ...]} or {:local, left, up, forwards}
@@ -158,12 +159,12 @@ defmodule Valimc.Commands.Parser.Coordinates do
 
   def position({:local, left, up, forwards}, {sx, sy, sz}, {yaw, pitch}) do
     rad = :math.pi() / 180.0
-    y_cos = f32(:math.cos((yaw + 90.0) * rad))
-    y_sin = f32(:math.sin((yaw + 90.0) * rad))
-    x_cos = f32(:math.cos(-pitch * rad))
-    x_sin = f32(:math.sin(-pitch * rad))
-    x_cos_up = f32(:math.cos((-pitch + 90.0) * rad))
-    x_sin_up = f32(:math.sin((-pitch + 90.0) * rad))
+    y_cos = Float32.round_or_infinity(:math.cos((yaw + 90.0) * rad))
+    y_sin = Float32.round_or_infinity(:math.sin((yaw + 90.0) * rad))
+    x_cos = Float32.round_or_infinity(:math.cos(-pitch * rad))
+    x_sin = Float32.round_or_infinity(:math.sin(-pitch * rad))
+    x_cos_up = Float32.round_or_infinity(:math.cos((-pitch + 90.0) * rad))
+    x_sin_up = Float32.round_or_infinity(:math.sin((-pitch + 90.0) * rad))
     fwd = {y_cos * x_cos, x_sin, y_sin * x_cos}
     upv = {y_cos * x_cos_up, x_sin_up, y_sin * x_cos_up}
     {lx, ly, lz} = cross(fwd, upv) |> scale(-1.0)
@@ -174,8 +175,6 @@ defmodule Valimc.Commands.Parser.Coordinates do
      sz + (fz * forwards + uz * up + lz * left)}
   end
 
-  defp f32(value), do: Valimc.Text.Reader.to_float32(value)
-
   defp cross({ax, ay, az}, {bx, by, bz}),
     do: {ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx}
 
@@ -185,7 +184,9 @@ defmodule Valimc.Commands.Parser.Coordinates do
   `getRotation` as `{yaw, pitch}`: a rotation argument stores pitch as its x and
   yaw as its y coordinate; local coordinates rotate to zero.
   """
-  def rotation_of({:world, [x, y | _]}, {yaw, pitch}), do: {f32(get(y, yaw)), f32(get(x, pitch))}
+  def rotation_of({:world, [x, y | _]}, {yaw, pitch}),
+    do: {Float32.round_or_infinity(get(y, yaw)), Float32.round_or_infinity(get(x, pitch))}
+
   def rotation_of({:local, _, _, _}, _), do: {0.0, 0.0}
 
   @doc "`getBlockPos`: the floored position."

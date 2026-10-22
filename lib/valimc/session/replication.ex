@@ -1,6 +1,8 @@
 defmodule Valimc.Session.Replication do
   @moduledoc "What a connection's client sees: view distance, chunk streaming and the world's views (VMC-069, VMC-070)."
 
+  alias Valimc.Data.Grid
+
   alias Valimc.Protocol.{
     Packets,
     Wire
@@ -31,7 +33,7 @@ defmodule Valimc.Session.Replication do
   def update_view(state) do
     {center, _} =
       view =
-      {Valimc.Data.Grid.chunk_key(state.player.x, state.player.z),
+      {Grid.chunk_key(state.player.x, state.player.z),
        ChunkView.distance(state.requested_view_distance)}
 
     if view == state.view do
@@ -81,9 +83,9 @@ defmodule Valimc.Session.Replication do
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
   defp want_chunks(%{view: {{cx, cz} = center, distance} = view} = state) do
-    loading = view |> ChunkView.chunks() |> Enum.group_by(&Valimc.Data.Grid.region_key/1)
+    loading = view |> ChunkView.chunks() |> Enum.group_by(&Grid.region_key/1)
     reach = min(Valimc.config(:simulation_distance), distance)
-    size = Valimc.Data.Grid.region_size()
+    size = Grid.region_size()
 
     wanted =
       loading
@@ -91,7 +93,7 @@ defmodule Valimc.Session.Replication do
         (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
       end)
       |> Map.new(fn {key, chunks} ->
-        section = Valimc.Data.Grid.section(state.player.dimension, key, :section)
+        section = Grid.section(state.player.dimension, key, :section)
 
         case World.region(section) do
           {:ok, pid} ->
@@ -111,7 +113,7 @@ defmodule Valimc.Session.Replication do
     # (VMC-077j): only sections the view left (or of the dimension the player
     # left) are told to drop them.
     for {section, pid} <- state.wanted, pid != nil, not Map.has_key?(wanted, section) do
-      {_, key} = Valimc.Data.Grid.split_section(section)
+      {_, key} = Grid.split_section(section)
       Region.ticket(pid, key, :player_loading, nil, [])
       Region.ticket(pid, key, :player_simulation, nil, [])
     end
@@ -246,7 +248,7 @@ defmodule Valimc.Session.Replication do
     dz = z - state.player.z
 
     dx * dx + dz * dz <= limit * limit and
-      ChunkView.contains?(view, Valimc.Data.Grid.chunk_key(x, z))
+      ChunkView.contains?(view, Grid.chunk_key(x, z))
   end
 
   def sees?(_state, _at, _range), do: false
@@ -255,8 +257,8 @@ defmodule Valimc.Session.Replication do
   def entity_chunks(%{view: {_, distance}} = state, range) do
     limit = 16 * min(range, distance)
     %{x: x, z: z} = state.player
-    {cx0, cz0} = Valimc.Data.Grid.chunk_key(x - limit, z - limit)
-    {cx1, cz1} = Valimc.Data.Grid.chunk_key(x + limit, z + limit)
+    {cx0, cz0} = Grid.chunk_key(x - limit, z - limit)
+    {cx1, cz1} = Grid.chunk_key(x + limit, z + limit)
 
     for cx <- cx0..cx1,
         cz <- cz0..cz1,

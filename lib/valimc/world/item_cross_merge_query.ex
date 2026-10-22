@@ -5,6 +5,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   The owner then hands the donor over to merge on arrival
   (`Valimc.Entity.Handoffs`), and the neighbour decides.
   """
+  alias Valimc.Data.Grid
   alias Valimc.{Entity.ItemMerge, World}
 
   @fields [:entity_id, :uuid, :at, :merge_key, :count, :merge_max, :physical_revision]
@@ -12,7 +13,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   # Called at most every 200 ms. Fingerprints are computed on stack changes,
   # never while ticking counters.
   def scene(dimension, {rx, rz} = key, views) do
-    width = Valimc.Data.Grid.region_size() * 16
+    width = Grid.region_size() * 16
 
     donors =
       views

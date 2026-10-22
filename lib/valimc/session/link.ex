@@ -14,6 +14,7 @@ defmodule Valimc.Session.Link do
   `{:player_out, items}`: frames to write and view changes (the player's
   pose and teleport state, a view reset on respawn or travel), in order.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Protocol.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
   alias Valimc.Session.{ChunkSender, Events, Messages, Replication}
@@ -78,7 +79,7 @@ defmodule Valimc.Session.Link do
     session = session(state)
 
     with {:ok, {pid, _}} <-
-           World.owner(Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z))),
+           World.owner(Grid.section(dimension, Grid.chunk_key(x, z))),
          :ok <- host_call(pid, session) do
       link = Map.take(state, @link_keys ++ @shared_keys)
 
@@ -293,7 +294,7 @@ defmodule Valimc.Session.Link do
     {replication, packets} =
       Observer.reconcile(state.entity_replication, desired, fn region, last ->
         World.entity_frames(
-          Valimc.Data.Grid.section(state.player.dimension, region, :section),
+          Grid.section(state.player.dimension, region, :section),
           last
         )
       end)

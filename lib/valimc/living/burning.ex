@@ -6,6 +6,7 @@ defmodule Valimc.Living.Burning do
   fire, lava and extinguish operations of a movement step's contacts. Fresh
   contact, health and persistence belong to the owner.
   """
+  alias Valimc.Data.Float32
   @limit 2048
   @kinds [:fire, :soul_fire, :lava, :water, :powder_snow]
   @minimum -2_147_483_648
@@ -38,8 +39,11 @@ defmodule Valimc.Living.Burning do
 
   def ignite_seconds(current, seconds, factor, invulnerable)
       when counter(current) and is_number(seconds) and seconds >= 0 and seconds <= @float_max do
-    product = f32(seconds) * 20.0
-    ticks = if product >= @maximum, do: @maximum, else: min(@maximum, floor(f32(product)))
+    product = Float32.round(seconds) * 20.0
+
+    ticks =
+      if product >= @maximum, do: @maximum, else: min(@maximum, floor(Float32.round(product)))
+
     ignite_ticks(current, ticks, factor, invulnerable)
   end
 
@@ -112,11 +116,6 @@ defmodule Valimc.Living.Burning do
   end
 
   def fire(_, _, _, _, _), do: {:error, :invalid_burning}
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
-  end
 
   @doc "Bounded ordered fire and fluid operations from a step's contacts; owners apply them while alive."
   def plan(steps) when is_list(steps) and length(steps) <= @limit do

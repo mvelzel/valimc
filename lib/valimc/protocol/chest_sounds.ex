@@ -1,5 +1,6 @@
 defmodule Valimc.Protocol.ChestSounds do
   @moduledoc "Pinned ordinary chest sound bodies and native float32 pitch; delivery belongs to viewer ownership."
+  alias Valimc.Data.Float32
   alias Valimc.Protocol.{Packets, Wire}
   use Valimc.Data.Facts, "protocol/chest_sounds.json"
   @source @facts["blocks_source"]
@@ -9,7 +10,9 @@ defmodule Valimc.Protocol.ChestSounds do
     do: raise("Wrong ordinary chest sound facts")
 
   def pitch(draw) when is_number(draw) and draw >= 0 and draw < 1,
-    do: {:ok, f32(f32(0.9) + f32(f32(draw) * f32(0.1)))}
+    do:
+      {:ok,
+       Float32.round(Float32.round(0.9) + Float32.round(Float32.round(draw) * Float32.round(0.1)))}
 
   def pitch(_), do: {:error, :invalid_chest_sound}
 
@@ -37,10 +40,5 @@ defmodule Valimc.Protocol.ChestSounds do
     dy = y + 0.5 - py
     dz = z + 0.5 - pz
     dx * dx + dy * dy + dz * dz < 256.0
-  end
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
   end
 end

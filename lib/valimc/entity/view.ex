@@ -6,6 +6,7 @@ defmodule Valimc.Entity.View do
   (`Valimc.Entity.Tracking`) adds what observers send at publication: the
   spawn packet at the position clients were last sent, and that position.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Protocol.{EntityPackets, Wire}
 
   defdelegate id, to: Valimc.Entity.Ids, as: :next
@@ -26,7 +27,7 @@ defmodule Valimc.Entity.View do
       epoch: epoch,
       ownership_generation: ownership_generation,
       metadata_revision: 1,
-      chunk: Valimc.Data.Grid.chunk_key(x, z),
+      chunk: Grid.chunk_key(x, z),
       at: {x, y, z},
       velocity: Map.get(entity, :velocity, {0.0, 0.0, 0.0}),
       on_ground: Map.get(entity, :on_ground, false),

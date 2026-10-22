@@ -1,10 +1,11 @@
 defmodule Valimc.World.Chunk do
   @moduledoc "Deterministic flat terrain and 26.3 paletted sections; sparse persisted edits."
+  alias Valimc.Data.Grid
   import Bitwise
   alias Valimc.Protocol.{Data, Packets, Wire}
   alias Valimc.Data.BlockFacts
-  @min_y Valimc.Data.Grid.min_y()
-  @max_y Valimc.Data.Grid.max_y()
+  @min_y Grid.min_y()
+  @max_y Grid.max_y()
   @doc "Whether `y` is inside the caller's dimension's build height (VMC-026b)."
   def valid_y?(y) do
     y >= @min_y and y <= @max_y and

@@ -11,6 +11,7 @@ defmodule Valimc.Living.Effects do
   suppressed levels. Each rung is `{remaining ticks, amplifier, ambient,
   particles, icon}`; -1 ticks is infinite.
   """
+  alias Valimc.Data.Float32
   use Valimc.Data.Facts, "protocol/consume_status.json"
 
   import Bitwise
@@ -303,8 +304,7 @@ defmodule Valimc.Living.Effects do
     # Native instantaneous delivery rounds a signed int shift using double+0.5,
     # JVM d2i truncation, then casts the request to float (including negatives).
     integer = signed |> Kernel.+(0.5) |> trunc()
-    <<result::float-32>> = <<integer::float-32>>
-    result
+    Float32.round(integer)
   end
 
   @doc "A periodic effect's health request from its active head, before duration decrement."
@@ -345,7 +345,7 @@ defmodule Valimc.Living.Effects do
   def hunger([head | _] = instance) do
     if valid_instance?(instance) do
       {ticks, amp, _, _, _} = head
-      <<amount::float-32>> = <<@hunger_coefficient * (amp + 1)::float-32>>
+      amount = Float32.round(@hunger_coefficient * (amp + 1))
       {:ok, if(ticks == 0, do: :none, else: {:exhaust, amount})}
     else
       {:error, :invalid_hunger_effect}
@@ -387,8 +387,7 @@ defmodule Valimc.Living.Effects do
   def food_effects(_, _), do: {:error, :invalid_food_effect_draws}
 
   defp valid_draw?(draw) when is_number(draw) and draw >= 0 and draw < 1 do
-    <<rounded::float-32>> = <<draw::float-32>>
-    rounded == draw
+    Float32.round(draw) == draw
   end
 
   defp valid_draw?(_), do: false

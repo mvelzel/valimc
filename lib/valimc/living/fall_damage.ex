@@ -1,5 +1,6 @@
 defmodule Valimc.Living.FallDamage do
   @moduledoc "Pinned player/entity fall damage arithmetic; owners decide immunity, landing and health effects."
+  alias Valimc.Data.Float32
   defstruct safe_distance: 3.0, attribute_multiplier: 1.0, immune: false
 
   def calculate(distance, material, %__MODULE__{} = facts) do
@@ -7,7 +8,7 @@ defmodule Valimc.Living.FallDamage do
     if bounded?(distance, 0, 60_000_003) and bounded?(material, 0, 4) and
          bounded?(facts.safe_distance, -1024, 1024) and
          bounded?(facts.attribute_multiplier, 0, 100) and is_boolean(facts.immune) do
-      <<rounded::float-32>> = <<material::float-32>>
+      rounded = Float32.round(material)
       raw = (distance + 1.0e-6 - facts.safe_distance) * rounded * facts.attribute_multiplier
       # Native calculateFallDamage returns a signed int, even below the threshold.
       # The caller damages only on positive values. Positive int overflow saturates.

@@ -5,6 +5,7 @@ defmodule Valimc.Text.Number do
   decimal digits of the double rounded half up, not Erlang's exact binary
   rounding), `java/2` is `Float.toString` / `Double.toString`.
   """
+  alias Valimc.Data.Float32
 
   @doc """
   `String.format(Locale.ROOT, "%.<decimals>f", value)`: the shortest decimal
@@ -74,8 +75,7 @@ defmodule Valimc.Text.Number do
     Enum.find_value(0..8, fn decimals ->
       text = :erlang.float_to_binary(magnitude, scientific: decimals)
       {parsed, _} = Float.parse(text)
-      <<rounded::float-32>> = <<parsed::float-32>>
-      if rounded == magnitude, do: scientific(text)
+      if Float32.round(parsed) == magnitude, do: scientific(text)
     end)
     |> then(fn [digits, exponent] -> {digits, exponent} end)
   end

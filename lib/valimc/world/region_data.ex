@@ -1,5 +1,7 @@
 defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
+  alias Valimc.Data.Grid
+
   alias Valimc.World.{
     BlockEntities,
     LootChests,
@@ -505,7 +507,7 @@ defmodule Valimc.World.RegionData do
   defp move_items(state, now) do
     inputs =
       for {id, %{kind: :item, entity: %{x: x, z: z}} = entry} <- state.entities.store.entries,
-          Tickets.simulated?(state.tickets, Valimc.Data.Grid.chunk_key(x, z)) do
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)) do
         %{
           id: id,
           revision: entry.revision,
@@ -794,7 +796,7 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:chunk, key} = message, from, state) do
     cond do
-      Valimc.Data.Grid.region_key(key) != state.key ->
+      Grid.region_key(key) != state.key ->
         {:reply, {:error, :wrong_region}, state}
 
       RegionGeneration.absent?(state.generation, key) ->
@@ -809,7 +811,7 @@ defmodule Valimc.World.RegionData do
   # (VMC-077e): the reply comes once every chunk of `chunks` is installed.
   def handle_call({:await_chunks, chunks} = message, from, state) do
     cond do
-      Enum.any?(chunks, &(Valimc.Data.Grid.region_key(&1) != state.key)) ->
+      Enum.any?(chunks, &(Grid.region_key(&1) != state.key)) ->
         {:reply, {:error, :wrong_region}, state}
 
       chunk = Enum.find(chunks, &RegionGeneration.absent?(state.generation, &1)) ->
@@ -833,7 +835,7 @@ defmodule Valimc.World.RegionData do
           {:error, :stale_revision}
 
         Enum.any?(positions, fn {x, _, z} ->
-          Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) != state.key
+          Grid.region_key(Grid.chunk_key(x, z)) != state.key
         end) ->
           {:error, :wrong_region}
 
@@ -864,7 +866,7 @@ defmodule Valimc.World.RegionData do
       epoch != state.epoch ->
         {:reply, Error.retry(:stale_owner), state}
 
-      Enum.any?(chunks, fn chunk -> Valimc.Data.Grid.region_key(chunk) != state.key end) ->
+      Enum.any?(chunks, fn chunk -> Grid.region_key(chunk) != state.key end) ->
         {:reply, {:error, :wrong_region}, state}
 
       absent_positions?(state, for({cx, cz} <- chunks, do: {cx * 16, 0, cz * 16})) ->
@@ -904,7 +906,7 @@ defmodule Valimc.World.RegionData do
         epoch != state.epoch ->
           Error.retry(:stale_owner)
 
-        Enum.any?(chunks, fn {cx, cz} -> Valimc.Data.Grid.region_key({cx, cz}) != state.key end) ->
+        Enum.any?(chunks, fn {cx, cz} -> Grid.region_key({cx, cz}) != state.key end) ->
           {:error, :wrong_region}
 
         absent_positions?(state, for({cx, cz} <- chunks, do: {cx * 16, 0, cz * 16})) ->
@@ -1206,7 +1208,7 @@ defmodule Valimc.World.RegionData do
 
   # One block set inside a fenced destruction (`remove_block/3`).
   defp set_block(state, {x, y, z} = position, block) do
-    key = Valimc.Data.Grid.chunk_key(x, z)
+    key = Grid.chunk_key(x, z)
 
     cond do
       Permits.locked?(state.permits, [position], System.monotonic_time(:millisecond)) ->
@@ -1221,7 +1223,7 @@ defmodule Valimc.World.RegionData do
       true ->
         previous_blocks = Blocks.get_many(state.blocks, [position])
 
-        if Valimc.Data.Grid.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
+        if Grid.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
              block < Valimc.Protocol.Data.block_state_count() and
              Blocks.put(state.blocks, %{position => block}) == :ok do
           lit = Blocks.light_update(state.blocks, [position])
@@ -1402,7 +1404,7 @@ defmodule Valimc.World.RegionData do
     # Only chunks a simulation ticket covers tick; due ticks elsewhere wait.
     {due, scheduled} =
       ScheduledTicks.take_due(state.scheduled_ticks, tick, fn {x, _, z} ->
-        Tickets.simulated?(state.tickets, Valimc.Data.Grid.chunk_key(x, z))
+        Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
       end)
 
     state = %{state | scheduled_ticks: scheduled}
@@ -1441,7 +1443,7 @@ defmodule Valimc.World.RegionData do
     effects =
       for {{x, _, z} = position, block} <-
             Blocks.random_ticks(state.blocks, state.random_tick_speed),
-          Tickets.simulated?(state.tickets, Valimc.Data.Grid.chunk_key(x, z)),
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           in_region?(state, position),
           module = state.tick_index[block],
           effect <- module.random_tick(position, block, read, &random/1),
@@ -1536,7 +1538,7 @@ defmodule Valimc.World.RegionData do
   # The run's outcome split by the section of each cell; cells outside the
   # group (ticks only) are dropped.
   defp by_section(outcome, state) do
-    key = fn {x, _, z} -> Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) end
+    key = fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end
     empty = %{changes: [], destroyed: [], ticks: []}
 
     [changes: outcome.changes, destroyed: outcome.destroyed, ticks: outcome.ticks]
@@ -1770,9 +1772,9 @@ defmodule Valimc.World.RegionData do
 
   # A chunk not generated yet is outside, like a neighbour region's (VMC-075).
   defp in_region?(state, {x, y, z}) do
-    chunk = Valimc.Data.Grid.chunk_key(x, z)
+    chunk = Grid.chunk_key(x, z)
 
-    Valimc.Data.Grid.region_key(chunk) == state.key and Chunk.valid_y?(y) and
+    Grid.region_key(chunk) == state.key and Chunk.valid_y?(y) and
       not RegionGeneration.absent?(state.generation, chunk)
   end
 
@@ -1780,14 +1782,14 @@ defmodule Valimc.World.RegionData do
     do:
       RegionGeneration.any_absent?(
         state.generation,
-        Enum.map(positions, fn {x, _, z} -> Valimc.Data.Grid.chunk_key(x, z) end)
+        Enum.map(positions, fn {x, _, z} -> Grid.chunk_key(x, z) end)
       )
 
   defp want_positions(state, positions),
     do:
       RegionGeneration.urgent(
         state,
-        positions |> Enum.map(fn {x, _, z} -> Valimc.Data.Grid.chunk_key(x, z) end) |> Enum.uniq()
+        positions |> Enum.map(fn {x, _, z} -> Grid.chunk_key(x, z) end) |> Enum.uniq()
       )
 
   defp apply_tick_effects(state, []), do: state
@@ -2269,7 +2271,7 @@ defmodule Valimc.World.RegionData do
 
   # The update packet of a live imported block entity with an update tag, or nil.
   defp preserved_update(state, {x, _, z} = position) do
-    with true <- Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == state.key,
+    with true <- Grid.region_key(Grid.chunk_key(x, z)) == state.key,
          %{type: type, update: update} when update != nil <-
            BlockEntities.live(state.block_entities, position, Blocks.get(state.blocks, position)) do
       Valimc.Blocks.ChestBlockEntity.data_packet(position, type, update)
@@ -2360,9 +2362,7 @@ defmodule Valimc.World.RegionData do
     }
 
     chunks =
-      Enum.uniq(
-        Enum.map(Map.keys(proposal.changes), fn {x, _, z} -> Valimc.Data.Grid.chunk_key(x, z) end)
-      )
+      Enum.uniq(Enum.map(Map.keys(proposal.changes), fn {x, _, z} -> Grid.chunk_key(x, z) end))
 
     state =
       state
@@ -2450,7 +2450,7 @@ defmodule Valimc.World.RegionData do
       if Valimc.Blocks.Chest.single?(block) and
            not Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) do
         Enum.all?(Valimc.Blocks.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
-          Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == state.key and
+          Grid.region_key(Grid.chunk_key(x, z)) == state.key and
             not Valimc.Blocks.Chest.ordinary?(
               Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
             )
@@ -2591,7 +2591,7 @@ defmodule Valimc.World.RegionData do
   def handle_info(:generation_retry, state), do: {:noreply, RegionGeneration.retry(state)}
 
   def handle_info({:ticket, holder, type, center, chunks}, state) do
-    chunks = Enum.filter(chunks, &(Valimc.Data.Grid.region_key(&1) == state.key))
+    chunks = Enum.filter(chunks, &(Grid.region_key(&1) == state.key))
     tickets = Tickets.put(state.tickets, holder, type, center, chunks, state.game_tick)
     {:noreply, RegionGeneration.pump(%{state | tickets: tickets})}
   end
@@ -2651,9 +2651,7 @@ defmodule Valimc.World.RegionData do
         not valid_block_query?([position], :any) ->
           {:error, :invalid_block_query}
 
-        Valimc.Data.Grid.region_key(
-          Valimc.Data.Grid.chunk_key(elem(position, 0), elem(position, 2))
-        ) !=
+        Grid.region_key(Grid.chunk_key(elem(position, 0), elem(position, 2))) !=
             state.key ->
           {:error, :wrong_region}
 
@@ -2817,11 +2815,11 @@ defmodule Valimc.World.RegionData do
 
     for chunk <-
           lids
-          |> Enum.map(fn {{x, _, z}, _} -> Valimc.Data.Grid.chunk_key(x, z) end)
+          |> Enum.map(fn {{x, _, z}, _} -> Grid.chunk_key(x, z) end)
           |> Enum.uniq() do
       positions =
         for {{x, _, z} = position, {_, count}} <- viewers.positions,
-            count > 0 and Valimc.Data.Grid.chunk_key(x, z) == chunk,
+            count > 0 and Grid.chunk_key(x, z) == chunk,
             do: position
 
       positions = Enum.sort(positions)
@@ -2892,7 +2890,7 @@ defmodule Valimc.World.RegionData do
   # A position of this region (generated or not) within the build height.
   defp owns?(state, {x, y, z}),
     do:
-      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == state.key and
+      Grid.region_key(Grid.chunk_key(x, z)) == state.key and
         Chunk.valid_y?(y)
 
   defp box_absent?(state, {x0, _, z0}, {x1, _, z1}) do
@@ -2968,7 +2966,7 @@ defmodule Valimc.World.RegionData do
 
     {local, borders} =
       Enum.split_with(steps, fn %{position: {x, _, z}} ->
-        Valimc.Data.Grid.section(state.dimension, Valimc.Data.Grid.chunk_key(x, z)) == route
+        Grid.section(state.dimension, Grid.chunk_key(x, z)) == route
       end)
 
     {local, state} = portal_contacts(state, local)
@@ -2989,7 +2987,7 @@ defmodule Valimc.World.RegionData do
     {nearby, away} =
       borders
       |> Enum.group_by(fn %{position: {x, _, z}} ->
-        Valimc.Data.Grid.section(state.dimension, Valimc.Data.Grid.chunk_key(x, z))
+        Grid.section(state.dimension, Grid.chunk_key(x, z))
       end)
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.split_with(fn {destination, _} -> local_destination?(state, destination) end)

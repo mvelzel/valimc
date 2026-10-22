@@ -1,5 +1,6 @@
 defmodule Valimc.Entity.ItemMerges do
   @moduledoc "Atomic bounded same-owner merge plans; persist the result before publication."
+  alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.{Entity.ItemMerge, Entity.Store}
 
@@ -76,9 +77,7 @@ defmodule Valimc.Entity.ItemMerges do
            {:ok, next, [recipient_handle]} <-
              Store.advance(
                next,
-               Valimc.Data.Grid.region_key(
-                 Valimc.Data.Grid.chunk_key(recipient.entity.x, recipient.entity.z)
-               ),
+               Grid.region_key(Grid.chunk_key(recipient.entity.x, recipient.entity.z)),
                epoch,
                [
                  %{

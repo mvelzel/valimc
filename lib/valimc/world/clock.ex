@@ -1,4 +1,5 @@
 defmodule Valimc.World.Clock do
+  alias Valimc.Data.Float32
   use GenServer
   alias Valimc.Protocol.Packets
 
@@ -206,7 +207,7 @@ defmodule Valimc.World.Clock do
           %{clock | paused: value}
 
         :rate when is_number(value) and value >= 0 and value <= 1024 ->
-          %{clock | rate: ClockState.float32(value)}
+          %{clock | rate: Float32.round(value)}
 
         _ ->
           nil

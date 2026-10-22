@@ -15,6 +15,7 @@ defmodule Valimc.Worldgen.SpawnSearch do
   that top meets a block with a full collision face on top before any fluid;
   the spawn is the block above it.
   """
+  alias Valimc.Data.Grid
   import Bitwise
   alias Valimc.Native
   alias Valimc.Data.BlockFacts
@@ -81,13 +82,13 @@ defmodule Valimc.Worldgen.SpawnSearch do
 
   @doc "The first safe spawn in a generated chunk (`getSpawnPosInChunk`), or nil."
   def spawn_in_chunk({cx, cz}, image) do
-    layers = for y <- Valimc.Data.Grid.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
+    layers = for y <- Grid.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(cx, cz, 1, layers, 4 * 1024 * 1024)
     :ok = Native.put_column_image(ref, cx, cz, image)
 
     Enum.find_value(for(x <- 0..15, z <- 0..15, do: {cx * 16 + x, cz * 16 + z}), fn {x, z} ->
       positions =
-        for y <- Valimc.Data.Grid.min_y()..319,
+        for y <- Grid.min_y()..319,
             into: <<>>,
             do: <<x::32-signed, y::32-signed, z::32-signed>>
 
@@ -105,7 +106,7 @@ defmodule Valimc.Worldgen.SpawnSearch do
   up, or nil (`getLevelRespawnPos` outside cave worlds).
   """
   def respawn_y(column) when is_tuple(column) do
-    min = Valimc.Data.Grid.min_y()
+    min = Grid.min_y()
     top = height(column, @motion_blocking)
     surface = height(column, @world_surface)
 
@@ -125,7 +126,7 @@ defmodule Valimc.Worldgen.SpawnSearch do
 
     cond do
       BlockFacts.fluid(state).kind != :empty -> nil
-      BlockFacts.flag?(state, :collision_up) -> index + 1 + Valimc.Data.Grid.min_y()
+      BlockFacts.flag?(state, :collision_up) -> index + 1 + Grid.min_y()
       true -> scan(column, index - 1)
     end
   end
@@ -136,11 +137,11 @@ defmodule Valimc.Worldgen.SpawnSearch do
   @doc "A heightmap's value (`ChunkAccess.getHeight`): the highest matching y, or below the world."
   def height(column, bit), do: height(column, bit, tuple_size(column) - 1)
 
-  defp height(_column, _bit, index) when index < 0, do: Valimc.Data.Grid.min_y() - 1
+  defp height(_column, _bit, index) when index < 0, do: Grid.min_y() - 1
 
   defp height(column, bit, index) do
     if (BlockFacts.heightmap(elem(column, index)) &&& bit) != 0,
-      do: index + Valimc.Data.Grid.min_y(),
+      do: index + Grid.min_y(),
       else: height(column, bit, index - 1)
   end
 end

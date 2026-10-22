@@ -1,5 +1,6 @@
 defmodule Valimc.Commands.Timers do
   @moduledoc "`/stopwatch` and `/tick` (VMC-053j) over `Valimc.World.Stopwatches` and `Valimc.World.TickRate`."
+  alias Valimc.Data.Float32
   alias Valimc.Text.Error
   alias Valimc.Commands.Feedback
   alias Valimc.Text
@@ -62,7 +63,7 @@ defmodule Valimc.Commands.Timers do
   alias Valimc.World.TickRate
 
   defp f1(value), do: Valimc.Text.Number.fixed(value * 1.0, 1)
-  defp ms(nanoseconds), do: f1(Valimc.Text.Reader.to_float32(nanoseconds / 1.0e6))
+  defp ms(nanoseconds), do: f1(Float32.round_or_infinity(nanoseconds / 1.0e6))
 
   @doc "`/tick query|rate|freeze|unfreeze|step [stop]|sprint [stop]`."
   def tick(%{literals: literals} = arguments, source) do

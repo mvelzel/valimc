@@ -29,7 +29,10 @@ defmodule Valimc.WorldClockTest do
   test "host controls validate, reset fractions on set, and publish immediate immutable corrections" do
     pid = clock()
     assert :ok = Clock.configure({"minecraft:overworld", :rate, 0.1}, pid)
-    assert Clock.snapshot(pid).clocks["minecraft:overworld"].rate == ClockState.float32(0.1)
+
+    assert Clock.snapshot(pid).clocks["minecraft:overworld"].rate ==
+             Valimc.Data.Float32.round(0.1)
+
     assert :ok = Clock.configure({"minecraft:overworld", :ticks, 18_000}, pid)
     assert :ok = Clock.configure({"minecraft:overworld", :paused, true}, pid)
     assert Clock.snapshot(pid).clocks["minecraft:overworld"].partial_tick == 0.0

@@ -1,5 +1,6 @@
 defmodule Valimc.Living.FoodItems do
   @moduledoc "Pinned consumable facts and pure eligibility/remainder rules; the player owns item use."
+  alias Valimc.Data.Float32
   alias Valimc.Protocol.ItemStack
   @empty %{food: nil, consumable: nil, remainder: nil, other_listeners: []}
   @float_max 3.4028234663852886e38
@@ -63,8 +64,11 @@ defmodule Valimc.Living.FoodItems do
     do: abilities.invulnerable or props.can_always_eat or food.level < 20
 
   def duration(seconds) when is_number(seconds) and seconds >= 0 and seconds <= @float_max do
-    product = f32(seconds) * 20.0
-    if product >= 2_147_483_647, do: 2_147_483_647, else: min(2_147_483_647, trunc(f32(product)))
+    product = Float32.round(seconds) * 20.0
+
+    if product >= 2_147_483_647,
+      do: 2_147_483_647,
+      else: min(2_147_483_647, trunc(Float32.round(product)))
   end
 
   @doc "Resolve the native remainder after count consumption; extras still need inventory/drop delivery."
@@ -81,9 +85,4 @@ defmodule Valimc.Living.FoodItems do
         do: nil,
         else: Map.get(stack.components, name, default)
       )
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
-  end
 end

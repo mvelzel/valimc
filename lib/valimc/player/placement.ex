@@ -12,6 +12,7 @@ defmodule Valimc.Player.Placement do
   portals light them in a task (`Valimc.World.Portal.Items`), since a portal's
   frame may span sections.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.Blocks.Placement, as: Rules
   alias Valimc.Protocol.{Data, Packets, UseItemOn}
@@ -37,7 +38,7 @@ defmodule Valimc.Player.Placement do
             not state.teleport_pending and
             MapSet.member?(
               near_chunks(state.player),
-              Valimc.Data.Grid.chunk_key(elem(request.position, 0), elem(request.position, 2))
+              Grid.chunk_key(elem(request.position, 0), elem(request.position, 2))
             ) and
             Mining.reachable?(state, request.position) and
               Valimc.Living.Interaction.valid_hit?(request.position, request.cursor) ->
@@ -147,7 +148,7 @@ defmodule Valimc.Player.Placement do
   # The chunks around the player: a reachable block is in one of them, and its
   # client has them once it confirmed its position.
   defp near_chunks(%{x: x, z: z}) do
-    {cx, cz} = Valimc.Data.Grid.chunk_key(x, z)
+    {cx, cz} = Grid.chunk_key(x, z)
     MapSet.new(for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz})
   end
 
@@ -266,13 +267,11 @@ defmodule Valimc.Player.Placement do
     updates =
       positions
       |> Enum.group_by(fn {x, _, z} ->
-        Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+        Grid.region_key(Grid.chunk_key(x, z))
       end)
       |> Enum.flat_map(fn {key, positions} ->
         with {:ok, owner} <-
-               World.existing_owner(
-                 Valimc.Data.Grid.section(state.player.dimension, key, :section)
-               ),
+               World.existing_owner(Grid.section(state.player.dimension, key, :section)),
              :ok <- Region.correct_blocks(owner, positions, state.connection) do
           for position <- positions,
               {:ok, update} <- [Region.block_entity_update(owner, position)],
@@ -290,9 +289,9 @@ defmodule Valimc.Player.Placement do
   defp owner({x, _, z}),
     do:
       World.existing_owner(
-        Valimc.Data.Grid.section(
+        Grid.section(
           Valimc.World.Dimension.current(),
-          Valimc.Data.Grid.chunk_key(x, z)
+          Grid.chunk_key(x, z)
         )
       )
 
@@ -301,7 +300,7 @@ defmodule Valimc.Player.Placement do
   defp admitted?(plan, body) do
     {x, _, z} = plan.candidate.position
 
-    MapSet.member?(body.chunks, Valimc.Data.Grid.chunk_key(x, z)) and
+    MapSet.member?(body.chunks, Grid.chunk_key(x, z)) and
       not Kernel.obstructs?(plan.candidate.state, plan.candidate.position, @placement, body.boxes)
   end
 
@@ -312,7 +311,7 @@ defmodule Valimc.Player.Placement do
 
     groups =
       Enum.group_by(positions, fn {x, _, z} ->
-        Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+        Grid.region_key(Grid.chunk_key(x, z))
       end)
 
     with [{key, positions}] <- Map.to_list(groups),
@@ -363,7 +362,7 @@ defmodule Valimc.Player.Placement do
       neighbors = Valimc.Blocks.ChestPlacement.neighbors(candidate.position)
 
       if Enum.all?(neighbors, fn {x, _, z} ->
-           Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key
+           Grid.region_key(Grid.chunk_key(x, z)) == key
          end) do
         with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),
              false <-

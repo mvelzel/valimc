@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.RelativeMotion do
   @moduledoc "Native relative-input math; callers own intent, attributes and simulation admission."
-  import Valimc.Physics.Kernel, only: [f32: 1]
+  alias Valimc.Data.Float32
   import Bitwise
   @sin_scale 10_430.378350470453
 
@@ -29,9 +29,9 @@ defmodule Valimc.Physics.RelativeMotion do
           {x, y, z}
         end
 
-      speed = f32(speed)
+      speed = Float32.round(speed)
       {x, y, z} = {x * speed, y * speed, z * speed}
-      angle = f32(f32(yaw) * f32(0.017453292))
+      angle = Float32.round(Float32.round(yaw) * Float32.round(0.017453292))
       sin = trig(trunc(angle * @sin_scale))
       cos = trig(trunc(angle * @sin_scale + 16_384.0))
       {:ok, {x * cos - z * sin, y, z * cos + x * sin}}
@@ -58,30 +58,43 @@ defmodule Valimc.Physics.RelativeMotion do
   def speed(_, _), do: {:error, :invalid_relative_motion}
 
   defp rate(:air, %{on_ground: true} = f) do
-    friction = f32(f.friction)
-    speed = f32(f.movement_speed)
+    friction = Float32.round(f.friction)
+    speed = Float32.round(f.movement_speed)
 
     if friction > 0.6,
-      do: f32(speed * f32(f32(0.21600002) / f32(f32(friction * friction) * friction))),
+      do:
+        Float32.round(
+          speed *
+            Float32.round(
+              Float32.round(0.21600002) /
+                Float32.round(Float32.round(friction * friction) * friction)
+            )
+        ),
       else: speed
   end
 
   defp rate(:air, %{flying: true} = f),
-    do: f32(f32(f.flying_speed) * if(f.sprint, do: 2, else: 1))
+    do: Float32.round(Float32.round(f.flying_speed) * if(f.sprint, do: 2, else: 1))
 
-  defp rate(:air, f), do: f32(if(f.sprint, do: 0.025999999, else: 0.02))
+  defp rate(:air, f), do: Float32.round(if(f.sprint, do: 0.025999999, else: 0.02))
 
   defp rate(:water, f) do
-    efficiency = f32(f.water_efficiency)
-    efficiency = if f.on_ground, do: efficiency, else: f32(efficiency * f32(0.5))
-    base = f32(0.02)
+    efficiency = Float32.round(f.water_efficiency)
+
+    efficiency =
+      if f.on_ground, do: efficiency, else: Float32.round(efficiency * Float32.round(0.5))
+
+    base = Float32.round(0.02)
 
     if efficiency > 0,
-      do: f32(base + f32(f32(f32(f.movement_speed) - base) * efficiency)),
+      do:
+        Float32.round(
+          base + Float32.round(Float32.round(Float32.round(f.movement_speed) - base) * efficiency)
+        ),
       else: base
   end
 
-  defp rate(:lava, _), do: f32(0.02)
+  defp rate(:lava, _), do: Float32.round(0.02)
 
   defp valid?(f),
     do:
@@ -90,5 +103,5 @@ defmodule Valimc.Physics.RelativeMotion do
         bounded?(f.flying_speed, 0, 64) and bounded?(f.water_efficiency, 0, 1)
 
   defp bounded?(v, lo, hi), do: is_number(v) and v >= lo and v <= hi
-  defp trig(index), do: f32(:math.sin((index &&& 65_535) / @sin_scale))
+  defp trig(index), do: Float32.round(:math.sin((index &&& 65_535) / @sin_scale))
 end

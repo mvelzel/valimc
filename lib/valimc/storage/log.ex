@@ -36,6 +36,7 @@ defmodule Valimc.Storage.Log do
   it on the way. Worlds written before this log (per-region `r.X.Z/` logs,
   `players/wal.<n>/`) are refused (D4).
   """
+  alias Valimc.Data.Grid
   use GenServer, restart: :temporary
   require Logger
   alias Valimc.Storage.Checkpoint
@@ -217,7 +218,7 @@ defmodule Valimc.Storage.Log do
 
   defp recover(_base, {:region, dimension, key}) do
     Task.start(fn ->
-      Valimc.World.Directory.admit(Valimc.Data.Grid.section(dimension, key, :section))
+      Valimc.World.Directory.admit(Grid.section(dimension, key, :section))
     end)
   end
 

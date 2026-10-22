@@ -316,12 +316,6 @@ defmodule Valimc.Physics.Kernel do
       {Enum.map(axes, fn a -> Enum.map(a, &(&1 * 1.0)) end), sizes,
        Base.decode16!(bits, case: :lower)}
 
-  @doc "`value` rounded to a 32-bit float (Java's `(float)` cast)."
-  def f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
-
   @doc "A context as the kernel takes it."
   def context(%CollisionContext{} = c) do
     {{c.kind == :entity, c.bottom * 1.0, c.descending, c.placement},

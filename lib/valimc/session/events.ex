@@ -7,6 +7,8 @@ defmodule Valimc.Session.Events do
   changes that touch mining, menus and the pose).
   """
 
+  alias Valimc.Data.Grid
+
   alias Valimc.Protocol.{
     Packets
   }
@@ -65,10 +67,10 @@ defmodule Valimc.Session.Events do
         %{phase: :play} = state,
         {:chest_lid, owner, {x, _, z} = position, open, frame, sound}
       ) do
-    chunk = Valimc.Data.Grid.chunk_key(x, z)
+    chunk = Grid.chunk_key(x, z)
 
     if MapSet.member?(state.chunks, chunk) and
-         World.existing_owner(Valimc.Data.Grid.section(state.player.dimension, chunk)) ==
+         World.existing_owner(Grid.section(state.player.dimension, chunk)) ==
            {:ok, owner} do
       lids = ChestLidReplication.observe(state.chest_lids, owner, position, open)
 
@@ -112,7 +114,7 @@ defmodule Valimc.Session.Events do
   end
 
   def view(%{phase: :play} = state, {:block, {x, _, z} = pos, block}) do
-    if MapSet.member?(state.chunks, Valimc.Data.Grid.chunk_key(x, z)),
+    if MapSet.member?(state.chunks, Grid.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
     state
@@ -142,7 +144,7 @@ defmodule Valimc.Session.Events do
   def view(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
     packets =
       for {{x, y, z} = position, type, data} <- events,
-          MapSet.member?(state.chunks, Valimc.Data.Grid.chunk_key(x, z)),
+          MapSet.member?(state.chunks, Grid.chunk_key(x, z)),
           (x - px) * (x - px) + (y - py) * (y - py) + (z - pz) * (z - pz) < 4096.0,
           do: Packets.level_event(type, position, data)
 

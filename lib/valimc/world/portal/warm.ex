@@ -16,6 +16,7 @@ defmodule Valimc.World.Portal.Warm do
   It is best effort: with the worker pool full it is skipped, and the
   destination job then loads the owners and asks for the chunks itself.
   """
+  alias Valimc.Data.Grid
   alias Valimc.World.Portal.{Destination, EndPortal}
   alias Valimc.World
 
@@ -58,21 +59,21 @@ defmodule Valimc.World.Portal.Warm do
     for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
         cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
         uniq: true,
-        do: Valimc.Data.Grid.region_key({cx, cz})
+        do: Grid.region_key({cx, cz})
   end
 
   defp admit(dimension, {x0, z0, x1, z1} = area) do
-    center = Valimc.Data.Grid.chunk_key(div(x0 + x1, 2), div(z0 + z1, 2))
+    center = Grid.chunk_key(div(x0 + x1, 2), div(z0 + z1, 2))
 
     chunks =
       for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
           cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
           do: {cx, cz}
 
-    by_region = Enum.group_by(chunks, &Valimc.Data.Grid.region_key/1)
+    by_region = Enum.group_by(chunks, &Grid.region_key/1)
 
     for key <- regions(area),
-        {:ok, pid} <- [World.region(Valimc.Data.Grid.section(dimension, key, :section))],
+        {:ok, pid} <- [World.region(Grid.section(dimension, key, :section))],
         do: Valimc.World.Region.ticket(pid, key, :portal, center, Map.get(by_region, key, []))
   end
 end

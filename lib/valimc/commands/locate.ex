@@ -4,6 +4,8 @@ defmodule Valimc.Commands.Locate do
   world generator (`Native.worldgen_structure_locate`, up to 100 grid rings),
   with `LocateCommand`'s messages. Structure ids and tags are generated facts.
   """
+  alias Valimc.Data.Grid
+  alias Valimc.Data.Float32
   require Logger
   alias Valimc.Text.Error
   alias Valimc.Commands.Feedback
@@ -98,16 +100,11 @@ defmodule Valimc.Commands.Locate do
   end
 
   # `Mth.sqrt(float)`: the argument and the root are both floats.
-  defp mth_sqrt(value), do: float32(:math.sqrt(float32(value)))
+  defp mth_sqrt(value), do: Float32.round(:math.sqrt(Float32.round(value * 1.0)) * 1.0)
 
   defp int32(value) do
     <<wrapped::signed-32>> = <<value::32>>
     wrapped
-  end
-
-  defp float32(value) do
-    <<rounded::float-32>> = <<value * 1.0::float-32>>
-    rounded
   end
 
   # `/locate biome <biome>` in a flat world, whose only biome is plains.
@@ -126,10 +123,10 @@ defmodule Valimc.Commands.Locate do
 
     unless found, do: Error.fail!("commands.locate.biome.not_found", [printable])
     {x, y, z} = source.position
-    min_y = Valimc.Data.Grid.min_y()
+    min_y = Grid.min_y()
 
     {bx, by, bz} =
-      {floor(x), floor(y) |> max(min_y + 1) |> min(Valimc.Data.Grid.max_y() + 1), floor(z)}
+      {floor(x), floor(y) |> max(min_y + 1) |> min(Grid.max_y() + 1), floor(z)}
 
     name = if match?({:tag, _, _}, biome), do: "#{printable} (minecraft:plains)", else: printable
 

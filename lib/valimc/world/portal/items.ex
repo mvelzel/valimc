@@ -19,6 +19,7 @@ defmodule Valimc.World.Portal.Items do
   neighbourhood, commits per region owner, then has the owners resend the
   clicked blocks before the acknowledgement.
   """
+  alias Valimc.Data.Grid
   alias Valimc.World.Portal.{Access, EndPortal, Fire}
   alias Valimc.Blocks.{PortalBlocks, PortalShape}
   alias Valimc.Protocol.{Data, ItemStack}
@@ -67,9 +68,9 @@ defmodule Valimc.World.Portal.Items do
           {x, _, z} = request.position
 
           key =
-            Valimc.Data.Grid.section(
+            Grid.section(
               Valimc.World.Dimension.current(),
-              Valimc.Data.Grid.chunk_key(x, z)
+              Grid.chunk_key(x, z)
             )
 
           World.publish(key, {:level_events, [{request.position, 1503, 0}]})
@@ -156,13 +157,11 @@ defmodule Valimc.World.Portal.Items do
     [request.position, Valimc.Blocks.Placement.adjacent(request)]
     |> Enum.uniq()
     |> Enum.group_by(fn {x, _, z} ->
-      Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+      Grid.region_key(Grid.chunk_key(x, z))
     end)
     |> Enum.reduce_while({:ok, []}, fn {key, positions}, {:ok, packets} ->
       with {:ok, owner} <-
-             World.existing_owner(
-               Valimc.Data.Grid.section(Valimc.World.Dimension.current(), key, :section)
-             ),
+             World.existing_owner(Grid.section(Valimc.World.Dimension.current(), key, :section)),
            :ok <- Region.correct_blocks(owner, positions, connection) do
         {:cont, {:ok, packets}}
       else

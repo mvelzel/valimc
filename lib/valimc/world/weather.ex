@@ -1,7 +1,7 @@
 defmodule Valimc.World.Weather do
   @moduledoc "Pure Overworld weather timers, owned random stream and native float32 intensity ramps."
+  alias Valimc.Data.Float32
   import Bitwise
-  alias Valimc.World.ClockState
   @mask 0xFFFFFFFFFFFF
   @multiplier 0x5DEECE66D
   defstruct clear_time: 0,
@@ -147,8 +147,8 @@ defmodule Valimc.World.Weather do
   end
 
   defp intensity(value, flag) do
-    step = ClockState.float32(0.01)
+    step = Float32.round(0.01)
     delta = if flag, do: step, else: -step
-    value |> Kernel.+(delta) |> ClockState.float32() |> max(0.0) |> min(1.0)
+    value |> Kernel.+(delta) |> Float32.round() |> max(0.0) |> min(1.0)
   end
 end

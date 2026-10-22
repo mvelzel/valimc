@@ -11,6 +11,7 @@ defmodule Valimc.Player.Menus do
   a furnace's progress or the block's removal arrive as events that mark the
   view for a refresh, check it, or close it.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
   alias Valimc.Player.{CreativeInventory, Items, ItemUse, Mining}
   alias Valimc.Menus.{Inventory, Menu, Click}
@@ -26,7 +27,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "Use of the block at `position` (a `use_item_on`): open its menu, or place against it."
   def use_block(state, {x, _, z} = position, request) do
-    section = Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
+    section = Grid.section(state.player.dimension, Grid.chunk_key(x, z))
 
     with {:ok, owner} <- World.existing_owner(section),
          decision when not is_tuple(decision) or elem(decision, 0) != :error <-
@@ -218,9 +219,7 @@ defmodule Valimc.Player.Menus do
 
   defp current_owner?(state, %{position: {x, _, z}, owner: owner}),
     do:
-      World.existing_owner(
-        Valimc.Data.Grid.section(state.player.dimension, Valimc.Data.Grid.chunk_key(x, z))
-      ) ==
+      World.existing_owner(Grid.section(state.player.dimension, Grid.chunk_key(x, z))) ==
         {:ok, owner}
 
   @doc "Another change to the open container (`container_changed`): it refreshes."

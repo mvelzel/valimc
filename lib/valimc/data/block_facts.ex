@@ -13,6 +13,7 @@ defmodule Valimc.Data.BlockFacts do
   world or the registry, and an id outside the table raises. `install!/0`
   gives the Rust core the columns it reads.
   """
+  alias Valimc.Data.Float32
   import Bitwise
   use Valimc.Data.Facts, "registry/block_facts.json"
   alias Valimc.Native
@@ -145,8 +146,10 @@ defmodule Valimc.Data.BlockFacts do
   @mining_states states.("mining")
   @minings palette.("mining", fn m ->
              hardness = m["hardness"]
-             <<rounded::float-32>> = <<hardness::float-32>>
-             unless rounded == hardness, do: raise("Noncanonical mining hardness")
+
+             unless Float32.round(hardness) == hardness,
+               do: raise("Noncanonical mining hardness")
+
              {hardness, m["requires_correct_tool"]}
            end)
 

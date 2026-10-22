@@ -17,8 +17,9 @@ defmodule Valimc.World.Dimension do
   to 319); the Nether's and the End's blocks (y 0 to 255) fill sections 4 to
   19 and the rest stays air. Packets send only the dimension's own sections.
   """
+  alias Valimc.Data.Grid
 
-  @ids Valimc.Data.Grid.levels()
+  @ids Grid.levels()
   @context {__MODULE__, :current}
 
   def ids, do: @ids

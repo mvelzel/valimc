@@ -21,6 +21,7 @@ defmodule Valimc.World.PlayerSpawn do
   are awaited, as vanilla blocks on its chunk loads. The search is bounded by a
   deadline, after which the suggestion's block centre is used.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.Data.BlockFacts
   alias Valimc.World.{Border, Clock, Spawn, View}
@@ -110,7 +111,7 @@ defmodule Valimc.World.PlayerSpawn do
   # `fixupSpawnHeight`: up out of anything solid, then down to the first floor.
   defp fixup({x, y, z}, deadline) do
     column = column(x, z, deadline)
-    min = Valimc.Data.Grid.min_y()
+    min = Grid.min_y()
     max = min + tuple_size(column) - 1
     up = Stream.iterate(y, &(&1 + 1)) |> Enum.find(&(clear?(column, x, &1, z) or &1 >= max))
 
@@ -134,7 +135,7 @@ defmodule Valimc.World.PlayerSpawn do
 
     # Outside the world's height is air.
     Enum.all?((y - 1)..(y + 1), fn by ->
-      index = by - Valimc.Data.Grid.min_y()
+      index = by - Grid.min_y()
 
       if index < 0 or index >= tuple_size(column) do
         true
@@ -158,10 +159,10 @@ defmodule Valimc.World.PlayerSpawn do
   `:spawn_search` ticket, as vanilla blocks on its chunk loads.
   """
   def column(x, z, deadline) do
-    case View.await([Valimc.Data.Grid.chunk_key(x, z)], :spawn_search, deadline) do
+    case View.await([Grid.chunk_key(x, z)], :spawn_search, deadline) do
       {:ok, view} ->
         view
-        |> View.blocks(for(y <- Valimc.Data.Grid.min_y()..319, do: {x, y, z}))
+        |> View.blocks(for(y <- Grid.min_y()..319, do: {x, y, z}))
         |> List.to_tuple()
 
       {:error, _} ->

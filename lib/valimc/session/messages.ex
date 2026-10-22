@@ -7,6 +7,7 @@ defmodule Valimc.Session.Messages do
   (`Valimc.Session.Link`).
   """
 
+  alias Valimc.Data.Grid
   require Logger
 
   alias Valimc.Data.EffectTypes
@@ -549,9 +550,9 @@ defmodule Valimc.Session.Messages do
   # The items and orbs within reach of a pickup: the chunks around the player.
   defp touching(state) do
     %{x: x, z: z, dimension: dimension} = state.player
-    {cx, cz} = Valimc.Data.Grid.chunk_key(x, z)
+    {cx, cz} = Grid.chunk_key(x, z)
     chunks = for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}
-    sections = MapSet.new(chunks, &Valimc.Data.Grid.section(dimension, &1))
+    sections = MapSet.new(chunks, &Grid.section(dimension, &1))
     World.visible_entities(sections, chunks, state.pickup_cache)
   end
 end

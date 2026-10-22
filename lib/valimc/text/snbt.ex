@@ -8,6 +8,7 @@ defmodule Valimc.Text.Snbt do
   `\\N{name}` escapes need Java's Unicode character-name table and are refused
   with a ValiMC message, as are escapes that produce lone surrogates.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Text.{Error, Packrat, Reader}
   import Packrat, only: [get: 2, get: 3, get_any: 2, mark: 1, store: 3]
 
@@ -435,7 +436,7 @@ defmodule Valimc.Text.Snbt do
         {nil, store(state, mark(state), delayed("infinity_not_allowed"))}
 
       {:float, value} ->
-        case Reader.to_float32(value) do
+        case Float32.round_or_infinity(value) do
           f when f in [:infinity, :neg_infinity] ->
             {nil, store(state, mark(state), delayed("infinity_not_allowed"))}
 

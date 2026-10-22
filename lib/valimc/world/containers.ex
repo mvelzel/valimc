@@ -1,5 +1,6 @@
 defmodule Valimc.World.Containers do
   @moduledoc "Region-owned container snapshots; persistent revisions fence stale views across replacement."
+  alias Valimc.Data.Grid
   alias Valimc.Protocol.ItemStack
 
   alias Valimc.World.{Chunk, CookingEntry}
@@ -255,7 +256,7 @@ defmodule Valimc.World.Containers do
     do:
       region?(key) and x in -2_147_483_648..2_147_483_647 and
         z in -2_147_483_648..2_147_483_647 and Chunk.valid_y?(y) and
-        Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z)) == key
+        Grid.region_key(Grid.chunk_key(x, z)) == key
 
   defp owned?(_, _), do: false
 

@@ -1,4 +1,5 @@
 defmodule Valimc.Player.PlayerList do
+  alias Valimc.Data.Grid
   use GenServer
 
   @moduledoc "Admission and lifecycle only. Spatial updates and packet traffic bypass this process."
@@ -40,7 +41,7 @@ defmodule Valimc.Player.PlayerList do
   `player` before it sends anything about it.
   """
   def around(%{x: x, z: z} = player) do
-    view = {Valimc.Data.Grid.chunk_key(x, z), Valimc.Player.ChunkView.server_distance()}
+    view = {Grid.chunk_key(x, z), Valimc.Player.ChunkView.server_distance()}
     nearby(Valimc.Player.ChunkView.regions(view, Map.get(player, :dimension, :overworld)))
   end
 
@@ -54,9 +55,9 @@ defmodule Valimc.Player.PlayerList do
   # The section the player is in (VMC-026b, VMC-077j).
   defp spatial_key(player),
     do:
-      Valimc.Data.Grid.section(
+      Grid.section(
         Map.get(player, :dimension, :overworld),
-        Valimc.Data.Grid.chunk_key(player.x, player.z)
+        Grid.chunk_key(player.x, player.z)
       )
 
   def broadcast(event, except \\ nil) do

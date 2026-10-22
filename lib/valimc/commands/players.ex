@@ -5,6 +5,7 @@ defmodule Valimc.Commands.Players do
   classes. Each target applies its change in its own connection, all at once
   (`Valimc.Commands.Remote`); messages follow `CommandResponseTracker`.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Commands.Parser.Coordinates
   alias Valimc.Text.Error
   alias Valimc.Commands.{Feedback, Names, Source, Targets}
@@ -199,8 +200,8 @@ defmodule Valimc.Commands.Players do
     dy = ty - pose.y
     dz = tz - pose.z
     horizontal = :math.sqrt(dx * dx + dz * dz)
-    pitch = wrap(f32(-(:math.atan2(dy, horizontal) * 180.0 / :math.pi())))
-    yaw = wrap(f32(:math.atan2(dz, dx) * 180.0 / :math.pi()) - 90.0)
+    pitch = wrap(Float32.round_or_infinity(-(:math.atan2(dy, horizontal) * 180.0 / :math.pi())))
+    yaw = wrap(Float32.round_or_infinity(:math.atan2(dz, dx) * 180.0 / :math.pi()) - 90.0)
     %{pose | yaw: yaw, pitch: clamp_pitch(pitch)}
   end
 
@@ -473,8 +474,6 @@ defmodule Valimc.Commands.Players do
 
     total
   end
-
-  defp f32(value), do: Valimc.Text.Reader.to_float32(value)
 
   # `Mth.wrapDegrees` for floats.
   defp wrap(degrees) do

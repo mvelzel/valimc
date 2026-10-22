@@ -11,6 +11,7 @@ defmodule Valimc.Commands.Targets do
   players the spatial index holds in the regions it can reach. Players are
   ValiMC's only selectable entities until mobs have owners.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Text.Error
   alias Valimc.Text.{Range, Selector}
   alias Valimc.Protocol.Registries
@@ -110,7 +111,7 @@ defmodule Valimc.Commands.Targets do
 
   # Players the spatial index holds in the regions within `radius` of `{x, z}`.
   defp nearby(source, {x, z, radius}) do
-    size = Valimc.Data.Grid.region_size() * 16
+    size = Grid.region_size() * 16
     [rx0, rx1] = for edge <- [x - radius, x + radius], do: Integer.floor_div(floor(edge), size)
     [rz0, rz1] = for edge <- [z - radius, z + radius], do: Integer.floor_div(floor(edge), size)
 

@@ -10,6 +10,7 @@ defmodule Valimc.Player.Items do
   item the player touches; an XP pickup takes one unit of an orb at most
   every 100 ms (vanilla's `takeXpDelay` of two ticks).
   """
+  alias Valimc.Data.Grid
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{Drops, Experience, Input}
   alias Valimc.World
@@ -162,18 +163,16 @@ defmodule Valimc.Player.Items do
   defp owner(state) do
     %{x: x, z: z, dimension: dimension} = state.player
 
-    local(
-      World.existing_owner(Valimc.Data.Grid.section(dimension, Valimc.Data.Grid.chunk_key(x, z)))
-    )
+    local(World.existing_owner(Grid.section(dimension, Grid.chunk_key(x, z))))
   end
 
   defp owner_of(state, view),
     do:
       local(
         World.existing_owner(
-          Valimc.Data.Grid.section(
+          Grid.section(
             state.player.dimension,
-            Valimc.Data.Grid.region_key(view.chunk),
+            Grid.region_key(view.chunk),
             :section
           )
         )

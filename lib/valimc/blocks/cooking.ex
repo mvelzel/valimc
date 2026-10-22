@@ -1,5 +1,6 @@
 defmodule Valimc.Blocks.Cooking do
   @moduledoc "Bounded pure cooking transitions; the region must durably admit each entire result."
+  alias Valimc.Data.Float32
   alias Valimc.Blocks.CookingRecipes
   alias Valimc.Protocol.ItemStack
   alias Valimc.Blocks.CookingFuel
@@ -126,7 +127,10 @@ defmodule Valimc.Blocks.Cooking do
         next =
           if state.total > 0 and state.progress < state.total do
             {:ok, recipe} = CookingRecipes.find(elem(state.slots, 0), block, next.speed)
-            progress = ceil(f32(f32(state.progress / state.total) * recipe.cook_ticks))
+
+            progress =
+              ceil(Float32.round(Float32.round(state.progress / state.total) * recipe.cook_ticks))
+
             %{next | progress: progress, total: recipe.cook_ticks}
           else
             next
@@ -146,11 +150,6 @@ defmodule Valimc.Blocks.Cooking do
 
   defp result(state, drops \\ [], completed \\ nil),
     do: {:ok, state, %{lit: state.burn_left > 0, drops: drops, completed: completed}}
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 
   @doc false
   def valid?(%__MODULE__{} = state) do

@@ -6,6 +6,7 @@ defmodule Valimc.Text.Reader do
   are read as a tuple of UTF-16 code units. Readers are values; parsers return the
   advanced reader and raise syntax errors with `Valimc.Text.Error.throw!/1`.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Text.Error
 
   defstruct [:units, :size, cursor: 0]
@@ -152,7 +153,7 @@ defmodule Valimc.Text.Reader do
     value =
       case {value, type} do
         {:infinity, _} -> :infinity
-        {v, :float} -> to_float32(v)
+        {v, :float} -> Float32.round_or_infinity(v)
         {v, :double} -> v
       end
 
@@ -162,19 +163,6 @@ defmodule Valimc.Text.Reader do
       {v, true} -> -v
       {v, false} -> v
     end
-  end
-
-  @doc "Rounds a double to the nearest float32 value (±infinity on overflow)."
-  def to_float32(:infinity), do: :infinity
-  def to_float32(:neg_infinity), do: :neg_infinity
-
-  def to_float32(value) do
-    case <<value::float-32>> do
-      <<_sign::1, 0xFF::8, _::23>> -> if value > 0, do: :infinity, else: :neg_infinity
-      <<f::float-32>> -> f
-    end
-  rescue
-    ArgumentError -> if value > 0, do: :infinity, else: :neg_infinity
   end
 
   def read_unquoted_string(r), do: take_while(r, &unquoted_char?/1)

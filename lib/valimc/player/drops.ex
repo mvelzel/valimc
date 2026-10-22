@@ -1,5 +1,6 @@
 defmodule Valimc.Player.Drops do
   @moduledoc "A player's drops as entity records, launched as vanilla throws them (`Player.drop`)."
+  alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Entity.ItemDrop
   alias Valimc.Data.PlayerPose
@@ -10,7 +11,7 @@ defmodule Valimc.Player.Drops do
   def records(player, stacks, kind) when is_list(stacks) and kind in [:directed, :scattered] do
     with {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)),
          {:ok, records} <- build(player, dimensions["eye_height"], stacks, kind) do
-      {:ok, Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(player.x, player.z)), records}
+      {:ok, Grid.region_key(Grid.chunk_key(player.x, player.z)), records}
     else
       _ -> {:error, :invalid_player_drop}
     end

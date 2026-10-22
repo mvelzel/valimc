@@ -16,6 +16,7 @@ defmodule Valimc.World.Regionizer do
   of one that stops. Sections merge only within one world folder and tick
   mode (tests run worlds side by side).
   """
+  alias Valimc.Data.Grid
   use GenServer
   require Logger
   alias Valimc.World.Region
@@ -86,7 +87,7 @@ defmodule Valimc.World.Regionizer do
       end
 
     for {scoped, pid, _, _, %{}} <- rows,
-        {dimension, key} = Valimc.Data.Grid.split_section(scoped),
+        {dimension, key} = Grid.split_section(scoped),
         dimension == state.dimension,
         Valimc.config(:regionizer, key),
         reduce: state do

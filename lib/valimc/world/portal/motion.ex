@@ -11,6 +11,7 @@ defmodule Valimc.World.Portal.Motion do
   relatives are `:x`, `:y`, `:z`, `:y_rot`, `:x_rot`, `:delta_x`, `:delta_y`,
   `:delta_z` and `:rotate_delta`.
   """
+  alias Valimc.Data.Float32
   import Bitwise
 
   @radians 10_430.378350470453
@@ -37,19 +38,24 @@ defmodule Valimc.World.Portal.Motion do
       if(relative.(:z), do: sz, else: 0.0) + cz
     }
 
-    yaw = f32(if(relative.(:y_rot), do: f32(source.yaw), else: 0.0) + f32(change.yaw))
+    yaw =
+      Float32.round(
+        if(relative.(:y_rot), do: Float32.round(source.yaw), else: 0.0) +
+          Float32.round(change.yaw)
+      )
 
     pitch =
-      (if(relative.(:x_rot), do: f32(source.pitch), else: 0.0) + f32(change.pitch))
-      |> f32()
+      (if(relative.(:x_rot), do: Float32.round(source.pitch), else: 0.0) +
+         Float32.round(change.pitch))
+      |> Float32.round()
       |> max(-90.0)
       |> min(90.0)
 
     turned =
       if relative.(:rotate_delta) do
         source.delta
-        |> x_rot(radians(f32(f32(source.pitch) - pitch)))
-        |> y_rot(radians(f32(f32(source.yaw) - yaw)))
+        |> x_rot(radians(Float32.round(Float32.round(source.pitch) - pitch)))
+        |> y_rot(radians(Float32.round(Float32.round(source.yaw) - yaw)))
       else
         source.delta
       end
@@ -67,7 +73,7 @@ defmodule Valimc.World.Portal.Motion do
   end
 
   # `(float) Math.toRadians(degrees)`.
-  defp radians(degrees), do: f32(degrees * 0.017453292519943295)
+  defp radians(degrees), do: Float32.round(degrees * 0.017453292519943295)
 
   defp x_rot({x, y, z}, radians) do
     {cos, sin} = {cos(radians), sin(radians)}
@@ -85,11 +91,5 @@ defmodule Valimc.World.Portal.Motion do
   @doc "`Mth.cos`."
   def cos(value), do: table(trunc(value * @radians + 16_384.0))
 
-  defp table(index), do: f32(:math.sin(band(index, 65_535) / @radians))
-
-  @doc "A double rounded to a float, as Java's `(float)` cast."
-  def f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
+  defp table(index), do: Float32.round(:math.sin(band(index, 65_535) / @radians))
 end

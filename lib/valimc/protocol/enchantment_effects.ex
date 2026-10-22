@@ -11,6 +11,7 @@ defmodule Valimc.Protocol.EnchantmentEffects do
   enchantment levels by name. Vanilla visits every entry, so a level of zero
   still grants immunity.
   """
+  alias Valimc.Data.Float32
   use Valimc.Data.Facts, "registry/enchantments.json"
   alias Valimc.Protocol.DamageTypes
 
@@ -152,15 +153,14 @@ defmodule Valimc.Protocol.EnchantmentEffects do
         effects ->
           Enum.find_value(effects, chance, fn {{{nb, np}, {db, dp}}, {tag, expected}} ->
             if MapSet.member?(Map.fetch!(@item_tags, tag), item_id) == expected and level > 0,
-              do: f32(f32(nb + f32(np * (level - 1))) / f32(db + f32(dp * (level - 1))))
+              do:
+                Float32.round(
+                  Float32.round(nb + Float32.round(np * (level - 1))) /
+                    Float32.round(db + Float32.round(dp * (level - 1)))
+                )
           end)
       end
     end)
-  end
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
   end
 
   @doc "Vanilla `EnchantmentHelper.getDamageProtection`: the protection points against `source`."

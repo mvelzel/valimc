@@ -5,6 +5,7 @@ defmodule Valimc.Commands.Parser.Arguments do
   `supported/0` lists the parsers ValiMC parses; `Valimc.Commands` refuses to
   compile a handler whose path needs any other.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Commands.Parser.{BlockInput, Coordinates, ItemInput}
   alias Valimc.Text.{Identifier, Selector}
   alias Valimc.Text.{Error, Reader}
@@ -317,7 +318,7 @@ defmodule Valimc.Commands.Parser.Arguments do
   end
 
   defp float32(nil), do: nil
-  defp float32(value), do: Reader.to_float32(value * 1.0)
+  defp float32(value), do: Float32.round_or_infinity(value * 1.0)
 
   defp read(reader, :int), do: Reader.read_int(reader)
   defp read(reader, :long), do: Reader.read_long(reader)
@@ -338,12 +339,22 @@ defmodule Valimc.Commands.Parser.Arguments do
 
   # Java `Math.round(float * int)`: float arithmetic, then floor(x + 0.5) saturated to int.
   defp java_round(value, factor) do
-    product = Reader.to_float32(mul(value, factor))
+    product = Float32.round_or_infinity(mul(value, factor))
 
     case product do
-      :infinity -> @int_max
-      :neg_infinity -> @int_min
-      p -> p |> Kernel.+(0.5) |> Reader.to_float32() |> floor() |> max(@int_min) |> min(@int_max)
+      :infinity ->
+        @int_max
+
+      :neg_infinity ->
+        @int_min
+
+      p ->
+        p
+        |> Kernel.+(0.5)
+        |> Float32.round_or_infinity()
+        |> floor()
+        |> max(@int_min)
+        |> min(@int_max)
     end
   end
 

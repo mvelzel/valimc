@@ -9,6 +9,7 @@ defmodule Valimc.World.Blocks do
   Positions outside the region or the world height read as the flat base profile,
   matching the edit-map semantics this replaces; VMC-065 makes them explicit errors.
   """
+  alias Valimc.Data.Grid
   alias Valimc.Native
   alias Valimc.Protocol.Data
   alias Valimc.World.Chunk
@@ -29,8 +30,8 @@ defmodule Valimc.World.Blocks do
   then the edits relight incrementally.
   """
   def new({rx, rz} = key, edits \\ %{}, images \\ %{}, absent \\ nil) do
-    size = Valimc.Data.Grid.region_size()
-    layers = for y <- Valimc.Data.Grid.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
+    size = Grid.region_size()
+    layers = for y <- Grid.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
     # The owner's dimension may have no sky light (the Nether, VMC-026b).
     unless Valimc.World.Dimension.facts().sky_light, do: :ok = Native.light_sky(ref, false)
@@ -328,7 +329,7 @@ defmodule Valimc.World.Blocks do
 
   @doc "Sampled random tick hits `{position, state}` for this tick (vanilla positions per section)."
   def random_ticks(%__MODULE__{} = blocks, per_section) do
-    sections = Valimc.Data.Grid.region_size() ** 2 * 24
+    sections = Grid.region_size() ** 2 * 24
 
     {:ok, hits} =
       Native.dispatch(:random_ticks, per_section * sections, [blocks.ref, per_section])

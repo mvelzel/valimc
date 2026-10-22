@@ -7,6 +7,7 @@ defmodule Valimc.Commands.WorldBorder do
   (`Valimc.World.Clock.border_command/2`); feedback and return values follow
   vanilla, numbers formatted as `String.format(Locale.ROOT, ...)` does.
   """
+  alias Valimc.Data.Float32
   alias Valimc.Text.Error
   alias Valimc.Commands.Feedback
   alias Valimc.Text
@@ -55,7 +56,7 @@ defmodule Valimc.Commands.WorldBorder do
   def operation(:set, arguments, _), do: {:set, arguments["distance"], ticks(arguments)}
 
   def operation(:center, %{"pos" => {:world, [x, z]}}, {sx, _, sz}),
-    do: {:center, float32(coordinate(x, sx)), float32(coordinate(z, sz))}
+    do: {:center, Float32.round(coordinate(x, sx)), Float32.round(coordinate(z, sz))}
 
   def operation(:damage_amount, arguments, _),
     do: {:damage_amount, arguments["damagePerBlock"]}
@@ -143,11 +144,6 @@ defmodule Valimc.Commands.WorldBorder do
     do: Text.translatable("commands.worldborder.damage.amount.failed")
 
   defp seconds(ticks), do: Number.fixed(ticks / 20.0, 2)
-
-  defp float32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 
   # `(int)` of a double: saturating, towards zero.
   defp java_int(value) when value >= 2_147_483_647, do: 2_147_483_647

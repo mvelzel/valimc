@@ -1,5 +1,6 @@
 defmodule Valimc.World.ClockState do
   @moduledoc "Pure core-pack clock arithmetic, rounded at Mojang's float32 operation boundaries."
+  alias Valimc.Data.Float32
   import Bitwise
   alias Valimc.Protocol.Wire
   defstruct total_ticks: 0, partial_tick: 0.0, rate: 1.0, paused: false
@@ -12,11 +13,6 @@ defmodule Valimc.World.ClockState do
 
   def valid?(_), do: false
 
-  def float32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
-
   def long(value) do
     unsigned = value &&& 0xFFFFFFFFFFFFFFFF
     if unsigned >= 0x8000000000000000, do: unsigned - 0x10000000000000000, else: unsigned
@@ -25,13 +21,13 @@ defmodule Valimc.World.ClockState do
   def tick(%__MODULE__{paused: true} = clock), do: clock
 
   def tick(%__MODULE__{} = clock) do
-    partial = float32(clock.partial_tick + clock.rate)
+    partial = Float32.round(clock.partial_tick + clock.rate)
     whole = floor(partial)
 
     %{
       clock
       | total_ticks: long(clock.total_ticks + whole),
-        partial_tick: float32(partial - float32(whole))
+        partial_tick: Float32.round(partial - Float32.round(whole))
     }
   end
 

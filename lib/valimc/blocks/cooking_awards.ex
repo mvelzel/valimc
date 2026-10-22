@@ -1,5 +1,6 @@
 defmodule Valimc.Blocks.CookingAwards do
   @moduledoc "Pure bounded XP decisions of a furnace's earned output; its owner applies one with the withdrawal that clears the credit."
+  alias Valimc.Data.Float32
   alias Valimc.Blocks.CookingRecipes
   @max_int 2_147_483_647
   @draw_scale 16_777_216
@@ -15,12 +16,12 @@ defmodule Valimc.Blocks.CookingAwards do
       |> Enum.map(fn {recipe, count} ->
         true = is_integer(count) and count in 1..@max_int
         {:ok, xp} = CookingRecipes.experience(recipe)
-        product = f32(f32(count) * xp)
+        product = Float32.round(Float32.round(count) * xp)
 
         # Native integer saturation/wrap at extreme edited counts must not erase credit.
         if product > @max_int, do: throw({:award_error, :experience_limit})
         whole = floor(product)
-        {recipe, count, whole, f32(product - f32(whole))}
+        {recipe, count, whole, Float32.round(product - Float32.round(whole))}
       end)
 
     true =
@@ -58,9 +59,4 @@ defmodule Valimc.Blocks.CookingAwards do
   end
 
   def plan(_, _), do: {:error, :invalid_cooking_award}
-
-  defp f32(number) do
-    <<rounded::float-32>> = <<number::float-32>>
-    rounded
-  end
 end

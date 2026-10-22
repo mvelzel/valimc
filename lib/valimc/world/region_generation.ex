@@ -23,6 +23,7 @@ defmodule Valimc.World.RegionGeneration do
   Until then an absent chunk is like a chunk of an unloaded neighbour region:
   the owner's block reads see nothing there and edits of it are refused.
   """
+  alias Valimc.Data.Grid
   require Logger
   alias Valimc.World
   alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, RegionData, Spec}
@@ -46,7 +47,7 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc "Region `key`'s chunks, Z outer and X inner."
   def chunks_of({rx, rz}) do
-    size = Valimc.Data.Grid.region_size()
+    size = Grid.region_size()
 
     for cz <- (rz * size)..(rz * size + size - 1),
         cx <- (rx * size)..(rx * size + size - 1),

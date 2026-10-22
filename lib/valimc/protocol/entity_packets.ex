@@ -1,5 +1,6 @@
 defmodule Valimc.Protocol.EntityPackets do
   @moduledoc "Bounded entity packet primitives; authoritative simulation ownership is separate."
+  alias Valimc.Data.Float32
   import Bitwise
   alias Valimc.Data.EntityTypes
   alias Valimc.Protocol.{ItemStack, Packets, PackedVelocity, Wire}
@@ -257,12 +258,7 @@ defmodule Valimc.Protocol.EntityPackets do
   # Mojang packDegrees uses float32 arithmetic, including its division result.
   defp pack_angle(value) do
     check(coordinate?(value, 1_000_000), "invalid entity rotation")
-    floor((float32(float32(value) * 256.0) / 360.0) |> float32()) &&& 255
-  end
-
-  defp float32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
+    floor((Float32.round(Float32.round(value) * 256.0) / 360.0) |> Float32.round()) &&& 255
   end
 
   defp entity_id!(id), do: check(is_integer(id) and id in 1..@max_entity_id, "invalid entity ID")

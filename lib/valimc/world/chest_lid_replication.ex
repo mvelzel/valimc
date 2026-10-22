@@ -1,5 +1,6 @@
 defmodule Valimc.World.ChestLidReplication do
   @moduledoc "Connection-local visible lids, with one monitor per observed owner incarnation."
+  alias Valimc.Data.Grid
   defstruct positions: %{}, owners: %{}
   @max_positions 4096
   @max_owners 64
@@ -31,7 +32,7 @@ defmodule Valimc.World.ChestLidReplication do
 
   def retain(state, chunks) do
     Enum.reduce(state.positions, state, fn {{x, _, z} = position, owner}, current ->
-      if MapSet.member?(chunks, Valimc.Data.Grid.chunk_key(x, z)),
+      if MapSet.member?(chunks, Grid.chunk_key(x, z)),
         do: current,
         else: forget(current, position, owner)
     end)
