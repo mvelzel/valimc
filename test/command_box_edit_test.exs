@@ -65,6 +65,35 @@ defmodule Valimc.CommandBoxEditTest do
         do: assert(Valimc.TestBlocks.get({x, @y, 900}) == block("stone"))
   end
 
+  test "solid, hollow and outline fills write every cell they count, interior included" do
+    {min, max} = {{-511_874, @y, 930}, {-511_870, @y + 4, 934}}
+    shell? = fn {x, y, z} -> x in [-511_874, -511_870] or y in [@y, @y + 4] or z in [930, 934] end
+
+    states = fn ->
+      {:ok, read} = World.BoxEdit.read(:overworld, min, max)
+      assert map_size(read) == 125
+      read
+    end
+
+    assert run("fill -511874 #{@y} 930 -511870 #{@y + 4} 934 gold_block") =~
+             "Successfully filled 125 block"
+
+    assert Enum.all?(states.(), fn {_, state} -> state == block("gold_block") end)
+    assert run("setblock -511872 #{@y + 2} 932 gold_block") =~ "Could not set the block"
+
+    assert run("fill -511874 #{@y} 930 -511870 #{@y + 4} 934 glass hollow") =~
+             "Successfully filled 125 block"
+
+    for {position, state} <- states.(),
+        do: assert(state == if(shell?.(position), do: block("glass"), else: block("air")))
+
+    assert run("fill -511874 #{@y} 930 -511870 #{@y + 4} 934 stone outline") =~
+             "Successfully filled 98 block"
+
+    for {position, state} <- states.(),
+        do: assert(state == if(shell?.(position), do: block("stone"), else: block("air")))
+  end
+
   test "clone … move keeps its source when the destination is refused", %{owners: owners} do
     assert run("setblock -511875 #{@y} 910 gold_block") =~ "Changed the block"
     lock(owners, {-511_871, @y, 910})

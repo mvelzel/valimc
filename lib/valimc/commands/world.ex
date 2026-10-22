@@ -420,23 +420,28 @@ defmodule Valimc.Commands.World do
     filter = arguments["filter"]
     air = Valimc.Registry.Blocks.default_state("air")
 
+    # The state each cell gets (`Mode.filter`), nil for an outline's interior.
+    target = fn {x, y, z} ->
+      shell = x in [xa, xb] or y in [ya, yb] or z in [za, zb]
+
+      case mode do
+        :outline -> if shell, do: state
+        :hollow -> if shell, do: state, else: air
+        _ -> state
+      end
+    end
+
     count =
       edit!(source, [{{xa, ya, za}, {xb, yb, zb}}], fn current ->
         edits =
-          for {{x, y, z} = position, block} <- current,
-              shell = x in [xa, xb] or y in [ya, yb] or z in [za, zb],
-              target =
-                (case mode do
-                   :outline -> if shell, do: state
-                   :hollow -> if shell, do: state, else: air
-                   _ -> state
-                 end),
-              target != nil,
-              filter == nil or BlockInput.matches?(filter, block),
-              mode != :keep or air?(block),
-              block != target,
-              into: %{},
-              do: {position, target}
+          Enum.reduce(current, %{}, fn {position, block}, edits ->
+            target = target.(position)
+
+            if target != nil and block != target and (mode != :keep or air?(block)) and
+                 (filter == nil or BlockInput.matches?(filter, block)),
+               do: Map.put(edits, position, target),
+               else: edits
+          end)
 
         {edits, map_size(edits)}
       end)
