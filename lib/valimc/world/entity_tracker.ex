@@ -19,6 +19,9 @@ defmodule Valimc.World.EntityTracker do
     # Owner bookkeeping: last tick's velocity and the metadata revision sent.
     :previous,
     :metadata,
+    # Unique per tracker: one entity's new tracker under the same id and owner
+    # (an item a sibling section handed back) must resync its observers.
+    :incarnation,
     tick: 0,
     teleport_delay: 0,
     interval: 20
@@ -26,8 +29,15 @@ defmodule Valimc.World.EntityTracker do
 
   @tolerance 7.6293945e-6
 
-  def new({_, _, _} = position, movement, on_ground, interval \\ 20),
-    do: %__MODULE__{base: position, movement: movement, on_ground: on_ground, interval: interval}
+  def new({_, _, _} = position, movement, on_ground, interval \\ 20) do
+    %__MODULE__{
+      base: position,
+      movement: movement,
+      on_ground: on_ground,
+      interval: interval,
+      incarnation: System.unique_integer([:positive, :monotonic])
+    }
+  end
 
   @doc """
   One tick of `entity` (`entity_id`, `uuid`, `x`, `y`, `z`, `velocity`,

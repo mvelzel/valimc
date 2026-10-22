@@ -8,7 +8,7 @@ defmodule Valimc.World.EntityReplication do
     tracker's base and its metadata, paced by a batch budget. Frames up to the
     row's tick are already in that spawn.
   - A tracked entity gets each later frame's packets, in tick order.
-  - An entity seen under another owner (a handoff keeps its id; the reader
+  - An entity seen under another owner or tracker (a handoff keeps its id; the reader
     keeps the newer owner's view while both publish it) or in a region whose
     frames the observer fell behind on resyncs: an absolute position, its
     motion and metadata, never a respawn.
@@ -42,12 +42,13 @@ defmodule Valimc.World.EntityReplication do
     removal =
       if removed == [], do: [], else: [binary_packet(EntityPackets.remove(Enum.sort(removed)))]
 
-    # An entity seen under another owner: its id survived a handoff.
+    # An entity seen under another owner (its id survived a handoff) or with
+    # a new tracker (handed back to its section).
     {tracked, resyncs} =
       Enum.reduce(tracked, {tracked, []}, fn {id, entry}, {tracked, packets} ->
         view = desired[id]
 
-        if view.epoch == entry.epoch,
+        if view.epoch == entry.epoch and view.tracker == entry.tracker,
           do: {tracked, packets},
           else: resync(tracked, packets, id, view)
       end)
@@ -96,7 +97,7 @@ defmodule Valimc.World.EntityReplication do
   end
 
   defp resync(tracked, packets, id, view) do
-    entry = %{epoch: view.epoch, since: view.tick, region: region(view)}
+    entry = entry(view)
     {x, y, z} = view.base
     entity = %{entity_id: id, x: x, y: y, z: z, on_ground: view.on_ground}
 
@@ -124,7 +125,7 @@ defmodule Valimc.World.EntityReplication do
       if length(spawned) >= @max_spawns or bytes + cost > @max_bytes do
         {:halt, {tracked, packets, spawned, bytes}}
       else
-        entry = %{epoch: view.epoch, since: view.tick, region: region(view)}
+        entry = entry(view)
 
         {:cont,
          {Map.put(tracked, id, entry), Enum.reverse(bundle, packets),
@@ -135,6 +136,9 @@ defmodule Valimc.World.EntityReplication do
       {tracked, Enum.reverse(packets), spawned}
     end)
   end
+
+  defp entry(view),
+    do: %{epoch: view.epoch, tracker: view.tracker, since: view.tick, region: region(view)}
 
   defp region(view), do: Valimc.World.region_key(view.chunk)
 

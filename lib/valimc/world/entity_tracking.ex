@@ -92,7 +92,8 @@ defmodule Valimc.World.EntityTracking do
 
   @doc """
   What observers read: the store's views and the departing ones, as only the
-  fields connections use, with their spawn and the base it is at. An item's
+  fields connections use, with their spawn, the base it is at and the
+  tracker's incarnation (`tracker`). An item's
   `pickup_delay` is 0 once it can be picked up, else 1, so a delay counting
   down does not rewrite its row every tick.
   """
@@ -100,11 +101,11 @@ defmodule Valimc.World.EntityTracking do
     tracking.departing
     |> Map.merge(views)
     |> Map.new(fn {id, view} ->
-      {id, observed(view, tracking.spawns[id], tracking.trackers[id].base)}
+      {id, observed(view, tracking.spawns[id], tracking.trackers[id])}
     end)
   end
 
-  defp observed(view, spawn, base) do
+  defp observed(view, spawn, tracker) do
     common =
       Map.take(view, [
         :kind,
@@ -119,7 +120,7 @@ defmodule Valimc.World.EntityTracking do
         :metadata
       ])
 
-    common = Map.merge(common, %{spawn: spawn, base: base})
+    common = Map.merge(common, %{spawn: spawn, base: tracker.base, tracker: tracker.incarnation})
 
     case view do
       %{kind: :item, pickup_delay: delay} -> Map.put(common, :pickup_delay, min(delay, 1))

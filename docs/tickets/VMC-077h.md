@@ -67,7 +67,9 @@ Acceptance:
 - A connection (`EntityReplication`) spawns an entity from its row at the
   tracker's base, forwards each later frame's packets for the ids it tracks,
   and resyncs (absolute position, motion, metadata) an entity seen under
-  another owner or behind the ring, never respawning it. A departing entity
+  another owner or tracker (each tracker has a unique incarnation, so an item
+  a sibling section hands back, VMC-077j3, resyncs too) or behind the ring,
+  never respawning it. A departing entity
   stays published, frozen, until its handoff clears; readers keep the newer
   owner's view while both publish it, so a border crossing looks like a move.
   Orbs are no longer resent every pass. Peer players keep their own path until

@@ -52,10 +52,15 @@ defmodule Valimc.EntityReplicationTest do
     assert {^id, <<>>} = Wire.take_varint(rest)
   end
 
-  test "an entity under another owner, or behind a gap, resyncs and is never respawned" do
+  test "an entity under another owner or tracker, or behind a gap, resyncs and is never respawned" do
     desired = views(1)
     [{id, view}] = Map.to_list(desired)
     {state, _} = EntityReplication.reconcile(EntityReplication.new(), desired, ring([]))
+
+    # Handed back to its section: same owner, a new tracker.
+    returned = %{id => %{view | tracker: view.tracker + 1}}
+    {_, packets} = EntityReplication.reconcile(state, returned, ring([]))
+    assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
     handed = %{id => %{view | epoch: make_ref(), base: {3.5, 64.0, 0.5}, tick: 9}}
     {state, packets} = EntityReplication.reconcile(state, handed, ring([]))
     assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
