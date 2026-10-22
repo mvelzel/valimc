@@ -192,7 +192,7 @@ end
 counters =
   ~w(worldgen_chunks worldgen_microseconds column_persist_microseconds region_loads
               region_load_microseconds chunks_encoded chunk_encode_microseconds
-              worldgen_wants worldgen_refreshes worldgen_dispatch_microseconds
+              worldgen_wants worldgen_dispatch_microseconds
               worldgen_terrain_jobs worldgen_decorate_jobs worldgen_full_jobs worldgen_alone_jobs)a
 
 delta = fn before ->

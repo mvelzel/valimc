@@ -323,20 +323,22 @@ withdraws the old dimension's tickets and abandons pending requests.
 ## Generation (M2)
 
 A section of a generated world loads without generating: the chunks its log has
-no column for are absent (VMC-075). Loading tickets say which of its chunks are
-wanted and how far from their center; the section tells its dimension's
-generation scheduler which absent chunks it wants (as `{group, key}`, so
-sections of one group keep separate wants), each at its distance to the
-center of the ticket that wants it, whenever they change, and never generates
-on itself. A player's tickets change only where the chunks of a section they
-cover change, not with every chunk the player enters: at view distance 32 a
-view spans about 80 sections. Full chunks come in deliveries with credit: a
-group has at most two unacknowledged, and what finishes meanwhile waits in the
-scheduler for the next, the players' own and nearest chunks first, so the
-group's mailbox stays bounded however fast generation runs. A group installs
-a delivery per section in one pass and gives its sibling sections their halo
-images at once; the column images join the next frame, and the scheduler
-forgets a chunk only once that frame is durable. Until then an absent chunk is like a chunk of an
+no column for are absent (VMC-075). The section tells its dimension's generation
+scheduler which absent chunks its loading tickets want, and which of them calls
+wait for (urgent), as `{group, key}` whenever that set changes, and never
+generates on itself. Demand is membership: tickets carry no center, and a
+player's tickets change only where the chunks of a section they cover change,
+not with every chunk the player enters (at view distance 32 a view spans about
+80 sections). Full chunks come in deliveries with credit: a group has at most
+two unacknowledged, and what finishes meanwhile waits in the scheduler for the
+next, the players' own and nearest chunks first, so the group's mailbox stays
+bounded however fast generation runs. One record per group holds its sections'
+epochs, the chunks ready for it (each with the epoch it was made for) and its
+unacknowledged deliveries; a chunk on its way to a section at its epoch is not
+made again. A group installs a delivery per section in one pass (an unusable
+chunk fails alone) and gives its sibling sections their halo images at once;
+the column images join the next frame, and the scheduler forgets a chunk only
+once that frame is durable. Until then an absent chunk is like a chunk of an
 unloaded neighbour group: block reads in the group see nothing there, edits
 and observations are refused, published snapshots fail closed and the chunk
 stream skips it.
@@ -350,24 +352,26 @@ terrain holds its chunk, a decoration its 3 × 3, a full chunk its own cell.
 Decorations conflict within two chunks; each gets a number when a request
 first needs it (the request's chunks within one, Z outer and X inner), and
 conflicting decorations run in number order, so a chunk depends only on the
-order of requests. Work waits in priority queues (wanted final chunks,
-decorations that can run, needed terrain) whose priorities the work inherits
-from the wanted chunks; a finished job updates them around its chunk. A want
-or a player's move looks only at the chunks whose priority changed. An urgent
-one that went down (a call's, or a chunk's near a player) passes at once to
-the work its chunk needs, earlier decorations included; the rest wait for a
-whole rebuild, at most four times a second and a tenth of the scheduler's
-time (VMC-077x). Each player's connection tells the scheduler which chunk the
-player entered and which way they move (`Scheduler.focus/5`), so the order
-does not wait for the regions' tickets. While a player is in the dimension, the player's own chunk goes
-first, then the chunks ahead of them before those beside and behind; calls
-that wait for a chunk go before all of these. The scheduler does not send a
-region a chunk again that it already sent to that section at the same epoch:
-the section's mailbox may still hold it. Nothing answers busy or polls: a
-job's result starts the next job at once, and while work is left out for want
-of a slot, the next job to end anywhere in the pool wakes the scheduler.
-Terrain-only worlds are final after terrain; flat-layer worlds are full at
-once.
+order of requests.
+
+What is made in which order is one model (VMC-077x1, `Worldgen.Frontier`). The
+wanted chunks not sent yet are goals, kept in one ordered set: urgent ones
+first, then by their score from the nearest player, else by key. Each
+player's connection tells the scheduler which chunk the player entered and
+which way they move (`Scheduler.focus/5`), straight, not through the
+sections' tickets; the player's own chunk scores first, then the chunks ahead
+of them before those beside and behind, and a chunk crossed re-scores the
+goals once. Nothing else stores a priority. Each numbered decoration knows
+what it still waits for (earlier decorations within two, chunks of its 3 × 3
+without terrain) and how many goals reach it; a result updates only what it
+touches. Jobs start from the goals in order: final chunks and chunks made
+alone, then, walking each goal's dependencies (its decorations, the earlier
+ones they wait for, the terrain they lack), the decorations that can start and
+the terrain, until the pool's room is filled. Terrain never takes the pool's
+last slot. Nothing answers busy or polls: a job's result starts the next job
+at once, and while work is left out for want of a slot, the next job to end
+anywhere in the pool wakes the scheduler. Terrain-only worlds are final after
+terrain; flat-layer worlds are full at once.
 
 Proto chunks and starts are not durable (D3): a graceful stop snapshots them
 (`generation.snapshot`), the next start reads and deletes it, and after a
@@ -379,8 +383,10 @@ new world's spawn search runs the same scheduler inline and leaves its state
 as the snapshot.
 
 Proto chunks in memory are bounded per dimension (`worldgen_proto_cells`,
-VMC-077q). Past the cap, the cells no wanted chunk or needed decoration is
-near go, least recently used first: terrain no decoration wrote into is
+VMC-077q). Past the cap, the cells no goal or needed decoration is near go,
+least recently used first (an index by last use; a pass after a job ends looks
+at a bounded number and moves the cells it keeps to the recent end): terrain
+no decoration wrote into is
 dropped and made again when needed (terrain reads only the starts' beards,
 which placement never changes), and every other cell spills to the
 dimension's scratch file (`generation.scratch`), never durable state, from

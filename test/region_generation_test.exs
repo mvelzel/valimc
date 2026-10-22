@@ -190,7 +190,7 @@ defmodule Valimc.RegionGenerationTest do
     {:ok, {pid, _}} = Valimc.TestWorld.owner(ctx.key)
     {cx, cz} = ctx.origin
     wanted = for x <- cx..(cx + 2), z <- cz..(cz + 2), do: {x, z}
-    Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, wanted)
+    Region.ticket(pid, ctx.key, :player_loading, wanted)
 
     Valimc.TestWait.until(fn ->
       Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
@@ -201,7 +201,7 @@ defmodule Valimc.RegionGenerationTest do
     assert columns == columns(wanted)
 
     # A withdrawn ticket generates nothing more; an edit over generated terrain is kept.
-    Region.ticket(pid, ctx.key, :player_loading, {cx, cz}, [])
+    Region.ticket(pid, ctx.key, :player_loading, [])
     edited = inside({cx + 2, cz + 2}, 20)
     glass = Valimc.Data.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(edited, glass)
@@ -217,16 +217,16 @@ defmodule Valimc.RegionGenerationTest do
              Map.delete(columns, {cx + 2, cz + 2})
   end
 
-  test "loading tickets' chunks generate nearest to their center first, urgent ones before all" do
+  test "a region wants its loading tickets' absent chunks, those calls wait for urgently" do
     absent = for x <- 0..7, z <- 0..7, into: MapSet.new(), do: {x, z}
     a = spawn(fn -> Process.sleep(:infinity) end)
     b = spawn(fn -> Process.sleep(:infinity) end)
 
     tickets =
       Valimc.World.Tickets.new(0)
-      |> Valimc.World.Tickets.put(a, :player_loading, {0, 0}, [{3, 3}, {1, 0}, {0, 2}, {7, 7}], 0)
-      |> Valimc.World.Tickets.put(b, :forced, {7, 7}, [{6, 7}, {7, 7}], 0)
-      |> Valimc.World.Tickets.put(b, :player_simulation, {7, 7}, [{4, 4}], 0)
+      |> Valimc.World.Tickets.put(a, :player_loading, [{3, 3}, {1, 0}, {0, 2}, {7, 7}], 0)
+      |> Valimc.World.Tickets.put(b, :forced, [{6, 7}, {7, 7}], 0)
+      |> Valimc.World.Tickets.put(b, :player_simulation, [{4, 4}], 0)
 
     gen = %RegionGeneration{
       generated: true,
@@ -234,9 +234,9 @@ defmodule Valimc.RegionGenerationTest do
       urgent: MapSet.new([{5, 1}])
     }
 
-    # {0, 2} is installed; {7, 7} is nearest to b; simulation does not load.
+    # {0, 2} is installed; simulation does not load.
     assert RegionGeneration.wanted(gen, tickets) ==
-             %{{5, 1} => -1, {7, 7} => 0, {1, 0} => 1, {6, 7} => 1, {3, 3} => 18}
+             %{{5, 1} => true, {7, 7} => false, {1, 0} => false, {6, 7} => false, {3, 3} => false}
   end
 
   # A fixed region where the chunk's light provably depends on its neighbours

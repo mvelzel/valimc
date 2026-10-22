@@ -875,7 +875,7 @@ defmodule Valimc.TestScope do
   def simulate(owner, {rx, rz} = key) do
     size = Valimc.Data.Grid.region_size()
     chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
-    Valimc.World.Region.ticket(owner, key, :forced, nil, chunks)
+    Valimc.World.Region.ticket(owner, key, :forced, chunks)
   end
 end
 

@@ -229,13 +229,7 @@ defmodule Valimc.World.View do
   defp await_region(key, chunks, type, deadline) do
     with {:ok, owner} <- World.owner(key),
          :ok <-
-           Region.ticket(
-             owner,
-             elem(Valimc.Data.Grid.split_section(key), 1),
-             type,
-             hd(chunks),
-             chunks
-           ),
+           Region.ticket(owner, elem(Valimc.Data.Grid.split_section(key), 1), type, chunks),
          :ok <- Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond)) do
       :ok
     else

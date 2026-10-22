@@ -95,7 +95,7 @@ defmodule Valimc.RegionizerTest do
     :ok = Regionizer.settle(:overworld)
     assert same_group?(hd(ends), List.last(ends))
     {:ok, owner} = Valimc.TestWorld.owner(bridge)
-    Region.ticket(owner, bridge, :forced, nil, [])
+    Region.ticket(owner, bridge, :forced, [])
 
     # The bridge unloads on its group's tick; the regionizer splits the group
     # when it handles that report.
@@ -140,7 +140,7 @@ defmodule Valimc.RegionizerTest do
 
       for key <- [bridge, far] do
         {:ok, owner} = Valimc.TestWorld.owner(key)
-        Region.ticket(owner, key, :forced, nil, [])
+        Region.ticket(owner, key, :forced, [])
       end
 
       assert Valimc.TestWait.until(

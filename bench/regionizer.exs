@@ -43,7 +43,7 @@ fill = fn key ->
   {rx, rz} = key
   chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   {pid, _} = owner
-  Region.ticket(pid, key, :forced, nil, chunks)
+  Region.ticket(pid, key, :forced, chunks)
   :ok = Region.await_chunks(owner, chunks, 120_000)
 
   edits =

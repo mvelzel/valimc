@@ -4,12 +4,11 @@ defmodule Valimc.World.RegionGeneration do
 
   A region of a generated world loads without generating: the chunks its log
   has no column for are absent. Loading tickets (`Valimc.World.Tickets`) say
-  which chunks are wanted and how far from their center; calls that need an
-  absent chunk want it first (`urgent/2`). The owner tells its dimension's
-  generation scheduler (`Valimc.Worldgen.Scheduler`, VMC-077n) which absent
-  chunks it wants, each at its smallest squared distance to a ticket's center
-  (urgent ones at -1), whenever that changes, and reports the chunks it has
-  when it loads. The scheduler sends chunks once they are full, lit alone
+  which chunks are wanted; calls that need an absent chunk want it urgently
+  (`urgent/2`). The owner tells its dimension's generation scheduler
+  (`Valimc.Worldgen.Scheduler`, VMC-077n) which absent chunks it wants, and
+  which of them urgently, whenever that changes, and reports the chunks it has
+  when it loads. The order is the scheduler's, from the players (VMC-077x1). The scheduler sends chunks once they are full, lit alone
   where they were generated (VMC-077c), in deliveries (VMC-077w).
 
   A delivery's chunks are installed together when it arrives and their
@@ -125,25 +124,15 @@ defmodule Valimc.World.RegionGeneration do
 
   ## Wants
 
-  @doc """
-  The absent chunks of loading `tickets` and urgent calls, each at its
-  smallest squared distance to a ticket's center (urgent ones at -1).
-  """
+  @doc "The absent chunks of loading `tickets` and urgent calls: `chunk => urgent?`."
   def wanted(%__MODULE__{} = gen, %Tickets{} = tickets) do
-    Enum.map(gen.urgent, &{&1, -1})
-    |> Enum.concat(
-      for {center, set} <- Tickets.loading(tickets), {x, z} = chunk <- set do
-        case center do
-          {cx, cz} -> {chunk, (x - cx) * (x - cx) + (z - cz) * (z - cz)}
-          nil -> {chunk, 0}
-        end
-      end
-    )
-    |> Enum.reject(fn {chunk, _} ->
-      not absent?(gen, chunk) or MapSet.member?(gen.failed, chunk)
-    end)
-    |> Enum.reduce(%{}, fn {chunk, priority}, acc ->
-      Map.update(acc, chunk, priority, &min(&1, priority))
+    wanted =
+      for set <- Tickets.loading(tickets), chunk <- set, into: %{}, do: {chunk, false}
+
+    gen.urgent
+    |> Enum.into(wanted, &{&1, true})
+    |> Map.filter(fn {chunk, _} ->
+      absent?(gen, chunk) and not MapSet.member?(gen.failed, chunk)
     end)
   end
 
@@ -219,7 +208,10 @@ defmodule Valimc.World.RegionGeneration do
 
   ## Results
 
-  @doc "Full chunks from the scheduler, installed in one pass (VMC-077w)."
+  @doc """
+  Full chunks from the scheduler, installed in one pass (VMC-077w); an
+  unusable one fails alone.
+  """
   def received(state, fulls) do
     gen = state.generation
     chunks = for full <- fulls, do: {full.x, full.z}
@@ -235,7 +227,14 @@ defmodule Valimc.World.RegionGeneration do
             install(state, parts)
 
           {:error, reason} ->
-            generation_failed(state, chunks, {:unusable_full_chunk, reason})
+            {usable, unusable} =
+              Enum.split_with(fulls, &match?({:ok, _}, FullChunk.parts([&1], %{}, [])))
+
+            # Usable alone but not together: none is.
+            unusable = if unusable == [], do: fulls, else: unusable
+            chunks = for full <- unusable, do: {full.x, full.z}
+            state = generation_failed(state, chunks, {:unusable_full_chunk, reason})
+            if usable == [] or unusable == fulls, do: state, else: received(state, usable)
         end
     end
   end

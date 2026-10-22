@@ -97,8 +97,7 @@ defmodule Valimc.DecoratedWorldTest do
   # region (VMC-075).
   defp generate_all(key) do
     {:ok, {pid, _}} = owner!(key)
-    {cx, cz} = hd(RegionGeneration.chunks_of(key))
-    Valimc.World.Region.ticket(pid, key, :forced, {cx, cz}, RegionGeneration.chunks_of(key))
+    Valimc.World.Region.ticket(pid, key, :forced, RegionGeneration.chunks_of(key))
     {_, _, %{publication: table}} = Valimc.TestWorld.lookup(key)
 
     Valimc.TestWait.until(

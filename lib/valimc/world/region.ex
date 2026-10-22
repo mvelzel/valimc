@@ -143,19 +143,19 @@ defmodule Valimc.World.Region do
 
   @doc """
   The calling process holds a `type` ticket (`Valimc.World.Tickets`) over
-  `chunks` of section `key`, nearest to `center` first; an empty list
-  withdraws it. Asynchronous; a later call of the same type replaces it.
+  `chunks` of section `key`; an empty list withdraws it. Asynchronous; a
+  later call of the same type replaces it.
   """
-  def ticket({pid, _epoch}, key, type, center, chunks), do: ticket(pid, key, type, center, chunks)
+  def ticket({pid, _epoch}, key, type, chunks), do: ticket(pid, key, type, chunks)
 
-  def ticket(pid, key, type, center, chunks) when is_pid(pid) do
-    send(pid, {:ticket, key, self(), type, center, chunks})
+  def ticket(pid, key, type, chunks) when is_pid(pid) do
+    send(pid, {:ticket, key, self(), type, chunks})
     :ok
   end
 
   @doc """
   Several tickets of the caller for sections of the group `pid`, as one
-  message: `[{key, type, center, chunks}]` (a view's tickets per group).
+  message: `[{key, type, chunks}]` (a view's tickets per group).
   """
   def tickets(pid, entries) when is_pid(pid) and is_list(entries) do
     send(pid, {:tickets, self(), entries})
@@ -966,10 +966,10 @@ defmodule Valimc.World.Region do
     end
   end
 
-  def handle_info({:ticket, key, holder, type, center, chunks} = info, state)
+  def handle_info({:ticket, key, holder, type, chunks} = info, state)
       when is_pid(holder) and is_atom(type) and is_list(chunks) do
     if Map.has_key?(state.sections, key),
-      do: section_info(state, key, {:ticket, holder, type, center, chunks}),
+      do: section_info(state, key, {:ticket, holder, type, chunks}),
       else: elsewhere(state, {:key, key}, {:info, info})
   end
 
@@ -978,10 +978,10 @@ defmodule Valimc.World.Region do
   def handle_info({:tickets, holder, entries}, state) when is_pid(holder) and is_list(entries) do
     entries
     |> Enum.reduce({:noreply, state}, fn
-      {key, type, center, chunks}, {:noreply, acc} when is_atom(type) and is_list(chunks) ->
+      {key, type, chunks}, {:noreply, acc} when is_atom(type) and is_list(chunks) ->
         if Map.has_key?(acc.sections, key),
-          do: section_apply(acc, key, {:ticket, holder, type, center, chunks}),
-          else: elsewhere(acc, {:key, key}, {:info, {:ticket, key, holder, type, center, chunks}})
+          do: section_apply(acc, key, {:ticket, holder, type, chunks}),
+          else: elsewhere(acc, {:key, key}, {:info, {:ticket, key, holder, type, chunks}})
 
       _, result ->
         result

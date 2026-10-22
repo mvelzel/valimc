@@ -165,23 +165,25 @@ defmodule Valimc.WorldgenSchedulerTest do
     end)
 
     requester = {self(), {0, 0}}
-    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => false})
     assert_receive {:generated, scheduler, [{{0, 0}, 1, [%{x: 3, z: 3}]}]}, 60_000
 
     # Wanted again before the region read it (its mailbox lags its tickets):
     # it is on its way. A section loaded again (a new epoch) gets it again.
-    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => 0})
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => false})
     assert Scheduler.stats(base, :overworld).wanted == 0
-    {:ok, _} = Scheduler.want(base, :overworld, requester, 2, %{{3, 3} => 0})
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 2, %{{3, 3} => false})
     assert_receive {:generated, ^scheduler, [{{0, 0}, 2, [%{x: 3, z: 3}]}]}, 60_000
 
     # Two deliveries unacknowledged: what finishes next waits, and goes in
     # one delivery, nearest first, once one is acknowledged (VMC-077w).
     :ok = Scheduler.focus(base, :overworld, self(), {6, 6}, nil)
-    wanted = %{{9, 9} => 0, {6, 6} => 0, {7, 6} => 0}
+    wanted = %{{9, 9} => false, {6, 6} => false, {7, 6} => false}
     {:ok, _} = Scheduler.want(base, :overworld, requester, 2, wanted)
     eventually(fn -> Scheduler.stats(base, :overworld).wanted == 0 end)
     refute_received {:generated, _, _}
+    # They keep the epoch they were made for, whatever the section's is now.
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 3, %{})
     Scheduler.delivered(scheduler)
     assert_receive {:generated, ^scheduler, [{{0, 0}, 2, fulls}]}, 60_000
     assert Enum.map(fulls, &{&1.x, &1.z}) == [{6, 6}, {7, 6}, {9, 9}]
@@ -209,9 +211,9 @@ defmodule Valimc.WorldgenSchedulerTest do
     {:ok, [cell]} = Scheduler.cells(ctx.base, :overworld, [{-40, 12}])
     assert {:ok, bytes} = Native.gen_cells_bytes([cell])
     assert bytes >= 384 * 256 * 2 and bytes < 2 * 384 * 256 * 2
-    stats = Scheduler.stats(ctx.base, :overworld)
     # Every terrain chunk here was decorated into: all spill, none is dropped.
-    assert stats.spills > 0 and stats.spilled > 0
+    eventually(fn -> Scheduler.stats(ctx.base, :overworld).spills > 0 end)
+    assert Scheduler.stats(ctx.base, :overworld).spilled > 0
     order = Scheduler.order(ctx.base, :overworld)
     assert_same(ours, reference(ctx.worldgen, order, first ++ second))
 
@@ -233,7 +235,7 @@ defmodule Valimc.WorldgenSchedulerTest do
       structures: false
     }
 
-    f = Frontier.want(Frontier.new(spec), :region, %{{0, 0} => 1, {9, 9} => 2})
+    f = Frontier.want(Frontier.new(spec), :region, %{{0, 0} => false, {9, 9} => false})
     {jobs, f} = Frontier.next(f, 64)
     terrain = Enum.find(jobs, &(&1.chunk == {1, 1}))
     {f, events} = Frontier.done(f, terrain.ref, {:error, :boom})

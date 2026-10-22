@@ -2690,9 +2690,9 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(:generation_retry, state), do: {:noreply, RegionGeneration.retry(state)}
 
-  def handle_info({:ticket, holder, type, center, chunks}, state) do
+  def handle_info({:ticket, holder, type, chunks}, state) do
     chunks = Enum.filter(chunks, &(Grid.region_key(&1) == state.key))
-    tickets = Tickets.put(state.tickets, holder, type, center, chunks, state.game_tick)
+    tickets = Tickets.put(state.tickets, holder, type, chunks, state.game_tick)
     {:noreply, RegionGeneration.pump(%{state | tickets: tickets})}
   end
 

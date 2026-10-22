@@ -123,7 +123,7 @@ defmodule Valimc.Session.Replication do
   # player tickets load (VMC-071). An owner told before that is no longer the
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
-  defp want_chunks(%{view: {{cx, cz} = center, distance} = view} = state) do
+  defp want_chunks(%{view: {{cx, cz}, distance} = view} = state) do
     loading = view |> ChunkView.chunks() |> Enum.group_by(&Grid.region_key/1)
     reach = min(Valimc.config(:simulation_distance), distance)
     size = Grid.region_size()
@@ -143,15 +143,15 @@ defmodule Valimc.Session.Replication do
 
             told = {pid, MapSet.new(chunks), MapSet.new(simulated)}
 
-            # Only a section whose chunks changed is told again: the center
-            # alone orders nothing since the player's focus does (VMC-077u),
-            # and a view of distance 32 spans about 80 sections.
+            # Only a section whose chunks changed is told again: the
+            # player's focus orders generation (VMC-077u), and a view of
+            # distance 32 spans about 80 sections.
             if Map.get(state.wanted, section) == told do
               {{section, told}, tickets}
             else
               entries = [
-                {key, :player_simulation, center, simulated},
-                {key, :player_loading, center, chunks}
+                {key, :player_simulation, simulated},
+                {key, :player_loading, chunks}
               ]
 
               {{section, told}, Map.update(tickets, pid, entries, &(entries ++ &1))}
@@ -173,7 +173,7 @@ defmodule Valimc.Session.Replication do
           reduce: tickets do
         acc ->
           {_, key} = Grid.split_section(section)
-          entries = [{key, :player_loading, nil, []}, {key, :player_simulation, nil, []}]
+          entries = [{key, :player_loading, []}, {key, :player_simulation, []}]
           Map.update(acc, pid, entries, &(&1 ++ entries))
       end
 

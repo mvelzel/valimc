@@ -4,59 +4,30 @@ defmodule Valimc.Worldgen.Frontier do
   `Valimc.Worldgen.Scheduler` runs it on the generation pool, and spawn search
   runs it inline at world creation.
 
-  A chunk is absent, then `:terrain` (it has a proto chunk, a native cell),
-  then `:decorated` (its own decoration ran over its 3 × 3), and final once its
-  whole 3 × 3 is decorated; a final chunk is made full for whoever wants it and
-  becomes `:handed` (its cell dropped) once its region has persisted it. A
-  handed chunk's entry goes once its 3 × 3 is handed too. In a world generated
-  before decoration a chunk is final once it has terrain; a flat-layer world's
-  chunks are full at once.
+  One model decides what is made and in which order (VMC-077x1):
 
-  Decorating a chunk reads and writes its 3 × 3, so two decorations conflict
-  within distance 2. A chunk gets a decoration number when some request first
-  needs it (a request's chunks within 1, Z outer and X inner), and starts only
-  once its 3 × 3 has terrain, no job holds any of those chunks, and no
-  conflicting chunk with a smaller number is still undecorated: decorations
-  that touch run in number order, so chunks depend only on the order of
-  requests. Everything else runs in parallel.
+  - **Goals** (`Frontier.Goals`): requesters want sets of chunks, some urgent;
+    the wanted chunks not sent yet are goals, ordered urgent first, then by
+    their score from the nearest player (`focus/4`), else by key. That order
+    is the only priority.
+  - **Dependencies** (`Frontier.Dependencies`): chunk statuses, decoration
+    numbers and what each numbered decoration still waits for. `next/3` finds
+    the work to start from the goals in order: final chunks and chunks made
+    alone, then the decorations and terrain the goals need, as far as the
+    room allows. Nothing polls or answers busy: what cannot start is not
+    returned until what it waits for is done.
+  - **Memory** (`Frontier.Memory`): proto cells past `cap` are dropped or
+    spilled, least recently used first.
+  - **Runners** (`Frontier.Runners`): the closures jobs run.
 
-  Wants carry a priority per chunk (smaller first: the squared distance to the
-  player that wants it, -1 for calls that wait). Players also tell the
-  scheduler which chunk they are in and which way they move (`focus/4`,
-  VMC-077u), straight from their connection rather than through the regions'
-  tickets, which arrive later. While any player is in the dimension, a wanted
-  chunk's priority is its score from the nearest player: their own chunk
-  first, then the chunks ahead of them before those beside and behind; calls
-  that wait stay first. The work a wanted chunk needs inherits its priority,
-  including the earlier decorations it waits for. Work waits in priority
-  queues that a job's result updates around its chunk. A want or a focus
-  looks only at the chunks whose priority changed (VMC-077x): a priority that
-  went down passes at once to the work its chunk needs, and the queues are
-  rebuilt whole (`refresh/1`, which the caller paces) for those that went up
-  or away. `next/3` returns the jobs that can start (final chunks, then
-  decorations, then terrain), as closures for the caller to run, and
-  `done/3` takes their results. Nothing here polls or answers
-  busy: what cannot start yet is simply not returned until what it waits for
-  is done.
-
-  A chunk wanted again after it was handed over (its region lost it), or one
-  that needs a decoration that can no longer run (a neighbour is handed over
-  or failed), is made alone, as vanilla makes a chunk missing from its region
-  file: over fresh terrain of its 3 × 3, with only its own decoration.
-
-  Proto cells in memory are bounded (VMC-077q): past `cap`, the cells no
-  wanted chunk or needed decoration is near go, least recently used first
-  (`evictions/2`). Terrain no decoration wrote into is dropped and made
-  again when needed (terrain reads only the starts' beards, which placement
-  never changes, so it comes out the same). Any other cell spills: the
-  caller writes its encoding to a scratch file that is never durable state
-  (`spilled/2`), and a job that needs it decodes it there and hands it back.
-  A decoration cannot be made again exactly without replaying, in number
-  order, every earlier decoration within 2 of it, transitively; a spilled
-  cell is the chunk itself.
+  `next/3` returns jobs as closures for the caller to run (anywhere) and report
+  with `done/3`, or give back with `cancel/2`. A final chunk is made full for
+  whoever wants it and becomes `:handed` once its region persisted it
+  (`handed_over/2`). In a world generated before decoration a chunk is final
+  once it has terrain; a flat-layer world's chunks are full at once.
   """
   alias Valimc.Native
-  alias Valimc.World.Blocks
+  alias Valimc.Worldgen.Frontier.{Dependencies, Goals, Memory, Runners}
   alias Valimc.Worldgen.Generator
 
   defstruct [
@@ -68,44 +39,46 @@ defmodule Valimc.Worldgen.Frontier do
     # Final once it has terrain (a noise world generated before decoration).
     final_after_terrain: false,
     sky: true,
+    # chunk => %{status, cell, used}
     chunks: %{},
+    # Goals: each requester's wants (`chunk => urgent?`), who wants each
+    # chunk, the wanted chunks given up, players' foci, and the goals ordered
+    # (`{rank, z, x, chunk}`) with each goal's rank.
+    wants: %{},
+    index: %{},
+    given_up: MapSet.new(),
+    focus: %{},
+    goals: :gb_sets.new(),
+    ranks: %{},
+    rescore: false,
+    # Dependencies: decoration numbers, what each waits for, the needed ones
+    # that can start, the terrain needed ones lack (`chunk => how many`),
+    # goals that are final, goals made alone, and the numbered chunks in
+    # order, newest first, when recorded (checks).
     seqs: %{},
     next_seq: 0,
-    wants: %{},
-    # Per wanted chunk, who wants it at which priority.
-    index: %{},
-    # Where players are and which way they move (`focus/4`): while any
-    # player is here, it sets the priorities.
-    focus: %{},
-    # Each wanted chunk's priority and each numbered decoration's (inherited
-    # from the wanted chunks and the later decorations that wait for it):
-    # lowered where wants change, rebuilt by `refresh/1` (`stale` until then).
-    stale: false,
-    priority: %{},
-    needs: %{},
+    deps: %{},
+    ready: MapSet.new(),
+    terrain: %{},
+    finals: MapSet.new(),
+    alone: MapSet.new(),
+    log: nil,
+    # Jobs: the chunks they hold, by ref; chunks sent and not handed over
+    # yet; chunks whose generation failed; attempts of jobs whose worker
+    # died; and whether the last `next/3` left work out for want of room.
     busy: %{},
     jobs: %{},
     delivered: MapSet.new(),
-    # Work by priority: wanted final chunks (`{priority, chunk}`), wanted
-    # chunks to make alone, decorations that can run (`{priority, seq,
-    # chunk}`), and terrain needed (`{priority, z, x, chunk}`; in a flat
-    # world, the wanted chunks).
-    finals: :gb_sets.new(),
-    alone: MapSet.new(),
-    ready: :gb_sets.new(),
-    queue: :gb_sets.new(),
-    # Chunks whose generation failed (frozen), and wanted chunks given up.
     failed: %{},
-    given_up: MapSet.new(),
     attempts: %{},
-    # The numbered chunks in order, newest first, when recorded (checks).
-    log: nil,
-    # Proto cells in memory, the most kept (nil: no bound), a use clock for
-    # least-recently-used eviction, the scratch file spilled cells are read
-    # back from, and counts of cells dropped and spilled (VMC-077q).
+    left: false,
+    # Memory (VMC-077q): the most cells kept (nil: no bound), the cells in
+    # memory by last use, the scratch file spilled cells are read back from,
+    # and counts of cells dropped and spilled.
     cap: nil,
     in_memory: 0,
     clock: 0,
+    lru: :gb_sets.new(),
     scratch: nil,
     dropped: 0,
     spills: 0
@@ -113,11 +86,6 @@ defmodule Valimc.Worldgen.Frontier do
 
   # A job whose worker dies is tried again this often, then fails.
   @max_attempts 3
-  # A player's focus reorders the wanted chunks this near it at once, and
-  # priorities under `@urgent` (theirs, and calls that wait) pass down the
-  # decoration chain at once.
-  @near 4
-  @urgent 4 * @near * @near
 
   @doc """
   The generation of `spec` (a `Generator.spec_of/2` spec of a dimension).
@@ -153,282 +121,24 @@ defmodule Valimc.Worldgen.Frontier do
   ## Requests
 
   @doc """
-  `requester` wants `wanted` (`chunk => priority`) made full, replacing what
-  it wanted; an empty map withdraws. A chunk it newly wants that was already
-  sent is sent again (it lost it). Only the chunks whose wants changed are
-  looked at (VMC-077x): a priority that went down reaches the work its chunk
-  needs at once, one that went up or away waits for `refresh/1`.
+  `requester` wants `wanted` (`chunk => urgent?`) made full, replacing what it
+  wanted; an empty map withdraws. A chunk it newly wants that was already
+  sent is sent again (it lost it).
   """
   def want(%__MODULE__{} = f, requester, wanted) when is_map(wanted) do
-    before = Map.get(f.wants, requester, %{})
-
-    wants =
-      if wanted == %{},
-        do: Map.delete(f.wants, requester),
-        else: Map.put(f.wants, requester, wanted)
-
-    added = for {c, _} <- wanted, not Map.has_key?(before, c), do: c
-    removed = for {c, _} <- before, not Map.has_key?(wanted, c), do: c
-    changed = for {c, p} <- wanted, Map.get(before, c, p) != p, do: c
-
-    index =
-      Enum.reduce(removed, f.index, fn c, index ->
-        case Map.delete(Map.get(index, c, %{}), requester) do
-          by when by == %{} -> Map.delete(index, c)
-          by -> Map.put(index, c, by)
-        end
-      end)
-
-    index =
-      Enum.reduce(added ++ changed, index, fn c, index ->
-        Map.update(index, c, %{requester => wanted[c]}, &Map.put(&1, requester, wanted[c]))
-      end)
-
-    f = %{
-      f
-      | wants: wants,
-        index: index,
-        delivered: Enum.reduce(added, f.delivered, &MapSet.delete(&2, &1))
-    }
-
-    f
-    |> number(added)
-    |> find_alone(added)
-    |> reprioritize(added ++ changed ++ removed)
+    {f, added, gained, lost} = Goals.want(f, requester, wanted)
+    f = %{f | delivered: Enum.reduce(added, f.delivered, &MapSet.delete(&2, &1))}
+    Dependencies.goals(f, added, gained, lost)
   end
 
-  @doc """
-  Player `holder` is in `chunk`, moving along `heading` (`{x, z}` of unit
-  length, or nil when it stands or jumped); a nil chunk forgets it. The
-  wanted chunks near it take their new priorities at once, the others at the
-  next `refresh/1`.
-  """
-  def focus(%__MODULE__{} = f, holder, nil, _heading) do
-    if Map.has_key?(f.focus, holder),
-      do: %{f | focus: Map.delete(f.focus, holder), stale: true},
-      else: f
-  end
+  @doc "Player `holder` is in `chunk` moving along `heading` (nil chunk: gone); see `Goals.focus/4`."
+  defdelegate focus(f, holder, chunk, heading), to: Goals
+  defdelegate score(chunk, focus), to: Goals
+  defdelegate wanting(f, chunk), to: Goals
+  defdelegate around(chunk, r), to: Dependencies
 
-  def focus(%__MODULE__{} = f, holder, {_, _} = chunk, heading) do
-    f = %{f | focus: Map.put(f.focus, holder, {chunk, heading}), stale: true}
-    near = for c <- around(chunk, @near), Map.has_key?(f.index, c), do: c
-    reprioritize(f, near)
-  end
-
-  # The wanted chunks among `chunks` at their priorities as they are now:
-  # lower ones pass to the work they need, most urgent first (the chains of
-  # earlier decorations overlap, and each is walked once at its smallest
-  # priority), and the rest wait for a refresh.
-  defp reprioritize(f, chunks) do
-    {f, lowered} =
-      Enum.reduce(chunks, {f, []}, fn c, {f, lowered} ->
-        case {effective(f, c), Map.get(f.priority, c)} do
-          {same, same} ->
-            {f, lowered}
-
-          {nil, _} ->
-            {%{f | priority: Map.delete(f.priority, c), stale: true}, lowered}
-
-          {p, old} when old == nil or p < old ->
-            {%{f | priority: Map.put(f.priority, c, p)}, [{p, c} | lowered]}
-
-          {p, _} ->
-            {%{f | priority: Map.put(f.priority, c, p), stale: true}, lowered}
-        end
-      end)
-
-    lowered |> Enum.sort() |> Enum.reduce(f, fn {p, c}, f -> lower(f, c, p) end)
-  end
-
-  # A wanted chunk's priority: the smallest any requester gives it, or with a
-  # player focused its score from the nearest (calls that wait stay first).
-  defp effective(f, chunk) do
-    case f.index do
-      %{^chunk => by} ->
-        p = by |> Map.values() |> Enum.min()
-
-        cond do
-          MapSet.member?(f.given_up, chunk) -> nil
-          p < 0 or f.focus == %{} -> p
-          true -> f.focus |> Map.values() |> Enum.map(&score(chunk, &1)) |> Enum.min()
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  # `chunk`'s priority went down to `p`: so does the work it needs.
-  defp lower(%{kind: :flat} = f, {x, z} = c, p) do
-    if Map.has_key?(f.busy, c) or MapSet.member?(f.delivered, c),
-      do: f,
-      else: %{f | queue: :gb_sets.add({p, z, x, c}, f.queue)}
-  end
-
-  defp lower(%{final_after_terrain: true} = f, {x, z} = c, p) do
-    f = check_final(f, c)
-    if needs_terrain?(f, c), do: %{f | queue: :gb_sets.add({p, z, x, c}, f.queue)}, else: f
-  end
-
-  # The chain of earlier decorations a chunk far from every player waits for
-  # spans the undecorated band between them: its priority reaches it at the
-  # next refresh, an urgent one at once.
-  defp lower(f, c, p) when p < @urgent do
-    f = check_final(f, c)
-    around(c, 1) |> Enum.filter(&Map.has_key?(f.seqs, &1)) |> lower_needs(p, f)
-  end
-
-  defp lower(f, c, _p), do: %{check_final(f, c) | stale: true}
-
-  # Numbered decorations needed at `p`, and the earlier ones they wait for:
-  # each that was needed later goes into the queues at `p`. An entry left at
-  # its old priority starts no second job: what it names is held, then done.
-  defp lower_needs([], _p, f), do: f
-
-  defp lower_needs([n | rest], p, f) do
-    case f.needs do
-      %{^n => q} when q <= p ->
-        lower_needs(rest, p, f)
-
-      _ ->
-        seq = Map.fetch!(f.seqs, n)
-        earlier = earlier(f, n, seq)
-        f = %{f | needs: Map.put(f.needs, n, p)}
-
-        f =
-          if earlier == [] and ready?(f, n, seq),
-            do: %{f | ready: :gb_sets.add({p, seq, n}, f.ready)},
-            else: f
-
-        queue =
-          for {x, z} = c <- around(n, 1), needs_terrain?(f, c), reduce: f.queue do
-            queue -> :gb_sets.add({p, z, x, c}, queue)
-          end
-
-        lower_needs(earlier ++ rest, p, %{f | queue: queue})
-    end
-  end
-
-  @doc """
-  A chunk's score from a player in `center` moving along `heading`: 0 for the
-  player's own chunk, then four times the squared distance, weighted by
-  direction: a quarter of it straight ahead, seven quarters straight behind.
-  """
-  def score({x, z}, {{cx, cz}, heading}) do
-    {dx, dz} = {x - cx, z - cz}
-    d2 = dx * dx + dz * dz
-
-    case heading do
-      {hx, hz} when d2 > 0 -> round(d2 * (4 - 3 * (dx * hx + dz * hz) / :math.sqrt(d2)))
-      _ -> 4 * d2
-    end
-  end
-
-  @doc """
-  Where a finished chunk goes in its delivery (VMC-077w): its score from the
-  nearest focused player, smaller first; 0 when no player is focused.
-  """
-  def rank(%__MODULE__{focus: focus}, _chunk) when focus == %{}, do: 0
-
-  def rank(%__MODULE__{focus: focus}, chunk),
-    do: focus |> Map.values() |> Enum.map(&score(chunk, &1)) |> Enum.min()
-
-  defp within(chunks, r), do: chunks |> Enum.flat_map(&around(&1, r)) |> Enum.uniq()
-
-  # Decoration numbers for the undecorated chunks within 1 of `added` that have
-  # none, Z outer and X inner.
-  defp number(%__MODULE__{final_after_terrain: true} = f, _added), do: f
-
-  defp number(f, added) do
-    added
-    |> within(1)
-    |> Enum.reject(&(decorated?(f, &1) or Map.has_key?(f.seqs, &1) or blocked?(f, &1)))
-    |> Enum.sort_by(fn {x, z} -> {z, x} end)
-    |> Enum.reduce(f, fn chunk, f ->
-      log = if f.log, do: [chunk | f.log]
-      %{f | seqs: Map.put(f.seqs, chunk, f.next_seq), next_seq: f.next_seq + 1, log: log}
-    end)
-  end
-
-  @doc """
-  The priorities and queues of the wants as they are now, rebuilt whole when
-  any went up or away since (`stale`). Its cost grows with every wanted chunk
-  and numbered decoration, so the scheduler does it at most a few times a
-  second (VMC-077x); until then that work is only done earlier than needed.
-  """
-  def refresh(%__MODULE__{stale: false} = f), do: f
-
-  def refresh(%__MODULE__{} = f) do
-    priority = for {c, _} <- f.index, p = effective(f, c), p != nil, into: %{}, do: {c, p}
-    f = %{f | priority: priority, stale: false}
-    needs = needs(f)
-    f = %{f | needs: needs}
-
-    ready =
-      for {n, seq} <- f.seqs, p = needs[n], p != nil, ready?(f, n, seq), do: {p, seq, n}
-
-    finals = for {chunk, p} <- priority, final_ready?(f, chunk), do: {p, chunk}
-
-    %{
-      f
-      | ready: :gb_sets.from_list(ready),
-        finals: :gb_sets.from_list(finals),
-        queue: :gb_sets.from_list(queue(f)),
-        alone: MapSet.filter(f.alone, &Map.has_key?(priority, &1))
-    }
-  end
-
-  # Each numbered decoration's priority: the smallest of the wanted chunks
-  # it writes into and of the later decorations within 2 (which wait for it),
-  # so the work a wanted chunk waits on inherits its priority.
-  defp needs(%{final_after_terrain: true}), do: %{}
-
-  defp needs(f) do
-    f.seqs
-    |> Enum.sort_by(&elem(&1, 1), :desc)
-    |> Enum.reduce(%{}, fn {n, _seq}, needs ->
-      own = for c <- around(n, 1), p = f.priority[c], p != nil, do: p
-      # Later decorations only: in this order the earlier ones have none yet.
-      waiting = for m <- around(n, 2), p = needs[m], p != nil, do: p
-
-      case own ++ waiting do
-        [] -> needs
-        list -> Map.put(needs, n, Enum.min(list))
-      end
-    end)
-  end
-
-  # The terrain needed now: the 3 × 3 of every needed decoration, else the
-  # wanted chunks themselves.
-  defp queue(%{kind: :flat} = f),
-    do: for({{x, z} = c, p} <- f.priority, not Map.has_key?(f.busy, c), do: {p, z, x, c})
-
-  defp queue(%{final_after_terrain: true} = f),
-    do: for({{x, z} = c, p} <- f.priority, needs_terrain?(f, c), do: {p, z, x, c})
-
-  defp queue(f) do
-    f.needs
-    |> Enum.reduce(%{}, fn {n, p}, acc ->
-      Enum.reduce(around(n, 1), acc, fn c, acc ->
-        if needs_terrain?(f, c), do: Map.update(acc, c, p, &min(&1, p)), else: acc
-      end)
-    end)
-    |> Enum.map(fn {{x, z} = c, p} -> {p, z, x, c} end)
-  end
-
-  defp needs_terrain?(f, c),
-    do: status(f, c) == nil and not Map.has_key?(f.busy, c) and not Map.has_key?(f.failed, c)
-
-  # Chunks among `chunks` (wanted ones) that must be made alone.
-  defp find_alone(%{final_after_terrain: true} = f, _chunks), do: f
-
-  defp find_alone(f, chunks) do
-    %{f | alone: for(c <- chunks, alone?(f, c), into: f.alone, do: c)}
-  end
-
-  @doc "Who wants `chunk`."
-  def wanting(%__MODULE__{wants: wants}, chunk),
-    do: for({requester, wanted} <- wants, Map.has_key?(wanted, chunk), do: requester)
+  @doc "Where a finished chunk goes in its delivery (VMC-077w): its score from the nearest player."
+  def rank(%__MODULE__{} = f, chunk), do: Goals.nearest(f, chunk)
 
   @doc "The numbered chunks in decoration-number order, when recorded."
   def order(%__MODULE__{log: log}), do: if(log, do: Enum.reverse(log))
@@ -448,257 +158,102 @@ defmodule Valimc.Worldgen.Frontier do
   # Chunks final after terrain need no record: a lost one is made again.
   defp hand(%{final_after_terrain: true} = f, chunks, _present) do
     chunks = Enum.reject(chunks, &Map.has_key?(f.busy, &1))
-    held = Enum.count(chunks, &in_memory?(f, &1))
-
-    %{
-      f
-      | chunks: Map.drop(f.chunks, chunks),
-        in_memory: f.in_memory - held,
-        delivered: Enum.reduce(chunks, f.delivered, &MapSet.delete(&2, &1))
-    }
+    f = Enum.reduce(chunks, f, &Memory.release(&2, &1))
+    delivered = Enum.reduce(chunks, f.delivered, &MapSet.delete(&2, &1))
+    %{f | chunks: Map.drop(f.chunks, chunks), delivered: delivered}
   end
 
   defp hand(f, chunks, present) do
     f =
       Enum.reduce(chunks, f, fn chunk, f ->
-        status = status(f, chunk)
-
         handed =
           cond do
             # A running decoration writes into it (only a region's own report).
-            busy_decorating?(f, chunk) -> false
-            status == :handed -> false
+            match?(%{kind: :decorate}, f.jobs[f.busy[chunk]]) -> false
+            Dependencies.handed?(f, chunk) -> false
             present -> true
-            true -> final?(f, chunk) or MapSet.member?(f.delivered, chunk)
+            true -> Dependencies.final?(f, chunk) or MapSet.member?(f.delivered, chunk)
           end
 
-        if handed,
-          do:
-            freeze(
-              %{
-                f
-                | chunks: Map.put(f.chunks, chunk, %{status: :handed, cell: nil}),
-                  in_memory: f.in_memory - if(in_memory?(f, chunk), do: 1, else: 0),
-                  delivered: MapSet.delete(f.delivered, chunk)
-              },
-              chunk
-            ),
-          else: %{f | delivered: MapSet.delete(f.delivered, chunk)}
+        f = %{f | delivered: MapSet.delete(f.delivered, chunk)}
+
+        if handed do
+          f = Memory.release(f, chunk)
+          f = %{f | chunks: Map.put(f.chunks, chunk, %{status: :handed, cell: nil})}
+          f |> Dependencies.free(chunk) |> Dependencies.freeze(chunk)
+        else
+          f
+        end
       end)
 
     chunks
     |> Enum.flat_map(&around(&1, 1))
     |> Enum.uniq()
-    |> Enum.filter(fn chunk -> Enum.all?(around(chunk, 1), &handed?(f, &1)) end)
+    |> Enum.filter(fn chunk -> Enum.all?(around(chunk, 1), &Dependencies.handed?(f, &1)) end)
     |> then(&%{f | chunks: Map.drop(f.chunks, &1)})
   end
-
-  # `chunk` is frozen (handed over or failed): the decorations whose 3 × 3
-  # holds it can no longer run, so they lose their numbers and nothing waits
-  # for them (the chunks that need them are made alone).
-  # A chunk handed over with its 3 × 3 decorated blocks nothing: only itself,
-  # if wanted again, is made alone. A decoration that waited only for the
-  # blocked ones can start now.
-  defp freeze(f, chunk) do
-    blocked = for n <- around(chunk, 1), not decorated?(f, n), do: n
-    near = if blocked == [], do: [chunk], else: around(chunk, 2)
-    wanted = for c <- near, Map.has_key?(f.priority, c), do: c
-    f = find_alone(%{f | seqs: Map.drop(f.seqs, blocked)}, wanted)
-    blocked |> within(2) |> Enum.reduce(f, &check_ready(&2, &1))
-  end
-
-  defp busy_decorating?(f, chunk) do
-    case f.busy do
-      %{^chunk => ref} -> f.jobs[ref].kind == :decorate
-      _ -> false
-    end
-  end
-
-  ## Statuses
-
-  defp status(f, chunk) do
-    case f.chunks do
-      %{^chunk => %{status: status}} -> status
-      _ -> nil
-    end
-  end
-
-  defp handed?(f, chunk), do: status(f, chunk) == :handed
-
-  defp in_memory?(f, chunk) do
-    case f.chunks do
-      %{^chunk => %{cell: cell}} -> is_reference(cell)
-      _ -> false
-    end
-  end
-
-  defp decorated?(f, chunk), do: status(f, chunk) in [:decorated, :handed]
-  defp cell?(f, chunk), do: status(f, chunk) in [:terrain, :decorated]
-  defp frozen?(f, chunk), do: handed?(f, chunk) or Map.has_key?(f.failed, chunk)
-
-  defp final?(%{final_after_terrain: true} = f, chunk), do: cell?(f, chunk)
-  defp final?(f, chunk), do: Enum.all?(around(chunk, 1), &decorated?(f, &1))
-
-  # An undecorated chunk whose decoration cannot run: its 3 × 3 holds a chunk
-  # handed over (its region has it full) or failed.
-  defp blocked?(f, n), do: not decorated?(f, n) and Enum.any?(around(n, 1), &frozen?(f, &1))
-
-  # Made alone: lost after it was handed over, or needing a blocked decoration
-  # (only possible with a frozen chunk within 2, the cheaper test first).
-  defp alone?(f, chunk) do
-    handed?(f, chunk) or
-      (Enum.any?(around(chunk, 2), &frozen?(f, &1)) and
-         Enum.any?(around(chunk, 1), &blocked?(f, &1)))
-  end
-
-  @doc "The chunks within `r` of `chunk`, Z outer and X inner."
-  def around({x, z}, r), do: for(dz <- -r..r, dx <- -r..r, do: {x + dx, z + dz})
 
   ## Jobs
 
   @doc """
-  Up to `capacity` jobs that can start now, at most `bulk` of them terrain,
-  most urgent first: `%{ref, kind, chunk, bulk, run}`, `run` a closure for the
-  caller to run (anywhere) and report with `done/3`, or give back with
-  `cancel/2`.
+  Up to `capacity` jobs that can start now, at most `bulk` of them terrain:
+  `%{ref, kind, chunk, bulk, run}`. Final chunks and chunks made alone go
+  first, then the decorations the goals need, then their terrain, each in
+  goal order.
   """
   def next(f, capacity, bulk \\ nil)
 
   def next(%__MODULE__{} = f, capacity, bulk) when capacity > 0 do
-    # Final chunks first (players wait for them), then the decorations every
-    # final chunk waits on, then terrain.
-    {jobs, f, _} =
-      {[], f, {capacity, bulk || capacity, capacity - (bulk || capacity)}}
-      |> take(:finals)
-      |> take(:alone)
-      |> take(:ready)
-      |> take(:queue)
+    f = Goals.rescore(f)
+    bulk = bulk || capacity
+    acc = {[], f, {capacity, bulk, capacity - bulk}}
 
-    {Enum.reverse(jobs), f}
+    {jobs, f, {capacity, bulk, _} = room} =
+      acc
+      |> claim(:full, Goals.sort(f, f.finals))
+      |> claim(:alone, Goals.sort(f, f.alone))
+
+    {candidates, left} =
+      case f.kind do
+        :flat ->
+          flat =
+            Dependencies.take(
+              :gb_sets.iterator(f.goals),
+              capacity + 1,
+              &(not Map.has_key?(f.busy, &1))
+            )
+
+          {[{:flat, Enum.take(flat, capacity)}], length(flat) > capacity}
+
+        :noise ->
+          {decorations, terrain, more} = Dependencies.resolve(f, capacity, bulk)
+          {[{:decorate, decorations}, {:terrain, terrain}], more}
+      end
+
+    claimed = length(jobs)
+
+    {jobs, f, _room} =
+      Enum.reduce(candidates, {jobs, f, room}, fn {kind, chunks}, acc ->
+        claim(acc, kind, chunks)
+      end)
+
+    found = Enum.sum(for {_, chunks} <- candidates, do: length(chunks))
+    left = left or length(jobs) - claimed < found
+    {Enum.reverse(jobs), %{f | left: left}}
   end
 
   def next(%__MODULE__{} = f, _capacity, _bulk), do: {[], f}
 
-  # Start the entries of a queue that can start, most urgent first, as far
-  # as there is room; entries no longer needed go.
-  defp take({jobs, f, {0, _, _}} = acc, _queue) when is_list(jobs) and is_map(f), do: acc
-
-  defp take({jobs, f, room}, :alone) do
-    f.alone
-    |> Enum.sort_by(&{Map.get(f.priority, &1), elem(&1, 1), elem(&1, 0)})
-    |> Enum.reduce({jobs, f, room}, fn chunk, acc ->
-      if still(elem(acc, 1), :alone, chunk),
-        do: claim(acc, {:alone, chunk}, nil),
-        else: acc
-    end)
-  end
-
-  defp take({jobs, f, room}, queue) do
-    take_from(:gb_sets.iterator(Map.fetch!(f, queue)), queue, {jobs, f, room})
-  end
-
-  defp take_from(_iterator, _queue, {_, _, {0, _, _}} = acc), do: acc
-
-  defp take_from(_iterator, :queue, {_, %{kind: kind}, {_, 0, _}} = acc) when kind != :flat,
-    do: acc
-
-  defp take_from(iterator, queue, {jobs, f, room} = acc) do
-    case :gb_sets.next(iterator) do
-      :none ->
-        acc
-
-      {entry, iterator} ->
-        case still(f, queue, entry) do
-          nil ->
-            f = Map.update!(f, queue, &:gb_sets.delete(entry, &1))
-            take_from(iterator, queue, {jobs, f, room})
-
-          candidate ->
-            {jobs2, f2, room2} = claim(acc, candidate, {queue, entry})
-
-            # Started: off the queue; held by a job meanwhile: stays.
-            f2 =
-              if room2 != room,
-                do: Map.update!(f2, queue, &:gb_sets.delete(entry, &1)),
-                else: f2
-
-            take_from(iterator, queue, {jobs2, f2, room2})
-        end
-    end
-  end
-
-  defp still(f, :finals, {_, chunk}), do: if(final_ready?(f, chunk), do: {:full, chunk})
-
-  defp still(f, :ready, {_, seq, n}),
-    do: if(Map.get(f.seqs, n) == seq and ready?(f, n, seq), do: {:decorate, n})
-
-  defp still(%{kind: :flat} = f, :queue, {_, _, _, c}) do
-    if Map.has_key?(f.priority, c) and not MapSet.member?(f.delivered, c),
-      do: {:flat, c}
-  end
-
-  # Terrain only while work still needs it: an entry can outlive its need, and
-  # a chunk handed over with its 3 × 3 has no status left.
-  defp still(%{final_after_terrain: true} = f, :queue, {_, _, _, c}) do
-    if needs_terrain?(f, c) and Map.has_key?(f.priority, c) and
-         not MapSet.member?(f.delivered, c),
-       do: {:terrain, c}
-  end
-
-  defp still(f, :queue, {_, _, _, c}) do
-    if needs_terrain?(f, c) and
-         Enum.any?(around(c, 1), &(Map.has_key?(f.seqs, &1) and Map.has_key?(f.needs, &1))),
-       do: {:terrain, c}
-  end
-
-  defp still(f, :alone, c) do
-    Map.has_key?(f.priority, c) and not MapSet.member?(f.delivered, c) and
-      not Map.has_key?(f.busy, c) and alone?(f, c)
-  end
-
-  # A decoration that can start now (but for jobs holding its chunks).
-  defp ready?(f, n, seq) do
-    not decorated?(f, n) and not Map.has_key?(f.failed, n) and
-      Enum.all?(around(n, 1), &cell?(f, &1)) and earlier(f, n, seq) == []
-  end
-
-  defp check_ready(f, n) do
-    with %{^n => seq} <- f.seqs,
-         %{^n => p} <- f.needs,
-         true <- ready?(f, n, seq) do
-      %{f | ready: :gb_sets.add({p, seq, n}, f.ready)}
-    else
-      _ -> f
-    end
-  end
-
-  defp final_ready?(f, chunk) do
-    Map.has_key?(f.priority, chunk) and final?(f, chunk) and not handed?(f, chunk) and
-      not MapSet.member?(f.delivered, chunk)
-  end
-
-  defp check_final(%{kind: :flat} = f, _chunk), do: f
-
-  defp check_final(f, chunk) do
-    if final_ready?(f, chunk),
-      do: %{f | finals: :gb_sets.add({f.priority[chunk], chunk}, f.finals)},
-      else: f
-  end
-
-  # The chunks within 2 of `n` numbered before it, which it waits for (a
-  # number goes once its chunk is decorated or blocked).
-  defp earlier(f, n, seq) do
-    for m <- around(n, 2), m != n, s = Map.get(f.seqs, m), s != nil and s < seq, do: m
-  end
-
   # Room is `{jobs, terrain jobs, slots terrain leaves}`: as on the pool,
   # terrain never takes the last slots, whatever took the others.
-  defp claim({jobs, f, {0, _, _} = room}, _candidate, _origin), do: {jobs, f, room}
-  defp claim({jobs, f, {_, 0, _} = room}, {:terrain, _}, _origin), do: {jobs, f, room}
+  defp claim(acc, kind, chunks), do: Enum.reduce(chunks, acc, &claim_one(&2, kind, &1))
 
-  defp claim({jobs, f, {capacity, bulk, gap} = room}, {kind, _} = candidate, origin) do
-    case start(f, candidate, origin) do
-      {nil, f} ->
+  defp claim_one({_, _, {0, _, _}} = acc, _kind, _chunk), do: acc
+  defp claim_one({_, _, {_, 0, _}} = acc, :terrain, _chunk), do: acc
+
+  defp claim_one({jobs, f, {capacity, bulk, gap} = room}, kind, chunk) do
+    case start(f, kind, chunk) do
+      nil ->
         {jobs, f, room}
 
       {job, f} ->
@@ -707,38 +262,27 @@ defmodule Valimc.Worldgen.Frontier do
     end
   end
 
-  # Claim what a job holds and build it; `{nil, f}` when it cannot start.
-  defp start(f, {kind, chunk}, origin) do
+  # Claim what a job holds and build it; nil when it cannot start.
+  defp start(f, kind, chunk) do
     holds = if kind == :decorate, do: around(chunk, 1), else: [chunk]
 
-    if Enum.any?(holds, &Map.has_key?(f.busy, &1)) do
-      {nil, f}
+    if Enum.any?(holds, &Map.has_key?(f.busy, &1)) or not startable?(f, kind, chunk) do
+      nil
     else
       ref = make_ref()
-
-      job = %{
-        ref: ref,
-        kind: kind,
-        chunk: chunk,
-        holds: holds,
-        bulk: kind == :terrain,
-        origin: origin
-      }
-
+      job = %{ref: ref, kind: kind, chunk: chunk, holds: holds, bulk: kind == :terrain}
       busy = Enum.reduce(holds, f.busy, &Map.put(&2, &1, ref))
-      clock = f.clock + 1
-      chunks = Enum.reduce(holds, f.chunks, &touch(&2, &1, clock))
-      f = %{f | busy: busy, jobs: Map.put(f.jobs, ref, job), chunks: chunks, clock: clock}
-      {Map.put(job, :run, runner(f, job)), f}
+      f = Memory.touch(%{f | busy: busy, jobs: Map.put(f.jobs, ref, job)}, holds)
+      f = if kind == :decorate, do: Dependencies.check(f, chunk), else: f
+      {Map.put(job, :run, Runners.runner(f, job)), f}
     end
   end
 
-  defp touch(chunks, chunk, clock) do
-    case chunks do
-      %{^chunk => entry} -> Map.put(chunks, chunk, Map.put(entry, :used, clock))
-      _ -> chunks
-    end
-  end
+  defp startable?(f, :full, c),
+    do: Goals.goal?(f, c) and Dependencies.final?(f, c) and not Dependencies.handed?(f, c)
+
+  defp startable?(f, :alone, c), do: Goals.goal?(f, c) and Dependencies.alone?(f, c)
+  defp startable?(_f, _kind, _c), do: true
 
   @doc "Give back a job `next/3` returned that did not start."
   def cancel(%__MODULE__{} = f, ref) do
@@ -748,241 +292,15 @@ defmodule Valimc.Worldgen.Frontier do
 
       {job, jobs} ->
         f = %{f | jobs: jobs, busy: Map.drop(f.busy, job.holds)}
-
-        # Back into its queue (an alone chunk stays in its set until sent).
-        case job.origin do
-          {queue, entry} -> Map.update!(f, queue, &:gb_sets.add(entry, &1))
-          nil -> f
-        end
+        if job.kind == :decorate, do: Dependencies.check(f, job.chunk), else: f
     end
-  end
-
-  defp runner(f, %{kind: :terrain, chunk: {x, z}}) do
-    {worldgen, source, starts} = {f.worldgen, f.source, f.starts}
-    fn -> Native.gen_terrain(worldgen, source, starts, x, z) end
-  end
-
-  # Spilled cells come back with the decoration's result.
-  defp runner(f, %{kind: :decorate, chunk: center}) do
-    {worldgen, source, starts, scratch} = {f.worldgen, f.source, f.starts, f.scratch}
-    cells = Enum.map(around(center, 1), &{&1, f.chunks[&1].cell})
-
-    fn ->
-      with {:ok, restored} <- load(worldgen, scratch, cells),
-           cells = Enum.map(cells, fn {chunk, cell} -> Map.get(restored, chunk, cell) end),
-           {:ok, _lenient} <- Native.gen_decorate(worldgen, source, starts, center, cells),
-           do: if(restored == %{}, do: :ok, else: {:ok, restored})
-    end
-  end
-
-  # A spilled cell stays spilled: making it full changes nothing in it.
-  defp runner(f, %{kind: :full, chunk: chunk}) do
-    {worldgen, cell, sky, scratch} = {f.worldgen, f.chunks[chunk].cell, f.sky, f.scratch}
-
-    fn ->
-      with {:ok, restored} <- load(worldgen, scratch, [{chunk, cell}]),
-           {:ok, full} <-
-             Native.gen_full(
-               worldgen,
-               Map.get(restored, chunk, cell),
-               Generator.protocol_biomes()
-             ),
-           do: {:ok, lit(full, sky)}
-    end
-  end
-
-  defp runner(f, %{kind: :alone, chunk: {x, z} = chunk}) do
-    {worldgen, source, structures, sky} = {f.worldgen, f.source, f.starts != nil, f.sky}
-
-    fn ->
-      with {:ok, cells} <-
-             Native.gen_reference(worldgen, source, {x - 1, z - 1}, 3, [chunk], structures),
-           {:ok, full} <-
-             Native.gen_full(worldgen, Enum.at(cells, 4), Generator.protocol_biomes()),
-           do: {:ok, lit(full, sky)}
-    end
-  end
-
-  defp runner(f, %{kind: :flat, chunk: {x, z}}) do
-    {spec, sky} = {f.flat, f.sky}
-
-    fn ->
-      {:ok, image} = Native.column_layers_image(spec.layers, spec.biome)
-
-      full = %{
-        x: x,
-        z: z,
-        image: image,
-        heights: [],
-        block_entities: [],
-        block_ticks: [],
-        fluid_ticks: [],
-        marks: []
-      }
-
-      {:ok, lit(full, sky)}
-    end
-  end
-
-  # The spilled cells among `cells` (`{chunk, cell}`), decoded from the scratch
-  # file: `{:ok, %{chunk => cell}}`.
-  defp load(worldgen, scratch, cells) do
-    Enum.reduce_while(cells, {:ok, %{}}, fn
-      {chunk, {:spilled, offset, size}}, {:ok, acc} ->
-        with {:ok, bytes} <- read_spilled(scratch, offset, size),
-             {:ok, cell} <- Native.gen_decode(worldgen, bytes) do
-          {:cont, {:ok, Map.put(acc, chunk, cell)}}
-        else
-          error -> {:halt, {:error, {:scratch, error}}}
-        end
-
-      _, acc ->
-        {:cont, acc}
-    end)
-  end
-
-  @doc "A spilled cell's encoding, read from the scratch file at `path`."
-  def read_spilled(path, offset, size) do
-    with {:ok, file} <- :file.open(path, [:read, :raw, :binary]) do
-      try do
-        case :file.pread(file, offset, size) do
-          {:ok, bytes} when byte_size(bytes) == size -> {:ok, bytes}
-          other -> {:error, {:short_read, other}}
-        end
-      after
-        :file.close(file)
-      end
-    end
-  end
-
-  ## Bounded memory (VMC-077q)
-
-  @doc """
-  Past `cap` proto cells in memory, make room down to seven eighths of it:
-  `{f, spills}`, at most `limit` spills of `{chunk, cell}` for the caller to
-  write and record with `spilled/2`. Cells within 2 of a wanted chunk, within
-  1 of a needed decoration or held by a job stay; of the others, least
-  recently used first, terrain no decoration wrote into is dropped and any
-  other cell spills.
-  """
-  def evictions(f, limit \\ 64)
-
-  def evictions(%__MODULE__{cap: cap, in_memory: n} = f, limit)
-      when is_integer(cap) and n > cap do
-    keep = cap - div(cap, 8)
-
-    f.chunks
-    |> Enum.filter(fn {_, %{cell: cell}} -> is_reference(cell) end)
-    |> Enum.sort_by(fn {_, entry} -> Map.get(entry, :used, 0) end)
-    |> Enum.reduce_while({f, []}, fn {chunk, entry}, {f, spills} ->
-      cond do
-        f.in_memory - length(spills) <= keep or length(spills) >= limit ->
-          {:halt, {f, spills}}
-
-        protected?(f, chunk) ->
-          {:cont, {f, spills}}
-
-        droppable?(f, chunk) ->
-          f = %{
-            f
-            | chunks: Map.delete(f.chunks, chunk),
-              in_memory: f.in_memory - 1,
-              dropped: f.dropped + 1
-          }
-
-          {:cont, {f, spills}}
-
-        true ->
-          {:cont, {f, [{chunk, entry.cell} | spills]}}
-      end
-    end)
-    |> then(fn {f, spills} -> {f, Enum.reverse(spills)} end)
-  end
-
-  def evictions(f, _limit), do: {f, []}
-
-  # A cell work soon needs, or one a job holds. Needs are rebuilt only now
-  # and then: a decoration that ran since is no need.
-  defp protected?(f, chunk) do
-    Map.has_key?(f.busy, chunk) or Enum.any?(around(chunk, 2), &Map.has_key?(f.priority, &1)) or
-      Enum.any?(around(chunk, 1), &(Map.has_key?(f.needs, &1) and Map.has_key?(f.seqs, &1)))
-  end
-
-  # Terrain no decoration wrote into: no chunk within 1 of it decorated.
-  defp droppable?(f, chunk),
-    do: status(f, chunk) == :terrain and not Enum.any?(around(chunk, 1), &decorated?(f, &1))
-
-  @doc """
-  A job that writes `spills` (`{chunk, cell}`, from `evictions/2`) to the
-  scratch file, holding their chunks meanwhile (VMC-077x: the encoding runs
-  outside the scheduler): `{job, f}`, the job as `next/3` returns them, with
-  `done/3` recording where the cells went. One runs at a time: it appends.
-  """
-  def spill_job(%__MODULE__{} = f, spills) do
-    ref = make_ref()
-    chunks = Enum.map(spills, &elem(&1, 0))
-    job = %{ref: ref, kind: :spill, chunk: nil, holds: chunks, bulk: false, origin: nil}
-    path = f.scratch
-    busy = Enum.reduce(chunks, f.busy, &Map.put(&2, &1, ref))
-    f = %{f | busy: busy, jobs: Map.put(f.jobs, ref, job)}
-    {Map.put(job, :run, fn -> write_spills(path, spills) end), f}
-  end
-
-  defp write_spills(path, spills) do
-    {:ok, file} = :file.open(path, [:read, :write, :raw, :binary])
-
-    try do
-      {:ok, start} = :file.position(file, :eof)
-
-      {locations, _} =
-        Enum.map_reduce(spills, start, fn {chunk, cell}, offset ->
-          {:ok, bytes} = Native.gen_encode(cell)
-          :ok = :file.write(file, bytes)
-          {{chunk, offset, byte_size(bytes)}, offset + byte_size(bytes)}
-        end)
-
-      {:ok, locations}
-    after
-      :file.close(file)
-    end
-  end
-
-  @doc """
-  These cells (`{chunk, offset, size}`) are written to the scratch file: their
-  proto chunks leave memory, to be read back from there.
-  """
-  def spilled(%__MODULE__{} = f, locations) do
-    Enum.reduce(locations, f, fn {chunk, offset, size}, f ->
-      case f.chunks do
-        %{^chunk => %{cell: cell} = entry} when is_reference(cell) ->
-          %{
-            f
-            | chunks: Map.put(f.chunks, chunk, %{entry | cell: {:spilled, offset, size}}),
-              in_memory: f.in_memory - 1,
-              spills: f.spills + 1
-          }
-
-        _ ->
-          f
-      end
-    end)
-  end
-
-  @doc "The proto cells in memory (the memory gauge)."
-  def cells_in_memory(%__MODULE__{} = f),
-    do: for({_, %{cell: cell}} <- f.chunks, is_reference(cell), do: cell)
-
-  # A full chunk's image with its light alone stored in it (VMC-077c).
-  defp lit(full, sky) do
-    lit = Blocks.lit_images(%{{full.x, full.z} => full.image}, sky)
-    %{full | image: Map.fetch!(lit, {full.x, full.z})}
   end
 
   @doc """
   A job's result: `{f, events}`, events `{:full, requesters, chunk, full}`
   (for the requesters that want it now) and `{:failed, requesters, chunks,
-  reason}` (a deterministic error: the chunk stays failed, and the wanted
-  chunks within 2 of it are given up).
+  reason}` (a deterministic error: the chunk stays failed, and the goals
+  within 2 of it are given up).
   """
   def done(%__MODULE__{} = f, ref, result) do
     case Map.pop(f.jobs, ref) do
@@ -997,83 +315,50 @@ defmodule Valimc.Worldgen.Frontier do
   end
 
   defp apply_result(f, %{kind: :terrain, chunk: chunk}, {:ok, cell}) do
-    entry = %{status: :terrain, cell: cell, used: f.clock}
-    f = %{f | chunks: Map.put(f.chunks, chunk, entry), in_memory: f.in_memory + 1}
+    f = Memory.put(f, chunk, cell, :terrain)
 
     if f.final_after_terrain,
-      do: {check_final(f, chunk), []},
-      else: {Enum.reduce(around(chunk, 1), f, &check_ready(&2, &1)), []}
+      do: {Dependencies.check_final(f, chunk), []},
+      else: {Dependencies.made(f, chunk), []}
   end
 
   defp apply_result(f, %{kind: :decorate} = job, {:ok, restored}) when is_map(restored) do
-    chunks =
-      Enum.reduce(restored, f.chunks, fn {c, cell}, chunks ->
-        Map.update!(chunks, c, &%{&1 | cell: cell})
+    f =
+      Enum.reduce(restored, f, fn {c, cell}, f ->
+        Memory.put(f, c, cell, Dependencies.status(f, c))
       end)
 
-    apply_result(%{f | chunks: chunks, in_memory: f.in_memory + map_size(restored)}, job, :ok)
+    apply_result(f, job, :ok)
   end
 
-  defp apply_result(f, %{kind: :decorate, chunk: chunk}, :ok) do
-    entry = %{f.chunks[chunk] | status: :decorated}
-    f = %{f | chunks: Map.put(f.chunks, chunk, entry), seqs: Map.delete(f.seqs, chunk)}
-    f = Enum.reduce(around(chunk, 2), f, &check_ready(&2, &1))
-    {Enum.reduce(around(chunk, 1), f, &check_final(&2, &1)), []}
+  defp apply_result(f, %{kind: :decorate, chunk: n}, :ok) do
+    f = %{f | chunks: Map.update!(f.chunks, n, &%{&1 | status: :decorated})}
+    {Dependencies.decorated(f, n), []}
   end
 
   defp apply_result(f, %{kind: kind, chunk: chunk}, {:ok, full})
        when kind in [:full, :alone, :flat] do
     requesters = wanting(f, chunk)
     # Sent: wanted again only if lost.
-    wants =
-      Enum.reduce(requesters, f.wants, fn requester, wants ->
-        case Map.delete(wants[requester], chunk) do
-          left when left == %{} -> Map.delete(wants, requester)
-          left -> Map.put(wants, requester, left)
-        end
-      end)
-
-    # Every requester got it: wanted no more until one wants it again.
-    f = %{
-      f
-      | wants: wants,
-        index: Map.delete(f.index, chunk),
-        priority: Map.delete(f.priority, chunk),
-        delivered: MapSet.put(f.delivered, chunk),
-        alone: MapSet.delete(f.alone, chunk)
-    }
-
+    {f, lost} = Goals.sent(f, chunk)
+    f = Dependencies.goals(%{f | delivered: MapSet.put(f.delivered, chunk)}, [], [], lost)
     {f, if(requesters == [], do: [], else: [{:full, requesters, chunk, full}])}
   end
 
-  defp apply_result(f, %{kind: :spill}, {:ok, locations}), do: {spilled(f, locations), []}
+  defp apply_result(f, %{kind: :spill}, {:ok, locations}), do: {Memory.spilled(f, locations), []}
 
   # Not written: the cells stay in memory.
   defp apply_result(f, %{kind: :spill}, {:error, _reason}), do: {f, []}
 
   defp apply_result(f, %{chunk: chunk}, {:error, reason}) do
     Valimc.Data.Metrics.add(:worldgen_errors)
-    f = freeze(%{f | failed: Map.put(f.failed, chunk, reason)}, chunk)
-
-    affected =
-      f.wants
-      |> Enum.flat_map(fn {_, wanted} -> Map.keys(wanted) end)
-      |> Enum.uniq()
-      |> Enum.filter(&near?(&1, chunk))
-      |> Enum.reject(&MapSet.member?(f.delivered, &1))
-
+    f = Dependencies.freeze(%{f | failed: Map.put(f.failed, chunk, reason)}, chunk)
+    affected = for c <- around(chunk, 2), Goals.goal?(f, c), do: c
     requesters = affected |> Enum.flat_map(&wanting(f, &1)) |> Enum.uniq()
-
-    f = %{
-      f
-      | given_up: Enum.into(affected, f.given_up),
-        priority: Map.drop(f.priority, affected)
-    }
-
+    {f, lost} = Goals.give_up(f, affected)
+    f = Dependencies.goals(f, [], [], lost)
     {f, if(affected == [], do: [], else: [{:failed, requesters, affected, reason}])}
   end
-
-  defp near?({x, z}, {a, b}), do: abs(x - a) <= 2 and abs(z - b) <= 2
 
   @doc """
   A job's worker went down without reporting: its work is tried again, up to
@@ -1103,7 +388,7 @@ defmodule Valimc.Worldgen.Frontier do
       decorated: Map.get(by_status, :decorated, 0),
       handed: Map.get(by_status, :handed, 0),
       numbered: map_size(f.seqs),
-      wanted: f.wants |> Enum.map(fn {_, w} -> map_size(w) end) |> Enum.sum(),
+      wanted: map_size(f.ranks),
       running: map_size(f.jobs),
       failed: map_size(f.failed),
       in_memory: f.in_memory,
@@ -1151,7 +436,10 @@ defmodule Valimc.Worldgen.Frontier do
   def snapshot(_f), do: nil
 
   defp encoded(_f, nil), do: nil
-  defp encoded(f, {:spilled, offset, size}), do: elem(read_spilled(f.scratch, offset, size), 1)
+
+  defp encoded(f, {:spilled, offset, size}),
+    do: elem(Memory.read_spilled(f.scratch, offset, size), 1)
+
   defp encoded(_f, cell), do: elem(Native.gen_encode(cell), 1)
 
   @doc """
@@ -1164,21 +452,20 @@ defmodule Valimc.Worldgen.Frontier do
   def restore(%__MODULE__{kind: :noise, final_after_terrain: false} = f, binary, spill) do
     case :erlang.binary_to_term(binary, [:safe]) do
       %{version: @snapshot_version, source: source} = s when source == f.source ->
-        chunks =
-          Map.new(s.chunks, fn
-            {chunk, status, nil} ->
-              {chunk, %{status: status, cell: nil}}
+        f =
+          Enum.reduce(s.chunks, f, fn
+            {chunk, status, nil}, f ->
+              %{f | chunks: Map.put(f.chunks, chunk, %{status: status, cell: nil})}
 
-            {chunk, status, image} when spill != nil ->
+            {chunk, status, image}, f when spill != nil ->
               {offset, size} = spill.(image)
-              {chunk, %{status: status, cell: {:spilled, offset, size}}}
+              cell = {:spilled, offset, size}
+              %{f | chunks: Map.put(f.chunks, chunk, %{status: status, cell: cell})}
 
-            {chunk, status, image} ->
+            {chunk, status, image}, f ->
               {:ok, cell} = Native.gen_decode(f.worldgen, image)
-              {chunk, %{status: status, cell: cell}}
+              Memory.put(f, chunk, cell, status)
           end)
-
-        in_memory = Enum.count(chunks, fn {_, %{cell: cell}} -> is_reference(cell) end)
 
         starts =
           case {f.starts, s.starts} do
@@ -1187,16 +474,7 @@ defmodule Valimc.Worldgen.Frontier do
             {_, binary} -> elem(Native.gen_starts_restore(binary), 1)
           end
 
-        {:ok,
-         %{
-           f
-           | chunks: chunks,
-             in_memory: in_memory,
-             seqs: s.seqs,
-             next_seq: s.next_seq,
-             starts: starts,
-             stale: true
-         }}
+        {:ok, Dependencies.rebuild(%{f | seqs: s.seqs, next_seq: s.next_seq, starts: starts})}
 
       _ ->
         {:error, :snapshot_of_another_generation}
@@ -1215,7 +493,7 @@ defmodule Valimc.Worldgen.Frontier do
   """
   def run(%__MODULE__{} = f, chunks) do
     requester = make_ref()
-    f = want(f, requester, Map.new(chunks, &{&1, -1}))
+    f = want(f, requester, Map.new(chunks, &{&1, true}))
     drive(f, requester, chunks, %{})
   end
 
@@ -1223,9 +501,9 @@ defmodule Valimc.Worldgen.Frontier do
     if Enum.all?(chunks, &Map.has_key?(got, &1)) do
       {Enum.map(chunks, &Map.fetch!(got, &1)), want(f, requester, %{})}
     else
-      case next(refresh(f), 1) do
+      case next(f, 1) do
         {[job], f} ->
-          {f, events} = done(f, job.ref, safe(job.run))
+          {f, events} = done(f, job.ref, Runners.safe(job.run))
           got = Enum.reduce(events, got, &collect(&1, &2, requester))
           drive(f, requester, chunks, got)
 
@@ -1242,12 +520,5 @@ defmodule Valimc.Worldgen.Frontier do
     if requester in requesters,
       do: raise("generating #{inspect(chunks)} failed: #{inspect(reason)}"),
       else: got
-  end
-
-  @doc "Run a job's closure; a raise is a deterministic error."
-  def safe(run) do
-    run.()
-  rescue
-    error -> {:error, {:generation, Exception.message(error)}}
   end
 end

@@ -55,7 +55,7 @@ defmodule Valimc.RegionLifecycleTest do
             for key <- [here, ahead], reduce: tables do
               acc ->
                 assert {:ok, pid} = Valimc.TestWorld.region(key)
-                Region.ticket(pid, key, :player_loading, hd(chunks(key)), chunks(key))
+                Region.ticket(pid, key, :player_loading, chunks(key))
                 if key == first, do: assert(:ok = Valimc.TestBlocks.set(edit, @coral))
                 {:ok, _} = Valimc.TestWorld.owner(key)
                 [table.(key) | acc]
@@ -66,7 +66,7 @@ defmodule Valimc.RegionLifecycleTest do
 
           if behind in ctx.keys do
             {pid, _, _} = Valimc.TestWorld.lookup(behind) || {nil, nil, nil}
-            if pid, do: Region.ticket(pid, behind, :player_loading, nil, [])
+            if pid, do: Region.ticket(pid, behind, :player_loading, [])
             Valimc.TestWait.until(fn -> gone?(behind) end)
           end
 
@@ -97,7 +97,7 @@ defmodule Valimc.RegionLifecycleTest do
     # Coral away from water schedules the tick that kills it (60–99 ticks).
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{ticking => @coral, idle => @coral})
 
-    Region.ticket(owner, key, :player_simulation, nil, [
+    Region.ticket(owner, key, :player_simulation, [
       Valimc.Data.Grid.chunk_key(8 + rx * span, 8 + rz * span)
     ])
 
@@ -105,7 +105,7 @@ defmodule Valimc.RegionLifecycleTest do
     assert Valimc.TestBlocks.get(ticking) == @dead
     assert Valimc.TestBlocks.get(idle) == @coral
 
-    Region.ticket(owner, key, :forced, nil, [
+    Region.ticket(owner, key, :forced, [
       Valimc.Data.Grid.chunk_key(elem(idle, 0), elem(idle, 2))
     ])
 
@@ -122,17 +122,17 @@ defmodule Valimc.RegionLifecycleTest do
     path = Valimc.Storage.Checkpoint.path(ctx.base, {:region, :overworld, key})
 
     {:ok, pid} = Valimc.TestWorld.region(key)
-    Region.ticket(pid, key, :player_loading, hd(chunks(key)), chunks(key))
+    Region.ticket(pid, key, :player_loading, chunks(key))
     {:ok, _} = Valimc.TestWorld.owner(key)
     :ok = Valimc.TestBlocks.set(edit, @coral)
-    Region.ticket(pid, key, :player_loading, nil, [])
+    Region.ticket(pid, key, :player_loading, [])
     Valimc.TestWait.until(fn -> gone?(key) end)
     # Loaded again at once, it holds the change, whether the checkpoint was
     # done or not.
     {:ok, _} = Valimc.TestWorld.owner(key)
     assert Valimc.TestBlocks.get(edit) == @coral
     {:ok, {pid, _}} = Valimc.TestWorld.owner(key)
-    Region.ticket(pid, key, :player_loading, nil, [])
+    Region.ticket(pid, key, :player_loading, [])
     Valimc.TestWait.until(fn -> gone?(key) end)
 
     # While a checkpoint of its file is written, a section does not load.

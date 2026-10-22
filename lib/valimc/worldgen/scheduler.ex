@@ -5,28 +5,29 @@ defmodule Valimc.Worldgen.Scheduler do
   dimension's structure starts (`Valimc.Worldgen.Frontier`), runs the work on
   `Valimc.Worldgen.Pool` and sends full chunks to the regions that want them.
 
-  A region sends what it wants (`want/5`, its absent chunks with their
-  distance to the nearest player that wants them, replaced on every change)
-  and gets them once they are full, or `{:resource, epoch,
+  A region sends what it wants (`want/6`, its absent chunks, those calls wait
+  for marked urgent, replaced on every change) and gets them once they are
+  full, or `{:resource, epoch,
   {:generation_failed, chunks, reason}}` when their generation failed. Once
   it has persisted a chunk it says so (`handed_over/3`) and the cell goes;
   when it loads, it reports the chunks it has (`present/3`). It monitors the
   scheduler and wants again when it restarts.
 
-  Full chunks go in deliveries with credit (VMC-077w): a requester process (a
-  region group) gets `{:generated, scheduler, [{key, epoch, fulls}]}`, the
-  chunks of each of its sections that wants them, only while fewer than
-  #{2} of its deliveries are unacknowledged (`delivered/1`). What finishes
-  meanwhile waits here and goes in its next delivery, at most #{64} chunks,
-  the players' own and nearest chunks first, so a group installs what is
-  ready in one pass per section and finished chunks never queue in its
-  mailbox.
+  Full chunks go in deliveries with credit (VMC-077w): a region group gets
+  `{:generated, scheduler, [{key, epoch, fulls}]}`, the chunks of each of its
+  sections that wants them, only while fewer than #{2} of its deliveries are
+  unacknowledged (`delivered/1`). What finishes meanwhile waits here and goes
+  in its next delivery, at most #{64} chunks, the players' own and nearest
+  chunks first, so a group installs what is ready in one pass per section and
+  finished chunks never queue in its mailbox. One record per group holds its
+  sections' epochs, the chunks ready for it (each with the epoch it was made
+  for) and its unacknowledged deliveries; what is on its way to a section is
+  read from it and not made again (VMC-077u).
 
   Work starts as soon as what it waits for changed, a job's result included,
   as far as the pool has room (VMC-077x); while the pool is full the next job
-  to end wakes it. Wants and players' focus change the priorities only where
-  they changed; a full rebuild runs at most four times a second, and takes at
-  most a tenth of the scheduler's time.
+  to end wakes it. The order comes from the goals and the players' foci
+  alone (`Valimc.Worldgen.Frontier`, VMC-077x1).
 
   Proto chunks and starts live only here. A graceful stop waits briefly for
   running jobs and writes them as the dimension's snapshot
@@ -43,6 +44,7 @@ defmodule Valimc.Worldgen.Scheduler do
   use GenServer, restart: :temporary
   require Logger
   alias Valimc.Worldgen.{Frontier, Pool}
+  alias Valimc.Worldgen.Frontier.{Memory, Runners}
   alias Valimc.World.Spec
 
   @snapshot "generation.snapshot"
@@ -52,44 +54,39 @@ defmodule Valimc.Worldgen.Scheduler do
   # An idle scheduler (nothing wanted, running or being persisted) stops.
   @idle 60_000
   @gauges 5_000
-  # Unacknowledged deliveries per requester process, and chunks per delivery.
+  # Unacknowledged deliveries per group, and chunks per delivery.
   @credit 2
   @delivery 64
-  # Priorities that went up or away are rebuilt at most this often (ms).
-  @refresh 250
   # Proto cells spilled per eviction pass.
   @spills 64
+  # Messages handled at most between dispatches while more wait.
+  @batch 8
 
   defstruct [
     :world,
     :dimension,
     :frontier,
-    requesters: %{},
+    # Per group pid: its monitor, its sections' epochs (`key => epoch`), the
+    # full chunks ready for its next delivery (`{key, chunk} => {epoch,
+    # full}`) and its unacknowledged deliveries (`{key, chunk} => epoch`
+    # each, oldest first).
+    groups: %{},
     # Focused players' monitors.
     focused: %{},
-    # Per requester, the chunks sent to it at its current epoch that its
-    # wants may still name: its mailbox or its outbox here holds them (VMC-077u).
-    in_flight: %{},
-    # Per requester process, its unacknowledged deliveries and the full
-    # chunks waiting for its next (`[{requester, chunk, full}]`, newest first).
-    outbox: %{},
     monitors: %{},
     # A running job's monitor by its ref.
     job_monitors: %{},
     calls: %{},
     waiting: false,
     dirty: false,
-    # When the priorities were last rebuilt (monotonic ms), and how long
-    # until the next may be.
-    refreshed: nil,
-    refresh_every: @refresh,
+    batched: 0,
+    # Cells came into memory or a spill ended since the last eviction pass.
+    evict: false,
     gauged: nil,
     # The scratch file spilled cells go to: `%{path, file}` (opened at the
-    # first spill), the job writing spills (its ref), and the cells in memory
-    # when an eviction pass last ended over the cap with nothing more to free.
+    # first spill), and the job writing spills (its ref).
     scratch: nil,
-    spilling: nil,
-    stuck: nil
+    spilling: nil
   ]
 
   ## API
@@ -126,8 +123,8 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   @doc """
-  `requester` (a region section, `{group pid, key}`, fenced by `epoch`) wants `wanted` (`chunk =>
-  priority`, smaller first) made full, replacing what it wanted before:
+  `requester` (a region section, `{group pid, key}`, fenced by `epoch`) wants
+  `wanted` (`chunk => urgent?`) made full, replacing what it wanted before:
   `{:ok, scheduler}` for it to monitor. A requester that monitors the
   scheduler already passes it as `known`, and nothing is looked up.
   """
@@ -215,7 +212,7 @@ defmodule Valimc.Worldgen.Scheduler do
     Process.flag(:trap_exit, true)
     Valimc.World.Dimension.put(dimension)
 
-    state = %__MODULE__{world: world, dimension: dimension, refreshed: now_ms()}
+    state = %__MODULE__{world: world, dimension: dimension}
     {:ok, state, {:continue, :load}}
   end
 
@@ -299,30 +296,27 @@ defmodule Valimc.Worldgen.Scheduler do
 
   defp open_scratch(state), do: state
 
-  # Past the cap: drop and spill what work does not need soon, a batch per
-  # dispatch. A pass looks at every cell in memory: after one that could not
-  # get under the cap, the next waits for an eighth of the cap more cells.
-  # The spills are encoded and written by a job of their own, one at a time
-  # (VMC-077x), so the scheduler never waits for them.
-  defp spill(%{spilling: nil, frontier: %{cap: cap, in_memory: n}} = state)
-       when is_integer(cap) and n > cap and
-              (state.stuck == nil or n >= state.stuck + max(div(cap, 8), 1)) do
-    {frontier, spills} = Frontier.evictions(state.frontier, @spills)
+  # Past the cap: drop and spill what work does not need soon, a pass after
+  # cells came into memory or a spill ended. The spills are encoded and written by a job
+  # of their own, one at a time (VMC-077x), so the scheduler never waits for
+  # them.
+  defp spill(%{evict: true, spilling: nil, frontier: %{cap: cap, in_memory: n}} = state)
+       when is_integer(cap) and n > cap do
+    started = now()
+    {frontier, spills} = Memory.evictions(state.frontier, @spills)
+    Valimc.Data.Metrics.add(:worldgen_evict_microseconds, now() - started)
     Valimc.Data.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
-    # A full batch: more may go once it is written.
-    left = frontier.in_memory - length(spills)
-    stuck = if left > cap and length(spills) < @spills, do: left
-    state = %{state | frontier: frontier, stuck: stuck}
+    state = %{state | frontier: frontier, evict: false}
 
     if spills == [] do
       state
     else
       state = open_scratch(state)
-      {job, frontier} = Frontier.spill_job(state.frontier, spills)
+      {job, frontier} = Memory.spill_job(state.frontier, spills)
       run = job.run
       ref = job.ref
       scheduler = self()
-      {_pid, monitor} = spawn_monitor(fn -> send(scheduler, {:job, ref, Frontier.safe(run)}) end)
+      {_pid, monitor} = spawn_monitor(fn -> send(scheduler, {:job, ref, Runners.safe(run)}) end)
 
       %{
         state
@@ -337,25 +331,20 @@ defmodule Valimc.Worldgen.Scheduler do
   defp spill(state), do: state
 
   @impl true
-  def handle_cast({:want, requester, epoch, wanted}, state) do
-    state =
-      case state.requesters do
-        %{^requester => entry} ->
-          %{state | requesters: Map.put(state.requesters, requester, %{entry | epoch: epoch})}
-
-        _ ->
-          monitor = Process.monitor(requester_pid(requester))
-          entry = %{epoch: epoch, monitor: monitor}
-
-          %{
-            state
-            | requesters: Map.put(state.requesters, requester, entry),
-              monitors: Map.put(state.monitors, monitor, {:requester, requester})
-          }
-      end
-
+  # A section that wants chunks again before it read them (its group's
+  # mailbox lags behind its tickets) is not sent them twice: messages to the
+  # group arrive in order, and a section loaded again has a new epoch.
+  def handle_cast({:want, {pid, key} = requester, epoch, wanted}, state) do
     Valimc.Data.Metrics.add(:worldgen_wants)
-    {wanted, state} = in_flight(state, requester, epoch, wanted)
+    {group, state} = group(state, pid)
+
+    sections =
+      if wanted == %{},
+        do: Map.delete(group.sections, key),
+        else: Map.put(group.sections, key, epoch)
+
+    wanted = Map.reject(wanted, fn {chunk, _} -> on_its_way?(group, key, epoch, chunk) end)
+    state = %{state | groups: Map.put(state.groups, pid, %{group | sections: sections})}
     frontier = Frontier.want(state.frontier, requester, wanted)
     noreply(%{state | frontier: frontier, dirty: true})
   end
@@ -393,10 +382,11 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   def handle_cast({:delivered, pid}, state) do
-    case state.outbox do
-      %{^pid => entry} ->
-        entry = %{entry | unacked: max(entry.unacked - 1, 0)}
-        noreply(flush(%{state | outbox: Map.put(state.outbox, pid, entry)}, pid))
+    case state.groups do
+      %{^pid => %{unacked: [_ | unacked]} = group} ->
+        noreply(
+          flush(%{state | groups: Map.put(state.groups, pid, %{group | unacked: unacked})}, pid)
+        )
 
       _ ->
         noreply(state)
@@ -409,30 +399,31 @@ defmodule Valimc.Worldgen.Scheduler do
   def handle_cast({:present, chunks}, state),
     do: noreply(%{state | frontier: Frontier.present(state.frontier, chunks), dirty: true})
 
-  # A region that wants chunks again before it read them (its mailbox lags
-  # behind its tickets) is not sent them twice: messages to it arrive in
-  # order, and a section loaded again has a new epoch. A chunk sent that it no
-  # longer wants is done with, so wanting it later sends it again.
-  defp in_flight(state, requester, epoch, wanted) do
-    case state.in_flight do
-      %{^requester => {^epoch, sent}} ->
-        {pending, wanted} = Map.split(wanted, MapSet.to_list(sent))
-        sent = MapSet.new(Map.keys(pending))
-        {wanted, %{state | in_flight: Map.put(state.in_flight, requester, {epoch, sent})}}
-
-      %{^requester => _} ->
-        {wanted, %{state | in_flight: Map.delete(state.in_flight, requester)}}
+  # The record of group `pid`, monitored from its first want.
+  defp group(state, pid) do
+    case state.groups do
+      %{^pid => group} ->
+        {group, state}
 
       _ ->
-        {wanted, state}
+        monitor = Process.monitor(pid)
+        group = %{monitor: monitor, sections: %{}, ready: %{}, unacked: []}
+        {group, %{state | monitors: Map.put(state.monitors, monitor, {:group, pid})}}
     end
+  end
+
+  # `chunk` is ready for, or delivered to and not acknowledged by, section
+  # `key` at `epoch`.
+  defp on_its_way?(group, key, epoch, chunk) do
+    match?(%{{^key, ^chunk} => {^epoch, _}}, group.ready) or
+      Enum.any?(group.unacked, &match?(%{{^key, ^chunk} => ^epoch}, &1))
   end
 
   @impl true
   def handle_call({:full_chunks, chunks}, from, state) do
     ref = make_ref()
     calls = Map.put(state.calls, ref, %{from: from, chunks: chunks, got: %{}})
-    frontier = Frontier.want(state.frontier, {:call, ref}, Map.new(chunks, &{&1, -1}))
+    frontier = Frontier.want(state.frontier, {:call, ref}, Map.new(chunks, &{&1, true}))
     noreply(%{state | calls: calls, frontier: frontier, dirty: true})
   end
 
@@ -440,7 +431,7 @@ defmodule Valimc.Worldgen.Scheduler do
     do: reply(Frontier.order(state.frontier), state)
 
   def handle_call(:stats, _from, state) do
-    {:ok, bytes} = Valimc.Native.gen_cells_bytes(Frontier.cells_in_memory(state.frontier))
+    {:ok, bytes} = Valimc.Native.gen_cells_bytes(Memory.cells(state.frontier))
     reply(Map.put(Frontier.stats(state.frontier), :proto_bytes, bytes), state)
   end
 
@@ -449,7 +440,7 @@ defmodule Valimc.Worldgen.Scheduler do
       Enum.map(chunks, fn chunk ->
         case get_in(state.frontier.chunks, [chunk, :cell]) do
           {:spilled, offset, size} ->
-            {:ok, bytes} = Frontier.read_spilled(state.scratch.path, offset, size)
+            {:ok, bytes} = Memory.read_spilled(state.scratch.path, offset, size)
             elem(Valimc.Native.gen_decode(state.frontier.worldgen, bytes), 1)
 
           cell ->
@@ -479,10 +470,15 @@ defmodule Valimc.Worldgen.Scheduler do
           %{state | monitors: monitors, job_monitors: job_monitors}
       end
 
+    # Cells came into memory (or a spill ended): room may be made.
+    evict =
+      state.evict or
+        match?(%{kind: k} when k in [:terrain, :decorate, :spill], state.frontier.jobs[ref])
+
     {frontier, events} = Frontier.done(state.frontier, ref, result)
     Valimc.Data.Metrics.add(:worldgen_spills, frontier.spills - state.frontier.spills)
     state = if state.spilling == ref, do: %{state | spilling: nil}, else: state
-    noreply(deliver(%{state | frontier: frontier, dirty: true}, events))
+    noreply(deliver(%{state | frontier: frontier, dirty: true, evict: evict}, events))
   end
 
   def handle_info({:DOWN, monitor, :process, _pid, reason}, state) do
@@ -503,21 +499,16 @@ defmodule Valimc.Worldgen.Scheduler do
 
         noreply(deliver(state, events))
 
-      {{:requester, requester}, monitors} ->
-        frontier = Frontier.want(state.frontier, requester, %{})
-        requesters = Map.delete(state.requesters, requester)
-        in_flight = Map.delete(state.in_flight, requester)
-        # Every requester of that process is going: its deliveries with it.
-        outbox = Map.delete(state.outbox, requester_pid(requester))
+      # Its sections' wants go, and its deliveries with it.
+      {{:group, pid}, monitors} ->
+        {group, groups} = Map.pop(state.groups, pid)
 
-        noreply(%{
-          state
-          | monitors: monitors,
-            requesters: requesters,
-            in_flight: in_flight,
-            outbox: outbox,
-            frontier: frontier
-        })
+        frontier =
+          Enum.reduce(group.sections, state.frontier, fn {key, _}, f ->
+            Frontier.want(f, {pid, key}, %{})
+          end)
+
+        noreply(%{state | monitors: monitors, groups: groups, frontier: frontier})
 
       {{:focus, holder}, monitors} ->
         frontier = Frontier.focus(state.frontier, holder, nil, nil)
@@ -534,7 +525,7 @@ defmodule Valimc.Worldgen.Scheduler do
 
   def handle_info(:timeout, state) do
     cond do
-      state.dirty or state.frontier.stale -> noreply(%{state | dirty: true})
+      state.dirty -> noreply(state)
       idle?(state) -> {:stop, :normal, state}
       true -> {:noreply, state, @idle}
     end
@@ -544,24 +535,29 @@ defmodule Valimc.Worldgen.Scheduler do
   def handle_info(_message, state), do: noreply(state)
 
   # Work starts as soon as anything changed, as far as the pool has room
-  # (VMC-077x): a job's result starts the next one at once.
+  # (VMC-077x): at once while two or more slots are free, else once the
+  # mailbox is empty or after #{@batch} messages while more wait.
   defp noreply(state) do
-    state = if state.dirty, do: dispatch(state), else: state
+    state = settle(state)
     {:noreply, state, timeout(state)}
   end
 
   defp reply(value, state) do
-    state = if state.dirty, do: dispatch(state), else: state
+    state = settle(state)
     {:reply, value, state, timeout(state)}
   end
 
-  # Back at once when a dispatch asked for it; when a refresh is pending, once
-  # it is due; else idle-stop after a while.
+  defp settle(%{dirty: true, batched: batched} = state) do
+    if batched + 1 >= @batch or Pool.free() >= 2 or
+         Process.info(self(), :message_queue_len) == {:message_queue_len, 0},
+       do: dispatch(%{state | batched: 0}),
+       else: %{state | batched: batched + 1}
+  end
+
+  defp settle(state), do: state
+
+  # Back at once when a dispatch asked for it; else idle-stop after a while.
   defp timeout(%{dirty: true}), do: 0
-
-  defp timeout(%{frontier: %{stale: true}} = state),
-    do: max(state.refreshed + state.refresh_every - now_ms(), 0)
-
   defp timeout(_state), do: @idle
 
   defp idle?(state) do
@@ -571,15 +567,8 @@ defmodule Valimc.Worldgen.Scheduler do
 
   ## Work
 
-  # Jobs start before the housekeeping: a rebuild or a spill pass takes
-  # milliseconds, and the jobs just started run meanwhile. A rebuild can make
-  # work startable, so jobs start again after one.
-  defp dispatch(state) do
-    state = start(%{state | dirty: false})
-    refreshed = state.refreshed
-    state = state |> spill() |> gauges() |> refresh()
-    if state.refreshed != refreshed, do: start(state), else: state
-  end
+  # Jobs start before the housekeeping, which runs meanwhile.
+  defp dispatch(state), do: %{state | dirty: false} |> start() |> spill() |> gauges()
 
   defp start(state) do
     room = Pool.free()
@@ -591,14 +580,14 @@ defmodule Valimc.Worldgen.Scheduler do
       {jobs, frontier} = Frontier.next(state.frontier, room, Pool.free(true))
       Valimc.Data.Metrics.add(:worldgen_dispatch_microseconds, now() - started)
       # Chunks wanted and not sent yet: the pool should be busy while any are.
-      Valimc.Data.Metrics.put(:"worldgen_wanted_#{state.dimension}", map_size(frontier.priority))
+      Valimc.Data.Metrics.put(:"worldgen_wanted_#{state.dimension}", map_size(frontier.ranks))
       scheduler = self()
 
       state =
         Enum.reduce(jobs, %{state | frontier: frontier}, fn job, state ->
           run = job.run
           ref = job.ref
-          work = fn -> send(scheduler, {:job, ref, Frontier.safe(run)}) end
+          work = fn -> send(scheduler, {:job, ref, Runners.safe(run)}) end
           started = if job.bulk, do: Pool.start_bulk(work), else: Pool.start(work)
 
           case started do
@@ -618,33 +607,13 @@ defmodule Valimc.Worldgen.Scheduler do
           end
         end)
 
-      # Terrain left out while its slots are taken: the next to free one
-      # wakes the scheduler, whoever's job held it.
-      if Pool.free(true) == 0 and :gb_sets.size(state.frontier.queue) > 0,
+      # Work left out while the slots it may take are taken: the next to free
+      # one wakes the scheduler, whoever's job held it.
+      if Pool.free(true) == 0 and state.frontier.left,
         do: wait(state, true),
         else: state
     end
   end
-
-  # The whole rebuild of the priorities, at most every `@refresh` ms and at
-  # most a tenth of the scheduler's time.
-  defp refresh(%{frontier: %{stale: true}} = state) do
-    at = now_ms()
-
-    if at - state.refreshed >= state.refresh_every do
-      started = now()
-      frontier = Frontier.refresh(state.frontier)
-      took = now() - started
-      Valimc.Data.Metrics.add(:worldgen_refreshes)
-      Valimc.Data.Metrics.add(:worldgen_refresh_microseconds, took)
-      every = max(@refresh, div(took, 100))
-      %{state | frontier: frontier, refreshed: at, refresh_every: every}
-    else
-      state
-    end
-  end
-
-  defp refresh(state), do: state
 
   # Woken by the next job that ends anywhere in the pool (with a slot bulk
   # work may take, for bulk).
@@ -671,34 +640,28 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   # The next delivery to `pid`, if it has credit and chunks wait: the
-  # players' own and nearest chunks first, grouped by section.
+  # players' own and nearest chunks first, sections in the order of their
+  # first chunk.
   defp flush(state, pid) do
-    case state.outbox do
-      %{^pid => %{unacked: unacked, ready: [_ | _] = ready} = entry} when unacked < @credit ->
+    case state.groups do
+      %{^pid => %{unacked: unacked, ready: ready} = group}
+      when length(unacked) < @credit and ready != %{} ->
         rank = &Frontier.rank(state.frontier, &1)
 
-        {sent, waiting} =
-          ready
-          |> Enum.reverse()
-          |> Enum.sort_by(fn {_, chunk, _} -> rank.(chunk) end)
-          |> Enum.split(@delivery)
+        sent =
+          ready |> Enum.sort_by(fn {{_, chunk}, _} -> rank.(chunk) end) |> Enum.take(@delivery)
 
-        # Sections in the order of their first chunk.
         sections =
           sent
-          |> Enum.group_by(&elem(&1, 0), &elem(&1, 2))
+          |> Enum.group_by(fn {{key, _}, {epoch, _}} -> {key, epoch} end, &elem(elem(&1, 1), 1))
           |> Enum.sort_by(fn {_, [full | _]} -> rank.({full.x, full.z}) end)
-          |> Enum.flat_map(fn {requester, fulls} ->
-            case state.requesters do
-              %{^requester => %{epoch: epoch}} -> [{requester_key(requester), epoch, fulls}]
-              _ -> []
-            end
-          end)
+          |> Enum.map(fn {{key, epoch}, fulls} -> {key, epoch, fulls} end)
 
-        unacked = if sections == [], do: unacked, else: unacked + 1
-        if sections != [], do: send(pid, {:generated, self(), sections})
-        entry = %{entry | unacked: unacked, ready: Enum.reverse(waiting)}
-        flush(%{state | outbox: Map.put(state.outbox, pid, entry)}, pid)
+        send(pid, {:generated, self(), sections})
+        delivery = Map.new(sent, fn {key_chunk, {epoch, _}} -> {key_chunk, epoch} end)
+        ready = Map.drop(ready, Map.keys(delivery))
+        group = %{group | ready: ready, unacked: unacked ++ [delivery]}
+        flush(%{state | groups: Map.put(state.groups, pid, group)}, pid)
 
       _ ->
         state
@@ -713,20 +676,12 @@ defmodule Valimc.Worldgen.Scheduler do
           _ -> state
         end
 
-      requester, state ->
-        case state.requesters do
-          %{^requester => %{epoch: epoch}} ->
-            pid = requester_pid(requester)
-            entry = Map.get(state.outbox, pid, %{unacked: 0, ready: []})
-            entry = %{entry | ready: [{requester, chunk, full} | entry.ready]}
-
-            in_flight =
-              Map.update(state.in_flight, requester, {epoch, MapSet.new([chunk])}, fn
-                {^epoch, sent} -> {epoch, MapSet.put(sent, chunk)}
-                _ -> {epoch, MapSet.new([chunk])}
-              end)
-
-            %{state | in_flight: in_flight, outbox: Map.put(state.outbox, pid, entry)}
+      # Made for the section's epoch now, which goes with it.
+      {pid, key}, state ->
+        case state.groups do
+          %{^pid => %{sections: %{^key => epoch}} = group} ->
+            group = %{group | ready: Map.put(group.ready, {key, chunk}, {epoch, full})}
+            %{state | groups: Map.put(state.groups, pid, group)}
 
           _ ->
             state
@@ -749,28 +704,13 @@ defmodule Valimc.Worldgen.Scheduler do
             %{state | calls: calls, frontier: frontier}
         end
 
-      requester, state ->
-        case state.requesters do
-          %{^requester => %{epoch: epoch}} ->
-            send(
-              requester_pid(requester),
-              {:resource, epoch, {:generation_failed, chunks, reason}}
-            )
+      {pid, key}, state ->
+        with %{^pid => %{sections: %{^key => epoch}}} <- state.groups,
+             do: send(pid, {:resource, epoch, {:generation_failed, chunks, reason}})
 
-            state
-
-          _ ->
-            state
-        end
+        state
     end)
   end
-
-  # A region section asks as `{group pid, key}` (VMC-077j); others as their pid.
-  defp requester_pid({pid, _key}) when is_pid(pid), do: pid
-  defp requester_pid(pid) when is_pid(pid), do: pid
-
-  defp requester_key({_pid, key}), do: key
-  defp requester_key(_pid), do: nil
 
   defp answer(state, ref, call) do
     if Enum.all?(call.chunks, &Map.has_key?(call.got, &1)) do
@@ -789,7 +729,6 @@ defmodule Valimc.Worldgen.Scheduler do
   end
 
   defp now, do: System.monotonic_time(:microsecond)
-  defp now_ms, do: System.monotonic_time(:millisecond)
 
   ## Gauges and stop
 
@@ -805,7 +744,7 @@ defmodule Valimc.Worldgen.Scheduler do
     d = state.dimension
     context = if f.worldgen, do: Valimc.Native.worldgen_memory(f.worldgen), else: 0
     starts = if f.starts, do: elem(Valimc.Native.gen_starts_stats(f.starts), 2), else: 0
-    {:ok, protos} = Valimc.Native.gen_cells_bytes(Frontier.cells_in_memory(f))
+    {:ok, protos} = Valimc.Native.gen_cells_bytes(Memory.cells(f))
     Valimc.Data.Metrics.put(:"worldgen_cells_#{d}", f.in_memory)
     Valimc.Data.Metrics.put(:"worldgen_proto_bytes_#{d}", protos)
     Valimc.Data.Metrics.put(:"worldgen_memory_bytes_#{d}", context + starts + protos)

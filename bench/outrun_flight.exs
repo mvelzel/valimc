@@ -453,33 +453,13 @@ here = :atomics.new(3, signed: true)
 
 # While the player's chunk has been missing for over a second, every 500 ms
 # (VMC-077x): what it waits for in the scheduler. The undecorated chunks of
-# its 3 × 3 and, transitively, the earlier decorations within 2 they wait for
-# (`chain`); of those, how many could run now and the terrain they lack;
-# where that terrain stands in the queue; and the pool and the queues.
+# its 3 × 3 and, transitively, the earlier decorations they wait for
+# (`chain`); of those, how many could run now and the terrain they lack; how
+# many goals rank before it; and the pool and the queues (VMC-077x1).
 waits_sampler =
   if "waits" in sample do
     spawn_link(fn ->
       around = &Valimc.Worldgen.Frontier.around/2
-
-      status = fn f, c ->
-        case f.chunks do
-          %{^c => %{status: s}} -> s
-          _ -> nil
-        end
-      end
-
-      decorated? = &(status.(&1, &2) in [:decorated, :handed])
-      cell? = &(status.(&1, &2) in [:terrain, :decorated])
-
-      earlier = fn f, n ->
-        seq = f.seqs[n]
-
-        for m <- around.(n, 2),
-            m != n,
-            s = f.seqs[m],
-            s != nil and seq != nil and s < seq,
-            do: m
-      end
 
       chain = fn chain, f, todo, seen ->
         case todo do
@@ -487,57 +467,35 @@ waits_sampler =
             seen
 
           [n | rest] ->
-            new = earlier.(f, n) |> Enum.reject(&MapSet.member?(seen, &1))
+            new = f.deps[n].waits |> Enum.reject(&MapSet.member?(seen, &1))
             chain.(chain, f, new ++ rest, Enum.into(new, seen))
         end
       end
 
       analyse = fn f, own ->
-        start = for n <- around.(own, 1), not decorated?.(f, n), do: n
+        start = for n <- around.(own, 1), Map.has_key?(f.deps, n), do: n
         decos = chain.(chain, f, start, MapSet.new(start))
-
-        ready =
-          Enum.count(decos, fn n ->
-            Enum.all?(around.(n, 1), &cell?.(f, &1)) and earlier.(f, n) == []
-          end)
-
-        cells = decos |> Enum.flat_map(&around.(&1, 1)) |> Enum.uniq()
-        lacking = Enum.reject(cells, &cell?.(f, &1))
-        busy = Enum.count(lacking, &Map.has_key?(f.busy, &1))
-        queued = :gb_sets.to_list(f.queue)
-        queued_chunks = MapSet.new(queued, &elem(&1, 3))
-        in_queue = Enum.count(lacking, &MapSet.member?(queued_chunks, &1))
-        needs = for n <- decos, p = f.needs[n], p != nil, do: p
-        lacking_set = MapSet.new(lacking)
-        lacking_p = for {p, _, _, c} <- queued, MapSet.member?(lacking_set, c), do: p
-        best = Enum.min(lacking_p, fn -> nil end)
-        ahead = if best, do: Enum.count(queued, &(elem(&1, 0) < best)), else: nil
-        spilled = Enum.count(cells, &match?(%{cell: {:spilled, _, _}}, f.chunks[&1]))
-        kinds = f.jobs |> Map.values() |> Enum.frequencies_by(& &1.kind)
+        lacking = decos |> Enum.flat_map(&f.deps[&1].lacking) |> Enum.uniq()
+        rank = f.ranks[own]
 
         %{
-          own_status: status.(f, own),
-          own_priority: f.priority[own],
+          own_status: get_in(f.chunks, [own, :status]),
+          own_rank: rank,
           own_seq: f.seqs[own],
-          unnumbered: Enum.count(start, &(f.seqs[&1] == nil)),
+          goals_before: if(rank, do: Enum.count(f.ranks, fn {_, r} -> r < rank end)),
           chain: MapSet.size(decos),
-          chain_ready: ready,
+          chain_ready: Enum.count(decos, &MapSet.member?(f.ready, &1)),
           chain_running: Enum.count(decos, &Map.has_key?(f.busy, &1)),
-          chain_needs: if(needs == [], do: nil, else: [Enum.min(needs), Enum.max(needs)]),
-          chain_unprioritized: MapSet.size(decos) - length(needs),
+          chain_unneeded: Enum.count(decos, &(f.deps[&1].need == 0)),
           lacking_terrain: length(lacking),
-          lacking_running: busy,
-          lacking_queued: in_queue,
-          lacking_best_priority: best,
-          queued_ahead: ahead,
-          spilled: spilled,
+          lacking_running: Enum.count(lacking, &Map.has_key?(f.busy, &1)),
+          spilled: Enum.count(decos, &match?(%{cell: {:spilled, _, _}}, f.chunks[&1])),
           alone: MapSet.member?(f.alone, own),
-          stale: f.stale,
-          wanted: map_size(f.priority),
-          queue: :gb_sets.size(f.queue),
-          ready: :gb_sets.size(f.ready),
-          finals: :gb_sets.size(f.finals),
-          jobs: kinds,
+          wanted: map_size(f.ranks),
+          ready: MapSet.size(f.ready),
+          terrain_needed: map_size(f.terrain),
+          finals: MapSet.size(f.finals),
+          jobs: f.jobs |> Map.values() |> Enum.frequencies_by(& &1.kind),
           in_memory: f.in_memory
         }
       end
@@ -566,13 +524,14 @@ waits_sampler =
                     mailbox: mailbox,
                     pool: Pool.size() - Pool.free(),
                     # Groups without credit, and full chunks waiting for one.
-                    outbox_blocked: Enum.count(state.outbox, fn {_, e} -> e.unacked >= 2 end),
+                    outbox_blocked:
+                      Enum.count(state.groups, fn {_, g} -> length(g.unacked) >= 2 end),
                     outbox_ready:
-                      state.outbox |> Enum.map(fn {_, e} -> length(e.ready) end) |> Enum.sum()
+                      state.groups |> Enum.map(fn {_, g} -> map_size(g.ready) end) |> Enum.sum()
                   })
 
                 IO.puts(
-                  "waits #{inspect(Map.take(row, [:chunk, :missing_ms, :own_status, :chain, :chain_ready, :lacking_terrain, :pool]))}"
+                  "waits #{inspect(Map.take(row, [:chunk, :missing_ms, :own_status, :own_rank, :goals_before, :chain, :chain_ready, :chain_running, :lacking_terrain, :lacking_running, :ready, :terrain_needed, :jobs, :pool]))}"
                 )
 
                 [row | rows]
@@ -589,11 +548,11 @@ waits_sampler =
   end
 
 counters =
-  ~w(worldgen_chunks worldgen_microseconds worldgen_wants worldgen_refreshes
+  ~w(worldgen_chunks worldgen_microseconds worldgen_wants
      worldgen_dispatch_microseconds worldgen_terrain_jobs worldgen_decorate_jobs
-     worldgen_full_jobs worldgen_alone_jobs chunks_encoded worldgen_refresh_microseconds
+     worldgen_full_jobs worldgen_alone_jobs chunks_encoded
      worldgen_terrain_microseconds worldgen_decorate_microseconds worldgen_full_microseconds
-     worldgen_spills worldgen_drops)a
+     worldgen_spills worldgen_drops worldgen_evict_microseconds)a
 
 before = Valimc.Data.Metrics.snapshot()
 
