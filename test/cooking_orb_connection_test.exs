@@ -14,10 +14,11 @@ defmodule Valimc.CookingOrbConnectionTest do
   }
 
   alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
-  alias Valimc.World.{Containers, ContainerTransfers, PendingCookingAwards, Region}
+  alias Valimc.World.{Entities, ExperienceOrbs, Region}
   alias Valimc.TestClient, as: Client
 
-  # The orbs' award lives in the neighbouring region and is delivered here first.
+  # The orbs were spawned by the neighbouring region, whose durable handoff
+  # delivers them here first (VMC-077h).
   test "native XP spawn/metadata, late tracking and owner replacement stay separate from item pickup" do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-orb-wire-#{nonce}")
@@ -62,9 +63,6 @@ defmodule Valimc.CookingOrbConnectionTest do
       File.write!(path, bytes)
     end
 
-    source = <<63::128>>
-    digest = :crypto.hash(:sha256, "XP fixture")
-
     {:ok, award} =
       CookingAwards.plan(
         %{
@@ -74,30 +72,18 @@ defmodule Valimc.CookingOrbConnectionTest do
         %{"minecraft:iron_ingot_from_smelting_raw_iron" => 0}
       )
 
-    {:ok, pending, id} =
-      PendingCookingAwards.put(
-        %{},
-        source_key,
-        source,
-        1,
-        digest,
-        {pose.x + 4.0, 64.5, pose.z},
-        award
-      )
+    orbs = ExperienceOrbs.award({pose.x + 4.0, 64.5, pose.z}, award)
+    outgoing = %{destination: key, records: orbs, merge: nil}
 
-    cs = %Containers{
-      pending_awards: pending,
-      receipts: %{
-        source => %{sequence: 1, digest: ContainerTransfers.result_digest(digest, :applied)}
-      }
-    }
+    Valimc.TestDisk.write(base, source_key, :items, %{
+      records: [],
+      ledger: %{sequence: 1, outgoing: outgoing, incoming: %{}}
+    })
 
-    {:ok, bytes} = Containers.encode(source_key, cs)
-    Valimc.TestDisk.write(base, source_key, :containers, bytes)
     {:ok, {source_owner, _}} = World.item_owner(source_key)
     {:ok, {owner, epoch}} = World.item_owner(key)
-    wait(fn -> map_size(:sys.get_state(owner).resource.cooking_orbs.views) == 2 end)
-    views = :sys.get_state(owner).resource.cooking_orbs.views
+    wait(fn -> map_size(store(owner).views) == 2 end)
+    views = store(owner).views
     uuids = MapSet.new(for {_, v} <- views, do: v.uuid)
 
     {_, client} = Client.login(hd(names))
@@ -136,17 +122,10 @@ defmodule Valimc.CookingOrbConnectionTest do
       end)
     end)
 
-    installed = :sys.get_state(owner).resource.containers
-    source_installed = :sys.get_state(source_owner).resource.containers
-    assert source_installed.pending_awards == pending
-
-    wait(fn ->
-      :sys.get_state(source_owner).resource.containers.orb_transfers.outgoing[id] ==
-        :delivered
-    end)
-
-    assert installed.pending_awards == %{} and map_size(installed.orb_transfers.incoming) == 1
-    assert :sys.get_state(source_owner).resource.cooking_orbs.views == %{}
+    wait(fn -> store(source_owner).ledger.outgoing == nil end)
+    installed = store(owner)
+    assert Map.keys(installed.ledger.incoming) == [source_key]
+    assert store(source_owner).views == %{}
 
     # One tracker for every kind: the two orbs, and the picked-up stone until the
     # next 50 ms tick reconciles its removal.
@@ -174,8 +153,13 @@ defmodule Valimc.CookingOrbConnectionTest do
     assert MapSet.disjoint?(MapSet.new(Map.keys(spawns)), MapSet.new(Map.keys(recreated)))
     {:ok, {replacement, new_epoch}} = World.item_owner(key)
     assert new_epoch != epoch
-    assert :sys.get_state(replacement).resource.containers == installed
+    assert orbs(store(replacement)) == orbs(installed)
   end
+
+  defp store(pid), do: :sys.get_state(pid).resource.entities.store
+
+  # Orb records without their age, a counter a crash may roll back.
+  defp orbs(store), do: Enum.map(Entities.records(store), &Map.delete(&1, :age))
 
   defp observe(client, uuids, chunks \\ 0, spawns \\ %{}, values \\ %{}) do
     if chunks >= 9 and map_size(spawns) == 2 and map_size(values) == 2 do

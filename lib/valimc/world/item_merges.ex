@@ -5,8 +5,8 @@ defmodule Valimc.World.ItemMerges do
   @doc "Discover at most32 disjoint owned pairs off the owner; input is already bounded to256 items."
   def candidates(items) do
     items.entries
+    |> Enum.filter(fn {_, entry} -> entry.kind == :item and ItemMerge.eligible?(input(entry)) end)
     |> Enum.sort_by(fn {_, entry} -> entry.entity.uuid end)
-    |> Enum.filter(fn {_, entry} -> ItemMerge.eligible?(input(entry)) end)
     |> Enum.group_by(fn {_, entry} -> Valimc.Protocol.ItemStack.identity_key(entry.stack) end)
     |> Map.values()
     |> Enum.reduce_while([], fn group, pairs ->
@@ -63,8 +63,8 @@ defmodule Valimc.World.ItemMerges do
   def plan(_, _, _), do: {:error, :invalid_item_merges}
 
   defp merge(items, %{a: {a, ar}, b: {b, br}}) do
-    with %{revision: ^ar} = left <- items.entries[a],
-         %{revision: ^br} = right <- items.entries[b],
+    with %{kind: :item, revision: ^ar} = left <- items.entries[a],
+         %{kind: :item, revision: ^br} = right <- items.entries[b],
          true <- ItemMerge.near?(point(left), point(right)),
          {:ok, decision} <- ItemMerge.pair(input(left), input(right)) do
       {rid, recipient, did, donor} =
@@ -114,7 +114,7 @@ defmodule Valimc.World.ItemMerges do
     input = %{stack: stack, motion: motion, target: nil, alive: true}
 
     with {:ok, {epoch, id, revision}} <- Entities.find(items, target),
-         entry = items.entries[id],
+         %{kind: :item} = entry <- items.entries[id],
          true <- ItemMerge.near?(point(entry), {x, y, z}),
          {:ok, %{recipient: :b, donor_stack: nil} = decision} <-
            ItemMerge.pair(input, input(entry)),

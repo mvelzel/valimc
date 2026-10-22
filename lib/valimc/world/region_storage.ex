@@ -14,7 +14,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:receipt, source}` | a player transfer's receipt |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
-  | `{:container, position}`, `{:container_receipt, source}`, `{:containers, field}` | containers |
+  | `{:container, position}`, `{:container_receipt, source}`, `{:containers, :sequence}` | containers |
   | `{:tick, position, block}` | a scheduled block tick, `{due, priority}` |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `:game_tick` | the region's game tick when the frame was cut |
@@ -563,21 +563,7 @@ defmodule Valimc.World.RegionStorage do
     do: for({source, receipt} <- receipts, into: %{}, do: {{:receipt, source}, receipt})
 
   def part_records(:containers, %Containers{} = c) do
-    fields =
-      Map.take(c, [
-        :sequence,
-        :pending_awards,
-        :cooking_orbs,
-        :orb_transfers,
-        :orb_consumption,
-        :orb_bodies
-      ])
-
-    for(
-      field <- Map.to_list(fields),
-      into: %{},
-      do: {{:containers, elem(field, 0)}, elem(field, 1)}
-    )
+    %{{:containers, :sequence} => c.sequence}
     |> Map.merge(for {pos, entry} <- c.entries, into: %{}, do: {{:container, pos}, entry})
     |> Map.merge(
       for {source, receipt} <- c.receipts, into: %{}, do: {{:container_receipt, source}, receipt}
@@ -675,8 +661,8 @@ defmodule Valimc.World.RegionStorage do
             }
         }
 
-      {{:containers, field}, value}, acc ->
-        %{acc | containers: Map.put(acc.containers, field, value)}
+      {{:containers, :sequence}, value}, acc ->
+        %{acc | containers: %{acc.containers | sequence: value}}
 
       {{:tick, pos, block}, {due, priority}}, acc ->
         %{acc | ticks: [{pos, block, due, priority} | acc.ticks]}

@@ -15,9 +15,9 @@ defmodule Valimc.Anvil.Import do
   processing...) is kept for export as the region's `chunk_extras`.
 
   Entities (VMC-021e2, `Valimc.Anvil.Entity`): dropped items become item records
-  in the region their position falls in (vanilla skips a repeated UUID), XP orbs become imported orb births
-  (VMC-021e4, 256 awards per region); every other entity is preserved per chunk
-  for export. Every other vanilla file except chunk storage (`level.dat`,
+  and XP orbs become orb entity records (VMC-077h) in the region their position
+  falls in (vanilla skips a repeated UUID); every other entity is preserved per
+  chunk for export. Every other vanilla file except chunk storage (`level.dat`,
   world and dimension data such as world generation settings, game rules,
   weather and world border) is kept under `vanilla/` for export; the world's
   generation settings are also recorded in `world.json` (VMC-028a), so clients
@@ -38,7 +38,6 @@ defmodule Valimc.Anvil.Import do
     BlockEntities,
     Blocks,
     Containers,
-    CookingOrbs,
     DataFix,
     GenSettings,
     Entities,
@@ -364,7 +363,9 @@ defmodule Valimc.Anvil.Import do
       end
 
     {records, counts, extra} = entities(group, counts)
-    {containers, counts, entities} = orbs(key, containers, group.orbs, counts, extra)
+    {orbs, counts} = orbs(group.orbs, counts)
+    records = records ++ orbs
+    entities = Map.new(extra, fn {chunk, tags} -> {chunk, nbt_entities(tags)} end)
 
     parts = %{
       columns: images,
@@ -382,39 +383,30 @@ defmodule Valimc.Anvil.Import do
     {key, result, counts}
   end
 
-  # XP orbs in stored order while the region's award capacity lasts; the rest are
-  # preserved with the other entities. A repeated UUID is skipped.
-  defp orbs(key, containers, orbs, counts, kept) do
-    {unique, _} =
+  # XP orbs in stored order become orb entities (VMC-077h); a repeated UUID is
+  # skipped. Orbs do not move yet: they rest where they were saved, keeping the
+  # saved motion for export.
+  defp orbs(orbs, counts) do
+    {records, _} =
       orbs
       |> Enum.reverse()
-      |> Enum.flat_map_reduce(MapSet.new(), fn {_, _, orb} = entry, seen ->
-        if MapSet.member?(seen, orb.uuid),
-          do: {[], seen},
-          else: {[entry], MapSet.put(seen, orb.uuid)}
+      |> Enum.flat_map_reduce(MapSet.new(), fn {_, _, orb}, seen ->
+        if MapSet.member?(seen, orb.uuid) do
+          {[], seen}
+        else
+          {x, y, z} = orb.position
+          record = %{kind: :orb, uuid: orb.uuid, x: x, y: y, z: z, value: orb.value}
+          saved = Map.take(orb, [:velocity, :on_ground, :no_gravity])
+          record = Map.merge(record, %{count: orb.count, age: orb.age, saved: saved})
+          {[record], MapSet.put(seen, orb.uuid)}
+        end
       end)
 
-    {:ok, containers, left} =
-      CookingOrbs.import_orbs(containers, key, Enum.map(unique, &elem(&1, 2)))
-
-    imported = length(unique) - length(left)
-    {_, rest} = Enum.split(unique, imported)
-
-    entities =
-      Enum.reduce(rest, kept, fn {chunk, tag, _}, acc ->
-        Map.update(acc, chunk, [tag], &(&1 ++ [tag]))
-      end)
-      |> Map.new(fn {chunk, tags} ->
-        {chunk, IO.iodata_to_binary(NBT.write({:compound, %{"Entities" => NBT.list(tags)}}))}
-      end)
-
-    counts =
-      counts
-      |> Map.update(:orbs, imported, &(&1 + imported))
-      |> Map.update(:entities_preserved, length(rest), &(&1 + length(rest)))
-
-    {containers, counts, entities}
+    {records, Map.update(counts, :orbs, length(records), &(&1 + length(records)))}
   end
+
+  defp nbt_entities(tags),
+    do: IO.iodata_to_binary(NBT.write({:compound, %{"Entities" => NBT.list(tags)}}))
 
   # Items in stored order; a repeated UUID is skipped as vanilla's entity lookup
   # skips it.

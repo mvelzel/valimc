@@ -17,7 +17,7 @@ defmodule Valimc.World.PickupPermits do
          true <-
            Valimc.Txn.Receipts.valid?(receipts[source]) || {:error, :pickup_receipt_slot_required},
          {:ok, {_, id, _}} <- Entities.find(items, item_uuid),
-         entry = items.entries[id],
+         %{kind: :item} = entry <- items.entries[id],
          true <- ItemPickup.eligible?(actor, entry) do
       grant = %{
         item_uuid: item_uuid,

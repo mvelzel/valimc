@@ -15,12 +15,7 @@ defmodule Valimc.ExperienceTransfersTest do
     World
   }
 
-  alias Valimc.World.{
-    Containers,
-    ContainerTransfers,
-    CookingOrbs,
-    PendingCookingAwards
-  }
+  alias Valimc.World.{Entities, ExperienceOrbs}
 
   setup :scope
 
@@ -44,21 +39,9 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, award} =
       Valimc.CookingAwards.plan(%{"minecraft:gold_ingot_from_smelting_gold_ore" => 6}, %{})
 
-    source = <<71::128>>
-    digest = :crypto.hash(:sha256, "original cooking decision")
-    {:ok, pending, id} = PendingCookingAwards.put(%{}, key, source, 1, digest, at, award)
-
-    cs = %Containers{
-      pending_awards: pending,
-      receipts: %{
-        source => %{sequence: 1, digest: ContainerTransfers.result_digest(digest, :applied)}
-      }
-    }
-
-    {:ok, cs, :materialized} = CookingOrbs.materialize(cs, key, id)
-    [{orb, record}] = Map.to_list(cs.cooking_orbs[id])
-    {:ok, bytes} = Containers.encode(key, cs)
-    Valimc.TestDisk.write(base, key, :containers, bytes)
+    # Six XP from one recipe: one orb entity of value 3, count 2.
+    [%{uuid: orb, value: 3, count: 2} = record] = ExperienceOrbs.award(at, award)
+    Valimc.TestDisk.write(base, key, :items, %{records: [record]})
     {:ok, owner} = World.item_owner(key)
 
     player = %{
@@ -96,7 +79,6 @@ defmodule Valimc.ExperienceTransfersTest do
       key: key,
       base: base,
       owner: owner,
-      cs: cs,
       orb: orb,
       record: record,
       snapshot: snapshot,
@@ -144,7 +126,7 @@ defmodule Valimc.ExperienceTransfersTest do
     Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
     player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
     wait(fn -> :sys.get_state(player).player.progression.experience.total == 6 end, 300)
-    assert resource(ctx.owner).containers.orb_consumption.counts[ctx.orb] == 2
+    assert Entities.find(resource(ctx.owner).entities.store, ctx.orb) == {:error, :missing_item}
     assert resource(ctx.owner).containers.receipts[uuid].sequence == 2
     assert :sys.get_state(player).inventory.slots == %{}
     {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")

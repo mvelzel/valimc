@@ -1,8 +1,8 @@
 defmodule Valimc.World.Entities do
   @moduledoc """
   A region owner's entity store (VMC-077h): every entity it owns, by network
-  id with a uuid index, each of a kind (`:item` now, `:orb` with VMC-077h's
-  orbs, mobs and projectiles later), with its published view and the handoff
+  id with a uuid index, each of a kind (`:item` and `:orb` now, mobs and
+  projectiles later), with its published view and the handoff
   ledger (`Valimc.World.EntityHandoffs`). Only the owner mutates it.
 
   An entity keeps its network id (`Valimc.World.EntityIds`) for the life of the
@@ -58,46 +58,71 @@ defmodule Valimc.World.Entities do
 
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
   def age(state, ticks \\ 1, minimum_y \\ Valimc.World.Chunk.min_y()) do
-    Enum.reduce(state.entries, {state, []}, fn {id, entry}, {items, expired} ->
-      motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
-      next = ItemMotionState.advance(motion, ticks)
+    Enum.reduce(state.entries, {state, []}, fn
+      {id, %{kind: :orb} = entry}, {items, expired} ->
+        # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
+        # handles and view stay.
+        age = min(entry.age + ticks, 6000)
+        items = %{items | entries: Map.put(items.entries, id, %{entry | age: age})}
 
-      items =
-        if Map.get(entry, :motion) == next do
-          items
-        else
-          revision = entry.revision + 1
-          entry = entry |> Map.put(:motion, next) |> Map.put(:revision, revision)
+        expired =
+          if age >= 6000 or entry.entity.y < minimum_y - 64,
+            do: [{items.epoch, id, entry.revision} | expired],
+            else: expired
 
-          %{
+        {items, expired}
+
+      {id, entry}, {items, expired} ->
+        motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
+        next = ItemMotionState.advance(motion, ticks)
+
+        items =
+          if Map.get(entry, :motion) == next do
             items
-            | entries: Map.put(items.entries, id, entry),
-              views:
-                Map.update!(
-                  items.views,
-                  id,
-                  &%{
-                    &1
-                    | revision: revision,
-                      pickup_delay: next.pickup_delay,
-                      merge_open: merge_open?(entry.stack.count, &1.merge_max, next)
-                  }
-                )
-          }
-        end
+          else
+            revision = entry.revision + 1
+            entry = entry |> Map.put(:motion, next) |> Map.put(:revision, revision)
 
-      expired =
-        if next.age >= 6000 or entry.entity.y < minimum_y - 64,
-          do: [{items.epoch, id, items.entries[id].revision} | expired],
-          else: expired
+            %{
+              items
+              | entries: Map.put(items.entries, id, entry),
+                views:
+                  Map.update!(
+                    items.views,
+                    id,
+                    &%{
+                      &1
+                      | revision: revision,
+                        pickup_delay: next.pickup_delay,
+                        merge_open: merge_open?(entry.stack.count, &1.merge_max, next)
+                    }
+                  )
+            }
+          end
 
-      {items, expired}
+        expired =
+          if next.age >= 6000 or entry.entity.y < minimum_y - 64,
+            do: [{items.epoch, id, items.entries[id].revision} | expired],
+            else: expired
+
+        {items, expired}
     end)
   end
 
   @doc "Every entity's persistent record, by uuid (network ids are the VM's, never stored)."
   def records(state),
     do: state.entries |> Enum.map(fn {_, entry} -> record(entry) end) |> Enum.sort_by(& &1.uuid)
+
+  def record(%{kind: :orb, entity: entity} = entry) do
+    record =
+      entity
+      |> Map.take([:uuid, :x, :y, :z])
+      |> Map.merge(%{kind: :orb, value: entry.value, count: entry.count, age: entry.age})
+
+    # An imported orb's saved motion, kept for export (orbs do not move yet).
+    record = if entry.saved, do: Map.put(record, :saved, entry.saved), else: record
+    if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
+  end
 
   def record(%{kind: :item, entity: entity, stack: stack} = entry) do
     record = entity |> Map.take([:uuid, :x, :y, :z]) |> Map.merge(%{kind: :item, stack: stack})
@@ -156,6 +181,15 @@ defmodule Valimc.World.Entities do
   def restore(_, _, _), do: {:error, :invalid_item_file}
 
   @doc "Whether `record` is an entity record this store would hold in region `key`."
+  def valid_record?(key, %{kind: :orb, uuid: <<_::128>>, x: x, y: y, z: z} = record) do
+    %{value: value, count: count, age: age} = record
+
+    valid_position?({x, y, z}) and valid_hops?(record) and
+      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key and
+      is_integer(value) and value in 1..32_767 and is_integer(count) and count >= 1 and
+      is_integer(age) and age in -32_768..5_999 and saved?(Map.get(record, :saved))
+  end
+
   def valid_record?(key, %{uuid: <<_::128>>, x: x, y: y, z: z, stack: stack} = record) do
     Map.get(record, :kind, :item) == :item and valid_position?({x, y, z}) and
       valid_record_motion?(record) and valid_hops?(record) and
@@ -165,11 +199,54 @@ defmodule Valimc.World.Entities do
 
   def valid_record?(_, _), do: false
 
+  defp saved?(nil), do: true
+
+  defp saved?(%{velocity: {vx, vy, vz}, on_ground: on_ground, no_gravity: no_gravity}),
+    do: Enum.all?([vx, vy, vz], &is_float/1) and is_boolean(on_ground) and is_boolean(no_gravity)
+
+  defp saved?(_), do: false
+
   defp valid_hops?(record) do
     case Map.get(record, :hops, 0) do
       hops when is_integer(hops) and hops >= 0 -> true
       _ -> false
     end
+  end
+
+  defp build_record(state, id, %{kind: :orb} = record) do
+    %{uuid: uuid, x: x, y: y, z: z, value: value} = record
+    entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
+    hops = Map.get(record, :hops, 0)
+
+    metadata =
+      binary_packet(EntityPackets.metadata(id, no_gravity: true, experience_value: value))
+
+    view =
+      :orb
+      |> EntityView.new(Map.put(entity, :on_ground, false), metadata, state.epoch, hops)
+      |> Map.merge(%{revision: 1, physical_revision: 1, value: value, count: record.count})
+      # The XP pickup request's fence (VMC-077i's protocol); an orb entity needs none.
+      |> Map.put(:consumed, 0)
+
+    entry = %{
+      kind: :orb,
+      entity: entity,
+      value: value,
+      count: record.count,
+      age: record.age,
+      saved: Map.get(record, :saved),
+      revision: 1,
+      physical_revision: 1,
+      hops: hops
+    }
+
+    {:ok,
+     %{
+       state
+       | entries: Map.put(state.entries, id, entry),
+         uuids: Map.put(state.uuids, uuid, id),
+         views: Map.put(state.views, id, view)
+     }, {state.epoch, id, 1}}
   end
 
   defp build_record(state, id, %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record),
@@ -248,8 +325,35 @@ defmodule Valimc.World.Entities do
 
   defp record_id(_state, _record), do: EntityIds.next()
 
+  @doc "Take one unit of the orb `uuid` of `value` (an XP pickup): removed with its last."
+  def take_orb(state, uuid, value) do
+    with {:ok, {epoch, id, revision}} <- find(state, uuid),
+         %{kind: :orb, value: ^value, count: count} = entry when count > 0 <- state.entries[id] do
+      if count == 1 do
+        with {:ok, next} <- remove(state, epoch, id, revision), do: {:ok, next, id}
+      else
+        entry = %{entry | count: count - 1, revision: revision + 1}
+
+        view = %{
+          state.views[id]
+          | count: count - 1,
+            revision: revision + 1
+        }
+
+        {:ok,
+         %{
+           state
+           | entries: Map.put(state.entries, id, entry),
+             views: Map.put(state.views, id, view)
+         }, id}
+      end
+    else
+      _ -> {:error, :stale_orb}
+    end
+  end
+
   def replace(state, epoch, id, revision, stack) do
-    with {:ok, entry} <- current(state, epoch, id, revision),
+    with {:ok, entry} <- current_item(state, epoch, id, revision),
          {:ok, metadata} <- metadata(id, stack, entry.no_gravity) do
       if stack == entry.stack do
         {:ok, state, {epoch, id, revision}}
@@ -330,7 +434,7 @@ defmodule Valimc.World.Entities do
   def advance(_, _, _, _), do: {:error, :invalid_item_steps}
 
   defp advance_one(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
-    with {:ok, entry} <- current(state, state.epoch, id, revision),
+    with {:ok, entry} <- current_item(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key do
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
@@ -404,6 +508,14 @@ defmodule Valimc.World.Entities do
   end
 
   defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
+
+  defp current_item(state, epoch, id, revision) do
+    case current(state, epoch, id, revision) do
+      {:ok, %{kind: :item}} = found -> found
+      {:ok, _} -> {:error, :missing_item}
+      error -> error
+    end
+  end
 
   defp current(state, epoch, id, revision) do
     cond do

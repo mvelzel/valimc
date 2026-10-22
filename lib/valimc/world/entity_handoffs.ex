@@ -48,6 +48,23 @@ defmodule Valimc.World.EntityHandoffs do
     end
   end
 
+  @doc """
+  New entities at one position (a cooking award's orbs): created here, or
+  handed over to the owner of their position in one intent.
+  """
+  def spawn(items, key, [%{x: x, z: z} | _] = records) when length(records) <= @max_records do
+    case Valimc.World.region_key(Valimc.World.chunk_key(x, z)) do
+      ^key ->
+        create(items, key, records)
+
+      destination ->
+        with :ok <- departable(items, key, items.epoch, destination),
+             {:ok, next, _} <-
+               intent(items, key, %{destination: destination, records: records, merge: nil}),
+             do: {:ok, next}
+    end
+  end
+
   defp departable(items, source, epoch, destination) do
     cond do
       items.epoch != epoch -> Valimc.Error.retry(:stale_owner)

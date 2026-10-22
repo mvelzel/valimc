@@ -1,9 +1,14 @@
 defmodule Valimc.World.ContainerTransfers do
-  @moduledoc "Receipt-backed container decisions; fresh owner eligibility is supplied by the region."
+  @moduledoc """
+  Receipt-backed container decisions; fresh owner eligibility is supplied by the
+  region. Withdrawing a furnace's earned output decides its experience: the
+  decision carries the orb records (`orbs`) the owner spawns in the same commit
+  (VMC-077h).
+  """
   alias Valimc.{Cooking, CookingAwards}
   alias Valimc.CookingBlocks
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{ContainerRequest, Containers, PendingCookingAwards}
+  alias Valimc.World.{ContainerRequest, Containers, ExperienceOrbs}
   @scheme {:prefix, "VMCCONTAINER-RESULT"}
 
   def reserve(%Containers{} = containers, source) do
@@ -13,14 +18,14 @@ defmodule Valimc.World.ContainerTransfers do
 
   def plan(%Containers{} = containers, key, request, eligible) when is_boolean(eligible) do
     if request[:award] do
-      decide(containers, key, request, eligible, fn digest ->
+      decide(containers, key, request, eligible, fn _digest ->
         draws =
           Map.new(request.award.recipes, fn name ->
             <<sample::24>> = :crypto.strong_rand_bytes(3)
             {name, sample}
           end)
 
-        exchange_cooking_award(containers, key, request, digest, %{
+        exchange_cooking_award(containers, request, %{
           position: request.award.position,
           draws: draws
         })
@@ -49,17 +54,18 @@ defmodule Valimc.World.ContainerTransfers do
           error
 
         :new ->
-          {result, next} =
+          {result, next, orbs} =
             case eligible && exchange.(digest) do
-              {:ok, next} -> {:applied, next}
-              _ -> {:rejected, containers}
+              {:ok, next, orbs} -> {:applied, next, orbs}
+              {:ok, next} -> {:applied, next, []}
+              _ -> {:rejected, containers, []}
             end
 
           candidate = with_receipt(next, request, digest, result)
 
           case Containers.encode(key, candidate) do
             {:ok, _} ->
-              {:ok, %{base | result: result, containers: candidate}}
+              {:ok, Map.merge(base, %{result: result, containers: candidate, orbs: orbs})}
 
             _ ->
               # Reserved receipts have fixed size. Rejecting retains the committed
@@ -78,13 +84,7 @@ defmodule Valimc.World.ContainerTransfers do
          do: Receipts.outcome(receipt, request.sequence, digest, @scheme)
   end
 
-  defp exchange_cooking_award(
-         containers,
-         key,
-         request,
-         digest,
-         %{position: position, draws: draws} = context
-       )
+  defp exchange_cooking_award(containers, request, %{position: position, draws: draws} = context)
        when map_size(context) == 2 do
     with {:ok, %{kind: kind, cooking: cooking, recipes: uses} = entry} <-
            Containers.observe(containers, request.position),
@@ -93,27 +93,17 @@ defmodule Valimc.World.ContainerTransfers do
          {:ok, slots, _inventory} <- ContainerRequest.plan(request),
          true <- withdrawal?(elem(cooking.slots, 2), elem(slots, 2)),
          {:ok, award} <- CookingAwards.plan(uses, draws),
-         {:ok, awards, _id} <-
-           PendingCookingAwards.put(
-             containers.pending_awards,
-             key,
-             request.source,
-             request.sequence,
-             digest,
-             position,
-             award
-           ),
          {:ok, block} <- CookingBlocks.placement(kind, 0.0),
          {:ok, edited} <- Cooking.edit_slots(cooking, slots, block),
          {:ok, next, _} <-
            Containers.replace_cooking(containers, request.position, entry.revision, edited, %{}) do
-      {:ok, %{next | pending_awards: awards}}
+      {:ok, next, ExperienceOrbs.award(position, award)}
     else
       _ -> {:error, :invalid_cooking_award_transfer}
     end
   end
 
-  defp exchange_cooking_award(_, _, _, _, _), do: {:error, :invalid_cooking_award_transfer}
+  defp exchange_cooking_award(_, _, _), do: {:error, :invalid_cooking_award_transfer}
   defp withdrawal?(nil, _), do: false
   defp withdrawal?(_, nil), do: true
 

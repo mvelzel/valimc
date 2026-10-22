@@ -42,6 +42,18 @@ Acceptance:
   whole donors cross (vanilla merges at most 64 items at once). Discovery stays
   an observation of the neighbours' snapshots; the merge escrow, inbox,
   permits, transfer record, query protocol and owner receipt table are deleted.
+- Experience orbs are entities of kind `:orb` (`%{value, count, age}`) in the
+  store; they left the containers record. Withdrawing a furnace's earned
+  output decides its award and spawns the orbs (vanilla's per-recipe split,
+  `Valimc.World.ExperienceOrbs`) at the player in the same commit, or hands
+  them to the owner of that position through the one handoff (a withdrawal
+  waits while that slot is taken). Orbs age with the other entities and
+  despawn at 6000 ticks; they still do not move (as before). An XP pickup keeps
+  the player's container-kind request and takes one unit from the orb entity
+  under the same receipt; its consumed-units fence is no longer used. Anvil
+  import and export read and write orb entities. Deleted: pending cooking
+  awards, cooking orb births, bodies, consumptions, transfers, delivery and
+  runtime, and containers formats 4 to 8 (refused, D4).
 
 Measurements (`bench/entity_store.exs`, raw results kept, untracked, in
 `bench/results/entity-store-*.json`):

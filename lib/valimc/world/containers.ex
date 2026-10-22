@@ -2,24 +2,10 @@ defmodule Valimc.World.Containers do
   @moduledoc "Region-owned container snapshots; persistent revisions fence stale views across replacement."
   alias Valimc.Protocol.ItemStack
 
-  alias Valimc.World.{
-    Chunk,
-    CookingEntry,
-    CookingOrbs,
-    CookingOrbTransfers,
-    CookingOrbConsumptions,
-    CookingOrbBodies,
-    PendingCookingAwards
-  }
+  alias Valimc.World.{Chunk, CookingEntry}
 
-  defstruct sequence: 0,
-            entries: %{},
-            receipts: %{},
-            pending_awards: %{},
-            cooking_orbs: %{},
-            orb_transfers: %{revision: 0, outgoing: %{}, incoming: %{}},
-            orb_consumption: %{revision: 0, counts: %{}},
-            orb_bodies: %{revision: 0, awards: %{}}
+  # Experience orbs are entities (VMC-077h), not container state.
+  defstruct sequence: 0, entries: %{}, receipts: %{}
 
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
@@ -100,80 +86,14 @@ defmodule Valimc.World.Containers do
 
   defp change(_, _, _), do: {:error, :container_sequence_exhausted}
 
-  def encode({rx, rz} = key, %__MODULE__{
-        sequence: sequence,
-        entries: entries,
-        receipts: receipts,
-        pending_awards: awards,
-        cooking_orbs: orbs,
-        orb_transfers: transfers,
-        orb_consumption: consumption,
-        orb_bodies: bodies
-      })
+  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries, receipts: receipts})
       when is_integer(sequence) and sequence in 0..@max_sequence and is_map(entries) and
              map_size(entries) <= @max_entries do
     true = region?(key)
     true = valid_receipts?(receipts)
-    true = is_map(awards)
-    true = is_map(orbs)
-    consumed? = consumption != CookingOrbConsumptions.new()
-    bodies? = bodies != CookingOrbBodies.new()
-    remote? = transfers != CookingOrbTransfers.new()
-    extended? = remote? or consumed? or bodies?
-    {:ok, transfer_bytes} = CookingOrbTransfers.encode(transfers, key, awards, orbs)
-
-    {:ok, award_bytes} =
-      if map_size(awards) == 0 and not extended?,
-        do: {:ok, <<>>},
-        else: PendingCookingAwards.encode(key, awards, receipts)
-
-    {:ok, orb_bytes} =
-      if map_size(orbs) == 0 and not extended?,
-        do: {:ok, <<>>},
-        else: CookingOrbs.encode(orbs, key, awards)
-
-    {:ok, consumed_bytes} =
-      CookingOrbConsumptions.encode(consumption, %{cooking_orbs: orbs, orb_transfers: transfers})
-
-    {:ok, body_bytes} =
-      CookingOrbBodies.encode(bodies, key, %{
-        cooking_orbs: orbs,
-        orb_transfers: transfers,
-        orb_consumption: consumption
-      })
-
-    # v6 length-delimits both ledgers before transfer receipts. Empty transfer
-    # state retains exact v1-v5 bytes, including their original layout tags.
-    effects =
-      cond do
-        bodies? ->
-          <<byte_size(award_bytes)::32, award_bytes::binary, byte_size(orb_bytes)::32,
-            orb_bytes::binary, byte_size(transfer_bytes)::32, transfer_bytes::binary,
-            byte_size(consumed_bytes)::32, consumed_bytes::binary, body_bytes::binary>>
-
-        consumed? ->
-          <<byte_size(award_bytes)::32, award_bytes::binary, byte_size(orb_bytes)::32,
-            orb_bytes::binary, byte_size(transfer_bytes)::32, transfer_bytes::binary,
-            consumed_bytes::binary>>
-
-        remote? ->
-          <<byte_size(award_bytes)::32, award_bytes::binary, byte_size(orb_bytes)::32,
-            orb_bytes::binary, transfer_bytes::binary>>
-
-        map_size(orbs) == 0 ->
-          award_bytes
-
-        true ->
-          <<byte_size(award_bytes)::32, award_bytes::binary, orb_bytes::binary>>
-      end
 
     version =
       cond do
-        bodies? -> 8
-        consumed? -> 7
-        remote? -> 6
-        map_size(orbs) > 0 -> 5
-        map_size(awards) > 0 -> 4
         Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end) -> 3
         map_size(receipts) == 0 -> 1
         true -> 2
@@ -189,8 +109,7 @@ defmodule Valimc.World.Containers do
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
     true = length(Enum.uniq(revisions)) == length(revisions)
 
-    initial_size =
-      63 + byte_size(receipt_count) + map_size(receipts) * 56 + byte_size(effects)
+    initial_size = 63 + byte_size(receipt_count) + map_size(receipts) * 56
 
     true = initial_size <= @max_bytes
 
@@ -201,7 +120,7 @@ defmodule Valimc.World.Containers do
         %{revision: revision} = entry
         true = owned?(key, position)
         true = is_integer(revision) and revision > 0 and revision <= sequence
-        bytes = entry_bytes(entry, min(version, 3))
+        bytes = entry_bytes(entry, version)
         size = size + 20 + byte_size(bytes)
         true = size <= @max_bytes
 
@@ -214,8 +133,7 @@ defmodule Valimc.World.Containers do
           map_size(entries)::16>>,
         receipt_count,
         parts,
-        receipt_bytes,
-        effects
+        receipt_bytes
       ])
 
     {:ok, payload <> :crypto.hash(:sha256, payload)}
@@ -236,91 +154,20 @@ defmodule Valimc.World.Containers do
     <<"VMCCONTS", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       body::binary>> = payload
 
-    true = count <= @max_entries and version in [1, 2, 3, 4, 5, 6, 7, 8]
+    # Versions 4 to 8 held the cooking orb ledger (D4: refused, no migration).
+    true = count <= @max_entries and version in [1, 2, 3]
 
     {receipts_count, body} =
       case version do
         1 -> {0, body}
         2 -> take_receipt_count(body)
         3 -> take_receipt_count(body, 0)
-        4 -> take_receipt_count(body, 0)
-        5 -> take_receipt_count(body, 0)
-        6 -> take_receipt_count(body, 0)
-        7 -> take_receipt_count(body, 0)
-        8 -> take_receipt_count(body, 0)
       end
 
-    {entries, body} = take_entries(body, count, %{}, min(version, 3))
-    {receipts, rest} = take_receipts(body, receipts_count, %{})
+    {entries, body} = take_entries(body, count, %{}, version)
+    {receipts, <<>>} = take_receipts(body, receipts_count, %{})
 
-    {rest, consumed_bytes, body_bytes} =
-      case version do
-        8 ->
-          <<a::32, awards::binary-size(a), o::32, orbs::binary-size(o), t::32,
-            transfers::binary-size(t), c::32, consumption::binary-size(c), bodies::binary>> = rest
-
-          {<<a::32, awards::binary, o::32, orbs::binary, transfers::binary>>, consumption, bodies}
-
-        7 ->
-          <<a::32, awards::binary-size(a), o::32, orbs::binary-size(o), t::32,
-            transfers::binary-size(t), consumption::binary>> = rest
-
-          {<<a::32, awards::binary, o::32, orbs::binary, transfers::binary>>, consumption, nil}
-
-        _ ->
-          {rest, nil, nil}
-      end
-
-    {awards, orbs, transfers} =
-      case version do
-        v when v in [6, 7, 8] ->
-          <<length::32, award_bytes::binary-size(length), rest::binary>> = rest
-          <<length::32, orb_bytes::binary-size(length), transfer_bytes::binary>> = rest
-          {:ok, awards} = PendingCookingAwards.decode(award_bytes, key, receipts)
-          {:ok, orbs} = CookingOrbs.decode(orb_bytes, key, awards)
-          {:ok, transfers} = CookingOrbTransfers.decode(transfer_bytes, key, awards, orbs)
-          {awards, orbs, transfers}
-
-        5 ->
-          <<length::32, award_bytes::binary-size(length), orb_bytes::binary>> = rest
-          {:ok, awards} = PendingCookingAwards.decode(award_bytes, key, receipts)
-          {:ok, orbs} = CookingOrbs.decode(orb_bytes, key, awards)
-          {awards, orbs, CookingOrbTransfers.new()}
-
-        4 ->
-          {:ok, awards} = PendingCookingAwards.decode(rest, key, receipts)
-          {awards, %{}, CookingOrbTransfers.new()}
-
-        _ ->
-          <<>> = rest
-          {%{}, %{}, CookingOrbTransfers.new()}
-      end
-
-    state = %__MODULE__{
-      sequence: sequence,
-      entries: entries,
-      receipts: receipts,
-      pending_awards: awards,
-      cooking_orbs: orbs,
-      orb_transfers: transfers
-    }
-
-    state =
-      if consumed_bytes do
-        {:ok, consumption} = CookingOrbConsumptions.decode(consumed_bytes, state)
-        %{state | orb_consumption: consumption}
-      else
-        state
-      end
-
-    state =
-      if body_bytes do
-        {:ok, bodies} = CookingOrbBodies.decode(body_bytes, key, state)
-        %{state | orb_bodies: bodies}
-      else
-        state
-      end
-
+    state = %__MODULE__{sequence: sequence, entries: entries, receipts: receipts}
     {:ok, ^bytes} = encode(key, state)
     {:ok, state}
   rescue

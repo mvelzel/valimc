@@ -118,6 +118,7 @@ entity_regions =
 records =
   for key <- entity_regions,
       record <- stored.(key).items,
+      record.kind == :item,
       into: %{},
       do: {Base.encode16(record.uuid, case: :lower), record}
 
@@ -129,25 +130,24 @@ preserved_entities =
       entry <- entries,
       do: NbtCanon.digest({:compound, entry})
 
-# XP orbs become imported births with vanilla's UUID, value and count, and a
-# body at vanilla's position.
+# XP orbs become orb entities (VMC-077h) with vanilla's UUID, value, count and
+# position.
 orbs =
   for key <- entity_regions,
-      containers = stored.(key).containers,
-      {id, births} <- Valimc.World.CookingOrbs.owned_records(containers),
-      {uuid, birth} <- births,
+      record <- stored.(key).items,
+      record.kind == :orb,
       into: %{},
-      do: {Base.encode16(uuid, case: :lower), {birth, containers.orb_bodies.awards[id][uuid]}}
+      do: {Base.encode16(record.uuid, case: :lower), record}
 
 {imported_items, expected_preserved} =
   Enum.reduce(facts["entities"], {0, []}, fn row, {items, rest} ->
     case {records[row["uuid"]], orbs[row["uuid"]]} do
-      {nil, {birth, body}} ->
+      {nil, orb} when orb != nil ->
         [x, y, z] = row["pos"]
 
-        unless birth.value == row["value"] and birth.count == row["count"] and
-                 body.position == {x, y, z},
-               do: raise("orb #{row["uuid"]}: #{inspect({birth, body})} differs from vanilla's")
+        unless orb.value == row["value"] and orb.count == row["count"] and
+                 {orb.x, orb.y, orb.z} == {x, y, z},
+               do: raise("orb #{row["uuid"]}: #{inspect(orb)} differs from vanilla's")
 
         {items, rest}
 
@@ -224,8 +224,8 @@ unless updates >= 10, do: raise("too few update packets: #{updates}")
 IO.puts(
   "PASS: #{length(facts["block_entities"])} vanilla block entities import as vanilla loads them " <>
     "(#{counts.owned} owned containers with vanilla's stacks, #{counts.locked} locked and " <>
-    "#{counts.preserved} preserved compounds); #{imported_items} dropped items become item records, " <>
-    "#{map_size(orbs)} XP orbs imported births and #{length(expected_preserved)} other entities " <>
+    "#{counts.preserved} preserved compounds); #{imported_items} dropped items and " <>
+    "#{map_size(orbs)} XP orbs become entities, and #{length(expected_preserved)} other entities " <>
     "are preserved; chunk packets written for " <>
     "#{length(chunks)} chunks; exported #{exported.chunks} chunks and #{exported.entities} entities"
 )

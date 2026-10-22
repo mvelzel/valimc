@@ -1,13 +1,10 @@
 defmodule Valimc.World.ExperienceTransfers do
-  @moduledoc "One XP-unit withdrawal shares container receipts; a player grant requires its exact durable proof."
-  alias Valimc.World.{
-    ContainerRequest,
-    ContainerTransfers,
-    Containers,
-    CookingOrbConsumptions,
-    CookingOrbBodies
-  }
-
+  @moduledoc """
+  An XP pickup (VMC-077h): one unit of an orb entity, taken under the container
+  receipts the player's pickup protocol uses; the player's grant follows its
+  durable proof.
+  """
+  alias Valimc.World.{ContainerRequest, ContainerTransfers, Entities}
   alias Valimc.Physics.{Box, ItemPickup}
 
   def contact?(box, {x, y, z}) do
@@ -17,7 +14,7 @@ defmodule Valimc.World.ExperienceTransfers do
   end
 
   def eligible?(
-        containers,
+        items,
         request,
         %{
           uuid: source,
@@ -32,13 +29,12 @@ defmodule Valimc.World.ExperienceTransfers do
       when source == request.source and collector == request.collector and
              mode in [:survival, :adventure, :creative] and hp > 0 and
              now < expiry do
-    with %{value: value, count: count, position: {x, y, z} = at} <-
-           CookingOrbBodies.fetch(containers, request.orb_uuid),
+    with {:ok, {_, id, _}} <- Entities.find(items, request.orb_uuid),
+         %{kind: :orb, value: value, count: count, entity: %{x: x, y: y, z: z}} <-
+           items.entries[id],
          true <- {floor(x), floor(y), floor(z)} == request.position,
          true <- value == request.value and count > 0,
-         true <-
-           Map.get(containers.orb_consumption.counts, request.orb_uuid, 0) == request.consumed,
-         do: contact?(box, at),
+         do: contact?(box, {x, y, z}),
          else: (_ -> false)
   rescue
     _ -> false
@@ -46,7 +42,11 @@ defmodule Valimc.World.ExperienceTransfers do
 
   def eligible?(_, _, _, _), do: false
 
-  def plan(containers, key, request, eligible) do
+  @doc """
+  `{:ok, %{containers, items, result, experience}}`: the receipt, the orb with
+  one unit fewer, and, once applied, the pickup observers see (`experience`).
+  """
+  def plan(containers, items, key, request, eligible) do
     with {:ok, digest} <- ContainerRequest.digest(key, request),
          {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
       case Valimc.Txn.Receipts.classify(
@@ -63,16 +63,10 @@ defmodule Valimc.World.ExperienceTransfers do
           error
 
         :new ->
-          {result, next} =
-            case eligible &&
-                   CookingOrbConsumptions.take(
-                     reserved,
-                     request.orb_uuid,
-                     request.value,
-                     request.consumed
-                   ) do
-              {:ok, next} -> {:applied, next}
-              _ -> {:rejected, reserved}
+          {result, next, pickup} =
+            case eligible && Entities.take_orb(items, request.orb_uuid, request.value) do
+              {:ok, next, id} -> {:applied, next, %{id: id, collector: request.collector}}
+              _ -> {:rejected, items, nil}
             end
 
           receipt = %{
@@ -80,32 +74,15 @@ defmodule Valimc.World.ExperienceTransfers do
             digest: ContainerTransfers.result_digest(digest, result)
           }
 
-          next = %{next | receipts: Map.put(next.receipts, request.source, receipt)}
+          receipts = Map.put(reserved.receipts, request.source, receipt)
 
-          case Containers.encode(key, next) do
-            {:ok, _} ->
-              {:ok,
-               %{
-                 containers: next,
-                 result: result,
-                 experience: if(result == :applied, do: request, else: nil)
-               }}
-
-            {:error, _} ->
-              # The source slot was reserved before admission. Its fixed-size
-              # terminal rejection fits even when a new consumed counter cannot.
-              rejected = %{
-                reserved
-                | receipts:
-                    Map.put(reserved.receipts, request.source, %{
-                      sequence: request.sequence,
-                      digest: ContainerTransfers.result_digest(digest, :rejected)
-                    })
-              }
-
-              with {:ok, _} <- Containers.encode(key, rejected),
-                   do: {:ok, %{containers: rejected, result: :rejected, experience: nil}}
-          end
+          {:ok,
+           %{
+             containers: %{reserved | receipts: receipts},
+             items: next,
+             result: result,
+             experience: pickup
+           }}
       end
     end
   end

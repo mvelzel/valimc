@@ -37,7 +37,7 @@ defmodule Valimc.World.PickupTransfers do
 
   defp withdraw(items, key, request) do
     with {:ok, {epoch, id, revision}} <- Entities.find(items, request.item_uuid),
-         entry = items.entries[id],
+         %{kind: :item} = entry <- items.entries[id],
          true <-
            Valimc.World.region_key(Valimc.World.chunk_key(entry.entity.x, entry.entity.z)) == key,
          true <- entry.stack == request.before,

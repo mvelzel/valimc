@@ -30,7 +30,6 @@ defmodule Valimc.Anvil.Export do
   alias Valimc.World.{
     BlockEntities,
     Blocks,
-    CookingOrbs,
     GenSettings,
     RegionStorage,
     Schema,
@@ -157,12 +156,8 @@ defmodule Valimc.Anvil.Export do
     entities =
       Enum.reduce(records, entities, fn record, acc ->
         chunk = Valimc.World.chunk_key(record.x, record.z)
-        Map.update(acc, chunk, [Entity.item_tag(record)], &[Entity.item_tag(record) | &1])
-      end)
-
-    entities =
-      Enum.reduce(orbs(containers), entities, fn {{x, _, z}, tag}, acc ->
-        Map.update(acc, Valimc.World.chunk_key(x, z), [tag], &[tag | &1])
+        tag = entity_tag(record)
+        Map.update(acc, chunk, [tag], &[tag | &1])
       end)
 
     holders =
@@ -178,29 +173,17 @@ defmodule Valimc.Anvil.Export do
     {exported, entities}
   end
 
-  # Every XP orb the region holds (imported or from cooking) with its remaining
-  # count, at its body's position (or its birth's, before launch).
-  defp orbs(containers) do
-    for {id, births} <- CookingOrbs.owned_records(containers),
-        {uuid, birth} <- births,
-        body = get_in(containers.orb_bodies.awards, [id, uuid]),
-        left =
-          birth.count - Map.get(containers.orb_consumption.counts, uuid, 0) -
-            if(body, do: body.expired, else: 0),
-        left > 0 do
-      body =
-        body ||
-          %{
-            position: birth.position,
-            velocity: {0.0, 0.0, 0.0},
-            age: 0,
-            on_ground: false,
-            no_gravity: false
-          }
+  # An entity record as vanilla saves it: an item, or an XP orb (VMC-077h).
+  defp entity_tag(%{kind: :orb} = orb) do
+    saved =
+      Map.get(orb, :saved, %{velocity: {0.0, 0.0, 0.0}, on_ground: false, no_gravity: false})
 
-      {body.position, Entity.orb_tag(uuid, birth.value, left, body)}
-    end
+    body = Map.merge(saved, %{position: {orb.x, orb.y, orb.z}, age: orb.age})
+
+    Entity.orb_tag(orb.uuid, orb.value, orb.count, body)
   end
+
+  defp entity_tag(record), do: Entity.item_tag(record)
 
   defp elements({:list, {:compound, entries}}), do: Enum.map(entries, &{:compound, &1})
   defp elements(_), do: []

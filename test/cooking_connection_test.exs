@@ -168,6 +168,14 @@ defmodule Valimc.CookingConnectionTest do
     snapshot
   end
 
+  # The orb entities the region holds, durably (VMC-077h).
+  defp orbs(ctx) do
+    case Valimc.TestDisk.read(ctx.base, ctx.key, :items) do
+      nil -> []
+      saved -> Enum.filter(saved.records, &(&1.kind == :orb))
+    end
+  end
+
   defp stored(ctx) do
     {:ok, containers} =
       Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
@@ -207,16 +215,17 @@ defmodule Valimc.CookingConnectionTest do
     send_click(client, 2, 0, action)
 
     wait(fn ->
-      cs = stored(ctx)
-
-      cs.entries[ctx.position].recipes == %{} and map_size(cs.pending_awards) == 1 and
+      stored(ctx).entries[ctx.position].recipes == %{} and
         Valimc.TestConn.state(pid).recovery == nil
     end)
 
-    [{_, decision}] = Map.to_list(stored(ctx).pending_awards)
-    amount = decision.award.experience
+    # The withdrawal's orbs spawn at the player, who collects every unit.
+    wait(fn ->
+      Valimc.TestConn.state(pid).player.progression.experience.total > 0 and orbs(ctx) == []
+    end)
+
+    amount = Valimc.TestConn.state(pid).player.progression.experience.total
     assert amount in 1..3
-    wait(fn -> Valimc.TestConn.state(pid).player.progression.experience.total == amount end)
     player = Valimc.TestConn.state(pid)
     assert MapSet.member?(player.player.progression.recipes, recipe)
     assert elem(stored(ctx).entries[ctx.position].cooking.slots, 2) == nil
@@ -226,7 +235,6 @@ defmodule Valimc.CookingConnectionTest do
       else:
         assert(Enum.any?(player.inventory.slots, fn {_, s} -> s == ItemStack.new(item, 3) end))
 
-    assert stored(ctx).orb_consumption.revision > 0
     assert saved(ctx).outbox == nil
     assert saved(ctx).progression.experience.total == amount
     assert saved(ctx).transfer_sequence == stored(ctx).receipts[ctx.uuid].sequence
@@ -234,7 +242,7 @@ defmodule Valimc.CookingConnectionTest do
     client = content(client, fn inv -> Enum.at(inv.items, 2) == nil end)
     send_click(client, 2, 0, action)
     _client = close(client, pid)
-    assert map_size(stored(ctx).pending_awards) == 1
+    assert orbs(ctx) == [] and saved(ctx).progression.experience.total == amount
   end
 
   test "owned timer observations refresh properties without invalidating content or accepting old sessions",

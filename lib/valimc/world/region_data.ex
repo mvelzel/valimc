@@ -12,8 +12,6 @@ defmodule Valimc.World.RegionData do
     BlockSnapshot,
     Chunk,
     CookingRuntime,
-    CookingOrbRuntime,
-    CookingOrbDelivery,
     ContainerRequest,
     ContainerTransfers,
     ContainerPermits,
@@ -56,7 +54,6 @@ defmodule Valimc.World.RegionData do
     :container_viewers,
     :cooking_progress,
     :cooking,
-    :cooking_orbs,
     # Entities and the item work the owner schedules (`RegionEntities`).
     :entities,
     :permits,
@@ -78,7 +75,6 @@ defmodule Valimc.World.RegionData do
     :revision,
     :section_revisions,
     :game_tick,
-    :orb_age_ticks,
     :scheduled_ticks,
     :tick_index,
     :rule_backlog,
@@ -167,7 +163,6 @@ defmodule Valimc.World.RegionData do
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation, key)},
-      cooking_orbs: %CookingOrbRuntime{},
       permits: Valimc.Txn.Permits.new(),
       blocks: blocks,
       cache: %{},
@@ -181,7 +176,6 @@ defmodule Valimc.World.RegionData do
       revision: 0,
       section_revisions: %{},
       game_tick: loaded.game_tick,
-      orb_age_ticks: 0,
       scheduled_ticks: scheduled,
       tick_index: tick_index,
       rule_backlog: [],
@@ -492,7 +486,7 @@ defmodule Valimc.World.RegionData do
   # published rows (VMC-077l); publishing the steps then starts merging.
   defp move_items(state, now) do
     inputs =
-      for {id, %{entity: %{x: x, z: z}} = entry} <- state.entities.store.entries,
+      for {id, %{kind: :item, entity: %{x: x, z: z}} = entry} <- state.entities.store.entries,
           Tickets.simulated?(state.tickets, Valimc.World.chunk_key(x, z)) do
         %{
           id: id,
@@ -694,9 +688,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:cooking_orb_spawn, epoch, bytes, deadline}, from, state),
-    do: CookingOrbRuntime.adopt(state, epoch, bytes, deadline, from)
-
   def handle_call({:entity_handoff, epoch, transfer}, from, state) do
     cond do
       epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
@@ -838,30 +829,12 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:container_transfer, epoch, request}, from, state) do
     container_request(state, epoch, fn ->
-      containers = state.containers
-      key = state.key
-      block = container_block(state, request)
-
-      {permits, grant} =
-        ContainerPermits.take(state.permits, request, System.monotonic_time(:millisecond))
-
-      state = %{state | permits: permits}
-
-      start_container_work(state, from, :deliver, container_position(request), fn ->
-        with {:ok, digest} <- ContainerRequest.digest(key, request),
-             {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
-          eligible =
-            ContainerPermits.eligible?(grant, request, digest) and
-              container_block_matches?(request, block)
-
-          plan =
-            if request[:kind] == :experience,
-              do: Valimc.World.ExperienceTransfers.plan(reserved, key, request, eligible),
-              else: ContainerTransfers.plan(reserved, key, request, eligible)
-
-          plan
-        end
-      end)
+      if award_handoff_busy?(state, request) do
+        # Its orbs would be handed to another owner, whose one outgoing slot is taken.
+        {:reply, Error.retry(:item_handoff_busy), state}
+      else
+        start_container_transfer(state, request, from)
+      end
     end)
   end
 
@@ -870,13 +843,14 @@ defmodule Valimc.World.RegionData do
       case container_access(state, request, actor) do
         :ok ->
           containers = state.containers
+          items = state.entities.store
           key = state.key
 
           start_container_work(state, from, {:admit, actor}, container_position(request), fn ->
             request = %{request | permit: :crypto.strong_rand_bytes(16)}
 
             with {:ok, digest} <- ContainerRequest.digest(key, request),
-                 true <- container_admission_matches?(containers, request, actor),
+                 true <- container_admission_matches?(containers, items, request, actor),
                  {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
                  {:ok, _} <- Valimc.World.Containers.encode(key, reserved),
                  do: {:ok, %{containers: reserved, result: {:admitted, request, digest}}},
@@ -1520,44 +1494,6 @@ defmodule Valimc.World.RegionData do
     |> apply_tick_effects(scheduled_effects ++ random_effects)
   end
 
-  @orb_save_ticks 600
-
-  @doc """
-  Orb lifetime (VMC-067): orbs age with the region tick; ages accumulate in
-  memory and are written when an orb reaches 6000 ticks (it despawns) or every
-  30 s. Runs only when no planning worker holds a container snapshot.
-  """
-  def orb_lifetime(
-        %{containers: %{cooking_orbs: births, orb_transfers: %{incoming: incoming}}} = state
-      )
-      when map_size(births) == 0 and map_size(incoming) == 0,
-      do: %{state | orb_age_ticks: 0}
-
-  def orb_lifetime(state) do
-    pending = state.orb_age_ticks + 1
-
-    due =
-      pending >= 6000 - Valimc.World.CookingOrbBodies.oldest(state.containers) or
-        pending >= @orb_save_ticks
-
-    if not due or write_busy(state) != nil do
-      %{state | orb_age_ticks: pending}
-    else
-      case Valimc.World.CookingOrbBodies.advance(state.containers, state.key, pending) do
-        {:ok, :unchanged} ->
-          %{state | orb_age_ticks: 0}
-
-        {:ok, containers} ->
-          %{state | containers: containers, orb_age_ticks: 0}
-
-        {:error, reason} ->
-          require Logger
-          Logger.warning("Orb ageing refused: #{inspect(reason)}")
-          %{state | orb_age_ticks: 0}
-      end
-    end
-  end
-
   # Vanilla picks `randomTickSpeed` positions per section per tick (the gamerule,
   # `:random_tick_speed`); the native sampler skips sections without handled
   # states and returns only hits.
@@ -1886,9 +1822,6 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  defp release_effect(state, {:cooking_orbs, durable}),
-    do: CookingOrbRuntime.durable(state, durable)
-
   defp release_effect(state, {:raw_block, position, block, previous, lit}) do
     state = retire_container_changes(state, %{position => block}, previous)
     Valimc.World.publish(state.key, {:block, position, block})
@@ -1908,18 +1841,8 @@ defmodule Valimc.World.RegionData do
   defp release_effect(state, {:container_changed, position}),
     do: notify_container_changed(state, position)
 
-  defp release_effect(state, {:experience_pickup, request}) do
-    case Enum.find(state.cooking_orbs.views, fn {_, v} -> v.uuid == request.orb_uuid end) do
-      {id, _} ->
-        Valimc.World.publish(
-          state.key,
-          {:experience_pickup, state.epoch, id, request.collector}
-        )
-
-      _ ->
-        :ok
-    end
-
+  defp release_effect(state, {:experience_pickup, %{id: id, collector: collector}}) do
+    Valimc.World.publish(state.key, {:experience_pickup, state.epoch, id, collector})
     state
   end
 
@@ -2018,16 +1941,16 @@ defmodule Valimc.World.RegionData do
 
   defp container_access(_, _, _), do: {:error, :invalid_container_context}
 
-  defp container_admission_matches?(containers, %{kind: :experience} = request, actor),
+  defp container_admission_matches?(_containers, items, %{kind: :experience} = request, actor),
     do:
       Valimc.World.ExperienceTransfers.eligible?(
-        containers,
+        items,
         request,
         actor,
         System.monotonic_time(:millisecond)
       )
 
-  defp container_admission_matches?(containers, request, _actor),
+  defp container_admission_matches?(containers, _items, request, _actor),
     do:
       match?({:ok, _}, Valimc.World.Containers.observe(containers, request.position)) and
         ContainerRequest.matches_entry?(request, containers.entries[request.position])
@@ -2063,6 +1986,49 @@ defmodule Valimc.World.RegionData do
         {{:ok, result}, state}
     end
   end
+
+  defp award_handoff_busy?(state, %{award: %{position: {x, _, z}}}) do
+    Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key and
+      state.entities.store.ledger.outgoing != nil
+  end
+
+  defp award_handoff_busy?(_state, _request), do: false
+
+  defp start_container_transfer(state, request, from) do
+    containers = state.containers
+    items = state.entities.store
+    key = state.key
+    block = container_block(state, request)
+
+    {permits, grant} =
+      ContainerPermits.take(state.permits, request, System.monotonic_time(:millisecond))
+
+    state = %{state | permits: permits}
+
+    start_container_work(state, from, :deliver, container_position(request), fn ->
+      with {:ok, digest} <- ContainerRequest.digest(key, request),
+           {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
+        eligible =
+          ContainerPermits.eligible?(grant, request, digest) and
+            container_block_matches?(request, block)
+
+        if request[:kind] == :experience,
+          do: Valimc.World.ExperienceTransfers.plan(reserved, items, key, request, eligible),
+          else:
+            reserved |> ContainerTransfers.plan(key, request, eligible) |> spawn_orbs(items, key)
+      end
+    end)
+  end
+
+  # A furnace withdrawal's orbs spawn in the same commit as its decision: here,
+  # or handed over to the owner of their position (VMC-077h).
+  defp spawn_orbs({:ok, %{orbs: [_ | _] = orbs} = decision}, items, key) do
+    with {:ok, items} <- EntityHandoffs.spawn(items, key, orbs),
+         do: {:ok, decision |> Map.delete(:orbs) |> Map.put(:items, items)}
+  end
+
+  defp spawn_orbs({:ok, decision}, _items, _key), do: {:ok, Map.delete(decision, :orbs)}
+  defp spawn_orbs(error, _items, _key), do: error
 
   defp container_effects(pending) do
     case Map.get(pending.decision, :experience) do
@@ -3398,6 +3364,19 @@ defmodule Valimc.World.RegionData do
       {:ok, %{containers: containers} = decision} ->
         pending = Map.put(pending, :decision, decision)
         state = %{state | containers: containers}
+
+        # The orbs it spawned or the XP unit it took, in the same commit.
+        state =
+          case decision do
+            %{items: items} ->
+              state = %{state | entities: %{state.entities | store: items}}
+              publish_item_views(state)
+              state
+
+            _ ->
+              state
+          end
+
         {reply, state} = adopt_container_result(state, pending)
 
         # A replayed step may read a receipt whose frame is still in flight.
@@ -3498,11 +3477,6 @@ defmodule Valimc.World.RegionData do
     {:noreply, schedule_handoff_retry(state, 250)}
   end
 
-  defp job_done(:orb_plan, job, result, state), do: CookingOrbRuntime.done(state, job, result)
-
-  defp job_done(:orb_delivery, job, result, state),
-    do: CookingOrbDelivery.done(state, job, result)
-
   # A job that overran its deadline (`:timeout`, killed) or died (`{:down, reason}`).
   defp job_failed({:encode, key}, _job, reason, state) do
     {waiters, encodes} = Map.pop(state.encodes, key, [])
@@ -3514,9 +3488,6 @@ defmodule Valimc.World.RegionData do
     Valimc.Metrics.add(:item_handoff_retries)
     {:noreply, schedule_handoff_retry(state, 250)}
   end
-
-  defp job_failed(:orb_plan, job, reason, state), do: CookingOrbRuntime.failed(state, job, reason)
-  defp job_failed(:orb_delivery, job, _reason, state), do: CookingOrbDelivery.failed(state, job)
 
   # A plan has adopted nothing yet: its caller may retry.
   defp job_failed(:plan, pending, _reason, state) do
@@ -3543,14 +3514,12 @@ defmodule Valimc.World.RegionData do
   defp busy?(state) do
     RegionStorage.busy?(state.storage) or Jobs.busy?(state.jobs) or
       state.entities.handoff != nil or state.entities.portal != nil or
-      state.cooking_orbs.receipt != nil or map_size(state.encodes) > 0 or
+      map_size(state.encodes) > 0 or
       RegionGeneration.busy?(state.generation) or
       map_size(state.container_viewers.views) > 0 or map_size(state.permits.entries) > 0
   end
 
   def terminate(reason, state) do
-    CookingOrbRuntime.terminate(state)
-
     if pending = planning(state), do: reply_item(pending.from, Error.retry(:item_plan_failed))
     Jobs.stop_all(state.jobs)
 

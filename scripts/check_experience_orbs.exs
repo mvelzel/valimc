@@ -1,7 +1,7 @@
 [input, output] = System.argv()
 raw = JSON.decode!(File.read!(input))
 alias Valimc.Protocol.{EntityPackets, Wire}
-alias Valimc.World.CookingOrbs
+alias Valimc.World.ExperienceOrbs
 true = raw["version"] == "26.3"
 true = raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
 true = length(raw["splits"]) == 16_458
@@ -9,7 +9,7 @@ true = length(raw["entities"]) == 39
 
 for row <- raw["splits"] do
   expected = Map.new(row["groups"], fn {value, count} -> {String.to_integer(value), count} end)
-  {:ok, ^expected} = CookingOrbs.split(row["amount"])
+  {:ok, ^expected} = ExperienceOrbs.split(row["amount"])
   true = Enum.sum(Enum.map(expected, fn {value, count} -> value * count end)) == row["amount"]
 end
 

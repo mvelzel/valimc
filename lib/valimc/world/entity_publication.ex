@@ -3,15 +3,15 @@ defmodule Valimc.World.EntityPublication do
   One published entity view table per region for every entity kind (VMC-067).
 
   Observer rows are `{{:entities, chunk}, {epoch, revision}, %{entity_id => view}}`.
-  The owner republishes a kind's views only once they are durable (items after
-  their write, orbs after their container write). It keeps the last durable views
-  of each kind (`{:entity_source, kind}`) and a chunk index of view hashes
+  The owner republishes its store's views (every kind, VMC-077h) only once they
+  are durable. It keeps the last durable views (`{:entity_source, :items}`) and a
+  chunk index of view hashes
   (`:entity_index`) in the same table, and rewrites only the chunk rows whose
   views changed, each with a fresh revision. Observers read the small stamp
   first and copy a chunk's views only when it changed.
   """
 
-  @kinds [:items, :orbs]
+  @kinds [:items]
 
   @doc "Publish `kind`'s durable `views`, rewriting only changed chunk rows."
   def publish(table, epoch, kind, views) when kind in @kinds do

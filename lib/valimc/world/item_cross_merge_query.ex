@@ -15,7 +15,9 @@ defmodule Valimc.World.ItemCrossMergeQuery do
     width = Valimc.config(:region_size) * 16
 
     donors =
-      views |> Map.values() |> Enum.filter(&(&1.merge_open and border?(&1.at, rx, rz, width)))
+      views
+      |> Map.values()
+      |> Enum.filter(&(&1.kind == :item and &1.merge_open and border?(&1.at, rx, rz, width)))
 
     if donors == [] do
       nil
@@ -25,7 +27,7 @@ defmodule Valimc.World.ItemCrossMergeQuery do
             z <- (rz - 1)..(rz + 1),
             {x, z} != key,
             view <- Map.values(World.item_snapshot({x, z})),
-            view.merge_open and adjacent?(view.at, rx, rz, width),
+            view.kind == :item and view.merge_open and adjacent?(view.at, rx, rz, width),
             do: Map.put(Map.take(view, @fields), :key, {x, z})
 
       donors = donors |> Enum.map(&Map.take(&1, @fields)) |> Enum.sort_by(& &1.entity_id)

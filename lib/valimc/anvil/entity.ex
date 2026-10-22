@@ -6,9 +6,8 @@ defmodule Valimc.Anvil.Entity do
   A dropped item ValiMC can represent becomes an item record of the entity model
   (`Valimc.World.Entities`), read as vanilla's `Entity.load` and
   `ItemEntity.readAdditionalSaveData` read it: a motion component beyond ±10 is
-  zero, `Age` and `PickupDelay` are shorts. An XP orb becomes an imported orb
-  birth (VMC-021e4, `CookingOrbs.import_orbs/3`) with its UUID, value, count and
-  body. Every other entity (mobs, items with an owner, riders or components
+  zero, `Age` and `PickupDelay` are shorts. An XP orb becomes an orb entity
+  record (VMC-077h) with its UUID, value, count and age. Every other entity (mobs, items with an owner, riders or components
   ValiMC cannot hold) is preserved as its compound for export.
   """
   alias Valimc.ItemMotionState
