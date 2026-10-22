@@ -25,6 +25,10 @@ parallel. In every slice:
 | [VMC-037n](tickets/VMC-037n.md) | Melee combat, mob death, loot and XP | Attack cooldown, criticals, knockback, armor and shields; mob loot and XP match the oracle |
 | [VMC-037o](tickets/VMC-037o.md) | Projectiles | Arrows, thrown items, fireballs and eyes of ender fly and hit as the oracle's fixtures |
 | [VMC-050a](tickets/VMC-050a.md) | Explosions, TNT and falling blocks | Craters, damage and knockback match the oracle, committed across group lines at once |
+| [VMC-047a](tickets/VMC-047a.md) | Power sources, consumers and update order | Levers, buttons, plates, torches, lamps, powered doors and quasi-connectivity match the oracle tick by tick across group lines |
+| [VMC-048a](tickets/VMC-048a.md) | Repeaters, comparators and observers | Delays, locking, comparison modes, container reads and observer pulses match the oracle |
+| [VMC-048b](tickets/VMC-048b.md) | Pistons and moving blocks | Push and pull, slime and honey, moving-block geometry and entities carried match the oracle |
+| [VMC-049a](tickets/VMC-049a.md) | Hoppers, droppers and dispensers | Ordered atomic transfers, dispense behaviours and no duplication under concurrent ticks or crashes |
 | [VMC-042a](tickets/VMC-042a.md) | Natural spawning and despawning | Spawn attempts, packs, per-player caps and despawn distances match the oracle |
 | [VMC-042b](tickets/VMC-042b.md) | Structure mobs and spawners | Structures place their entities; spawners spawn; no generation error for entities |
 | [VMC-043b](tickets/VMC-043b.md) | Overworld hostiles | Zombie and skeleton families, creepers, spiders, endermen, witches, slimes, phantoms and silverfish behave as the oracle's fixtures |
@@ -43,7 +47,7 @@ parallel. In every slice:
 | [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals, the exit portal, gateways and the respawn ritual |
 | [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |
 
-Out of M3: redstone components (VMC-047–049), enchanting, anvils and brewing,
+Out of M3: enchanting, anvils and brewing,
 villager trading, POIs and raids, vehicles and riding (VMC-046), maps, books
 and signs, advancements, and the remaining command families.
 
@@ -78,9 +82,6 @@ and signs, advancements, and the remaining command families.
 | VMC-044 | Villager trades, POIs and raids | Trades and restocks, reputation, breeding, raids and cross-region transfers (villagers live from VMC-044a) |
 | VMC-045 | The wither and special entities | The wither, the warden and 26.3 variants and archetypes with durable lifecycle (the dragon is VMC-045a) |
 | VMC-046 | Boats, minecarts, mounts and pushing | Rails/vehicle physics, passengers, collision, portals and handoff parity |
-| VMC-047 | Redstone power and update order | Circuit fixtures, quasi-connectivity, update-sensitive builds and boundaries |
-| VMC-048 | Repeaters, comparators, observers and pistons | Tick timing, moving blocks with their geometry in the physics kernel, sticky behavior and block-entity moves |
-| VMC-049 | Hoppers, dispensers and droppers | Ordered inventory transfers; no duplication with parallel region ticks |
 | VMC-051 | Maps, books, signs, sounds and game events | Bounded content, client metadata updates, banners and persistent data; exploration maps from container loot (VMC-072c) |
 | VMC-052 | Advancements, statistics and scoreboards | Triggers/rewards/criteria, objectives, persistence and visibility |
 
@@ -105,7 +106,7 @@ D: a persistent survival loop with correct inventory, crafting, health, hunger,
 containers, tools and environment.
 E: behavior coverage for every current block/item/entity, including machines
 across boundaries, handoff, failures and scheduler counts. Simplified fast
-redstone does not establish vanilla semantics.
+redstone does not establish vanilla semantics; this holds for M3's redstone too.
 F: complete compatibility matrix, operational recovery and matched performance
 qualification, with every deviation documented.
 

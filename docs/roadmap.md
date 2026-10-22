@@ -45,25 +45,25 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
 | Blocks | Block rules, placement, mining | 029d → 029e → 039a → 032b |
 | Fluids | A fluid module, fluid ticks | 031a |
+| Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
 | Finale | The End fight, then the gate | 045a → 078 |
 
 Phases:
 
-1. **Now:** 043a, 029d and 031a. 029d and 031a share the block-rule
-   engine, so they rebase often.
-2. **After 043a:** 015i, 037n and 050a; Blocks goes on with 029e.
+1. **Now:** 043a, 029d and 031a (029d and 031a share the rule engine).
+2. **After 043a and 029d:** 015i, 037n, 050a, 047a; Blocks goes on (029e).
 3. **After 015i:** 041a then 041b; 042a, 037o and 042b alongside.
-4. **After 041b, 037n, 037o and 050a:** the families in parallel (043b
-   first), plus 034n4c, 026d, 040a and 032b.
+4. **After 041b, 037n, 037o, 050a:** families in parallel (043b first),
+   plus 034n4c, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
 5. **Last:** 045a, then the gate.
 
-When sessions are scarce, this order: 043a, 015i, 041a, 041b, 037n,
-037o, 050a, 043b, 029d, 029e, 031a, 042a, 043c, 042b, 043d, 039a, 040a, 034n4c,
-026d, 043e, 044a, 032b, 045a, 078.
+When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b,
+029d, 029e, 031a, 047a, 042a, 043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a,
+034n4c, 026d, 043e, 044a, 032b, 045a, 078.
 
-Later: redstone and machines, enchanting and brewing, trading and raids,
-vehicles, then commands/admin and certification.
+Later: enchanting and brewing, trading and raids, vehicles, then
+commands/admin and certification.
 
 ## Paused
 
