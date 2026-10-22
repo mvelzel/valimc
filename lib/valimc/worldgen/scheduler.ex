@@ -25,7 +25,8 @@ defmodule Valimc.Worldgen.Scheduler do
   Work starts as soon as what it waits for changed, a job's result included,
   as far as the pool has room (VMC-077x); while the pool is full the next job
   to end wakes it. Wants and players' focus change the priorities only where
-  they changed; a full rebuild runs at most four times a second.
+  they changed; a full rebuild runs at most four times a second, and takes at
+  most a tenth of the scheduler's time.
 
   Proto chunks and starts live only here. A graceful stop waits briefly for
   running jobs and writes them as the dimension's snapshot
@@ -78,13 +79,16 @@ defmodule Valimc.Worldgen.Scheduler do
     calls: %{},
     waiting: false,
     dirty: false,
-    # When the priorities were last rebuilt (monotonic ms).
+    # When the priorities were last rebuilt (monotonic ms), and how long
+    # until the next may be.
     refreshed: nil,
+    refresh_every: @refresh,
     gauged: nil,
     # The scratch file spilled cells go to: `%{path, file}` (opened at the
-    # first spill), and the cells in memory when an eviction pass last ended
-    # over the cap with nothing more it could free.
+    # first spill), the job writing spills (its ref), and the cells in memory
+    # when an eviction pass last ended over the cap with nothing more to free.
     scratch: nil,
+    spilling: nil,
     stuck: nil
   ]
 
@@ -293,27 +297,36 @@ defmodule Valimc.Worldgen.Scheduler do
   # Past the cap: drop and spill what work does not need soon, a batch per
   # dispatch. A pass looks at every cell in memory: after one that could not
   # get under the cap, the next waits for an eighth of the cap more cells.
-  defp spill(%{frontier: %{cap: cap, in_memory: n}} = state)
+  # The spills are encoded and written by a job of their own, one at a time
+  # (VMC-077x), so the scheduler never waits for them.
+  defp spill(%{spilling: nil, frontier: %{cap: cap, in_memory: n}} = state)
        when is_integer(cap) and n > cap and
               (state.stuck == nil or n >= state.stuck + max(div(cap, 8), 1)) do
     {frontier, spills} = Frontier.evictions(state.frontier, @spills)
-    state = if spills == [], do: state, else: open_scratch(state)
-    file = state.scratch.file
-
-    locations =
-      for {chunk, cell} <- spills do
-        {:ok, bytes} = Valimc.Native.gen_encode(cell)
-        {:ok, offset} = :file.position(file, :eof)
-        :ok = :file.write(file, bytes)
-        {chunk, offset, byte_size(bytes)}
-      end
-
-    frontier = Frontier.spilled(frontier, locations)
-    Valimc.Data.Metrics.add(:worldgen_spills, length(locations))
     Valimc.Data.Metrics.add(:worldgen_drops, frontier.dropped - state.frontier.dropped)
-    # A full batch: more may go at the next dispatch.
-    stuck = if frontier.in_memory > cap and length(spills) < @spills, do: frontier.in_memory
-    %{state | frontier: frontier, stuck: stuck}
+    # A full batch: more may go once it is written.
+    left = frontier.in_memory - length(spills)
+    stuck = if left > cap and length(spills) < @spills, do: left
+    state = %{state | frontier: frontier, stuck: stuck}
+
+    if spills == [] do
+      state
+    else
+      state = open_scratch(state)
+      {job, frontier} = Frontier.spill_job(state.frontier, spills)
+      run = job.run
+      ref = job.ref
+      scheduler = self()
+      {_pid, monitor} = spawn_monitor(fn -> send(scheduler, {:job, ref, Frontier.safe(run)}) end)
+
+      %{
+        state
+        | frontier: frontier,
+          spilling: ref,
+          monitors: Map.put(state.monitors, monitor, {:job, ref, now()}),
+          job_monitors: Map.put(state.job_monitors, ref, monitor)
+      }
+    end
   end
 
   defp spill(state), do: state
@@ -462,6 +475,8 @@ defmodule Valimc.Worldgen.Scheduler do
       end
 
     {frontier, events} = Frontier.done(state.frontier, ref, result)
+    Valimc.Data.Metrics.add(:worldgen_spills, frontier.spills - state.frontier.spills)
+    state = if state.spilling == ref, do: %{state | spilling: nil}, else: state
     noreply(deliver(%{state | frontier: frontier, dirty: true}, events))
   end
 
@@ -477,6 +492,7 @@ defmodule Valimc.Worldgen.Scheduler do
           | monitors: monitors,
             job_monitors: job_monitors,
             frontier: frontier,
+            spilling: if(state.spilling == ref, do: nil, else: state.spilling),
             dirty: true
         }
 
@@ -539,7 +555,7 @@ defmodule Valimc.Worldgen.Scheduler do
   defp timeout(%{dirty: true}), do: 0
 
   defp timeout(%{frontier: %{stale: true}} = state),
-    do: max(state.refreshed + @refresh - now_ms(), 0)
+    do: max(state.refreshed + state.refresh_every - now_ms(), 0)
 
   defp timeout(_state), do: @idle
 
@@ -550,8 +566,17 @@ defmodule Valimc.Worldgen.Scheduler do
 
   ## Work
 
+  # Jobs start before the housekeeping: a rebuild or a spill pass takes
+  # milliseconds, and the jobs just started run meanwhile. A rebuild can make
+  # work startable, so jobs start again after one.
   defp dispatch(state) do
-    state = %{state | dirty: false} |> spill() |> gauges() |> refresh()
+    state = start(%{state | dirty: false})
+    refreshed = state.refreshed
+    state = state |> spill() |> gauges() |> refresh()
+    if state.refreshed != refreshed, do: start(state), else: state
+  end
+
+  defp start(state) do
     room = Pool.free()
 
     if room == 0 do
@@ -596,16 +621,19 @@ defmodule Valimc.Worldgen.Scheduler do
     end
   end
 
-  # The whole rebuild of the priorities, at most every `@refresh` ms.
+  # The whole rebuild of the priorities, at most every `@refresh` ms and at
+  # most a tenth of the scheduler's time.
   defp refresh(%{frontier: %{stale: true}} = state) do
     at = now_ms()
 
-    if at - state.refreshed >= @refresh do
+    if at - state.refreshed >= state.refresh_every do
       started = now()
       frontier = Frontier.refresh(state.frontier)
+      took = now() - started
       Valimc.Data.Metrics.add(:worldgen_refreshes)
-      Valimc.Data.Metrics.add(:worldgen_refresh_microseconds, now() - started)
-      %{state | frontier: frontier, refreshed: at}
+      Valimc.Data.Metrics.add(:worldgen_refresh_microseconds, took)
+      every = max(@refresh, div(took, 100))
+      %{state | frontier: frontier, refreshed: at, refresh_every: every}
     else
       state
     end

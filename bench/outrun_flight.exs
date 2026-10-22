@@ -592,7 +592,8 @@ counters =
   ~w(worldgen_chunks worldgen_microseconds worldgen_wants worldgen_refreshes
      worldgen_dispatch_microseconds worldgen_terrain_jobs worldgen_decorate_jobs
      worldgen_full_jobs worldgen_alone_jobs chunks_encoded worldgen_refresh_microseconds
-     worldgen_terrain_microseconds worldgen_decorate_microseconds worldgen_full_microseconds)a
+     worldgen_terrain_microseconds worldgen_decorate_microseconds worldgen_full_microseconds
+     worldgen_spills worldgen_drops)a
 
 before = Valimc.Data.Metrics.snapshot()
 
