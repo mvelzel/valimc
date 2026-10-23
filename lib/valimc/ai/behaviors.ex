@@ -166,9 +166,9 @@ defmodule Valimc.AI.Behaviors do
       if Behaviors.reached?(self, walk) do
         {false, state, Brain.erase(self, :cant_reach_walk_target_since)}
       else
-        # One-node paths reach their target (VMC-041b's search may not).
+        # A pending path (VMC-041b) counts as reaching until it arrives.
         self =
-          if path != nil,
+          if path != nil and Map.get(path, :reached, true),
             do: Brain.erase(self, :cant_reach_walk_target_since),
             else:
               if(Brain.has?(self, :cant_reach_walk_target_since),

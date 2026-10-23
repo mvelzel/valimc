@@ -38,8 +38,8 @@ defmodule Valimc.Physics.Clip do
            end)
 
   @doc """
-  The hit of a ray from `from` to `to` (`{x, y, z}` floats), `fluid` `:none` or
-  `:source_only`, reading cells with `read` (position => state; nil reads as
+  The hit of a ray from `from` to `to` (`{x, y, z}` floats), `fluid` `:none`,
+  `:source_only` or `:any` (a fluid's shape at its own height), reading cells with `read` (position => state; nil reads as
   air), against block outlines or, with `:collider`, collision shapes
   (`ClipContext.Block.COLLIDER`, as a mob's line of sight casts it).
   """
@@ -168,10 +168,10 @@ defmodule Valimc.Physics.Clip do
   # as a full block only when that came first, so its own height stands.
   defp fluid_clip(:none, _, _, _, _), do: nil
 
-  defp fluid_clip(:source_only, state, position, from, to) do
+  defp fluid_clip(mode, state, position, from, to) do
     fluid = BlockFacts.fluid(state)
 
-    if fluid.kind != :empty and fluid.source do
+    if fluid.kind != :empty and (mode == :any or fluid.source) do
       height = fluid.height
 
       box = %{

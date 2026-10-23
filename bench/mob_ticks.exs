@@ -52,9 +52,11 @@ run = fn count ->
     equipment: %{mainhand: nil, offhand: nil}
   }
 
+  # Searches run at once here (an owner defers them to a job, VMC-041b).
   world = %Valimc.AI.World{
     read: fn {x, y, z} -> if x in 0..47 and z in 0..47 and y == 63, do: stone, else: air end,
-    players: [player]
+    players: [player],
+    search: fn request -> hd(Valimc.AI.Paths.find(view, [request])) end
   }
 
   tick = fn store ->

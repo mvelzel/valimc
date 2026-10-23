@@ -7,7 +7,9 @@ defmodule Valimc.AI.World do
   group's playing players, `mobs` the section's mobs and `items` its items
   (`%{kind: :item, uuid, x, y, z, item, count, components, pickup_delay}`),
   `random` the level's random (behaviours' run times), `light` the light-dependent magic value at a block
-  (`getLightLevelDependentMagicValue`).
+  (`getLightLevelDependentMagicValue`), `search` how path searches run and
+  `paths` the deferred results that arrived (`search/2`), `sea_level` and
+  the stationary `border` (`{min_x, min_z, max_x, max_z}`) searches read.
 
   Sensing is vanilla's: `TargetingConditions.test` (`test/4`), the nearest
   player or mob a goal asks for (`nearest_player/5`, `nearest_mob/6`),
@@ -37,7 +39,19 @@ defmodule Valimc.AI.World do
             max_y: 319,
             light: nil,
             mob_griefing: true,
-            universal_anger: false
+            universal_anger: false,
+            search: :deferred,
+            paths: %{},
+            sea_level: 63,
+            border: nil
+
+  @doc """
+  A path search (VMC-041b): `search` answers it at once (`{path | nil,
+  random, chunks}`, oracles and tests) or `:deferred` (an owner runs it as
+  a job; the result reaches the mob by `paths`, see `Navigation.receive/1`).
+  """
+  def search(%__MODULE__{search: :deferred}, _request), do: :deferred
+  def search(%__MODULE__{search: search}, request), do: search.(request)
 
   @doc "The state at `position` (nil where it cannot be read)."
   def block(%__MODULE__{read: read}, position), do: read.(position)

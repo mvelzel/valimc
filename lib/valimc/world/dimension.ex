@@ -104,6 +104,9 @@ defmodule Valimc.World.Dimension do
     {min_y, height}
   end
 
+  @doc "The dimension's sea level (its noise settings')."
+  def sea_level(dimension \\ current()), do: facts(dimension).sea_level
+
   @doc "Whether a block Y is inside the dimension's build height."
   def in_height?(y, dimension \\ current()) when is_integer(y) do
     {min_y, height} = bounds(dimension)
@@ -137,12 +140,12 @@ defmodule Valimc.World.Dimension do
          noise_settings: entry["noise_settings"],
          biome_source: entry["biome_source"],
          default_clock: entry["default_clock"],
-         sea_level: sea_level(entry["noise_settings"])
+         sea_level: noise_sea_level(entry["noise_settings"])
        }}
     end)
   end
 
-  defp sea_level(settings) do
+  defp noise_sea_level(settings) do
     Valimc.Worldgen.fact("noise_settings")
     |> Map.fetch!(settings)
     |> Map.fetch!("sea_level")

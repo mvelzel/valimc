@@ -110,6 +110,8 @@ defmodule Valimc.World.RegionData do
     {:player_sensed, []},
     # The level random mobs' brains draw on (VMC-041a2), the section's own.
     {:ai_random, nil},
+    # Mobs' deferred path searches and their results (VMC-041b).
+    {:mob_paths, %Valimc.World.MobPaths{}},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -1130,17 +1132,15 @@ defmodule Valimc.World.RegionData do
       state
     else
       view = Valimc.World.View.new(state.dimension)
-      world = mob_world(state, view)
+      {ready, mob_paths} = Valimc.World.MobPaths.take(state.mob_paths)
+      border = Valimc.World.Clock.border_snapshot()
+      world = %{mob_world(state, view, border) | paths: ready}
 
-      {steps, world} =
-        Valimc.Entity.MobTicks.steps(
-          view,
-          Enum.sort(mobs),
-          world,
-          Valimc.World.Clock.border_snapshot()
-        )
+      {steps, world} = Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border)
 
-      state = %{state | ai_random: world.random}
+      # Paths the mobs asked for run as a job (VMC-041b).
+      mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
+      state = start_paths(%{state | ai_random: world.random, mob_paths: mob_paths})
 
       attacks =
         for step <- steps, {:attack, {:player, target}} <- step.effects, do: {step.id, target}
@@ -1220,10 +1220,25 @@ defmodule Valimc.World.RegionData do
     adopt_drops(state, records)
   end
 
+  # The next batch of mobs' path searches, when none runs (VMC-041b).
+  defp start_paths(state) do
+    case Valimc.World.MobPaths.next(state.mob_paths, state.jobs, state.dimension) do
+      {:ok, paths, _batch, work} ->
+        case start_job(state, :paths, work, slots: :paths) do
+          {:ok, state} -> %{state | mob_paths: paths}
+          {:error, _} -> state
+        end
+
+      :idle ->
+        state
+    end
+  end
+
   # What mobs' AI reads (`Valimc.AI.World`): this group's players, the
   # section's mobs (`AI.think/2` adds them) and items, published blocks,
-  # game time, the section's level random.
-  defp mob_world(state, view) do
+  # game time, the section's level random, and what path searches read
+  # beside the blocks (sea level, the stationary border).
+  defp mob_world(state, view, border) do
     {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
     {difficulty, _} = Valimc.World.Clock.difficulty()
 
@@ -1254,7 +1269,9 @@ defmodule Valimc.World.RegionData do
       random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656)),
       difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
       min_y: min_y,
-      max_y: min_y + height - 1
+      max_y: min_y + height - 1,
+      sea_level: Valimc.World.Dimension.sea_level(state.dimension),
+      border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
     }
   end
 
@@ -4930,6 +4947,11 @@ defmodule Valimc.World.RegionData do
   # A crater job ended (VMC-050a): the next waiting craters start.
   defp job_done(:explosion, _job, _result, state), do: {:noreply, start_craters(state)}
 
+  defp job_done(:paths, _job, results, state) do
+    paths = Valimc.World.MobPaths.done(state.mob_paths, results, state.dimension)
+    {:noreply, start_paths(%{state | mob_paths: paths})}
+  end
+
   defp job_done(:portal, job, {:ok, target}, state),
     do:
       {:noreply,
@@ -5035,6 +5057,9 @@ defmodule Valimc.World.RegionData do
     reply_item(pending.from, Error.retry(:item_plan_failed))
     {:noreply, item_plan_failed(state, pending)}
   end
+
+  # Its mobs' pending paths give up on their own (`Navigation.receive/1`).
+  defp job_failed(:paths, _job, _reason, state), do: {:noreply, start_paths(state)}
 
   defp job_failed(:explosion, _job, reason, state) do
     require Logger

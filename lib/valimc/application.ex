@@ -47,6 +47,8 @@ defmodule Valimc.Application do
     schedulers = max(System.schedulers_online(), 1)
     # Chunk packet encodes start without a call (VMC-077w).
     Valimc.World.Jobs.init_slots!(:chunk_encode, schedulers)
+    # Mobs' path searches, a batch per section (VMC-041b).
+    Valimc.World.Jobs.init_slots!(:paths, schedulers)
 
     infrastructure = [
       Valimc.World.Settings,

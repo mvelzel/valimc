@@ -250,7 +250,15 @@ was sent to.
   sensors, activities, behaviours) and look control, over what the owner
   hands it (the group's players, the section's mobs and items, published
   blocks, the section's level random); the kernel runs the move and jump
-  controls it set, and a looting mob picks items up after the move. Each mob draws
+  controls it set, and a looting mob picks items up after the move. Paths
+  come from vanilla's search (VMC-041b) in Rust, never in the owner: a
+  mob's request leaves its tick as an effect, the section runs its
+  requests as one job (`World.MobPaths`, at most one batch at a time)
+  over the published snapshots of the chunks the searches' regions cover,
+  whichever section or group owns them, and the next tick installs each
+  result unless a chunk it read was published again since (stale: the mob
+  recomputes). Until then the mob's path is pending and it holds still.
+  Each mob draws
   from its own saved random, so it draws what vanilla's would; what it
   decides beyond itself (a melee hit, an alert) comes back as effects. Every hurt of a mob (melee, explosions, falling
   blocks, its own falls, fire and drowning, `/kill`) goes through one path,
@@ -480,6 +488,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Path search (VMC-041b) | Vanilla's `PathFinder` with the walk, amphibious, swim and fly node evaluators (`valimc_core::path`) over published chunk snapshots read as `PathNavigation`'s region reads a level, with path types from `ai_facts.json` and shapes from the kernel's facts: a section's batch of searches is one call in its path job, each search bounded by the mob's visited-node limit (a zombie's 560 nodes take at most about 0.9 ms) |
 | Natural spawning (VMC-042a) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test: one call over the group's stores, about 0.3 ms a tick for a player's nine sections; the caps, despawn bookkeeping and the records stay in Elixir |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
@@ -492,7 +501,8 @@ is the native reader's parity reference.
 NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
 - The shim has one module per domain (`facts`, `region`, `snapshot`, `rules`,
-  `light`, `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`); oracle
+  `light`, `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`,
+  `path`); oracle
   and benchmark NIFs live in `parity` (the physics kernel's pieces in
   `physics_checks` and `player_parity`), built only with the `parity` cargo
   feature (dev, test and bench builds, not releases). One arity per NIF.

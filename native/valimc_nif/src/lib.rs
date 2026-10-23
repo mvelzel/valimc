@@ -29,6 +29,7 @@ mod light;
 mod loot;
 #[cfg(feature = "parity")]
 mod parity;
+mod path;
 mod physics;
 #[cfg(feature = "parity")]
 mod physics_checks;

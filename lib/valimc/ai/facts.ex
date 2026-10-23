@@ -2,8 +2,9 @@ defmodule Valimc.AI.Facts do
   @moduledoc """
   What the AI reads of vanilla (`MobAiOracle facts`, `ai_facts.json`):
   `Mth.atan2`'s tables, each block state's path type
-  (`WalkNodeEvaluator.getPathTypeFromState`) and the path types' default
-  malus, the items whose `mob_visibility` hides their wearer from some
+  (`WalkNodeEvaluator.getPathTypeFromState`), what the node evaluators ask
+  of it beside (`isPathfindable`, the water block) and the path types'
+  default malus, the items whose `mob_visibility` hides their wearer from some
   types, and per modelled mob its head limits, ambient sound and interval,
   malus overrides and the goals vanilla registers (which `Valimc.AI.Mobs`
   must list as they are).
@@ -29,8 +30,25 @@ defmodule Valimc.AI.Facts do
   unless byte_size(@path_states) == Valimc.Data.Blocks.state_count(),
     do: raise("AI facts and the block registry differ in state count")
 
+  @path_flags Base.decode16!(@facts["path_flags"], case: :lower)
+
+  unless byte_size(@path_flags) == byte_size(@path_states),
+    do: raise("AI facts' path columns differ in length")
+
   @doc "The path type of block `state` alone (`getPathTypeFromState`)."
   def path_type(state), do: elem(@path_types, :binary.at(@path_states, state))
+
+  @doc "The path types by ordinal."
+  def path_type_names, do: Tuple.to_list(@path_types)
+
+  @doc "Each state's path type ordinal, one byte per state (the search's table)."
+  def path_states, do: @path_states
+
+  @doc """
+  Each state's other path facts, one byte per state: bits 0 to 2
+  `isPathfindable` for land, water and air, bit 3 the water block.
+  """
+  def path_flags, do: @path_flags
 
   goal = fn [priority, name, flags] -> {priority, name, Enum.map(flags, &String.to_atom/1)} end
 

@@ -105,6 +105,14 @@ defmodule Valimc.AI.Mobs do
   def brain("minecraft:piglin"), do: Valimc.AI.Brains.Piglin
   def brain(_type), do: nil
 
+  @doc """
+  The navigation a mob of `type` makes (`createNavigation`): its kind and
+  abilities (`Navigation.new/2`). A piglin opens doors
+  (`AbstractPiglin.applyOpenDoorsAbility`).
+  """
+  def navigation("minecraft:piglin"), do: {:ground, can_open_doors: true}
+  def navigation(_type), do: {:ground, []}
+
   @doc "Whether mobs of `type` have goals."
   def goals?(type), do: type in @types
 

@@ -43,12 +43,17 @@ defmodule Valimc.AI do
       end
 
     {goals, targets, floats} = Mobs.selectors(type)
+    {kind, options} = Mobs.navigation(type)
+    navigation = Navigation.new(kind, options)
+
+    navigation =
+      if floats and kind in [:ground, :fly], do: %{navigation | can_float: true}, else: navigation
 
     mind = %Mind{
       random: random,
       goals: goals,
       targets: targets,
-      navigation: %Navigation{can_float: floats}
+      navigation: navigation
     }
 
     case Mobs.brain(type) do
@@ -292,6 +297,8 @@ defmodule Valimc.AI do
          else: self
 
     self = Self.mind(self, &%{&1 | no_action: &1.no_action + 1, sight: %{}})
+    # A deferred search's result arrives before the goals look (VMC-041b).
+    self = Navigation.receive(self)
     tick = self.mind.tick
 
     self =

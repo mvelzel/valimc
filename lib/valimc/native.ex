@@ -53,7 +53,11 @@ defmodule Valimc.Native do
     # Per simulated chunk and category: a start and up to three packs, with
     # the despawn checks (`World.Spawning`, VMC-042a; nine sections' 4,032
     # units took at most 0.7 ms, under 200 ns a unit).
-    natural_spawn: {500, :natural_spawn_dirty}
+    natural_spawn: {500, :natural_spawn_dirty},
+    # Per node a path search may visit (`Valimc.AI.Paths`, VMC-041b): its
+    # neighbours' path types over the mob's box, each a few block reads; a
+    # zombie's search that visits all 560 took at most 0.86 ms.
+    path_find: {2_500, :path_find_dirty}
   }
 
   @doc """
@@ -206,6 +210,12 @@ defmodule Valimc.Native do
   def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_dirty(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
+
+  ## Path search (VMC-041b)
+
+  def path_facts_init(_types, _flags), do: :erlang.nif_error(:nif_not_loaded)
+  def path_find(_view, _requests), do: :erlang.nif_error(:nif_not_loaded)
+  def path_find_dirty(_view, _requests), do: :erlang.nif_error(:nif_not_loaded)
   def physics_orbs_dirty(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items_dirty(_view, _items, _border, _refresh),

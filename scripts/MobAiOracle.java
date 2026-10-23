@@ -51,10 +51,10 @@ import net.minecraft.world.phys.*;
  * `tickCount`, `tick`), then each player's push (its connection's tick
  * follows the level's): every tick each mob's position, rotations, random
  * seed, running goals, target, path and the hits and sounds it made.
- *
- * Paths are straight until VMC-041b: the path finder answers one node, the
- * target, and everything after it (`PathNavigation` following, stuck
- * detection, `MoveControl`) is vanilla's.
+ * Navigation is vanilla's own (`GroundPathNavigation`, `PathFinder`) over
+ * the scene's chunks. `paths OUT` runs single searches of the walk, swim,
+ * fly and amphibious evaluators over scenes (walls, doors, fences, water,
+ * chunk and section lines) with the mob as each evaluator read it.
  */
 public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
@@ -94,10 +94,29 @@ public class MobAiOracle {
     public int getSectionIndexFromSectionY(int sectionY) { return 0; }
   }
 
-  /** No chunks: a path's region reads none (the straight finder needs none). */
+  /** The chunk a path's region reads (`getChunkNow`): the scene. */
+  static class PathChunk extends net.minecraft.world.level.chunk.LevelChunk {
+    Probe level;
+    private PathChunk() { super(null, null); }
+    public BlockState getBlockState(BlockPos p) { return level.getBlockState(p); }
+    public FluidState getFluidState(BlockPos p) { return level.getFluidState(p); }
+    public FluidState getFluidState(int x, int y, int z) { return level.getFluidState(new BlockPos(x, y, z)); }
+    public boolean isYSpaceEmpty(int from, int to) { return false; }
+  }
+
+  /** Every chunk is the scene's: navigation and its path regions read it. */
   static class NoChunks extends net.minecraft.server.level.ServerChunkCache {
     private NoChunks() { super(null, null, null, null, null, null, 0, 0, false, null); }
-    public net.minecraft.world.level.chunk.LevelChunk getChunkNow(int x, int z) { return null; }
+    PathChunk path;
+    public net.minecraft.world.level.chunk.LevelChunk getChunkNow(int x, int z) {
+      if (path == null) {
+        try {
+          path = (PathChunk)unsafe.allocateInstance(PathChunk.class);
+          path.level = level;
+        } catch (Exception e) { throw new RuntimeException(e); }
+      }
+      return path;
+    }
     Probe level;
     // A swing (`ClientboundAnimatePacket`) is recorded as the entity's event.
     public void sendToTrackingPlayers(Entity e, net.minecraft.network.protocol.Packet<? super net.minecraft.network.protocol.game.ClientGamePacketListener> packet) {
@@ -170,6 +189,7 @@ public class MobAiOracle {
     public boolean isVillage(BlockPos p) { return false; }
     public WorldBorder getWorldBorder() { return border; }
     public int getMinY() { return -64; }
+    public int getSeaLevel() { return 63; }
     public int getHeight() { return 384; }
     public long getGameTime() { return time; }
     public GameRules getGameRules() { return rules; }
@@ -233,58 +253,19 @@ public class MobAiOracle {
     }
   }
 
-  // Paths are one node, the target: VMC-041b's search replaces this.
-  static class StraightFinder extends PathFinder {
-    StraightFinder() { super(new net.minecraft.world.level.pathfinder.WalkNodeEvaluator(), 1); }
-    public Path findPath(net.minecraft.world.level.PathNavigationRegion region, net.minecraft.world.entity.Mob mob, Set<BlockPos> targets,
-        float maxPathLength, int reachRange, float multiplier) {
-      var t = targets.iterator().next();
-      return new Path(new ArrayList<>(List.of(new Node(t.getX(), t.getY(), t.getZ()))), t, true);
-    }
-  }
-
-  static class Straight extends GroundPathNavigation {
-    Straight(net.minecraft.world.entity.Mob mob, net.minecraft.world.level.Level level) { super(mob, level); }
-    protected PathFinder createPathFinder(int maxVisitedNodes) {
-      this.nodeEvaluator = new net.minecraft.world.level.pathfinder.WalkNodeEvaluator();
-      return new StraightFinder();
-    }
-    // `GroundPathNavigation.createPath` over the scene (no chunk source).
-    public Path createPath(BlockPos pos, int reach) {
-      if (level.getBlockState(pos).isAir()) {
-        var column = pos.mutable().move(Direction.DOWN);
-        while (column.getY() >= level.getMinY() && level.getBlockState(column).isAir()) column.move(Direction.DOWN);
-        if (column.getY() >= level.getMinY()) return createPath(Set.of(column.above()), 8, false, reach);
-        column.setY(pos.getY() + 1);
-        while (column.getY() <= level.getMaxY() && level.getBlockState(column).isAir()) column.move(Direction.UP);
-        pos = column.immutable();
-      }
-      if (level.getBlockState(pos).isSolid()) {
-        var column = pos.mutable().move(Direction.UP);
-        while (column.getY() <= level.getMaxY() && level.getBlockState(column).isSolid()) column.move(Direction.UP);
-        pos = column.immutable();
-      }
-      return createPath(Set.of(pos), 8, false, reach);
-    }
-    public Path createPath(Entity target, int reach) { return createPath(target.blockPosition(), reach); }
-  }
-
   static class Zombie extends net.minecraft.world.entity.monster.zombie.Zombie {
     Zombie(Probe level) { super(EntityTypes.ZOMBIE, level); }
-    protected PathNavigation createNavigation(net.minecraft.world.level.Level level) { return new Straight(this, level); }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
     protected boolean convertsInWater() { return false; }
   }
 
   static class Pig extends net.minecraft.world.entity.animal.pig.Pig {
     Pig(Probe level) { super(EntityTypes.PIG, level); }
-    protected PathNavigation createNavigation(net.minecraft.world.level.Level level) { return new Straight(this, level); }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
   }
 
   static class Piglin extends net.minecraft.world.entity.monster.piglin.Piglin {
     Piglin(Probe level) { super(EntityTypes.PIGLIN, level); }
-    protected PathNavigation createNavigation(net.minecraft.world.level.Level level) { return new Straight(this, level); }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
     // A piglin-safe level (the Nether's): it does not zombify.
     public boolean isConverting() { return false; }
@@ -389,6 +370,18 @@ public class MobAiOracle {
     }
     level.blocks.clear();
     out.addProperty("path_type_states", states.toString());
+    // Per state what the node evaluators ask of it beyond its path type:
+    // bit 0..2 `isPathfindable` for land, water and air, bit 3 the water block.
+    var flags = new StringBuilder();
+    var kinds = net.minecraft.world.level.pathfinder.PathComputationType.values();
+    for (int id = 0; id < net.minecraft.world.level.block.Block.BLOCK_STATE_REGISTRY.size(); id++) {
+      var state = net.minecraft.world.level.block.Block.BLOCK_STATE_REGISTRY.byId(id);
+      int bits = 0;
+      for (var kind : kinds) if (state.isPathfindable(kind)) bits |= 1 << kind.ordinal();
+      if (state.is(Blocks.WATER)) bits |= 8;
+      flags.append(String.format("%02x", bits));
+    }
+    out.addProperty("path_flags", flags.toString());
     var hidden = new JsonObject();
     BuiltInRegistries.ITEM.keySet().stream().sorted(Comparator.comparing(Identifier::toString)).forEach(id -> {
       var item = BuiltInRegistries.ITEM.getValue(id);
@@ -678,6 +671,157 @@ public class MobAiOracle {
     return out;
   }
 
+  // ---- paths (VMC-041b) ----
+
+  static List<Block> box(int x0, int y0, int z0, int x1, int y1, int z1, BlockState state) {
+    var out = new ArrayList<Block>();
+    for (int x = x0; x <= x1; x++) for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) out.add(new Block(x, y, z, state));
+    return out;
+  }
+
+  @SafeVarargs
+  static List<Block> scene(List<Block>... parts) {
+    var at = new LinkedHashMap<BlockPos, Block>();
+    for (var part : parts) for (var b : part) at.put(new BlockPos(b.x, b.y, b.z), b);
+    return new ArrayList<>(at.values());
+  }
+
+  /**
+   * One search as `PathNavigation.createPath(targets, 8, false, reach)` runs
+   * it (or with `evaluator` in place of the navigation's): the mob as the
+   * evaluator reads it, the limits and region, and the path.
+   */
+  static JsonObject search(Probe level, String name, List<Block> blocks, String type, Vec3 at, boolean ground,
+      BlockPos target, int reach, String kind, net.minecraft.world.level.pathfinder.NodeEvaluator evaluator, long seed) throws Exception {
+    level.blocks.clear(); level.entities.clear();
+    for (var b : blocks) level.blocks.put(new BlockPos(b.x, b.y, b.z), b.state);
+    var entityType = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(type));
+    var m = (net.minecraft.world.entity.Mob)entityType.create(level, EntitySpawnReason.COMMAND);
+    m.snapTo(at.x, at.y, at.z, 0, 0);
+    m.setOnGround(ground);
+    var fluid = Entity.class.getDeclaredMethod("updateFluidInteraction"); fluid.setAccessible(true);
+    fluid.invoke(m);
+    m.getRandom().setSeed(seed);
+    var nav = m.getNavigation();
+    var own = (net.minecraft.world.level.pathfinder.NodeEvaluator)field(PathNavigation.class, "nodeEvaluator").get(nav);
+    var finder = (PathFinder)field(PathNavigation.class, "pathFinder").get(nav);
+    int maxVisited = field(PathFinder.class, "maxVisitedNodes").getInt(finder);
+    var lengthMethod = PathNavigation.class.getDeclaredMethod("getMaxPathLength"); lengthMethod.setAccessible(true);
+    float length = (float)lengthMethod.invoke(nav);
+    var mob = new JsonObject();
+    mob.addProperty("type", type); mob.add("position", bits(m.position()));
+    mob.addProperty("width", Float.floatToRawIntBits(m.getBbWidth())); mob.addProperty("height", Float.floatToRawIntBits(m.getBbHeight()));
+    mob.addProperty("on_ground", m.onGround()); mob.addProperty("in_water", m.isInWater());
+    mob.addProperty("step", Float.floatToRawIntBits(m.maxUpStep())); mob.addProperty("max_fall", m.getMaxFallDistance());
+    var malus = new JsonArray(); for (var t : PathType.values()) malus.add(Float.floatToRawIntBits(m.getPathfindingMalus(t)));
+    mob.add("malus", malus);
+    mob.addProperty("can_pass_doors", own.canPassDoors()); mob.addProperty("can_open_doors", own.canOpenDoors());
+    mob.addProperty("can_float", own.canFloat()); mob.addProperty("can_walk_over_fences", own.canWalkOverFences());
+    var seedField = field(net.minecraft.world.level.levelgen.LegacyRandomSource.class, "seed");
+    mob.addProperty("random", ((java.util.concurrent.atomic.AtomicLong)seedField.get(m.getRandom())).get());
+    Path path;
+    var from = m.blockPosition();
+    int radius = (int)(length + 8);
+    if (evaluator == null) {
+      var create = PathNavigation.class.getDeclaredMethod("createPath", Set.class, int.class, boolean.class, int.class);
+      create.setAccessible(true);
+      path = (Path)create.invoke(nav, Set.of(target), 8, false, reach);
+    } else {
+      evaluator.setCanPassDoors(own.canPassDoors()); evaluator.setCanOpenDoors(own.canOpenDoors());
+      evaluator.setCanFloat(own.canFloat()); evaluator.setCanWalkOverFences(own.canWalkOverFences());
+      var region = new net.minecraft.world.level.PathNavigationRegion(level, from.offset(-radius, -radius, -radius), from.offset(radius, radius, radius));
+      path = new PathFinder(evaluator, maxVisited).findPath(region, m, Set.of(target), length, reach, 1.0F);
+    }
+    var out = new JsonObject(); out.addProperty("name", name); out.addProperty("evaluator", kind);
+    var bs = new JsonArray();
+    for (var b : blocks) { var a=new JsonArray(); a.add(b.x); a.add(b.y); a.add(b.z); a.add(net.minecraft.world.level.block.Block.getId(b.state)); bs.add(a); }
+    out.add("blocks", bs); out.add("mob", mob);
+    var t = new JsonArray(); t.add(target.getX()); t.add(target.getY()); t.add(target.getZ()); out.add("target", t);
+    out.addProperty("reach", reach); out.addProperty("max_path_length", Float.floatToRawIntBits(length));
+    out.addProperty("max_visited", maxVisited);
+    var region = new JsonArray(); for (int v : new int[]{from.getX() - radius, from.getY() - radius, from.getZ() - radius, from.getX() + radius, from.getY() + radius, from.getZ() + radius}) region.add(v);
+    out.add("region", region);
+    out.addProperty("random_after", ((java.util.concurrent.atomic.AtomicLong)seedField.get(m.getRandom())).get());
+    if (path == null) out.add("path", JsonNull.INSTANCE);
+    else {
+      var o = new JsonObject(); var nodes = new JsonArray();
+      for (int i = 0; i < path.getNodeCount(); i++) {
+        var n = path.getNode(i); var a = new JsonArray(); a.add(n.x); a.add(n.y); a.add(n.z); a.add(n.type.ordinal()); nodes.add(a);
+      }
+      o.add("nodes", nodes); var pt = new JsonArray(); pt.add(path.getTarget().getX()); pt.add(path.getTarget().getY()); pt.add(path.getTarget().getZ());
+      o.add("target", pt); o.addProperty("reached", path.canReach()); out.add("path", o);
+    }
+    return out;
+  }
+
+  static JsonObject paths(Probe level) throws Exception {
+    var stone = Blocks.STONE.defaultBlockState();
+    var air = Blocks.AIR.defaultBlockState();
+    var water = Blocks.WATER.defaultBlockState();
+    var floor = box(-12, 63, -12, 12, 63, 12, stone);
+    var wall = box(4, 64, -12, 4, 66, 12, stone);
+    var gap = box(4, 64, 6, 4, 65, 6, air);
+    var door = Blocks.OAK_DOOR.defaultBlockState().setValue(net.minecraft.world.level.block.DoorBlock.FACING, Direction.EAST);
+    var doorway = List.of(new Block(4, 64, 0, door),
+        new Block(4, 65, 0, door.setValue(net.minecraft.world.level.block.DoorBlock.HALF, net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER)));
+    var open = List.of(new Block(4, 64, 0, door.setValue(net.minecraft.world.level.block.DoorBlock.OPEN, true)),
+        new Block(4, 65, 0, door.setValue(net.minecraft.world.level.block.DoorBlock.OPEN, true).setValue(net.minecraft.world.level.block.DoorBlock.HALF, net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER)));
+    var iron = Blocks.IRON_DOOR.defaultBlockState().setValue(net.minecraft.world.level.block.DoorBlock.FACING, Direction.EAST);
+    var ironway = List.of(new Block(4, 64, 0, iron),
+        new Block(4, 65, 0, iron.setValue(net.minecraft.world.level.block.DoorBlock.HALF, net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER)));
+    var fence = box(4, 64, -12, 4, 64, 12, Blocks.OAK_FENCE.defaultBlockState());
+    var gate = List.of(new Block(4, 64, -3, Blocks.OAK_FENCE_GATE.defaultBlockState().setValue(net.minecraft.world.level.block.FenceGateBlock.FACING, Direction.EAST)));
+    var openGate = List.of(new Block(4, 64, -3, Blocks.OAK_FENCE_GATE.defaultBlockState()
+        .setValue(net.minecraft.world.level.block.FenceGateBlock.FACING, Direction.EAST).setValue(net.minecraft.world.level.block.FenceGateBlock.OPEN, true)));
+    var channel = box(3, 61, -12, 5, 63, 12, water);
+    var pool = scene(box(-8, 55, -8, 8, 55, 8, stone), box(-8, 56, -8, 8, 62, 8, water), box(-1, 56, -1, 1, 62, 1, stone));
+    var start = new Vec3(.5, 64, .5);
+    var cases = new JsonArray();
+    // Walkers: around a wall, a wall with no way through, doors, fences and gates, water, steps and drops.
+    cases.add(search(level, "zombie_wall_gap", scene(floor, wall, gap), "minecraft:zombie", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_wall_closed", scene(floor, wall), "minecraft:zombie", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_door", scene(floor, wall, doorway), "minecraft:zombie", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "piglin_door", scene(floor, wall, doorway), "minecraft:piglin", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "piglin_iron_door", scene(floor, wall, ironway), "minecraft:piglin", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_open_door", scene(floor, wall, open), "minecraft:zombie", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "pig_fence", scene(floor, fence), "minecraft:pig", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "pig_fence_gate", scene(floor, fence, gate), "minecraft:pig", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "pig_open_gate", scene(floor, fence, openGate), "minecraft:pig", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_channel", scene(floor, channel), "minecraft:zombie", start, true, new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_into_water", scene(floor, channel), "minecraft:zombie", start, true, new BlockPos(4, 63, 2), 1, "walk", null, 1L));
+    cases.add(search(level, "zombie_steps", scene(floor, box(3, 64, -12, 12, 64, 12, stone), box(6, 65, -12, 12, 65, 12, stone)),
+        "minecraft:zombie", start, true, new BlockPos(9, 66, 0), 0, "walk", null, 1L));
+    cases.add(search(level, "zombie_drop", scene(floor, box(-3, 64, -3, 3, 66, 3, stone)), "minecraft:zombie", new Vec3(.5, 67, .5), true,
+        new BlockPos(8, 64, 0), 0, "walk", null, 1L));
+    // Across a chunk, section (8 chunks) and region line, at x 128 and z 0, and on negative coordinates.
+    cases.add(search(level, "zombie_section_line", scene(box(116, 63, -12, 140, 63, 12, stone), box(128, 64, -12, 128, 66, 12, stone), box(128, 64, -5, 128, 65, -5, air)),
+        "minecraft:zombie", new Vec3(124.5, 64, 3.5), true, new BlockPos(133, 64, 2), 0, "walk", null, 1L));
+    cases.add(search(level, "pig_negative", scene(box(-30, 63, -30, -10, 63, -10, stone), box(-17, 64, -30, -17, 65, -12, stone)),
+        "minecraft:pig", new Vec3(-20.5, 64, -20.5), true, new BlockPos(-13, 64, -20), 0, "walk", null, 1L));
+    // Swimmers: a fish around a pillar; a dolphin may breach the surface.
+    cases.add(search(level, "cod_pool", pool, "minecraft:cod", new Vec3(-4.5, 58, .5), false, new BlockPos(5, 59, 0), 0, "swim", null, 1L));
+    cases.add(search(level, "dolphin_breach", pool, "minecraft:dolphin", new Vec3(-4.5, 60, .5), false, new BlockPos(5, 63, 0), 0, "swim_breaching", null, 1L));
+    cases.add(search(level, "dolphin_surface", pool, "minecraft:dolphin", new Vec3(-4.5, 60, .5), false, new BlockPos(-2, 63, 0), 0, "swim_breaching", null, 1L));
+    // A flier over a wall; one starting in leaves draws its start from its random.
+    cases.add(search(level, "parrot_fence", scene(floor, fence), "minecraft:parrot", new Vec3(.5, 64, .5), true, new BlockPos(8, 64, 0), 0, "fly", null, 1L));
+    cases.add(search(level, "parrot_wall", scene(floor, wall), "minecraft:parrot", new Vec3(.5, 64, .5), true, new BlockPos(8, 64, 0), 0, "fly", null, 1L));
+    cases.add(search(level, "parrot_leaves", scene(floor, box(-1, 64, -1, 1, 66, 1, Blocks.OAK_LEAVES.defaultBlockState())),
+        "minecraft:parrot", new Vec3(.5, 64.4, .5), false, new BlockPos(6, 65, 3), 0, "fly", null, 99L));
+    // Amphibians: from land into the pool and out of it.
+    var shore = scene(box(-12, 62, -12, 12, 62, 12, stone), box(-12, 63, -12, -9, 63, 12, stone), box(-8, 63, -8, 8, 63, 8, water));
+    cases.add(search(level, "axolotl_into_water", scene(shore, box(-4, 58, -4, 4, 62, 4, water)), "minecraft:axolotl", new Vec3(-10.5, 64, .5), true,
+        new BlockPos(2, 60, 1), 0, "amphibious", null, 1L));
+    cases.add(search(level, "axolotl_to_pool", scene(shore, box(-4, 58, -4, 4, 62, 4, water)), "minecraft:axolotl", new Vec3(-10.5, 64, .5), true,
+        new BlockPos(-6, 63, 0), 0, "amphibious", null, 1L));
+    cases.add(search(level, "axolotl_out_of_water", scene(shore, box(-4, 58, -4, 4, 62, 4, water)), "minecraft:axolotl", new Vec3(.5, 59, .5), false,
+        new BlockPos(-10, 64, 3), 0, "amphibious", null, 1L));
+    cases.add(search(level, "shallow_swimmer", scene(shore, box(-4, 40, -4, 4, 62, 4, water)), "minecraft:axolotl", new Vec3(.5, 45, .5), false,
+        new BlockPos(3, 60, 3), 0, "amphibious_shallow", new net.minecraft.world.level.pathfinder.AmphibiousNodeEvaluator(true), 1L));
+    var out = new JsonObject(); out.addProperty("version", "26.3");
+    out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
+    return out;
+  }
+
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
     var lookup = VanillaRegistries.createWorldLookup();
@@ -712,6 +856,12 @@ public class MobAiOracle {
       System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire).");
       return;
     }
-    throw new IllegalArgumentException("usage: MobAiOracle facts|cases OUT.json");
+    if (args[0].equals("paths")) {
+      var out = paths(level);
+      Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla path searches (walk, swim, fly, amphibious).");
+      return;
+    }
+    throw new IllegalArgumentException("usage: MobAiOracle facts|cases|paths OUT.json");
   }
 }

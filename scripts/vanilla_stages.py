@@ -1091,6 +1091,11 @@ STAGES = [
         ('java', 'MobAiOracle', 'cases', '@mob-ai.json'),
         ('check', 'check_mob_ai.exs', '@mob-ai.json'),
     ]),
+    # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
+    ('paths', [
+        ('java', 'MobAiOracle', 'paths', '@paths.json'),
+        ('check', 'check_paths.exs', '@paths.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

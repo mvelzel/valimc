@@ -1,12 +1,13 @@
 # Vanilla mobs ticking with their own goals and brains (MobAiOracle cases)
 # against the owner's mob tick (VMC-041a): each scene's blocks as a supplied
 # view, the same players standing still, the same items lying, the same
-# hits between ticks, and the mobs' (and their brains' and the level's)
-# randoms seeded alike. Every tick, each mob's position, rotations (yaw,
-# head, body, pitch), random seed, running goals and target goals, target,
-# arms raised, path, hits on players and sounds must equal vanilla's; a
-# brain's running behaviours, activity, off hand, admire time, the level
-# random and items taken too.
+# hits between ticks, the mobs' (and their brains' and the level's) randoms
+# seeded alike, and vanilla's path search over the same view (VMC-041b).
+# Every tick, each mob's position, rotations (yaw, head, body, pitch),
+# random seed, running goals and target goals, target, arms raised, path,
+# hits on players and sounds must equal vanilla's; a brain's running
+# behaviours, activity, off hand, admire time, the level random and items
+# taken too.
 alias Valimc.AI
 alias Valimc.Entity.{Body, Combat, MobTicks}
 alias Valimc.Living.DamageSource
@@ -159,6 +160,11 @@ checked =
 
       world = %AI.World{
         read: &Map.get(scene, &1, air),
+        # Vanilla's search answers at once (VMC-041b), over the same view.
+        search: fn request ->
+          [result] = AI.Paths.find(kernel_view, [request])
+          result
+        end,
         players: players,
         items: items,
         random: AI.Random.new(7),
@@ -253,8 +259,8 @@ checked =
 
               path =
                 case mind.navigation.path do
-                  %{nodes: nodes, index: index} when index < length(nodes) ->
-                    {nx, ny, nz} = Enum.at(nodes, index)
+                  %{nodes: nodes, index: index} when index < tuple_size(nodes) ->
+                    {nx, ny, nz} = elem(nodes, index)
                     [nx, ny, nz, hex.(mind.navigation.speed)]
 
                   _ ->
