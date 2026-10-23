@@ -176,7 +176,7 @@ defmodule Valimc.World.BlockBodies do
     end
   end
 
-  defp facing(state), do: Map.take(Blocks.properties(state), ["facing"])
+  defp facing(state), do: state |> Blocks.properties() |> Map.new() |> Map.take(["facing"])
 
   # The level events of an anvil that lands (1031) or breaks (1029).
   defp landed(state), do: if(anvil?(state), do: [1031], else: [])
