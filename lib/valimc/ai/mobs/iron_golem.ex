@@ -171,29 +171,9 @@ defmodule Valimc.AI.Mobs.IronGolem do
   def tick_start(%Self{velocity: {vx, _, vz}} = self) do
     if vx * vx + vz * vz > @tiny do
       {n, self} = Self.int(self, 5)
-      if n == 0, do: sprint_particle(self), else: self
+      if n == 0, do: Self.sprint_particle(self), else: self
     else
       self
-    end
-  end
-
-  # `spawnSprintParticle`: over a block that renders, the particle's place
-  # draws twice (the server sends no particle).
-  defp sprint_particle(%Self{} = self) do
-    {x, y, z} = {floor(self.x), floor(self.y - 0.2), floor(self.z)}
-
-    case World.block(self.world, {x, y, z}) do
-      state when is_integer(state) ->
-        if Valimc.Data.BlockFacts.flag?(state, :invisible) do
-          self
-        else
-          {_, self} = Self.double(self)
-          {_, self} = Self.double(self)
-          self
-        end
-
-      nil ->
-        self
     end
   end
 

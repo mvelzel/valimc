@@ -100,6 +100,22 @@
         "minecraft:dandelion",
         "minecraft:golden_carrot"
       ]
+    },
+    "minecraft:cat": {
+      "adult": [
+        1058642330,
+        1060320051,
+        1051931443
+      ],
+      "baby": [
+        1050253722,
+        1051931443,
+        1051721728
+      ],
+      "food": [
+        "minecraft:cod",
+        "minecraft:salmon"
+      ]
     }
   },
   "monsters": [
@@ -329,6 +345,114 @@
           }
         ]
       }
+    ],
+    "minecraft:cat_variant": [
+      {
+        "name": "minecraft:all_black",
+        "selectors": [
+          {
+            "priority": 1,
+            "structures": "minecraft:cats_spawn_as_black"
+          },
+          {
+            "priority": 0,
+            "moon": [
+              0.9,
+              null
+            ]
+          }
+        ]
+      },
+      {
+        "name": "minecraft:black",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:british_shorthair",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:calico",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:jellie",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:persian",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:ragdoll",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:red",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:siamese",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:tabby",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:white",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      }
     ]
   },
   "sound_variants": {
@@ -425,9 +549,68 @@
           "step": "minecraft:entity.baby_chicken.step"
         }
       }
+    },
+    "minecraft:cat_sound_variant": {
+      "minecraft:classic": {
+        "adult": {
+          "ambient": "minecraft:entity.cat.ambient",
+          "stray_ambient": "minecraft:entity.cat.stray_ambient",
+          "hiss": "minecraft:entity.cat.hiss",
+          "hurt": "minecraft:entity.cat.hurt",
+          "death": "minecraft:entity.cat.death",
+          "eat": "minecraft:entity.cat.eat",
+          "beg_for_food": "minecraft:entity.cat.beg_for_food",
+          "purr": "minecraft:entity.cat.purr",
+          "purreow": "minecraft:entity.cat.purreow"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_cat.ambient",
+          "stray_ambient": "minecraft:entity.baby_cat.stray_ambient",
+          "hiss": "minecraft:entity.baby_cat.hiss",
+          "hurt": "minecraft:entity.baby_cat.hurt",
+          "death": "minecraft:entity.baby_cat.death",
+          "eat": "minecraft:entity.baby_cat.eat",
+          "beg_for_food": "minecraft:entity.baby_cat.beg_for_food",
+          "purr": "minecraft:entity.baby_cat.purr",
+          "purreow": "minecraft:entity.baby_cat.purreow"
+        }
+      },
+      "minecraft:royal": {
+        "adult": {
+          "ambient": "minecraft:entity.cat_royal.ambient",
+          "stray_ambient": "minecraft:entity.cat_royal.stray_ambient",
+          "hiss": "minecraft:entity.cat_royal.hiss",
+          "hurt": "minecraft:entity.cat_royal.hurt",
+          "death": "minecraft:entity.cat_royal.death",
+          "eat": "minecraft:entity.cat_royal.eat",
+          "beg_for_food": "minecraft:entity.cat_royal.beg_for_food",
+          "purr": "minecraft:entity.cat_royal.purr",
+          "purreow": "minecraft:entity.cat_royal.purreow"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_cat.ambient",
+          "stray_ambient": "minecraft:entity.baby_cat.stray_ambient",
+          "hiss": "minecraft:entity.baby_cat.hiss",
+          "hurt": "minecraft:entity.baby_cat.hurt",
+          "death": "minecraft:entity.baby_cat.death",
+          "eat": "minecraft:entity.baby_cat.eat",
+          "beg_for_food": "minecraft:entity.baby_cat.beg_for_food",
+          "purr": "minecraft:entity.baby_cat.purr",
+          "purreow": "minecraft:entity.baby_cat.purreow"
+        }
+      }
     }
   },
   "sounds": {
+    "minecraft:entity.baby_cat.ambient": 279,
+    "minecraft:entity.baby_cat.beg_for_food": 284,
+    "minecraft:entity.baby_cat.death": 281,
+    "minecraft:entity.baby_cat.eat": 282,
+    "minecraft:entity.baby_cat.hiss": 283,
+    "minecraft:entity.baby_cat.hurt": 285,
+    "minecraft:entity.baby_cat.purr": 286,
+    "minecraft:entity.baby_cat.purreow": 287,
+    "minecraft:entity.baby_cat.stray_ambient": 280,
     "minecraft:entity.baby_chicken.ambient": 350,
     "minecraft:entity.baby_chicken.death": 351,
     "minecraft:entity.baby_chicken.hurt": 353,
@@ -437,6 +620,24 @@
     "minecraft:entity.baby_pig.eat": 1269,
     "minecraft:entity.baby_pig.hurt": 1270,
     "minecraft:entity.baby_pig.step": 1267,
+    "minecraft:entity.cat.ambient": 288,
+    "minecraft:entity.cat.beg_for_food": 294,
+    "minecraft:entity.cat.death": 292,
+    "minecraft:entity.cat.eat": 293,
+    "minecraft:entity.cat.hiss": 290,
+    "minecraft:entity.cat.hurt": 291,
+    "minecraft:entity.cat.purr": 295,
+    "minecraft:entity.cat.purreow": 296,
+    "minecraft:entity.cat.stray_ambient": 289,
+    "minecraft:entity.cat_royal.ambient": 297,
+    "minecraft:entity.cat_royal.beg_for_food": 303,
+    "minecraft:entity.cat_royal.death": 301,
+    "minecraft:entity.cat_royal.eat": 302,
+    "minecraft:entity.cat_royal.hiss": 299,
+    "minecraft:entity.cat_royal.hurt": 300,
+    "minecraft:entity.cat_royal.purr": 304,
+    "minecraft:entity.cat_royal.purreow": 305,
+    "minecraft:entity.cat_royal.stray_ambient": 298,
     "minecraft:entity.chicken.ambient": 356,
     "minecraft:entity.chicken.death": 358,
     "minecraft:entity.chicken.egg": 352,

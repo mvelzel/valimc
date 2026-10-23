@@ -1382,6 +1382,7 @@ defmodule Valimc.World.Region do
           players: players,
           spawning: state.spawning,
           environment: Spawning.environment(state.dimension),
+          dimension: state.dimension,
           game_time: tick
         }
 

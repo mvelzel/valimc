@@ -117,7 +117,8 @@ defmodule Valimc.Entity.Animal do
     "minecraft:pig" => Valimc.Entity.Animals.Pig,
     "minecraft:sheep" => Valimc.Entity.Animals.Sheep,
     "minecraft:chicken" => Valimc.Entity.Animals.Chicken,
-    "minecraft:rabbit" => Valimc.Entity.Animals.Rabbit
+    "minecraft:rabbit" => Valimc.Entity.Animals.Rabbit,
+    "minecraft:cat" => Valimc.Entity.Animals.Cat
   }
 
   @doc "The module of animal type `type`, or nil."
@@ -176,24 +177,36 @@ defmodule Valimc.Entity.Animal do
   def dimensions(%{type: type, data: %{age: age}}) when age < 0, do: @animals[type].baby
   def dimensions(_body), do: nil
 
+  structure_tags =
+    Valimc.Data.Facts.read!("loot/registries.json")["tags"]["minecraft:worldgen/structure"]
+
+  # A selector's spawn condition: none, a biome tag, a structure tag (a
+  # cat's swamp hut) or the moon's brightness (`{min, max}`, either nil).
+  condition = fn
+    %{"biomes" => tag} -> tag && {:biomes, tag}
+    %{"structures" => tag} -> {:structures, MapSet.new(structure_tags[tag])}
+    %{"moon" => [min, max]} -> {:moon, min, max}
+  end
+
   @variants Map.new(@facts["variants"], fn {registry, list} ->
               {registry,
                for v <- list do
-                 {v["name"], for(s <- v["selectors"], do: {s["priority"], s["biomes"]})}
+                 {v["name"], for(s <- v["selectors"], do: {s["priority"], condition.(s)})}
                end}
             end)
 
   @doc """
-  `VariantUtils.selectVariantToSpawn` of variant `registry` in the biome of
-  id `biome` (`biome?.(tag)` tells whether it is in a biome tag): the
-  variants matching at the highest priority, one picked with `int` (a
-  `nextInt(bound)` draw, `Util.getRandomSafe`). `{name, state}`.
+  `VariantUtils.selectVariantToSpawn` of variant `registry` where
+  `holds?.(condition)` tells whether a spawn condition holds (`{:biomes,
+  tag}`, `{:structures, tag}`, `{:moon, min, max}`): the variants matching
+  at the highest priority, one picked with `int` (a `nextInt(bound)` draw,
+  `Util.getRandomSafe`). `{name, state}`.
   """
-  def spawn_variant(registry, biome?, int, state) do
+  def spawn_variant(registry, holds?, int, state) do
     matching =
       for {name, selectors} <- @variants[registry],
-          {priority, tag} <- selectors,
-          tag == nil or biome?.(tag),
+          {priority, condition} <- selectors,
+          condition == nil or holds?.(condition),
           do: {priority, name}
 
     top = matching |> Enum.map(&elem(&1, 0)) |> Enum.max()
@@ -346,7 +359,19 @@ defmodule Valimc.Entity.Animal do
   """
   def pick_variant(%Self{} = self, registry) do
     biome = biome(self)
-    spawn_variant(registry, &biome_in?(biome, &1), &Valimc.AI.Spawn.level_int/2, self)
+    spawn_variant(registry, &holds?(self, biome, &1), &Valimc.AI.Spawn.level_int/2, self)
+  end
+
+  # `BiomeCheck`, `StructureCheck` (a structure piece of the tag at the mob)
+  # and `MoonBrightnessCheck` (the moon phase of the world's day).
+  defp holds?(_self, biome, {:biomes, tag}), do: biome_in?(biome, tag)
+
+  defp holds?(%Self{} = self, _biome, {:structures, names}),
+    do: Valimc.AI.World.in_structure?(self.world, Self.block(self), names)
+
+  defp holds?(%Self{world: world}, _biome, {:moon, min, max}) do
+    moon = Valimc.Living.LocalDifficulty.moon_brightness(world.day || 0)
+    (min == nil or moon >= min) and (max == nil or moon <= max)
   end
 
   @doc "`Registry.getRandom` of `registry`'s entries in network order, from the level's random."

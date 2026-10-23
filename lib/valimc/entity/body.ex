@@ -465,6 +465,9 @@ defmodule Valimc.Entity.Body do
   defp shared_flags(%__MODULE__{mob: nil, data: %{fire: _}} = body),
     do: if(Projectile.burning?(body), do: 1, else: 0)
 
+  # A sprinting mob's flag (bit 3, `setSprinting`: a cat, VMC-044a3).
+  defp shared_flags(%__MODULE__{mob: %Mob{}, data: %{sprinting: true}}), do: 8
+
   defp shared_flags(_body), do: 0
 
   defp air(%__MODULE__{mob: %Mob{living: living}}), do: living.air_supply
@@ -476,6 +479,7 @@ defmodule Valimc.Entity.Body do
   defp pose(%__MODULE__{mob: %Mob{living: %{health: %{value: value}}}}) when value <= 0,
     do: :dying
 
+  defp pose(%__MODULE__{data: %{crouching: true}}), do: :crouching
   defp pose(body), do: if(sleeping(body), do: :sleeping, else: :standing)
 
   # The bed a mob sleeps in (`LivingEntity.getSleepingPos`, a villager's, VMC-044a1).

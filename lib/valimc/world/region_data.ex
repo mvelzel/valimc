@@ -2143,6 +2143,7 @@ defmodule Valimc.World.RegionData do
         Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
       events: state.mob_events,
       dimension: state.dimension,
+      structures: state.structures,
       stand_up: fn _type, head, facing, yaw ->
         Valimc.World.StandUp.bed(view, head, facing, yaw)
       end

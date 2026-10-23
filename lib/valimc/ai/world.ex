@@ -31,6 +31,7 @@ defmodule Valimc.AI.World do
   `%{kind: :mob, uuid, id, type, x, y, z, eye, width, height, alive, mind}`
   with the parts of its mind others read.
   """
+  import Bitwise
   alias Valimc.AI.{Facts, Self}
   alias Valimc.Data.BlockFacts
   alias Valimc.Physics.Clip
@@ -88,7 +89,10 @@ defmodule Valimc.AI.World do
             pois: %{},
             villages: nil,
             stand_up: nil,
-            sky: nil
+            sky: nil,
+            # The kept starts of structures that override spawns, by chunk
+            # (`RegionData` `structures`): a cat's swamp hut (VMC-044a3).
+            structures: %{}
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,
@@ -109,6 +113,23 @@ defmodule Valimc.AI.World do
   def loot_seed(%__MODULE__{} = world) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
     {if(seed == 0, do: 1, else: seed), world}
+  end
+
+  @doc """
+  `getStructureWithPieceAt(pos, structures).isValid()` over the kept
+  starts: a piece of a start of one of `structures` (a set of names) holds
+  `position`.
+  """
+  def in_structure?(%__MODULE__{structures: structures}, {x, _, z} = position, names) do
+    inside = fn [x0, y0, z0, x1, y1, z1], {px, py, pz} ->
+      px in x0..x1 and py in y0..y1 and pz in z0..z1
+    end
+
+    structures
+    |> Map.get({x >>> 4, z >>> 4}, [])
+    |> Enum.any?(fn {name, _box, pieces} ->
+      MapSet.member?(names, name) and Enum.any?(pieces, &inside.(&1, position))
+    end)
   end
 
   @doc "The state at `position` (nil where it cannot be read)."

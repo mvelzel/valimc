@@ -120,11 +120,27 @@ our_data = fn body ->
 
   own =
     case body.type do
-      "minecraft:sheep" -> %{"color" => data.color, "sheared" => data.sheared}
-      "minecraft:rabbit" -> %{"type" => data.type, "jumping" => body.mob.motion.hop.jumping}
-      "minecraft:mooshroom" -> %{"type" => data.type}
-      "minecraft:chicken" -> %{"egg_time" => data.egg_time, "variant" => data.variant}
-      _ -> %{"variant" => data.variant}
+      "minecraft:sheep" ->
+        %{"color" => data.color, "sheared" => data.sheared}
+
+      "minecraft:rabbit" ->
+        %{"type" => data.type, "jumping" => body.mob.motion.hop.jumping}
+
+      "minecraft:mooshroom" ->
+        %{"type" => data.type}
+
+      "minecraft:chicken" ->
+        %{"egg_time" => data.egg_time, "variant" => data.variant}
+
+      # VMC-044a3: a cat's variant, collar, lying, tamable flags and moves.
+      "minecraft:cat" ->
+        Map.new(
+          ~w(variant collar lying tame sitting crouching sprinting),
+          &{&1, Map.fetch!(data, String.to_atom(&1))}
+        )
+
+      _ ->
+        %{"variant" => data.variant}
     end
 
   Map.merge(base, own)
@@ -188,9 +204,17 @@ checked =
           List.replace_at(entries, l["mob"], {id, e})
         end)
 
+      # A scene ends with the tick a mob held still dies (VMC-044a3: a cat's
+      # rabbit): the owner lands a kill after the tick, vanilla within the
+      # attacker's.
+      death =
+        Enum.find_index(c["ticks"], fn row -> Enum.any?(row["mobs"], &(&1["health"] <= 0)) end)
+
+      ticks = if death, do: Enum.take(c["ticks"], death + 1), else: c["ticks"]
+
       {_, _, _, count} =
         Enum.reduce(
-          Enum.with_index(c["ticks"]),
+          Enum.with_index(ticks),
           {entries, {scene0, {:states, packed.(scene0)}}, AI.Random.new(7), count},
           fn {row, tick}, {entries, {scene, kernel_view}, level, count} ->
             # Players as the oracle moved them this tick.
@@ -264,6 +288,30 @@ checked =
                 {x, y, z} = step.position
                 {id, %{e | body: step.body, entity: %{e.entity | x: x, y: y, z: z}}}
               end)
+
+            # Melee hits on mobs (a cat's on a rabbit) through the one hurt
+            # path, as the owner lands them after the tick.
+            entries =
+              for step <- steps, {:attack, {:mob, target}} <- step.effects, reduce: entries do
+                entries ->
+                  i = Enum.find_index(entries, fn {_, e} -> e.entity.uuid == target end)
+                  {tid, te} = Enum.at(entries, i)
+
+                  store = %{
+                    entries:
+                      Map.new(entries, fn {id, e} ->
+                        {id,
+                         %{Map.put(e, :kind, :mob) | entity: Map.put(e.entity, :entity_id, id)}}
+                      end)
+                  }
+
+                  {:ok, hit} = Valimc.Entity.Combat.mob_hit(store, step.id, te.body.type)
+
+                  case Valimc.Entity.Combat.hurt_body(te.body, te.entity, hit) do
+                    :ignored -> entries
+                    {body, _, _} -> List.replace_at(entries, i, {tid, %{te | body: body}})
+                  end
+              end
 
             checks =
               Enum.zip_with([entries, steps, row["mobs"]], fn [{id, e}, step, expected] ->
@@ -359,7 +407,20 @@ checked =
                        Map.merge(want, %{leash: theirs, link: link})}
                   end
 
-                differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
+                health = body.mob.living.health.value
+
+                # The death tick: the kill is what it checks.
+                differ =
+                  cond do
+                    tick == death and body.mob.no_ai and health != expected["health"] ->
+                      [{:health, expected["health"], health}]
+
+                    tick == death ->
+                      []
+
+                    true ->
+                      for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
+                  end
 
                 unless differ == [] do
                   raise "#{c["name"]} tick #{tick} mob #{id}: " <>

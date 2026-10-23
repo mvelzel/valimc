@@ -71,7 +71,9 @@ public class MobAiOracle {
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems (cases in VillageOracle).
-      "minecraft:villager", "minecraft:iron_golem");
+      "minecraft:villager", "minecraft:iron_golem",
+      // VMC-044a3: cats (cases in AnimalOracle).
+      "minecraft:cat");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -222,7 +224,18 @@ public class MobAiOracle {
     }
   }
 
+  // A level without structures (a cat's variant asks for a swamp hut, VMC-044a3).
+  static class NoStructures extends net.minecraft.world.level.StructureManager {
+    NoStructures() { super(null, null, null); }
+    public net.minecraft.world.level.levelgen.structure.StructureStart getStructureWithPieceAt(BlockPos p,
+        net.minecraft.core.HolderSet<net.minecraft.world.level.levelgen.structure.Structure> s) {
+      return net.minecraft.world.level.levelgen.structure.StructureStart.INVALID_START;
+    }
+  }
+
   static class Probe extends ServerLevel {
+    NoStructures structures;
+    public net.minecraft.world.level.StructureManager structureManager() { return structures; }
     net.minecraft.world.attribute.EnvironmentAttributeSystem env;
     public net.minecraft.world.attribute.EnvironmentAttributeSystem environmentAttributes() { return env; }
     Server server;
@@ -563,6 +576,7 @@ public class MobAiOracle {
     level.rules = new GameRules(FeatureFlagSet.of());
     level.border = new WorldBorder();
     level.env = net.minecraft.world.attribute.EnvironmentAttributeSystem.builder().build();
+    level.structures = (NoStructures)unsafe.allocateInstance(NoStructures.class);
     level.server = (Server)unsafe.allocateInstance(Server.class);
     level.server.subscribers = new net.minecraft.util.debug.ServerDebugSubscribers(level.server);
     level.server.registries = new net.minecraft.server.ReloadableServerRegistries.Holder(lookup);
@@ -1343,7 +1357,8 @@ public class MobAiOracle {
     var damage = registry(Registries.DAMAGE_TYPE, lookup);
     registries.add(damage);
     for (var key : List.of(Registries.ENCHANTMENT, Registries.PIG_VARIANT, Registries.PIG_SOUND_VARIANT, Registries.COW_VARIANT,
-        Registries.COW_SOUND_VARIANT, Registries.CHICKEN_VARIANT, Registries.CHICKEN_SOUND_VARIANT))
+        Registries.COW_SOUND_VARIANT, Registries.CHICKEN_VARIANT, Registries.CHICKEN_SOUND_VARIANT, Registries.CAT_VARIANT,
+        Registries.CAT_SOUND_VARIANT))
       registries.add(registry((ResourceKey)key, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> registries.add(r));
     HolderLookup.Provider loot;

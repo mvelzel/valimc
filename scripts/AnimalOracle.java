@@ -35,7 +35,7 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AnimalOracle {
   static final List<String> ANIMALS = List.of("minecraft:cow", "minecraft:mooshroom", "minecraft:pig", "minecraft:sheep",
-      "minecraft:chicken", "minecraft:rabbit");
+      "minecraft:chicken", "minecraft:rabbit", "minecraft:cat");
   // Sounds the animals play beyond their sound variants' and AI facts' own.
   static final List<String> SOUNDS = List.of("minecraft:entity.cow.milk", "minecraft:entity.mooshroom.milk",
       "minecraft:entity.mooshroom.suspicious_milk", "minecraft:entity.mooshroom.shear", "minecraft:entity.mooshroom.eat",
@@ -47,7 +47,7 @@ public class AnimalOracle {
       "minecraft:item.lead.tied", "minecraft:item.lead.untied", "minecraft:item.lead.break", "minecraft:item.shears.snip",
       "minecraft:item.golden_dandelion.use", "minecraft:item.golden_dandelion.unuse");
   static final List<ResourceKey<? extends Registry<?>>> VARIANTS = List.of(Registries.COW_VARIANT, Registries.PIG_VARIANT,
-      Registries.CHICKEN_VARIANT);
+      Registries.CHICKEN_VARIANT, Registries.CAT_VARIANT);
 
   static String bits(float f) { return Integer.toString(Float.floatToRawIntBits(f)); }
 
@@ -120,6 +120,15 @@ public class AnimalOracle {
           if (s.condition().isEmpty()) so.add("biomes", JsonNull.INSTANCE);
           else if (s.condition().get() instanceof net.minecraft.world.entity.variant.BiomeCheck check)
             so.addProperty("biomes", check.requiredBiomes().unwrapKey().orElseThrow().location().toString());
+          // A cat's (VMC-044a3): inside a structure of a tag, or by the moon's brightness.
+          else if (s.condition().get() instanceof net.minecraft.world.entity.variant.StructureCheck check)
+            so.addProperty("structures", check.requiredStructures().unwrapKey().orElseThrow().location().toString());
+          else if (s.condition().get() instanceof net.minecraft.world.entity.variant.MoonBrightnessCheck check) {
+            var range = new JsonArray();
+            range.add(check.range().min().map(v -> (com.google.gson.JsonElement)new com.google.gson.JsonPrimitive(v)).orElse(JsonNull.INSTANCE));
+            range.add(check.range().max().map(v -> (com.google.gson.JsonElement)new com.google.gson.JsonPrimitive(v)).orElse(JsonNull.INSTANCE));
+            so.add("moon", range);
+          }
           else throw new IllegalStateException("unexpected spawn condition " + s.condition().get());
           selectors.add(so);
         }
@@ -166,6 +175,23 @@ public class AnimalOracle {
       }
     });
     soundVariants.add("minecraft:chicken_sound_variant", chickens);
+    // A cat's sound sets (VMC-044a3), adult and baby.
+    var cats = new JsonObject();
+    lookup.lookupOrThrow(Registries.CAT_SOUND_VARIANT).listElements()
+        .sorted(Comparator.comparing(h -> h.key().identifier().toString())).forEach(h -> {
+      var v = h.value(); var entry = new JsonObject();
+      for (var set : List.of(Map.entry("adult", v.adultSounds()), Map.entry("baby", v.babySounds()))) {
+        var c = set.getValue(); var o = new JsonObject();
+        o.addProperty("ambient", sound(c.ambientSound(), used)); o.addProperty("stray_ambient", sound(c.strayAmbientSound(), used));
+        o.addProperty("hiss", sound(c.hissSound(), used)); o.addProperty("hurt", sound(c.hurtSound(), used));
+        o.addProperty("death", sound(c.deathSound(), used)); o.addProperty("eat", sound(c.eatSound(), used));
+        o.addProperty("beg_for_food", sound(c.begForFoodSound(), used)); o.addProperty("purr", sound(c.purrSound(), used));
+        o.addProperty("purreow", sound(c.purreowSound(), used));
+        entry.add(set.getKey(), o);
+      }
+      cats.add(h.key().identifier().toString(), entry);
+    });
+    soundVariants.add("minecraft:cat_sound_variant", cats);
     out.add("sound_variants", soundVariants);
     var sounds = new JsonObject();
     for (var n : used) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
@@ -275,6 +301,14 @@ public class AnimalOracle {
     }
     if (m instanceof net.minecraft.world.entity.animal.cow.MushroomCow c) o.addProperty("type", c.getVariant().getSerializedName());
     if (m instanceof net.minecraft.world.entity.animal.chicken.Chicken c) o.addProperty("egg_time", c.eggTime);
+    // A cat (VMC-044a3): its variant, collar, lying and relaxing, its
+    // tamable flags, crouching and sprinting.
+    if (m instanceof net.minecraft.world.entity.animal.feline.Cat c) {
+      o.addProperty("variant", c.getVariant().unwrapKey().orElseThrow().identifier().toString());
+      o.addProperty("collar", c.getCollarColor().getId()); o.addProperty("lying", c.isLying());
+      o.addProperty("tame", c.isTame()); o.addProperty("sitting", c.isInSittingPose());
+      o.addProperty("crouching", c.getPose() == net.minecraft.world.entity.Pose.CROUCHING); o.addProperty("sprinting", c.isSprinting());
+    }
     for (var name : List.of("variant")) {
       if (m instanceof net.minecraft.world.entity.animal.cow.Cow c) o.addProperty(name, c.getVariant().unwrapKey().orElseThrow().identifier().toString());
       if (m instanceof net.minecraft.world.entity.animal.pig.Pig c) o.addProperty(name, c.getVariant().unwrapKey().orElseThrow().identifier().toString());
@@ -391,7 +425,7 @@ public class AnimalOracle {
         r.addProperty("head", Float.floatToRawIntBits(m.getYHeadRot()));
         r.addProperty("body", Float.floatToRawIntBits(m.yBodyRot));
         r.addProperty("pitch", Float.floatToRawIntBits(m.getXRot()));
-        r.addProperty("seed", seedOf(seedField, m));
+        r.addProperty("seed", seedOf(seedField, m)); r.addProperty("health", m.getHealth());
         r.addProperty("goals", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)goalSelector.get(m)));
         if (!leads.isEmpty()) r.add("leash", leash(m, disabled));
         r.add("data", data(m));
@@ -490,6 +524,17 @@ public class AnimalOracle {
         List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, 2.5), "survival", null)), List.of(), 300));
     cases.add(run(level, "rabbit_tempt", meadow, List.of(new Beast("minecraft:rabbit", new Vec3(.5, 64, .5), 0, 12L)),
         List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, -3.5), "survival", "minecraft:carrot")), List.of(), 300));
+    // A stray cat (VMC-044a3) wanders past a creative player; one creeps
+    // away from a survival player, crouching and then sprinting; one creeps
+    // toward a player holding cod.
+    cases.add(run(level, "cat_wander", meadow, List.of(new Beast("minecraft:cat", new Vec3(.5, 64, .5), 0, 40L)), creative, List.of(), 600));
+    cases.add(run(level, "cat_avoid", meadow, List.of(new Beast("minecraft:cat", new Vec3(.5, 64, .5), 0, 41L)),
+        List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, 2.5), "survival", null)), List.of(), 300));
+    // A cat hunts a still rabbit: it leaps at it and strikes it dead.
+    cases.add(run(level, "cat_hunt", meadow, List.of(new Beast("minecraft:cat", new Vec3(.5, 64, .5), 0, 43L),
+        new Beast("minecraft:rabbit", new Vec3(4.5, 64, 2.5), 0, 44L, 0, Map.of("no_ai", true))), creative, List.of(), 400));
+    cases.add(run(level, "cat_tempt", meadow, List.of(new Beast("minecraft:cat", new Vec3(.5, 64, .5), 0, 42L)),
+        List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, -3.5), "survival", "minecraft:cod")), List.of(), 400));
     // A cow in love walks to a still partner in love and they breed: a calf
     // and an orb where it stood; love and age as breeding leaves them.
     cases.add(run(level, "cow_breed", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 13L),
@@ -623,9 +668,10 @@ public class AnimalOracle {
 
   static String soundVariant(Mob m) throws Exception {
     if (!(m instanceof net.minecraft.world.entity.animal.cow.Cow || m instanceof net.minecraft.world.entity.animal.pig.Pig
-        || m instanceof net.minecraft.world.entity.animal.chicken.Chicken)) return null;
+        || m instanceof net.minecraft.world.entity.animal.chicken.Chicken || m instanceof net.minecraft.world.entity.animal.feline.Cat)) return null;
     var c = m instanceof net.minecraft.world.entity.animal.cow.Cow ? net.minecraft.world.entity.animal.cow.Cow.class
         : m instanceof net.minecraft.world.entity.animal.pig.Pig ? net.minecraft.world.entity.animal.pig.Pig.class
+        : m instanceof net.minecraft.world.entity.animal.feline.Cat ? net.minecraft.world.entity.animal.feline.Cat.class
         : net.minecraft.world.entity.animal.chicken.Chicken.class;
     var get = c.getDeclaredMethod("getSoundVariant"); get.setAccessible(true);
     return ((Holder<?>)get.invoke(m)).unwrapKey().orElseThrow().identifier().toString();
@@ -697,7 +743,8 @@ public class AnimalOracle {
     var damage = MobAiOracle.registry(Registries.DAMAGE_TYPE, lookup);
     registries.add(damage);
     for (var key : List.of(Registries.ENCHANTMENT, Registries.PIG_VARIANT, Registries.PIG_SOUND_VARIANT, Registries.COW_VARIANT,
-        Registries.COW_SOUND_VARIANT, Registries.CHICKEN_VARIANT, Registries.CHICKEN_SOUND_VARIANT))
+        Registries.COW_SOUND_VARIANT, Registries.CHICKEN_VARIANT, Registries.CHICKEN_SOUND_VARIANT, Registries.CAT_VARIANT,
+        Registries.CAT_SOUND_VARIANT))
       registries.add(MobAiOracle.registry((ResourceKey)key, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> registries.add(r));
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,

@@ -2956,6 +2956,141 @@
           []
         ]
       ]
+    },
+    "minecraft:cat": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.cat.stray_ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "TamableAnimalPanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "SitWhenOrderedToGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          3,
+          "CatRelaxOnOwnerGoal",
+          []
+        ],
+        [
+          4,
+          "CatTemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "CatLieOnBlockGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          6,
+          "FollowOwnerGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "CatSitOnBlockGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          8,
+          "LeapAtTargetGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          9,
+          "OcelotAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          10,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          11,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          12,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          4,
+          "CatAvoidEntityGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NonTameRandomTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          1,
+          "NonTameRandomTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
     }
   },
   "shulker_look": [
@@ -3082,7 +3217,8 @@
     "minecraft:entity.sheep.ambient": 1442,
     "minecraft:entity.chicken.ambient": 356,
     "minecraft:entity.rabbit.ambient": 1353,
-    "minecraft:entity.villager.ambient": 1699
+    "minecraft:entity.villager.ambient": 1699,
+    "minecraft:entity.cat.stray_ambient": 289
   },
   "swing_fields": "000106"
 }

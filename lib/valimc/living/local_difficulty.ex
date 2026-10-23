@@ -27,11 +27,17 @@ defmodule Valimc.Living.LocalDifficulty do
   end
 
   @doc """
+  The moon's brightness on the day of `ticks` of the overworld clock
+  (`MOON_BRIGHTNESS_PER_PHASE` of its phase).
+  """
+  def moon_brightness(ticks), do: elem(@moon, rem(div(max(ticks, 0), 24_000), 8))
+
+  @doc """
   `ServerLevel.getCurrentDifficultyAt`: at overworld clock `ticks`, whose
   moon phase changes daily, and `inhabited` ticks (0 until chunks keep it).
   """
   def at(difficulty, ticks, inhabited \\ 0),
-    do: new(difficulty, ticks, inhabited, elem(@moon, rem(div(max(ticks, 0), 24_000), 8)))
+    do: new(difficulty, ticks, inhabited, moon_brightness(ticks))
 
   defp effective(:peaceful, _total, _inhabited, _moon), do: 0.0
 

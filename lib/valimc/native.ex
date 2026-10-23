@@ -276,6 +276,9 @@ defmodule Valimc.Native do
   def spawn_facts_install(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def natural_spawn(_region, _siblings, _absent, _request), do: :erlang.nif_error(:nif_not_loaded)
 
+  def spawn_position_ok(_region, _siblings, _absent, _environment, _kind, _pos, _reach),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def natural_spawn_dirty(_region, _siblings, _absent, _request),
     do: :erlang.nif_error(:nif_not_loaded)
 

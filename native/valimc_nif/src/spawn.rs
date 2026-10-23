@@ -383,6 +383,43 @@ fn natural_spawn_dirty(
     crate::reply(natural(&region, &siblings, absent, request))
 }
 
+/// A custom spawner's checks (VMC-044a3: a village's cat; VMC-044a4: a
+/// wandering trader): whether every chunk within `reach` blocks of `pos` is
+/// loaded (`hasChunksAt`) and `SpawnPlacements.isSpawnPositionOk` of a mob
+/// of type `kind` there, with the height it checked: `pos`'s, or the top of
+/// the type's spawn heightmap where its y is nil (`getHeight`).
+#[rustler::nif]
+fn spawn_position_ok(
+    region: ResourceArc<Region>,
+    siblings: Vec<ResourceArc<Region>>,
+    absent: Vec<(i32, i32)>,
+    environment: Environment,
+    kind: u16,
+    pos: (i32, Option<i32>, i32),
+    reach: i32,
+) -> NifResult<(rustler::Atom, (bool, bool, i32))> {
+    crate::reply((|| {
+        let guards = lock(&region, &siblings)?;
+        let stores: Vec<&ColumnStore> = guards.iter().map(|g| &**g).collect();
+        let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
+        let flags = crate::facts::FLAGS
+            .get()
+            .ok_or("block facts not installed")?;
+        let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+        let live = Live::new(&stores, &absent, flags, environment.zoom_seed, facts.plains);
+        let (x, y, z) = pos;
+        let loaded = ((x - reach) >> 4..=(x + reach) >> 4)
+            .all(|cx| ((z - reach) >> 4..=(z + reach) >> 4).all(|cz| live.holds((cx, cz))));
+        if !loaded {
+            return Ok((false, false, y.unwrap_or(0)));
+        }
+        let world = world(&live, &environment, Vec::new(), Vec::new())?;
+        let kind = facts.kind(kind).ok_or("no spawn facts for the type")?;
+        let y = y.unwrap_or_else(|| world.level.height(kind.heightmap, x, z));
+        Ok((true, world.position_ok(kind, [x, y, z]), y))
+    })())
+}
+
 /// The creatures generated chunks get (`spawnMobsForChunkGeneration`, each
 /// chunk's random decoration-seeded from the world seed): per chunk its
 /// spawns. Chunk generation reads a level with no entities and no sky

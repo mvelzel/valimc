@@ -75,8 +75,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-043b1](tickets/VMC-043b1.md), [043b3](tickets/VMC-043b3.md), [043b4](tickets/VMC-043b4.md), [043b5](tickets/VMC-043b5.md) | Endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
 | [VMC-043c](tickets/VMC-043c.md) | Cows breed, sheep shear, dye and regrow, milk and stew, eggs, rabbits hop; a lead follows, pulls, ties to a fence knot and breaks |
-| [VMC-044a1](tickets/VMC-044a1.md) | A village's villagers take job sites' trades, work and meet at the bell by day, sleep in beds at night and flee zombies |
-| [VMC-044a2](tickets/VMC-044a2.md) | An iron golem kills a zombie hunting a villager, throws its attackers up, cracks when hurt and offers villagers poppies |
+| [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md) | Villagers take job sites' trades, meet at the bell, sleep in beds and flee zombies; a golem kills a zombie hunting one; cats shy from players, creep up to fish, pounce on rabbits |
 
 ## Retrieve and update
 

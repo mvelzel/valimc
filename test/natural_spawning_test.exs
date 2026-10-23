@@ -4,7 +4,8 @@ defmodule Valimc.NaturalSpawningTest do
   two players in one group and for players in separate groups; mobs despawn
   at vanilla's distances and in peaceful; a name tag makes a mob persistent.
   A spawner block spawns near a player, a swamp hut's piece its witches
-  (VMC-042b).
+  (VMC-042b). A village's cat spawner brings a cat near five claimed homes,
+  not four (VMC-044a3).
   The oracle stage `natural_spawning` holds the rules' fixtures.
   """
   use ExUnit.Case, async: true
@@ -91,6 +92,7 @@ defmodule Valimc.NaturalSpawningTest do
       players: players,
       spawning: spawning,
       environment: env,
+      dimension: :overworld,
       game_time: tick
     }
   end
@@ -307,6 +309,34 @@ defmodule Valimc.NaturalSpawningTest do
           do: type
 
     assert inside != [] and Enum.all?(inside, &(&1 == "minecraft:witch"))
+  end
+
+  test "a village's cat spawner brings a cat near five claimed homes, not four", %{
+    owners: [{key, owner} | _]
+  } do
+    {x, y, z} = centre(key, 64, 64)
+    head = Valimc.Data.Blocks.state("red_bed", %{"facing" => "east", "part" => "head"})
+    homes = for n <- 0..4, do: {floor(x) + 2 * n, 64, floor(z) + 3}
+    for pos <- homes, do: Valimc.TestBlocks.set(pos, head)
+    day = %{@night | darken: 0}
+    player = [{x, y, z, false, false}]
+
+    cats = fn claims ->
+      Valimc.TestRegion.replace_section(
+        owner,
+        &%{&1 | poi_claims: Map.new(claims, fn p -> {p, 1} end)}
+      )
+
+      # Ten tries of the spawner, each a tick it comes up in.
+      Enum.reduce(1..10, Spawning.new(), fn t, spawning ->
+        elem(tick(owner, player, day, Map.put(spawning, :cats, 0), t), 0)
+      end)
+
+      Enum.count(mobs(owner), &(elem(&1, 0) == "minecraft:cat"))
+    end
+
+    assert cats.(Enum.take(homes, 4)) == 0
+    assert cats.(homes) > 0
   end
 
   test "a tick's environment reads the published clock, weather and settings" do

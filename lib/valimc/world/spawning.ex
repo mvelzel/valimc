@@ -87,10 +87,11 @@ defmodule Valimc.World.Spawning do
   end
 
   @doc """
-  A group's spawning state: its level random, its mobs' random and its
-  spawner blocks' countdowns (`position => {nbt, config, delay}`).
+  A group's spawning state: its level random, its mobs' random, its
+  spawner blocks' countdowns (`position => {nbt, config, delay}`) and its
+  cat spawner's (`Valimc.World.CatSpawner`).
   """
-  def new, do: %{random: JavaRandom.create(), mobs: JavaRandom.create(), spawners: %{}}
+  def new, do: %{random: JavaRandom.create(), mobs: JavaRandom.create(), spawners: %{}, cats: 0}
 
   ## The sky
 
@@ -326,7 +327,18 @@ defmodule Valimc.World.Spawning do
         Map.update!(acc, position, fn {nbt, config, _} -> {nbt, config, delay} end)
       end)
 
-    {%{group.spawning | random: random, mobs: finalize, spawners: cached}, by_section}
+    # The village's cats (`CatSpawner`, VMC-044a3), after the chunks' spawns.
+    {cats, random, made} = Valimc.World.CatSpawner.tick(group, random)
+
+    by_section =
+      Enum.reduce(made, by_section, fn {key, record}, acc ->
+        Map.update(acc, key, {[record], [], [], []}, fn {r, d, s, e} ->
+          {[record | r], d, s, e}
+        end)
+      end)
+
+    spawning = Map.put(group.spawning, :cats, cats)
+    {%{spawning | random: random, mobs: finalize, spawners: cached}, by_section}
   end
 
   # The simulated chunks' kept starts of structures that override spawns.

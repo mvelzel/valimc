@@ -56,6 +56,28 @@ defmodule Valimc.AI.Self do
     {x - half, y, z - half, x + half, y + h, z + half}
   end
 
+  @doc """
+  `Entity.spawnSprintParticle`: over a block that renders, the particle's
+  place draws twice (the server sends no particle).
+  """
+  def sprint_particle(%__MODULE__{} = self) do
+    {x, y, z} = {floor(self.x), floor(self.y - 0.2), floor(self.z)}
+
+    case Valimc.AI.World.block(self.world, {x, y, z}) do
+      state when is_integer(state) ->
+        if Valimc.Data.BlockFacts.flag?(state, :invisible) do
+          self
+        else
+          {_, self} = double(self)
+          {_, self} = double(self)
+          self
+        end
+
+      nil ->
+        self
+    end
+  end
+
   @doc "`nextInt(bound)` of the mob's random."
   def int(self, bound), do: draw(self, &Random.int(&1, bound))
   @doc "`nextFloat()` of the mob's random."

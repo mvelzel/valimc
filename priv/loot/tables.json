@@ -39177,6 +39177,29 @@
       }
     ]
   },
+  "minecraft:entities/cat": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/cat",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:string",
+            "modifier": {
+              "count": {
+                "min": 0,
+                "max": 2,
+                "type": "minecraft:uniform"
+              },
+              "type": "minecraft:set_count"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/cave_spider": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/cave_spider",

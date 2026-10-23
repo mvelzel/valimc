@@ -212,7 +212,14 @@ defmodule Valimc.Protocol.EntityPackets do
 
   # The water, ambient and End mobs' own fields (VMC-043e), the farm
   # animals' (VMC-043c) and the villagers' (VMC-044a), by serializer.
-  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags, :sheep_wool, :iron_golem_flags]
+  @mob_bytes [
+    :shulker_peek,
+    :shulker_color,
+    :bat_flags,
+    :sheep_wool,
+    :iron_golem_flags,
+    :tamable_flags
+  ]
   @mob_flags [
     :fish_from_bucket,
     :dolphin_got_fish,
@@ -223,8 +230,10 @@ defmodule Valimc.Protocol.EntityPackets do
     :guardian_moving,
     # VMC-043c: an ageable mob's age lock.
     :age_locked,
-    # VMC-044a: villagers.
-    :villager_data_finalized
+    # VMC-044a: villagers and cats.
+    :villager_data_finalized,
+    :cat_lying,
+    :cat_relax_state_one
   ]
   @mob_ints [
     :puff_state,
@@ -244,7 +253,10 @@ defmodule Valimc.Protocol.EntityPackets do
     :chicken_sound_variant,
     :mooshroom_type,
     :rabbit_type,
-    :villager_unhappy
+    :villager_unhappy,
+    :cat_variant,
+    :cat_sound_variant,
+    :cat_collar_color
   ]
 
   defp metadata_value({name, value})
@@ -276,7 +288,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :cloud_waiting,
               :cloud_particle,
               :custom_name,
-              :villager_data
+              :villager_data,
+              :tamable_owner
             ] or name in @mob_bytes or name in @mob_flags or name in @mob_ints or
               name == :shulker_attach_face do
     fact = EntityTypes.field(name)
@@ -300,6 +313,13 @@ defmodule Valimc.Protocol.EntityPackets do
                name in @mob_flags ->
           check(is_boolean(value), "invalid flag")
           Wire.bool(value)
+
+        # A tamed animal's owner (`OPTIONAL_LIVING_ENTITY_REFERENCE`, VMC-044a3).
+        :tamable_owner ->
+          case value do
+            nil -> <<0>>
+            <<_::binary-16>> = uuid -> [<<1>>, uuid]
+          end
 
         # An optional text component (a name tag's, VMC-042a).
         :custom_name ->

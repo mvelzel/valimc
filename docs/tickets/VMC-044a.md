@@ -20,7 +20,9 @@ Slices:
   professions from job sites, panicking at zombies.
 - [VMC-044a2](VMC-044a2.md) — iron golems: their goals, guarding villagers
   and villagers summoning them.
-- [VMC-044a3](VMC-044a3.md) — cats and wandering traders.
+- [VMC-044a3](VMC-044a3.md) — cats: strays and the village's cat
+  spawner.
+- [VMC-044a4](VMC-044a4.md) — wandering traders and their spawner.
 
 Acceptance:
 
