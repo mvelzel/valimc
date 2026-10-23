@@ -150,3 +150,22 @@ Client gate: on the real client, a hopper under a chest of raw iron feeds a
 furnace from above while one at its side feeds coal, and a hopper below
 takes the iron ingots into a chest; the hopper and furnace menus show the
 items move.
+
+Checks: `cargo test -p valimc_core` (124), `cargo fmt`, `cargo clippy` (no
+new findings); `test/hopper_region_test.exs`, `test/dispensing_test.exs`,
+`test/containers_test.exs`, `test/redstone_region_test.exs` and the
+container, chest, cooking, menu, anvil, placement and piston tests;
+`check_vanilla.py --regen --only hoppers,redstone` passed.
+
+## Handoff (October 2026)
+
+- Done and verified: everything under "What is live", with the checks
+  above, rebased onto main and pushed. Status stays Awaiting client.
+- Not run (stopped when usage ran out): `mix test.fast` and the full
+  `check_vanilla.py --changed` set (118 stages, mostly NIF-dependent).
+  Run both before the M3 milestone gate.
+- Remaining: the client gate above; the dispense behaviours under "Not
+  here" (each now keeps its item and fails); armour onto players.
+- Gotchas: `placement_region_test.exs` can fail under load with
+  `:invalid_or_expired_placement` (passes alone). A container block set
+  without a plan now gets its entry at once (chests and furnaces too).
