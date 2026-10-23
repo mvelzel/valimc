@@ -20,4 +20,5 @@ chances, burning in daylight, variants and loot:
 Acceptance:
 
 - Each mob's behaviour fixtures match the oracle.
-- On the real client, a night in the open plays as in vanilla.
+- On the real client, a night in the open plays as in vanilla, and a
+  skeleton and a player shoot each other (from VMC-037o).

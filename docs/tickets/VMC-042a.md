@@ -1,6 +1,6 @@
 # VMC-042a — Natural spawning and despawning
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-015i](VMC-015i.md), [VMC-043a](VMC-043a.md).
 
@@ -133,3 +133,18 @@ back: the monsters near the start are gone. `/give @s
 name_tag[custom_name="Bob"]`, use it on a zombie: it shows "Bob", the tag is
 used up in survival, and the zombie stays when you go 130 blocks away and
 return.
+
+## Client run (October 23, 2026; frozen `1b72b467` release, fresh worlds; `.local/client-tests/M3-run-2/run-04` to `run-06`)
+
+Passed in a vanilla world (seed 932992301210947215, old-growth spruce taiga):
+
+- Sheep stood around the spawn on joining.
+- At night in survival on normal, zombies, skeletons, creepers and spiders
+  spawned; the nearest zombie was about 45 blocks away.
+- `/difficulty peaceful` removed them and the sheep stayed. Spiders were
+  gone at once; a zombie, a skeleton and a creeper were still selectable a
+  second or two later and gone by 5 s (vanilla discards them the next tick).
+- A summoned zombie stayed while the player was near; after 8 s 165 blocks
+  away it was gone.
+- A name tag "Bob" used in survival named a zombie and was used up; Bob
+  stayed through 12 s 165 blocks away (its record: custom name, persistent).

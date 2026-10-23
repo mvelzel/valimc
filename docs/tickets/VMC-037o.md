@@ -1,6 +1,6 @@
 # VMC-037o — Projectiles
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-037n](VMC-037n.md),
 [VMC-050a1](VMC-050a1.md) (fireball explosions).
@@ -18,7 +18,8 @@ needs:
 Acceptance:
 
 - Each projectile's flight and hit matches the oracle's fixtures.
-- A skeleton (VMC-043b) and a player shoot each other.
+- A skeleton and a player shoot each other: VMC-043b's gate, with its
+  skeletons.
 - An ender pearl teleports across a group line.
 
 ## Design
@@ -144,3 +145,23 @@ Next: VMC-043b's skeletons call `mob_shoot/4` from their ranged goal; 043c's
 blazes and ghasts shoot `small_fireball` and `fireball`; VMC-026d throws
 the eye at a stronghold; VMC-045a's dragon its fireballs; VMC-037 adds the
 bow and crossbow enchantments.
+
+## Client run (October 23, 2026; `.local/client-tests/M3-run-2/run-02`, rerun `run-07`)
+
+The player's side; skeletons are VMC-043b's. On the frozen `1b72b467`
+release a fully drawn bow's arrow flashed and knocked back a zombie, a
+ground shot stuck and shook, the crossbow charged and fired, snowballs broke
+in puffs, an egg hatched a chick, harming splashes left the zombie unhurt, a
+punched fireball flew off along the look and blew a crater with fire, and a
+summoned dragon fireball and small fireball stayed put. Two failed:
+
+- A stuck arrow was never picked up: published views carry no body, so the
+  session's pickup test never matched. Arrows now publish `takeable`.
+- A thrown pearl never brought the player: `cooling?` compared monotonic
+  time, which may be negative, with a default of 0, so every throw counted
+  as cooling down. No cooldown yet is none now.
+
+Both have connection tests (a real throw, a real ground shot). The rerun on
+the fix commit `169a22a7`, landed as `7dd08fb4` passed: walking over a stuck arrow took it back (16 → 15 → 16); pearls
+carried the player about 33 blocks with 5 damage and the cooldown; an arrow
+left lying went from the client when the server despawned it.

@@ -5,6 +5,12 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-041a Goals, targets, brains and sensors](../tickets/VMC-041a.md): [041a1](../tickets/VMC-041a1.md), [041a2](../tickets/VMC-041a2.md) | `7dd08fb4`; goal and target selectors, sensing, straight-line navigation and the shared goal library (zombies hunt, pigs follow carrots and panic), brains with memories, sensors and activities (a piglin admires gold); client runs October 23 (a vanished walk target restarted Nether owners; fixed and rerun) |
+| [VMC-037o Projectiles](../tickets/VMC-037o.md) | `7dd08fb4`; arrows, bows and crossbows, thrown items, pearls, splash potions, fireballs and eyes in the projectile kernel; the player's side on the client October 23 (pearls and arrow pickup failed run 1; fixed and rerun); skeletons with VMC-043b |
+| [VMC-037n Melee combat, mob death, loot and XP](../tickets/VMC-037n.md) | `1b72b467`; player attacks, damage, armor and shields, mob death with loot and XP; zombies' hits on armor and shields on the client October 23 |
+| [VMC-042a Natural spawning and despawning](../tickets/VMC-042a.md) | `1b72b467`; `NaturalSpawner` per group with per-player caps, chunk-generation spawns, despawn distances, peaceful and name-tag persistence; client run October 23 |
+| [VMC-047a Power sources, consumers and update order](../tickets/VMC-047a.md) | `1b72b467`; levers, buttons, plates, torches and other sources, lamps, doors and other consumers on the block-update engine; client run October 23 |
+| [VMC-043a1 Selectors over items and orbs](../tickets/VMC-043a1.md) | `1b72b467`; selectors, `/tp` and `/kill` pick dropped items and experience orbs; client run October 23 |
 | [VMC-029e Survival mining](../tickets/VMC-029e.md) | `0b70277e`; every block mines with its loot table, experience and break as vanilla's (54,507 oracle breaks), and the blocks a break's rules destroy drop their loot; client runs October 23 |
 | [VMC-050a Explosions, TNT and falling blocks](../tickets/VMC-050a.md): [050a2 Falling blocks](../tickets/VMC-050a2.md) | `cab65365`; sand, gravel, concrete powder, anvils and the dragon egg fall as bodies and land, break or harden as vanilla's, anvils hurt and wear; client runs October 23 (a long anvil fall crashed run 1; fixed and rerun) |
 | [VMC-043a Entity kinds](../tickets/VMC-043a.md) | `44d23e4b`; generated entity facts for every type, one body record for mobs and objects with persistence, handoff and replication, `/summon` and `/kill` over bodies; client run October 23 |

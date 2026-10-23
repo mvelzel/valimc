@@ -1,6 +1,6 @@
 # VMC-037n — Melee combat, mob death, loot and XP
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-017a](VMC-017a.md) (damage and
 death of players).
@@ -163,5 +163,14 @@ The player side passed, normal difficulty, a diamond sword:
 - A full standing hit knocked back both of two zombies within reach.
   The client was muted, so no sounds were checked.
 
-The zombie's hits on an armored player and on a raised shield stay this
-ticket's client gate until VMC-041a's melee goal drives `mob_attack/3`.
+
+## Client run (October 23, 2026; frozen `1b72b467` release, fresh worlds; `.local/client-tests/M3-run-2/run-02`)
+
+The zombie's side passed, now that VMC-041a1's melee goal attacks:
+
+- Unarmored, a hit cost 3 health. With a diamond chestplate and an iron
+  helmet (armor 10), a hit cost about 2 (the oracle's 1.92), with the hurt
+  flash and knockback.
+- A raised shield facing the zombie took nothing over about 6 s and pushed
+  it back; hits from the side or behind still landed.
+- The client was muted, so the block sound was not checked.

@@ -1,6 +1,6 @@
 # VMC-047a — Power sources, consumers and update order
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-077m](VMC-077m.md) (wire power and the update engine),
 [VMC-029d](VMC-029d.md) (redstone items place in their vanilla states).
@@ -189,3 +189,10 @@ the facts.
 
 Client gate: a button-operated iron door and a lever-lit lamp on the real
 client.
+
+## Client run (October 23, 2026; frozen `1b72b467` release, fresh worlds; `.local/client-tests/M3-run-2/run-02`)
+
+Passed in creative: an iron door did not open by hand; a stone button on the
+wall beside it opened it, and it was closed again a few seconds later (the
+20-tick timing was not measurable from screenshots). A floor lever lit four
+blocks of dust and a redstone lamp, and flipping it back turned both off.
