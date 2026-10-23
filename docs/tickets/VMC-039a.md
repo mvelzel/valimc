@@ -84,6 +84,9 @@ a hoe and bone meal over a connection
 (`player_landing_connection_test.exs`), a zombie trampling it
 (`mob_travel_region_test.exs`).
 
+Per parent: `mix test.fast` (478 passed) and `check_vanilla.py --changed`
+(97 of 223 stages selected, all pass, `growth` and `tcp` among them).
+
 Client (pending, for the milestone's batched run): till grass with a hoe
 by water; plant wheat, carrots and pumpkin seeds; watch them grow at
 `randomTickSpeed` 100 (or bone meal them); a stem sets its pumpkin; sugar

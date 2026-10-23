@@ -69,16 +69,13 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-037n](tickets/VMC-037n.md) | A zombie's hits on armor and a raised shield, once VMC-041a's melee goal attacks |
-| [VMC-037o](tickets/VMC-037o.md) | Bows, crossbows, stuck arrows picked up, snowballs, eggs, an ender pearl, a splash potion and a punched fireball |
+| [VMC-037n](tickets/VMC-037n.md), [037o](tickets/VMC-037o.md) | A zombie's hits on armor and a raised shield, once VMC-041a's melee goal attacks; bows, crossbows, stuck arrows picked up, snowballs, eggs, an ender pearl, a splash potion and a punched fireball |
 | [VMC-047a](tickets/VMC-047a.md) | A button-operated iron door and a lever-lit lamp |
-| [VMC-042a](tickets/VMC-042a.md) | Generated animals at spawn; monsters at night 24+ blocks away; peaceful clears them; they despawn 128 blocks away unless name-tagged |
-| [VMC-042b](tickets/VMC-042b.md) | A village's villagers and a swamp hut's witch when their chunks first load; witches spawning in the hut; a fortress spawner's blazes near the player |
+| [VMC-042a](tickets/VMC-042a.md), [042b](tickets/VMC-042b.md) | Generated animals at spawn; monsters at night 24+ blocks away; peaceful clears them; they despawn 128 blocks away unless name-tagged; a village's villagers and a swamp hut's witch when their chunks first load; witches spawning in the hut; a fortress spawner's blazes near the player |
 | [VMC-034n4c](tickets/VMC-034n4c.md) | A furnace's orbs scatter; orbs hop in lava; orbs lying together merge |
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
-| [VMC-041a1](tickets/VMC-041a1.md), [041a2](tickets/VMC-041a2.md) | A summoned zombie hunts, chases and hits a survival player, loses one behind a wall, only looks at a creative one; a pig wanders, follows a carrot and panics when hit; a piglin admires a dropped gold ingot |
+| [VMC-041a1](tickets/VMC-041a1.md), [041a2](tickets/VMC-041a2.md), [043a1](tickets/VMC-043a1.md) | A summoned zombie hunts, chases and hits a survival player, loses one behind a wall, only looks at a creative one; a pig wanders, follows a carrot and panics when hit; a piglin admires a dropped gold ingot; `/tp` of the nearest dropped item; `/kill @e[type=item]` and `@e[type=experience_orb]` remove them |
 | [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
-| [VMC-043a1](tickets/VMC-043a1.md) | `/tp` of the nearest dropped item; `/kill @e[type=item]` and `@e[type=experience_orb]` remove them |
 | [VMC-039a](tickets/VMC-039a.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal; trampling |
 
 ## Retrieve and update

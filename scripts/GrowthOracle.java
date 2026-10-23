@@ -34,7 +34,7 @@ import net.minecraft.world.ticks.ScheduledTick;
 import net.minecraft.world.ticks.TickPriority;
 
 /**
- * Plants that grow (VMC-039a), from pinned 26.3. Two modes:
+ * Plants that grow and the tools that till (VMC-039a), from pinned 26.3. Four modes:
  *
  * - `facts OUT`: the tree growers (`TreeGrower.GROWERS`: per grower its weighted tree, mega
  *   tree and flower tree features and `getMinimumHeight`) and each `SaplingBlock`'s grower.
@@ -43,8 +43,7 @@ import net.minecraft.world.ticks.TickPriority;
  *   `skyDarken` and rain or not per scene. Each game tick applies its actions in order
  *   (`/setblock`-style `setBlock(UPDATE_ALL)`; a random tick as `ServerLevel.tickChunk` runs one
  *   at a randomly ticking cell; bone meal as `BoneMealItem.growCrop`, with `useOn`'s level event
- *   when it took the bone meal), then runs the due block
- *   ticks. A sapling that would grow its tree stops at `level.getChunkSource()` (the tree is the
+ *   when it took the bone meal), then runs the due block ticks. A sapling that would grow its tree stops at `level.getChunkSource()` (the tree is the
  *   generator's, checked apart): the action's result is 2. Per tick the cell writes in order, the
  *   level events and each random tick's and bone meal's result (0 nothing, 1 bone meal used, 2 a
  *   tree grows). Fluid ticks are scheduled but never run.
