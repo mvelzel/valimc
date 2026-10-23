@@ -1331,12 +1331,20 @@ defmodule Valimc.World.RegionData do
       born =
         for step <- steps, effect <- step.effects, record <- birth(effect), do: record
 
+      # (A silverfish slipping into stone leaves as it changes the block.)
       eaten =
-        for step <- steps,
+        for step <- discards ++ steps,
             effect <- step.effects,
             edit <- [mob_edit(view, effect)],
             edit != nil,
             do: edit
+
+      # Infested blocks silverfish woke break into silverfish (VMC-043b6,
+      # `InfestedBlock.spawnInfestation`).
+      infestations =
+        for step <- steps,
+            {:wake_infested, {x, y, z}, _, true} <- step.effects,
+            do: Valimc.Entity.Body.infestation({x, y, z})
 
       # The blocks endermen put down (VMC-043b5): set only where they
       # survive; one that does not goes back to its enderman.
@@ -1388,6 +1396,7 @@ defmodule Valimc.World.RegionData do
           else: elem(rule_run(state, %{actions: tramples ++ eaten}), 0)
 
       state = if placed == [], do: state, else: carried_placed(state, placed)
+      state = if infestations == [], do: state, else: adopt_drops(state, infestations)
 
       state =
         cond do
@@ -1793,6 +1802,24 @@ defmodule Valimc.World.RegionData do
     case Valimc.World.View.block(view, cell) do
       ^taken -> {:edit, cell, taken, Valimc.Data.BlockFacts.fluid_remains(taken), nil, [:updates]}
       _ -> nil
+    end
+  end
+
+  # A silverfish slips into stone: it becomes infested (`setBlockAndUpdate`).
+  defp mob_edit(view, {:infest, cell, infested}) do
+    from = Valimc.World.View.block(view, cell)
+
+    if Valimc.AI.Mobs.Silverfish.host?(from),
+      do: {:edit, cell, from, infested, nil, [:updates]}
+  end
+
+  # A woken infested block breaks (`destroyBlock`, its break event first)
+  # while mobs may grief, else turns back to its stone.
+  defp mob_edit(view, {:wake_infested, cell, state, griefing}) do
+    if Valimc.World.View.block(view, cell) == state do
+      if griefing,
+        do: {:edit, cell, state, Valimc.Data.BlockFacts.fluid_remains(state), state, [:updates]},
+        else: {:edit, cell, state, Valimc.AI.Mobs.Silverfish.host_of(state), nil, [:updates]}
     end
   end
 

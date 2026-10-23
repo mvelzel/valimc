@@ -38,6 +38,8 @@ defmodule Valimc.Blocks.Breaking do
   @breaks_pots MapSet.new(@tags["minecraft:item"]["minecraft:breaks_decorated_pots"])
   @keeps_pots @tags["minecraft:enchantment"]["minecraft:prevents_decorated_pot_shattering"]
   @keeps_ice @tags["minecraft:enchantment"]["minecraft:prevents_ice_melting"]
+  @infested ~w(InfestedBlock InfestedRotatedPillarBlock)
+  @keeps_infested @tags["minecraft:enchantment"]["minecraft:prevents_infested_spawns"]
   @enchantments Data.registries()["minecraft:enchantment"]
 
   @doc """
@@ -47,7 +49,8 @@ defmodule Valimc.Blocks.Breaking do
   (nil where unknown) and whether water `:evaporates` in the dimension.
 
   `%{writes: %{position => {expected, new}}, drops: [stack], experience: n,
-  harvest: harvest}`; a harvest also costs the player food.
+  harvest: harvest, infestation: boolean}` (`infestation`: a silverfish
+  comes out, VMC-043b6); a harvest also costs the player food.
   """
   def plan(state, {x, y, z} = position, tool, harvest, around) do
     class = Blocks.class(state)
@@ -85,7 +88,12 @@ defmodule Valimc.Blocks.Breaking do
           }
       end
 
-    Map.put(plan, :harvest, harvest)
+    # An infested block's harvest lets out a silverfish (`spawnAfterBreak`)
+    # unless the tool's enchantments prevent it.
+    infestation =
+      harvest and class in @infested and not tagged_enchantment?(tool, @keeps_infested)
+
+    plan |> Map.put(:harvest, harvest) |> Map.put(:infestation, infestation)
   end
 
   defp loot(state, position, tool, around) do

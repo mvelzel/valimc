@@ -1946,6 +1946,126 @@
         ]
       ]
     },
+    "minecraft:silverfish": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.silverfish.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": true,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "ClimbOnTopOfPowderSnowGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          3,
+          "SilverfishWakeUpFriendsGoal",
+          []
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "SilverfishMergeWithStoneGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:slime": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 0,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 80,
+      "sound_volume": 0.4,
+      "monster": false,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "CubeMobFloatGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          4,
+          "CubeMobRandomDirectionGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          5,
+          "CubeMobKeepOnJumpingGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "CubeMobAttackGoal",
+          [
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3306,6 +3426,14 @@
     "minecraft:entity.magma_cube.death_small": 953,
     "minecraft:entity.enderman.scream": 601,
     "minecraft:entity.enderman.teleport": 603,
+    "minecraft:entity.slime.jump": 1500,
+    "minecraft:entity.slime.jump_small": 1552,
+    "minecraft:entity.slime.squish": 1501,
+    "minecraft:entity.slime.squish_small": 1553,
+    "minecraft:entity.slime.hurt": 1499,
+    "minecraft:entity.slime.hurt_small": 1551,
+    "minecraft:entity.slime.death": 1498,
+    "minecraft:entity.slime.death_small": 1550,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -3351,6 +3479,7 @@
     "minecraft:entity.bogged.ambient": 181,
     "minecraft:entity.spider.ambient": 1582,
     "minecraft:entity.enderman.ambient": 598,
+    "minecraft:entity.silverfish.ambient": 1479,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

@@ -101,6 +101,21 @@ defmodule Valimc.Entity.Body do
   end
 
   @doc """
+  `InfestedBlock.spawnInfestation` (VMC-043b6): the record of a silverfish
+  coming out of the infested block at `{x, y, z}`, at its bottom centre,
+  facing south (no spawn of its own to finish).
+  """
+  def infestation({x, y, z}) do
+    {:ok, body} = new("minecraft:silverfish")
+
+    Valimc.Entity.Store.body_record(
+      body,
+      :crypto.strong_rand_bytes(16),
+      {x + 0.5, y * 1.0, z + 0.5}
+    )
+  end
+
+  @doc """
   A body of any entity type `type` that generation added (VMC-042b): as
   `new/1` makes a modelled type's, else inert with no data of its own;
   `preserved` (SNBT or nil) is kept with it, and `persistent` makes a mob's

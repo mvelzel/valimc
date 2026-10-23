@@ -213,7 +213,12 @@ setup = fn body, m ->
         body
 
       size ->
-        {mob, data} = Valimc.AI.Mobs.MagmaCube.set_size(body.mob, body.data, size)
+        cube =
+          if body.type == "minecraft:slime",
+            do: Valimc.AI.Mobs.Slime,
+            else: Valimc.AI.Mobs.MagmaCube
+
+        {mob, data} = cube.set_size(body.mob, body.data, size)
         %{body | mob: mob, data: data}
     end
 
@@ -239,7 +244,7 @@ kind_data = fn
   %{type: "minecraft:endermite", data: data} ->
     %{"life" => data.life}
 
-  %{type: "minecraft:magma_cube", data: data, mob: mob} ->
+  %{type: type, data: data, mob: mob} when type in ~w(minecraft:magma_cube minecraft:slime) ->
     %{
       "size" => data.size,
       "was_on_ground" => data.was_on_ground,
@@ -539,7 +544,7 @@ checked =
 
           # A cube's move control faces its spawn yaw, as the oracle sets it (VMC-043d).
           mind =
-            if m["type"] == "minecraft:magma_cube",
+            if m["type"] in ~w(minecraft:magma_cube minecraft:slime),
               do: %{mind | own: %{AI.Mobs.Cube.own(mind) | y_rot: yaw}},
               else: mind
 
@@ -712,6 +717,12 @@ checked =
                 for {:level_event, {cx, cy, cz}, type, data} <- step.effects,
                     do: [type, [cx, cy, cz], data]
 
+              # A woken infested block's break event (`destroyBlock`).
+              level_events =
+                level_events ++
+                  for {:wake_infested, {cx, cy, cz}, state, true} <- step.effects,
+                      do: [2001, [cx, cy, cz], state]
+
               want_events =
                 for s <- expected["sounds"],
                     s["event"] != nil,
@@ -727,6 +738,16 @@ checked =
 
                          {:place_carried, {bx, by, bz}, carried} ->
                            [[bx, by, bz], carried]
+
+                         # A silverfish's stone and the friends it wakes (VMC-043b6).
+                         {:infest, {bx, by, bz}, infested} ->
+                           [[bx, by, bz], infested]
+
+                         {:wake_infested, {bx, by, bz}, state, true} ->
+                           [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(state)]
+
+                         {:wake_infested, {bx, by, bz}, state, false} ->
+                           [[bx, by, bz], Valimc.AI.Mobs.Silverfish.host_of(state)]
 
                          _ ->
                            nil
@@ -757,6 +778,18 @@ checked =
                 adds ++
                   for {:shoot, %{from: {fx, fy, fz}}} <- step.effects,
                       do: ["minecraft:arrow", Enum.map([fx, fy - 0.10000000149011612, fz], hex)]
+
+              # A silverfish out of each infested block it woke (VMC-043b6).
+              adds =
+                adds ++
+                  for {:wake_infested, {bx, by, bz}, _, true} <- step.effects,
+                      do: [
+                        "minecraft:silverfish",
+                        Enum.map([bx + 0.5, by * 1.0, bz + 0.5], hex),
+                        Enum.map([0.0, 0.0, 0.0], hex),
+                        bits.(0.0),
+                        bits.(0.0)
+                      ]
 
               # A converted mob is a new one where the old one was (VMC-043b).
               adds =
@@ -881,6 +914,13 @@ checked =
                 else
                   {got, want}
                 end
+
+              # A mob its AI removed mid-tick (a silverfish slipping into
+              # stone) does not move on: where it would have is moot.
+              want =
+                if :discard in step.effects,
+                  do: Map.drop(want, [:position, :velocity]),
+                  else: want
 
               differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
 

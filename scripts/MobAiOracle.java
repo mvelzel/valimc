@@ -64,6 +64,7 @@ public class MobAiOracle {
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
+      "minecraft:silverfish", "minecraft:slime",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
@@ -89,6 +90,10 @@ public class MobAiOracle {
       "minecraft:entity.magma_cube.death_small",
       // A creepy enderman's scream and its teleports (VMC-043b5).
       "minecraft:entity.enderman.scream", "minecraft:entity.enderman.teleport",
+      // VMC-043b6: a slime's hops, landings and hurts.
+      "minecraft:entity.slime.jump", "minecraft:entity.slime.jump_small", "minecraft:entity.slime.squish",
+      "minecraft:entity.slime.squish_small", "minecraft:entity.slime.hurt", "minecraft:entity.slime.hurt_small",
+      "minecraft:entity.slime.death", "minecraft:entity.slime.death_small",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",

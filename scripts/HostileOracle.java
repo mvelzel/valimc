@@ -46,12 +46,12 @@ public class HostileOracle {
   // VMC-043d: the Nether's mobs that spawn with gear or as babies.
   static final List<String> NETHER = List.of("minecraft:piglin");
   // Cubes' sizes (VMC-043d: `setSpawnSize`).
-  static final List<String> CUBES = List.of("minecraft:magma_cube");
+  static final List<String> CUBES = List.of("minecraft:magma_cube", "minecraft:slime");
   // VMC-043b3: the skeletons.
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
   static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
-  static final List<String> OTHERS = List.of("minecraft:enderman");
+  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -110,6 +110,17 @@ public class HostileOracle {
         o.add("block", at); o.addProperty("state", net.minecraft.world.level.block.Block.getId(state));
         sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
       }
+      return true;
+    }
+    // A destroyed block (a silverfish waking its friends): its break event,
+    // what it lets out (`spawnAfterBreak`, no loot run), then its fluid.
+    public boolean destroyBlock(BlockPos pos, boolean drop, net.minecraft.world.entity.Entity breaker, int limit) {
+      var state = getBlockState(pos);
+      if (state.isAir()) return false;
+      var fluid = getFluidState(pos);
+      levelEvent(2001, pos, net.minecraft.world.level.block.Block.getId(state));
+      if (drop) state.spawnAfterBreak(this, pos, ItemStack.EMPTY, true);
+      setBlock(pos, fluid.createLegacyBlock(), 3, limit);
       return true;
     }
     // A converted mob is discarded, which untracks it as a waypoint.
@@ -239,6 +250,7 @@ public class HostileOracle {
     skeletons(level, cases, floor);
     creepersAndSpiders(level, cases, floor);
     endermen(level, cases, floor);
+    silverfishAndSlimes(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -352,6 +364,39 @@ public class HostileOracle {
         List.of(), none, noDrops, 660));
   }
 
+
+  // VMC-043b6: silverfish chasing, slipping into stone and waking friends; slimes hopping and touching.
+  static void silverfishAndSlimes(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var none = List.<MobAiOracle.Hit>of();
+    var noDrops = List.<MobAiOracle.Drop>of();
+    var stone = Blocks.STONE.defaultBlockState();
+    cases.add(run(level, "silverfish_chase", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:silverfish", new Vec3(.5, 64, .5), 0, 241L)),
+        List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 2.5), "survival", null)), none, noDrops, 160));
+    // Alone between stone walls it slips into one.
+    var walls = new ArrayList<>(floor);
+    walls.addAll(MobAiOracle.box(-2, 64, -2, 2, 65, -2, stone));
+    walls.addAll(MobAiOracle.box(-2, 64, 2, 2, 65, 2, stone));
+    cases.add(run(level, "silverfish_merge", false, List.of(), MobAiOracle.scene(walls),
+        List.of(new MobAiOracle.Spawn("minecraft:silverfish", new Vec3(.5, 64, .5), 0, 251L)),
+        List.of(), none, noDrops, SILVERFISH_MERGE_TICKS));
+    // Hit, it wakes the infested blocks around it.
+    var nest = new ArrayList<>(floor);
+    for (int x = -4; x <= 4; x += 2) nest.add(new MobAiOracle.Block(x, 64, 4, Blocks.INFESTED_STONE.defaultBlockState()));
+    nest.add(new MobAiOracle.Block(-3, 64, -3, Blocks.INFESTED_COBBLESTONE.defaultBlockState()));
+    cases.add(run(level, "silverfish_wake", false, List.of(), MobAiOracle.scene(nest),
+        List.of(new MobAiOracle.Spawn("minecraft:silverfish", new Vec3(.5, 64, .5), 0, 257L)),
+        List.of(new MobAiOracle.Stand(new Vec3(2.5, 64, .5), "survival", null)),
+        List.of(new MobAiOracle.Hit(5, 0, 0, 1.0F)), noDrops, 80));
+    // Slimes: a big one hops at the player and hurts it at a touch; the smallest does not.
+    cases.add(run(level, "slime_attack", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:slime", new Vec3(.5, 64, .5), 0, 263L, Map.<String, Object>of("size", 4)),
+            new MobAiOracle.Spawn("minecraft:slime", new Vec3(-4.5, 64, .5), 0, 269L, Map.<String, Object>of("size", 1))),
+        List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 3.5), "survival", null)),
+        List.of(new MobAiOracle.Hit(120, 0, 0, 1.0F)), noDrops, 240));
+  }
+
+  static final int SILVERFISH_MERGE_TICKS = 101;
 
   static String bits(double d) { return MobAiOracle.bits(d); }
 

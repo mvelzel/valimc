@@ -277,6 +277,11 @@ defmodule Valimc.Player.Mining do
       Enum.map(plan.drops, &Valimc.Entity.ItemDrop.pop(position, &1)) ++
         Valimc.Entity.ExperienceOrbs.drop({x + 0.5, y + 0.5, z + 0.5}, plan.experience)
 
+    records =
+      if plan.infestation,
+        do: records ++ [Valimc.Entity.Body.infestation(position)],
+        else: records
+
     state = %{state | mining: nil}
 
     case Region.mine_block(owner, position, plan.writes, records) do
