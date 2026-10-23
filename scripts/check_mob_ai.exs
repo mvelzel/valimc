@@ -278,6 +278,12 @@ kind_data = fn
 
     if type == "minecraft:glow_squid", do: Map.put(squid, "dark", data.dark), else: squid
 
+  %{type: "minecraft:bat", data: data, mob: mob} ->
+    case mob.ai.own do
+      {x, y, z} -> %{"resting" => data.resting, "target" => [x, y, z]}
+      nil -> %{"resting" => data.resting}
+    end
+
   %{type: type, data: data, mob: mob}
   when type in ~w(minecraft:guardian minecraft:elder_guardian) ->
     guardian = %{"moving" => data.moving, "beam" => data.beam}

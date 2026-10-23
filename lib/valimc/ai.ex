@@ -552,8 +552,13 @@ defmodule Valimc.AI do
   defp ambient_sound(%Self{mind: %{brain: %Valimc.AI.Brain{module: module}}} = self),
     do: make_sound(self, module.ambient_sound(self))
 
-  defp ambient_sound(%Self{facts: facts} = self),
-    do: make_sound(self, Mobs.hook(self.type, :ambient_sound, [self], facts.ambient_sound))
+  # A family's sound may draw on the mob's random (a resting bat's).
+  defp ambient_sound(%Self{facts: facts} = self) do
+    case Mobs.hook(self.type, :ambient_sound, [self], facts.ambient_sound) do
+      {name, %Self{} = self} -> make_sound(self, name)
+      name -> make_sound(self, name)
+    end
+  end
 
   @doc """
   `LivingEntity.makeSound`: sound `name` (or its id; nil plays none) at the mob's

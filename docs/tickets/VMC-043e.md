@@ -27,8 +27,9 @@ Slices, in order:
 - [VMC-043e3](VMC-043e3.md) — guardians and elder guardians: the guardian
   move control and travel, the beam, thorns, homes, Mining Fatigue
   (Awaiting client).
-- VMC-043e4 — dolphins, turtles (eggs, beaches, home) and axolotls (brain,
+- [VMC-043e4](VMC-043e4.md) — bats: resting, flying and waking (Awaiting
+  client).
+- VMC-043e5 — dolphins, turtles (eggs, beaches, home) and axolotls (brain,
   playing dead), with the smooth swimming controls.
-- VMC-043e5 — bats: resting, flying and waking.
 
 Acceptance: behaviour fixtures match the oracle.

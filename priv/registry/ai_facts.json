@@ -1688,6 +1688,17 @@
         ]
       ]
     },
+    "minecraft:bat": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 80,
+      "sound_volume": 0.1,
+      "malus": {},
+      "goals": [],
+      "targets": []
+    },
     "minecraft:cow": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2169,6 +2180,7 @@
     "minecraft:entity.elder_guardian.hurt_land": 584,
     "minecraft:entity.elder_guardian.death": 580,
     "minecraft:entity.elder_guardian.death_land": 581,
+    "minecraft:entity.bat.ambient": 147,
     "minecraft:entity.fish.swim": 642,
     "minecraft:entity.generic.swim": 708,
     "minecraft:entity.hostile.swim": 880,

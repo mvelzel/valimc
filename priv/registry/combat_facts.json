@@ -1888,6 +1888,7 @@
     "minecraft:glow_squid": 0,
     "minecraft:guardian": 10,
     "minecraft:elder_guardian": 10,
+    "minecraft:bat": 0,
     "minecraft:cow": 0,
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
@@ -2074,6 +2075,12 @@
       "sound_source": 5,
       "animal": false
     },
+    "minecraft:bat": {
+      "hurt_sound": "minecraft:entity.bat.hurt",
+      "death_sound": "minecraft:entity.bat.death",
+      "sound_source": 6,
+      "animal": false
+    },
     "minecraft:cow": {
       "hurt_sound": "minecraft:entity.cow.hurt",
       "death_sound": "minecraft:entity.cow.death",
@@ -2185,6 +2192,8 @@
     "minecraft:entity.guardian.death_land": 775,
     "minecraft:entity.elder_guardian.hurt_land": 584,
     "minecraft:entity.elder_guardian.death_land": 581,
+    "minecraft:entity.bat.hurt": 149,
+    "minecraft:entity.bat.death": 148,
     "minecraft:entity.cow.hurt": 451,
     "minecraft:entity.cow.death": 452,
     "minecraft:entity.sheep.hurt": 1444,

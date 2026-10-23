@@ -66,6 +66,7 @@ public class MobAiOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
+      "minecraft:bat",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
@@ -87,6 +88,7 @@ public class MobAiOracle {
       "minecraft:entity.elder_guardian.ambient", "minecraft:entity.elder_guardian.ambient_land",
       "minecraft:entity.elder_guardian.hurt", "minecraft:entity.elder_guardian.hurt_land",
       "minecraft:entity.elder_guardian.death", "minecraft:entity.elder_guardian.death_land",
+      "minecraft:entity.bat.ambient",
       // Swimming (`getSwimSound`).
       "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
@@ -912,6 +914,11 @@ public class MobAiOracle {
       o.addProperty("age", q.getAge());
     }
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
+    if (m instanceof net.minecraft.world.entity.ambient.Bat b) {
+      o.addProperty("resting", b.isResting());
+      var t = (BlockPos)field(net.minecraft.world.entity.ambient.Bat.class, "targetPosition").get(b);
+      if (t != null) { var a = new JsonArray(); a.add(t.getX()); a.add(t.getY()); a.add(t.getZ()); o.add("target", a); }
+    }
     if (m instanceof net.minecraft.world.entity.monster.Guardian g) {
       o.addProperty("moving", g.isMoving());
       o.addProperty("beam", (int)g.getEntityData().get((net.minecraft.network.syncher.EntityDataAccessor<Integer>)
@@ -1060,6 +1067,20 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(-6.5, 58, .5), "survival", null)), List.of(), 300));
     cases.add(run(level, "elder_guardian_home", pool, List.of(new Spawn("minecraft:elder_guardian", new Vec3(6.5, 60, 6.5), 0, 96L,
       Map.of("home", new int[] {-5, 59, -5, 4}))), List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    // VMC-043e: bats. One rests under a cave's roof, one wakes for a player
+    // close by and flies about the cave, one in the open flies off, one
+    // wakes when hit.
+    var walls = scene(box(-12, 64, -12, 12, 72, -12, stone), box(-12, 64, 12, 12, 72, 12, stone),
+      box(-12, 64, -11, -12, 72, 11, stone), box(12, 64, -11, 12, 72, 11, stone));
+    var cave = scene(floor(63, 12, stone), box(-12, 70, -12, 12, 70, 12, stone), walls);
+    cases.add(run(level, "bat_rest", cave, List.of(new Spawn("minecraft:bat", new Vec3(.5, 69.1, .5), 0, 101L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "bat_wake", cave, List.of(new Spawn("minecraft:bat", new Vec3(.5, 69.1, .5), 0, 102L)),
+      List.of(new Stand(new Vec3(1.5, 67, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "bat_fly", scene(floor(63, 12, stone), walls), List.of(new Spawn("minecraft:bat", new Vec3(.5, 66, .5), 0, 103L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 300));
+    cases.add(run(level, "bat_hurt", cave, List.of(new Spawn("minecraft:bat", new Vec3(.5, 69.1, .5), 0, 104L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "survival", null)), List.of(new Hit(20, 0, 0, 1.0F)), 200));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -1266,7 +1287,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians; bats).");
       return;
     }
     if (args[0].equals("paths")) {

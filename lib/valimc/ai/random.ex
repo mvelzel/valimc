@@ -78,9 +78,16 @@ defmodule Valimc.AI.Random do
   @doc """
   `LivingEntity.getVoicePitch`: `(nextFloat() - nextFloat()) * 0.2 + 1.0`,
   1.5 for a baby (`true`), or around another base (a baby zombie
-  villager's 2.0).
+  villager's 2.0), or `{base, scale}` scaled after (a bat's 0.95).
   """
-  def voice_pitch(random, baby \\ false) do
+  def voice_pitch(random, baby \\ false)
+
+  def voice_pitch(random, {base, scale}) do
+    {pitch, random} = voice_pitch(random, base)
+    {Float32.round(pitch * Float32.round(scale)), random}
+  end
+
+  def voice_pitch(random, baby) do
     {a, random} = float(random)
     {b, random} = float(random)
 

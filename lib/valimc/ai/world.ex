@@ -112,6 +112,10 @@ defmodule Valimc.AI.World do
   def solid?(world, position),
     do: (state = block(world, position)) != nil and BlockFacts.flag?(state, :solid)
 
+  @doc "`BlockState.isRedstoneConductor`."
+  def conductor?(world, position),
+    do: (state = block(world, position)) != nil and BlockFacts.flag?(state, :redstone_conductor)
+
   @doc "`BlockState.isSolidRender`."
   def solid_render?(world, position),
     do: (state = block(world, position)) != nil and BlockFacts.flag?(state, :solid_render)

@@ -120,6 +120,11 @@ defmodule Valimc.Entity.MobTicks do
     case result do
       {:ok, ticked} ->
         {made, rest} = split(effects)
+        # A family that never falls (a bat's `checkFallDamage`) lands softly.
+        ticked =
+          if AI.Mobs.hook(entry.body.type, :falls?, [], true),
+            do: ticked,
+            else: %{ticked | landing: nil}
 
         {body, position} =
           MobMotion.apply(entry.body, ticked.mob, ticked.depths, ticked.powder_snow)

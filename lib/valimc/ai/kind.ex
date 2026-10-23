@@ -36,7 +36,8 @@ defmodule Valimc.AI.Kind do
     `{air, drowning damage}`; a water animal's), and how it values a
     random walk's target (`walk_value/2`, `getWalkTargetValue`). `dying?/0`:
     a dying mob still runs its own `tick` and `aiStep` hooks (a dead fish
-    flops).
+    flops); `falls?/0` false: it never takes fall damage nor lands on blocks
+    (a bat). `ambient_sound/1` may answer `{name, self}` when it draws.
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `ignores?/2` (a
     hit it takes nothing from), `sound/2` (its hurt or death sound, nil for
     its type's) and `hurt/2` (what a hurt leaves on its body).
@@ -65,7 +66,7 @@ defmodule Valimc.AI.Kind do
   @callback custom_step(Self.t()) :: Self.t()
   @callback after_ai(Self.t()) :: Self.t()
   @callback after_tick(Self.t()) :: Self.t()
-  @callback ambient_sound(Self.t()) :: String.t() | nil
+  @callback ambient_sound(Self.t()) :: String.t() | nil | {String.t() | nil, Self.t()}
   @callback set_target(Self.t(), term) :: Self.t()
   @callback look_rotations(Self.t(), map) :: :default | {float | nil, float | nil}
   @callback clamps_head?() :: boolean
@@ -85,6 +86,7 @@ defmodule Valimc.AI.Kind do
   @callback swim_sound() :: String.t()
   @callback dying?() :: boolean
   @callback walk_value(Self.t(), tuple) :: float
+  @callback falls?() :: boolean
 
   @optional_callbacks leashable?: 0,
                       navigation: 0,
@@ -118,5 +120,6 @@ defmodule Valimc.AI.Kind do
                       air: 2,
                       swim_sound: 0,
                       dying?: 0,
-                      walk_value: 2
+                      walk_value: 2,
+                      falls?: 0
 end

@@ -31,7 +31,8 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Pufferfish,
     Valimc.AI.Mobs.TropicalFish,
     Valimc.AI.Mobs.Squid,
-    Valimc.AI.Mobs.Guardian
+    Valimc.AI.Mobs.Guardian,
+    Valimc.AI.Mobs.Bat
     | Valimc.Entity.Animal.modules()
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
