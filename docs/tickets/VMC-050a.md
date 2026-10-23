@@ -1,6 +1,6 @@
 # VMC-050a — Explosions, TNT and falling blocks
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-077o](VMC-077o.md) (box edits).
 
@@ -26,5 +26,5 @@ Acceptance:
 
 ## Slices
 
-- [VMC-050a1](VMC-050a1.md): explosions and primed TNT.
-- [VMC-050a2](VMC-050a2.md): falling blocks.
+- [VMC-050a1](VMC-050a1.md): explosions and primed TNT (Awaiting client).
+- [VMC-050a2](VMC-050a2.md): falling blocks (Awaiting client).

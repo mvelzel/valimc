@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::facts::StateFacts;
 use crate::worldgen::blocks::{
-    BlockSet, BlockTable, FLUID_FLOWING_WATER, FLUID_WATER, MOSSY_CARPET, STURDY,
+    BlockSet, BlockTable, FALLING, FLUID_FLOWING_WATER, FLUID_WATER, MOSSY_CARPET, STURDY,
 };
 use crate::worldgen::end::Chorus;
 use crate::worldgen::json::Json;
@@ -30,6 +30,9 @@ use fire::Fire;
 use redstone::RedstoneWire;
 use shapes::Shapes;
 use support::Support;
+
+/// The delay of a falling block's fall check (`getDelayAfterPlace`), VMC-050a2.
+const FALL_DELAY: i32 = 2;
 
 /// Water's tick delay (`WaterFluid.getTickDelay`).
 pub const WATER_DELAY: i32 = 5;
@@ -184,6 +187,9 @@ impl Rules {
         {
             access.schedule_fluid_tick(pos, FLUID_WATER, WATER_DELAY);
         }
+        if self.falls(state) {
+            return Ok(self.falling_update(access, state, pos, replaced));
+        }
         if let Some(result) = self.code_update(access, state, pos, d, replaced, true) {
             return result;
         }
@@ -209,10 +215,15 @@ impl Rules {
         }
     }
 
-    /// What placing `state` at `pos` schedules: a coral block away from water
-    /// its death (`CoralBlock.getStateForPlacement`).
+    /// What placing `state` at `pos` schedules: a falling block its check
+    /// (`FallingBlock.onPlace`, VMC-050a2), a coral block away from water its
+    /// death (`CoralBlock.getStateForPlacement`).
     pub fn placed(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) {
         let table = self.table.as_ref();
+        if self.falls(state) {
+            access.schedule_block_tick(pos, table.block_of(state), FALL_DELAY);
+            return;
+        }
         if table.class_name(state) != "CoralBlock" {
             return;
         }
@@ -360,6 +371,43 @@ impl Rules {
             }
         }
         Ok(new_state)
+    }
+
+    /// Whether `state`'s block falls (a `FallingBlock`, VMC-050a2).
+    fn falls(&self, state: u16) -> bool {
+        self.table.flag2(state, FALLING)
+    }
+
+    /// A falling block's `updateShape` in live play: it checks for a fall two
+    /// ticks out; concrete powder beside water whose face toward it is not
+    /// sturdy hardens (`ConcretePowderBlock.touchesLiquid`, which never looks
+    /// down).
+    fn falling_update(
+        &self,
+        access: &mut dyn BlockAccess,
+        state: u16,
+        pos: [i32; 3],
+        replaced: Option<([i32; 3], u16)>,
+    ) -> u16 {
+        let table = self.table.as_ref();
+        access.schedule_block_tick(pos, table.block_of(state), FALL_DELAY);
+        if table.class_name(state) != "ConcretePowderBlock" {
+            return state;
+        }
+        let wet = (1..6).any(|d| {
+            let neighbour = match replaced {
+                Some((p, s)) if p == at(pos, d) => s,
+                _ => access.get(at(pos, d)),
+            };
+            let fluid = table.fluid(neighbour);
+            (fluid == FLUID_WATER || fluid == FLUID_FLOWING_WATER)
+                && !table.flag(neighbour, STURDY << (d ^ 1))
+        });
+        let name = &table.names[table.block_of(state) as usize];
+        match name.strip_suffix("_powder") {
+            Some(concrete) if wet => table.default_state(concrete).unwrap_or(state),
+            _ => state,
+        }
     }
 
     /// The corals' `updateShape` (VMC-025f): a live coral without water

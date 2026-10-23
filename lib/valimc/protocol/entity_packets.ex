@@ -13,7 +13,7 @@ defmodule Valimc.Protocol.EntityPackets do
   @doc """
   The spawn of an entity of `type` (`ClientboundAddEntityPacket`): its
   position, motion, pitch, yaw and head yaw (`head_yaw`, else its yaw) and the
-  type's spawn data (0 for every kind modelled so far).
+  type's spawn data (`data`, 0 unless given: a falling block's state).
   """
   def spawn(%{entity_id: id, uuid: uuid, x: x, y: y, z: z} = entity, type) do
     entity_id!(id)
@@ -34,7 +34,8 @@ defmodule Valimc.Protocol.EntityPackets do
       Wire.varint(EntityTypes.id(type)),
       <<x::float-64, y::float-64, z::float-64>>,
       PackedVelocity.encode(Map.get(entity, :velocity, {0.0, 0.0, 0.0})),
-      <<pitch, yaw, head, 0>>
+      <<pitch, yaw, head>>,
+      Wire.varint(Map.get(entity, :data, 0))
     ])
   end
 
@@ -213,7 +214,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :experience_value,
               :mob_flags,
               :tnt_fuse,
-              :tnt_block_state
+              :tnt_block_state,
+              :falling_block_start_pos
             ] do
     fact = EntityTypes.field(name)
 
@@ -253,6 +255,14 @@ defmodule Valimc.Protocol.EntityPackets do
         :tnt_block_state ->
           check(is_integer(value) and value >= 0, "invalid block state")
           Wire.varint(value)
+
+        :falling_block_start_pos ->
+          check(
+            match?({x, y, z} when is_integer(x) and is_integer(y) and is_integer(z), value),
+            "invalid block position"
+          )
+
+          Wire.position(value)
 
         :experience_value ->
           check(is_integer(value) and value in 1..2_147_483_647, "invalid experience value")

@@ -702,6 +702,11 @@ STAGES = [
         ('java', 'TntTravelOracle', '@tnt-travel.json'),
         ('check', 'check_tnt_travel.exs', '@tnt-travel.json'),
     ]),
+    # VMC-050a2: falling blocks' motion, landing and drops, and which cells they fall into.
+    ('falling_block', [
+        ('java', 'FallingBlockOracle', '@falling-block.json'),
+        ('check', 'check_falling_block.exs', '@falling-block.json'),
+    ]),
     ('container_drop', [
         ('java', 'ContainerDropOracle', '@container-drop.json'),
         ('check', 'check_container_drop.exs', '@container-drop.json'),

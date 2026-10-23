@@ -30,7 +30,7 @@ defmodule Valimc.World.RegionData do
 
   alias Valimc.Worldgen.Generator
 
-  alias Valimc.Entity.{Publication, Store, ExperienceOrbs, Handoffs, Tracking, ItemMerges}
+  alias Valimc.Entity.{Body, Publication, Store, ExperienceOrbs, Handoffs, Tracking, ItemMerges}
   alias Valimc.World.ContainerSpills
 
   alias Valimc.Data.Error
@@ -533,7 +533,11 @@ defmodule Valimc.World.RegionData do
     state =
       if bodies == [] or write_busy(state) != nil,
         do: state,
-        else: step_block_bodies(state, BlockBodies.tick(bodies, Clock.border_snapshot()))
+        else:
+          step_block_bodies(
+            state,
+            BlockBodies.tick(bodies, Clock.border_snapshot(), &read_block(state, &1))
+          )
 
     start_craters(state)
   end
@@ -541,45 +545,151 @@ defmodule Valimc.World.RegionData do
   defp step_block_bodies(state, steps) do
     route = route_key(state)
 
-    {store, moves, explosions} =
-      Enum.reduce(steps, {state.entities.store, [], []}, fn
-        {:moved, id, revision, {x, _, z} = position, body}, {store, moves, explosions} ->
-          destination = Grid.section(state.dimension, Grid.chunk_key(x, z))
-          %{x: ox, y: oy, z: oz} = store.entries[id].entity
-          here = if destination == route, do: position, else: {ox, oy, oz}
+    start = %{
+      store: state.entities.store,
+      moves: [],
+      explosions: [],
+      edits: %{},
+      records: [],
+      events: [],
+      hurts: []
+    }
 
-          case Store.step_body(store, state.key, id, revision, here, body) do
-            {:ok, next, {_, _, next_revision}} when destination != route ->
-              {next,
-               [{destination, %{id: id, revision: next_revision, position: position}} | moves],
-               explosions}
-
-            {:ok, next, _} ->
-              {next, moves, explosions}
-
-            _ ->
-              {store, moves, explosions}
-          end
-
-        {:explode, id, revision, position}, {store, moves, explosions} ->
-          case Store.remove(store, store.epoch, id, revision) do
-            {:ok, next} -> {next, moves, [Explosion.tnt(position) | explosions]}
-            _ -> {store, moves, explosions}
-          end
-      end)
-
-    state = put_entities(state, store)
+    acc = Enum.reduce(steps, start, &block_body_step(&1, &2, state.dimension, route, state.key))
+    state = put_entities(state, acc.store)
 
     # A body that crossed into a sibling section goes there in this commit;
     # one bound for another group stays (groups keep loaded chunks apart).
     state =
-      Enum.reduce(Enum.reverse(moves), state, fn {destination, step}, acc ->
-        if local_destination?(acc, destination),
-          do: move_to_sibling(acc, destination, [step]),
-          else: acc
+      Enum.reduce(Enum.reverse(acc.moves), state, fn {destination, step}, next ->
+        if local_destination?(next, destination),
+          do: move_to_sibling(next, destination, [step]),
+          else: next
       end)
 
-    Enum.reduce(Enum.reverse(explosions), state, &explode(&2, &1))
+    state =
+      state
+      |> commit_landings(acc.edits, Enum.reverse(acc.records))
+      |> rule_events(Enum.reverse(acc.events))
+
+    state = Enum.reduce(Enum.reverse(acc.hurts), state, &falling_hit(&2, &1))
+    Enum.reduce(Enum.reverse(acc.explosions), state, &explode(&2, &1))
+  end
+
+  defp block_body_step(
+         {:moved, id, revision, {x, _, z} = position, body},
+         acc,
+         dimension,
+         route,
+         key
+       ) do
+    destination = Grid.section(dimension, Grid.chunk_key(x, z))
+    %{x: ox, y: oy, z: oz} = acc.store.entries[id].entity
+    here = if destination == route, do: position, else: {ox, oy, oz}
+
+    case Store.step_body(acc.store, key, id, revision, here, body) do
+      {:ok, next, {_, _, next_revision}} when destination != route ->
+        move = {destination, %{id: id, revision: next_revision, position: position}}
+        %{acc | store: next, moves: [move | acc.moves]}
+
+      {:ok, next, _} ->
+        %{acc | store: next}
+
+      _ ->
+        acc
+    end
+  end
+
+  defp block_body_step({:hurt, box, amount}, acc, _, _, _),
+    do: %{acc | hurts: [{box, amount} | acc.hurts]}
+
+  defp block_body_step(step, acc, _, _, _) do
+    {id, revision} = {elem(step, 1), elem(step, 2)}
+
+    case Store.remove(acc.store, acc.store.epoch, id, revision) do
+      {:ok, store} -> gone(step, %{acc | store: store})
+      _ -> acc
+    end
+  end
+
+  defp gone({:explode, _, _, position}, acc),
+    do: %{acc | explosions: [Explosion.tnt(position) | acc.explosions]}
+
+  defp gone({:land, _, _, cell, block, events}, acc),
+    do: %{
+      acc
+      | edits: Map.put(acc.edits, cell, block),
+        events: level_events(cell, events) ++ acc.events
+    }
+
+  defp gone({:drop, _, _, {x, y, z}, block, events}, acc) do
+    stack =
+      Valimc.Protocol.ItemStack.new(Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(block)))
+
+    [vx, vz] = for _ <- 1..2, do: :rand.uniform_real() * 0.2 - 0.1
+
+    # `spawnAtLocation`: at the body, launched as a new item entity is.
+    record = %{
+      uuid: :crypto.strong_rand_bytes(16),
+      x: x,
+      y: y,
+      z: z,
+      stack: stack,
+      motion: %Valimc.Entity.ItemMotionState{velocity: {vx, 0.2, vz}, pickup_delay: 10}
+    }
+
+    cell = {floor(x), floor(y), floor(z)}
+    %{acc | records: [record | acc.records], events: level_events(cell, events) ++ acc.events}
+  end
+
+  defp gone({:discard, _, _, {x, y, z}, events}, acc),
+    do: %{acc | events: level_events({floor(x), floor(y), floor(z)}, events) ++ acc.events}
+
+  defp level_events(cell, events), do: Enum.reverse(for(event <- events, do: {cell, event, 0}))
+
+  # Landed falling blocks place in this section's next frame with their
+  # updates (`setBlockAndUpdate`); dropped ones' items join the store.
+  defp commit_landings(state, edits, records) do
+    state =
+      with true <- map_size(edits) > 0,
+           {:ok, batch} <- BlockBatch.prepare(edits),
+           {:ok, proposal} <- block_proposal(state, batch) do
+        publish_blocks(state, batch, proposal)
+      else
+        _ -> state
+      end
+
+    cond do
+      records == [] ->
+        state
+
+      planning?(state) ->
+        %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}}
+
+      true ->
+        adopt_drops(state, records)
+    end
+  end
+
+  # An anvil landing on living entities (VMC-050a2): this section's mobs in
+  # its box, and the group's players by their sessions.
+  defp falling_hit(state, {box, amount}) do
+    store =
+      Enum.reduce(state.entities.store.entries, state.entities.store, fn
+        {id, %{kind: :mob, body: body} = entry}, acc ->
+          if Explosion.box_hit?(entry, box) do
+            {hurt, events} = Body.hurt(body, :falling_anvil, amount)
+            Store.change_body(acc, id, hurt, events)
+          else
+            acc
+          end
+
+        _, acc ->
+          acc
+      end)
+
+    effect = {:players, {:falling_block, box, amount}}
+    %{put_entities(state, store) | sibling_effects: state.sibling_effects ++ [effect]}
   end
 
   # An explosion (VMC-050a, `Valimc.World.Explosion`): its reach as the rows
@@ -2303,13 +2413,22 @@ defmodule Valimc.World.RegionData do
     state = schedule_ticks(state, effects)
     edits = for {:set, position, block} <- effects, into: %{}, do: {position, block}
 
-    with true <- map_size(edits) > 0,
-         {:ok, batch} <- BlockBatch.prepare(edits),
-         {:ok, proposal} <- block_proposal(state, batch) do
-      publish_blocks(state, batch, proposal)
-    else
-      _ -> state
-    end
+    # A block that falls (VMC-050a2) leaves its fluid and becomes a falling
+    # block at its cell's bottom centre (`FallingBlockEntity.fall`).
+    falls = for {:fall, position, block} <- effects, do: {position, block}
+
+    edits =
+      Enum.reduce(falls, edits, fn {p, b}, acc ->
+        Map.put(acc, p, Valimc.Data.BlockFacts.fluid_remains(b))
+      end)
+
+    records =
+      for {{x, y, z} = position, block} <- falls do
+        body = Body.falling_block(Valimc.Blocks.FallingBlock.falling_state(block), position)
+        Store.body_record(body, :crypto.strong_rand_bytes(16), {x + 0.5, y * 1.0, z + 0.5})
+      end
+
+    commit_landings(state, edits, records)
   end
 
   defp schedule_ticks(state, effects) do

@@ -160,6 +160,9 @@ defmodule Valimc.World.Explosion do
         do: Grid.region_key({cx, cz})
   end
 
+  @doc "Whether store `entry`'s box meets `box` (`{x0, y0, z0, x1, y1, z1}`)."
+  def box_hit?(entry, box), do: intersects?(box(entry), box)
+
   # An entity's box and the point it is pushed from.
   defp box(%{kind: kind, entity: %{x: x, y: y, z: z}} = entry) do
     {width, height} = size(kind, entry)

@@ -82,6 +82,10 @@
       "index": 8,
       "serializer": 1
     },
+    "falling_block_start_pos": {
+      "index": 8,
+      "serializer": 10
+    },
     "frozen_ticks": {
       "index": 7,
       "serializer": 1

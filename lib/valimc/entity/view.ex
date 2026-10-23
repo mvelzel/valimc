@@ -51,6 +51,7 @@ defmodule Valimc.Entity.View do
         _ ->
           entity
           |> Map.merge(Map.take(view, [:yaw, :pitch, :head_yaw]))
+          |> Map.put(:data, Valimc.Entity.Body.spawn_data(view.body))
           |> EntityPackets.spawn(view.type)
       end
     )

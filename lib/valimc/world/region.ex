@@ -825,7 +825,14 @@ defmodule Valimc.World.Region do
 
   # A section's call that concerns the group's players (VMC-050a): an
   # explosion goes to each hosted player of its dimension within 64 blocks,
-  # whose session takes its hit and packet (`Valimc.Player.Explosions`).
+  # whose session takes its hit and packet (`Valimc.Player.Explosions`); a
+  # landing anvil to each of its dimension, whose session checks its box.
+  defp deliver_players(state, {:falling_block, _box, _amount} = message) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
+      if player.dimension == state.dimension, do: Host.info(acc, uuid, message), else: acc
+    end)
+  end
+
   defp deliver_players(state, {:explosion, %{center: {cx, cy, cz}}, _} = message) do
     Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
       dx = player.x - cx

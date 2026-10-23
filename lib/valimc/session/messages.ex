@@ -297,6 +297,10 @@ defmodule Valimc.Session.Messages do
   def info({:explosion, explosion, count}, state),
     do: {:noreply, Valimc.Player.Explosions.hit(state, explosion, count)}
 
+  # An anvil landing (VMC-050a2), from its group.
+  def info({:falling_block, box, amount}, state),
+    do: {:noreply, Valimc.Player.Explosions.falling_block(state, box, amount)}
+
   def info(message, state) do
     Logger.warning("Connection ignored unexpected message: #{inspect(message, limit: 8)}")
     {:noreply, state}

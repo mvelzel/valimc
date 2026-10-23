@@ -76,7 +76,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-043a](tickets/VMC-043a.md) | Summoned zombie and primed TNT seen, killed, teleported across a group line and kept over a restart |
 | [VMC-031a](tickets/VMC-031a.md) | A bucket-built Nether portal frame (obsidian from lava and water), lit and entered |
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
-| [VMC-050a1](tickets/VMC-050a1.md) | TNT lit by flint and steel explodes: crater, drops, chained TNT, a survival player hurt and pushed |
+| [VMC-050a1](tickets/VMC-050a1.md), [050a2](tickets/VMC-050a2.md) | TNT lit by flint and steel explodes (crater, drops, chained TNT, a player hurt and pushed); sand, gravel, powder and anvils fall and land |
 
 ## Retrieve and update
 

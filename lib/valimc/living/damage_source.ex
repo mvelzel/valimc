@@ -11,7 +11,7 @@ defmodule Valimc.Living.DamageSource do
   alias Valimc.Protocol.DamageTypes
   @messages @facts["keys"]
   @types @facts["types"]
-  unless map_size(@messages) == 19 and Map.keys(@types) == Map.keys(@messages),
+  unless map_size(@messages) == 21 and Map.keys(@types) == Map.keys(@messages),
     do: raise("Wrong native death message keys")
 
   defstruct [:type, causing: nil, direct: nil]

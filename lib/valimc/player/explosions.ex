@@ -8,6 +8,9 @@ defmodule Valimc.Player.Explosions do
   is the packet's knockback unless the player flies in creative, and the
   server's own velocity takes it as vanilla's `push` does. Explosion
   knockback resistance (Blast Protection) is not modelled yet.
+
+  A landing anvil (VMC-050a2) hurts a living player in its box who is in
+  neither creative nor spectator mode (`FallingBlockEntity.causeFallDamage`).
   """
   alias Valimc.Data.PlayerPose
   alias Valimc.Living.{DamageSource, Explosions, Health}
@@ -54,7 +57,7 @@ defmodule Valimc.Player.Explosions do
     else
       {:ok, [seen]} = Kernel.exposure(Valimc.World.View.new(), center, [geometry.box])
       damage = Explosions.damage(radius, center, feet, seen)
-      state = hurt(state, damage)
+      state = hurt(state, damage, :explosion)
       impulse = Explosions.knockback(center, geometry.eye, distance, seen)
       state = push(state, impulse)
 
@@ -63,19 +66,31 @@ defmodule Valimc.Player.Explosions do
     end
   end
 
+  @doc "The session after an anvil landing in `box` with `amount` of damage."
+  def falling_block(%{phase: :play, player: player} = state, box, amount) do
+    {:ok, geometry} =
+      PlayerPose.geometry(Map.get(player, :pose, :standing), {player.x, player.y, player.z})
+
+    if player.game_mode.current in [:survival, :adventure] and intersects?(geometry.box, box),
+      do: hurt(state, amount, :falling_anvil),
+      else: state
+  end
+
+  def falling_block(state, _box, _amount), do: state
+
   # `Player.hurtServer`: a source that scales takes the difficulty's share;
   # no damage is no hit.
-  defp hurt(state, damage) do
+  defp hurt(state, damage, source) do
     {difficulty, _} = Valimc.World.Clock.difficulty()
 
     amount =
-      if DamageSource.scales_with_difficulty?(:explosion),
+      if DamageSource.scales_with_difficulty?(source),
         do: Explosions.scale(damage, difficulty.level),
         else: damage
 
     with true <- amount > 0.0,
          {:ok, selected} <- Health.hurt_window(state.player.living.health, amount) do
-      {_, state} = Vitals.apply_damage(state, selected, :explosion)
+      {_, state} = Vitals.apply_damage(state, selected, source)
       state
     else
       _ -> state

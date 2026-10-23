@@ -9,6 +9,7 @@ defmodule Valimc.Blocks do
   alias Valimc.Blocks.{
     BuddingAmethyst,
     Chest,
+    FallingBlock,
     Furnace,
     Coral,
     Default,
@@ -30,7 +31,12 @@ defmodule Valimc.Blocks do
     "RotatedPillarBlock" => Pillar,
     "CoralBlock" => Coral,
     "BuddingAmethystBlock" => BuddingAmethyst,
-    "NetherPortalBlock" => NetherPortal
+    "NetherPortalBlock" => NetherPortal,
+    "ColoredFallingBlock" => FallingBlock,
+    "SandBlock" => FallingBlock,
+    "ConcretePowderBlock" => FallingBlock,
+    "AnvilBlock" => FallingBlock,
+    "DragonEggBlock" => FallingBlock
   }
   @modules List.to_tuple([Default | Enum.uniq(Enum.sort(Map.values(@classes)))])
   @module_index @modules |> Tuple.to_list() |> Enum.with_index() |> Map.new()
@@ -54,6 +60,13 @@ defmodule Valimc.Blocks do
                elem(@modules, :binary.at(@by_state, state)) == Furnace
            end),
          do: raise("Block behaviour classes do not cover the owned block entities")
+
+  # Every `FallingBlock` falls (VMC-050a2), and only those.
+  unless Enum.all?(0..(@count - 1), fn state ->
+           Valimc.Data.BlockFacts.flag?(state, :falling) ==
+             (elem(@modules, :binary.at(@by_state, state)) == FallingBlock)
+         end),
+         do: raise("Falling block classes differ from the falling block facts")
 
   @entity_values for(
                    state <- 0..(@count - 1),

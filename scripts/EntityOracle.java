@@ -273,6 +273,7 @@ public class EntityOracle {
     fields.put("zombie_drowned_conversion", field(Zombie.class, "DATA_DROWNED_CONVERSION_ID"));
     fields.put("tnt_fuse", field(PrimedTnt.class, "DATA_FUSE_ID"));
     fields.put("tnt_block_state", field(PrimedTnt.class, "DATA_BLOCK_STATE_ID"));
+    fields.put("falling_block_start_pos", field(net.minecraft.world.entity.item.FallingBlockEntity.class, "DATA_START_POS"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

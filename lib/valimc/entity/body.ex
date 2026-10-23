@@ -29,7 +29,8 @@ defmodule Valimc.Entity.Body do
             mob: nil
 
   @tnt "minecraft:tnt"
-  @modelled MapSet.new(["minecraft:zombie", @tnt])
+  @falling "minecraft:falling_block"
+  @modelled MapSet.new(["minecraft:zombie", @tnt, @falling])
 
   @doc "Whether type `type` is modelled (it can be summoned and stored)."
   def modelled?(type), do: MapSet.member?(@modelled, type)
@@ -62,8 +63,38 @@ defmodule Valimc.Entity.Body do
     %{body | velocity: velocity, data: %{body.data | fuse: fuse}}
   end
 
-  # A type's own data and its defaults (`PrimedTnt.defineSynchedData`).
+  @doc """
+  A falling block of `state` that left cell `start` (VMC-050a2,
+  `FallingBlockEntity.fall`): still, its time at 0; an anvil hurts what it
+  lands on.
+  """
+  def falling_block(state, {_, _, _} = start) do
+    {:ok, body} = new(@falling)
+    anvil = Blocks.class(state) == "AnvilBlock"
+    %{body | data: %{body.data | block_state: state, start: start, hurts: anvil}}
+  end
+
+  @doc "The type's spawn data (`getAddEntityPacket`): a falling block's state, else 0."
+  def spawn_data(%__MODULE__{type: @falling, data: %{block_state: state}}), do: state
+  def spawn_data(_body), do: 0
+
+  # A type's own data and its defaults (`PrimedTnt.defineSynchedData`,
+  # `FallingBlockEntity`'s fields: its state, ticks fallen, fall distance,
+  # start cell, whether it hurts what it lands on, drops an item where it
+  # cannot land, or breaks without one).
   defp data(@tnt), do: %{fuse: 80, block_state: Blocks.default_state("tnt")}
+
+  defp data(@falling),
+    do: %{
+      block_state: Blocks.default_state("sand"),
+      time: 0,
+      fall_distance: 0.0,
+      start: {0, 0, 0},
+      hurts: false,
+      drops: true,
+      cancel_drop: false
+    }
+
   defp data(_type), do: %{}
 
   @doc "The fields a record saves of `body` (position and uuid are the entry's)."
@@ -193,6 +224,9 @@ defmodule Valimc.Entity.Body do
       {:tnt_fuse, data.fuse, 80},
       {:tnt_block_state, data.block_state, Blocks.default_state("tnt")}
     ]
+
+  defp own(%__MODULE__{type: @falling, data: data}),
+    do: [{:falling_block_start_pos, data.start, {0, 0, 0}}]
 
   defp own(_body), do: []
 
