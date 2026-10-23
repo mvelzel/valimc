@@ -2857,6 +2857,105 @@
       },
       "goals": [],
       "targets": []
+    },
+    "minecraft:iron_golem": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "MoveTowardsTargetGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "MoveBackToVillageGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "GolemRandomStrollInVillageGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "OfferFlowerGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "DefendVillageTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          4,
+          "ResetUniversalAngerTargetGoal",
+          []
+        ]
+      ]
     }
   },
   "shulker_look": [

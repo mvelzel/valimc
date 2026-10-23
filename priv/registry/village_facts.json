@@ -1221,6 +1221,10 @@
     }
   },
   "sounds": {
+    "minecraft:entity.iron_golem.attack": 901,
+    "minecraft:entity.iron_golem.damage": 902,
+    "minecraft:entity.iron_golem.repair": 905,
+    "minecraft:entity.iron_golem.step": 906,
     "minecraft:entity.villager.ambient": 1699,
     "minecraft:entity.villager.celebrate": 1700,
     "minecraft:entity.villager.death": 1701,

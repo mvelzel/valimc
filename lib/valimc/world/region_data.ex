@@ -1207,7 +1207,15 @@ defmodule Valimc.World.RegionData do
 
       # Melee hits on mobs (a guardian's beam on a squid, VMC-043e).
       mob_attacks =
-        for step <- steps, {:attack, {:mob, target}} <- step.effects, do: {step.id, target}
+        for step <- steps, {:attack, {:mob, target}} <- step.effects do
+          extras =
+            Enum.find_value(step.effects, %{}, fn
+              {:attack_extra, {:mob, ^target}, extras} -> extras
+              _ -> nil
+            end)
+
+          {step.id, target, extras}
+        end
 
       # Players an elder guardian curses (VMC-043e).
       curses =
@@ -1260,7 +1268,9 @@ defmodule Valimc.World.RegionData do
       # Mobs a spawn brought (a chicken jockey's chicken, VMC-043b) and the
       # chickens that became jockeys.
       companions =
-        for step <- steps, {:spawn, type, opts} <- step.effects, do: {step.position, type, opts}
+        for step <- steps,
+            {:spawn, type, opts} <- step.effects,
+            do: {Map.get(opts, :position, step.position), type, opts}
 
       # Mobs a spawn made and finished at once (a spider jockey's skeleton).
       made =
@@ -1496,14 +1506,15 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Mob `id`'s melee hit (`doHurtTarget`) on mob `uuid`.
-  defp mob_attack_mob({id, uuid}, state) do
+  # Mob `id`'s melee hit (`doHurtTarget`) on mob `uuid`, with what its
+  # family adds to the hit (an iron golem's, VMC-044a2).
+  defp mob_attack_mob({id, uuid, own}, state) do
     store = state.entities.store
 
     with {:ok, {_, sid, _}} <- Store.find(store, uuid),
          %{body: %Body{type: type}} <- store.entries[sid],
          {:ok, hit} <- Valimc.Entity.Combat.mob_hit(store, id, type) do
-      elem(projectile_hurt(state, %{ref: {:mob, sid}}, hit), 1)
+      elem(projectile_hurt(state, %{ref: {:mob, sid}}, Map.merge(hit, own)), 1)
     else
       _ -> state
     end
@@ -1919,6 +1930,25 @@ defmodule Valimc.World.RegionData do
       | yaw: opts.yaw,
         head_yaw: opts.yaw,
         data: %{body.data | jockey: true},
+        mob: %{
+          mob
+          | left_handed: opts.left_handed,
+            attributes: Map.put(mob.attributes, follow, entry)
+        }
+    }
+  end
+
+  # A mob another summoned (a villagers' iron golem, VMC-044a2): its
+  # `finalizeSpawn` was drawn when it was made.
+  defp companion(body, %{summoned: true} = opts) do
+    mob = body.mob
+    follow = "minecraft:follow_range"
+    entry = %{base: nil, modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]}
+
+    %{
+      body
+      | yaw: opts.yaw,
+        head_yaw: opts.yaw,
         mob: %{
           mob
           | left_handed: opts.left_handed,

@@ -43,8 +43,9 @@ defmodule Valimc.AI.Kind do
     hit it takes nothing from), `repelled/2` (what turning one away leaves
     on its body: an enderman's teleport), `sound/2` (its hurt or death
     sound, nil for its type's), `hurt/2` (what a hurt leaves on its
-    body) and `death_drops/1` (stacks it drops on death beside its
-    equipment: an enderman's block).
+    body), `death_drops/1` (stacks it drops on death beside its
+    equipment: an enderman's block) and `hurt_events/2` (the entity events
+    a hurt adds, from the body after it and its health before, VMC-044a2).
   - Its fights and gear (VMC-043b): `hit/2` (what its `doHurtTarget` adds
     to a melee hit), `wants?/2` and `can_hold?/2` (an item id it picks up,
     `Valimc.AI.Pickup`), `preferred_weapons/1`, `voice/2` (the base of its
@@ -61,6 +62,7 @@ defmodule Valimc.AI.Kind do
     its loot table reads of it), `experience/1` (its `xpReward`) and
     `split/2` (the bodies a dead one leaves as it is removed, with their
     positions).
+  - Its targets: `can_attack?/2` (`canAttack` beyond `Mob`'s, VMC-044a2).
   """
   alias Valimc.AI.Self
 
@@ -111,6 +113,8 @@ defmodule Valimc.AI.Kind do
   @callback loot_properties(struct) :: [{String.t(), String.t()}]
   @callback experience(struct) :: non_neg_integer
   @callback split(struct, tuple) :: [{struct, tuple}]
+  @callback hurt_events(struct, float) :: list
+  @callback can_attack?(Self.t(), map) :: boolean
 
   @optional_callbacks leashable?: 0,
                       volume: 1,
@@ -156,5 +160,7 @@ defmodule Valimc.AI.Kind do
                       swim_sound: 0,
                       dying?: 0,
                       walk_value: 2,
-                      falls?: 0
+                      falls?: 0,
+                      hurt_events: 2,
+                      can_attack?: 2
 end

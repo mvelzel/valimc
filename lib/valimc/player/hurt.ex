@@ -162,6 +162,14 @@ defmodule Valimc.Player.Hurt do
               state
           end
 
+        # An iron golem's hit throws the player up (VMC-044a2), less its
+        # knockback resistance.
+        state =
+          case hit[:lift] do
+            lift when is_number(lift) and result in [:hurt, :dead] -> lift(state, lift)
+            _ -> state
+          end
+
         # A burning arrow or small fireball sets the player on fire (VMC-037o).
         state =
           case hit[:ignite] do
@@ -269,8 +277,12 @@ defmodule Valimc.Player.Hurt do
   `knockback` on a player at `velocity` (on the ground or not), resisted by
   the knockback resistance of its `equipment`.
   """
-  def knockback_velocity(velocity, on_ground, power, direction, equipment) do
-    resistance =
+  def knockback_velocity(velocity, on_ground, power, direction, equipment),
+    do: Melee.knockback(velocity, on_ground, power, direction, resistance(equipment))
+
+  # The player's knockback resistance with what its `equipment` adds.
+  defp resistance(equipment),
+    do:
       Attributes.value(
         "minecraft:knockback_resistance",
         Weapons.player_base("minecraft:knockback_resistance"),
@@ -280,9 +292,6 @@ defmodule Valimc.Player.Hurt do
           do: {id, amount, op}
         )
       )
-
-    Melee.knockback(velocity, on_ground, power, direction, resistance)
-  end
 
   # Knockback on the session's player: its new velocity reaches its client.
   defp knockback(state, power, direction) do
@@ -297,6 +306,16 @@ defmodule Valimc.Player.Hurt do
         Armor.equipment(state.inventory)
       )
 
+    state = %{state | player: %{state.player | motion: %{motion | velocity: velocity}}}
+    Movement.send_velocity(state, velocity)
+    state
+  end
+
+  defp lift(state, lift) do
+    motion = state.player.motion
+    resistance = resistance(Armor.equipment(state.inventory))
+    {vx, vy, vz} = motion.velocity
+    velocity = {vx, vy + lift * max(0.0, 1.0 - resistance), vz}
     state = %{state | player: %{state.player | motion: %{motion | velocity: velocity}}}
     Movement.send_velocity(state, velocity)
     state

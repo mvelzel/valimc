@@ -40207,6 +40207,46 @@
       }
     ]
   },
+  "minecraft:entities/iron_golem": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/iron_golem",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:poppy",
+            "modifier": {
+              "count": {
+                "min": 0,
+                "max": 2,
+                "type": "minecraft:uniform"
+              },
+              "type": "minecraft:set_count"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:iron_ingot",
+            "modifier": {
+              "count": {
+                "min": 3,
+                "max": 5,
+                "type": "minecraft:uniform"
+              },
+              "type": "minecraft:set_count"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/magma_cube": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/magma_cube",

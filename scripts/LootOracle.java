@@ -80,8 +80,8 @@ public class LootOracle {
       "minecraft:entities/guardian", "minecraft:entities/elder_guardian",
       // VMC-043c: farm animals.
       "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit",
-      // VMC-044a: villagers.
-      "minecraft:entities/villager");
+      // VMC-044a: villagers and iron golems.
+      "minecraft:entities/villager", "minecraft:entities/iron_golem");
   // VMC-043d: what a piglin gives for a gold ingot.
   static final String BARTERING = "minecraft:gameplay/piglin_bartering";
   // VMC-043c: what shearing an animal and a laying hen give (AnimalOracle checks them).

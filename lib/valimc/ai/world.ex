@@ -201,7 +201,7 @@ defmodule Valimc.AI.World do
   `canSeeSky` (full sky light) at a block: `sky` reads it (a column's
   lowest sky source); without one, nothing sees the sky.
   """
-  def sky?(%__MODULE__{sky: nil}, _position), do: false
+  def sky?(%__MODULE__{sky: nil} = world, position), do: sees_sky?(world, position)
   def sky?(%__MODULE__{sky: sky}, position), do: sky.(position)
 
   @doc "`isOutsideBuildHeight`."
@@ -236,9 +236,10 @@ defmodule Valimc.AI.World do
   end
 
   @doc "`Mob.canAttack` of `target` (players only while not peaceful)."
-  def can_attack?(%Self{world: world}, target) do
+  def can_attack?(%Self{world: world} = self, target) do
     not (target.kind == :player and world.difficulty == :peaceful) and seen_as_enemy?(target) and
-      Map.get(target, :type) != "minecraft:ghast"
+      Map.get(target, :type) != "minecraft:ghast" and
+      Valimc.AI.Mobs.hook(self.type, :can_attack?, [self, target], true)
   end
 
   # `canBeSeenAsEnemy`: not invulnerable (a creative player) and seen at all.

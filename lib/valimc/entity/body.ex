@@ -56,7 +56,8 @@ defmodule Valimc.Entity.Body do
                 @falling,
                 @cloud,
                 @knot,
-                @villager
+                @villager,
+                "minecraft:iron_golem"
               ] ++
                 Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
             )

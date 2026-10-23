@@ -2,7 +2,8 @@ defmodule Valimc.VillagerRegionTest do
   @moduledoc """
   A villager in its owner (VMC-044a1): by day it claims the bed and the
   lectern beside it and becomes a librarian; at night it lies in its bed,
-  which the owner marks occupied, and its claims go with its record.
+  which the owner marks occupied, and its claims go with its record. An
+  iron golem kills a zombie that hunts a villager (VMC-044a2).
   """
   use ExUnit.Case, async: false
   alias Valimc.AI.Brain
@@ -64,10 +65,15 @@ defmodule Valimc.VillagerRegionTest do
     for _ <- 1..ticks, do: Region.step({pid, nil}, 1)
   end
 
-  defp villager(ctx) do
+  defp villager(ctx), do: body(ctx, 31)
+
+  defp body(ctx, n) do
     store = Valimc.TestRegion.section(ctx.owner).entities.store
-    {:ok, {_, id, _}} = Store.find(store, <<31::128>>)
-    store.entries[id].body
+
+    case Store.find(store, <<n::128>>) do
+      {:ok, {_, id, _}} -> store.entries[id].body
+      _ -> nil
+    end
   end
 
   defp memory(body, name), do: Brain.get(%Valimc.AI.Self{mind: body.mob.ai}, name)
@@ -110,5 +116,30 @@ defmodule Valimc.VillagerRegionTest do
     # Its record keeps what it claimed.
     record = Valimc.AI.Mind.record(villager(ctx).mob.ai)
     assert %{home: {{:overworld, {_, 64, _}}, :never}} = record.memories
+  end
+
+  test "an iron golem kills the zombie hunting a villager", ctx do
+    {x0, z0} = ctx.at
+    :ok = Clock.configure({"minecraft:overworld", :ticks, 18_000})
+
+    records =
+      for {n, type, x} <- [
+            {31, "villager", x0 - 4},
+            {32, "zombie", x0 + 4},
+            {33, "iron_golem", x0}
+          ] do
+        {:ok, body} = Body.new("minecraft:" <> type)
+        Store.body_record(body, <<n::128>>, {x + 0.5, 64.0, z0 - 3.5})
+      end
+
+    :ok = Region.drop_items(ctx.owner, records)
+
+    Valimc.TestWait.until(fn ->
+      step(ctx, 10)
+      zombie = body(ctx, 32)
+      zombie == nil or not Body.alive?(zombie)
+    end)
+
+    assert %Body{} = body(ctx, 33)
   end
 end

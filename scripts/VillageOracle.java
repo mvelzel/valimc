@@ -40,7 +40,8 @@ public class VillageOracle {
   static final List<String> SOUNDS = List.of(
       "minecraft:entity.villager.ambient", "minecraft:entity.villager.trade", "minecraft:entity.villager.no",
       "minecraft:entity.villager.yes", "minecraft:entity.villager.hurt", "minecraft:entity.villager.death",
-      "minecraft:entity.villager.celebrate");
+      "minecraft:entity.villager.celebrate", "minecraft:entity.iron_golem.attack", "minecraft:entity.iron_golem.damage",
+      "minecraft:entity.iron_golem.repair", "minecraft:entity.iron_golem.step");
 
   static String name(Holder<?> holder) { return holder.unwrapKey().orElseThrow().identifier().toString(); }
 
@@ -288,8 +289,10 @@ public class VillageOracle {
 
   record Block(int x, int y, int z, BlockState state) {}
   /** A mob; `noAi` holds it still (a hostile the villager sees). */
-  record Spawn(String type, Vec3 position, float yaw, long seed, boolean noAi, int age, String profession) {
-    Spawn(String type, Vec3 position, float yaw, long seed) { this(type, position, yaw, seed, false, 0, null); }
+  /** A mob; `noAi` holds it still, `slept` (a game time, or -1) is when a villager last slept. */
+  record Spawn(String type, Vec3 position, float yaw, long seed, boolean noAi, int age, String profession, long slept) {
+    Spawn(String type, Vec3 position, float yaw, long seed) { this(type, position, yaw, seed, false, 0, null, -1L); }
+    Spawn(String type, Vec3 position, float yaw, long seed, boolean noAi, int age, String profession) { this(type, position, yaw, seed, noAi, age, profession, -1L); }
   }
 
   static JsonArray pos(BlockPos p) { var a = new JsonArray(); a.add(p.getX()); a.add(p.getY()); a.add(p.getZ()); return a; }
@@ -329,6 +332,10 @@ public class VillageOracle {
       }
       m.getRandom().setSeed(s.seed);
       m.setNoAi(s.noAi);
+      if (s.slept >= 0) m.getBrain().setMemory(MemoryModuleType.LAST_SLEPT, s.slept);
+      // Scenery: a mob held still takes no knockback either (vanilla's does not
+      // travel; the owner's would be pushed by a hit).
+      if (s.noAi) m.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE).setBaseValue(1.0);
       if (m instanceof Villager v) {
         v.gateSeed = s.seed;
         gates.add(seedGates(m, s.seed));
@@ -347,6 +354,8 @@ public class VillageOracle {
     var pois = new ArrayList<BlockPos>();
     for (var b : blocks) if (net.minecraft.world.entity.ai.village.poi.PoiTypes.hasPoi(b.state)) pois.add(new BlockPos(b.x, b.y, b.z));
     var trace = new JsonArray();
+    level.added = new ArrayList<>();
+    long summoned = 0;
     for (int t = 0; t < ticks; t++) {
       level.time++;
       level.env.invalidateTickCache();
@@ -354,8 +363,22 @@ public class VillageOracle {
         m.checkDespawn();
         m.setOldPosAndRot();
         m.tickCount++;
+        level.current = m;
         m.tick();
+        level.current = null;
       }
+      // What a mob summoned (a golem) ticks from the next tick, its random seeded alike.
+      var spawned = new JsonArray();
+      for (var e : level.added)
+        if (e instanceof net.minecraft.world.entity.Mob mob) {
+          long seed = 1000L + ++summoned;
+          mob.getRandom().setSeed(seed);
+          var o = new JsonObject(); o.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString());
+          o.addProperty("id", mob.getId()); o.addProperty("seed", seed);
+          spawned.add(o);
+          mobs.add(mob); level.entities.add(mob);
+        }
+      level.added.clear();
       var row = new JsonObject();
       var mrows = new JsonArray();
       for (var m : mobs) {
@@ -391,6 +414,13 @@ public class VillageOracle {
           if (v.reseeded != null) { r.add("reseeded", v.reseeded); r.add("order", order(v)); v.reseeded = null; }
           if (System.getenv("VILLAGE_GATES") != null) r.add("gate_orders", gateOrders(v));
         }
+        r.addProperty("health", Float.floatToRawIntBits(m.getHealth()));
+        if (!(m instanceof Villager)) {
+          r.addProperty("goals", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)MobAiOracle.field(net.minecraft.world.entity.Mob.class, "goalSelector").get(m)));
+          r.addProperty("targets", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)MobAiOracle.field(net.minecraft.world.entity.Mob.class, "targetSelector").get(m)));
+          var target = m.getTarget();
+          r.addProperty("target", target == null ? null : target.getId());
+        }
         var path = m.getNavigation().getPath();
         if (path == null || path.isDone()) r.add("path", JsonNull.INSTANCE);
         else {
@@ -406,6 +436,7 @@ public class VillageOracle {
         mrows.add(r);
       }
       row.add("mobs", mrows);
+      row.add("spawned", spawned);
       row.addProperty("level_seed", ((java.util.concurrent.atomic.AtomicLong)seedField.get(levelRandom)).get());
       var taken = new JsonArray();
       for (var p : pois) {
@@ -432,7 +463,7 @@ public class VillageOracle {
       var s = spawns.get(i);
       var o = new JsonObject(); o.addProperty("type", s.type); o.add("position", MobAiOracle.bits(s.position)); o.addProperty("yaw", Float.floatToRawIntBits(s.yaw));
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(i).getId()); o.addProperty("no_ai", s.noAi); o.addProperty("age", s.age);
-      o.addProperty("profession", s.profession);
+      o.addProperty("profession", s.profession); o.addProperty("slept", s.slept);
       ms.add(o);
     }
     out.add("mobs", ms);
@@ -489,6 +520,21 @@ public class VillageOracle {
     // In the evening it meets at the bell.
     cases.add(run(level, "villager_meet", scene(floor(63, 12, stone), List.of(new Block(0, 64, -6, Blocks.BELL.defaultBlockState()))),
         List.of(new Spawn("minecraft:villager", start, 0, 47L)), 8900L, 700));
+    // An iron golem strolls where there is no village; one guards a villager
+    // and kills a zombie standing near (it ticks first, as it was made first).
+    cases.add(run(level, "golem_stroll", floor(63, 12, stone),
+        List.of(new Spawn("minecraft:iron_golem", start, 0, 61L)), 1000L, 600));
+    // (The zombie stands on a pillar: the golem reaches it without touching it.)
+    cases.add(run(level, "golem_defend", scene(floor(63, 12, stone), List.of(new Block(7, 64, 3, stone), new Block(7, 65, 3, stone))),
+        List.of(new Spawn("minecraft:iron_golem", start, 0, 67L), new Spawn("minecraft:villager", new Vec3(-3.5, 64, .5), 0, 71L),
+            new Spawn("minecraft:zombie", new Vec3(7.5, 66, 3.5), 90, 73L, true, 0, null)), 1000L, 300));
+    // Panicking at a zombie, a villager that slept lately and two that agree
+    // summon an iron golem.
+    cases.add(run(level, "villagers_summon_golem", floor(63, 12, stone),
+        List.of(new Spawn("minecraft:villager", start, 0, 79L, false, 0, null, 800L),
+            new Spawn("minecraft:villager", new Vec3(-2.5, 64, -2.5), 0, 83L, true, 0, null, 800L),
+            new Spawn("minecraft:villager", new Vec3(-2.5, 64, 3.5), 0, 89L, true, 0, null, 800L),
+            new Spawn("minecraft:zombie", new Vec3(4.5, 64, .5), 90, 97L, true, 0, null)), 1050L, 160));
     // A zombie close by makes it panic and flee.
     cases.add(run(level, "villager_panic", floor(63, 12, stone),
         List.of(new Spawn("minecraft:villager", start, 0, 53L), new Spawn("minecraft:zombie", new Vec3(5.5, 64, .5), 90, 59L, true, 0, null)), 1000L, 300));
@@ -513,7 +559,7 @@ public class VillageOracle {
     if (args[0].equals("cases")) {
       var out = cases(MobAiOracle.setup(), lookup);
       Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla villager traces (idle, night, morning, job, meet, panic).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla village traces (villagers idle, at night and in the morning, at a job site, meeting, panicking; golems).");
       return;
     }
     throw new IllegalArgumentException("usage: VillageOracle facts|cases OUT.json");

@@ -39,7 +39,8 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Bat,
     Valimc.AI.Mobs.Ghast,
     Valimc.AI.Mobs.MagmaCube,
-    Valimc.AI.Mobs.Villager
+    Valimc.AI.Mobs.Villager,
+    Valimc.AI.Mobs.IronGolem
     | Valimc.Entity.Animal.modules()
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}

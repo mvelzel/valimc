@@ -5,7 +5,8 @@ defmodule Valimc.Data.EntityTypes do
   registry id, category, size and eye height, default attributes (living
   types), fire immunity, loot table, spawn placement and heightmap, whether it
   is saved, summonable, allowed in peaceful and spawned far from players, and its tracking range, update
-  interval and whether its motion is tracked.
+  interval and whether its motion is tracked, and whether it is an `Enemy`
+  (what iron golems attack, VMC-044a2).
   """
   use Valimc.Data.Facts, "registry/entity_facts.json"
   use Valimc.Data.Facts, file: "protocol/tags.json", as: :tags
@@ -23,6 +24,7 @@ defmodule Valimc.Data.EntityTypes do
               saved: type["saved"],
               peaceful: type["peaceful"],
               spawn_far: type["spawn_far"],
+              enemy: type["enemy"],
               tracking_range: type["tracking_range"],
               update_interval: type["update_interval"],
               track_deltas: type["track_deltas"],

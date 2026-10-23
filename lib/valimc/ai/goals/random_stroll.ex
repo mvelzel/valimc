@@ -9,6 +9,8 @@ defmodule Valimc.AI.Goals.RandomStroll do
   (a schooling fish swims alone only when it follows no leader).
   `trigger/1` makes its next update go without the chance (a hurt
   guardian's).
+  A family's stroll (`MoveBackToVillageGoal`, `GolemRandomStrollInVillageGoal`)
+  gives its own `position` (`getPosition`, `fn self -> {pos | nil, self}`).
   """
   use Valimc.AI.Goal
   alias Valimc.AI.RandomPos
@@ -22,6 +24,7 @@ defmodule Valimc.AI.Goals.RandomStroll do
       swim: Keyword.get(opts, :swim, false),
       guard: Keyword.get(opts, :guard),
       probability: Valimc.Data.Float32.round(Keyword.get(opts, :probability, 0.001)),
+      position: Keyword.get(opts, :position),
       force: false,
       wanted: nil
     }
@@ -57,6 +60,7 @@ defmodule Valimc.AI.Goals.RandomStroll do
     end
   end
 
+  defp position(%{position: position}, self) when position != nil, do: position.(self)
   defp position(%{swim: true}, self), do: RandomPos.swimmable(self, 10, 7)
   defp position(%{water_avoiding: false}, self), do: RandomPos.default(self, 10, 7)
 

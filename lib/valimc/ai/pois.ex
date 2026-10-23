@@ -220,6 +220,39 @@ defmodule Valimc.AI.Pois do
     |> min(7)
   end
 
+  @doc """
+  `BehaviorUtils.findSectionClosestToVillage`: of the cube of sections
+  `radius` around `center` (`SectionPos.cube`'s order: x, then y, then z),
+  the first nearest to a village of those nearer than `center`, else
+  `center`.
+  """
+  def closest_village_section(world, {cx, cy, cz} = center, radius) do
+    here = sections_to_village(world, center)
+
+    {best, _} =
+      for(
+        z <- (cz - radius)..(cz + radius),
+        y <- (cy - radius)..(cy + radius),
+        x <- (cx - radius)..(cx + radius),
+        do: {x, y, z}
+      )
+      |> Enum.map(&{&1, sections_to_village(world, &1)})
+      |> Enum.filter(fn {_, d} -> d < here end)
+      |> Enum.min_by(fn {_, d} -> d end, fn -> {center, here} end)
+
+    best
+  end
+
+  @doc "`SectionPos.cube(center, radius)` in its order."
+  def cube({cx, cy, cz}, radius),
+    do:
+      for(
+        z <- (cz - radius)..(cz + radius),
+        y <- (cy - radius)..(cy + radius),
+        x <- (cx - radius)..(cx + radius),
+        do: {x, y, z}
+      )
+
   @doc "`ServerLevel.isVillage(pos)` (`isCloseToVillage(pos, 1)`)."
   def village?(world, pos), do: sections_to_village(world, section(pos)) <= 1
 

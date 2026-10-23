@@ -54,8 +54,8 @@ public class CombatOracle {
       "minecraft:bat",
       // VMC-043c: farm animals.
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit",
-      // VMC-044a: villagers.
-      "minecraft:villager");
+      // VMC-044a: villagers and iron golems.
+      "minecraft:villager", "minecraft:iron_golem");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",

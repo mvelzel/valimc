@@ -120,14 +120,18 @@ defmodule Valimc.World.Spawning do
   `Level.isDarkOutside` in `dimension` (an atom) now: its time is not fixed
   and the sky darkens by at least 4 (VMC-040a: beds sleep when dark).
   """
-  def dark?(dimension) do
+  def dark?(dimension), do: sky(dimension) |> then(&(&1 != nil and &1 >= 4))
+
+  @doc """
+  The sky's darkening in `dimension` now (`skyDarken`), nil where its time
+  is fixed (`isBrightOutside` and `isDarkOutside` are both false there).
+  """
+  def sky(dimension) do
     if Valimc.Data.SleepFacts.dimension(dimension).fixed_time do
-      false
+      nil
     else
       %{rain_level: rain, thunder_level: thunder} = weather(dimension)
-
-      darken(Dimension.name(dimension), Clock.day_ticks(), rain, Float32.round(thunder * rain)) >=
-        4
+      darken(Dimension.name(dimension), Clock.day_ticks(), rain, Float32.round(thunder * rain))
     end
   end
 

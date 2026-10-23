@@ -252,7 +252,7 @@ defmodule Valimc.AI.Brains.Villager do
       {3, Poi.validate(["minecraft:meeting"], :meeting_point)},
       {3,
        Behavior.gate(
-         [{Behavior.inert("TradeWithVillager"), 1}],
+         [{trade_with_villager(), 1}],
          g.("3:meet:2:0"),
          [],
          [:interaction_target],
@@ -287,7 +287,7 @@ defmodule Valimc.AI.Brains.Villager do
       {3, Behavior.inert("ShowTradesToPlayer")},
       {3,
        Behavior.gate(
-         [{Behavior.inert("TradeWithVillager"), 1}],
+         [{trade_with_villager(), 1}],
          g.("3:idle:3:0"),
          [],
          [:interaction_target],
@@ -413,8 +413,13 @@ defmodule Valimc.AI.Brains.Villager do
 
     def still(state, self), do: {scared?(self), state, self}
 
-    # Every 100 ticks a panicking villager asks for a golem (VMC-044a2).
-    def tick(state, self), do: {state, self}
+    # Every 100 ticks a panicking villager asks for a golem (three must agree).
+    def tick(state, self) do
+      if rem(self.world.time, 100) == 0,
+        do: {state, Valimc.AI.Brains.Villager.spawn_golem_if_needed(self, 3)},
+        else: {state, self}
+    end
+
     def stop(state, self), do: {state, self}
 
     defp scared?(self), do: Brain.has?(self, :hurt_by) or Brain.has?(self, :nearest_hostile)
@@ -711,6 +716,283 @@ defmodule Valimc.AI.Brains.Villager do
       nil -> false
       state -> sleeps_on?(state) and not occupied?(state)
     end
+  end
+
+  ## Gossip and golems
+
+  defmodule TradeWithVillager do
+    @moduledoc false
+    alias Valimc.AI.{Brain, Sensors, World}
+    alias Valimc.AI.Brains.Villager
+
+    # `TradeWithVillager`: with a villager it sees as its interaction
+    # target, both look at and walk to each other; close, they gossip (and
+    # would trade items, which needs the inventory of VMC-044).
+    def extra(state, self) do
+      {ok, self} = valid(self)
+      {ok, state, self}
+    end
+
+    def start(state, self), do: {state, Villager.lock_gaze(self, target(self))}
+
+    def still(state, self) do
+      {ok, self} = valid(self)
+      {ok, state, self}
+    end
+
+    def tick(state, self) do
+      other = target(self)
+
+      if World.distance_sq(self, other) > 5.0 do
+        {state, self}
+      else
+        {state, self |> Villager.lock_gaze(other) |> Villager.gossip(other)}
+      end
+    end
+
+    def stop(state, self), do: {state, Brain.erase(self, :interaction_target)}
+
+    defp target(self), do: World.entity(self.world, Brain.get(self, :interaction_target))
+
+    # `BehaviorUtils.targetIsValid`: a living villager it sees.
+    defp valid(self) do
+      case target(self) do
+        %{kind: :mob, type: "minecraft:villager", alive: true} = v -> Sensors.visible_contains?(self, v)
+        _ -> {false, self}
+      end
+    end
+  end
+
+  defp trade_with_villager,
+    do:
+      Behavior.timed(
+        TradeWithVillager,
+        [interaction_target: :present, nearest_visible_living_entities: :present],
+        {60, 60}
+      )
+
+  @doc """
+  `BehaviorUtils.lockGazeAndWalkToEachOther(body, other, 0.5, 2)`: each looks
+  at the other's eyes and walks to it (the other's memories change remotely).
+  """
+  def lock_gaze(self, other) do
+    speed = Float32.round(0.5)
+    mine = World.ref(other)
+    theirs = {:mob, self.uuid}
+
+    self
+    |> Brain.set(:look_target, {:entity, mine, true})
+    |> Brain.set(:walk_target, %{target: {:entity, mine, false}, speed: speed, close: 2})
+    |> remote(other.uuid, fn o ->
+      o
+      |> Brain.set(:look_target, {:entity, theirs, true})
+      |> Brain.set(:walk_target, %{target: {:entity, theirs, false}, speed: speed, close: 2})
+    end)
+  end
+
+  @doc """
+  `Villager.gossip(level, other, now)`: once in 1200 ticks for both, they
+  share gossip (their reputations are VMC-044's, so none yet) and it asks
+  for a golem (five must agree).
+  """
+  def gossip(%Self{world: world} = self, other) do
+    now = world.time
+    mine = Brain.get(self, :last_gossip) || 0
+    theirs = (other.memories && match?(%{last_gossip: _}, other.memories) && elem(other.memories.last_gossip, 0)) || 0
+
+    if (now < mine or now >= mine + 1200) and (now < theirs or now >= theirs + 1200) do
+      self
+      |> Brain.set(:last_gossip, now)
+      |> remote(other.uuid, &Brain.set(&1, :last_gossip, now))
+      |> spawn_golem_if_needed(5)
+    else
+      self
+    end
+  end
+
+  @doc """
+  `Villager.spawnGolemIfNeeded(level, now, agree)`: a villager that wants a
+  golem (it slept within a day and saw none lately), with `agree` of the
+  (at most five first) villagers within 10 blocks wanting one too, summons
+  one 8 blocks around it (ten tries from the level's random); then every
+  villager there has seen a golem (599 ticks).
+  """
+  def spawn_golem_if_needed(%Self{world: world} = self, agree) do
+    now = world.time
+
+    if own_wants_golem?(self, now) do
+      box = World.inflate(Self.box(self), 10.0, 10.0, 10.0)
+      near = World.mobs_in(self, ["minecraft:villager"], box)
+
+      wanting =
+        near
+        |> Enum.filter(fn v ->
+          if v.uuid == self.uuid, do: own_wants_golem?(self, now), else: wants_golem?(v, now)
+        end)
+        |> Enum.take(5)
+
+      if length(wanting) >= agree do
+        case golem_spot(self) do
+          {nil, self} ->
+            self
+
+          {golem, self} ->
+            Enum.reduce(near, summon(self, golem), fn v, self ->
+              if v.uuid == self.uuid,
+                do: Brain.set(self, :golem_detected_recently, true, 599),
+                else: remote(self, v.uuid, &Brain.set(&1, :golem_detected_recently, true, 599))
+            end)
+        end
+      else
+        self
+      end
+    else
+      self
+    end
+  end
+
+  defp own_wants_golem?(self, now) do
+    not Brain.has?(self, :golem_detected_recently) and
+      case Brain.get(self, :last_slept) do
+        nil -> false
+        at -> now - at < 24_000
+      end
+  end
+
+  defp summon(self, golem), do: Self.effect(self, {:spawn, "minecraft:iron_golem", golem})
+
+  # `EntityType.create` and `Mob.finalizeSpawn` of a golem at a spot, drawn
+  # from the level's random as vanilla draws them (even for one it then
+  # discards): its yaw, follow range bonus and handedness.
+  defp made({x, y, z}, self) do
+    {yaw, self} = Behavior.level_float(self)
+    {a, self} = Valimc.AI.Spawn.level_double(self)
+    {b, self} = Valimc.AI.Spawn.level_double(self)
+    {left, self} = Behavior.level_float(self)
+
+    {%{
+       summoned: true,
+       position: {x + 0.5, y * 1.0, z + 0.5},
+       yaw: Float32.round(wrap(Float32.round(yaw * 360.0))),
+       follow_bonus: 0.11485000000000001 * (a - b),
+       left_handed: left < Float32.round(0.05)
+     }, self}
+  end
+
+  # `SpawnUtil.trySpawnMob(IRON_GOLEM, MOB_SUMMONED, level, pos, 10, 8, 6,
+  # LEGACY_IRON_GOLEM, false)`: a golem made on a spot it may stand on, kept
+  # where nothing obstructs it.
+  defp golem_spot(self) do
+    {sx, sy, sz} = Self.block(self)
+
+    Enum.reduce_while(1..10, {nil, self}, fn _, {nil, self} ->
+      {dx, self} = Behavior.level_int(self, 17)
+      {dz, self} = Behavior.level_int(self, 17)
+      {x, z} = {sx + dx - 8, sz + dz - 8}
+
+      case down_to_spot(self, {x, sy + 6, z}) do
+        nil ->
+          {:cont, {nil, self}}
+
+        pos ->
+          {golem, self} = made(pos, self)
+          if fits_golem?(self, pos), do: {:halt, {golem, self}}, else: {:cont, {nil, self}}
+      end
+    end)
+  end
+
+  # `moveToPossibleSpawnPosition`: down from 6 above to 6 below, the first
+  # block the strategy stands it on, one above it.
+  defp down_to_spot(self, {x, y, z}) do
+    above = World.block(self.world, {x, y, z})
+
+    Enum.reduce_while(6..-6//-1, {above, y}, fn _, {above, y} ->
+      y = y - 1
+      state = World.block(self.world, {x, y, z})
+
+      cond do
+        state == nil -> {:halt, nil}
+        golem_stands_on?(state, above) -> {:halt, {x, y + 1, z}}
+        true -> {:cont, {state, y}}
+      end
+    end)
+    |> case do
+      {_, _} -> nil
+      result -> result
+    end
+  end
+
+  @golem_refuse MapSet.new(
+                  for name <-
+                        ~w(cobweb cactus glass_pane conduit ice tnt glowstone beacon sea_lantern frosted_ice tinted_glass glass),
+                      do: Blocks.block_id(Blocks.default_state(name))
+                )
+  @leaves MapSet.new(@block_tags["minecraft:leaves"])
+  @powder_snow Blocks.block_id(Blocks.default_state("powder_snow"))
+
+  # `SpawnUtil.Strategy.LEGACY_IRON_GOLEM`.
+  defp golem_stands_on?(state, above) do
+    block = Blocks.block_id(state)
+    class = Blocks.class(state)
+
+    cond do
+      MapSet.member?(@golem_refuse, block) -> false
+      class in ["StainedGlassPaneBlock", "StainedGlassBlock"] -> false
+      MapSet.member?(@leaves, block) -> false
+      true ->
+        above_ok = above != nil and (Valimc.Data.BlockFacts.air?(above) or Valimc.Data.BlockFacts.flag?(above, :liquid))
+        above_ok and (Valimc.Data.BlockFacts.flag?(state, :solid) or block == @powder_snow)
+    end
+  end
+
+  # `checkSpawnRules` (a golem's walk value is 0) and `checkSpawnObstruction`:
+  # a floor it stands on, two empty spawn cells above, and no living thing
+  # in its way.
+  defp fits_golem?(self, {x, y, z} = pos) do
+    below = World.block(self.world, {x, y - 1, z})
+
+    below != nil and Valimc.Data.BlockFacts.flag?(below, :collision_up) and
+      Enum.all?([{x, y + 1, z}, {x, y + 2, z}], &empty_spawn?(self, &1, true)) and
+      empty_spawn?(self, pos, false) and unobstructed?(self, pos)
+  end
+
+  @no_spawn MapSet.new(@block_tags["minecraft:prevent_mob_spawning_inside"])
+  @dangerous MapSet.new(
+               for name <- ~w(wither_rose sweet_berry_bush cactus powder_snow fire soul_fire lava magma_block),
+                   do: Blocks.block_id(Blocks.default_state(name))
+             )
+
+  # `NaturalSpawner.isValidEmptySpawnBlock` for an iron golem.
+  defp empty_spawn?(self, pos, fluid) do
+    case World.block(self.world, pos) do
+      nil ->
+        false
+
+      state ->
+        not Valimc.Data.BlockFacts.flag?(state, :full_collision) and
+          not Valimc.Data.BlockFacts.flag?(state, :signal_source) and
+          (not fluid or Valimc.Data.BlockFacts.fluid(state).kind == :empty) and
+          not MapSet.member?(@no_spawn, Blocks.block_id(state)) and
+          not MapSet.member?(@dangerous, Blocks.block_id(state)) and
+          not burning?(state)
+    end
+  end
+
+  # `NodeEvaluator.isBurningBlock`'s campfires and lava cauldrons.
+  defp burning?(state) do
+    name = Blocks.name(Blocks.block_id(state))
+
+    (name in ["campfire", "soul_campfire"] and property(state, "lit") == "true") or
+      name == "lava_cauldron"
+  end
+
+  # `level.isUnobstructed(golem)`: no living mob's box meets the golem's.
+  defp unobstructed?(self, {x, y, z}) do
+    box = {x + 0.5 - 0.7, y * 1.0, z + 0.5 - 0.7, x + 0.5 + 0.7, y + 2.7, z + 0.5 + 0.7}
+
+    not Enum.any?(self.world.mobs ++ self.world.players, fn m ->
+      m.alive and World.intersects?(World.box(m), box)
+    end)
   end
 
   ## Work, meet and rest
@@ -1135,6 +1417,20 @@ defmodule Valimc.AI.Brains.Villager do
         jumps: 0,
         cooldown: 0
       })
+
+  @doc """
+  `Villager.wantsToSpawnGolem` of a sensed villager: it slept within a day
+  and has seen no golem lately.
+  """
+  def wants_golem?(%{memories: memories}, now) when is_map(memories) do
+    case memories do
+      %{golem_detected_recently: _} -> false
+      %{last_slept: {at, _}} -> now - at < 24_000
+      _ -> false
+    end
+  end
+
+  def wants_golem?(_mob, _now), do: false
 
   ## The mob's hooks
 

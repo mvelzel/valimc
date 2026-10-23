@@ -1895,7 +1895,8 @@
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
     "minecraft:rabbit": 0,
-    "minecraft:villager": 0
+    "minecraft:villager": 0,
+    "minecraft:iron_golem": 0
   },
   "mobs": {
     "minecraft:zombie": {
@@ -2125,6 +2126,12 @@
       "death_sound": "minecraft:entity.villager.death",
       "sound_source": 6,
       "animal": false
+    },
+    "minecraft:iron_golem": {
+      "hurt_sound": "minecraft:entity.iron_golem.hurt",
+      "death_sound": "minecraft:entity.iron_golem.death",
+      "sound_source": 6,
+      "animal": false
     }
   },
   "sounds": {
@@ -2226,7 +2233,9 @@
     "minecraft:entity.rabbit.hurt": 1356,
     "minecraft:entity.rabbit.death": 1355,
     "minecraft:entity.villager.hurt": 1702,
-    "minecraft:entity.villager.death": 1701
+    "minecraft:entity.villager.death": 1701,
+    "minecraft:entity.iron_golem.hurt": 904,
+    "minecraft:entity.iron_golem.death": 903
   },
   "sound_sources": {
     "master": 0,

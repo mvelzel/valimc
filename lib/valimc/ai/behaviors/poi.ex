@@ -433,7 +433,7 @@ defmodule Valimc.AI.Behaviors.Poi do
           RandomPos.land(self, h, v)
         else
           section = Pois.section(block)
-          closer = closest_to_village(self.world, section, 2)
+          closer = Pois.closest_village_section(self.world, section, 2)
 
           if closer != section do
             {sx, sy, sz} = closer
@@ -457,25 +457,6 @@ defmodule Valimc.AI.Behaviors.Poi do
 
       {true, self}
     end)
-  end
-
-  # `BehaviorUtils.findSectionClosestToVillage`: of the cube of sections
-  # around, the first nearest to a village that is nearer than `center`.
-  defp closest_to_village(world, {cx, cy, cz} = center, radius) do
-    here = Pois.sections_to_village(world, center)
-
-    {best, _} =
-      for(
-        x <- (cx - radius)..(cx + radius),
-        y <- (cy - radius)..(cy + radius),
-        z <- (cz - radius)..(cz + radius),
-        do: {x, y, z}
-      )
-      |> Enum.map(&{&1, Pois.sections_to_village(world, &1)})
-      |> Enum.filter(fn {_, d} -> d < here end)
-      |> Enum.min_by(fn {_, d} -> d end, fn -> {center, here} end)
-
-    best
   end
 
   @doc """

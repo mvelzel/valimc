@@ -16,7 +16,7 @@ defmodule Valimc.Entity.Combat do
   away from; none gives a random direction), `direction` (a projectile's:
   the knockback's `{xd, zd}`, which it is pushed against) and, for an attack,
   `extra_knockback`, `{power, {xd, zd}}` applied when the hit hurts
-  (`causeExtraKnockback`).
+  (`causeExtraKnockback`), and `lift`, a throw up after a hurt.
   """
   alias Valimc.Data.EntityTypes
   alias Valimc.Entity.{Body, Mob, Store}
@@ -78,6 +78,7 @@ defmodule Valimc.Entity.Combat do
     hook = &Valimc.AI.Mobs.hook(body.type, &1, &2, &3)
     # A family's own take on the hit (a ghast's reflected fireball, VMC-043d).
     hit = hook.(:taken, [body, hit], hit)
+    mob_before = mob
 
     case if(hook.(:ignores?, [body, hit], false),
            do: :ignored,
@@ -136,6 +137,9 @@ defmodule Valimc.Entity.Combat do
             _ -> body
           end
 
+        # A hit that throws its target up (an iron golem's, VMC-044a2).
+        body = if hit[:lift], do: lift(body, hit.lift), else: body
+
         body = if outcome.died, do: died(body, hit), else: body
         # What its family does after a hurt (`Valimc.AI.Kind.hurt/2`), with
         # the events it adds (a squid's ink).
@@ -145,6 +149,8 @@ defmodule Valimc.Entity.Combat do
             body -> {body, events}
           end
 
+        # What it shows of it (`hurt_events/2`: a golem cracking, VMC-044a2).
+        events = events ++ hook.(:hurt_events, [body, mob_before.living.health.value], [])
         {body, events, outcome}
     end
   end
@@ -256,6 +262,14 @@ defmodule Valimc.Entity.Combat do
       _ ->
         {:error, :missing_entity}
     end
+  end
+
+  # `setDeltaMovement(getDeltaMovement().add(0, lift * scale, 0))`, the
+  # scale less its knockback resistance.
+  defp lift(body, lift) do
+    resistance = Mob.value(body.type, body.mob, "minecraft:knockback_resistance")
+    {vx, vy, vz} = body.velocity
+    %{body | velocity: {vx, vy + lift * max(0.0, 1.0 - resistance), vz}}
   end
 
   defp knock(body, power, direction) do

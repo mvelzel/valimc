@@ -212,7 +212,7 @@ defmodule Valimc.Protocol.EntityPackets do
 
   # The water, ambient and End mobs' own fields (VMC-043e), the farm
   # animals' (VMC-043c) and the villagers' (VMC-044a), by serializer.
-  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags, :sheep_wool]
+  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags, :sheep_wool, :iron_golem_flags]
   @mob_flags [
     :fish_from_bucket,
     :dolphin_got_fish,

@@ -202,6 +202,31 @@ public class EntityOracle {
     throw new AssertionError("Unknown spawn placement type");
   }
 
+  /**
+   * Whether a type's entities are `Enemy`s: its own factory makes one to see
+   * (false for a type the probe cannot make: animals with variants, the wither).
+   */
+  private static boolean enemy(EntityType<?> type) {
+    try {
+      var unsafe = (sun.misc.Unsafe)FIELD_UNSAFE.get(null);
+      var level = (CombatOracle.Probe) unsafe.allocateInstance(CombatOracle.Probe.class);
+      level.server = (CombatOracle.ProbeServer) unsafe.allocateInstance(CombatOracle.ProbeServer.class);
+      level.server.debug = new net.minecraft.util.debug.ServerDebugSubscribers(level.server);
+      var factory = EntityType.class.getDeclaredField("factory");
+      factory.setAccessible(true);
+      return ((EntityType.EntityFactory<?>) factory.get(type)).create((EntityType) type, level) instanceof net.minecraft.world.entity.monster.Enemy;
+    } catch (Throwable e) {
+      // The probe cannot make animals with variants (none is an enemy) or the wither.
+      return false;
+    }
+  }
+
+  static java.lang.reflect.Field FIELD_UNSAFE;
+  static {
+    try { FIELD_UNSAFE = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); FIELD_UNSAFE.setAccessible(true); }
+    catch (Exception e) { throw new RuntimeException(e); }
+  }
+
   @SuppressWarnings("unchecked")
   private static Map<String,Object> facts() throws Exception {
     var dataField = SpawnPlacements.class.getDeclaredField("DATA_BY_TYPE"); dataField.setAccessible(true);
@@ -218,6 +243,8 @@ public class EntityOracle {
       t.put("fire_immune", type.fireImmune()); t.put("summonable", type.canSummon());
       t.put("saved", type.canSerialize()); t.put("peaceful", type.isAllowedInPeaceful());
       t.put("spawn_far", type.canSpawnFarFromPlayer());
+      // VMC-044a: what an iron golem attacks (`Enemy`, not a creeper).
+      t.put("enemy", enemy(type));
       t.put("tracking_range", type.clientTrackingRange());
       t.put("update_interval", type.updateInterval()); t.put("track_deltas", type.trackDeltas());
       t.put("description", type.getDescriptionId());

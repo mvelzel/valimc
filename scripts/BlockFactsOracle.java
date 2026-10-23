@@ -63,7 +63,8 @@ import net.minecraft.world.phys.shapes.*;
  *   covers a wall's post and north, east, south and west sides (`WallBlock.isCovered`),
  *   `isExceptionForConnection`, and the classes of bars and panes, stairs, fence gates, walls,
  *   fences and doors. Bit 49: fire can burn it (`FireBlock.canBurn`). Bit 50: a collision shape
- *   larger than its cell (`hasLargeCollisionShape`). Every predicate runs against a level that
+ *   larger than its cell (`hasLargeCollisionShape`). Bit 51: it renders no model
+ *   (`RenderShape.INVISIBLE`: what an iron golem's sprint particles skip, VMC-044a2). Every predicate runs against a level that
  *   fails on any read, so none depends on the neighbourhood; the states whose answers read the
  *   level (moving pistons, shulker boxes) are listed in `level_dependent` and have no sturdy
  *   face or full collision face.
@@ -108,7 +109,7 @@ public class BlockFactsOracle {
       "occludes_up","occludes_north","occludes_south","occludes_west","occludes_east","liquid_container",
       "simple_waterlogged","full_shape","center_support_down","falling","redstone_conductor","signal_source",
       "covers_wall_post","covers_wall_north","covers_wall_east","covers_wall_south","covers_wall_west",
-      "connection_exception","iron_bars","stairs","fence_gate","wall","fence","door","flammable","large_collision");
+      "connection_exception","iron_bars","stairs","fence_gate","wall","fence","door","flammable","large_collision","invisible");
   static final Gson GSON=new Gson();
 
   /** One value per state: an index into a palette of distinct JSON values, or a small integer. */
@@ -393,10 +394,11 @@ public class BlockFactsOracle {
       if(block instanceof DoorBlock)flags|=1L<<48;
       if((boolean)canBurn.invoke(Blocks.FIRE,state))flags|=1L<<49;
       if(state.hasLargeCollisionShape())flags|=1L<<50;
+      if(state.getRenderShape()==net.minecraft.world.level.block.RenderShape.INVISIBLE)flags|=1L<<51;
       if(state.is(BlockTags.FENCES)!=(block instanceof FenceBlock))throw new AssertionError("Fence tag differs from the fence class "+state);
       column.set(id,new JsonPrimitive(flags));
     }
-    if(FLAG_BITS.size()!=51)throw new AssertionError("flag names");
+    if(FLAG_BITS.size()!=52)throw new AssertionError("flag names");
     return column;
   }
 

@@ -10,7 +10,7 @@
 # and its block state must equal vanilla's.
 alias Valimc.AI
 alias Valimc.AI.Brains.Villager
-alias Valimc.Entity.{Body, MobTicks}
+alias Valimc.Entity.{Body, Combat, MobTicks}
 
 [path] = System.argv()
 Valimc.Data.BlockFacts.install!()
@@ -219,13 +219,54 @@ checked =
             end
 
           mind = %{mind | random: AI.Random.new(m["seed"]), body_yaw: yaw}
+
+          # When it last slept (a golem's summoners).
+          mind =
+            if mind.brain && m["slept"] >= 0,
+              do: put_in(mind.brain.memories[:last_slept], {m["slept"], :never}),
+              else: mind
+
           mob = %{body.mob | ai: mind, no_ai: m["no_ai"]}
+
+          # Scenery takes no knockback (the oracle's too).
+          mob =
+            if m["no_ai"],
+              do: %{
+                mob
+                | attributes:
+                    Map.put(mob.attributes, "minecraft:knockback_resistance", %{
+                      base: 1.0,
+                      modifiers: []
+                    })
+              },
+              else: mob
+
           body = %{body | yaw: yaw, head_yaw: yaw, mob: mob}
-          {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
+
+          {m["id"],
+           %{
+             kind: :mob,
+             entity: %{uuid: uuid, entity_id: m["id"], x: x, y: y, z: z},
+             body: body,
+             revision: 1
+           }}
         end
 
+      # A scene ends with the tick a mob held still dies: the owner lands a
+      # kill after the tick, vanilla within the attacker's (its target goes a
+      # tick later here).
+      death =
+        Enum.find_index(c["ticks"], fn row ->
+          Enum.any?(Enum.zip(c["mobs"], row["mobs"]), fn {m, r} ->
+            m["no_ai"] and float.(r["health"]) <= 0.0
+          end)
+        end)
+
       {_, _, _, count} =
-        Enum.reduce(Enum.with_index(c["ticks"]), {entries, scene0, AI.Random.new(7), count}, fn
+        c["ticks"]
+        |> Enum.take(if death, do: death + 1, else: length(c["ticks"]))
+        |> Enum.with_index()
+        |> Enum.reduce({entries, scene0, AI.Random.new(7), count}, fn
           {row, tick}, {entries, scene, level_random, count} ->
             time = start + 1 + tick
 
@@ -234,16 +275,106 @@ checked =
 
             world = %{world0.(scene, time) | random: level_random, pois: AI.Pois.claims(memories)}
             kernel_view = {:states, packed.(scene)}
+
+            # Each body's timers (a hurt mob's invulnerability) run first, as
+            # the owner ages its bodies.
+            entries =
+              for {id, e} <- entries do
+                {body, _, _} = Body.tick(e.body)
+                {id, %{e | body: body}}
+              end
+
             {steps, world} = MobTicks.steps(kernel_view, entries, world, nil)
 
             unless length(steps) == length(entries),
               do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
 
+            # A mob held still does not travel (vanilla's `isEffectiveAi`): the
+            # owner's kernel moves every mob, so scenery stays where it was.
             entries =
               Enum.zip_with(entries, steps, fn {id, entry}, step ->
-                {x, y, z} = step.position
+                {x, y, z} =
+                  if entry.body.mob.no_ai,
+                    do: {entry.entity.x, entry.entity.y, entry.entity.z},
+                    else: step.position
+
                 {id, %{entry | body: step.body, entity: %{entry.entity | x: x, y: y, z: z}}}
               end)
+
+            # Melee hits on mobs through the one hurt path (`Combat`), as
+            # the owner lands them after the tick.
+            entries =
+              for step <- steps,
+                  effect <- step.effects,
+                  {target, own} <-
+                    (case effect do
+                       {:attack, {:mob, t}} ->
+                         [
+                           {t,
+                            Enum.find_value(step.effects, %{}, fn
+                              {:attack_extra, {:mob, ^t}, extras} -> extras
+                              _ -> nil
+                            end)}
+                         ]
+
+                       _ ->
+                         []
+                     end),
+                  reduce: entries do
+                entries ->
+                  store = %{entries: Map.new(entries)}
+                  i = Enum.find_index(entries, fn {_, e} -> e.entity.uuid == target end)
+                  {tid, te} = Enum.at(entries, i)
+                  {:ok, hit} = Combat.mob_hit(store, step.id, te.body.type)
+
+                  hit =
+                    Map.merge(
+                      %{hit | amount: own[:amount] || hit.amount},
+                      Map.delete(own, :amount)
+                    )
+
+                  case Combat.hurt_body(te.body, te.entity, hit) do
+                    :ignored -> entries
+                    {body, _, _} -> List.replace_at(entries, i, {tid, %{te | body: body}})
+                  end
+              end
+
+            # Mobs the mobs summoned (a golem), ticking from the next tick
+            # with the oracle's ids and randoms.
+            summoned = for step <- steps, {:spawn, type, opts} <- step.effects, do: {type, opts}
+
+            entries =
+              entries ++
+                for {{type, opts}, made} <- Enum.zip(summoned, row["spawned"]) do
+                  ^type = made["type"]
+                  {:ok, body} = Body.new(type)
+                  uuid = <<made["id"]::64, 0::64>>
+
+                  mind =
+                    AI.mind(type, uuid, %{random: AI.Random.new(made["seed"])}, body.data, world)
+
+                  follow = %{
+                    base: nil,
+                    modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]
+                  }
+
+                  mob = %{
+                    body.mob
+                    | ai: %{mind | body_yaw: opts.yaw},
+                      left_handed: opts.left_handed,
+                      attributes: Map.put(body.mob.attributes, "minecraft:follow_range", follow)
+                  }
+
+                  {x, y, z} = opts.position
+
+                  {made["id"],
+                   %{
+                     kind: :mob,
+                     entity: %{uuid: uuid, entity_id: made["id"], x: x, y: y, z: z},
+                     body: %{body | yaw: opts.yaw, head_yaw: opts.yaw, mob: mob},
+                     revision: 1
+                   }}
+                end
 
             scene =
               for step <- steps, effect <- step.effects, reduce: scene do
@@ -322,6 +453,39 @@ checked =
                   ambient: expected["ambient"]
                 }
 
+                goal_names = fn which ->
+                  {goals, targets} = AI.Mobs.registered(body.type)
+                  registered = if which == :goals, do: goals, else: targets
+                  entries = Tuple.to_list(if which == :goals, do: mind.goals, else: mind.targets)
+
+                  for {%{running: true}, {_, name, _, _, _}} <- Enum.zip(entries, registered),
+                      do: name
+                end
+
+                got = Map.put(got, :health, bits.(body.mob.living.health.value))
+                want = Map.put(want, :health, expected["health"])
+
+                {got, want} =
+                  if mind.brain == nil do
+                    {Map.merge(got, %{
+                       goals: Enum.join(goal_names.(:goals), ","),
+                       targets: Enum.join(goal_names.(:targets), ","),
+                       target:
+                         case mind.target do
+                           {:mob, <<n::64, _::64>>} -> n
+                           {:player, <<_::64, n::64>>} -> n
+                           nil -> nil
+                         end
+                     }),
+                     Map.merge(want, %{
+                       goals: expected["goals"],
+                       targets: expected["targets"],
+                       target: expected["target"]
+                     })}
+                  else
+                    {got, want}
+                  end
+
                 {got, want} =
                   if mind.brain do
                     self = %AI.Self{mind: mind}
@@ -376,26 +540,29 @@ checked =
                 if System.get_env("VILLAGE_DEBUG") == "#{c["name"]}:#{tick}",
                   do:
                     IO.inspect(
-                      {tick,
-                       for(
-                         b <- Tuple.to_list(mind.brain.behaviors),
-                         b.activity == :work and b.kind == AI.Behavior.Gate,
-                         do:
-                           for(
-                             ch <- b.children,
-                             do: {ch.weight, ch.behavior.running, Map.get(ch.behavior, :state)}
-                           )
-                       ), AI.Brain.running(%AI.Self{mind: mind}), memory.(mind, :walk_target),
-                       memory.(mind, :look_target), mind.random, step.position},
+                      {tick, id, step.position, body.velocity},
                       label: "ours"
                     )
 
                 # A mob held still (`NoAI`) is only scenery here: vanilla neither
                 # moves nor thinks for it, and it stands where it was put.
                 differ =
-                  if body.mob.no_ai,
-                    do: [],
-                    else: for({k, v} <- want, got[k] != v, do: {k, v, got[k]})
+                  cond do
+                    # The death tick: the kill is what it checks.
+                    tick == death and body.mob.no_ai ->
+                      if got.health == want.health,
+                        do: [],
+                        else: [{:health, want.health, got.health}]
+
+                    tick == death ->
+                      []
+
+                    body.mob.no_ai ->
+                      []
+
+                    true ->
+                      for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
+                  end
 
                 unless differ == [] do
                   raise "#{c["name"]} tick #{tick} mob #{id}: " <>

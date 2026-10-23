@@ -70,8 +70,8 @@ public class MobAiOracle {
       "minecraft:bat",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
-      // VMC-044a: villagers (cases in VillageOracle).
-      "minecraft:villager");
+      // VMC-044a: villagers and iron golems (cases in VillageOracle).
+      "minecraft:villager", "minecraft:iron_golem");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -333,8 +333,11 @@ public class MobAiOracle {
     }
     public void gameEvent(Holder<GameEvent> e, Vec3 p, GameEvent.Context c) {}
     // An entity a mob adds (a projectile, a thrown item) is recorded, not ticked.
+    List<Entity> added;
     public boolean addFreshEntity(Entity e) {
       if (current == null) return false;
+      // A village scene ticks what its mobs summon (VMC-044a: a golem).
+      if (added != null) added.add(e);
       var o = new JsonObject(); o.addProperty("add", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
       o.add("position", bits(e.position())); o.add("velocity", bits(e.getDeltaMovement()));
       o.addProperty("yaw", Float.floatToRawIntBits(e.getYRot())); o.addProperty("pitch", Float.floatToRawIntBits(e.getXRot()));
@@ -381,6 +384,21 @@ public class MobAiOracle {
     public Entity getEntity(UUID uuid) {
       for (var e : entities) if (e.getUUID().equals(uuid)) return e;
       return null;
+    }
+    // A mob a golem kills leaves the level's waypoints (VMC-044a).
+    net.minecraft.server.waypoints.ServerWaypointManager waypoints;
+    public net.minecraft.server.waypoints.ServerWaypointManager getWaypointManager() {
+      if (waypoints == null) waypoints = new net.minecraft.server.waypoints.ServerWaypointManager();
+      return waypoints;
+    }
+    // A golem's villagers (VMC-044a): by type test, in the scene's order.
+    public <T extends Entity> void getEntities(net.minecraft.world.level.entity.EntityTypeTest<Entity, T> type, AABB box,
+        Predicate<? super T> test, List<? super T> output, int max) {
+      for (var e : entities) {
+        if (output.size() >= max) return;
+        T t = type.tryCast(e);
+        if (t != null && !e.isRemoved() && e.getBoundingBox().intersects(box) && test.test(t)) output.add(t);
+      }
     }
     public <T extends Entity> List<T> getEntitiesOfClass(Class<T> type, AABB box, Predicate<? super T> test) {
       var out = new ArrayList<T>();

@@ -76,6 +76,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
 | [VMC-043c](tickets/VMC-043c.md) | Cows breed, sheep shear, dye and regrow, milk and stew, eggs, rabbits hop; a lead follows, pulls, ties to a fence knot and breaks |
 | [VMC-044a1](tickets/VMC-044a1.md) | A village's villagers take job sites' trades, work and meet at the bell by day, sleep in beds at night and flee zombies |
+| [VMC-044a2](tickets/VMC-044a2.md) | An iron golem kills a zombie hunting a villager, throws its attackers up, cracks when hurt and offers villagers poppies |
 
 ## Retrieve and update
 
