@@ -12,13 +12,14 @@
 //! records (signed coordinates): a changed cell with its old state, a due tick
 //! with its state; `fluid_ticks` `<<x, y, z, fluid::8>>`; `actions`
 //! `<<kind::8, x, y, z, value::8, flags::8, rx, ry, rz>>` (kind 0 a bucket
-//! emptied, 1 a pickup, 2 a post-processing mark, 3 a lava cell's random
-//! tick, VMC-047a's 4 a use (value: the player's facing; flags bit 0: it
+//! emptied, 1 a pickup, 2 a post-processing mark, 3 a random tick (flags
+//! bit 0: lava's fire spreads; bit 1: it rains above, VMC-039a), VMC-047a's
+//! 4 a use (value: the player's facing; flags bit 0: it
 //! may build), 5 the entities' contacts, 6 a daylight detector's update, 7 a
 //! lectern's page, 8 a target's hit (value: its power; flags bit 0: an
-//! arrow's), 9 a tripwire hook placed, 10 tripwire disarmed; for buckets the
-//! value is the fluid, flags bit 0 a retry cell or fire spreading, bit 1
-//! sneaking); `options` the level's settings' bits (`Options::from_bits`);
+//! arrow's), 9 a tripwire hook placed, 10 tripwire disarmed, VMC-039a's 11
+//! bone meal; for buckets the value is the fluid, flags bit 0 a retry cell,
+//! bit 1 sneaking); `options` the level's settings' bits (`Options::from_bits`);
 //! `redstone` the redstone context: `<<time::64, day::64, rain::float-32,
 //! thunder::float-32, n::32, toggles (x, y, z, when::64)..., n::32,
 //! entities (min x, y, z, max x, y, z as float-64, kind::8)..., n::32,
@@ -124,6 +125,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 3 => Action::RandomTick {
                     pos,
                     fire: r[14] & 1 == 1,
+                    rain: r[14] & 2 == 2,
                 },
                 4 => Action::Use {
                     pos,
@@ -140,6 +142,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 },
                 9 => Action::HookPlaced { pos },
                 10 => Action::Disarm { pos },
+                11 => Action::BoneMeal { pos },
                 _ => return Err(atoms::invalid_positions()),
             })
         })
@@ -414,7 +417,9 @@ fn updates<'a>(
     let context = context(packed.redstone.as_slice())?;
     let (sky_darken, sun_angle) = match &rules.power {
         Some(power) => (
-            power.day.sky_darken(context.day, context.rain, context.thunder),
+            power
+                .day
+                .sky_darken(context.day, context.rain, context.thunder),
             power.day.sun_angle(context.day),
         ),
         None => (0, 0.0),

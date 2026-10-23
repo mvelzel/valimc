@@ -59,6 +59,10 @@ pub trait World: BlockAccess {
     fn sky_light(&mut self, _pos: [i32; 3]) -> i32 {
         15
     }
+    /// The block light at `pos` (growing plants, VMC-039a).
+    fn block_light(&mut self, _pos: [i32; 3]) -> i32 {
+        0
+    }
 }
 
 pub(super) enum Update {
@@ -197,7 +201,10 @@ impl<'r, W: World> Engine<'r, W> {
         if table.block_of(state) != block {
             return;
         }
-        if self.component_tick(pos, state) || self.bubble_tick(pos, state) {
+        if self.component_tick(pos, state)
+            || self.bubble_tick(pos, state)
+            || self.growth_tick(pos, state)
+        {
             return;
         }
         let mark = self.world.begin();

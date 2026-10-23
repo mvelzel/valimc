@@ -12,6 +12,7 @@ pub mod components;
 pub mod connect;
 pub mod fire;
 pub mod fluid;
+pub mod growth;
 pub mod live;
 pub mod placement;
 pub mod power;
@@ -96,6 +97,8 @@ pub struct Rules {
     pub fluids: Option<fluid::FluidFacts>,
     /// Live play's redstone facts (`priv/physics/redstone.json`), when given.
     pub power: Option<power::PowerFacts>,
+    /// Live play's growing plants (`priv/physics/growth.json`), when given.
+    pub growth: Option<growth::Growth>,
     vine_block: u16,
     speleothems: BlockSet,
     /// Blocks that hold leaves at distance 0 (`prevents_nearby_leaf_decay`).
@@ -129,6 +132,7 @@ impl Rules {
             live,
             fluids: None,
             power: None,
+            growth: None,
             placement: None,
         })
     }
@@ -163,9 +167,14 @@ impl Rules {
             .get("redstone")
             .map(|r| power::PowerFacts::parse(r, &table))
             .transpose()?;
+        let growth = json
+            .get("growth")
+            .map(|g| growth::Growth::new(&table, g))
+            .transpose()?;
         let mut rules = Rules::new(table, support, shapes, live)?;
         rules.fluids = fluids;
         rules.power = power;
+        rules.growth = growth;
         rules.placement = json.get("placement").map(Placement::parse).transpose()?;
         Ok(rules)
     }

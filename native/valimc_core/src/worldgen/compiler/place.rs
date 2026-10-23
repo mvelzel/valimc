@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use super::{BiomeSource, Worldgen};
 use crate::column::{Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y};
+use crate::rules::growth::{draw, Grower};
 use crate::worldgen::blocks::BLOCK_ENTITY;
 use crate::worldgen::random::Random;
 use crate::worldgen::region::{Area, BlockEntityData, ProtoChunk, Region};
@@ -36,6 +37,9 @@ pub enum Placement {
         target: String,
         max_depth: i32,
     },
+    /// A sapling's tree (`TreeGrower.growTree`, VMC-039a) at the sapling's
+    /// cell, from its grower.
+    Sapling(Grower),
 }
 
 /// A planned placement: the chunks vanilla checks are loaded, and every
@@ -61,6 +65,8 @@ pub enum Plan {
 #[derive(Debug, Default)]
 pub struct Placed {
     pub blocks: Vec<([i32; 3], u16)>,
+    /// Each changed block's state before.
+    pub replaced: Vec<u16>,
     pub block_entities: Vec<([i32; 3], u16, Option<BlockEntityData>)>,
     pub entities: Vec<super::super::region::Entity>,
 }
@@ -120,7 +126,7 @@ impl Worldgen {
     ) -> Result<Plan, String> {
         let here = chunk_of(pos[0], pos[2]);
         let plan = match placement {
-            Placement::Feature(_) => {
+            Placement::Feature(_) | Placement::Sapling(_) => {
                 let around = ((here.0 - 1, here.1 - 1), (here.0 + 1, here.1 + 1));
                 Plan::Chunks {
                     checked: around,
@@ -288,6 +294,9 @@ impl Worldgen {
                         .ok_or_else(|| format!("unknown feature {id}"))?;
                     feature.place(&decoration, &mut region, &mut random, pos)?
                 }
+                Placement::Sapling(grower) => {
+                    grow_tree(&decoration, &mut region, &mut random, pos, grower)?
+                }
                 Placement::Template {
                     id,
                     rotation,
@@ -391,6 +400,7 @@ impl Worldgen {
                         chunk.z * 16 + (column >> 4) as i32,
                     ];
                     out.blocks.push((p, new));
+                    out.replaced.push(old);
                 }
             }
             for p in &chunk.block_entities {
@@ -407,6 +417,86 @@ impl Worldgen {
         }
         Ok(Some(out))
     }
+}
+
+/// `TreeGrower.growTree` at the sapling's cell `pos`: a mega tree over a
+/// 2 × 2 of the sapling when the grower has one, else a tree (a flower tree
+/// beside flowers); the saplings go first (their fluid stays) and come back
+/// when the tree does not fit.
+fn grow_tree(
+    decoration: &crate::worldgen::feature::Decoration,
+    region: &mut Region,
+    random: &mut Random,
+    pos: [i32; 3],
+    grower: &Grower,
+) -> Result<bool, String> {
+    let table = decoration.table.clone();
+    let sapling = region.get(pos);
+    let block = table.block_of(sapling);
+    if let Some(mega) = draw(&grower.mega, &mut |b| random.next_int_bounded(b)) {
+        if let Some(feature) = decoration.features.get(mega).cloned() {
+            // `findTwoByTwoSaplingPos`: dx 0 then -1, each with dz 0 then -1.
+            let square = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
+                .into_iter()
+                .find(|&(dx, dz)| {
+                    [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(x, z)| {
+                        table.block_of(region.get([pos[0] + dx + x, pos[1], pos[2] + dz + z]))
+                            == block
+                    })
+                });
+            if let Some((dx, dz)) = square {
+                let cells: Vec<([i32; 3], u16)> = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                    .iter()
+                    .map(|&(x, z)| {
+                        let p = [pos[0] + dx + x, pos[1], pos[2] + dz + z];
+                        (p, region.get(p))
+                    })
+                    .collect();
+                for &(p, state) in &cells {
+                    region.set(p, table.remains[state as usize], 818);
+                }
+                if feature.place(
+                    decoration,
+                    region,
+                    random,
+                    [pos[0] + dx, pos[1], pos[2] + dz],
+                )? {
+                    return Ok(true);
+                }
+                for &(p, state) in &cells {
+                    region.set(p, state, 260);
+                }
+                return Ok(false);
+            }
+        }
+    }
+    let flowers = table.tag("minecraft:flowers")?.clone();
+    let mut has_flowers = false;
+    for y in -1..=1 {
+        for z in -2..=2 {
+            for x in -2..=2 {
+                let state = region.get([pos[0] + x, pos[1] + y, pos[2] + z]);
+                has_flowers |= flowers.contains(table.block_of(state));
+            }
+        }
+    }
+    let list = if has_flowers && !grower.flowers.is_empty() {
+        &grower.flowers
+    } else {
+        &grower.trees
+    };
+    let Some(key) = draw(list, &mut |b| random.next_int_bounded(b)) else {
+        return Ok(false);
+    };
+    let Some(feature) = decoration.features.get(key).cloned() else {
+        return Ok(false);
+    };
+    region.set(pos, table.remains[sapling as usize], 818);
+    if feature.place(decoration, region, random, pos)? {
+        return Ok(true);
+    }
+    region.set(pos, sapling, 260);
+    Ok(false)
 }
 
 /// `StructureStart.placeInChunk` for each chunk of the start's box, with the

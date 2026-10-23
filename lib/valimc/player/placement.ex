@@ -26,6 +26,7 @@ defmodule Valimc.Player.Placement do
   import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
 
   @placement %CollisionContext{kind: :entity, placement: true}
+  @bone_meal Valimc.Protocol.Data.item("bone_meal")
 
   def place_block(state, payload) do
     case UseItemOn.decode(payload) do
@@ -86,6 +87,17 @@ defmodule Valimc.Player.Placement do
           mode: state.player.game_mode.current,
           body: body(state, request),
           expires: System.monotonic_time(:millisecond) + 250
+        }
+
+      # Bone meal grows what takes it (VMC-039a).
+      stack != nil and stack.item_id == @bone_meal ->
+        %{
+          kind: :bone_meal,
+          request: request,
+          stack: stack,
+          slot: slot,
+          mode: state.player.game_mode.current,
+          body: body(state, request)
         }
 
       placeable?(state, request, stack) ->
@@ -222,6 +234,30 @@ defmodule Valimc.Player.Placement do
       end
 
     acknowledge(state, command.request)
+  end
+
+  # `BoneMealItem.useOn` on the clicked block, in its owner: used up in
+  # survival when the block took it; a sapling's tree grows in a task.
+  defp run(state, %{kind: :bone_meal, request: request} = command) do
+    used =
+      with %{} <- command.body,
+           {:ok, owner} <- owner(request.position),
+           {:ok, result} when result > 0 <-
+             Region.bucket(owner, {:bone_meal, request.position}) do
+        if result == 2,
+          do: Valimc.World.Growth.start_tree(state.player.dimension, request.position)
+
+        true
+      else
+        _ -> false
+      end
+
+    state =
+      if used and command.mode == :survival,
+        do: use_up(state, command),
+        else: CreativeInventory.resync_inventory(state)
+
+    acknowledge(state, request)
   end
 
   @doc "The portal item's use ended (`Valimc.World.Portal.Items`): it wears and is acknowledged."

@@ -55,7 +55,8 @@ defmodule Valimc.World.BlockRules do
       "live_support" => Valimc.Data.Facts.read!("physics/support.json"),
       "fluids" => Valimc.Blocks.Fluids.native_facts(),
       "placement" => Valimc.Data.Facts.read!("physics/placement.json"),
-      "redstone" => Valimc.Data.Facts.read!("physics/redstone.json")
+      "redstone" => Valimc.Data.Facts.read!("physics/redstone.json"),
+      "growth" => Valimc.Data.Facts.read!("physics/growth.json")
     }
   end
 
@@ -68,7 +69,8 @@ defmodule Valimc.World.BlockRules do
   - `actions`: `{:empty, position, fluid, retry, secondary}` (a bucket of a
     fluid source poured, then at `retry` or nil), `{:pickup, position}` (a
     bucket filled), `{:post, position}` (a post-processing mark),
-    `{:random_tick, position, fire?}` (a lava cell's random tick), and
+    `{:random_tick, position, fire?, rain?}` (a lava cell's or a growing
+    plant's random tick, VMC-039a), `{:bone_meal, position}`, and
     redstone's (VMC-047a) `{:use, position, facing, may_build?}` (a
     player's use; `facing` a horizontal direction index, 2..5),
     `:contacts` (the entities' contacts), `{:daylight, position}`,
@@ -191,8 +193,13 @@ defmodule Valimc.World.BlockRules do
   defp pack_action({:post, position}),
     do: <<2, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
-  defp pack_action({:random_tick, position, fire}),
-    do: <<3, pos(position)::binary, 0, if(fire, do: 1, else: 0), pos({0, 0, 0})::binary>>
+  defp pack_action({:random_tick, position, fire, rain}),
+    do:
+      <<3, pos(position)::binary, 0, if(fire, do: 1, else: 0) ||| if(rain, do: 2, else: 0),
+        pos({0, 0, 0})::binary>>
+
+  defp pack_action({:bone_meal, position}),
+    do: <<11, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
   defp pack_action({:use, position, facing, may_build}),
     do:

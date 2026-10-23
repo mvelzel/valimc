@@ -677,6 +677,16 @@ STAGES = [
         ('java', 'RedstoneOracle', 'scenes', '@redstone-scenes.json'),
         ('check', 'check_redstone.exs', '@redstone-scenes.json', '@day.json'),
     ]),
+    # VMC-039a: crops, stems, sugar cane, cactus, farmland and saplings' stages by random ticks
+    # and bone meal on the block-update engine; the tree growers and saplings' trees.
+    ('growth', [
+        ('regen', 'GrowthOracle', 'facts', '@growth.json'),
+        ('same', '@growth.json', 'priv/physics/growth.json'),
+        ('java', 'GrowthOracle', 'scenes', '@growth-scenes.json'),
+        ('check', 'check_growth.exs', '@growth-scenes.json'),
+        ('java', 'GrowthOracle', 'trees', '@growth-trees.json'),
+        ('check', 'check_growth_trees.exs', '@growth-trees.json'),
+    ]),
     # VMC-031a: water and lava on the block-update engine; buckets' facts and clip.
     ('fluids', [
         ('regen', 'FluidOracle', 'facts', '@fluids.json'),

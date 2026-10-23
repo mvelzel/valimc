@@ -23,6 +23,8 @@ mod codec;
 mod facts;
 #[cfg(feature = "parity")]
 mod fluid_parity;
+#[cfg(feature = "parity")]
+mod growth_parity;
 mod light;
 mod loot;
 #[cfg(feature = "parity")]

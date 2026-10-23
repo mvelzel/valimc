@@ -173,6 +173,7 @@ fn fluid_scene(
                     let actions = [Action::RandomTick {
                         pos,
                         fire: value == 1,
+                        rain: false,
                     }];
                     let input = Input {
                         actions: &actions,

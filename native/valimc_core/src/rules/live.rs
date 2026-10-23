@@ -30,7 +30,8 @@ pub struct Outcome {
     /// Per action, its result: a bucket's `Emptied` (0 failed, 1 placed, 2
     /// evaporated), a pickup's item index + 1 (0: none), a post-processing
     /// mark's 1 (done) or 0 (it read past the owner: keep it), a use's 1
-    /// (used) or 0 (passed on); 0 for the others.
+    /// (used) or 0 (passed on), a random tick's or bone meal's `growth`
+    /// result; 0 for the others.
     pub results: Vec<i32>,
     /// The redstone torches' recent toggles after the run.
     pub toggles: Vec<([i32; 3], i64)>,
@@ -52,9 +53,16 @@ pub enum Action {
     Pickup { pos: [i32; 3] },
     /// A generated chunk's post-processing mark.
     PostProcess { pos: [i32; 3] },
-    /// A random tick of a lava cell; `fire`: a player is near enough for its
-    /// fire to spread.
-    RandomTick { pos: [i32; 3], fire: bool },
+    /// A random tick of a lava cell or a growing plant (VMC-039a); `fire`: a
+    /// player is near enough for lava's fire to spread; `rain`: it rains at
+    /// the cell above (farmland).
+    RandomTick {
+        pos: [i32; 3],
+        fire: bool,
+        rain: bool,
+    },
+    /// Bone meal used on the block at `pos` (VMC-039a).
+    BoneMeal { pos: [i32; 3] },
     /// A player's use of the block at `pos` (`useWithoutItem`, VMC-047a),
     /// facing horizontal direction `facing`, allowed to build or not.
     Use {
@@ -228,6 +236,15 @@ impl World for Live<'_> {
             .and_then(|store| store.light_at(pos[0], pos[1], pos[2]))
             .map_or(0, |(sky, _)| sky as i32)
     }
+
+    fn block_light(&mut self, pos: [i32; 3]) -> i32 {
+        if self.sky.is_some() {
+            return 0;
+        }
+        self.store((pos[0] >> 4, pos[2] >> 4))
+            .and_then(|store| store.light_at(pos[0], pos[1], pos[2]))
+            .map_or(0, |(_, block)| block as i32)
+    }
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
@@ -302,6 +319,10 @@ pub fn run(
                 engine.disarm(pos);
                 0
             }
+            Action::BoneMeal { pos } => engine.bone_meal(pos),
+            Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
+                engine.growth_random_tick(pos, rain)
+            }
             _ if !fluids => 0,
             Action::Empty {
                 pos,
@@ -315,7 +336,7 @@ pub fn run(
             },
             Action::Pickup { pos } => engine.pickup(pos).map_or(0, |item| item as i32 + 1),
             Action::PostProcess { pos } => i32::from(engine.post_process(pos)),
-            Action::RandomTick { pos, fire } => {
+            Action::RandomTick { pos, fire, .. } => {
                 engine.lava_random_tick(pos, fire);
                 0
             }

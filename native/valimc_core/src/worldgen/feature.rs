@@ -656,6 +656,12 @@ impl Decoration {
         for id in facts.extra_placed {
             parser.placed(&Json::String(id.clone()))?;
         }
+        // A sapling grows any tree, placed by a biome or not (VMC-039a).
+        for (id, feature) in facts.features.entries()? {
+            if feature.get("type").and_then(|t| t.as_str().ok()) == Some("minecraft:tree") {
+                parser.feature(&Json::String(id.clone()))?;
+            }
+        }
         let mut biome_steps = vec![Vec::new(); facts.biome_count];
         let mut biome_features = vec![Vec::new(); facts.biome_count];
         let mut precipitation = vec![true; facts.biome_count];

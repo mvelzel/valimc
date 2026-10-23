@@ -574,6 +574,89 @@ fn place_spec(spec: &PlaceSpec) -> Result<valimc_core::worldgen::compiler::Place
     })
 }
 
+/// What a placement wrote into block entities, as full chunks carry them.
+fn full_block_entities(
+    entities: Vec<(
+        [i32; 3],
+        u16,
+        Option<valimc_core::worldgen::region::BlockEntityData>,
+    )>,
+) -> Vec<FullBlockEntity> {
+    entities
+        .into_iter()
+        .map(|(p, state, data)| FullBlockEntity {
+            position: (p[0], p[1], p[2]),
+            state,
+            kind: data.as_ref().map(|d| d.kind.to_string()),
+            loot_table: data.as_ref().and_then(|d| d.loot_table.clone()),
+            loot_seed: data.as_ref().map_or(0, |d| d.loot_seed),
+            spawner_entity: data.as_ref().and_then(|d| d.spawner_entity.clone()),
+            bees: data.as_ref().map_or_else(Vec::new, |d| d.bees.clone()),
+            exit: data
+                .as_ref()
+                .and_then(|d| d.exit.map(|(e, exact)| ((e[0], e[1], e[2]), exact))),
+            nbt: data
+                .as_ref()
+                .and_then(|d| d.nbt.as_deref().map(str::to_string)),
+        })
+        .collect()
+}
+
+/// A tree grown from a sapling (VMC-039a): changed blocks with their states
+/// before and after, and block entities to write.
+type GrownResult = (Vec<((i32, i32, i32), u16, u16)>, Vec<FullBlockEntity>);
+
+/// The tree of the sapling at `pos` (`TreeGrower.growTree`, VMC-039a), its
+/// grower from the block rules' growth facts, over the chunks of its plan
+/// (as `/place feature`'s: the 3 × 3 around it; column images, or nil for
+/// the flat `base` profile) with the level random `seed`; nil when no tree
+/// grew (no sapling there, or the tree did not fit).
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn worldgen_grow(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    rules: ResourceArc<crate::rules::BlockRules>,
+    pos: (i32, i32, i32),
+    chunks: Vec<(i32, i32, Option<Binary>)>,
+    base: Vec<u16>,
+    seed: i64,
+) -> NifResult<(Atom, Option<GrownResult>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
+        let mut protos = Vec::with_capacity(chunks.len());
+        for (x, z, image) in &chunks {
+            protos.push(state.place_chunk(
+                &biome_source,
+                (*x, *z),
+                image.as_ref().map(|b| b.as_slice()),
+                &base,
+            )?);
+        }
+        let pos = [pos.0, pos.1, pos.2];
+        let sapling = protos
+            .iter()
+            .find(|c| (c.x, c.z) == (pos[0] >> 4, pos[2] >> 4))
+            .and_then(|c| c.get(pos[0], pos[1], pos[2]));
+        let growth = rules.rules.growth.as_ref().ok_or("no growth facts")?;
+        let Some(grower) = sapling.and_then(|s| growth.grower(&rules.rules.table, s)) else {
+            return Ok(None);
+        };
+        let placement = valimc_core::worldgen::compiler::Placement::Sapling(grower.clone());
+        let Some(placed) = state.place(&biome_source, &placement, pos, protos, seed)? else {
+            return Ok(None);
+        };
+        let blocks = placed
+            .blocks
+            .iter()
+            .zip(&placed.replaced)
+            .map(|(&(p, new), &old)| ((p[0], p[1], p[2]), old, new))
+            .collect();
+        Ok(Some((blocks, full_block_entities(placed.block_entities))))
+    })())
+}
+
 /// `/place`'s plan (VMC-053): `{:chunks, checked, area}` with the chunks
 /// vanilla checks are loaded and every chunk the placement uses, or `:invalid`
 /// (no such template), `:failed` (no valid start, no jigsaw pieces) or
@@ -666,25 +749,7 @@ fn place(
         return Ok(None);
     };
     let t = |p: [i32; 3]| (p[0], p[1], p[2]);
-    let block_entities = placed
-        .block_entities
-        .into_iter()
-        .map(|(p, state, data)| FullBlockEntity {
-            position: t(p),
-            state,
-            kind: data.as_ref().map(|d| d.kind.to_string()),
-            loot_table: data.as_ref().and_then(|d| d.loot_table.clone()),
-            loot_seed: data.as_ref().map_or(0, |d| d.loot_seed),
-            spawner_entity: data.as_ref().and_then(|d| d.spawner_entity.clone()),
-            bees: data.as_ref().map_or_else(Vec::new, |d| d.bees.clone()),
-            exit: data
-                .as_ref()
-                .and_then(|d| d.exit.map(|(e, exact)| ((e[0], e[1], e[2]), exact))),
-            nbt: data
-                .as_ref()
-                .and_then(|d| d.nbt.as_deref().map(str::to_string)),
-        })
-        .collect();
+    let block_entities = full_block_entities(placed.block_entities);
     Ok(Some((
         placed.blocks.into_iter().map(|(p, s)| (t(p), s)).collect(),
         block_entities,

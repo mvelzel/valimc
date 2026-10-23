@@ -167,6 +167,11 @@ defmodule Valimc.Native do
   def redstone_scene(_rules, _cells, _actions, _entities, _days, _ticks, _seed, _tnt),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def growth_scene(_rules, _cells, _actions, _ticks, _seed, _sky, _darken, _rain),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def growth_trees(_rules, _worldgen, _cases), do: :erlang.nif_error(:nif_not_loaded)
+
   def redstone_day(_rules, _samples), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
@@ -278,6 +283,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_place_plan(_state, _biome_source, _spec, _pos),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def worldgen_grow(_state, _biome_source, _rules, _pos, _chunks, _base, _seed),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_place(_state, _biome_source, _spec, _pos, _chunks, _base, _seed),
