@@ -186,6 +186,28 @@ sound_of = fn
   _ -> []
 end
 
+# A mob as the oracle set it up (VMC-043d): a weapon in hand, a baby (with
+# its speed modifier, as `setBaby` adds it).
+setup = fn body, m ->
+  body =
+    case m["mainhand"] do
+      nil ->
+        body
+
+      item ->
+        stack = Valimc.Protocol.ItemStack.new(item)
+        %{body | mob: %{body.mob | equipment: Map.put(body.mob.equipment, :mainhand, stack)}}
+    end
+
+  if m["baby"] do
+    speed = %{base: nil, modifiers: [{"minecraft:baby", Valimc.Data.Float32.round(0.2), 1}]}
+    attributes = Map.put(body.mob.attributes, "minecraft:movement_speed", speed)
+    %{body | data: %{body.data | baby: true}, mob: %{body.mob | attributes: attributes}}
+  else
+    body
+  end
+end
+
 # What a family's mob keeps of its own (VMC-043e), as the oracle reports it.
 kind_data = fn
   %{type: "minecraft:shulker", data: data, mob: mob} ->
@@ -281,6 +303,13 @@ checked =
 
       world = %AI.World{
         read: &Map.get(scene, &1, air),
+        # Block searches (a piglin's repellents) over the scene's blocks.
+        find: fn {x0, y0, z0, x1, y1, z1}, states ->
+          for {{x, y, z} = position, state} <- scene,
+              x in x0..x1 and y in y0..y1 and z in z0..z1,
+              MapSet.member?(states, state),
+              do: {position, state}
+        end,
         # Vanilla's search answers at once (VMC-041b), over the same view.
         search: fn request ->
           [result] = AI.Paths.find(kernel_view, [request])
@@ -334,6 +363,7 @@ checked =
 
           body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind}}
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
+          body = setup.(body, m)
           {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
         end
 

@@ -63,7 +63,10 @@ defmodule Valimc.AI.World do
             local: nil,
             # Seeds for the loot tables mobs roll (a piglin's barter, VMC-043d):
             # nil draws fresh ones, a list (checks) hands them out in order.
-            loot_seeds: nil
+            loot_seeds: nil,
+            # What players did that mobs react to before thinking (VMC-043d):
+            # `{:anger, player_ref, seen}` (opening or breaking what piglins guard).
+            events: []
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,

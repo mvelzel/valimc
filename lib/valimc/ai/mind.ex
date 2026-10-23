@@ -41,7 +41,10 @@ defmodule Valimc.AI.Mind do
             # An animal's particle timers (`forcedAgeTimer`, `ageLockParticleTimer`).
             forced_age_timer: 0,
             age_lock_timer: 0,
-            own: nil
+            own: nil,
+            # What a brain mob reacts to before the section thinks (VMC-043d):
+            # `{:hurt_by, ref}` for each hurt by an entity since it last thought.
+            pending: []
 
   @doc "What a store saves of a mind: its random."
   def record(%__MODULE__{random: random}), do: %{random: random}

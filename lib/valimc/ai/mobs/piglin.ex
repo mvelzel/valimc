@@ -47,6 +47,11 @@ defmodule Valimc.AI.Mobs.Piglin do
   def dimensions(%{data: %{baby: true}}), do: HostileFacts.baby(@piglin)
   def dimensions(_body), do: nil
 
+  @doc "`getVoicePitch`'s base: a baby's is higher."
+  @impl true
+  def voice(_type, %{baby: true}), do: 1.5
+  def voice(_type, _data), do: 1.0
+
   @doc "`isBaby`."
   def baby?(%{data: %{baby: baby}}), do: baby
   def baby?(_body), do: false

@@ -474,6 +474,14 @@ defmodule Valimc.World.Region do
   def interact_entity({pid, epoch}, uuid, request),
     do: call(pid, {:interact_entity, epoch, uuid, request}, budget(pid, 1000))
 
+  @doc """
+  A player's act the section's mobs react to before they next think
+  (VMC-043d): `{:anger, {:player, uuid}, seen}` when it opens or breaks what
+  piglins guard (`PiglinAi.angerNearbyPiglins`). `:ok`.
+  """
+  def mob_event({pid, epoch}, event),
+    do: call(pid, {:mob_event, epoch, event}, budget(pid, 1000))
+
   @doc "A name tag's `name` (a text component) on the mob `uuid`: `:ok` (VMC-042a)."
   def name_entity({pid, epoch}, uuid, name),
     do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))

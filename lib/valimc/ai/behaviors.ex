@@ -341,15 +341,28 @@ defmodule Valimc.AI.Behaviors do
     )
   end
 
+  @doc """
+  `BehaviorBuilder.triggerIf(predicate, oneShot)`: the one-shot, only while
+  `predicate.(self)` holds.
+  """
+  def trigger_if(predicate, %{trigger: trigger} = one_shot),
+    do: %{
+      one_shot
+      | trigger: fn self -> if predicate.(self), do: trigger.(self), else: {false, self} end
+    }
+
   @doc "Whether a sensed entity is of `kind` (`:player`, or a mob type)."
   def is?(%{kind: :player}, :player), do: true
   def is?(%{kind: :mob, type: type}, type), do: true
   def is?(_entity, _kind), do: false
 
-  @doc "`RandomStroll.stroll(speed)`: a land target ten blocks around, or none."
-  def stroll(speed) do
+  @doc """
+  `RandomStroll.stroll(speed)` (`stroll(speed, h, v)`): a land target ten
+  (`h`) blocks around and seven (`v`) up or down, or none.
+  """
+  def stroll(speed, h \\ 10, v \\ 7) do
     Behavior.one_shot([walk_target: :absent], fn self ->
-      {pos, self} = RandomPos.land(self, 10, 7)
+      {pos, self} = RandomPos.land(self, h, v)
 
       self =
         case pos do

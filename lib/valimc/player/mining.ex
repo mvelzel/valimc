@@ -275,6 +275,11 @@ defmodule Valimc.Player.Mining do
 
     case Region.mine_block(owner, position, plan.writes, records) do
       :ok ->
+        # Breaking what piglins guard angers those around (VMC-043d,
+        # `Block.playerWillDestroy`).
+        if guarded?(block),
+          do: Region.mob_event(owner, {:anger, {:player, state.player.uuid}, false})
+
         slot = 36 + state.inventory.selected
 
         slots =
@@ -327,4 +332,10 @@ defmodule Valimc.Player.Mining do
       state
     end
   end
+
+  @guarded MapSet.new(
+             Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:guarded_by_piglins"]
+           )
+
+  defp guarded?(state), do: MapSet.member?(@guarded, Valimc.Data.Blocks.block_id(state))
 end

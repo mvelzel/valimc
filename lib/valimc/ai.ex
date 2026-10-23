@@ -92,6 +92,10 @@ defmodule Valimc.AI do
       # A family's own bounding box (a shulker's lid), else the usual one.
       box: Mobs.hook(type, :box, [body, position], nil),
       alive: Mob.alive?(mob),
+      # A baby by its family's flag (zombies, piglins); a hoglin hunters may
+      # hunt (VMC-043d).
+      baby: Map.get(body.data, :baby, false),
+      huntable: not Map.get(body.data, :cannot_be_hunted, false),
       target: mind && mind.target,
       in_love: if(animal, do: body.data.in_love, else: 0),
       age: if(animal, do: body.data.age, else: 0),
@@ -119,6 +123,7 @@ defmodule Valimc.AI do
     sensed = Enum.map(mobs, &sensed/1)
     world = %{world | mobs: sensed, by_type: Enum.group_by(sensed, & &1.type)}
     order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
+    {mobs, early, world} = react(mobs, order, world)
 
     {results, {late, world}} =
       mobs
@@ -126,6 +131,7 @@ defmodule Valimc.AI do
       |> Enum.map_reduce({%{}, world}, fn {{id, entry}, index}, {changes, world} ->
         entry = %{entry | body: change(entry.body, changes[entry.entity.uuid])}
         {body, position, effects, world} = think_one(id, entry, world)
+        effects = Map.get(early, id, []) ++ effects
 
         # Another mob changed at once, as vanilla changes it: a mob later in
         # order thinks with it, one earlier keeps it for its next tick.
@@ -185,6 +191,95 @@ defmodule Valimc.AI do
       do: %{in_love: data.in_love, age: data.age, data: data},
       else: %{}
   end
+
+  # A brain mob's reactions before its section thinks (VMC-043d): to the
+  # entities that hurt it since it last thought (`wasHurtBy`, which vanilla
+  # runs as the hurt lands) and to what players did (`angerNearbyPiglins`),
+  # each with what it changes in other mobs' brains (`{:brain, uuid, fun}`)
+  # applied at once. `{mobs, early effects by id, world}`.
+  defp react(mobs, order, %World{} = world) do
+    tuple = List.to_tuple(mobs)
+
+    {tuple, early, world} =
+      Enum.reduce(0..(tuple_size(tuple) - 1)//1, {tuple, %{}, world}, fn index, acc ->
+        react_one(index, acc, order)
+      end)
+
+    {Tuple.to_list(tuple), early, %{world | events: []}}
+  end
+
+  defp react_one(index, {tuple, early, world} = acc, order) do
+    {id, entry} = elem(tuple, index)
+
+    with %Body{mob: %Mob{ai: %Mind{brain: %{module: module}} = mind} = mob} <- entry.body,
+         true <- Mob.alive?(mob),
+         true <- reacts?(module),
+         events when events != [] <- mind.pending ++ world.events do
+      entry = put_in(entry.body.mob.ai.pending, [])
+      self = self_of(id, entry, world)
+      self = Enum.reduce(events, self, &module.react(&2, &1))
+      {others, own} = Enum.split_with(self.effects, &match?({:brain, _, _}, &1))
+      tuple = put_elem(tuple, index, {id, %{entry | body: settled(entry.body, self)}})
+      early = Map.update(early, id, Enum.reverse(own), &(&1 ++ Enum.reverse(own)))
+
+      others
+      |> Enum.reverse()
+      |> Enum.reduce({tuple, early, self.world}, fn {:brain, uuid, fun}, {tuple, early, world} ->
+        case order[uuid] do
+          nil ->
+            {tuple, early, world}
+
+          other ->
+            {other_id, other_entry} = elem(tuple, other)
+
+            if match?(%Body{mob: %Mob{ai: %Mind{brain: %{}}}}, other_entry.body) do
+              them = fun.(self_of(other_id, other_entry, world))
+              entry = %{other_entry | body: settled(other_entry.body, them)}
+              made = Enum.reverse(them.effects)
+
+              {put_elem(tuple, other, {other_id, entry}),
+               Map.update(early, other_id, made, &(&1 ++ made)), them.world}
+            else
+              {tuple, early, world}
+            end
+        end
+      end)
+    else
+      _ -> acc
+    end
+  end
+
+  defp reacts?(module), do: Code.ensure_loaded?(module) and function_exported?(module, :react, 2)
+
+  # The mob as its AI sees it, outside its own think (a reaction).
+  defp self_of(id, %{entity: e, body: %Body{type: type, mob: mob} = body}, world) do
+    {width, height, eye} = Body.dimensions(body)
+
+    %Self{
+      id: id,
+      uuid: e.uuid,
+      type: type,
+      x: e.x * 1.0,
+      y: e.y * 1.0,
+      z: e.z * 1.0,
+      yaw: body.yaw,
+      pitch: body.pitch,
+      head: body.head_yaw,
+      on_ground: body.on_ground,
+      velocity: body.velocity,
+      mob: mob,
+      mind: mob.ai,
+      facts: Facts.mob(type),
+      width: width,
+      height: height,
+      eye: eye,
+      data: body.data,
+      world: world
+    }
+  end
+
+  defp settled(body, %Self{} = self),
+    do: %{body | mob: %{self.mob | ai: self.mind}, data: self.data}
 
   # A mob of a type with an AI thinks with a mind (from its record, or new).
   defp ensure(%{entity: e, body: %Body{type: type, mob: %Mob{ai: ai} = mob} = body} = entry) do
@@ -550,6 +645,13 @@ defmodule Valimc.AI do
   """
   def hurt(%Mind{} = mind, attacker, source) do
     mind = %{mind | no_action: 0, damage: {source, mind.tick + 1, attacker}}
+
+    # A brain mob reacts to its attacker before its section next thinks.
+    mind =
+      if attacker != nil and mind.brain != nil,
+        do: %{mind | pending: mind.pending ++ [{:hurt_by, attacker}]},
+        else: mind
+
     if attacker, do: %{mind | hurt_by: {attacker, mind.tick}}, else: mind
   end
 

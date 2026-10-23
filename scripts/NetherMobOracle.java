@@ -49,6 +49,30 @@ public class NetherMobOracle {
     // With no player in sight it throws toward a spot near itself.
     cases.add(MobAiOracle.run(level, "piglin_barter_alone", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 79L)),
       List.of(), List.of(), List.of(new MobAiOracle.Drop(new Vec3(-2.5, 64, 3.5), "minecraft:gold_ingot", 1)), 260));
+    var sword = Map.<String, Object>of("mainhand", "minecraft:golden_sword");
+    // A piglin with a golden sword goes for a player wearing no gold and hits it.
+    cases.add(MobAiOracle.run(level, "piglin_attack", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 83L, sword)),
+      List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 4.5), "survival", null)), List.of(), 160));
+    // Hit by a player in a golden helmet, it and the piglin beside it turn on it.
+    cases.add(MobAiOracle.run(level, "piglin_retaliate", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(-2.5, 64, 3.5), 90, 97L, sword),
+      new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 89L, sword)),
+      List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, -5.5), "survival", null, "minecraft:golden_helmet")), List.of(new MobAiOracle.Hit(20, 0, 1, 1.0F)), 200));
+    // A baby hit runs from the player; the adult takes up its anger. (The
+    // adult ticks first: a mob reads the others where they stood as the
+    // section's tick began, VMC-041a.)
+    cases.add(MobAiOracle.run(level, "piglin_baby_hit", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(-3.5, 64, 2.5), 0, 103L, sword),
+      new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 101L, Map.of("baby", true))),
+      List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, -3.5), "survival", null, "minecraft:golden_helmet")), List.of(new MobAiOracle.Hit(30, 0, 1, 1.0F)), 200));
+    // A zombified piglin close by: it backs away.
+    cases.add(MobAiOracle.run(level, "piglin_avoid", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 107L, sword),
+      new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(3.5, 64, 1.5), 270, 109L)),
+      List.of(), List.of(), 200));
+    // Soul fire four blocks off: it walks away from it.
+    var fire = new ArrayList<>(floor);
+    fire.add(new MobAiOracle.Block(3, 64, 1, Blocks.SOUL_FIRE.defaultBlockState()));
+    fire.add(new MobAiOracle.Block(3, 63, 1, Blocks.SOUL_SAND.defaultBlockState()));
+    cases.add(MobAiOracle.run(level, "piglin_repellent", fire, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 113L, sword)),
+      List.of(), List.of(), 160));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -59,6 +83,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent).");
   }
 }

@@ -110,6 +110,9 @@ defmodule Valimc.World.RegionData do
     {:player_sensed, []},
     # The level random mobs' brains draw on (VMC-041a2), the section's own.
     {:ai_random, nil},
+    # What players did that this section's mobs react to before they next
+    # think (VMC-043d, `AI.World.events`): at most 64.
+    {:mob_events, []},
     # Mobs' deferred path searches and their results (VMC-041b).
     {:mob_paths, %Valimc.World.MobPaths{}},
     # Explosions whose craters wait for the crater job (VMC-050a):
@@ -1157,7 +1160,9 @@ defmodule Valimc.World.RegionData do
 
       # Paths the mobs asked for run as a job (VMC-041b).
       mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
-      state = start_paths(%{state | ai_random: world.random, mob_paths: mob_paths})
+
+      state =
+        start_paths(%{state | ai_random: world.random, mob_paths: mob_paths, mob_events: []})
 
       # A hit's extras (VMC-043b: a burning zombie's fire, a husk's hunger).
       attacks =
@@ -1666,7 +1671,8 @@ defmodule Valimc.World.RegionData do
       mob_drops: Valimc.World.GameRules.get(:mob_drops),
       # Tests that move mobs alone turn their goals off per scope.
       goals:
-        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key)
+        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
+      events: state.mob_events
     }
   end
 
@@ -2009,6 +2015,15 @@ defmodule Valimc.World.RegionData do
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
       _ -> {:reply, {:error, :not_living}, state}
+    end
+  end
+
+  # A player's act this section's mobs react to (VMC-043d, `Region.mob_event/2`).
+  def handle_call({:mob_event, epoch, event}, _from, state) do
+    if epoch == state.epoch do
+      {:reply, :ok, %{state | mob_events: Enum.take(state.mob_events ++ [event], -64)}}
+    else
+      {:reply, {:error, {:retry, :stale_owner}}, state}
     end
   end
 

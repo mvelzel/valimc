@@ -62,6 +62,19 @@ defmodule Valimc.AI.RandomPos do
     end)
   end
 
+  @doc "`LandRandomPos.getPosAway(mob, h, v, from)` (VMC-043d: fleeing)."
+  def land_away(%Self{} = self, h, v, {ax, _, az}) do
+    {dx, dz} = {self.x - ax, self.z - az}
+
+    best(self, fn self ->
+      with {direction, self} when direction != nil <-
+             within(self, 0.0, h * 1.0, v, dx, dz, @half_pi),
+           {pos, self} when pos != nil <- toward(self, h, direction, true) do
+        {out_of_solid(self, pos), self}
+      end
+    end)
+  end
+
   # `generateRandomPos`: ten draws, the first of the best walk value.
   defp best(self, candidate) do
     {best, _, self} =

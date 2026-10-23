@@ -109,7 +109,7 @@ factory, so other families' oracles reuse it the same way.
   `mobInteract` (a player giving an ingot by hand), piglins' anger at
   players without gold armour: 043d4b.
 
-## 043d4b — piglins fight (in progress)
+## 043d4b — piglins fight (melee done; crossbows next)
 
 - Spawning: `Valimc.AI.Mobs.Piglin` joins the mob families: one time in
   five a baby (smaller, faster), else a crossbow or a golden sword (a
@@ -118,6 +118,42 @@ factory, so other families' oracles reuse it the same way.
   structure's piglin is neither baby nor armed. Its entity data (baby,
   immune, charging, dancing). `hostile_spawns` adds piglins (natural,
   spawner and structure): 5400 results equal vanilla's.
+- Brain (`Valimc.AI.Brains.Piglin`): vanilla's fight, celebrate, avoid and
+  ride activities beside core, idle and admire, in vanilla's priorities:
+  attacking the nearest player wearing no gold, a nemesis or whom it is
+  angry at (`findNearestValidAttackTarget`), melee every 20 ticks, dropping
+  a target that is no longer the nearest valid one, fleeing zombified
+  piglins and soul fire, celebrating a kill where it fell. Its sensor is
+  vanilla's `PiglinSpecificSensor` (the soul fire search in Manhattan
+  order). Shared behaviours live in `Valimc.AI.Behaviors.Fight`
+  (`StartAttacking`, `StopAttackingIfTargetInvalid`,
+  `SetWalkTargetFromAttackTargetIfTargetOutOfReach`, `MeleeAttack`,
+  `CopyMemoryWithExpiry`, `EraseMemoryIf`, `SetWalkTargetAwayFrom`,
+  `GoToTargetLocation`, celebrating and forgetting a dead target).
+- Reactions: a brain mob's hurts by entities wait in `Mind.pending` and run
+  before its section thinks (`AI.react`, as vanilla's `wasHurtBy` runs at
+  the hurt), with what they change in other mobs' brains: a hurt piglin
+  drops what it holds, stops admiring, retaliates and the adults around
+  take up its anger; a baby flees. Opening a chest or barrel
+  (`Player.Menus`) and mining a block piglins guard (`Player.Mining`) send
+  `{:anger, player, seen}` to the section (`Region.mob_event/2`,
+  `AI.World.events`): idle piglins near the player get angry.
+- A baby's voice is higher (hurt, death and its own sounds).
+- Oracle: per-mob setup (a weapon, a baby) in `MobAiOracle.Spawn` data,
+  all five piglin `RunOne`s seeded and reported, `getEntity(UUID)` in the
+  probe, sensors' first scans drawn from a seeded random (a case is the
+  same every run), and block scans that read the scene (its sections had
+  claimed to hold nothing, so no piglin ever saw soul fire). A mob reads
+  the others where they stood as its section's tick began (VMC-041a), not
+  where the mobs before it moved this tick: scenes order a mob that looks
+  at a moving one before it. Evidence: `nether_mobs` passes 4280 ticks of 13 scenes (attack,
+  retaliate, baby hit, avoid, repellent among them);
+  `mob_ai_connection_test` has a piglin spare a player in a golden helmet
+  until it hits it.
+- Gaps: crossbow piglins (`CrossbowAttack`, `BackUpIfTooClose` needs the
+  move control's strafe), spears, doors, hunting hoglins, riding, a
+  piglin's inventory, food and equipping what it picks up, creative
+  breaking's anger, zombification outside the Nether.
 
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player

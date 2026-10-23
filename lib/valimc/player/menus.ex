@@ -123,6 +123,10 @@ defmodule Valimc.Player.Menus do
   end
 
   defp open_container_menu(state, kind, position, owner, block, view, sequence) do
+    # Opening a chest or barrel angers the piglins that see it (VMC-043d,
+    # `PiglinAi.angerNearbyPiglins`).
+    if kind == :chest, do: Region.mob_event(owner, {:anger, {:player, state.player.uuid}, true})
+
     id = rem(state.table_counter, 127) + 1
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
     state = state |> ItemUse.stop_item_use() |> Mining.cancel_mining()

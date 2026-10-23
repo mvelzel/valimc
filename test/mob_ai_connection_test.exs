@@ -4,7 +4,8 @@ defmodule Valimc.MobAiConnectionTest do
   player, walks to it and hits it; a pig follows a player holding a carrot,
   and panics when the player hits it. A blaze (VMC-043d) sets the player on
   fire with its fireballs; zombified piglins leave the player alone until it
-  hits one, then all turn on it.
+  hits one, then all turn on it; a piglin leaves a player in a golden
+  helmet alone until it hits it.
   """
   use ExUnit.Case, async: false
   @moduletag :tcp
@@ -48,9 +49,10 @@ defmodule Valimc.MobAiConnectionTest do
     TestPlayer.save(ctx, player, inventory)
   end
 
-  defp summon(ctx, type, uuid, dx) do
+  defp summon(ctx, type, uuid, dx, equipment \\ %{}) do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {:ok, body} = Body.new(type)
+    body = %{body | mob: %{body.mob | equipment: Map.merge(body.mob.equipment, equipment)}}
     record = Store.body_record(body, uuid, {ctx.pose.x + dx, 64.0, ctx.pose.z})
     :ok = Region.drop_items(owner, [record])
     Valimc.TestWait.until(fn -> match?({:ok, _}, Store.find(store(owner), uuid)) end)
@@ -161,5 +163,41 @@ defmodule Valimc.MobAiConnectionTest do
     )
 
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 15.0 end, 30_000)
+  end
+
+  test "a piglin spares a player in gold until the player hits it", ctx do
+    save(ctx, %Inventory{slots: %{5 => ItemStack.new("golden_helmet")}})
+    {_client, pid} = TestPlayer.login(ctx)
+    uuid = <<16::128>>
+    sword = %{mainhand: ItemStack.new("golden_sword")}
+    owner = summon(ctx, "minecraft:piglin", uuid, 4.0, sword)
+
+    # Gold on its head: twenty ticks of sensing, and no target.
+    Valimc.TestWait.until(fn -> entry(owner, uuid).body.mob.ai != nil end, 10_000)
+    Process.sleep(1_500)
+    assert entry(owner, uuid).body.mob.ai.target == nil
+    assert TestPlayer.living(pid).health.value == 20.0
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:player_attack),
+      amount: 1.0,
+      attacker: %{
+        uuid: ctx.uuid,
+        entity_id: 1,
+        player: true,
+        type: "minecraft:player",
+        mainhand: nil
+      },
+      position: {ctx.pose.x, 64.0, ctx.pose.z}
+    }
+
+    {:ok, _} = Region.hurt_entity(owner, uuid, hit)
+
+    Valimc.TestWait.until(
+      fn -> entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid} end,
+      10_000
+    )
+
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
   end
 end

@@ -120,18 +120,39 @@ public class MobAiOracle {
     public FluidState getFluidState(BlockPos p) { return level.getFluidState(p); }
   }
 
-  /** A section holding nothing a filtered scan (a piglin's repellents) looks for. */
-  static class EmptySection extends net.minecraft.world.level.chunk.LevelChunkSection {
-    private EmptySection() { super(null, null); }
-    public boolean maybeHas(Predicate<BlockState> predicate) { return false; }
+  /**
+   * A section of the scene a filtered block scan reads (a piglin's
+   * repellents, VMC-043d): it may hold what the scene's blocks there (or
+   * air) match, and reads them.
+   */
+  static class SceneSection extends net.minecraft.world.level.chunk.LevelChunkSection {
+    Probe level; int x, y, z;
+    private SceneSection() { super(null, null); }
+    public boolean maybeHas(Predicate<BlockState> predicate) {
+      if (predicate.test(Blocks.AIR.defaultBlockState())) return true;
+      for (var e : level.blocks.entrySet()) {
+        var p = e.getKey();
+        if (p.getX() >> 4 == x && p.getY() >> 4 == y && p.getZ() >> 4 == z && predicate.test(e.getValue())) return true;
+      }
+      return false;
+    }
+    public BlockState getBlockState(int rx, int ry, int rz) { return level.getBlockState(new BlockPos(x * 16 + rx, y * 16 + ry, z * 16 + rz)); }
   }
 
-  /** The chunk a filtered block scan reads: its sections hold nothing it wants. */
+  /** The chunk a filtered block scan reads: its sections are the scene's. */
   static class ScanChunk extends net.minecraft.world.level.chunk.LevelChunk {
-    EmptySection section;
+    Probe level; int x, z; Map<Integer, SceneSection> sections;
     private ScanChunk() { super(null, null); }
-    public net.minecraft.world.level.chunk.LevelChunkSection getSection(int index) { return section; }
-    public int getSectionIndexFromSectionY(int sectionY) { return 0; }
+    public net.minecraft.world.level.chunk.LevelChunkSection getSection(int index) {
+      return sections.computeIfAbsent(index, y -> {
+        try {
+          var s = (SceneSection)unsafe.allocateInstance(SceneSection.class);
+          s.level = level; s.x = x; s.y = y; s.z = z;
+          return s;
+        } catch (Exception e) { throw new RuntimeException(e); }
+      });
+    }
+    public int getSectionIndexFromSectionY(int sectionY) { return sectionY; }
   }
 
   /** The chunk a path's region reads (`getChunkNow`): the scene. */
@@ -212,15 +233,16 @@ public class MobAiOracle {
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     public List<ServerPlayer> players() { return (List)fighters; }
-    ScanChunk scan;
+    Map<Long, ScanChunk> scans = new HashMap<>();
     public net.minecraft.world.level.chunk.LevelChunk getChunk(int x, int z) {
-      if (scan == null) {
+      if (scans == null) scans = new HashMap<>();
+      return scans.computeIfAbsent(net.minecraft.world.level.ChunkPos.pack(x, z), k -> {
         try {
-          scan = (ScanChunk)unsafe.allocateInstance(ScanChunk.class);
-          scan.section = (EmptySection)unsafe.allocateInstance(EmptySection.class);
+          var c = (ScanChunk)unsafe.allocateInstance(ScanChunk.class);
+          c.level = this; c.x = x; c.z = z; c.sections = new HashMap<>();
+          return c;
         } catch (Exception e) { throw new RuntimeException(e); }
-      }
-      return scan;
+      });
     }
     public int getNextEntityId() { return ++ids; }
     public boolean isLoaded(BlockPos p) { return true; }
@@ -291,6 +313,11 @@ public class MobAiOracle {
       var out = new ArrayList<Entity>();
       for (var e : entities) if (!e.isRemoved() && e != except && e.getBoundingBox().intersects(box) && test.test(e)) out.add(e);
       return out;
+    }
+    // Memories hold entities by UUID (a piglin's anger).
+    public Entity getEntity(UUID uuid) {
+      for (var e : entities) if (e.getUUID().equals(uuid)) return e;
+      return null;
     }
     public <T extends Entity> List<T> getEntitiesOfClass(Class<T> type, AABB box, Predicate<? super T> test) {
       var out = new ArrayList<T>();
@@ -661,24 +688,31 @@ public class MobAiOracle {
       m.getRandom().setSeed(s.seed);
       if (m instanceof Piglin) {
         // The idle RunOnes' own randoms (`ShufflingList`), seeded from the mob's.
-        var byPriority = (Map<?, ?>)field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(m.getBrain());
         var g = new JsonArray();
         long k = 0;
-        for (int priority : new int[]{15, 16}) {
-          var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).get(net.minecraft.world.entity.schedule.Activity.IDLE)).iterator().next();
-          var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
-          var random = (net.minecraft.util.RandomSource)field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list);
+        for (var random : gateRandoms(m.getBrain())) {
           random.setSeed(s.seed + 101 * ++k);
           g.add(s.seed + 101 * k);
         }
         gates.add(g);
         var times = new JsonArray();
-        for (var sensor : ((Map<?, ?>)sensorsField.get(m.getBrain())).values()) times.add(timeToTick.getLong(sensor));
+        // Their first scans as vanilla delays them (`randomlyDelayStart`), from a
+        // seeded random rather than the mob's unseeded first one: every run the same.
+        var delays = net.minecraft.util.RandomSource.create(s.seed * 31 + 7);
+        var scanRate = field(net.minecraft.world.entity.ai.sensing.Sensor.class, "scanRate");
+        for (var sensor : ((Map<?, ?>)sensorsField.get(m.getBrain())).values()) {
+          timeToTick.setLong(sensor, delays.nextInt(scanRate.getInt(sensor)));
+          times.add(timeToTick.getLong(sensor));
+        }
         sensorTimes.add(times);
       } else {
         gates.add(JsonNull.INSTANCE); sensorTimes.add(JsonNull.INSTANCE);
       }
       m.setSilent(false);
+      // A weapon in hand, or a baby (VMC-043d), as the check sets them too.
+      if (s.data.containsKey("mainhand"))
+        m.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse((String)s.data.get("mainhand")))));
+      if (Boolean.TRUE.equals(s.data.get("baby"))) m.setBaby(true);
       if (m instanceof net.minecraft.world.entity.monster.Shulker sh && s.data.containsKey("attach_face")) {
         var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
         attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
@@ -743,13 +777,7 @@ public class MobAiOracle {
           r.add("memories", memories);
           // The idle RunOnes' own randoms, as they shuffle (a start that ends the same tick shows here).
           var gateSeeds = new JsonArray();
-          var byPriority = (Map<?, ?>)field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(brain);
-          for (int priority : new int[]{15, 16}) {
-            var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).get(net.minecraft.world.entity.schedule.Activity.IDLE)).iterator().next();
-            var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
-            var random = field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list);
-            gateSeeds.add(((java.util.concurrent.atomic.AtomicLong)seedField.get(random)).get());
-          }
+          for (var random : gateRandoms(brain)) gateSeeds.add(((java.util.concurrent.atomic.AtomicLong)seedField.get(random)).get());
           r.add("gate_seeds", gateSeeds);
           r.addProperty("admiring", brain.hasMemoryValue(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM)
               ? brain.getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM) : -1L);
@@ -786,7 +814,10 @@ public class MobAiOracle {
     var ms = new JsonArray();
     for (var s : spawns) {
       var o = new JsonObject(); o.addProperty("type", s.type); o.add("position", bits(s.position)); o.addProperty("yaw", Float.floatToRawIntBits(s.yaw));
-      o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(ms.size()).getId()); ms.add(o);
+      o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(ms.size()).getId());
+      if (s.data.containsKey("mainhand")) o.addProperty("mainhand", (String)s.data.get("mainhand"));
+      if (Boolean.TRUE.equals(s.data.get("baby"))) o.addProperty("baby", true);
+      ms.add(o);
     }
     out.add("mobs", ms);
     var ps = new JsonArray();
@@ -821,6 +852,25 @@ public class MobAiOracle {
     }
     if (m instanceof net.minecraft.world.entity.monster.Endermite e) o.addProperty("life", field(net.minecraft.world.entity.monster.Endermite.class, "life").getInt(e));
     return o;
+  }
+
+  /**
+   * A piglin's RunOnes' own randoms in the order its brain ticks them (by
+   * priority, then activity): the retreat's look and walk (11, 12), the idle
+   * look (15), the celebration's (15) and the idle walk (16).
+   */
+  static List<net.minecraft.util.RandomSource> gateRandoms(net.minecraft.world.entity.ai.Brain<?> brain) throws Exception {
+    var byPriority = (Map<?, ?>)field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(brain);
+    var out = new ArrayList<net.minecraft.util.RandomSource>();
+    var avoid = net.minecraft.world.entity.schedule.Activity.AVOID;
+    var idle = net.minecraft.world.entity.schedule.Activity.IDLE;
+    var celebrate = net.minecraft.world.entity.schedule.Activity.CELEBRATE;
+    for (var slot : List.of(Map.entry(11, avoid), Map.entry(12, avoid), Map.entry(15, idle), Map.entry(15, celebrate), Map.entry(16, idle))) {
+      var gate = ((Set<?>)((Map<?, ?>)byPriority.get(slot.getKey())).get(slot.getValue())).iterator().next();
+      var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
+      out.add((net.minecraft.util.RandomSource)field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list));
+    }
+    return out;
   }
 
   static double speed(PathNavigation nav) throws Exception {
