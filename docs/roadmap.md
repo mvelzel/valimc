@@ -41,7 +41,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | Combat | Living damage, a projectile kernel, orb motion | 037n → 037o → 034n4c → 026d |
 | World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
 | Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
-| Blocks | Block rules, placement, mining | 029e → 039a → 032b |
+| Blocks | Block rules, placement, mining | 029e → 039a → 039b → 032b |
 | Fluids | A fluid module, fluid ticks | 031a → 031b |
 | Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
@@ -57,7 +57,7 @@ Phases:
 5. **Last:** 045a, then the gate.
 
 When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
-043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
+043c, 042b, 048a, 043d, 039a, 039b, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -74,7 +74,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
 | [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
 | [VMC-077e1](tickets/VMC-077e1.md) | At `renderDistance:4`, monsters 5 to 10 chunks away vanish on the tick peaceful is set |
-| [VMC-039a](tickets/VMC-039a.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal; trampling |
+| [VMC-039a](tickets/VMC-039a.md), [039b](tickets/VMC-039b.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal (on grass and flowers too); trampling; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-048a](tickets/VMC-048a.md) | A comparator reading a chest into a lamp, a repeater line with a lock, an observer clock |
 | [VMC-041b](tickets/VMC-041b.md) | A zombie walks through a wall's gap and an open door to the player, not a closed one, and across water; a piglin walks around a fence line to gold |
 

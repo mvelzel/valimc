@@ -1,8 +1,8 @@
-# Differential check of growing plants (VMC-039a, `valimc_core::rules::growth` on the live
-# block-update engine) against GrowthOracle's scenes: per game tick, the cells whose state
-# changed, the level events (broken blocks) and each random tick's and bone meal's result
-# (nothing, bone meal used, a tree grows). The scenes straddle chunk and section lines; the
-# engine reads the four section stores as one group's.
+# Differential check of growing plants (VMC-039a, VMC-039b: `valimc_core::rules::growth` and
+# `plants` on the live block-update engine) against GrowthOracle's scenes: per game tick, the
+# cells whose state changed, the level events (broken blocks, bone meal) and each random tick's
+# and bone meal's result (nothing, bone meal used, a tree grows, a copy dropped). The scenes
+# straddle chunk and section lines; the engine reads the four section stores as one group's.
 [filename] = System.argv()
 facts = JSON.decode!(File.read!(filename))
 rules = Valimc.World.BlockRules.native()
@@ -26,7 +26,8 @@ compare = fn scene ->
       scene["seed"],
       scene["sky"],
       scene["darken"],
-      scene["rain"]
+      scene["rain"],
+      scene["corals"]
     )
 
   ours = Map.new(ours, fn {t, changes, events, results} -> {t, {changes, events, results}} end)

@@ -41,6 +41,7 @@ parallel. In every slice:
 | [VMC-031a](tickets/VMC-031a.md) | Water and lava flow | Flow, mixing, sources and buckets match the oracle across group lines |
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns and lava's fire | Columns and lava's fires match the oracle across section lines |
 | [VMC-039a](tickets/VMC-039a.md) | Crops, plants and saplings grow | Growth by random ticks and bone meal matches the oracle |
+| [VMC-039b](tickets/VMC-039b.md) | The rest of a farm's growth | Grass, Nether and water plants, berries and bone meal on the rest match the oracle; berries picked |
 | [VMC-032b](tickets/VMC-032b.md) | Double chests | Joined chests, the large menu and splitting, across group lines too |
 | [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |
 | [VMC-034n4c](tickets/VMC-034n4c.md) | Experience orb gaps | Orbs merge, jump in lava and launch as vanilla's, checked against the oracle |

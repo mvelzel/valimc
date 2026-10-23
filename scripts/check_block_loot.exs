@@ -3,7 +3,8 @@
 # random context for its other states) broken through
 # `Valimc.Blocks.MiningLoot` names the case's table and drops what vanilla's
 # `getDrops` drops, stack for stack, compared through the persistent item
-# codec.
+# codec; each block interaction (VMC-039b: berries picked, a block tilled or
+# sheared) drops what its table gives.
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 alias Valimc.Blocks.MiningLoot
@@ -33,21 +34,34 @@ end
 true = length(cases) > 50_000
 
 failures =
-  Enum.reject(cases, fn row ->
-    [x, y, z] = row["origin"]
+  Enum.reject(cases, fn
+    %{"interact" => true} = row ->
+      [x, y, z] = row["origin"]
 
-    {:ok, drops} =
-      MiningLoot.drops(row["state"], {x, y, z},
-        seed: String.to_integer(row["seed"]),
-        tool: CheckBlockLoot.tool(row["tool"]),
-        entity: row["entity"],
-        radius: row["radius"],
-        above: row["above"],
-        below: row["below"]
-      )
+      {:ok, drops} =
+        Valimc.Blocks.Loot.block_drops(row["table"], String.to_integer(row["seed"]), {x, y, z}, %{
+          state: row["state"],
+          tool: CheckBlockLoot.tool(row["tool"]),
+          entity: true
+        })
 
-    MiningLoot.table(row["state"]) == row["table"] and
       Enum.map(drops, &CheckBlockLoot.plain(ItemData.tag(&1))) == row["drops"]
+
+    row ->
+      [x, y, z] = row["origin"]
+
+      {:ok, drops} =
+        MiningLoot.drops(row["state"], {x, y, z},
+          seed: String.to_integer(row["seed"]),
+          tool: CheckBlockLoot.tool(row["tool"]),
+          entity: row["entity"],
+          radius: row["radius"],
+          above: row["above"],
+          below: row["below"]
+        )
+
+      MiningLoot.table(row["state"]) == row["table"] and
+        Enum.map(drops, &CheckBlockLoot.plain(ItemData.tag(&1))) == row["drops"]
   end)
 
 for row <- Enum.take(failures, 8), do: IO.puts("FAIL #{inspect(row, limit: :infinity)}")
@@ -60,6 +74,8 @@ end
 states = cases |> Enum.map(& &1["state"]) |> Enum.uniq() |> length()
 stacks = cases |> Enum.map(&length(&1["drops"])) |> Enum.sum()
 
+interactions = Enum.count(cases, & &1["interact"])
+
 IO.puts(
-  "PASS: #{length(cases)} block breaks over #{states} states equal vanilla's drops (#{stacks} stacks)"
+  "PASS: #{length(cases) - interactions} block breaks over #{states} states and #{interactions} block interactions equal vanilla's drops (#{stacks} stacks)"
 )

@@ -257,15 +257,17 @@ defmodule Valimc.Player.Placement do
   end
 
   # `BoneMealItem.useOn` on the clicked block, in its owner: used up in
-  # survival when the block took it; a sapling's tree grows in a task.
+  # survival when the block took it; what the generator grows (a sapling's
+  # tree, a grass block's flowers) grows in a task.
   defp run(state, %{kind: :bone_meal, request: request} = command) do
     used =
       with %{} <- command.body,
            {:ok, owner} <- owner(request.position),
+           corals = Valimc.World.Growth.corals?(state.player.dimension, Rules.adjacent(request)),
            {:ok, result} when result > 0 <-
-             Region.bucket(owner, {:bone_meal, request.position}) do
+             Region.bucket(owner, {:bone_meal, request.position, request.face, corals}) do
         if result == 2,
-          do: Valimc.World.Growth.start_tree(state.player.dimension, request.position)
+          do: Valimc.World.Growth.start(state.player.dimension, request.position)
 
         true
       else

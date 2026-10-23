@@ -11,6 +11,7 @@
 //! (`isRainingAt(pos.above())`) is the caller's.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::updater::{Engine, World, ALL, CLIENTS, UPDATE_LIMIT};
 use crate::worldgen::blocks::{
@@ -23,12 +24,16 @@ use crate::worldgen::json::Json;
 pub const PASS: i32 = 0;
 /// Bone meal was used up, whether or not it grew anything.
 pub const USED: i32 = 1;
-/// A sapling or propagule grows into a tree at the action's cell (bone meal:
-/// used up too).
+/// The generator grows at the action's cell (`Growth::generated`): a
+/// sapling's, propagule's or azalea's tree, or what bone meal on a grass
+/// block, nylium, moss or a mushroom places (bone meal: used up too).
 pub const GROW_TREE: i32 = 2;
+/// Bone meal was used up and drops a copy of the block at the action's cell
+/// (a tall flower, a full flower bed).
+pub const POP: i32 = 3;
 
 /// The level event of bone meal used on a block (its particles).
-const BONE_MEAL_USED: i32 = 1505;
+pub(super) const BONE_MEAL_USED: i32 = 1505;
 
 /// `UPDATE_INVISIBLE | UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS`: sugar cane's
 /// and cactus's age, a sapling's stage.
@@ -36,8 +41,8 @@ const QUIET: i32 = 4 | 256;
 
 /// `Direction.Plane.HORIZONTAL` (north, east, south, west) as `STEP`
 /// indices, and their names.
-const HORIZONTAL: [usize; 4] = [2, 5, 3, 4];
-const HORIZONTAL_NAMES: [&str; 4] = ["north", "east", "south", "west"];
+pub(super) const HORIZONTAL: [usize; 4] = [2, 5, 3, 4];
+pub(super) const HORIZONTAL_NAMES: [&str; 4] = ["north", "east", "south", "west"];
 
 /// A `TreeGrower`'s weighted feature lists and the trunk base height of its
 /// shortest tree (`getMinimumHeight`, 0 when it has none).
@@ -90,13 +95,27 @@ pub fn draw<'a>(
     None
 }
 
+/// How far bone meal grows a crop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    /// A crop and its maximum age; a beetroot skips one tick in three and
-    /// grows a third as far by bone meal.
+pub(super) enum Increase {
+    /// `Mth.nextInt(random, 2, 5)`.
+    Random,
+    /// A beetroot's third of it.
+    Third,
+    /// A torchflower's one.
+    One,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kind {
+    /// A crop: its maximum age, whether it skips one random tick in three
+    /// (beetroot, torchflower), bone meal's increase, and the state of its
+    /// last age when that is another block (a grown torchflower).
     Crop {
         max: i32,
-        beetroot: bool,
+        skip: bool,
+        increase: Increase,
+        grown: Option<u16>,
     },
     /// A stem, an index into `stems`.
     Stem(usize),
@@ -108,6 +127,56 @@ enum Kind {
         grower: usize,
         propagule: bool,
     },
+    /// An azalea and its grower (`AzaleaBlock`, VMC-039b).
+    Azalea(usize),
+    /// A grass block or mycelium (`SpreadingSnowyBlock`).
+    Spreading,
+    /// A mushroom and its huge mushroom, an index into `mushrooms`.
+    Mushroom(usize),
+    /// A block whose bone meal places a feature above it (moss,
+    /// `BonemealableFeaturePlacerBlock`), an index into `placers`.
+    Placer(usize),
+    /// Crimson or warped nylium.
+    Nylium,
+    Pitcher,
+    NetherWart,
+    Cocoa,
+    SweetBerries,
+    /// A growing plant's head or body (`GrowingPlantHeadBlock`,
+    /// `GrowingPlantBodyBlock`: kelp, the Nether's vines, cave vines), an
+    /// index into `plants`.
+    Head(usize),
+    Body(usize),
+    /// Short grass or a fern and the lower half it grows into.
+    Small(u16),
+    /// A two-block flower: bone meal drops a copy.
+    TallFlower,
+    /// Pink petals and wildflowers.
+    FlowerBed,
+    Seagrass,
+    /// A plant that bone meal spreads beside it (`BonemealableBlock
+    /// .findSpreadableNeighbourPos`): the state it places.
+    Spreader(u16),
+    ShortDryGrass,
+    SeaPickle,
+    MangroveLeaves,
+    RootedDirt,
+}
+
+/// A growing plant (`GrowingPlantHeadBlock`): its head and body blocks,
+/// whether it grows up (else down), its chance to grow per random tick,
+/// whether it grows into water (else air), whether bone meal grows it by
+/// the Nether's vines' draws (else one), and whether it bears berries (cave
+/// vines: bone meal sets them instead).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Plant {
+    pub head: u16,
+    pub body: u16,
+    pub up: bool,
+    pub chance: f64,
+    pub water: bool,
+    pub vines: bool,
+    pub berries: bool,
 }
 
 struct Stem {
@@ -120,32 +189,74 @@ struct Stem {
 pub struct Growth {
     kinds: HashMap<u16, Kind>,
     stems: Vec<Stem>,
+    pub(super) plants: Vec<Plant>,
     pub growers: Vec<(String, Grower)>,
+    /// Per biome, the features bone meal on a grass block places by chance
+    /// (`getBoneMealFeatures`).
+    pub bone_meal_features: Arc<HashMap<String, Vec<String>>>,
+    /// Per mushroom its huge mushroom feature and the height it needs.
+    pub(super) mushrooms: Vec<(String, i32)>,
+    /// Per feature placer and nylium (by block) the feature it places.
+    pub(super) placers: Vec<String>,
+    placer_of: HashMap<u16, usize>,
+    pub(super) grass_block: u16,
     grows_crops: BlockSet,
     maintains_farmland: BlockSet,
     flowers: BlockSet,
     cactus: u16,
     cactus_flower: u16,
-    dirt: u16,
+    pub(super) dirt: u16,
     farmland: u16,
     dirt_path: u16,
+    /// Per state: whether a grass block (or mycelium) dies under it
+    /// (`SpreadingSnowyBlock.canStayAlive` false), and nylium.
+    pub(super) smothers_grass: Vec<bool>,
+    pub(super) smothers_nylium: Vec<bool>,
+    pub(super) dirt_block: u16,
+    pub(super) netherrack: u16,
+    pub(super) snow: BlockSet,
+    pub(super) coral_blocks: BlockSet,
+    pub(super) water: u16,
+    pub(super) pitcher: u16,
+    pub(super) tall_seagrass: u16,
+    pub(super) tall_dry_grass: u16,
+    pub(super) hanging_propagule: u16,
+    pub(super) hanging_roots: u16,
+    pub(super) sea_pickle: u16,
+    /// `BlockTags.WALL_CORALS` and `UNDERWATER_BONEMEALS` in their
+    /// iteration order (bone meal in warm water draws from them).
+    pub(super) wall_corals: Vec<u16>,
+    pub(super) underwater: Vec<u16>,
 }
 
 /// A state's integer property (0 without it), and the state with it set.
-fn int(table: &BlockTable, state: u16, property: &str) -> i32 {
+pub(super) fn int(table: &BlockTable, state: u16, property: &str) -> i32 {
     table
         .value(state, property)
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
 }
 
-fn with_int(table: &BlockTable, state: u16, property: &str, value: i32) -> u16 {
+pub(super) fn with_int(table: &BlockTable, state: u16, property: &str, value: i32) -> u16 {
     table
         .with(state, property, &value.to_string())
         .unwrap_or(state)
 }
 
-fn offset(pos: [i32; 3], dx: i32, dy: i32, dz: i32) -> [i32; 3] {
+/// `CropBlock.getStateForAge`: the crop at `age`, its grown block at its
+/// last age when that is another (a torchflower).
+fn crop_age(table: &BlockTable, kind: Kind, state: u16, age: i32) -> u16 {
+    match kind {
+        Kind::Crop {
+            max,
+            grown: Some(grown),
+            ..
+        } if age == max => grown,
+        _ => with_int(table, state, "age", age),
+    }
+}
+
+pub(super) fn offset(pos: [i32; 3], dx: i32, dy: i32, dz: i32) -> [i32; 3] {
     [pos[0] + dx, pos[1] + dy, pos[2] + dz]
 }
 
@@ -182,16 +293,173 @@ impl Growth {
                 },
             );
         }
-        for name in ["wheat", "carrots", "potatoes", "beetroots"] {
+        for (name, skip, increase) in [
+            ("wheat", false, Increase::Random),
+            ("carrots", false, Increase::Random),
+            ("potatoes", false, Increase::Random),
+            ("beetroots", true, Increase::Third),
+            ("torchflower_crop", true, Increase::One),
+        ] {
             let block = table.block(name)?;
             let default = table.default_state_of(block);
-            let max = (0..16)
+            let mut max = (0..16)
                 .take_while(|a| table.with(default, "age", &a.to_string()).is_some())
                 .last()
                 .unwrap_or(0);
-            let beetroot = name == "beetroots";
-            kinds.insert(block, Kind::Crop { max, beetroot });
+            // A torchflower crop's last age is the torchflower.
+            let grown = if name == "torchflower_crop" {
+                max += 1;
+                Some(table.default_state("torchflower")?)
+            } else {
+                None
+            };
+            kinds.insert(
+                block,
+                Kind::Crop {
+                    max,
+                    skip,
+                    increase,
+                    grown,
+                },
+            );
         }
+        for (block, grower) in facts.field("azaleas")?.entries()? {
+            let grower = grower.as_str()?;
+            let index = growers
+                .iter()
+                .position(|(n, _)| n == grower)
+                .ok_or_else(|| format!("unknown tree grower {grower}"))?;
+            kinds.insert(table.block(block)?, Kind::Azalea(index));
+        }
+        let mut plants = Vec::new();
+        for (head, body, up, chance, water, vines, berries) in [
+            ("kelp", "kelp_plant", true, 0.14, true, false, false),
+            (
+                "weeping_vines",
+                "weeping_vines_plant",
+                false,
+                0.1,
+                false,
+                true,
+                false,
+            ),
+            (
+                "twisting_vines",
+                "twisting_vines_plant",
+                true,
+                0.1,
+                false,
+                true,
+                false,
+            ),
+            (
+                "cave_vines",
+                "cave_vines_plant",
+                false,
+                0.1,
+                false,
+                false,
+                true,
+            ),
+        ] {
+            let (head, body) = (table.block(head)?, table.block(body)?);
+            kinds.insert(head, Kind::Head(plants.len()));
+            kinds.insert(body, Kind::Body(plants.len()));
+            plants.push(Plant {
+                head,
+                body,
+                up,
+                chance,
+                water,
+                vines,
+                berries,
+            });
+        }
+        for (name, kind) in [
+            ("grass_block", Kind::Spreading),
+            ("mycelium", Kind::Spreading),
+            ("crimson_nylium", Kind::Nylium),
+            ("warped_nylium", Kind::Nylium),
+            ("pitcher_crop", Kind::Pitcher),
+            ("nether_wart", Kind::NetherWart),
+            ("cocoa", Kind::Cocoa),
+            ("sweet_berry_bush", Kind::SweetBerries),
+            (
+                "short_grass",
+                Kind::Small(table.default_state("tall_grass")?),
+            ),
+            ("fern", Kind::Small(table.default_state("large_fern")?)),
+            ("seagrass", Kind::Seagrass),
+            ("bush", Kind::Spreader(table.default_state("bush")?)),
+            (
+                "firefly_bush",
+                Kind::Spreader(table.default_state("firefly_bush")?),
+            ),
+            (
+                "tall_dry_grass",
+                Kind::Spreader(table.default_state("short_dry_grass")?),
+            ),
+            ("short_dry_grass", Kind::ShortDryGrass),
+            ("sea_pickle", Kind::SeaPickle),
+            ("mangrove_leaves", Kind::MangroveLeaves),
+            ("rooted_dirt", Kind::RootedDirt),
+        ] {
+            kinds.insert(table.block(name)?, kind);
+        }
+        let mut mushrooms = Vec::new();
+        for (name, mushroom) in facts.field("mushrooms")?.entries()? {
+            kinds.insert(table.block(name)?, Kind::Mushroom(mushrooms.len()));
+            mushrooms.push((
+                mushroom.field("feature")?.as_str()?.to_string(),
+                mushroom.field("height")?.as_i32()?,
+            ));
+        }
+        let (mut placers, mut placer_of) = (Vec::new(), HashMap::new());
+        for (name, feature) in facts.field("feature_placers")?.entries()? {
+            let block = table.block(name)?;
+            kinds.entry(block).or_insert(Kind::Placer(placers.len()));
+            placer_of.insert(block, placers.len());
+            placers.push(feature.as_str()?.to_string());
+        }
+        let bone_meal_features = facts
+            .field("bone_meal_features")?
+            .entries()?
+            .iter()
+            .map(|(biome, list)| {
+                let list = list
+                    .as_array()?
+                    .iter()
+                    .map(|f| Ok(f.as_str()?.to_string()))
+                    .collect::<Result<Vec<_>, String>>()?;
+                Ok((biome.clone(), list))
+            })
+            .collect::<Result<HashMap<_, _>, String>>()?;
+        for block in 0..table.names.len() as u16 {
+            let kind = match table.class_name(table.default_state_of(block)) {
+                "TallFlowerBlock" => Kind::TallFlower,
+                "FlowerBedBlock" => Kind::FlowerBed,
+                _ => continue,
+            };
+            kinds.insert(block, kind);
+        }
+        let smothers = |key: &str| -> Result<Vec<bool>, String> {
+            let mut set = vec![false; table.block_of.len()];
+            for run in facts.field("smothers")?.field(key)?.as_array()? {
+                let run = run.as_array()?;
+                for state in run[0].as_i32()?..=run[1].as_i32()? {
+                    *set.get_mut(state as usize)
+                        .ok_or("smothering state out of range")? = true;
+                }
+            }
+            Ok(set)
+        };
+        let ordered = |tag: &str| -> Result<Vec<u16>, String> {
+            Ok(table
+                .tag_blocks(tag)?
+                .iter()
+                .map(|&b| table.default_state_of(b))
+                .collect())
+        };
         let mut stems = Vec::new();
         for (stem, fruit, attached, support) in [
             (
@@ -229,6 +497,32 @@ impl Growth {
             dirt: table.default_state("dirt")?,
             farmland: table.block("farmland")?,
             dirt_path: table.block("dirt_path")?,
+            bone_meal_features: Arc::new(bone_meal_features),
+            mushrooms,
+            placers,
+            placer_of,
+            grass_block: table.block("grass_block")?,
+            smothers_grass: smothers("grass")?,
+            smothers_nylium: smothers("nylium")?,
+            dirt_block: table.block("dirt")?,
+            netherrack: table.default_state("netherrack")?,
+            snow: table.tag("minecraft:snow")?.clone(),
+            coral_blocks: table.tag("minecraft:coral_blocks")?.clone(),
+            water: table.block("water")?,
+            pitcher: table.block("pitcher_crop")?,
+            tall_seagrass: table.default_state("tall_seagrass")?,
+            tall_dry_grass: table.default_state("tall_dry_grass")?,
+            hanging_propagule: {
+                let propagule = table.default_state("mangrove_propagule")?;
+                table
+                    .with(propagule, "hanging", "true")
+                    .ok_or("no hanging propagule")?
+            },
+            hanging_roots: table.default_state("hanging_roots")?,
+            sea_pickle: table.default_state("sea_pickle")?,
+            wall_corals: ordered("minecraft:wall_corals")?,
+            underwater: ordered("minecraft:underwater_bonemeals")?,
+            plants,
         })
     }
 
@@ -236,45 +530,89 @@ impl Growth {
         self.kinds.get(&table.block_of(state)).copied()
     }
 
-    /// The tree grower of sapling `state`, if it is one.
+    /// What the generator grows at a cell holding `state` once a random
+    /// tick or bone meal answered `GROW_TREE` there.
+    pub fn generated(&self, table: &BlockTable, state: u16) -> Option<Generated<'_>> {
+        let block = table.block_of(state);
+        Some(match self.kind(table, state)? {
+            Kind::Sapling { grower, .. } | Kind::Azalea(grower) => {
+                Generated::Tree(&self.growers[grower].1)
+            }
+            Kind::Spreading if block == self.grass_block => {
+                Generated::Grass(self.bone_meal_features.clone())
+            }
+            Kind::Mushroom(index) => Generated::Mushroom(&self.mushrooms[index].0),
+            Kind::Nylium | Kind::Placer(_) => {
+                Generated::Above(&self.placers[*self.placer_of.get(&block)?])
+            }
+            _ => return None,
+        })
+    }
+
+    /// The tree grower of sapling (or azalea) `state`, if it is one.
     pub fn grower(&self, table: &BlockTable, state: u16) -> Option<&Grower> {
         match self.kind(table, state)? {
-            Kind::Sapling { grower, .. } => Some(&self.growers[grower].1),
+            Kind::Sapling { grower, .. } | Kind::Azalea(grower) => Some(&self.growers[grower].1),
             _ => None,
         }
     }
 }
 
+/// What the generator grows (VMC-039a, VMC-039b).
+pub enum Generated<'a> {
+    /// A sapling's or azalea's tree, by its grower.
+    Tree(&'a Grower),
+    /// A grass block's bone meal (`GrassBlock.performBonemeal`): grass, and
+    /// by chance a biome's bone meal feature.
+    Grass(Arc<HashMap<String, Vec<String>>>),
+    /// A mushroom's huge mushroom (`MushroomBlock.growMushroom`).
+    Mushroom(&'a str),
+    /// A feature placed on the cell above (moss, nylium).
+    Above(&'a str),
+}
+
 /// What a growth decision (made from reads and draws alone) does: the
 /// `setBlock`s in order, then whether a tree grows.
 #[derive(Default)]
-struct Plan {
-    writes: Vec<([i32; 3], u16, i32)>,
-    tree: bool,
+pub(super) struct Plan {
+    pub writes: Vec<([i32; 3], u16, i32)>,
+    pub tree: bool,
+    /// Bone meal drops a copy of the block at the action's cell
+    /// (`Block.popResource`, its position's draws taken).
+    pub pop: bool,
 }
 
 impl Plan {
-    fn set(pos: [i32; 3], state: u16, flags: i32) -> Plan {
+    pub(super) fn set(pos: [i32; 3], state: u16, flags: i32) -> Plan {
         Plan {
             writes: vec![(pos, state, flags)],
-            tree: false,
+            ..Plan::default()
         }
     }
 
-    fn tree() -> Plan {
+    /// The generator grows at the action's cell (`GROW_TREE`).
+    pub(super) fn grow() -> Plan {
         Plan {
-            writes: Vec::new(),
             tree: true,
+            ..Plan::default()
+        }
+    }
+
+    /// The cell at `pos` as the plan's writes so far leave it.
+    pub(super) fn get<W: World>(&self, world: &mut W, pos: [i32; 3]) -> u16 {
+        match self.writes.iter().rev().find(|w| w.0 == pos) {
+            Some(w) => w.1,
+            None => world.get(pos),
         }
     }
 }
 
 impl<W: World> Engine<'_, W> {
-    fn growth(&self) -> &Growth {
+    pub(super) fn growth(&self) -> &Growth {
         self.rules.growth.as_ref().expect("growth facts")
     }
 
-    fn growth_kind(&self, state: u16) -> Option<Kind> {
+    pub(super) fn growth_kind(&self, state: u16) -> Option<Kind> {
         self.rules
             .growth
             .as_ref()
@@ -291,7 +629,7 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// `getRawBrightness(pos, darkening)`.
-    fn raw_brightness(&mut self, pos: [i32; 3], darkening: i32) -> i32 {
+    pub(super) fn raw_brightness(&mut self, pos: [i32; 3], darkening: i32) -> i32 {
         (self.world.sky_light(pos) - darkening).max(self.world.block_light(pos))
     }
 
@@ -311,23 +649,32 @@ impl<W: World> Engine<'_, W> {
         }
     }
 
-    /// Bone meal on the block at `pos` (`BoneMealItem.useOn` on a block that
-    /// takes it, `growCrop`): `PASS` when it is not a target, else `USED` or
-    /// `GROW_TREE`, with the bone meal's level event.
-    pub fn bone_meal(&mut self, pos: [i32; 3]) -> i32 {
+    /// Bone meal on the block at `pos` (`BoneMealItem.useOn`): on a block
+    /// that takes it (`growCrop`), else, clicked on face `face` (`STEP`
+    /// index), on the water beside it (`growWaterPlant`, `corals` whether
+    /// the biome there grows corals). `PASS` when nothing takes it, else
+    /// `USED`, `GROW_TREE` or `POP`, with the bone meal's level event.
+    pub fn bone_meal(&mut self, pos: [i32; 3], face: Option<usize>, corals: bool) -> i32 {
         if !self.world.owns(pos) {
             return PASS;
         }
         let state = self.world.get(pos);
-        let Some(kind) = self.growth_kind(state) else {
-            return PASS;
-        };
-        let Some(plan) = self.decide_growth(|e| e.plan_bone_meal(kind, pos, state)) else {
-            return PASS;
-        };
-        let Some(plan) = plan else {
-            return PASS;
-        };
+        if let Some(kind) = self.growth_kind(state) {
+            match self.decide_growth(|e| e.plan_bone_meal(kind, pos, state)) {
+                None => return PASS,
+                Some(Some(plan)) => return self.grow_by_bone_meal(kind, pos, plan),
+                Some(None) => {}
+            }
+        }
+        match face {
+            Some(face) if self.rules.growth.is_some() => {
+                self.water_bone_meal(pos, state, face, corals)
+            }
+            _ => PASS,
+        }
+    }
+
+    fn grow_by_bone_meal(&mut self, kind: Kind, pos: [i32; 3], plan: Plan) -> i32 {
         // A stem that bone meal grows to its last age ticks at once.
         let grown = match kind {
             Kind::Stem(_) => plan
@@ -393,7 +740,7 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// Run `decide` (reads and draws) unless it reads past the owner.
-    fn decide_growth<T>(&mut self, decide: impl FnOnce(&mut Self) -> T) -> Option<T> {
+    pub(super) fn decide_growth<T>(&mut self, decide: impl FnOnce(&mut Self) -> T) -> Option<T> {
         let mark = self.world.begin();
         let decision = decide(self);
         if self.world.crossed(mark) {
@@ -404,12 +751,14 @@ impl<W: World> Engine<'_, W> {
         }
     }
 
-    fn apply_growth(&mut self, plan: Plan) -> i32 {
+    pub(super) fn apply_growth(&mut self, plan: Plan) -> i32 {
         for (p, s, flags) in plan.writes {
             self.set_block(p, s, flags, UPDATE_LIMIT);
         }
         if plan.tree {
             GROW_TREE
+        } else if plan.pop {
+            POP
         } else {
             PASS
         }
@@ -420,16 +769,16 @@ impl<W: World> Engine<'_, W> {
         let table = table.as_ref();
         let above = offset(pos, 0, 1, 0);
         match kind {
-            Kind::Crop { max, beetroot } => {
+            Kind::Crop { max, skip, .. } => {
                 let age = int(table, state, "age");
                 // A grown crop does not tick at all.
-                if age >= max || (beetroot && self.world.next_int(3) == 0) {
+                if age >= max || (skip && self.world.next_int(3) == 0) {
                     return Plan::default();
                 }
                 if self.raw_brightness(pos, 0) >= 9 {
                     let speed = self.growth_speed(state, pos);
                     if self.world.next_int((25.0f32 / speed) as i32 + 1) == 0 {
-                        return Plan::set(pos, with_int(table, state, "age", age + 1), CLIENTS);
+                        return Plan::set(pos, crop_age(table, kind, state, age + 1), CLIENTS);
                     }
                 }
                 Plan::default()
@@ -458,7 +807,7 @@ impl<W: World> Engine<'_, W> {
                         .unwrap_or(attached);
                     return Plan {
                         writes: vec![(cell, fruit, ALL), (pos, attached, ALL)],
-                        tree: false,
+                        ..Plan::default()
                     };
                 }
                 Plan::default()
@@ -482,7 +831,7 @@ impl<W: World> Engine<'_, W> {
                             (above, table.default_state_of(block), ALL),
                             (pos, with_int(table, state, "age", 0), QUIET),
                         ],
-                        tree: false,
+                        ..Plan::default()
                     }
                 } else {
                     Plan::set(pos, with_int(table, state, "age", age + 1), QUIET)
@@ -558,6 +907,7 @@ impl<W: World> Engine<'_, W> {
                 }
                 Plan::default()
             }
+            _ => self.plant_tick(kind, pos, state),
         }
     }
 
@@ -567,7 +917,7 @@ impl<W: World> Engine<'_, W> {
         if int(table, state, "stage") == 0 {
             Plan::set(pos, with_int(table, state, "stage", 1), QUIET)
         } else {
-            Plan::tree()
+            Plan::grow()
         }
     }
 
@@ -576,17 +926,18 @@ impl<W: World> Engine<'_, W> {
         let table = self.rules.table.clone();
         let table = table.as_ref();
         match kind {
-            Kind::Crop { max, beetroot } => {
+            Kind::Crop { max, increase, .. } => {
                 let age = int(table, state, "age");
                 if age >= max {
                     return None;
                 }
-                let mut grow = two_to_five(&mut |b| self.world.next_int(b));
-                if beetroot {
-                    grow /= 3;
-                }
+                let grow = match increase {
+                    Increase::Random => two_to_five(&mut |b| self.world.next_int(b)),
+                    Increase::Third => two_to_five(&mut |b| self.world.next_int(b)) / 3,
+                    Increase::One => 1,
+                };
                 let age = max.min(age + grow);
-                Some(Plan::set(pos, with_int(table, state, "age", age), CLIENTS))
+                Some(Plan::set(pos, crop_age(table, kind, state, age), CLIENTS))
             }
             Kind::Stem(_) => {
                 let age = int(table, state, "age");
@@ -630,6 +981,7 @@ impl<W: World> Engine<'_, W> {
                 }
             }
             Kind::SugarCane | Kind::Cactus | Kind::Farmland => None,
+            _ => self.plant_bone_meal(kind, pos, state),
         }
     }
 
@@ -685,7 +1037,7 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// `CropBlock.getGrowthSpeed`, in floats as vanilla's.
-    fn growth_speed(&mut self, state: u16, pos: [i32; 3]) -> f32 {
+    pub(super) fn growth_speed(&mut self, state: u16, pos: [i32; 3]) -> f32 {
         let table = self.rules.table.clone();
         let block = table.block_of(state);
         let below = offset(pos, 0, -1, 0);

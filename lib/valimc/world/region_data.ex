@@ -41,7 +41,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Txn.Permits
   alias Valimc.World.BlockRules
   alias Valimc.Blocks.Redstone
-  import Bitwise, only: [|||: 2]
+  import Bitwise, only: [|||: 2, <<<: 2]
 
   @lava_states Valimc.Data.Blocks.states("lava") |> Enum.to_list()
 
@@ -1467,13 +1467,12 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
       when is_pid(viewer) do
-    case redstone_use(state, epoch, viewer, position, grant) do
-      {:used, state} ->
-        {:reply, :used, state}
-
-      :pass ->
-        {decision, state} = menu_request(state, epoch, viewer, position, grant)
-        {:reply, decision, state}
+    with :pass <- harvest_use(state, epoch, viewer, position, grant),
+         :pass <- redstone_use(state, epoch, viewer, position, grant) do
+      {decision, state} = menu_request(state, epoch, viewer, position, grant)
+      {:reply, decision, state}
+    else
+      {:used, state} -> {:reply, :used, state}
     end
   end
 
@@ -2236,9 +2235,20 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, busy}, state}
 
       true ->
+        block = Blocks.get(state.blocks, position)
+
         case rule_run(state, %{actions: [action]}) do
-          {state, %{results: [result]}} -> {:reply, {:ok, result}, state}
-          {state, nil} -> {:reply, Error.retry(:region_busy), state}
+          {state, %{results: [3]}} when elem(action, 0) == :bone_meal ->
+            {:reply, {:ok, 3}, pop_block_item(state, position, block)}
+
+          {state, %{results: [index]}} when elem(action, 0) == :transform and index > 0 ->
+            {:reply, {:ok, index}, transform_loot(state, action, index, block)}
+
+          {state, %{results: [result]}} ->
+            {:reply, {:ok, result}, state}
+
+          {state, nil} ->
+            {:reply, Error.retry(:region_busy), state}
         end
     end
   end
@@ -2875,8 +2885,9 @@ defmodule Valimc.World.RegionData do
 
     {lava, others} = Enum.split_with(hits, fn {_, block} -> block in @lava_states end)
 
-    {growing, others} =
-      Enum.split_with(others, fn {_, block} -> Valimc.World.Growth.growing?(block) end)
+    # A tick behaviour claims its states before growth's rules do.
+    {others, growing} = Enum.split_with(others, fn {_, block} -> state.tick_index[block] end)
+    growing = Enum.filter(growing, fn {_, block} -> Valimc.World.Growth.growing?(block) end)
 
     effects =
       for {position, block} <- others,
@@ -3453,6 +3464,52 @@ defmodule Valimc.World.RegionData do
     else
       _ -> state
     end
+  end
+
+  # Bone meal on a tall flower or a full flower bed drops a copy
+  # (`Block.popResource(level, pos, new ItemStack(this))`, VMC-039b).
+  defp pop_block_item(state, position, block) do
+    name = Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(block))
+    stack = Valimc.Protocol.ItemStack.new(name)
+    pop_items(state, [stack], &Valimc.Entity.ItemDrop.pop(position, &1))
+  end
+
+  # A transformer entry's loot (VMC-039b: a hoe tilling rooted dirt drops its
+  # hanging roots), rolled for the block it transformed and popped by the
+  # entry's drop strategy.
+  defp transform_loot(state, {:transform, position, tool, face}, index, block) do
+    entry = Valimc.Blocks.Transformers.entry(tool, index - 1)
+
+    with table when is_binary(table) <- entry.loot,
+         {:ok, stacks} <-
+           Valimc.Blocks.Loot.block_drops(table, :rand.uniform(1 <<< 62), position, %{
+             state: block,
+             entity: true
+           }) do
+      pop =
+        if entry.drop == "clicked_face",
+          do: &Valimc.Entity.ItemDrop.pop_from_face(position, face, &1),
+          else: &Valimc.Entity.ItemDrop.pop(position, &1)
+
+      pop_items(state, stacks, pop)
+    else
+      _ -> state
+    end
+  end
+
+  # Stacks popped, each record made by `pop`.
+  defp pop_items(state, [], _pop), do: state
+
+  defp pop_items(state, stacks, pop) do
+    items =
+      Enum.reduce(stacks, state.entities.store, fn stack, acc ->
+        case Store.create_record(acc, state.key, pop.(stack)) do
+          {:ok, next, _} -> next
+          {:error, _} -> acc
+        end
+      end)
+
+    publish_item_views(%{state | entities: %{state.entities | store: items}})
   end
 
   # A tool-less break's loot (VMC-029e), each stack popping like vanilla
@@ -4461,13 +4518,52 @@ defmodule Valimc.World.RegionData do
   # rules decide whether it is used (an iron door passes the use on to
   # placement). A spectator uses none; one in adventure mode may not invert
   # a detector.
-  defp redstone_use(state, epoch, viewer, position, %{kind: :open} = grant) do
+  defp redstone_use(state, epoch, viewer, position, grant) do
+    with true <- use_granted?(state, epoch, position, grant),
+         true <- Redstone.usable?(Blocks.get(state.blocks, position)) do
+      facing = Enum.at([3, 4, 2, 5], Bitwise.band(floor((grant[:yaw] || 0.0) / 90.0 + 0.5), 3))
+      action = {:use, position, facing, grant.mode != :adventure}
+
+      case rule_run(state, %{actions: [action], actor: viewer}) do
+        {state, %{results: [1]}} -> {:used, state}
+        _ -> :pass
+      end
+    else
+      _ -> :pass
+    end
+  end
+
+  # Berries picked (VMC-039b, `Valimc.Blocks.Harvest`): the loot of the
+  # berried state, then the rules pick them, then the sound for everyone.
+  defp harvest_use(state, epoch, viewer, position, grant) do
+    with true <- use_granted?(state, epoch, position, grant),
+         block = Blocks.get(state.blocks, position),
+         {:ok, harvest} <- Valimc.Blocks.Harvest.of(block, grant[:main_item]),
+         {:ok, stacks} <-
+           Valimc.Blocks.Loot.block_drops(harvest.table, :rand.uniform(1 <<< 62), position, %{
+             state: block,
+             entity: true
+           }),
+         {state, %{results: [1]}} <-
+           rule_run(state, %{actions: [{:harvest, position}], actor: viewer}) do
+      {x, y, z} = position
+      at = {x + 0.5, y + 0.5, z + 0.5}
+      seed = :rand.uniform(1 <<< 62)
+      sound = Valimc.World.Sounds.packet(harvest.sound, :block, at, seed, harvest.pitch)
+      Valimc.World.publish(route_key(state), {:sound, at, 16.0, sound})
+      {:used, pop_items(state, stacks, &Valimc.Entity.ItemDrop.pop(position, &1))}
+    else
+      _ -> :pass
+    end
+  end
+
+  # A player's use of a block reaches its owner in time, within reach, with
+  # the main hand and not suppressed by sneaking with an item (`useItemOn`).
+  defp use_granted?(state, epoch, position, %{kind: :open} = grant) do
     now = System.monotonic_time(:millisecond)
 
     with true <- epoch == state.epoch and valid_block_query?([position], :any),
          true <- in_region?(state, position),
-         block = Blocks.get(state.blocks, position),
-         true <- Redstone.usable?(block),
          %{mode: mode, eye: eye, expires: expires, hand: hand} <- grant,
          true <-
            mode in [:survival, :creative, :adventure] and is_integer(expires) and now < expires,
@@ -4481,19 +4577,13 @@ defmodule Valimc.World.RegionData do
            ),
          true <- Valimc.Living.Interaction.within_block?(mode, eye, position),
          nil <- write_busy(state) do
-      facing = Enum.at([3, 4, 2, 5], Bitwise.band(floor((grant[:yaw] || 0.0) / 90.0 + 0.5), 3))
-      action = {:use, position, facing, mode != :adventure}
-
-      case rule_run(state, %{actions: [action], actor: viewer}) do
-        {state, %{results: [1]}} -> {:used, state}
-        _ -> :pass
-      end
+      true
     else
-      _ -> :pass
+      _ -> false
     end
   end
 
-  defp redstone_use(_state, _epoch, _viewer, _position, _grant), do: :pass
+  defp use_granted?(_state, _epoch, _position, _grant), do: false
 
   defp menu_request(state, epoch, viewer, position, grant) do
     state =

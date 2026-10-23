@@ -606,11 +606,13 @@ fn full_block_entities(
 /// before and after, and block entities to write.
 type GrownResult = (Vec<((i32, i32, i32), u16, u16)>, Vec<FullBlockEntity>);
 
-/// The tree of the sapling at `pos` (`TreeGrower.growTree`, VMC-039a), its
-/// grower from the block rules' growth facts, over the chunks of its plan
-/// (as `/place feature`'s: the 3 × 3 around it; column images, or nil for
-/// the flat `base` profile) with the level random `seed`; nil when no tree
-/// grew (no sapling there, or the tree did not fit).
+/// What the generator grows at `pos` (`Growth::generated`): the tree of a
+/// sapling there (`TreeGrower.growTree`, VMC-039a), its grower from the
+/// block rules' growth facts, or what bone meal places on a grass block,
+/// nylium, moss or a mushroom (VMC-039b), over the chunks of its plan (as
+/// `/place feature`'s: the 3 × 3 around it; column images, or nil for the
+/// flat `base` profile) with the level random `seed`; nil when nothing grew
+/// (no such block there, or the tree did not fit).
 #[rustler::nif(schedule = "DirtyCpu")]
 #[allow(clippy::too_many_arguments)]
 fn worldgen_grow(
@@ -635,16 +637,16 @@ fn worldgen_grow(
             )?);
         }
         let pos = [pos.0, pos.1, pos.2];
-        let sapling = protos
+        let grows = protos
             .iter()
             .find(|c| (c.x, c.z) == (pos[0] >> 4, pos[2] >> 4))
             .and_then(|c| c.get(pos[0], pos[1], pos[2]));
         let growth = rules.rules.growth.as_ref().ok_or("no growth facts")?;
-        let Some(grower) = sapling.and_then(|s| growth.grower(&rules.rules.table, s)) else {
+        let Some(generated) = grows.and_then(|s| growth.generated(&rules.rules.table, s)) else {
             return Ok(None);
         };
-        let placement = valimc_core::worldgen::compiler::Placement::Sapling(grower.clone());
-        let Some(placed) = state.place(&biome_source, &placement, pos, protos, seed)? else {
+        let (placement, at) = valimc_core::worldgen::compiler::Placement::grown(generated, pos);
+        let Some(placed) = state.place(&biome_source, &placement, at, protos, seed)? else {
             return Ok(None);
         };
         let blocks = placed

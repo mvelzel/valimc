@@ -183,7 +183,7 @@ defmodule Valimc.Native do
   def redstone_scene(_rules, _cells, _actions, _entities, _days, _ticks, _seed, _tnt),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def growth_scene(_rules, _cells, _actions, _ticks, _seed, _sky, _darken, _rain),
+  def growth_scene(_rules, _cells, _actions, _ticks, _seed, _sky, _darken, _rain, _corals),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def growth_trees(_rules, _worldgen, _cases), do: :erlang.nif_error(:nif_not_loaded)

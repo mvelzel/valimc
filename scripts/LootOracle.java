@@ -38,7 +38,8 @@ import net.minecraft.world.phys.Vec3;
  * enchantment, instrument, biome, structure and item tags.
  *
  * The facts also hold the modelled mobs' entity tables (VMC-037n, `ENTITY_TABLES`), every block's
- * table and the named predicates conditions refer to (VMC-029e). BLOCKS.json (the third facts
+ * table and the named predicates conditions refer to (VMC-029e), and the block-interaction tables
+ * (`block_interact`: berries picked, a block tilled or sheared, VMC-039b). BLOCKS.json (the third facts
  * file) names each block's table in registry order and the experience a block drops when a player
  * harvests it (`spawnAfterBreak`): a sum of uniform draws, and whether Silk Touch cancels it, each
  * checked against vanilla's own drops.
@@ -60,7 +61,9 @@ import net.minecraft.world.phys.Vec3;
  * with and without Fortune and Silk Touch, shears, enchantments stored instead of applied),
  * broken by an entity or not, by an explosion of some radius or not, with the blocks above and
  * below it (location checks) and, where the block has one, its block entity as placing the
- * block's plain item makes it.
+ * block's plain item makes it. And per block-interaction table, every state of the blocks vanilla
+ * uses it with (`INTERACT_TABLES`), several seeds each: the drops `dropFromBlockInteractLootTable`
+ * makes for a player with an empty hand or a tool.
  */
 public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
@@ -217,6 +220,11 @@ public class LootOracle {
     var queue = new ArrayDeque<String>();
     containerTables(tables).forEach(k -> queue.add(k.identifier().toString()));
     queue.addAll(ENTITY_TABLES);
+    tables.listElements()
+        .filter(h -> h.value().getParamSet() == LootContextParamSets.BLOCK_INTERACT)
+        .map(h -> h.key().identifier().toString())
+        .sorted()
+        .forEach(queue::add);
     var blockTables = new JsonArray();
     for (var block : BuiltInRegistries.BLOCK) {
       var key = block.getLootTable();
@@ -471,8 +479,55 @@ public class LootOracle {
         }
       }
     }
+    int breaks = rows.size();
+    // Block interactions: a player picks, tills or shears the block, its state before.
+    var tools = List.of(ItemStack.EMPTY, new ItemStack(Items.SHEARS), new ItemStack(Items.IRON_HOE));
+    for (var entry : INTERACT_TABLES.entrySet()) {
+      var table = tables.getOrThrow(ResourceKey.create(Registries.LOOT_TABLE, Identifier.parse(entry.getKey()))).value();
+      for (var name : entry.getValue()) {
+        var block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(name));
+        for (var state : block.getStateDefinition().getPossibleStates()) {
+          for (int k = 0; k < 8; k++) {
+            long seed = random.nextLong();
+            var pos = new BlockPos(random.nextInt(2001) - 1000, random.nextInt(320) - 63, random.nextInt(2001) - 1000);
+            var tool = tools.get(random.nextInt(tools.size()));
+            level.blocks = Map.of(pos, state);
+            level.random = RandomSource.create(seed);
+            var player = (Attacker) unsafe.allocateInstance(Attacker.class);
+            type.set(player, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:player")));
+            player.weapon = tool;
+            var params = new LootParams.Builder(level)
+                .withParameter(LootContextParams.BLOCK_STATE, state)
+                .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(pos))
+                .withOptionalParameter(LootContextParams.INTERACTING_ENTITY, player)
+                .withOptionalParameter(LootContextParams.TOOL, tool.isEmpty() ? null : tool)
+                .create(LootContextParamSets.BLOCK_INTERACT);
+            var list = new JsonArray();
+            for (var stack : table.getRandomItems(params)) {
+              if (stack.isEmpty()) continue;
+              list.add(item(stack, ops));
+              drops++;
+            }
+            var row = new JsonObject();
+            row.addProperty("table", entry.getKey());
+            row.addProperty("interact", true);
+            row.addProperty("seed", Long.toString(seed));
+            row.addProperty("state", net.minecraft.world.level.block.Block.getId(state));
+            var origin = new JsonArray();
+            origin.add(pos.getX());
+            origin.add(pos.getY());
+            origin.add(pos.getZ());
+            row.add("origin", origin);
+            row.add("tool", tool.isEmpty() ? JsonNull.INSTANCE : item(tool, ops));
+            row.add("drops", list);
+            rows.add(row);
+          }
+        }
+      }
+    }
     Files.writeString(out, new Gson().toJson(rows));
-    System.out.println("PASS: " + rows.size() + " vanilla block breaks (" + drops + " stacks)");
+    System.out.println("PASS: " + breaks + " vanilla block breaks and " + (rows.size() - breaks)
+        + " block interactions (" + drops + " stacks)");
   }
 
   static JsonObject cost(Enchantment.Cost cost) {
@@ -687,6 +742,16 @@ public class LootOracle {
     var stack = new ItemStack(item);
     stack.enchant(enchantments.getOrThrow(enchantment), level);
     return stack;
+  }
+
+  /** The block-interaction tables and the blocks vanilla uses each with. */
+  static final Map<String, List<String>> INTERACT_TABLES = new LinkedHashMap<>();
+  static {
+    INTERACT_TABLES.put("minecraft:harvest/sweet_berry_bush", List.of("minecraft:sweet_berry_bush"));
+    INTERACT_TABLES.put("minecraft:harvest/cave_vine", List.of("minecraft:cave_vines", "minecraft:cave_vines_plant"));
+    INTERACT_TABLES.put("minecraft:till/rooted_dirt", List.of("minecraft:rooted_dirt"));
+    INTERACT_TABLES.put("minecraft:harvest/beehive", List.of("minecraft:beehive", "minecraft:bee_nest"));
+    INTERACT_TABLES.put("minecraft:carve/pumpkin", List.of("minecraft:pumpkin"));
   }
 
   static final Map<String, String> SYNTHETIC = new LinkedHashMap<>();

@@ -353,11 +353,13 @@ defmodule Valimc.World.Region do
   A player's bucket in the owner of `action`'s cell (VMC-031a), run by the
   block rules: `{:empty, position, fluid, retry, secondary}` (`BucketItem.
   emptyContents`) or `{:pickup, position}` (`BucketPickup.pickupBlock`); or
-  bone meal, `{:bone_meal, position}` (VMC-039a).
+  bone meal, `{:bone_meal, position, face, corals?}` (VMC-039a, VMC-039b).
   `{:ok, result}`: for a bucket emptied 0 (it could not), 1 (placed) or 2
   (evaporated); for a pickup 0 (nothing) or the item's index + 1
   (`Valimc.Blocks.Fluids.pickup_item/1`); for bone meal 0 (not a target), 1
-  (used) or 2 (used, and the sapling's tree grows).
+  (used), 2 (used, and the generator grows at the cell: a sapling's tree, a
+  grass block's grass and flowers, `Valimc.World.Growth.start/2`) or 3
+  (used, and a copy of the block dropped).
   """
   def bucket({pid, epoch}, action) when is_pid(pid) and is_reference(epoch) do
     call(pid, {:bucket, epoch, action}, budget(pid, 1000))

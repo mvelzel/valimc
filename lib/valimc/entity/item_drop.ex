@@ -82,4 +82,37 @@ defmodule Valimc.Entity.ItemDrop do
       }
     }
   end
+
+  @doc """
+  The record of `stack` popped from cell `{x, y, z}`'s face `face` (0..5,
+  `Direction` order) like vanilla `Block.popResourceFromFace`: just outside
+  the face, anywhere within a quarter of the centre along it, moving out of
+  the face at 0.1 (and up 0.1 more), along it up to 0.1.
+  """
+  def pop_from_face({x, y, z}, face, stack) do
+    {sx, sy, sz} =
+      elem({{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}}, face)
+
+    across = fn step, half ->
+      if step == 0, do: :rand.uniform_real() * 0.5 - 0.25, else: step * (0.5 + half)
+    end
+
+    out = fn step, low, high ->
+      if step == 0, do: low + :rand.uniform_real() * (high - low), else: step * 0.1
+    end
+
+    %{
+      uuid: :crypto.strong_rand_bytes(16),
+      x: x + 0.5 + across.(sx, 0.125),
+      y: y + 0.5 + across.(sy, 0.125) - 0.125,
+      z: z + 0.5 + across.(sz, 0.125),
+      stack: stack,
+      motion: %Valimc.Entity.ItemMotionState{
+        velocity:
+          {out.(sx, -0.1, 0.1), if(sy == 0, do: :rand.uniform_real() * 0.1, else: sy * 0.1 + 0.1),
+           out.(sz, -0.1, 0.1)},
+        pickup_delay: 10
+      }
+    }
+  end
 end

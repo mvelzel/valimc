@@ -1,7 +1,8 @@
-# Differential check of saplings' trees (VMC-039a, `TreeGrower.growTree` run through the world
-# generator's features, `worldgen::compiler::place`) against GrowthOracle's trees: per case its
-# plot on an empty flat world, the sapling's cell and the random's seed; whether a tree grew and
-# every block it changed.
+# Differential check of what the generator grows (`worldgen::compiler::place`) against
+# GrowthOracle's trees (VMC-039a, `TreeGrower.growTree`) and bone meal's features (VMC-039b: a
+# grass block's grass and flowers, nylium's and moss's features, huge mushrooms): per case its
+# plot on an empty flat world of its biome, the growing block's cell and the random's seed;
+# whether a tree grew and every block it changed (a feature: the blocks it changed).
 [filename] = System.argv()
 cases = JSON.decode!(File.read!(filename))["cases"]
 rules = Valimc.World.BlockRules.native()
@@ -10,7 +11,7 @@ rules = Valimc.World.BlockRules.native()
 input =
   for c <- cases do
     [x, y, z] = c["pos"]
-    {for([cx, cy, cz, s] <- c["cells"], do: {cx, cy, cz, s}), {x, y, z}, c["seed"]}
+    {for([cx, cy, cz, s] <- c["cells"], do: {cx, cy, cz, s}), {x, y, z}, c["seed"], c["biome"]}
   end
 
 {:ok, ours} = Valimc.Native.growth_trees(rules, worldgen, input)
@@ -30,15 +31,15 @@ failures =
             )
             |> Enum.sort()
         ),
-      vanilla != grown,
+      if(c["kind"] == "tree", do: vanilla != grown, else: (vanilla || []) != (grown || [])),
       do: {i, vanilla, grown}
 
 case failures do
   [] ->
-    IO.puts("PASS: #{length(cases)} trees, #{Enum.count(cases, & &1["grown"])} grown")
+    IO.puts("PASS: #{length(cases)} cases, #{Enum.count(cases, & &1["grown"])} grown")
 
   [{i, vanilla, ours} | _] ->
-    IO.puts("FAIL: #{length(failures)} of #{length(cases)} trees; case #{i}")
+    IO.puts("FAIL: #{length(failures)} of #{length(cases)} cases; case #{i}")
     IO.inspect(vanilla && vanilla -- (ours || []), label: "vanilla only", limit: :infinity)
     IO.inspect(ours && ours -- (vanilla || []), label: "ours only", limit: :infinity)
     System.halt(1)

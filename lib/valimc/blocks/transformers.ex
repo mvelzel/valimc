@@ -6,10 +6,8 @@ defmodule Valimc.Blocks.Transformers do
   which items carry a transformer (by default; `priv/physics/
   block_transformers.json`, from GrowthOracle) and what an applied entry does
   beyond the block: its sound, particles (a level event), and the item's
-  wear or use.
-
-  Not modelled: an entry's loot (rooted dirt's hanging roots), which comes
-  from a block-interaction loot table the loot facts do not hold yet.
+  wear or use, and its loot (a block-interaction loot table: rooted dirt's
+  hanging roots, VMC-039b) and how that pops.
   """
   use Valimc.Data.Facts, "physics/block_transformers.json"
 
@@ -26,7 +24,9 @@ defmodule Valimc.Blocks.Transformers do
                   sound: entry["sound"],
                   particle: entry["particle"],
                   consume: entry["consume"],
-                  damage: entry["damage"]
+                  damage: entry["damage"],
+                  loot: entry["loot"],
+                  drop: entry["drop"]
                 }
               end
               |> List.to_tuple()
@@ -37,6 +37,10 @@ defmodule Valimc.Blocks.Transformers do
   def tool(%{item_id: id}), do: Map.get(@tools, id)
   def tool(_), do: nil
 
-  @doc "Entry `index` of transformer `tool`: its sound, particle, consumption and damage."
+  @doc """
+  Entry `index` of transformer `tool`: its sound, particle, consumption,
+  damage, loot table (or nil) and drop strategy (`"clicked_face"`,
+  `"from_middle"`).
+  """
   def entry(tool, index), do: @entries |> elem(tool) |> elem(index)
 end

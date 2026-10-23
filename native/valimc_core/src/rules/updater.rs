@@ -222,6 +222,7 @@ impl<'r, W: World> Engine<'r, W> {
         if self.component_tick(pos, state)
             || self.bubble_tick(pos, state)
             || self.growth_tick(pos, state)
+            || self.coral_tick(pos, state)
         {
             return;
         }

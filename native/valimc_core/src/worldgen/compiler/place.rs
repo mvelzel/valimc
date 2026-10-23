@@ -6,10 +6,11 @@
 //! changed back through the region owners.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{BiomeSource, Worldgen};
 use crate::column::{Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y};
-use crate::rules::growth::{draw, Grower};
+use crate::rules::growth::{draw, Generated, Grower};
 use crate::worldgen::blocks::BLOCK_ENTITY;
 use crate::worldgen::random::Random;
 use crate::worldgen::region::{Area, BlockEntityData, ProtoChunk, Region};
@@ -40,6 +41,28 @@ pub enum Placement {
     /// A sapling's tree (`TreeGrower.growTree`, VMC-039a) at the sapling's
     /// cell, from its grower.
     Sapling(Grower),
+    /// Bone meal on the grass block at the cell (`GrassBlock
+    /// .performBonemeal`, VMC-039b), each biome's bone meal features by name.
+    Grass(Arc<HashMap<String, Vec<String>>>),
+    /// A mushroom's huge mushroom feature at its cell (`MushroomBlock
+    /// .growMushroom`, VMC-039b).
+    Mushroom(String),
+}
+
+impl Placement {
+    /// What the generator grows for `generated` at `pos` (VMC-039a,
+    /// VMC-039b): the placement and the cell it is placed at.
+    pub fn grown(generated: Generated, pos: [i32; 3]) -> (Placement, [i32; 3]) {
+        match generated {
+            Generated::Tree(grower) => (Placement::Sapling(grower.clone()), pos),
+            Generated::Grass(features) => (Placement::Grass(features), pos),
+            Generated::Mushroom(id) => (Placement::Mushroom(id.to_string()), pos),
+            Generated::Above(id) => (
+                Placement::Feature(id.to_string()),
+                [pos[0], pos[1] + 1, pos[2]],
+            ),
+        }
+    }
 }
 
 /// A planned placement: the chunks vanilla checks are loaded, and every
@@ -126,7 +149,10 @@ impl Worldgen {
     ) -> Result<Plan, String> {
         let here = chunk_of(pos[0], pos[2]);
         let plan = match placement {
-            Placement::Feature(_) | Placement::Sapling(_) => {
+            Placement::Feature(_)
+            | Placement::Sapling(_)
+            | Placement::Grass(_)
+            | Placement::Mushroom(_) => {
                 let around = ((here.0 - 1, here.1 - 1), (here.0 + 1, here.1 + 1));
                 Plan::Chunks {
                     checked: around,
@@ -296,6 +322,13 @@ impl Worldgen {
                 }
                 Placement::Sapling(grower) => {
                     grow_tree(&decoration, &mut region, &mut random, pos, grower)?
+                }
+                Placement::Grass(features) => {
+                    let biomes = &self.registry.biomes.names;
+                    grow_grass(&decoration, &mut region, &mut random, pos, features, biomes)?
+                }
+                Placement::Mushroom(id) => {
+                    grow_mushroom(&decoration, &mut region, &mut random, pos, id)?
                 }
                 Placement::Template {
                     id,
@@ -496,6 +529,110 @@ fn grow_tree(
         return Ok(true);
     }
     region.set(pos, sapling, 260);
+    Ok(false)
+}
+
+/// `GrassBlock.performBonemeal` on the grass block at `pos`: 128 tries,
+/// the later ones wandering farther over grass blocks, each growing the
+/// short grass it finds into tall grass now and then and placing on air the
+/// grass feature, or by chance one of the biome's bone meal features.
+/// Whether anything was tried (always).
+fn grow_grass(
+    d: &crate::worldgen::feature::Decoration,
+    region: &mut Region,
+    random: &mut Random,
+    pos: [i32; 3],
+    features: &HashMap<String, Vec<String>>,
+    biomes: &[String],
+) -> Result<bool, String> {
+    let table = d.table.clone();
+    let grass_block = table.block("grass_block")?;
+    let short_grass = table.block("short_grass")?;
+    let tall_grass = table.default_state("tall_grass")?;
+    let grass = d
+        .placed
+        .get(crate::worldgen::feature::GRASS_BONEMEAL)
+        .cloned();
+    let inside = |y: i32| (COLUMN_MIN_Y..COLUMN_MIN_Y + COLUMN_HEIGHT as i32).contains(&y);
+    let above = [pos[0], pos[1] + 1, pos[2]];
+    'attempts: for attempt in 0..128 {
+        let mut cell = above;
+        for _ in 0..attempt / 16 {
+            let dx = random.next_int_bounded(3) - 1;
+            let dy = (random.next_int_bounded(3) - 1) * random.next_int_bounded(3) / 2;
+            let dz = random.next_int_bounded(3) - 1;
+            cell = [cell[0] + dx, cell[1] + dy, cell[2] + dz];
+            // `stopBonemealSpread`.
+            let below = region.get([cell[0], cell[1] - 1, cell[2]]);
+            if table.block_of(below) != grass_block
+                || table.flag(region.get(cell), crate::worldgen::blocks::FULL_COLLISION)
+            {
+                continue 'attempts;
+            }
+        }
+        // `placeBonemealEffect`.
+        let state = region.get(cell);
+        let top = [cell[0], cell[1] + 1, cell[2]];
+        if table.block_of(state) == short_grass
+            && random.next_float() < 0.1
+            && d.survives(region, tall_grass, cell)
+            && table.is_air(region.get(top))
+            && inside(top[1])
+        {
+            region.set(cell, tall_grass, 2);
+            let upper = table
+                .with(tall_grass, "half", "upper")
+                .ok_or("no tall grass top")?;
+            region.set(top, upper, 2);
+        }
+        if !table.is_air(state) || !inside(cell[1]) {
+            continue;
+        }
+        if random.next_float() < 0.125 {
+            let biome = region.biome(cell);
+            let list = biomes
+                .get(biome as usize)
+                .and_then(|name| features.get(name))
+                .map_or(&[][..], |l| &l[..]);
+            if list.is_empty() {
+                continue;
+            }
+            let id = &list[random.next_int_bounded(list.len() as i32) as usize];
+            let feature = d
+                .features
+                .get(id)
+                .cloned()
+                .ok_or_else(|| format!("unknown feature {id}"))?;
+            feature.place(d, region, random, cell)?;
+        } else if let Some(grass) = &grass {
+            grass.place(d, region, random, cell, false)?;
+        }
+    }
+    Ok(true)
+}
+
+/// `MushroomBlock.growMushroom`: the mushroom goes (its fluid stays), the
+/// huge mushroom grows at its cell, and the mushroom comes back when it does
+/// not fit.
+fn grow_mushroom(
+    d: &crate::worldgen::feature::Decoration,
+    region: &mut Region,
+    random: &mut Random,
+    pos: [i32; 3],
+    id: &str,
+) -> Result<bool, String> {
+    let table = d.table.clone();
+    let feature = d
+        .features
+        .get(id)
+        .cloned()
+        .ok_or_else(|| format!("unknown feature {id}"))?;
+    let mushroom = region.get(pos);
+    region.set(pos, table.remains[mushroom as usize], 3);
+    if feature.place(d, region, random, pos)? {
+        return Ok(true);
+    }
+    region.set(pos, mushroom, 3);
     Ok(false)
 }
 

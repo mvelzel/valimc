@@ -677,9 +677,10 @@ STAGES = [
         ('java', 'RedstoneOracle', 'scenes', '@redstone-scenes.json'),
         ('check', 'check_redstone.exs', '@redstone-scenes.json', '@day.json'),
     ]),
-    # VMC-039a: crops, stems, sugar cane, cactus, farmland and saplings' stages by random ticks
-    # and bone meal on the block-update engine; the tree growers and saplings' trees; the tools'
-    # block transformers (tilling).
+    # VMC-039a, VMC-039b: what grows by random ticks and bone meal on the block-update engine
+    # (crops, stems, cane, cactus, farmland, saplings, grass, Nether, water and the other plants);
+    # the tree growers and saplings' trees; what bone meal places through the generator; the
+    # tools' block transformers (tilling).
     ('growth', [
         ('regen', 'GrowthOracle', 'facts', '@growth.json'),
         ('same', '@growth.json', 'priv/physics/growth.json'),
@@ -689,6 +690,8 @@ STAGES = [
         ('check', 'check_growth.exs', '@growth-scenes.json'),
         ('java', 'GrowthOracle', 'trees', '@growth-trees.json'),
         ('check', 'check_growth_trees.exs', '@growth-trees.json'),
+        ('java', 'GrowthOracle', 'features', '@growth-features.json'),
+        ('check', 'check_growth_trees.exs', '@growth-features.json'),
     ]),
     # VMC-031a: water and lava on the block-update engine; buckets' facts and clip.
     ('fluids', [

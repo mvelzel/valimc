@@ -65,8 +65,14 @@ pub enum Action {
         fire: bool,
         rain: bool,
     },
-    /// Bone meal used on the block at `pos` (VMC-039a).
-    BoneMeal { pos: [i32; 3] },
+    /// Bone meal used on the block at `pos` (VMC-039a), clicked on face
+    /// `face` (`STEP` index, none for a dispenser's), `corals` whether the
+    /// biome beside that face grows corals from it (VMC-039b).
+    BoneMeal {
+        pos: [i32; 3],
+        face: Option<usize>,
+        corals: bool,
+    },
     /// A tool's block transformer `tool` used on `pos` from face `face`
     /// (VMC-039a).
     Transform {
@@ -76,6 +82,8 @@ pub enum Action {
     },
     /// An entity trampling the farmland at `pos` (VMC-039a).
     Trample { pos: [i32; 3] },
+    /// Berries picked at `pos` (VMC-039b).
+    Harvest { pos: [i32; 3] },
     /// A player's use of the block at `pos` (`useWithoutItem`, VMC-047a),
     /// facing horizontal direction `facing`, allowed to build or not.
     Use {
@@ -382,9 +390,10 @@ pub fn run(
                 engine.disarm(pos);
                 0
             }
-            Action::BoneMeal { pos } => engine.bone_meal(pos),
+            Action::BoneMeal { pos, face, corals } => engine.bone_meal(pos, face, corals),
             Action::Transform { pos, tool, face } => engine.transform(pos, tool, face),
             Action::Trample { pos } => engine.trample(pos),
+            Action::Harvest { pos } => engine.harvest(pos),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)
             }

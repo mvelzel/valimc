@@ -74,7 +74,12 @@ defmodule Valimc.Player.Menus do
       yaw: state.player.yaw,
       secondary: Input.pressed?(state.player.input, :shift),
       main: Inventory.held(state.inventory, :main) != nil,
-      off: Inventory.held(state.inventory, :off) != nil
+      off: Inventory.held(state.inventory, :off) != nil,
+      main_item:
+        case Inventory.held(state.inventory, :main) do
+          %{item_id: id} -> id
+          nil -> nil
+        end
     }
 
     case state.table_menu do

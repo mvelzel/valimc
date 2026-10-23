@@ -71,10 +71,13 @@ defmodule Valimc.World.BlockRules do
     fluid source poured, then at `retry` or nil), `{:pickup, position}` (a
     bucket filled), `{:post, position}` (a post-processing mark),
     `{:random_tick, position, fire?, rain?}` (a lava cell's or a growing
-    plant's random tick, VMC-039a), `{:bone_meal, position}`,
+    plant's random tick, VMC-039a), `{:bone_meal, position, face, corals?}`
+    (clicked on face 0..5 or nil; `corals?` whether the biome beside it
+    grows corals),
     `{:transform, position, tool, face}` (a tool's block transformer, its
     index in `Valimc.Blocks.Transformers`, from a clicked face 0..5),
-    `{:trample, position}` (farmland trampled), and
+    `{:trample, position}` (farmland trampled), `{:harvest, position}`
+    (berries picked, VMC-039b), and
     redstone's (VMC-047a) `{:use, position, facing, may_build?}` (a
     player's use; `facing` a horizontal direction index, 2..5),
     `:contacts` (the entities' contacts), `{:daylight, position}`,
@@ -215,14 +218,21 @@ defmodule Valimc.World.BlockRules do
       <<3, pos(position)::binary, 0, if(fire, do: 1, else: 0) ||| if(rain, do: 2, else: 0),
         pos({0, 0, 0})::binary>>
 
-  defp pack_action({:bone_meal, position}),
-    do: <<11, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+  defp pack_action({:bone_meal, position}), do: pack_action({:bone_meal, position, nil, false})
+
+  defp pack_action({:bone_meal, position, face, corals}),
+    do:
+      <<11, pos(position)::binary, face || 255, if(corals, do: 1, else: 0),
+        pos({0, 0, 0})::binary>>
 
   defp pack_action({:transform, position, tool, face}),
     do: <<12, pos(position)::binary, tool, face, pos({0, 0, 0})::binary>>
 
   defp pack_action({:trample, position}),
     do: <<13, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:harvest, position}),
+    do: <<15, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
   defp pack_action({:use, position, facing, may_build}),
     do:

@@ -19,7 +19,7 @@ use valimc_core::rules::live::{self, Action, Input, Outcome};
 use valimc_core::worldgen::random::Random;
 
 /// A scene action: tick, kind (0 set, 1 a random tick, 2 bone meal),
-/// position and the state set.
+/// position and the state set (bone meal: the clicked face, 255 none).
 type SceneAction = (i64, u8, i32, i32, i32, u16);
 
 /// A tick's outcome: the tick, the cells whose state differs from the tick's
@@ -97,8 +97,8 @@ impl Scene {
 
 /// One GrowthOracle scene: from `cells`, `ticks` game ticks with `actions`,
 /// the level random seeded with `seed`, sky light `sky`, `skyDarken`
-/// `darken`, and rain at every cell or none. Per tick with any change, event
-/// or result, its outcome.
+/// `darken`, rain at every cell or none, and a biome that grows corals from
+/// bone meal or not. Per tick with any change, event or result, its outcome.
 #[rustler::nif(schedule = "DirtyCpu")]
 #[allow(clippy::too_many_arguments)]
 fn growth_scene(
@@ -110,6 +110,7 @@ fn growth_scene(
     sky: i32,
     darken: i32,
     rain: bool,
+    corals: bool,
 ) -> Result<Vec<SceneTick>, Atom> {
     let rules = &rules.rules;
     let table = rules.table.clone();
@@ -174,7 +175,11 @@ fn growth_scene(
                     rain,
                 }
             } else {
-                Action::BoneMeal { pos }
+                Action::BoneMeal {
+                    pos,
+                    face: (value < 6).then_some(value as usize),
+                    corals,
+                }
             };
             let outcome = run(&mut scene, &[], &[action], &[], &mut random)?;
             results.push(outcome.results[0]);
@@ -215,12 +220,14 @@ fn growth_scene(
 /// Cells as `(x, y, z, state)`.
 type Cells = Vec<(i32, i32, i32, u16)>;
 
-/// A tree case: its cells, the sapling's cell and the random's seed.
-type TreeCase = (Cells, (i32, i32, i32), i64);
+/// A tree or bone meal case: its cells, the growing block's cell, the
+/// random's seed and the biome.
+type TreeCase = (Cells, (i32, i32, i32), i64, String);
 
-/// GrowthOracle's trees: per case its cells (on an empty flat world of the
-/// plains), the sapling's cell and the random's seed; the blocks the tree
-/// changed (sorted), or nil when none grew.
+/// GrowthOracle's trees and bone meal's features: per case its cells (on an
+/// empty flat world of one biome), the growing block's cell, the random's
+/// seed and the biome; the blocks what the generator grows there changed
+/// (sorted, `Growth::generated`), or nil when it placed nothing.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn growth_trees(
     rules: ResourceArc<BlockRules>,
@@ -232,11 +239,11 @@ fn growth_trees(
     let growth = rules.rules.growth.as_ref().ok_or("no growth facts")?;
     let air = table.default_state("air")?;
     let mut worldgen = state.lease()?;
-    let source = BiomeSource::parse("fixed:minecraft:plains", worldgen.registry())?;
     let base = vec![air; HEIGHT];
     cases
         .into_iter()
-        .map(|(cells, (x, y, z), seed)| {
+        .map(|(cells, (x, y, z), seed, biome)| {
+            let source = BiomeSource::parse(&format!("fixed:{biome}"), worldgen.registry())?;
             let (cx, cz) = (x >> 4, z >> 4);
             let mut protos = Vec::new();
             for dz in -1..=1 {
@@ -249,25 +256,15 @@ fn growth_trees(
                     chunk.set(&table, px, py, pz, s, air);
                 }
             }
-            let sapling = table.default_state_of(
-                table.block_of(
-                    cells
-                        .iter()
-                        .find(|c| (c.0, c.1, c.2) == (x, y, z))
-                        .map_or(air, |c| c.3),
-                ),
-            );
-            let grower = growth
-                .grower(&table, sapling)
-                .ok_or("no sapling at the case's cell")?
-                .clone();
-            let placed = worldgen.place(
-                &source,
-                &Placement::Sapling(grower),
-                [x, y, z],
-                protos,
-                seed,
-            )?;
+            let grows = cells
+                .iter()
+                .find(|c| (c.0, c.1, c.2) == (x, y, z))
+                .map_or(air, |c| c.3);
+            let generated = growth
+                .generated(&table, grows)
+                .ok_or("nothing grows at the case's cell")?;
+            let (placement, at) = Placement::grown(generated, [x, y, z]);
+            let placed = worldgen.place(&source, &placement, at, protos, seed)?;
             Ok(placed.map(|p| {
                 let mut blocks: Vec<_> = p
                     .blocks

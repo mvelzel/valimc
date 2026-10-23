@@ -15,6 +15,7 @@ pub mod fluid;
 pub mod growth;
 pub mod live;
 pub mod placement;
+mod plants;
 pub mod power;
 pub mod redstone;
 pub mod shapes;

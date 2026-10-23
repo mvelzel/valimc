@@ -63,11 +63,9 @@ Reference: pinned 26.3 `CropBlock`, `BeetrootBlock`, `StemBlock`,
 `BlockScanUtils` (decompiled privately). Seeds and produce drop through the
 loot tables VMC-029e runs.
 
-Not modelled: bone meal on blocks this slice does not grow (grass, flowers,
-water plants and the rest); a grass block's own random tick; mobs pushed
+Not modelled: the rest of a farm's growth is [VMC-039b](VMC-039b.md); mobs pushed
 up when farmland turns to dirt (players are); bees in a grown tree's hive;
-a transformer's loot (rooted dirt's hanging roots, a block-interaction
-loot table the loot facts lack); babies' smaller size when trampling;
+a transformer's loot (VMC-039b); babies' smaller size when trampling;
 spawn protection (ValiMC has none).
 
 Checks: stage `growth`: GrowthOracle `facts` (11 tree growers, 10

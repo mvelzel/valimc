@@ -148,6 +148,10 @@ pub(crate) struct Known {
     pub(crate) end_gateway: u16,
 }
 
+/// The placed feature bone meal on a grass block places
+/// (`VegetationPlacements.GRASS_BONEMEAL`).
+pub const GRASS_BONEMEAL: &str = "minecraft:grass_bonemeal";
+
 pub struct Decoration {
     pub table: Arc<BlockTable>,
     /// The dimension's build bounds (bottom, height) its chunks have.
@@ -656,11 +660,14 @@ impl Decoration {
         for id in facts.extra_placed {
             parser.placed(&Json::String(id.clone()))?;
         }
-        // A sapling grows any tree, placed by a biome or not (VMC-039a).
-        for (id, feature) in facts.features.entries()? {
-            if feature.get("type").and_then(|t| t.as_str().ok()) == Some("minecraft:tree") {
-                parser.feature(&Json::String(id.clone()))?;
-            }
+        // A sapling grows any tree, and bone meal places features (grass,
+        // flowers, huge mushrooms, moss, nylium's plants), placed by a biome
+        // or not (VMC-039a, VMC-039b): every feature parses.
+        for (id, _) in facts.features.entries()? {
+            parser.feature(&Json::String(id.clone()))?;
+        }
+        if facts.placed_features.get(GRASS_BONEMEAL).is_some() {
+            parser.placed(&Json::String(GRASS_BONEMEAL.to_string()))?;
         }
         let mut biome_steps = vec![Vec::new(); facts.biome_count];
         let mut biome_features = vec![Vec::new(); facts.biome_count];

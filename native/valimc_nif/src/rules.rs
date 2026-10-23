@@ -18,8 +18,11 @@
 //! may build), 5 the entities' contacts, 6 a daylight detector's update, 7 a
 //! lectern's page, 8 a target's hit (value: its power; flags bit 0: an
 //! arrow's), 9 a tripwire hook placed, 10 tripwire disarmed, VMC-039a's 11
-//! bone meal, 12 a tool's transformer (value: the tool; flags: the clicked
-//! face) and 13 farmland trampled; for buckets the value is the fluid, flags bit 0 a retry cell,
+//! bone meal (value: the clicked face, 255 none; flags bit 0: corals grow,
+//! VMC-039b), 12 a tool's transformer (value: the tool; flags: the clicked
+//! face), 13 farmland trampled, 14 a block entity's output changed
+//! (VMC-048a) and 15 berries picked (VMC-039b); for buckets the value is the
+//! fluid, flags bit 0 a retry cell,
 //! bit 1 sneaking); `options` the level's settings' bits (`Options::from_bits`);
 //! `redstone` the redstone context: `<<time::64, day::64, rain::float-32,
 //! thunder::float-32, n::32, toggles (x, y, z, when::64)..., n::32,
@@ -143,7 +146,11 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 },
                 9 => Action::Placed { pos },
                 10 => Action::Disarm { pos },
-                11 => Action::BoneMeal { pos },
+                11 => Action::BoneMeal {
+                    pos,
+                    face: (r[13] < 6).then_some(r[13] as usize),
+                    corals: r[14] & 1 == 1,
+                },
                 12 => Action::Transform {
                     pos,
                     tool: r[13] as usize,
@@ -151,6 +158,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 },
                 13 => Action::Trample { pos },
                 14 => Action::OutputChanged { pos },
+                15 => Action::Harvest { pos },
                 _ => return Err(atoms::invalid_positions()),
             })
         })

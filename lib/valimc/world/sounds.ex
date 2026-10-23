@@ -19,15 +19,15 @@ defmodule Valimc.World.Sounds do
     Valimc.World.publish(key, {:sound, at, 16.0, packet})
   end
 
-  @doc "The sound packet of `id` at `{x, y, z}` (volume and pitch 1)."
-  def packet(id, source, {x, y, z}, seed) do
+  @doc "The sound packet of `id` at `{x, y, z}` (volume 1, pitch `pitch`)."
+  def packet(id, source, {x, y, z}, seed, pitch \\ 1.0) do
     Packets.packet("sound", [
       Wire.varint(0),
       Wire.string(id),
       <<0>>,
       Wire.varint(Enum.find_index(@sources, &(&1 == source))),
       <<trunc(x * 8)::signed-32, trunc(y * 8)::signed-32, trunc(z * 8)::signed-32>>,
-      <<1.0::float-32, 1.0::float-32, seed::signed-64>>
+      <<1.0::float-32, pitch::float-32, seed::signed-64>>
     ])
   end
 end
