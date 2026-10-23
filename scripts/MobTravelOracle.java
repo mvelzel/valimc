@@ -105,6 +105,7 @@ public class MobTravelOracle {
     protected boolean isSunSensitive() { return false; }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
     protected boolean convertsInWater() { return false; }
+    protected void playEntityOnFireExtinguishedSound() {}
     public boolean causeFallDamage(double distance, float multiplier, DamageSource source) {
       var e = new JsonObject(); e.addProperty("kind","fall"); e.addProperty("distance",distance);
       e.addProperty("multiplier",multiplier); e.addProperty("damage",calculateFallDamage(distance,multiplier));
@@ -170,6 +171,7 @@ public class MobTravelOracle {
         r.addProperty("yaw", Float.floatToRawIntBits(m.getYRot()));
         r.addProperty("horizontal_collision", m.horizontalCollision);
         r.addProperty("air", m.getAirSupply());
+        r.addProperty("fire", m.getRemainingFireTicks());
         r.addProperty("jumping", field(LivingEntity.class, "jumping").getBoolean(m));
         r.addProperty("no_jump_delay", field(LivingEntity.class, "noJumpDelay").getInt(m));
         var ev = new JsonArray(); for (var e : m.events) ev.add(e); r.add("events", ev);
@@ -245,6 +247,20 @@ public class MobTravelOracle {
     var lava = new ArrayList<>(floor(62, 6, stone));
     for (int x = -6; x <= 6; x++) for (int z = -6; z <= 6; z++) lava.add(new Block(x, 63, z, Blocks.LAVA.defaultBlockState()));
     cases.add(run("lava", lava, List.of(new Start(new Vec3(.5, 64.5, .5), 0, new Vec3(4.5, 64, .5), 1.0)), 40));
+    // Fire: walked through a strip of fire onto stone, burning out; into soul
+    // fire to stand in; through fire into water, put out.
+    var fire = new ArrayList<>(floor(63, 8, stone));
+    for (int z = -2; z <= 2; z++) fire.add(new Block(0, 64, z, Blocks.FIRE.defaultBlockState()));
+    cases.add(run("fire_walk", fire, List.of(new Start(new Vec3(-3.5, 64, .5), 0, new Vec3(5.5, 64, .5), 1.0)), 220));
+    var soul = new ArrayList<>(floor(63, 6, Blocks.SOUL_SOIL.defaultBlockState()));
+    for (int x = 1; x <= 3; x++) for (int z = -1; z <= 1; z++) soul.add(new Block(x, 64, z, Blocks.SOUL_FIRE.defaultBlockState()));
+    cases.add(run("soul_fire_stand", soul, List.of(new Start(new Vec3(-2.5, 64, .5), 0, new Vec3(2.5, 64, .5), 1.0)), 50));
+    var doused = new ArrayList<>(floor(63, 8, stone));
+    for (int z = -2; z <= 2; z++) {
+      doused.add(new Block(-1, 64, z, Blocks.FIRE.defaultBlockState()));
+      for (int x = 2; x <= 4; x++) doused.add(new Block(x, 64, z, Blocks.WATER.defaultBlockState()));
+    }
+    cases.add(run("fire_water", doused, List.of(new Start(new Vec3(-3.5, 64, .5), 0, new Vec3(3.5, 64, .5), 1.0)), 50));
     // A ladder on a wall, walked against toward a point above.
     var ladder = new ArrayList<>(floor(63, 4, stone));
     for (int y = 64; y < 70; y++) {
@@ -262,6 +278,6 @@ public class MobTravelOracle {
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     Files.writeString(Path.of(args[0]), JSON.toJson(out));
-    System.out.println("PASS: " + cases.size() + " vanilla zombie traces (fall, walk, step, jump, wall, water, ladder, cobweb, push).");
+    System.out.println("PASS: " + cases.size() + " vanilla zombie traces (fall, walk, step, jump, wall, water, lava, fire, ladder, cobweb, push).");
   }
 }

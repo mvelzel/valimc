@@ -1,10 +1,11 @@
 defmodule Valimc.Entity.MobVitals do
   @moduledoc """
   A mob's living rules after its kernel tick (VMC-015i), the player's rules
-  over a mob's state: landing damage (`Block.fallOn` and
-  `calculateFallDamage`), the fire, lava and water contacts of its move in
-  order (`Burning.plan/1`), burning down a second at a time, and air with
-  drowning for a type that cannot breathe under water. Each hurt goes
+  over a mob's state, in vanilla's tick order: `baseTick`'s burning down a
+  second at a time and air with drowning for a type that cannot breathe
+  under water, then its move's landing damage (`Block.fallOn` and
+  `calculateFallDamage`) and the fire, lava and water contacts of the move
+  in order (`Burning.plan/1`, `applyEffectsFromBlocks`). Each hurt goes
   through the one hurt path (`Valimc.Entity.Combat.hurt_mob/4`), so a mob
   dies, and drops, as any other death.
   Returns the body and its entity events.
@@ -18,10 +19,10 @@ defmodule Valimc.Entity.MobVitals do
   def apply(type, body, ticked) do
     facts = EntityTypes.fetch(type)
     {mob, events} = {body.mob, []}
-    {mob, events} = landing(type, mob, events, ticked.landing)
-    {mob, events} = contacts(type, facts, mob, events, ticked.fire_contacts)
     {mob, events} = burn(type, facts, mob, events, ticked.lava)
     {mob, events} = breathe(type, mob, events, ticked)
+    {mob, events} = landing(type, mob, events, ticked.landing)
+    {mob, events} = contacts(type, facts, mob, events, ticked.fire_contacts)
     {%{body | mob: mob}, events}
   end
 
@@ -49,12 +50,16 @@ defmodule Valimc.Entity.MobVitals do
   defp contacts(type, facts, mob, events, fires) do
     with {:ok, operations} <- Burning.plan(fires.steps) do
       immediate = for {source, amount} <- fires.immediate, do: {:damage, source, amount}
+      before = mob.living.fire_ticks
 
-      Enum.reduce(immediate ++ operations, {mob, events}, fn operation, {mob, events} ->
-        if Mob.alive?(mob),
-          do: contact(type, facts, mob, events, operation),
-          else: {mob, events}
-      end)
+      {mob, events} =
+        Enum.reduce(immediate ++ operations, {mob, events}, fn operation, {mob, events} ->
+          if Mob.alive?(mob),
+            do: contact(type, facts, mob, events, operation),
+            else: {mob, events}
+        end)
+
+      {put_fire(mob, Burning.settle(mob.living.fire_ticks, before, facts.fire_immune)), events}
     else
       _ -> {mob, events}
     end
@@ -62,7 +67,7 @@ defmodule Valimc.Entity.MobVitals do
 
   defp contact(type, facts, mob, events, :fire_ignite) do
     {:ok, ignition} =
-      Burning.fire(mob.living.fire_ticks, facts.fire_immune, burning(type, mob))
+      Burning.entity_fire(mob.living.fire_ticks, facts.fire_immune, burning(type, mob))
 
     {put_fire(mob, ignition.ticks), events}
   end

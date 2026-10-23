@@ -1,17 +1,18 @@
 # Vanilla zombie ticks (MobTravelOracle) against the kernel's mob tick
 # (VMC-015i): each scene's blocks as a supplied view, the mobs driven toward
 # the same targets, every tick's position, velocity, ground flag, fall
-# distance and yaw compared bit for bit, landings with their fall damage and
-# lava contact with vanilla's lava hurts.
+# distance and yaw compared bit for bit, landings with their fall damage,
+# lava contact with vanilla's lava hurts, and the burning counter after
+# `MobVitals` (vanilla records hurts without applying them, so health stays).
 alias Valimc.Data.{EntityTypes, Float32}
-alias Valimc.Entity.{Mob, MobMotion}
+alias Valimc.Entity.{Mob, MobMotion, MobVitals}
 alias Valimc.Living.{FallDamage, Landing}
 
 [path] = System.argv()
 Valimc.Data.BlockFacts.install!()
 fixtures = :json.decode(File.read!(path))
 cases = fixtures["cases"]
-unless length(cases) >= 16, do: raise("Incomplete mob travel traces")
+unless length(cases) >= 19, do: raise("Incomplete mob travel traces")
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -61,8 +62,11 @@ checked =
           end
         end)
 
-      {_, count} =
-        Enum.reduce(Enum.with_index(c["ticks"]), {mobs, count}, fn {row, tick}, {mobs, count} ->
+      bodies = Enum.map(c["mobs"], fn _ -> zombie end)
+
+      {_, _, count} =
+        Enum.reduce(Enum.with_index(c["ticks"]), {mobs, bodies, count}, fn {row, tick},
+                                                                           {mobs, bodies, count} ->
           # As navigation sets `MoveControl.setWantedPosition` each tick.
           mobs =
             Enum.zip_with(mobs, controls, fn
@@ -79,7 +83,8 @@ checked =
           {:ok, results} = Valimc.Native.physics_mobs(v, mobs, [], nil)
 
           next =
-            for {{result, expected}, index} <- Enum.with_index(Enum.zip(results, row)) do
+            for {{result, expected, body}, index} <-
+                  Enum.with_index(Enum.zip([results, row, bodies])) do
               {:ok, t} = result
               m = t.mob
               where = "#{c["name"]} tick #{tick} mob #{index}"
@@ -129,18 +134,42 @@ checked =
               if hurts != [] != lava,
                 do: raise("#{where}: lava contact #{lava}, vanilla hurts #{length(hurts)}")
 
-              m
+              {vital, _events} = MobVitals.apply("minecraft:zombie", body, t)
+
+              if vital.mob.living.fire_ticks != expected["fire"],
+                do:
+                  raise(
+                    "#{where}: fire ticks #{vital.mob.living.fire_ticks}, vanilla #{expected["fire"]}"
+                  )
+
+              {m, put_in(vital.mob.living.health, body.mob.living.health)}
             end
 
-          {next, count + length(next)}
+          {Enum.map(next, &elem(&1, 0)), Enum.map(next, &elem(&1, 1)), count + length(next)}
         end)
 
       count
   end
 
+# Fire, soul fire and lava light the zombies; one burns out on stone and
+# one is put out in water.
+fires = for c <- cases, row <- c["ticks"], do: Enum.map(row, & &1["fire"])
+lit = Enum.count(List.flatten(fires), &(&1 > 0))
+
+outs =
+  for c <- cases,
+      {a, b} <- Enum.zip(c["ticks"], tl(c["ticks"])),
+      {x, y} <- Enum.zip(a, b),
+      x["fire"] > 0 and y["fire"] == 0,
+      do: c["name"]
+
+unless lit >= 200 and "fire_walk" in outs and "fire_water" in outs,
+  do: raise("Burning coverage: #{lit} burning ticks, out in #{inspect(outs)}")
+
 IO.puts(
   "PASS: #{checked} mob ticks over #{length(cases)} vanilla zombie traces equal bit for bit " <>
-    "(position, velocity, ground, fall distance, yaw, landings and fall damage, lava contact)."
+    "(position, velocity, ground, fall distance, yaw, landings and fall damage, lava contact, " <>
+    "burning)."
 )
 
 _ = EntityTypes

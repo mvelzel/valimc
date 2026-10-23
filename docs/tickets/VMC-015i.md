@@ -101,3 +101,29 @@ exact same spot stay overlapped (vanilla's push has no direction there);
 one 0.3 blocks off pushed all three apart. Sneaking into a zombie for four
 seconds carried it about 1.5 blocks and pushed the player aside; at full
 walking speed the player passes through it before the push builds up.
+
+## Mob burning (October 23, 2026)
+
+Found while VMC-034n4d made items burn: a mob walking into fire took the
+player's random step. 26.3's `BaseFireBlock.fireIgnite` (javap on jar
+`33680f5f`) adds `nextInt(1, 3)` only for a `ServerPlayer`; any other entity
+steps a negative counter by 1, takes nothing otherwise, then
+`igniteForSeconds(8)` if the counter is not negative. `Burning.entity_fire/3`
+is that rule, shared by `MobVitals` and `ItemBurning`, and
+`Burning.settle/3` is the end of `applyEffectsFromBlocks` for both (a counter
+neither burning nor raised this tick goes back to `-getFireImmuneTicks()`,
+0). `MobVitals` now runs in vanilla's tick order: `baseTick`'s burning and
+air before the move's landing and block effects (`LivingEntity.aiStep`
+calls `applyEffectsFromBlocks` after `travel`); before, a mob entering lava
+or fire burned a tick early.
+
+Checks: `MobTravelOracle` records `remainingFireTicks` each tick and adds
+three scenes (a zombie walking through a fire strip and burning out on
+stone over 220 ticks, standing in soul fire, walking through fire into
+water); `check_mob_travel.exs` runs `MobVitals.apply/3` after each kernel
+tick and compares the counter: 1,150 mob ticks over 19 traces exact. The
+old random step fails at `fire_walk` tick 33 (161 against 160), the old
+order at `lava` tick 4 (299 against 300). `check_vanilla.py --changed`
+30/30 (`item_burn`, `mob_ai`, `fire_geometry`, `hazard_geometry` and `tcp`
+among them). Rain putting a burning mob out
+(`isInRain`) is still not modelled.

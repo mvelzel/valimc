@@ -39,28 +39,15 @@ defmodule Valimc.Entity.ItemBurning do
     end
   end
 
-  # The end of `applyEffectsFromBlocks`: an entity neither on fire nor lit
-  # this tick has its counter reset to 0.
-  defp settle(state, before, immune) do
-    if (state.fire_ticks > 0 and not immune) or state.fire_ticks > before.fire_ticks,
-      do: state,
-      else: %{state | fire_ticks: 0}
-  end
+  defp settle(state, before, immune),
+    do: %{state | fire_ticks: Burning.settle(state.fire_ticks, before.fire_ticks, immune)}
 
   # A gone entity's later hurts miss it (`isInvulnerableToBase`: removed).
   defp apply_contact(_operation, {_state, true} = gone, _immune), do: gone
 
-  # `BaseFireBlock.fireIgnite` for an entity that is not a player: a negative
-  # counter steps toward zero, then eight seconds at least.
   defp apply_contact(:fire_ignite, {state, gone}, false) do
-    ticks = if state.fire_ticks < 0, do: state.fire_ticks + 1, else: state.fire_ticks
-
-    if ticks >= 0 do
-      {:ok, ignition} = Burning.ignite_seconds(ticks, 8.0, 1.0)
-      {%{state | fire_ticks: ignition.ticks}, gone}
-    else
-      {%{state | fire_ticks: ticks}, gone}
-    end
+    {:ok, ignition} = Burning.entity_fire(state.fire_ticks, false, 1.0)
+    {%{state | fire_ticks: ignition.ticks}, gone}
   end
 
   defp apply_contact(:lava_ignite, {state, gone}, false) do

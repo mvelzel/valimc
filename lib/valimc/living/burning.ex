@@ -98,24 +98,50 @@ defmodule Valimc.Living.Burning do
       # minimum. Negative cooldowns advance without consuming randomness.
       increment = if current < 0, do: 1, else: random.()
 
-      if increment in 1..2 do
-        wrapped =
-          if current + increment > @maximum,
-            do: current + increment - 4_294_967_296,
-            else: current + increment
-
-        {:ok, next} = assign(wrapped, invulnerable)
-
-        if next >= 0,
-          do: ignite_seconds(next, 8.0, factor, invulnerable),
-          else: {:ok, %{ticks: next, clear_freeze: false}}
-      else
-        {:error, :invalid_burning}
-      end
+      if increment in 1..2,
+        do: fire_step(current, increment, factor, invulnerable),
+        else: {:error, :invalid_burning}
     end
   end
 
   def fire(_, _, _, _, _), do: {:error, :invalid_burning}
+
+  @doc """
+  `BaseFireBlock.fireIgnite` for an entity that is not a `ServerPlayer` (a
+  mob, an item, an orb): a negative counter steps toward zero, any other
+  takes no random step, then eight seconds at least.
+  """
+  def entity_fire(current, immune, factor)
+      when counter(current) and is_boolean(immune) and is_number(factor) and factor >= 0 and
+             factor <= 1024 do
+    if immune,
+      do: {:ok, %{ticks: current, clear_freeze: false}},
+      else: fire_step(current, if(current < 0, do: 1, else: 0), factor, false)
+  end
+
+  def entity_fire(_, _, _), do: {:error, :invalid_burning}
+
+  defp fire_step(current, increment, factor, invulnerable) do
+    wrapped =
+      if current + increment > @maximum,
+        do: current + increment - 4_294_967_296,
+        else: current + increment
+
+    {:ok, next} = assign(wrapped, invulnerable)
+
+    if next >= 0,
+      do: ignite_seconds(next, 8.0, factor, invulnerable),
+      else: {:ok, %{ticks: next, clear_freeze: false}}
+  end
+
+  @doc """
+  The end of `applyEffectsFromBlocks` for an entity that is not a player
+  (`getFireImmuneTicks` 0): a counter that is not burning and was not raised
+  from `before` by this tick's effects goes back to 0.
+  """
+  def settle(ticks, before, immune)
+      when counter(ticks) and counter(before) and is_boolean(immune),
+      do: if((ticks > 0 and not immune) or ticks > before, do: ticks, else: 0)
 
   @doc "Bounded ordered fire and fluid operations from a step's contacts; owners apply them while alive."
   def plan(steps) when is_list(steps) and length(steps) <= @limit do
