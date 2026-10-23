@@ -225,18 +225,20 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert drops(ctx) == [ItemStack.new("cobblestone")]
   end
 
-  test "a door's lower half breaks the door whole with one drop; an ore drops experience too",
+  # The upper half has no loot: the door is the lower half's, which the block
+  # rules destroy (client run 2 of VMC-029e lost it).
+  test "a door's upper half breaks the door whole with one drop; an ore drops experience too",
        ctx do
     door = fn half -> Valimc.Data.Blocks.state("oak_door", %{"half" => half}) end
-    seed(ctx, %{36 => instant("diamond_axe"), 37 => instant("diamond_pickaxe")}, door.("lower"))
+    seed(ctx, %{36 => instant("diamond_axe"), 37 => instant("diamond_pickaxe")}, door.("upper"))
     {x, y, z} = ctx.target
-    :ok = Valimc.TestBlocks.set({x, y + 1, z}, door.("upper"))
+    :ok = Valimc.TestBlocks.set({x, y - 1, z}, door.("lower"))
     {client, pid} = login(ctx)
     action(client, "start_destroy_block", ctx.target, 1)
 
     tick_until(pid, fn ->
       finished(pid) and Valimc.TestBlocks.get(ctx.target) == 0 and
-        Valimc.TestBlocks.get({x, y + 1, z}) == 0
+        Valimc.TestBlocks.get({x, y - 1, z}) == 0
     end)
 
     assert drops(ctx) == [ItemStack.new("oak_door")]

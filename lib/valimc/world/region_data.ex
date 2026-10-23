@@ -1271,9 +1271,12 @@ defmodule Valimc.World.RegionData do
              state.key
            ),
          {:ok, proposal} <- block_proposal(state, batch, Map.get(plan, :removed, [])) do
+      # The spill's store first: the break's block rules add the drops of the
+      # blocks they destroy (a door's other half, a torch) to it.
+      state = %{state | entities: %{state.entities | store: plan.items}}
       state = publish_blocks(state, batch, proposal)
       state = %{state | containers: Map.get(plan, :containers, state.containers)}
-      state = publish_item_views(%{state | entities: %{state.entities | store: plan.items}})
+      state = publish_item_views(state)
       {:reply, :ok, adopt_drops(state, records)}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
