@@ -53,11 +53,11 @@ Phases:
 2. **After 043a and 029d:** 015i, 037n, 050a, 047a; Blocks goes on (029e).
 3. **After 015i:** 041a then 041b; 042a, 037o and 042b alongside.
 4. **After 041b, 037n, 037o, 050a:** families in parallel (043b first),
-   plus 034n4c, 034n4d, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
+   plus 034n4c, 034n4d, 034n4e, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
 5. **Last:** 045a, then the gate.
 
 When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
-043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 034n4d, 026d, 043e, 044a, 032b, 045a, 078.
+043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -70,7 +70,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-042b](tickets/VMC-042b.md) | A village's villagers and a swamp hut's witch when their chunks first load; witches spawning in the hut; a fortress spawner's blazes near the player |
-| [VMC-034n4c](tickets/VMC-034n4c.md), [034n4d](tickets/VMC-034n4d.md) | A furnace's orbs scatter; orbs hop in lava and merge; items vanish in lava, fire and on a cactus, netherite floats |
+| [VMC-034n4c](tickets/VMC-034n4c.md), [034n4d](tickets/VMC-034n4d.md), [034n4e](tickets/VMC-034n4e.md) | A furnace's orbs scatter; orbs hop in lava and merge; items vanish in lava, fire and on a cactus, netherite floats; burning items show flames that rain puts out; TNT destroys near items and flings far ones |
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
 | [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
 | [VMC-039a](tickets/VMC-039a.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal; trampling |

@@ -1,7 +1,8 @@
-defmodule Valimc.Player.RainQuery do
+defmodule Valimc.World.RainQuery do
   @moduledoc """
-  Rain at a player's feet and head (vanilla `isRainingAt`), read from the same
-  block view as its movement (VMC-077e): the column's MOTION_BLOCKING height
+  Rain at a body's feet and head (vanilla `Entity.isInRain`), read from the
+  same block view as its movement (VMC-077e): a player's, or a burning item's
+  or orb's (VMC-034n4e). It reads the column's MOTION_BLOCKING height
   and lowest sky source and the biomes its owner publishes beside its
   snapshot, and each point's precipitation (`Valimc.World.Climate`). No owner
   call, no revision fence.

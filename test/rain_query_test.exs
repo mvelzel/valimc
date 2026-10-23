@@ -1,6 +1,6 @@
-defmodule Valimc.PlayerRainQueryTest do
+defmodule Valimc.RainQueryTest do
   use ExUnit.Case, async: false
-  alias Valimc.Player.RainQuery
+  alias Valimc.World.RainQuery
   alias Valimc.Data.PlayerPose
   alias Valimc.World.{Clock, View}
 

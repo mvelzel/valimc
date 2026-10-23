@@ -278,6 +278,10 @@ defmodule Valimc.Entity.Store do
       with {:ok, entry} <- current(current, epoch, id, revision),
            {:ok, next} <- remove(current, epoch, id, revision) do
         record = entry |> record() |> Map.merge(%{entity_id: id, hops: entry.hops + 1})
+        # The on-fire flag its observers were shown travels with it (VMC-034n4e).
+        record =
+          if entry[:on_fire] == nil, do: record, else: Map.put(record, :on_fire, entry.on_fire)
+
         {:cont, {:ok, next, [record | acc]}}
       else
         error -> {:halt, error}
@@ -349,6 +353,36 @@ defmodule Valimc.Entity.Store do
     end
   end
 
+  # A record's entity, with the on-fire flag a handoff carried.
+  defp adopt(state, id, record) do
+    with {:ok, next, handle} <- build_record(state, id, record) do
+      case Map.get(record, :on_fire) do
+        nil -> {:ok, next, handle}
+        on_fire -> {:ok, flag(next, id, on_fire), handle}
+      end
+    end
+  end
+
+  defp flag(state, id, on_fire) do
+    entry = state.entries[id]
+
+    metadata =
+      case entry do
+        %{kind: :orb} ->
+          orb_metadata(id, entry.value, on_fire)
+
+        %{kind: :item} ->
+          {:ok, packet} = metadata(id, entry.stack, entry.no_gravity, on_fire)
+          packet
+      end
+
+    %{
+      state
+      | entries: Map.put(state.entries, id, Map.put(entry, :on_fire, on_fire)),
+        views: Map.update!(state.views, id, &%{&1 | metadata: metadata})
+    }
+  end
+
   defp build_record(state, id, %{kind: kind, uuid: uuid, x: x, y: y, z: z} = record)
        when kind in @bodies do
     with {:ok, body} <- Body.restore(record) do
@@ -379,7 +413,7 @@ defmodule Valimc.Entity.Store do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z, velocity: motion.velocity}
     hops = Map.get(record, :hops, 0)
     # Orbs move (VMC-077i): gravity, and the pull toward the player they follow.
-    metadata = binary_packet(EntityPackets.metadata(id, experience_value: value))
+    metadata = orb_metadata(id, value, nil)
 
     view =
       :orb
@@ -478,7 +512,7 @@ defmodule Valimc.Entity.Store do
         {:error, :item_handoff_busy}
 
       true ->
-        with {:ok, id} <- record_id(state, record), do: build_record(state, id, record)
+        with {:ok, id} <- record_id(state, record), do: adopt(state, id, record)
     end
   end
 
@@ -522,7 +556,7 @@ defmodule Valimc.Entity.Store do
 
   def replace(state, epoch, id, revision, stack) do
     with {:ok, entry} <- current_item(state, epoch, id, revision),
-         {:ok, metadata} <- metadata(id, stack, entry.no_gravity) do
+         {:ok, metadata} <- metadata(id, stack, entry.no_gravity, entry[:on_fire]) do
       if stack == entry.stack do
         {:ok, state, {epoch, id, revision}}
       else
@@ -612,13 +646,18 @@ defmodule Valimc.Entity.Store do
 
   defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
 
-  defp advance_orb(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
+  defp advance_orb(
+         state,
+         key,
+         %{id: id, revision: revision, position: {x, y, z}, motion: motion} = step
+       ) do
     with {:ok, entry} <- current(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Grid.region_key(Grid.chunk_key(x, z)) == key do
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
+      on_fire = on_fire(step, entry)
 
-      if entity == entry.entity and entry.motion == motion do
+      if entity == entry.entity and entry.motion == motion and on_fire == entry[:on_fire] do
         {:ok, state, {state.epoch, id, revision}}
       else
         physical_revision =
@@ -628,23 +667,35 @@ defmodule Valimc.Entity.Store do
               else: 0
             )
 
+        old = state.views[id]
+
+        metadata =
+          if on_fire == entry[:on_fire],
+            do: old.metadata,
+            else: orb_metadata(id, entry.value, on_fire)
+
         view = %{
-          state.views[id]
+          old
           | revision: revision + 1,
             physical_revision: physical_revision,
             at: {x, y, z},
             chunk: Grid.chunk_key(x, z),
             velocity: motion.velocity,
-            on_ground: motion.on_ground
+            on_ground: motion.on_ground,
+            metadata: metadata,
+            metadata_revision:
+              old.metadata_revision + if(metadata == old.metadata, do: 0, else: 1)
         }
 
-        entry = %{
-          entry
-          | entity: entity,
-            motion: motion,
-            revision: revision + 1,
-            physical_revision: physical_revision
-        }
+        entry =
+          %{
+            entry
+            | entity: entity,
+              motion: motion,
+              revision: revision + 1,
+              physical_revision: physical_revision
+          }
+          |> Map.put(:on_fire, on_fire)
 
         {:ok,
          %{
@@ -659,22 +710,28 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  defp advance_item(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
+  defp advance_item(
+         state,
+         key,
+         %{id: id, revision: revision, position: {x, y, z}, motion: motion} = step
+       ) do
     with {:ok, entry} <- current_item(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Grid.region_key(Grid.chunk_key(x, z)) == key do
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
       old = state.views[id]
+      on_fire = on_fire(step, entry)
 
       metadata =
-        if motion.no_gravity == entry.no_gravity do
+        if motion.no_gravity == entry.no_gravity and on_fire == entry[:on_fire] do
           old.metadata
         else
-          {:ok, packet} = metadata(id, entry.stack, motion.no_gravity)
+          {:ok, packet} = metadata(id, entry.stack, motion.no_gravity, on_fire)
           packet
         end
 
-      if entity == entry.entity and Map.get(entry, :motion) == motion do
+      if entity == entry.entity and Map.get(entry, :motion) == motion and
+           on_fire == entry[:on_fire] do
         {:ok, state, {state.epoch, id, revision}}
       else
         physical_revision =
@@ -709,7 +766,7 @@ defmodule Valimc.Entity.Store do
               no_gravity: motion.no_gravity,
               physical_revision: physical_revision
           }
-          |> Map.put(:motion, motion)
+          |> Map.merge(%{motion: motion, on_fire: on_fire})
 
         {:ok,
          %{
@@ -1054,21 +1111,48 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  defp metadata(id, stack, no_gravity \\ true)
+  defp metadata(id, stack, no_gravity \\ true, on_fire \\ nil)
 
-  defp metadata(id, %ItemStack{components: components, removed: %MapSet{}} = stack, no_gravity)
+  defp metadata(
+         id,
+         %ItemStack{components: components, removed: %MapSet{}} = stack,
+         no_gravity,
+         on_fire
+       )
        when is_map(components) do
     if stack.item_id == ItemTypes.id("air") do
       {:error, :empty_item}
     else
-      {:ok, binary_packet(EntityPackets.metadata(id, no_gravity: no_gravity, item_stack: stack))}
+      fields = flags(on_fire) ++ [no_gravity: no_gravity, item_stack: stack]
+      {:ok, binary_packet(EntityPackets.metadata(id, fields))}
     end
   rescue
     ArgumentError -> {:error, :invalid_item}
   end
 
-  defp metadata(_, nil, _), do: {:error, :empty_item}
-  defp metadata(_, _, _), do: {:error, :invalid_item}
+  defp metadata(_, nil, _, _), do: {:error, :empty_item}
+  defp metadata(_, _, _, _), do: {:error, :invalid_item}
+
+  defp orb_metadata(id, value, on_fire),
+    do: binary_packet(EntityPackets.metadata(id, flags(on_fire) ++ [experience_value: value]))
+
+  # The on-fire shared flag (VMC-034n4e): `nil` until an item or orb first
+  # burns, so a fresh one's packets stay as vanilla's; after that its value,
+  # so the client learns when it goes out.
+  defp flags(nil), do: []
+  defp flags(on_fire), do: [shared_flags: if(on_fire, do: 1, else: 0)]
+
+  # A step's on-fire flag (`ItemStep`'s), or the entry's when it names none
+  # (a push, a teleport).
+  defp on_fire(step, entry) do
+    case {Map.fetch(step, :on_fire), entry[:on_fire]} do
+      {:error, kept} -> kept
+      {{:ok, true}, _} -> true
+      {{:ok, false}, nil} -> nil
+      {{:ok, false}, _} -> false
+    end
+  end
+
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 
   def valid_position?({x, y, z}),

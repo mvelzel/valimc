@@ -8,8 +8,8 @@ defmodule Valimc.Player.PoseQuery do
   alias Valimc.Living.Air
   alias Valimc.Physics.Kernel
   alias Valimc.Data.PlayerPose
-  alias Valimc.Player.{Motion, MotionQuery, RainQuery}
-  alias Valimc.World.View
+  alias Valimc.Player.{Motion, MotionQuery}
+  alias Valimc.World.{RainQuery, View}
 
   def signature(player) do
     {player.x, player.y, player.z, Map.get(player, :pose, :standing),

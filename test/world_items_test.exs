@@ -1,7 +1,7 @@
 defmodule Valimc.WorldItemsTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  alias Valimc.Entity.Store
+  alias Valimc.Entity.{ItemMotionState, Store}
   alias Valimc.World.Region
   alias Valimc.Protocol.ItemStack
 
@@ -33,6 +33,46 @@ defmodule Valimc.WorldItemsTest do
 
     assert map_size(removed.entries) == 300 and
              not Map.has_key?(removed.uuids, replaced.entries[id].entity.uuid)
+  end
+
+  test "a burning item shows the on-fire flag until it goes out (VMC-034n4e)" do
+    {:ok, store, {epoch, id, rev}} =
+      Store.create(Store.new(), {0, 0}, ItemStack.new("stone"), {0.5, 64, 0.5})
+
+    shown = fn fields ->
+      {packet, payload} = Valimc.Protocol.EntityPackets.metadata(id, fields)
+      {packet, IO.iodata_to_binary(payload)}
+    end
+
+    step = fn rev, extra ->
+      Map.merge(
+        %{id: id, revision: rev, position: {0.5, 64.0, 0.5}, motion: %ItemMotionState{}},
+        extra
+      )
+    end
+
+    stone = [no_gravity: false, item_stack: ItemStack.new("stone")]
+
+    {:ok, burning, [{_, _, rev}]} =
+      Store.advance(store, {0, 0}, epoch, [step.(rev, %{on_fire: true})])
+
+    assert burning.views[id].metadata == shown.([shared_flags: 1] ++ stone)
+
+    # A handoff carries the flag to the next owner.
+    {:ok, _, [record]} = Store.withdraw(burning, [{epoch, id, rev}])
+    {:ok, arrived, _} = Store.create_record(Store.new(), {0, 0}, record)
+    assert arrived.views[id].metadata == burning.views[id].metadata
+
+    # A push names no flag and keeps it; going out sends the cleared flag.
+    {:ok, pushed, [{_, _, rev}]} =
+      Store.advance(burning, {0, 0}, epoch, [
+        step.(rev, %{motion: %ItemMotionState{velocity: {0.1, 0.0, 0.0}}})
+      ])
+
+    assert pushed.views[id].metadata == burning.views[id].metadata
+    {:ok, out, _} = Store.advance(pushed, {0, 0}, epoch, [step.(rev, %{on_fire: false})])
+    assert out.views[id].metadata == shown.([shared_flags: 0] ++ stone)
+    assert out.views[id].metadata_revision == burning.views[id].metadata_revision + 1
   end
 
   test "racing replacements serialize one revision" do

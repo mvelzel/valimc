@@ -65,10 +65,10 @@ survives fire; the real client sees them vanish.
 - `test/item_step_test.exs`: an item in lava is gone on its second tick; a
   fire-immune one keeps its health.
 
-Not covered: rain putting out a burning item, the on-fire flag clients
-render, a destroyed shulker box or bundle dropping its contents
-(`onDestroyed`), and a sub-lethal explosion's damage (the health stays).
-Items the kernel cannot step (inside a block) do not burn.
+Not covered here: rain, the on-fire flag and a sub-lethal explosion's damage
+came in [VMC-034n4e](VMC-034n4e.md); a destroyed shulker box or bundle
+dropping its contents waits for those components (VMC-004b). Items the
+kernel cannot step (inside a block) do not burn.
 
 ## Client gate
 

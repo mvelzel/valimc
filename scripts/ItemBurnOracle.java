@@ -33,9 +33,9 @@ import net.minecraft.world.phys.shapes.*;
 
 /**
  * Actual ItemEntity.tick and ExperienceOrb.tick with Entity.baseTick's burning and
- * applyEffectsFromBlocks (fire, soul fire, lava, water, cactus) in a loaded world, through
- * hurtServer: health, burning and removal per tick, for stone, netherite and an orb. No peers,
- * rain or sounds.
+ * applyEffectsFromBlocks (fire, soul fire, lava, water, cactus, rain) in a loaded world, through
+ * hurtServer: health, burning, the on-fire shared flag and removal per tick, for stone, netherite
+ * and an orb; then hurtServer's explosion damage on its own. No peers or sounds.
  */
 public class ItemBurnOracle {
  static class Section extends LevelChunkSection {
@@ -56,7 +56,7 @@ public class ItemBurnOracle {
  static class World extends ServerLevel {
   Server server;
   public net.minecraft.server.MinecraftServer getServer(){return server;}
-  Map<BlockPos,BlockState> blocks; Set<BlockPos> queries; Chunk chunk; WorldBorder border; DamageSources sources; GameRules rules;
+  Map<BlockPos,BlockState> blocks; Set<BlockPos> queries; Chunk chunk; WorldBorder border; DamageSources sources; GameRules rules; Predicate<BlockPos> rain=p->false;
   private World(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
   public int getNextEntityId(){return 1;}
   public int getMinY(){return -64;}
@@ -73,7 +73,7 @@ public class ItemBurnOracle {
   public Player getNearestPlayer(Entity e,double range){return null;}
   public DamageSources damageSources(){return sources;}
   public GameRules getGameRules(){return rules;}
-  public boolean isRainingAt(BlockPos p){return false;}
+  public boolean isRainingAt(BlockPos p){return rain.test(p);}
  }
  static class Item extends ItemEntity {
   EntityFluidInteraction contact=new EntityFluidInteraction(Set.of(FluidTags.WATER,FluidTags.LAVA));
@@ -125,6 +125,7 @@ public class ItemBurnOracle {
   var o=new JsonObject();o.add("position",vec(e.position()));o.add("velocity",vec(e.getDeltaMovement()));o.addProperty("on_ground",e.onGround());
   o.addProperty("health",field(e instanceof ExperienceOrb?ExperienceOrb.class:ItemEntity.class,"health").getInt(e));
   o.addProperty("fire",e.getRemainingFireTicks());o.addProperty("removed",e.isRemoved());
+  var flag=Entity.class.getDeclaredMethod("getSharedFlag",int.class);flag.setAccessible(true);o.addProperty("on_fire",(boolean)flag.invoke(e,0));
   if(e instanceof ItemEntity item){o.addProperty("age",field(ItemEntity.class,"age").getInt(item));o.addProperty("pickup_delay",field(ItemEntity.class,"pickupDelay").getInt(item));}
   return o;
  }
@@ -155,10 +156,12 @@ public class ItemBurnOracle {
   if(netherite.canBeHurtBy(world.sources.lava())||!new ItemStack(Items.STONE).canBeHurtBy(world.sources.lava()))throw new AssertionError("Fire resistance not bound");
   var random=new Random(34);var rows=new JsonArray();int removed=0;
   String[] kinds={"stone","netherite","orb"};
-  for(int kind=0;kind<3;kind++)for(int layout=0;layout<6;layout++)
+  for(int kind=0;kind<3;kind++)for(int layout=0;layout<7;layout++)
    for(var position:List.of(new Vec3(.5,64,.5),new Vec3(.5,66,.5),new Vec3(-1.5,64.3,.5)))
     for(var velocity:List.of(Vec3.ZERO,new Vec3(.3,.2,0),new Vec3(.6,.1,.05))){
      world.blocks=new LinkedHashMap<>();world.queries=new HashSet<>();
+     // Layout 6 rains from x 1 on: what burns in the fire at x 0 goes out past it.
+     world.rain=layout==6?p->p.getX()>=1:p->false;
      put(world,-6,6,-6,6,63,(layout==2?Blocks.SOUL_SOIL:Blocks.STONE).defaultBlockState());
      switch(layout){
       case 0->put(world,-4,4,-4,4,64,Blocks.LAVA.defaultBlockState());
@@ -187,7 +190,19 @@ public class ItemBurnOracle {
      }
     }
   if(removed<60)throw new AssertionError("Too few burned up: "+removed);
-  Files.writeString(Path.of(args[0]),new Gson().toJson(rows));
-  System.out.println("PASS: "+rows.size()+" actual ItemEntity/ExperienceOrb ticks with burning and block effects, "+removed+" burned up; no peers, rain or sounds.");
+  // hurtServer alone with an explosion's damage: health as a float less the damage, truncated.
+  world.blocks=new LinkedHashMap<>();world.queries=new HashSet<>();world.rain=p->false;
+  var hurts=new JsonArray();
+  float[] damages={.5f,1f,1.5f,2.9999998f,3f,4f,4.0000005f,4.9999995f,5f,7.25f,12.5f};
+  for(var kind:List.of("stone","nether_star","orb"))for(int health:new int[]{5,3,1,0})for(float amount:damages){
+   Entity e=kind.equals("orb")?new Orb(world,new Vec3(.5,64,.5),Vec3.ZERO):new Item(world,new Vec3(.5,64,.5),Vec3.ZERO,new ItemStack(kind.equals("stone")?Items.STONE:Items.NETHER_STAR));
+   field(e instanceof ExperienceOrb?ExperienceOrb.class:ItemEntity.class,"health").setInt(e,health);
+   e.hurtServer(world,world.sources.explosion(null,null),amount);
+   var row=new JsonObject();row.addProperty("kind",kind);row.addProperty("health",health);row.addProperty("damage",amount);
+   row.addProperty("after",field(e instanceof ExperienceOrb?ExperienceOrb.class:ItemEntity.class,"health").getInt(e));row.addProperty("removed",e.isRemoved());hurts.add(row);
+  }
+  var out=new JsonObject();out.add("ticks",rows);out.add("hurts",hurts);
+  Files.writeString(Path.of(args[0]),new Gson().toJson(out));
+  System.out.println("PASS: "+rows.size()+" actual ItemEntity/ExperienceOrb ticks with burning, block effects and rain, "+removed+" burned up; "+hurts.size()+" explosion hurts; no peers or sounds.");
  }
 }

@@ -9,6 +9,7 @@ defmodule Valimc.World.ItemStep do
   """
   alias Valimc.Entity.{ItemBurning, ItemMotionState}
   alias Valimc.Physics.Kernel
+  alias Valimc.World.RainQuery
 
   @doc """
   The items a region owner's tick moves: each item `%{position, motion}`
@@ -38,7 +39,7 @@ defmodule Valimc.World.ItemStep do
   items. An orb's optional `draws` (four integers below 2^24) are the jump in
   lava's `nextFloat` draws; fresh random ones otherwise.
   """
-  def run_orbs(view, orbs, border) do
+  def run_orbs(view, orbs, border, rain \\ nil) do
     inputs =
       Enum.map(orbs, fn %{position: {x, y, z}, motion: m} = orb ->
         draws = Map.get_lazy(orb, :draws, fn -> {draw(), draw(), draw(), draw()} end)
@@ -46,43 +47,56 @@ defmodule Valimc.World.ItemStep do
       end)
 
     {:ok, results} = Kernel.orbs(view, inputs, border)
-    Enum.zip_with(orbs, results, &result(&1, &2, false))
+    rain = rain || rain(view)
+    Enum.zip_with(orbs, results, &result(&1, &2, false, rain))
   end
 
   @doc """
   The next state of each `%{position, motion: %ItemMotionState{}}` (other keys
   pass through; `fire_immune` for one fire cannot hurt): `{:ok, item}` with
-  `dead` whether it burned up, or `{:error, reason}` per item, in order.
+  `dead` whether it burned up and `on_fire` the flag clients see, or
+  `{:error, reason}` per item, in order. `rain` tells whether it rains on a
+  body at a position with its top at a height (`RainQuery` over `view` when
+  nil).
   """
-  def run(view, items, border) do
+  def run(view, items, border, rain \\ nil) do
     inputs =
       Enum.map(items, fn %{position: {x, y, z}, motion: m} ->
         {{x * 1.0, y * 1.0, z * 1.0}, m.velocity, m.on_ground, m.no_gravity}
       end)
 
     {:ok, results} = Kernel.items(view, inputs, border)
-
-    Enum.zip_with(items, results, &result(&1, &2, true))
+    rain = rain || rain(view)
+    Enum.zip_with(items, results, &result(&1, &2, true, rain))
   end
 
   defp draw, do: :rand.uniform(16_777_216) - 1
 
+  # A column that cannot be read is dry: the item keeps burning.
+  defp rain(view), do: &(RainQuery.sample(&1, &2, view) == {:ok, true})
+
   # An item's counters tick with its motion; an orb's age is its owner's.
   # Both burn (VMC-034n4d): `dead` once fire, lava or a cactus took the last
-  # of its health.
-  defp result(entity, {:ok, position, velocity, on_ground, lava, fires}, counters) do
-    motion = if counters, do: ItemMotionState.tick(entity.motion), else: entity.motion
-    {motion, dead} = ItemBurning.tick(motion, Map.get(entity, :fire_immune, false), lava, fires)
+  # of its health; rain where the move ended puts them out (VMC-034n4e).
+  defp result(entity, {:ok, position, velocity, on_ground, lava, fires}, item, rain) do
+    motion = if item, do: ItemMotionState.tick(entity.motion), else: entity.motion
+    {_, y, _} = position
+    type = if item, do: "minecraft:item", else: "minecraft:experience_orb"
+    # `isInRain` reads the block at its feet and at the top of its box.
+    raining = fn -> rain.(position, y + Valimc.Data.EntityTypes.fetch(type).height) end
+    immune = Map.get(entity, :fire_immune, false)
+    {motion, dead, on_fire} = ItemBurning.tick(motion, immune, lava, fires, raining)
 
     {:ok,
      Map.merge(entity, %{
        position: position,
        motion: %{motion | velocity: velocity, on_ground: on_ground},
-       dead: dead
+       dead: dead,
+       on_fire: on_fire
      })}
   end
 
-  defp result(_entity, :inside, _), do: {:error, :item_inside_block}
-  defp result(_entity, :limit, _), do: {:error, :item_motion_limit}
-  defp result(_entity, {:unreadable, position}, _), do: {:error, {:missing_block, position}}
+  defp result(_entity, :inside, _, _), do: {:error, :item_inside_block}
+  defp result(_entity, :limit, _, _), do: {:error, :item_motion_limit}
+  defp result(_entity, {:unreadable, position}, _, _), do: {:error, {:missing_block, position}}
 end

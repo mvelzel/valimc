@@ -7,9 +7,9 @@ defmodule Valimc.World.Explosion do
     (`Physics.Kernel.explosion/6`): the cells they reach, air included, as
     they stood when it went off.
   - **Entities.** Each owner whose entities lie in the reach box hits its
-    own (`hits/3`): items and orbs whose health the damage uses up it
-    destroys (`ItemEntity.hurtServer`; a nether star resists), mobs are
-    hurt, and everything left is pushed. Players are hit
+    own (`hits/3`): items and orbs lose the damage from their health
+    (`ItemEntity.hurtServer`; a nether star resists) and are destroyed at 0,
+    mobs are hurt, and everything left is pushed. Players are hit
     by their sessions (`Valimc.Player.Explosions`), so their hosts decide
     damage, knockback and the packet.
   - **Blocks.** The crater commits as one box edit across every owner it
@@ -33,7 +33,7 @@ defmodule Valimc.World.Explosion do
   import Bitwise
   alias Valimc.Blocks.MiningLoot
   alias Valimc.Data.{BlockFacts, Blocks, Float32, Grid}
-  alias Valimc.Entity.{Body, ItemDrop, ItemMotionState, Store}
+  alias Valimc.Entity.{Body, ItemBurning, ItemDrop, ItemMotionState, Store}
   alias Valimc.Living.{Armor, Explosions}
   alias Valimc.Physics.Kernel
   alias Valimc.Protocol.ItemStack
@@ -100,8 +100,8 @@ defmodule Valimc.World.Explosion do
 
   @doc """
   What the explosion does to entries of an owner's store (`id => entry`):
-  `[{id, action}]` with `:destroy`, `{:push, impulse}` or `{:hurt, amount,
-  impulse, source}`. Entries outside its reach box or past twice its radius are left
+  `[{id, action}]` with `:destroy`, `{:push, impulse}`, an item's or orb's
+  `{:push, impulse, health}` or `{:hurt, amount, impulse, source}`. Entries outside its reach box or past twice its radius are left
   out.
   """
   def hits(%__MODULE__{center: center, radius: radius} = explosion, entries) do
@@ -130,24 +130,22 @@ defmodule Valimc.World.Explosion do
     impulse = Explosions.knockback(explosion.center, origin, distance, seen, resistance)
 
     cond do
-      kind == :item and not Armor.resists_explosion?(entry.stack) and lethal?(entry, damage) ->
-        :destroy
-
-      kind == :orb and lethal?(entry, damage) ->
-        :destroy
-
       kind == :mob ->
         {:hurt, damage, impulse, explosion.source}
+
+      kind == :orb or (kind == :item and not Armor.resists_explosion?(entry.stack)) ->
+        # `hurtServer` takes the damage off an item's or orb's health,
+        # truncated (VMC-034n4e); one it leaves at 0 or below is gone.
+        motion = Map.get(entry, :motion) || %ItemMotionState{}
+
+        case ItemBurning.hurt(motion, damage) do
+          {_, true} -> :destroy
+          {motion, false} -> {:push, impulse, motion.health}
+        end
 
       true ->
         {:push, impulse}
     end
-  end
-
-  # `hurtServer` takes the damage off an item's or orb's health, truncated.
-  defp lethal?(entry, damage) do
-    %{health: health} = Map.get(entry, :motion) || %Valimc.Entity.ItemMotionState{}
-    trunc(health - damage) <= 0
   end
 
   @doc """
@@ -173,25 +171,28 @@ defmodule Valimc.World.Explosion do
         {{:push, impulse}, %{body: %Body{} = body}} ->
           Store.change_body(acc, id, Body.push(body, impulse))
 
-        {{:push, impulse}, %{entity: entity, revision: revision} = entry} ->
-          motion = Map.get(entry, :motion, %ItemMotionState{})
-          {vx, vy, vz} = motion.velocity
-          {dx, dy, dz} = impulse
-          motion = %{motion | velocity: {vx + dx, vy + dy, vz + dz}}
+        {{:push, impulse}, entry} ->
+          push(acc, key, id, entry, impulse, nil)
 
-          step = %{
-            id: id,
-            revision: revision,
-            position: {entity.x, entity.y, entity.z},
-            motion: motion
-          }
-
-          case Store.advance(acc, key, acc.epoch, [step]) do
-            {:ok, next, _} -> next
-            _ -> acc
-          end
+        {{:push, impulse, health}, entry} ->
+          push(acc, key, id, entry, impulse, health)
       end
     end)
+  end
+
+  # An item or orb pushed, with the health the explosion left it.
+  defp push(store, key, id, %{entity: entity, revision: revision} = entry, impulse, health) do
+    motion = Map.get(entry, :motion) || %ItemMotionState{}
+    {vx, vy, vz} = motion.velocity
+    {dx, dy, dz} = impulse
+    motion = %{motion | velocity: {vx + dx, vy + dy, vz + dz}, health: health || motion.health}
+
+    step = %{id: id, revision: revision, position: {entity.x, entity.y, entity.z}, motion: motion}
+
+    case Store.advance(store, key, store.epoch, [step]) do
+      {:ok, next, _} -> next
+      _ -> store
+    end
   end
 
   @doc "The section keys (`{sx, sz}`) whose entities the explosion's reach box may hold."

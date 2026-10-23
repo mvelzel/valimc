@@ -45,6 +45,7 @@ parallel. In every slice:
 | [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |
 | [VMC-034n4c](tickets/VMC-034n4c.md) | Experience orb gaps | Orbs merge, jump in lava and launch as vanilla's, checked against the oracle |
 | [VMC-034n4d](tickets/VMC-034n4d.md) | Items and orbs burn | Items and orbs die in fire, lava and on cactus on vanilla's tick, checked against the oracle |
+| [VMC-034n4e](tickets/VMC-034n4e.md) | Burning items: rain, flames and explosions | Rain puts out a burning item or orb, clients see its flames and an explosion's damage lowers its health, checked against the oracle |
 | [VMC-026d](tickets/VMC-026d.md) | Eyes of ender; mobs and orbs through portals | Eyes lead to vanilla's stronghold; mobs and orbs cross portals with their state |
 | [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals, the exit portal, gateways and the respawn ritual |
 | [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |
@@ -57,7 +58,7 @@ and signs, advancements, and the remaining command families.
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| VMC-004b | Recursive and collection item components | Container, bundle contents, charged projectiles, attribute modifiers and the remaining component codecs; bounded, with oracle round trips |
+| VMC-004b | Recursive and collection item components | Container, bundle contents, attribute modifiers and the remaining component codecs; bounded, with oracle round trips; a destroyed item holding them drops its contents (`Item.onDestroyed`, after [VMC-034n4e](tickets/VMC-034n4e.md)) |
 | VMC-006 | Remaining gamerules | The full 26.3 gamerule set stored, sent and enforced where its system exists |
 | VMC-008 | Data-pack registries and reload | Pack registries and tags sent to clients, play-phase reconfiguration and `/reload` without stale caches |
 | VMC-009 | Signed chat and command signatures | Profile keys, vanilla validation and acknowledgments, verified command signatures, proxy policy ([VMC-007c](tickets/VMC-007c.md)) |

@@ -3,8 +3,11 @@ alias Valimc.Entity.ItemMotionState
 alias Valimc.Physics.BlockScan
 alias Valimc.Data.Box
 alias Valimc.World.ItemStep
+alias Valimc.Entity.ItemBurning
+alias Valimc.Living.Armor
+alias Valimc.Protocol.ItemStack
 [path] = System.argv()
-rows = path |> File.read!() |> :json.decode()
+%{"ticks" => rows, "hurts" => hurts} = path |> File.read!() |> :json.decode()
 
 # The cells a tick may read: the body grown by the current, gravity and jump
 # envelope (the scan adds its halo).
@@ -49,11 +52,19 @@ for {row, index} <- Enum.with_index(rows) do
         )
 
   frame = View.of(Map.merge(base, Map.new(row["states"], &{cell.(&1), &1["state"]})))
+  # The oracle's rain: from x 1 on in layout 6.
+  rain = fn {x, _, _}, _top -> row["layout"] == 6 and floor(x) >= 1 end
 
   [result] =
     if kind == "orb",
-      do: ItemStep.run_orbs(frame, [Map.put(before, :draws, List.to_tuple(row["draws"]))], nil),
-      else: ItemStep.run(frame, [Map.put(before, :fire_immune, kind == "netherite")], nil)
+      do:
+        ItemStep.run_orbs(
+          frame,
+          [Map.put(before, :draws, List.to_tuple(row["draws"]))],
+          nil,
+          rain
+        ),
+      else: ItemStep.run(frame, [Map.put(before, :fire_immune, kind == "netherite")], nil, rain)
 
   expected = state.(row["after"])
 
@@ -66,7 +77,8 @@ for {row, index} <- Enum.with_index(rows) do
           actual.motion.fire_ticks == expected.motion.fire_ticks
 
       {:ok, actual} ->
-        actual.dead == row["after"]["removed"] and actual.position == expected.position and
+        actual.dead == row["after"]["removed"] and actual.on_fire == row["after"]["on_fire"] and
+          actual.position == expected.position and
           actual.motion == expected.motion and
           bits.(actual.position) == bits.(expected.position) and
           bits.(actual.motion.velocity) == bits.(expected.motion.velocity)
@@ -82,13 +94,38 @@ end
 burned = rows |> Enum.filter(& &1["after"]["removed"]) |> Enum.map(&{&1["kind"], &1["layout"]})
 put_out = Enum.count(rows, &(&1["before"]["fire"] > 0 and &1["after"]["fire"] == 0))
 
-# Lava, fire, soul fire, cactus, fire then water, and burning on after fire
-# each burn up stone and orbs; netherite only meets its end on a cactus.
+rained =
+  Enum.count(rows, &(&1["layout"] == 6 and &1["before"]["fire"] > 0 and &1["after"]["fire"] == 0))
+
+flagged = Enum.count(rows, & &1["after"]["on_fire"])
+
+# Lava, fire, soul fire, cactus, fire then water, burning on after fire and
+# fire then rain each burn up stone and orbs; netherite only meets its end on
+# a cactus.
 unless MapSet.new(burned) ==
-         MapSet.new([{"netherite", 3} | for(k <- ~w(stone orb), l <- 0..5, do: {k, l})]) and
-         put_out >= 2,
-       do: raise("Burning coverage: #{inspect(Enum.frequencies(burned))}, #{put_out} put out")
+         MapSet.new([{"netherite", 3} | for(k <- ~w(stone orb), l <- 0..6, do: {k, l})]) and
+         put_out >= 2 and rained >= 4 and flagged >= 100,
+       do:
+         raise(
+           "Burning coverage: #{inspect(Enum.frequencies(burned))}, #{put_out} put out, " <>
+             "#{rained} by rain, #{flagged} flagged"
+         )
+
+# An explosion's hurt (VMC-034n4e): `hurtServer` alone, a nether star resisting.
+for row <- hurts do
+  motion = %Valimc.Entity.ItemMotionState{health: row["health"]}
+
+  {health, removed} =
+    if row["kind"] == "nether_star" and Armor.resists_explosion?(ItemStack.new("nether_star")),
+      do: {row["health"], false},
+      else: (fn {m, gone} -> {m.health, gone} end).(ItemBurning.hurt(motion, row["damage"]))
+
+  unless {health, removed} == {row["after"], row["removed"]},
+    do: raise("Hurt mismatch: #{inspect(row)} gave #{inspect({health, removed})}")
+end
 
 IO.puts(
-  "PASS: #{length(rows)} native item and orb burning ticks, #{length(burned)} burned up, #{put_out} put out."
+  "PASS: #{length(rows)} native item and orb burning ticks, #{length(burned)} burned up, " <>
+    "#{put_out} put out (#{rained} by rain), #{flagged} with the on-fire flag; " <>
+    "#{length(hurts)} explosion hurts."
 )

@@ -49,7 +49,7 @@ for {row, index} <- Enum.with_index(cases) do
     )
 
   frame = View.of(states)
-  [result] = ItemStep.run(frame, [before], nil)
+  [result] = ItemStep.run(frame, [before], nil, fn _, _ -> false end)
   expected = input.(row["after"])
   bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end
 
@@ -57,7 +57,7 @@ for {row, index} <- Enum.with_index(cases) do
   exact =
     case result do
       {:ok, actual} ->
-        actual = Map.delete(actual, :dead)
+        actual = Map.drop(actual, [:dead, :on_fire])
         actual = %{actual | motion: %{actual.motion | health: 5, fire_ticks: 0}}
 
         actual == expected and bits.(actual.position) == bits.(expected.position) and

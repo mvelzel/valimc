@@ -12,8 +12,8 @@ defmodule Valimc.Player.MotionQuery do
   alias Valimc.Living.{Air, Burning}
   alias Valimc.Data.PlayerPose
   alias Valimc.Living.Landing
-  alias Valimc.Player.{Motion, RainQuery}
-  alias Valimc.World.View
+  alias Valimc.Player.Motion
+  alias Valimc.World.{RainQuery, View}
 
   @doc """
   Validate a move of `player` to `target` (`%{x, y, z}`) with packet `flags`,

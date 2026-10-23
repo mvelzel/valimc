@@ -46,7 +46,7 @@ for {row, index} <- Enum.with_index(travel) do
   frame = View.of(Map.merge(base, Map.new(row["states"], &{cell.(&1), &1["state"]})))
   target = if row["target"], do: List.to_tuple(row["target"])
   orb = Map.merge(before, %{target: target, draws: List.to_tuple(row["draws"])})
-  [result] = ItemStep.run_orbs(frame, [orb], nil)
+  [result] = ItemStep.run_orbs(frame, [orb], nil, fn _, _ -> false end)
   expected = state.(row["after"])
 
   # The travel oracle leaves burning out (stage `item_burn` has it).
