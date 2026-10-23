@@ -482,6 +482,13 @@ defmodule Valimc.World.Region do
   def mob_event({pid, epoch}, event),
     do: call(pid, {:mob_event, epoch, event}, budget(pid, 1000))
 
+  @doc """
+  A player's use of the fence knot `uuid` (VMC-043c3, `Valimc.Entity.Leashes`):
+  `{:ok, %{hand, swing, others}}` or `:pass`.
+  """
+  def interact_knot({pid, epoch}, uuid, request),
+    do: call(pid, {:interact_knot, epoch, uuid, request}, budget(pid, 1000))
+
   @doc "A name tag's `name` (a text component) on the mob `uuid`: `:ok` (VMC-042a)."
   def name_entity({pid, epoch}, uuid, name),
     do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))

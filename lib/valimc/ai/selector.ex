@@ -26,19 +26,25 @@ defmodule Valimc.AI.Selector do
     tick_running(self, which, true)
   end
 
-  # Stop what cannot continue (no flags are ever disabled: no mob rides).
+  # Stop what holds a disabled flag (VMC-043c3: a lead that broke) or
+  # cannot continue.
   defp cleanup(self, which) do
     self =
       Enum.reduce(0..(tuple_size(goals(self, which)) - 1)//1, self, fn index, acc ->
         entry = elem(goals(acc, which), index)
 
-        if entry.running do
-          {continue, state, acc} = entry.module.can_continue(entry.state, acc)
-          acc = put(acc, which, index, %{entry | state: state})
+        cond do
+          not entry.running ->
+            acc
 
-          if continue, do: acc, else: stop(acc, which, index)
-        else
-          acc
+          disabled?(acc, which, entry) ->
+            stop(acc, which, index)
+
+          true ->
+            {continue, state, acc} = entry.module.can_continue(entry.state, acc)
+            acc = put(acc, which, index, %{entry | state: state})
+
+            if continue, do: acc, else: stop(acc, which, index)
         end
       end)
 
@@ -55,7 +61,8 @@ defmodule Valimc.AI.Selector do
     Enum.reduce(0..(tuple_size(goals(self, which)) - 1)//1, self, fn index, acc ->
       entry = elem(goals(acc, which), index)
 
-      if not entry.running and replaceable?(acc, which, entry) do
+      if not entry.running and not disabled?(acc, which, entry) and
+           replaceable?(acc, which, entry) do
         {use, state, acc} = entry.module.can_use(entry.state, acc)
         acc = put(acc, which, index, %{entry | state: state})
 
@@ -80,6 +87,11 @@ defmodule Valimc.AI.Selector do
       end
     end)
   end
+
+  # `goalContainsAnyFlags(goal, disabledFlags)`: the goal selector's only.
+  defp disabled?(_self, :targets, _entry), do: false
+  defp disabled?(%{mind: %{disabled: []}}, :goals, _entry), do: false
+  defp disabled?(%{mind: mind}, :goals, entry), do: Enum.any?(entry.flags, &(&1 in mind.disabled))
 
   # `goalCanBeReplacedForAllFlags`: each flag free, or held by an
   # interruptable goal of a higher priority number.

@@ -416,6 +416,9 @@ defmodule Valimc.Physics.Clip do
     {Float32.round(y_sin * x_cos), -x_sin, Float32.round(y_cos * x_cos)}
   end
 
+  @doc "`{Mth.sin(v), Mth.cos(v)}` (a lead's attachment points turn by them, VMC-043c3)."
+  def sin_cos(v), do: {mth_sin(v), mth_cos(v)}
+
   # `Mth.sin` and `Mth.cos`: a 65,536-entry table of float sines, indexed in
   # double arithmetic.
   @scale 10430.378350470453

@@ -5,8 +5,9 @@ defmodule Valimc.AI.RandomPos do
   inside the build height, standing on a block that renders solid and with
   no path malus (land targets: moved up out of solid blocks and not in
   water), the best by the mob's walk target value. Draws come from the mob's
-  random in vanilla's order. Mobs have no home yet, so nothing restricts
-  them.
+  random in vanilla's order. A mob with a home (VMC-043c3: a lead's) leans
+  each candidate toward it and, near it, keeps to it (`GoalUtils.mobRestricted`,
+  `isWithinHome`).
 
   `walk_value/2` is `PathfinderMob.getWalkTargetValue`: an animal prefers
   grass (a mooshroom mycelium, 10) and else light, a monster darkness,
@@ -20,20 +21,23 @@ defmodule Valimc.AI.RandomPos do
 
   @doc "`DefaultRandomPos.getPos(mob, h, v)`: `{{x, y, z} | nil, self}`."
   def default(%Self{} = self, h, v) do
+    restrict = restricted?(self, h)
+
     best(self, fn self ->
       {direction, self} = direction(self, h, v)
-      toward(self, h, direction, false)
+      toward(self, h, direction, false, restrict)
     end)
   end
 
   @doc "`DefaultRandomPos.getPosAway(mob, h, v, from)`."
   def default_away(%Self{} = self, h, v, {ax, _, az}) do
     {dx, dz} = {self.x - ax, self.z - az}
+    restrict = restricted?(self, h)
 
     best(self, fn self ->
       case within(self, 0.0, h * 1.0, v, dx, dz, @half_pi) do
         {nil, self} -> {nil, self}
-        {direction, self} -> toward(self, h, direction, false)
+        {direction, self} -> toward(self, h, direction, false, restrict)
       end
     end)
   end
@@ -41,21 +45,24 @@ defmodule Valimc.AI.RandomPos do
   @doc "`DefaultRandomPos.getPosTowards(mob, h, v, towards, radians)`."
   def default_towards(%Self{} = self, h, v, {tx, _, tz}, radians) do
     {dx, dz} = {tx - self.x, tz - self.z}
+    restrict = restricted?(self, h)
 
     best(self, fn self ->
       case within(self, 0.0, h * 1.0, v, dx, dz, radians) do
         {nil, self} -> {nil, self}
-        {direction, self} -> toward(self, h, direction, false)
+        {direction, self} -> toward(self, h, direction, false, restrict)
       end
     end)
   end
 
   @doc "`LandRandomPos.getPos(mob, h, v)`."
   def land(%Self{} = self, h, v) do
+    restrict = restricted?(self, h)
+
     best(self, fn self ->
       {direction, self} = direction(self, h, v)
 
-      case toward(self, h, direction, true) do
+      case toward(self, h, direction, true, restrict) do
         {nil, self} -> {nil, self}
         {pos, self} -> {out_of_solid(self, pos), self}
       end
@@ -65,11 +72,12 @@ defmodule Valimc.AI.RandomPos do
   @doc "`LandRandomPos.getPosAway(mob, h, v, from)` (VMC-043d: fleeing)."
   def land_away(%Self{} = self, h, v, {ax, _, az}) do
     {dx, dz} = {self.x - ax, self.z - az}
+    restrict = restricted?(self, h)
 
     best(self, fn self ->
       with {direction, self} when direction != nil <-
              within(self, 0.0, h * 1.0, v, dx, dz, @half_pi),
-           {pos, self} when pos != nil <- toward(self, h, direction, true) do
+           {pos, self} when pos != nil <- toward(self, h, direction, true, restrict) do
         {out_of_solid(self, pos), self}
       end
     end)
@@ -122,18 +130,44 @@ defmodule Valimc.AI.RandomPos do
     end
   end
 
-  # `generateRandomPosTowardDirection` (no home to lean toward) and the
+  # `generateRandomPosTowardDirection` (leaning toward a home) and the
   # checks of `DefaultRandomPos` (malus) or `LandRandomPos` (none here).
-  defp toward(self, _h, {xt, yt, zt}, land) do
+  defp toward(self, h, {xt, yt, zt}, land, restrict) do
+    {xt, zt, self} = lean(self, h * 1.0, xt, zt)
     pos = {floor(xt + self.x), floor(yt + self.y), floor(zt + self.z)}
     world = self.world
 
     ok =
-      not World.outside?(world, pos) and stable?(world, pos) and
-        (land or not malus?(self, pos))
+      not World.outside?(world, pos) and not (restrict and not within_home?(self, pos)) and
+        stable?(world, pos) and (land or not malus?(self, pos))
 
     {if(ok, do: pos), self}
   end
+
+  defp lean(%Self{mob: %{home: {{hx, _, hz}, _}}} = self, h, xt, zt) when h > 1.0 do
+    {a, self} = Self.double(self)
+    xt = if self.x > hx, do: xt - a * h / 2.0, else: xt + a * h / 2.0
+    {b, self} = Self.double(self)
+    zt = if self.z > hz, do: zt - b * h / 2.0, else: zt + b * h / 2.0
+    {xt, zt, self}
+  end
+
+  defp lean(self, _h, xt, zt), do: {xt * 1.0, zt * 1.0, self}
+
+  # `GoalUtils.mobRestricted`: a home whose centre is near the mob.
+  defp restricted?(%Self{mob: %{home: {{hx, hy, hz}, radius}}} = self, h) do
+    {dx, dy, dz} = {hx + 0.5 - self.x, hy + 0.5 - self.y, hz + 0.5 - self.z}
+    d = radius + h + 1.0
+    dx * dx + dy * dy + dz * dz < d * d
+  end
+
+  defp restricted?(_self, _h), do: false
+
+  @doc "`Mob.isWithinHome(BlockPos)`: no home, or within its radius."
+  def within_home?(%Self{mob: %{home: nil}}, _pos), do: true
+
+  def within_home?(%Self{mob: %{home: {{hx, hy, hz}, radius}}}, {x, y, z}),
+    do: (hx - x) * (hx - x) + (hy - y) * (hy - y) + (hz - z) * (hz - z) < radius * radius
 
   # `LandRandomPos.movePosUpOutOfSolid`, then not into water or malus.
   defp out_of_solid(self, {x, y, z} = pos) do

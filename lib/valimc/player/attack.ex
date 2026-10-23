@@ -70,6 +70,11 @@ defmodule Valimc.Player.Attack do
           {:ok, %{type: type} = view, owner} when type in @redirectable ->
             deflect(state, view, owner)
 
+          # A fence knot breaks (`skipAttackInteraction`: no attack follows).
+          {:ok, %{type: "minecraft:leash_knot"} = view, owner} ->
+            Region.hurt_entity(owner, view.uuid, %{knot: true})
+            state
+
           {:ok, view, owner} ->
             strike(state, view, owner)
 
@@ -119,6 +124,11 @@ defmodule Valimc.Player.Attack do
     range = Valimc.Living.Interaction.entity_range(player.game_mode.current) + 3.0
     :math.sqrt(dx * dx + dy * dy + dz * dz) <= range
   end
+
+  # A fence knot's entity stands at its block's corner, its box at the
+  # block's centre (VMC-043c3).
+  defp box(%{at: {x, y, z}, type: "minecraft:leash_knot"}),
+    do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
 
   defp box(%{at: {x, y, z}} = view) do
     type =

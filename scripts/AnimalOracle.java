@@ -28,6 +28,10 @@ import net.minecraft.world.phys.Vec3;
  * (falling in love, a baby fed): every tick each one's position, rotations,
  * random, running goals, age, love and own data, its sounds and entity
  * events, the blocks it ate and the children and orbs breeding added.
+ * Lead scenes (VMC-043c3) tie animals to a player who walks or to a fence
+ * knot: each tick adds the lead (holder, angular momentum, home, a stopped
+ * `MOVE` flag), the holder's sounds, the entity links sent (a mob's
+ * `link`) and the leads dropped as items.
  */
 public class AnimalOracle {
   static final List<String> ANIMALS = List.of("minecraft:cow", "minecraft:mooshroom", "minecraft:pig", "minecraft:sheep",
@@ -201,6 +205,8 @@ public class AnimalOracle {
     // The lookup the loot tables were read with (their variant predicates' holders).
     HolderLookup.Provider reloadable;
     public Holder<net.minecraft.world.level.biome.Biome> getBiome(BlockPos p) { return biome; }
+    // Leads find their holders by id.
+    public Entity getEntity(int id) { for (var e : entities) if (e.getId() == id) return e; return null; }
   }
 
   /** Vanilla's reloadable registries (recipes, loot tables), loaded as the server loads them (`CraftingBulkOracle`'s way). */
@@ -230,6 +236,10 @@ public class AnimalOracle {
   }
   /** At tick `tick`, something happens to mob `mob`: `love` (`setInLove`) or `feed` (a baby fed, `ageUp`). */
   record Act(int tick, int mob, String what) {}
+  /** Mob `mob` on a lead held by player `player` (an index), or by the knot on fence `knot` (`player` -1). */
+  record Lead(int mob, int player, BlockPos knot) {}
+  /** From tick `from` to before `to`, player `player` moves by `step` each tick (its known movement). */
+  record Walk(int player, int from, int to, Vec3 step) {}
 
   static void setup(Mob m, Beast b) throws Exception {
     for (var e : b.data.entrySet()) switch (e.getKey()) {
@@ -279,6 +289,23 @@ public class AnimalOracle {
 
   static JsonObject run(Farm level, String name, List<MobAiOracle.Block> blocks, List<Beast> beasts, List<MobAiOracle.Stand> stands,
       List<Act> acts, int ticks) throws Exception {
+    return run(level, name, blocks, beasts, stands, acts, List.of(), List.of(), ticks);
+  }
+
+  /** What a trace shows of a mob's lead: its holder's id (-1: none), angular momentum, home and stopped `MOVE` flag. */
+  static JsonObject leash(Mob m, java.lang.reflect.Field disabled) throws Exception {
+    var o = new JsonObject();
+    var data = m.getLeashData();
+    o.addProperty("holder", data == null || data.leashHolder == null ? -1 : data.leashHolder.getId());
+    o.addProperty("momentum", data == null ? null : MobAiOracle.bits(data.angularMomentum));
+    if (m.hasHome()) { var h = at(m.getHomePosition()); h.add(m.getHomeRadius()); o.add("home", h); }
+    var flags = (EnumSet<?>)disabled.get(MobAiOracle.field(Mob.class, "goalSelector").get(m));
+    o.addProperty("move_off", flags.contains(net.minecraft.world.entity.ai.goal.Goal.Flag.MOVE));
+    return o;
+  }
+
+  static JsonObject run(Farm level, String name, List<MobAiOracle.Block> blocks, List<Beast> beasts, List<MobAiOracle.Stand> stands,
+      List<Act> acts, List<Lead> leads, List<Walk> walks, int ticks) throws Exception {
     level.blocks.clear(); level.entities.clear(); level.fighters.clear(); level.sounds.clear(); level.time = 1000L; level.ids = 0;
     level.edits = new ArrayList<>(); level.added = new ArrayList<>();
     var levelRandom = net.minecraft.util.RandomSource.create(7L);
@@ -307,6 +334,21 @@ public class AnimalOracle {
       o.addProperty("yaw", Float.floatToRawIntBits(b.yaw)); o.addProperty("seed", b.seed); o.addProperty("id", m.getId());
       o.add("data", data(m)); o.addProperty("no_ai", m.isNoAi()); placed.add(o);
     }
+    var knots = new JsonArray();
+    for (var lead : leads) {
+      var m = mobs.get(lead.mob);
+      if (lead.player >= 0) m.setLeashedTo(fighters.get(lead.player), false);
+      else {
+        var knot = net.minecraft.world.entity.decoration.LeashFenceKnotEntity.getKnot(level, lead.knot).orElse(null);
+        if (knot == null) {
+          knot = new net.minecraft.world.entity.decoration.LeashFenceKnotEntity(level, lead.knot);
+          level.entities.add(knot);
+          var k = at(lead.knot); k.add(knot.getId()); knots.add(k);
+        }
+        m.setLeashedTo(knot, false);
+      }
+    }
+    var disabled = MobAiOracle.field(net.minecraft.world.entity.ai.goal.GoalSelector.class, "disabledFlags");
     var goalSelector = MobAiOracle.field(Mob.class, "goalSelector");
     var push = LivingEntity.class.getDeclaredMethod("pushEntities"); push.setAccessible(true);
     var trace = new JsonArray();
@@ -320,6 +362,17 @@ public class AnimalOracle {
           case "feed" -> a.ageUp(net.minecraft.world.entity.AgeableMob.getSpeedUpSecondsWhenFeeding(-a.getAge()), true);
           default -> throw new IllegalArgumentException(act.what);
         }
+      }
+      // The players move first, as their connections do before the level ticks.
+      var players = new JsonArray();
+      for (int i = 0; i < fighters.size(); i++) {
+        var f = fighters.get(i);
+        var step = Vec3.ZERO;
+        for (var w : walks) if (w.player == i && t >= w.from && t < w.to) step = w.step;
+        if (step != Vec3.ZERO) f.setPos(f.position().add(step));
+        f.setDeltaMovement(step);
+        var o = new JsonObject(); o.addProperty("id", f.getId());
+        o.add("position", MobAiOracle.bits(f.position())); o.add("movement", MobAiOracle.bits(step)); players.add(o);
       }
       for (var m : List.copyOf(mobs)) {
         m.checkDespawn();
@@ -340,6 +393,7 @@ public class AnimalOracle {
         r.addProperty("pitch", Float.floatToRawIntBits(m.getXRot()));
         r.addProperty("seed", seedOf(seedField, m));
         r.addProperty("goals", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)goalSelector.get(m)));
+        if (!leads.isEmpty()) r.add("leash", leash(m, disabled));
         r.add("data", data(m));
         var sounds = new JsonArray(); level.sounds.getOrDefault(m, List.of()).forEach(sounds::add);
         r.add("sounds", sounds);
@@ -360,6 +414,9 @@ public class AnimalOracle {
           mobs.add(m); level.entities.add(m);
         } else if (e instanceof net.minecraft.world.entity.ExperienceOrb orb) {
           o.addProperty("orb", orb.getValue()); o.add("position", MobAiOracle.bits(orb.position()));
+        } else if (e instanceof net.minecraft.world.entity.item.ItemEntity item) {
+          o.addProperty("item", BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString());
+          o.add("position", MobAiOracle.bits(item.position()));
         } else {
           o.addProperty("other", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
         }
@@ -368,6 +425,13 @@ public class AnimalOracle {
       level.added.clear();
       var tick = new JsonObject();
       tick.add("mobs", row);
+      if (!leads.isEmpty()) {
+        tick.add("players", players);
+        // Sounds at a holder (a lead breaking) or a knot.
+        var held = new JsonArray();
+        for (var e : level.sounds.keySet()) if (!(e instanceof Mob)) level.sounds.get(e).forEach(held::add);
+        tick.add("holder_sounds", held);
+      }
       var edits = new JsonArray(); level.edits.forEach(edits::add); tick.add("edits", edits);
       tick.addProperty("level_seed", ((java.util.concurrent.atomic.AtomicLong)seedField.get(levelRandom)).get());
       level.edits.clear(); level.sounds.clear();
@@ -386,6 +450,13 @@ public class AnimalOracle {
     var as = new JsonArray();
     for (var a : acts) { var o = new JsonObject(); o.addProperty("tick", a.tick); o.addProperty("mob", a.mob); o.addProperty("what", a.what); as.add(o); }
     out.add("acts", as); out.add("born", born); out.add("ticks", trace);
+    var ls = new JsonArray();
+    for (var l : leads) {
+      var o = new JsonObject(); o.addProperty("mob", l.mob); o.addProperty("player", l.player);
+      if (l.knot != null) o.add("knot", at(l.knot));
+      ls.add(o);
+    }
+    out.add("leads", ls); out.add("knots", knots);
     return out;
   }
 
@@ -432,6 +503,22 @@ public class AnimalOracle {
         List.of(new Act(10, 0, "feed"), new Act(30, 0, "feed")), 200));
     cases.add(run(level, "cow_love", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 24L)), creative,
         List.of(new Act(0, 0, "love")), 650));
+    // Leads (VMC-043c3): a cow led by a walking player (pulled, following,
+    // kept near); a pig whose player walks a square (the lead turns it); a
+    // lead pulled past 12 blocks breaks; a sheep tied to a fence knot.
+    var survivor = List.of(new MobAiOracle.Stand(new Vec3(2.5, 64, 0.5), "survival", null));
+    cases.add(run(level, "lead_walk", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 30L)), survivor, List.of(),
+        List.of(new Lead(0, 0, null)), List.of(new Walk(0, 20, 60, new Vec3(0.25, 0, 0)), new Walk(0, 150, 170, new Vec3(-0.3, 0, 0.2))), 400));
+    cases.add(run(level, "lead_turn", meadow, List.of(new Beast("minecraft:pig", new Vec3(.5, 64, .5), 0, 31L)), survivor, List.of(),
+        List.of(new Lead(0, 0, null)), List.of(new Walk(0, 10, 35, new Vec3(0.3, 0, 0)), new Walk(0, 35, 60, new Vec3(0, 0, 0.3)),
+            new Walk(0, 60, 85, new Vec3(-0.3, 0, 0)), new Walk(0, 85, 110, new Vec3(0, 0, -0.3))), 300));
+    cases.add(run(level, "lead_break", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 32L)),
+        List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, 0.5), "survival", null)), List.of(),
+        List.of(new Lead(0, 0, null)), List.of(new Walk(0, 30, 31, new Vec3(13, 0, 0))), 120));
+    var fenced = new ArrayList<>(tufts);
+    fenced.add(new MobAiOracle.Block(5, 64, 0, net.minecraft.world.level.block.Blocks.OAK_FENCE.defaultBlockState()));
+    cases.add(run(level, "knot_tether", fenced, List.of(new Beast("minecraft:sheep", new Vec3(.5, 64, .5), 0, 33L, 0, Map.of("color", 3))),
+        creative, List.of(), List.of(new Lead(0, -1, new BlockPos(5, 64, 0))), List.of(), 800));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     out.add("breeding", breeding(level));

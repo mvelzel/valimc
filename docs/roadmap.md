@@ -72,6 +72,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-043e1](tickets/VMC-043e1.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt, drops shells; a pearl's endermite chases and bites |
 | [VMC-043b1](tickets/VMC-043b1.md) | Zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
+| [VMC-043c](tickets/VMC-043c.md) | Cows breed, sheep shear, dye and regrow, milk and stew, eggs, rabbits hop; a lead follows, pulls, ties to a fence knot and breaks |
 
 ## Retrieve and update
 

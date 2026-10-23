@@ -15,8 +15,9 @@ defmodule Valimc.Entity.Animals.Interaction do
   `SUCCESS_SERVER`), `events` (the animal's: sounds to everyone, entity
   events), `others` (a sound the player itself made, to the others, at the
   animal), `drops` (`[{stack, {x, y, z} offset from the animal, velocity}]`)
-  and `convert` (the body it becomes, a new entity: a sheared mooshroom's
-  cow). Draws on the animal's own random use its mind's.
+  `convert` (the body it becomes, a new entity: a sheared mooshroom's
+  cow) and `free` (the fence knots a lead it dropped was tied to,
+  `Valimc.Entity.Leashes`). Draws on the animal's own random use its mind's.
   """
   import Bitwise
   alias Valimc.AI.{Mind, Random}
@@ -55,7 +56,15 @@ defmodule Valimc.Entity.Animals.Interaction do
   def outcome(fields),
     do:
       Map.merge(
-        %{hand: :keep, swing: false, events: [], others: nil, drops: [], convert: nil},
+        %{
+          hand: :keep,
+          swing: false,
+          events: [],
+          others: nil,
+          drops: [],
+          convert: nil,
+          free: []
+        },
         Map.new(fields)
       )
 

@@ -36,6 +36,8 @@ defmodule Valimc.AI.Kind do
     `Valimc.AI.Pickup`), `preferred_weapons/1`, `voice/2` (the base of its
     voice pitch) and `after_move/3` (its part of the tick after the kernel
     moved it, `{body, effects}`: a zombie drowning).
+  - Leads (VMC-043c3): `leashable?/0` (`canBeLeashed`; false where a family
+    leaves it out, until its ticket models it).
   """
   alias Valimc.AI.Self
 
@@ -68,8 +70,10 @@ defmodule Valimc.AI.Kind do
   @callback preferred_weapons(String.t()) :: MapSet.t() | nil
   @callback voice(String.t(), map) :: float
   @callback after_move(struct, tuple, map) :: {struct, list}
+  @callback leashable?() :: boolean
 
-  @optional_callbacks navigation: 0,
+  @optional_callbacks leashable?: 0,
+                      navigation: 0,
                       brain: 0,
                       finalize: 2,
                       data: 1,

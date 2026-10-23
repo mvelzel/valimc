@@ -43,10 +43,12 @@ defmodule Valimc.Entity.Body do
   @falling "minecraft:falling_block"
   @cloud "minecraft:area_effect_cloud"
   @frames ["minecraft:item_frame", "minecraft:glow_item_frame"]
+  # A fence knot mobs are leashed to (VMC-043c3).
+  @knot "minecraft:leash_knot"
   # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
   # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
-              ["minecraft:zombie", "minecraft:endermite", @tnt, @falling, @cloud] ++
+              ["minecraft:zombie", "minecraft:endermite", @tnt, @falling, @cloud, @knot] ++
                 Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
             )
   @plain for name <- EntityTypes.names(),
@@ -133,6 +135,9 @@ defmodule Valimc.Entity.Body do
     %{body | data: %{body.data | block_state: state, start: start, hurts: anvil}}
   end
 
+  @doc "Whether `type` is a fence knot (VMC-043c3)."
+  def knot?(type), do: type == @knot
+
   @doc """
   The type's spawn data (`getAddEntityPacket`): a falling block's state, a
   frame's facing, a projectile's owner, else 0.
@@ -164,6 +169,9 @@ defmodule Valimc.Entity.Body do
     }
 
   defp data(@cloud), do: Valimc.Entity.EffectCloud.data()
+  # The game tick it was made at (`BlockAttachedEntity.ticksSinceLastCheck`
+  # counts from it).
+  defp data(@knot), do: %{since: 0}
 
   # A mob family's own (VMC-043b–e: a zombie's baby flag), a projectile's.
   defp data(type) do
@@ -378,6 +386,7 @@ defmodule Valimc.Entity.Body do
     do: [{:falling_block_start_pos, data.start, {0, 0, 0}}]
 
   defp own(%__MODULE__{type: @cloud} = body), do: Valimc.Entity.EffectCloud.values(body)
+  defp own(%__MODULE__{type: @knot}), do: []
   defp own(%__MODULE__{} = body), do: Projectile.values(body)
 
   # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
@@ -433,8 +442,14 @@ defmodule Valimc.Entity.Body do
   values, a mob's attribute overrides and equipment. Equal shown parts send
   equal packets, so a body that only moved keeps its encoded ones.
   """
-  def shown(%__MODULE__{mob: nil} = body), do: {values(body), nil, nil}
-  def shown(%__MODULE__{mob: mob} = body), do: {values(body), mob.attributes, mob.equipment}
+  def shown(%__MODULE__{mob: nil} = body), do: {values(body), nil, nil, nil}
+
+  def shown(%__MODULE__{mob: mob} = body),
+    do: {values(body), mob.attributes, mob.equipment, link(mob)}
+
+  # The holder observers see a mob leashed to (VMC-043c3), nil for none.
+  defp link(%Mob{leash: %{id: id}}), do: id
+  defp link(_mob), do: nil
 
   @doc """
   What an observer that starts tracking entity `id` is sent after its spawn
@@ -456,7 +471,11 @@ defmodule Valimc.Entity.Body do
           equipment = Mob.equipment_changes(mob.equipment, %{})
 
           [Packets.attributes(id, Mob.synced(body.type, mob.attributes))] ++
-            if(equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)])
+            if(equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)]) ++
+            case link(mob) do
+              nil -> []
+              holder -> [EntityPackets.link(id, holder)]
+            end
       end
 
     Enum.map(data ++ living, &binary/1)
@@ -492,8 +511,10 @@ defmodule Valimc.Entity.Body do
 
           equipment = Mob.equipment_changes(b.equipment, a.equipment)
 
+          link = if link(a) == link(b), do: [], else: [EntityPackets.link(id, link(b))]
+
           if(changed == [], do: [], else: [Packets.attributes(id, changed)]) ++
-            if equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)]
+            if(equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)]) ++ link
 
         _ ->
           []

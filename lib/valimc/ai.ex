@@ -435,7 +435,8 @@ defmodule Valimc.AI do
   # `tickCount++`, `LivingEntity.baseTick`'s expiry of who hurt it (dead,
   # gone, or 100 ticks ago) and `Mob.baseTick`'s ambient sound.
   defp base_tick(%Self{} = self) do
-    self = Self.mind(self, &%{&1 | tick: &1.tick + 1})
+    # `Entity.baseTick` ends with the lead (VMC-043c3).
+    self = self |> Self.mind(&%{&1 | tick: &1.tick + 1}) |> Valimc.AI.Leash.tick()
 
     self =
       case self.mind.hurt_by do
@@ -577,6 +578,7 @@ defmodule Valimc.AI do
         |> Valimc.AI.Pickup.tick()
         |> Look.body({e.x, e.z})
         |> hook(:after_tick)
+        |> Valimc.AI.Leash.control_flags()
 
       self =
         case mind.brain do

@@ -9,6 +9,9 @@ defmodule Valimc.Protocol.CombatPackets do
   alias Valimc.Protocol.{Packets, Wire}
 
   @sounds @facts["sounds"]
+  # The farm animals' sounds and leads' (VMC-043c, `AnimalOracle facts`).
+  @external_resource "priv/registry/animal_facts.json"
+  @animal_sounds :json.decode(File.read!("priv/registry/animal_facts.json"))["sounds"]
   @sources @facts["sound_sources"]
   @particles @facts["particles"]
   # A mob type `CombatOracle` does not model yet makes no hurt or death sound
@@ -40,6 +43,7 @@ defmodule Valimc.Protocol.CombatPackets do
   defp sound_id(name),
     do:
       Map.get(@sounds, name) || Valimc.Data.HostileFacts.sound_id(name) ||
+        Map.get(@animal_sounds, name) ||
         raise(KeyError, key: name)
 
   @doc """

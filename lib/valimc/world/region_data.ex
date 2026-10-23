@@ -301,6 +301,7 @@ defmodule Valimc.World.RegionData do
         state
         |> tick_block_bodies()
         |> tick_projectiles()
+        |> tick_knots()
         |> start_item_cross_merging(now)
         |> move_mobs()
         |> move_items(now)
@@ -1196,13 +1197,28 @@ defmodule Valimc.World.RegionData do
 
       drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
 
-      # A hen's egg (VMC-043c): its laying table's item, launched as its AI drew.
+      # A hen's egg (VMC-043c): its laying table's item, launched as its AI
+      # drew; a lead a mob dropped (VMC-043c3).
       drops =
         drops ++
           for step <- steps,
-              {:lay, velocity} <- step.effects,
-              stack <- laid(step.body),
-              do: {step.position, stack, velocity}
+              effect <- step.effects,
+              drop <-
+                (case effect do
+                   {:lay, velocity} ->
+                     for stack <- laid(step.body), do: {step.position, stack, velocity}
+
+                   {:lead, at} ->
+                     [{at, Valimc.Protocol.ItemStack.new("minecraft:lead")}]
+
+                   _ ->
+                     []
+                 end),
+              do: drop
+
+      # Knots mobs let go of, and those a restored lead looks for.
+      freed = for step <- steps, {:knot_free, pos} <- step.effects, do: pos
+      wanted = for step <- steps, {:make_knot, pos} <- step.effects, do: pos
 
       # Items mobs threw (a piglin's barter, VMC-043d).
       throws = for step <- steps, {:throw, _, _, _} = thrown <- step.effects, do: thrown
@@ -1264,6 +1280,7 @@ defmodule Valimc.World.RegionData do
         end)
 
       state = route_bodies(state, steps)
+      state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
       state = Enum.reduce(fired, state, &mob_spawns/2)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
@@ -1410,6 +1427,147 @@ defmodule Valimc.World.RegionData do
 
   defp birth({:orb, value, at}), do: [ExperienceOrbs.single(at, value)]
   defp birth(_effect), do: []
+
+  # Fence knots (VMC-043c3, `LeashFenceKnotEntity`): `pos => network id`;
+  # a knot's entity stands at its block's corner, as vanilla spawns it.
+  @knot "minecraft:leash_knot"
+  @fences MapSet.new(Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:fences"])
+  @lead_item Valimc.Protocol.ItemTypes.id("minecraft:lead")
+
+  defp knots(state) do
+    for {id, %{kind: :object, body: %Body{type: @knot}, entity: e}} <-
+          state.entities.store.entries,
+        into: %{},
+        do: {{floor(e.x), floor(e.y), floor(e.z)}, id}
+  end
+
+  defp fence?(state, pos) do
+    case Blocks.get(state.blocks, pos) do
+      nil -> false
+      block -> MapSet.member?(@fences, Valimc.Data.Blocks.block_id(block))
+    end
+  end
+
+  # The section's mobs as leads see them: `{id, body, position}`.
+  defp leash_mobs(state) do
+    for {id, %{kind: :mob, body: body, entity: e}} <- state.entities.store.entries,
+        do: {id, body, {e.x, e.y, e.z}}
+  end
+
+  # A knot no mob is tied to any more goes (`notifyLeasheeRemoved`).
+  defp free_knots(state, []), do: state
+
+  defp free_knots(state, positions) do
+    held =
+      for {_, %{kind: :mob, body: %Body{mob: %{leash: %{holder: {:knot, pos}}}}}} <-
+            state.entities.store.entries,
+          into: MapSet.new(),
+          do: pos
+
+    knots = knots(state)
+
+    positions
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(held, &1))
+    |> Enum.flat_map(&List.wrap(knots[&1]))
+    |> Enum.reduce(state, &remove_entry(&2, &1))
+  end
+
+  # `getOrCreateKnot` for leads restored from records.
+  defp make_knots(state, []), do: state
+
+  defp make_knots(state, positions) do
+    Enum.reduce(Enum.uniq(positions), state, fn pos, state ->
+      if Map.has_key?(knots(state), pos), do: state, else: elem(new_knot(state, pos), 0)
+    end)
+  end
+
+  defp new_knot(state, {x, y, z}) do
+    {:ok, body} = Body.new(@knot)
+    body = %{body | data: %{since: state.game_tick || 0}}
+    record = Store.body_record(body, :crypto.strong_rand_bytes(16), {x * 1.0, y * 1.0, z * 1.0})
+
+    case Store.create_record(state.entities.store, state.key, record) do
+      {:ok, store, {_, id, _}} -> {put_entities(state, store), id}
+      _ -> {state, nil}
+    end
+  end
+
+  defp remove_entry(state, id) do
+    store = state.entities.store
+
+    with %{revision: revision} <- store.entries[id],
+         {:ok, store} <- Store.remove(store, store.epoch, id, revision) do
+      put_entities(state, store)
+    else
+      _ -> state
+    end
+  end
+
+  # A knot's sound (`playSound`: neutral, at the knot).
+  defp knot_sound(state, {x, y, z}, name) do
+    at = {x + 0.5, y + 0.375, z + 0.5}
+    packet = Valimc.World.Sounds.packet(name, :neutral, at, :rand.uniform(1 <<< 62))
+    Valimc.World.publish(route_key(state), {:sound, at, 16.0, packet})
+    state
+  end
+
+  # Mobs whose lead changed (`{id, body}`), each with its drops.
+  defp releash(state, changes) do
+    store =
+      Enum.reduce(changes, state.entities.store, fn {id, body}, store ->
+        Store.change_body(store, id, body, [])
+      end)
+
+    publish_item_views(put_entities(state, store))
+  end
+
+  # `BlockAttachedEntity.tick`: every 101st tick of its life (counted from
+  # the game tick it was made at) a knot off its fence goes, with its sound.
+  defp tick_knots(state) do
+    tick = state.game_tick || 0
+
+    gone =
+      for {id, %{kind: :object, body: %Body{type: @knot} = body, entity: e}} <-
+            state.entities.store.entries,
+          tick - body.data.since > 0 and rem(tick - body.data.since, 101) == 0,
+          pos = {floor(e.x), floor(e.y), floor(e.z)},
+          not fence?(state, pos),
+          do: {id, pos}
+
+    Enum.reduce(gone, state, fn {id, pos}, state ->
+      state |> remove_entry(id) |> knot_sound(pos, "minecraft:item.lead.untied")
+    end)
+  end
+
+  # A player's use of a fence (VMC-043c3, `LeadItem.bindPlayerMobs`): the
+  # player's mobs around it that reach it move to its knot, made where none
+  # is; the knot's sound plays. `{:used, state}` or `:pass`.
+  defp fence_use(state, epoch, position, grant) do
+    now = System.monotonic_time(:millisecond)
+
+    with true <- epoch == state.epoch and valid_block_query?([position], :any),
+         true <- in_region?(state, position),
+         %{kind: :open, mode: mode, eye: eye, expires: expires, player: player} <- grant,
+         true <- mode != :spectator and is_integer(expires) and now < expires,
+         true <- Valimc.Living.Interaction.within_block?(mode, eye, position),
+         # Sneaking with an item skips the fence's use; a lead binds anyway
+         # (`LeadItem.useOn`).
+         true <-
+           not (grant[:secondary] == true and (grant[:main] == true or grant[:off] == true)) or
+             grant[:main_item] == @lead_item,
+         nil <- write_busy(state),
+         true <- fence?(state, position),
+         existing = knots(state)[position],
+         [_ | _] = moved <-
+           Valimc.Entity.Leashes.bind(leash_mobs(state), player, {position, existing}) do
+      {state, id} = if existing, do: {state, existing}, else: new_knot(state, position)
+      moved = for {mob, body} <- moved, do: {mob, put_in(body.mob.leash.id, id)}
+      {:swing, state |> releash(moved) |> knot_sound(position, "minecraft:item.lead.tied")}
+    else
+      _ -> :pass
+    end
+  end
 
   @grass_block Valimc.Data.Blocks.default_state("grass_block")
   @dirt Valimc.Data.Blocks.default_state("dirt")
@@ -1683,6 +1841,9 @@ defmodule Valimc.World.RegionData do
       border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1),
       mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
       mob_drops: Valimc.World.GameRules.get(:mob_drops),
+      # Leads (VMC-043c3): a dropped lead's item, the knots mobs are tied to.
+      entity_drops: Valimc.World.GameRules.get(:entity_drops),
+      knots: knots(state),
       # Tests that move mobs alone turn their goals off per scope.
       goals:
         Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
@@ -1798,11 +1959,14 @@ defmodule Valimc.World.RegionData do
   def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
       when is_pid(viewer) do
     with :pass <- harvest_use(state, epoch, viewer, position, grant),
-         :pass <- redstone_use(state, epoch, viewer, position, grant) do
+         :pass <- redstone_use(state, epoch, viewer, position, grant),
+         :pass <- fence_use(state, epoch, position, grant) do
       {decision, state} = menu_request(state, epoch, viewer, position, grant)
       {:reply, decision, state}
     else
       {:used, state} -> {:reply, :used, state}
+      # `SUCCESS_SERVER`: the server swings the player's arm.
+      {:swing, state} -> {:reply, :swing, state}
     end
   end
 
@@ -2016,10 +2180,17 @@ defmodule Valimc.World.RegionData do
          nil <- write_busy(state),
          {:ok, {_, id, revision}} <- Store.find(store, uuid),
          %{kind: :mob, body: body, entity: e} <- store.entries[id] || {:error, :missing_item} do
-      case Valimc.Entity.Animals.Interaction.interact(body, request) do
+      at = {e.x, e.y, e.z}
+
+      # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
+      result =
+        with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
+             do: Valimc.Entity.Animals.Interaction.interact(body, request)
+
+      case result do
         {:ok, next, outcome} ->
-          at = {e.x, e.y, e.z}
           state = interacted(state, id, revision, at, next, outcome)
+          state = free_knots(state, outcome.free)
           {:reply, {:ok, Map.take(outcome, [:hand, :swing, :others])}, state}
 
         other ->
@@ -2038,6 +2209,53 @@ defmodule Valimc.World.RegionData do
       {:reply, :ok, %{state | mob_events: Enum.take(state.mob_events ++ [event], -64)}}
     else
       {:reply, {:error, {:retry, :stale_owner}}, state}
+    end
+  end
+
+  # A player's use of a fence knot (VMC-043c3, `LeashFenceKnotEntity.interact`):
+  # shears snip its leads; else the player's mobs move to it, or its mobs to
+  # the player; its sound plays. `{:ok, %{hand, swing, others}}` or `:pass`.
+  def handle_call({:interact_knot, epoch, uuid, request}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{body: %Body{type: @knot}, entity: e} <- store.entries[id] || {:error, :missing_item} do
+      pos = {floor(e.x), floor(e.y), floor(e.z)}
+      mobs = leash_mobs(state)
+      knot = Valimc.AI.Leash.knot_holder(pos, id)
+
+      snipped =
+        if Valimc.Entity.Leashes.tool(request.item) == :shears,
+          do: Valimc.Entity.Leashes.snip(mobs, pos, {knot.x, knot.y + 0.25, knot.z}),
+          else: []
+
+      if snipped != [] do
+        drops =
+          for {mob, _, drops} <- snipped,
+              {stack, _, _} <- drops,
+              %{entity: m} <- [store.entries[mob]],
+              do: {{m.x, m.y, m.z}, stack}
+
+        state = releash(state, for({mob, body, _} <- snipped, do: {mob, body}))
+        state = state |> mob_drops(drops) |> free_knots([pos])
+        Valimc.World.Sounds.play(pos, "minecraft:item.shears.snip", :player)
+        {:reply, {:ok, %{hand: {:wear, 1}, swing: false, others: nil}}, state}
+      else
+        case Valimc.Entity.Leashes.knot(mobs, {pos, id}, request) do
+          [] ->
+            {:reply, :pass, state}
+
+          moved ->
+            state = state |> releash(moved) |> knot_sound(pos, "minecraft:item.lead.tied")
+            {:reply, {:ok, %{hand: :keep, swing: false, others: nil}}, free_knots(state, [pos])}
+        end
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :not_knot}, state}
     end
   end
 
@@ -3718,6 +3936,27 @@ defmodule Valimc.World.RegionData do
   `{{:ok, outcome}, state}` (`outcome` without the death) or `{error, state}`.
   """
   def hurt_entity(state, uuid, hit) do
+    store = state.entities.store
+
+    knot =
+      with {:ok, {_, id, _}} <- Store.find(store, uuid),
+           %{body: %Body{type: @knot}, entity: e} <- store.entries[id],
+           do: {id, e}
+
+    case knot do
+      # A fence knot breaks (VMC-043c3, `BlockAttachedEntity.hurtServer`): its
+      # mobs let go on their next tick.
+      {id, e} when is_integer(id) ->
+        pos = {floor(e.x), floor(e.y), floor(e.z)}
+        state = state |> remove_entry(id) |> knot_sound(pos, "minecraft:item.lead.untied")
+        {{:ok, %{hurt: true}}, state}
+
+      _ ->
+        hurt_body(state, uuid, hit)
+    end
+  end
+
+  defp hurt_body(state, uuid, hit) do
     store = state.entities.store
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),

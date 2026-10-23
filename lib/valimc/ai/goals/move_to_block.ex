@@ -46,9 +46,13 @@ defmodule Valimc.AI.Goals.MoveToBlock do
           z <- spiral(if(x < ring and x > -ring, do: ring, else: 0), ring),
           do: {bx + x, by + y - 1, bz + z}
 
+    # Only within the mob's home (VMC-043c3).
     Enum.reduce_while(cells, {false, state}, fn cell, {_, state} ->
-      case state.valid.(self, cell, state) do
-        {true, state} -> {:halt, {true, %{state | cell: cell}}}
+      with true <- Valimc.AI.RandomPos.within_home?(self, cell),
+           {true, state} <- state.valid.(self, cell, state) do
+        {:halt, {true, %{state | cell: cell}}}
+      else
+        false -> {:cont, {false, state}}
         {false, state} -> {:cont, {false, state}}
       end
     end)

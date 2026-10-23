@@ -236,6 +236,8 @@ defmodule Valimc.Player.Host do
           Valimc.Living.Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("invisibility")) !=
             nil,
         armor_cover: Valimc.Data.Float32.round(length(armor) / 4),
+        # What a lead it holds pulls with (VMC-043c3, `getKnownMovement`).
+        movement: player.motion.known_movement,
         equipment: %{
           mainhand: item.(36 + inventory.selected),
           offhand: item.(45),

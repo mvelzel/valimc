@@ -8,7 +8,9 @@ defmodule Valimc.Player.Interact do
   `Valimc.Entity.Animals.Interaction`: feeding, milking, shearing, stew,
   dyeing), whose answer says how the held stack changes (used up, filled
   as a bucket fills, or worn as a tool wears), whether the server swings
-  the arm, and a sound the others hear of the player's own use.
+  the arm, and a sound the others hear of the player's own use. A lead's
+  use on a mob or a fence knot (VMC-043c3, `Valimc.Entity.Leashes`) goes to
+  the owner the same way.
   """
   alias Valimc.Living.Durability
   alias Valimc.Menus.Inventory
@@ -31,12 +33,23 @@ defmodule Valimc.Player.Interact do
     with true <- state.life_stage == :alive,
          true <- state.player.game_mode.current != :spectator,
          true <- Input.loaded?(state.player.input),
-         {:ok, %{kind: :mob} = view, owner} <- Attack.target(state, id) do
+         {:ok, %{kind: kind} = view, owner} when kind in [:mob, :object] <-
+           Attack.target(state, id) do
       stack = Inventory.held(state.inventory, hand)
+      sneaking = sneaking == 1
 
-      case name_tag(stack) do
-        nil -> use(state, hand, stack, view, owner)
-        name -> name(state, hand, stack, view, owner, name)
+      cond do
+        kind == :object and view.type == "minecraft:leash_knot" ->
+          knot(state, hand, stack, view, owner, sneaking)
+
+        kind == :object ->
+          state
+
+        (name = name_tag(stack)) != nil ->
+          name(state, hand, stack, view, owner, name)
+
+        true ->
+          use(state, hand, stack, view, owner, sneaking)
       end
     else
       _ -> state
@@ -57,14 +70,52 @@ defmodule Valimc.Player.Interact do
     end
   end
 
-  defp use(state, hand, stack, view, owner) do
-    request = %{
+  defp use(state, hand, stack, view, owner, sneaking) do
+    answer(
+      state,
+      hand,
+      stack,
+      view,
+      Region.interact_entity(owner, view.uuid, request(state, stack, sneaking))
+    )
+  end
+
+  # A fence knot (VMC-043c3): the player's mobs move to it or from it.
+  defp knot(state, hand, stack, view, owner, sneaking) do
+    answer(
+      state,
+      hand,
+      stack,
+      view,
+      Region.interact_knot(owner, view.uuid, request(state, stack, sneaking))
+    )
+  end
+
+  # The player as an interaction sees it: its item, infinite materials, and
+  # its body as a lead's holder (VMC-043c3).
+  defp request(state, stack, sneaking) do
+    player = state.player
+    pose = Map.get(player, :pose, :standing)
+    {:ok, dimensions} = Valimc.Data.PlayerPose.dimensions(pose)
+
+    %{
       item: stack,
       infinite: state.inventory.infinite_materials,
-      player: state.player.uuid
+      player: player.uuid,
+      sneaking: sneaking,
+      holder: %{
+        id: player.entity_id,
+        x: player.x * 1.0,
+        y: player.y * 1.0,
+        z: player.z * 1.0,
+        width: dimensions["width"] * 1.0,
+        height: dimensions["height"] * 1.0
+      }
     }
+  end
 
-    case Region.interact_entity(owner, view.uuid, request) do
+  defp answer(state, hand, stack, view, reply) do
+    case reply do
       {:ok, %{hand: change, swing: swing, others: others}} ->
         state = if swing, do: swing(state, hand), else: state
         state = others(state, others, view)

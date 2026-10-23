@@ -186,6 +186,11 @@ public class MobAiOracle {
           var o = new JsonObject(); o.addProperty("take", t.getAmount()); level.sounds.computeIfAbsent(m, k -> new ArrayList<>()).add(o);
         }
       }
+      // A lead's entity link (VMC-043c3): `[source, dest]`.
+      if (packet instanceof net.minecraft.network.protocol.game.ClientboundSetEntityLinkPacket l) {
+        var o = new JsonObject(); var a = new JsonArray(); a.add(l.getSourceId()); a.add(l.getDestId()); o.add("link", a);
+        level.sounds.computeIfAbsent(e, k -> new ArrayList<>()).add(o);
+      }
       if (packet instanceof net.minecraft.network.protocol.game.ClientboundSwingAnimationPacket a) {
         var o = new JsonObject(); o.addProperty("swing", a.hand().name().toLowerCase() + ":" + a.animation().type().getSerializedName() + ":" + a.animation().duration());
         level.sounds.computeIfAbsent(e, k -> new ArrayList<>()).add(o);

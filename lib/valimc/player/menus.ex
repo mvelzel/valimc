@@ -47,6 +47,17 @@ defmodule Valimc.Player.Menus do
         :pass ->
           Valimc.Player.Placement.execute_placement(state, request)
 
+        # A fence took the player's leashed mobs (VMC-043c3): the server swings.
+        :swing ->
+          action = if request.hand == :off, do: 3, else: 0
+
+          Valimc.Player.Movement.broadcast_player_packet(
+            state,
+            Valimc.Protocol.EntityPackets.animate(state.player.entity_id, action)
+          )
+
+          acknowledge_table_use(state, request)
+
         {kind, block, view} when kind in [:chest, :cooking] ->
           open_container_menu(state, kind, position, owner, block, view, request.sequence)
 
@@ -72,6 +83,8 @@ defmodule Valimc.Player.Menus do
       expires: System.monotonic_time(:millisecond) + 250,
       hand: hand,
       yaw: state.player.yaw,
+      # Whose leashed mobs a fence takes (VMC-043c3).
+      player: state.player.uuid,
       secondary: Input.pressed?(state.player.input, :shift),
       main: Inventory.held(state.inventory, :main) != nil,
       off: Inventory.held(state.inventory, :off) != nil,

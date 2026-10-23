@@ -93,6 +93,9 @@ defmodule Valimc.Entity.Animal do
       # `getVoicePitch`: a baby's is higher.
       @impl Valimc.AI.Kind
       def voice(_type, data), do: if(data.age < 0, do: 1.5, else: 1.0)
+      # `Mob.canBeLeashed`: an animal is no `Enemy`.
+      @impl Valimc.AI.Kind
+      def leashable?, do: true
 
       defoverridable types: 0,
                      goals: 1,
@@ -103,7 +106,8 @@ defmodule Valimc.Entity.Animal do
                      custom_step: 1,
                      after_ai: 1,
                      hurt: 2,
-                     voice: 2
+                     voice: 2,
+                     leashable?: 0
     end
   end
 

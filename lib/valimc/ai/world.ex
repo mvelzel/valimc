@@ -19,7 +19,8 @@ defmodule Valimc.AI.World do
 
   A sensed player is `%{kind: :player, uuid, id, x, y, z, eye, width,
   height, mode, invulnerable, alive, crouching, invisible, armor_cover,
-  equipment, yaw, pitch}` (`equipment` slot => item id); a sensed mob
+  equipment, yaw, pitch, movement}` (`equipment` slot => item id,
+  `movement` its known movement, which a lead it holds pulls with); a sensed mob
   `%{kind: :mob, uuid, id, type, x, y, z, eye, width, height, alive, mind}`
   with the parts of its mind others read.
   """
@@ -42,6 +43,10 @@ defmodule Valimc.AI.World do
             darken: 0,
             mob_griefing: true,
             mob_drops: true,
+            # `entity_drops` (a dropped lead's item) and the fence knots mobs
+            # are leashed to, by block: `pos => network id` (VMC-043c3).
+            entity_drops: true,
+            knots: %{},
             # False: no mob's goals run (tests that move mobs alone).
             goals: true,
             universal_anger: false,

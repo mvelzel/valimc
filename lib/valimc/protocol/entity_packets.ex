@@ -182,6 +182,16 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("set_equipment", [Wire.varint(id), body])
   end
 
+  @doc """
+  `ClientboundSetEntityLinkPacket` (VMC-043c3): entity `id` leashed to
+  `holder` (a network id), or to nothing (nil).
+  """
+  def link(id, holder) do
+    entity_id!(id)
+    if holder != nil, do: entity_id!(holder)
+    Packets.packet("set_entity_link", <<id::signed-32, holder || 0::signed-32>>)
+  end
+
   def pickup(item_id, collector_id, count) do
     entity_id!(item_id)
     entity_id!(collector_id)

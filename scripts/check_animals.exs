@@ -6,7 +6,9 @@
 # running goals, age, love and own data (wool, type, variant, egg time, a
 # rabbit's hop), its sounds and entity events must equal vanilla's, and the
 # blocks they ate, the children born (seeded as the oracle seeds them) and
-# breeding's orbs too.
+# breeding's orbs too. Lead scenes (VMC-043c3) move their players as the
+# oracle did and add each lead (holder, angular momentum, home, stopped
+# `:move` goals), the links sent, the break's sound and the leads dropped.
 alias Valimc.AI
 alias Valimc.Entity.{Animal, Body, MobTicks}
 
@@ -14,7 +16,7 @@ alias Valimc.Entity.{Animal, Body, MobTicks}
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
-unless length(cases) >= 12, do: raise("Incomplete animal traces")
+unless length(cases) >= 16, do: raise("Incomplete animal traces")
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -165,11 +167,45 @@ checked =
 
       born_by_tick = Enum.group_by(c["born"], & &1["tick"])
 
+      # Leads: a player's (by its index) or a fence knot's.
+      knots = Map.new(c["knots"] || [], fn [x, y, z, id] -> {{x, y, z}, id} end)
+
+      entries =
+        Enum.reduce(c["leads"] || [], entries, fn l, entries ->
+          {id, e} = Enum.at(entries, l["mob"])
+
+          {holder, holder_id} =
+            if l["player"] >= 0 do
+              p = Enum.at(c["players"], l["player"])
+              {{:player, <<1::64, p["uuid"]::64>>}, p["id"]}
+            else
+              [x, y, z] = l["knot"]
+              {{:knot, {x, y, z}}, knots[{x, y, z}]}
+            end
+
+          leash = %{holder: holder, id: holder_id, momentum: 0.0, restored: false}
+          e = put_in(e.body.mob.leash, leash)
+          List.replace_at(entries, l["mob"], {id, e})
+        end)
+
       {_, _, _, count} =
         Enum.reduce(
           Enum.with_index(c["ticks"]),
           {entries, {scene0, {:states, packed.(scene0)}}, AI.Random.new(7), count},
           fn {row, tick}, {entries, {scene, kernel_view}, level, count} ->
+            # Players as the oracle moved them this tick.
+            players =
+              case row["players"] do
+                nil ->
+                  players
+
+                moved ->
+                  Enum.zip_with(players, moved, fn p, m ->
+                    {x, y, z} = vector.(m["position"])
+                    %{p | x: x, y: y, z: z} |> Map.put(:movement, vector.(m["movement"]))
+                  end)
+              end
+
             world = %AI.World{
               read: &Map.get(scene, &1, air),
               search: fn request ->
@@ -180,7 +216,8 @@ checked =
               random: level,
               difficulty: :normal,
               time: 1001 + tick,
-              biome: fn _ -> plains end
+              biome: fn _ -> plains end,
+              knots: knots
             }
 
             # What the scene does before the tick: love, a baby fed.
@@ -206,6 +243,21 @@ checked =
 
             unless length(steps) == length(entries),
               do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
+
+            # The links observers are sent: a lead's holder that changed.
+            links =
+              Enum.zip_with(entries, steps, fn {id, e}, step ->
+                link = fn body -> body.mob.leash && body.mob.leash.id end
+
+                if link.(e.body) == link.(step.body),
+                  do: [],
+                  else: [{id, link.(step.body) || 0}]
+              end)
+              |> Map.new(fn
+                [] -> {nil, nil}
+                [{id, to}] -> {id, to}
+              end)
+              |> Map.delete(nil)
 
             entries =
               Enum.zip_with(entries, steps, fn {id, e}, step ->
@@ -279,6 +331,34 @@ checked =
                   sounds: want_sounds
                 }
 
+                # A lead's state and the link sent (VMC-043c3).
+                {got, want} =
+                  case expected["leash"] do
+                    nil ->
+                      {got, want}
+
+                    l ->
+                      leash = body.mob.leash
+
+                      ours = %{
+                        "holder" => if(leash, do: leash.id, else: -1),
+                        "momentum" => leash && hex.(leash.momentum),
+                        "home" =>
+                          case body.mob.home do
+                            {{hx, hy, hz}, r} -> [hx, hy, hz, r]
+                            nil -> nil
+                          end,
+                        "move_off" => :move in mind.disabled
+                      }
+
+                      theirs = Map.put_new(l, "home", nil)
+                      link = for %{"link" => [_, to]} <- expected["sounds"], do: to
+                      ours_link = if Map.has_key?(links, id), do: [links[id]], else: []
+
+                      {Map.merge(got, %{leash: ours, link: ours_link}),
+                       Map.merge(want, %{leash: theirs, link: link})}
+                  end
+
                 differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
 
                 unless differ == [] do
@@ -324,12 +404,33 @@ checked =
                   "#{c["name"]} tick #{tick}: level random vanilla #{row["level_seed"]} ours #{world.random}"
                 )
 
-            # Children and orbs, where the parent stood.
+            # A lead's break at its holder (VMC-043c3).
+            if row["holder_sounds"] do
+              ours =
+                for step <- steps,
+                    {:sound_at, name, _, _, volume, pitch} <- step.events,
+                    do: {name, bits.(volume), bits.(pitch)}
+
+              theirs =
+                for s <- row["holder_sounds"],
+                    s["sound"],
+                    do: {s["sound"], s["volume"], s["pitch"]}
+
+              unless ours == theirs,
+                do:
+                  raise(
+                    "#{c["name"]} tick #{tick}: holder sounds vanilla #{inspect(theirs)} ours #{inspect(ours)}"
+                  )
+            end
+
+            # Children and orbs, where the parent stood; leads dropped where
+            # the mob stood.
             made =
               for step <- steps,
                   effect <- step.effects,
                   out <- [effect],
-                  match?({:offspring, _, _, _}, out) or match?({:orb, _, _}, out),
+                  match?({:offspring, _, _, _}, out) or match?({:orb, _, _}, out) or
+                    match?({:lead, _}, out),
                   do: out
 
             # Vanilla adds a breeding's orb before its child.
@@ -345,6 +446,16 @@ checked =
             entries =
               Enum.zip(made, wanted)
               |> Enum.reduce(entries, fn
+                {{:lead, at}, w}, entries ->
+                  unless w["item"] == "minecraft:lead" and
+                           Enum.map(Tuple.to_list(at), hex) == w["position"],
+                         do:
+                           raise(
+                             "#{c["name"]} tick #{tick}: lead vanilla #{inspect(w)} ours #{inspect(at)}"
+                           )
+
+                  entries
+
                 {{:orb, value, at}, w}, entries ->
                   unless value == w["orb"] and Enum.map(Tuple.to_list(at), hex) == w["position"],
                     do:
@@ -551,5 +662,5 @@ dropped =
 IO.puts("PASS: #{dropped} drops equal vanilla's (deaths, shearing, laying)")
 
 IO.puts(
-  "PASS: #{checked} animal ticks of #{length(cases)} scenes equal vanilla's (goals, rotations, randoms, age, love, wool, hops, sounds, events, grazing, births)"
+  "PASS: #{checked} animal ticks of #{length(cases)} scenes equal vanilla's (goals, rotations, randoms, age, love, wool, hops, sounds, events, grazing, births, leads)"
 )

@@ -17,6 +17,13 @@ defmodule Valimc.Entity.Mob do
   (`lastHurtByPlayer`): only a death within them drops experience and the
   player-only loot. `hurt_by` is the last living entity that hurt it, for
   VMC-041a's targeting.
+
+  A mob on a lead (VMC-043c3, `Leashable.LeashData`) has `leash`: its
+  `holder` (`{:player, uuid}` or a fence knot's `{:knot, {x, y, z}}`), the
+  holder's network id once found (`id`, which observers are linked to),
+  its angular momentum and whether it was `restored` from its record
+  (`delayedLeashInfo`: it looks for its holder first). Its `home` is
+  `Mob.setHomeTo`'s `{{x, y, z}, radius}`, nil for none; both are saved.
   """
   alias Valimc.Data.{EntityTypes, Float32}
   alias Valimc.Living
@@ -49,7 +56,9 @@ defmodule Valimc.Entity.Mob do
             drop_chances: %{},
             # The spawn reason of a mob whose `finalizeSpawn` is still to run
             # (its first tick runs it, VMC-043b), else nil.
-            finalize: nil
+            finalize: nil,
+            leash: nil,
+            home: nil
 
   # `EquipmentSlot` ids, as the equipment packet numbers them.
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
@@ -86,6 +95,8 @@ defmodule Valimc.Entity.Mob do
     |> put_set(:can_pick_up_loot, mob.can_pick_up_loot, false)
     |> put_set(:drop_chances, mob.drop_chances, %{})
     |> put_set(:finalize, mob.finalize, nil)
+    |> put_set(:leash, mob.leash && %{holder: mob.leash.holder}, nil)
+    |> put_set(:home, mob.home, nil)
   end
 
   defp put_set(record, _key, default, default), do: record
@@ -104,6 +115,8 @@ defmodule Valimc.Entity.Mob do
     loot = Map.get(record, :can_pick_up_loot, false)
     chances = Map.get(record, :drop_chances, %{})
     finalize = Map.get(record, :finalize)
+    leash = Map.get(record, :leash)
+    home = Map.get(record, :home)
 
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
@@ -115,6 +128,8 @@ defmodule Valimc.Entity.Mob do
          true <- by == nil or (is_binary(by) and byte_size(by) == 16),
          true <- is_boolean(persistent) and is_boolean(left_handed) and is_boolean(loot),
          true <- valid_chances?(chances) and (finalize == nil or is_atom(finalize)),
+         true <- leash == nil or holder?(leash[:holder]),
+         true <- home == nil or home?(home),
          {:ok, restored} <- Living.restore(living),
          {:ok, health} <- Health.restore(living.health, max_health(type, attributes)) do
       {:ok,
@@ -131,7 +146,9 @@ defmodule Valimc.Entity.Mob do
          left_handed: left_handed,
          can_pick_up_loot: loot,
          drop_chances: chances,
-         finalize: finalize
+         finalize: finalize,
+         leash: leash && %{holder: leash.holder, id: nil, momentum: 0.0, restored: true},
+         home: home
        }}
     else
       _ -> {:error, :invalid_mob}
@@ -319,6 +336,15 @@ defmodule Valimc.Entity.Mob do
   defp same?(_, _), do: false
 
   defp plain("minecraft:" <> name), do: name
+
+  defp holder?({:player, <<_::128>>}), do: true
+  defp holder?({:knot, {x, y, z}}), do: is_integer(x) and is_integer(y) and is_integer(z)
+  defp holder?(_), do: false
+
+  defp home?({{x, y, z}, radius}),
+    do: is_integer(x) and is_integer(y) and is_integer(z) and is_integer(radius)
+
+  defp home?(_), do: false
 
   defp valid_equipment?(equipment) when is_map(equipment),
     do:

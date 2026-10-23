@@ -1,6 +1,6 @@
 # VMC-043c — Farm and passive animals
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037n](VMC-037n.md).
 
@@ -115,3 +115,58 @@ to vanilla's own `finalizeSpawn` and `LootTable.getRandomItems` with real
 animals. `test/animal_test.exs` (each interaction; in an owner: a calf and
 orb from two cows in love, shearing's wool and a mooshroom's cow) and
 `test/animal_connection_test.exs` (a bucket and wheat through `interact`).
+
+## VMC-043c3 — leads (October 23, 2026)
+
+**On a lead** (`Valimc.AI.Leash`, vanilla's `Leashable.tickLeash` as `Mob`
+and `PathfinderMob` implement it, at the end of the base tick): a mob's
+`leash` names its holder, a player the AI senses or a fence knot, and its
+`home` is the holder's block (radius 5). Beyond 12 blocks between their
+boxes' centres the lead breaks (its sound at the holder, the lead an item,
+`:move` goals stopped until the next `updateControlFlags`, which the goal
+selector now honours); beyond the slack it pulls as a damped spring (force
+into the motion, torque into an angular momentum that turns the yaw and
+that friction slows); closer, the mob walks toward its holder unless it
+panics. A holder gone, dead or a spectator drops the lead (an item while
+`entity_drops` is on). A home leans and restricts random walk targets
+(`RandomPos`, `GoalUtils.mobRestricted`) and the blocks `MoveToBlock`
+searches. The lead and home are saved; a restored lead looks for its holder
+(a missing knot is made again) and drops after 100 ticks without one.
+Sensed players carry their known movement, which the spring reads.
+Observers are linked to the holder (`set_entity_link`, at pairing and when
+it changes).
+
+**What players do** (`Valimc.Entity.Leashes`, before the animal's own use):
+a lead in hand ties an animal within 12 blocks (from a knot, that lead
+drops); its holder unties it (an item unless infinite materials); shears
+snip it. Using a fence (`LeadItem.bindPlayerMobs`) moves the player's mobs
+around it to the fence's knot, made where none is (`minecraft:leash_knot`,
+an entity at the block's corner as vanilla spawns it), and the server
+swings the arm; using the knot moves the player's mobs to it, or, not
+sneaking, its mobs back to the player; shears snip its leads; a hit breaks
+it. A knot with no mob tied goes; every 101 ticks a knot off its fence
+goes, with its sound. Only farm animals take leads (`Valimc.AI.Kind`'s
+`leashable?/0`); other families add theirs.
+
+**Not yet**: tying a player's mobs to another mob (sneak-use on a
+leashable), quad leads (happy ghast), leads across a section border (a
+knot or mob in a sibling section), shearing equipment, particles.
+
+Checks: stage `animals` adds four lead scenes (a cow led by a walking
+player, a pig led around a square, a lead pulled past 12 blocks, a sheep
+tied to a fence knot): 8,868 ticks of 16 scenes equal vanilla's, with
+each tick's lead (holder, angular momentum, home, stopped `:move`), the
+links sent, the break's sound at the holder and the lead dropped.
+`test/animal_test.exs`: tying, untying, snipping, a knot's lead taken, the
+lead and home saved, the link packets; in an owner, a fence taking a cow
+onto a new knot, the knot giving it back and going, a broken knot's cow
+dropping its lead.
+
+Client (pending, for the milestone's batched run): breed two cows with
+wheat (hearts, a calf, an orb); shear a sheep (wool drops, it regrows after
+grazing), dye one blue; milk a cow with a bucket and a mooshroom with a
+bowl; a chicken lays an egg; a rabbit hops away from a player; put a lead on
+a cow and walk: it follows and the lead stretches and pulls; use a fence:
+the cow is tied to a knot; use the knot to take it back; run off past 12
+blocks: the lead breaks with its sound and drops; shears on a leashed sheep
+snip the lead.
