@@ -280,15 +280,27 @@ defmodule Valimc.AI.Behaviors do
     end
   end
 
-  @doc "`MoveToTargetSink()` (150 to 250 ticks)."
-  def move_sink,
+  @doc "`MoveToTargetSink(min, max)` (by default 150 to 250 ticks)."
+  def move_sink(min \\ 150, max \\ 250),
     do:
       Behavior.timed(
         MoveSink,
         [cant_reach_walk_target_since: :registered, path: :absent, walk_target: :present],
-        {150, 250},
+        {min, max},
         %{cooldown: 0, path: nil, last: nil, speed: 0.0}
       )
+
+  @doc """
+  `BehaviorUtils.setWalkAndLookTargetMemories(mob, pos, speed, close)`: look
+  at the block and walk to it.
+  """
+  def walk_and_look(self, {x, y, z} = pos, speed, close) do
+    tracker = {:block, pos, {x + 0.5, y + 0.5, z + 0.5}}
+
+    self
+    |> Brain.set(:look_target, tracker)
+    |> Brain.set(:walk_target, %{target: tracker, speed: Float32.round(speed), close: close})
+  end
 
   ## One-shots
 
@@ -400,24 +412,33 @@ defmodule Valimc.AI.Behaviors do
     end)
   end
 
-  @doc "`InteractWith.of(type, range, INTERACTION_TARGET, speed, stop)`."
-  def interact_with(type, range, speed, stop) do
+  @doc """
+  `InteractWith.of(type, range, INTERACTION_TARGET, speed, stop)`; `opts`:
+  `memory` (the target's memory), `self` and `target` (the filters of
+  `InteractWith.of(type, range, selfFilter, targetFilter, ...)`).
+  """
+  def interact_with(type, range, speed, stop, opts \\ []) do
     max = range * range
+    memory = Keyword.get(opts, :memory, :interaction_target)
+    self_filter = Keyword.get(opts, :self, fn _ -> true end)
+    target_filter = Keyword.get(opts, :target, fn _ -> true end)
+    valid = &(is?(&1, type) and target_filter.(&1))
 
     Behavior.one_shot(
       [
-        interaction_target: :registered,
+        {memory, :registered},
         look_target: :registered,
         walk_target: :absent,
         nearest_visible_living_entities: :present
       ],
       fn self ->
-        {any, self} = Sensors.visible_closest(self, &is?(&1, type))
+        {any, self} =
+          if self_filter.(self), do: Sensors.visible_closest(self, valid), else: {nil, self}
 
         if any do
           {closest, self} =
             Sensors.visible_closest(self, fn e ->
-              World.distance_sq(self, e) <= max and is?(e, type)
+              World.distance_sq(self, e) <= max and valid.(e)
             end)
 
           self =
@@ -425,7 +446,7 @@ defmodule Valimc.AI.Behaviors do
               ref = World.ref(closest)
 
               self
-              |> Brain.set(:interaction_target, ref)
+              |> Brain.set(memory, ref)
               |> Brain.set(:look_target, {:entity, ref, true})
               |> Brain.set(:walk_target, %{
                 target: {:entity, ref, false},
@@ -475,5 +496,231 @@ defmodule Valimc.AI.Behaviors do
         end
       end
     )
+  end
+
+  ## Swim
+
+  defmodule Swim do
+    @moduledoc false
+    alias Valimc.AI.Self
+
+    def extra(state, self), do: {deep?(self), state, self}
+    def start(state, self), do: {state, self}
+    def still(state, self), do: {deep?(self), state, self}
+
+    def tick(%{chance: chance} = state, self) do
+      {f, self} = Self.float(self)
+      {state, if(f < chance, do: Self.jump(self), else: self)}
+    end
+
+    def stop(state, self), do: {state, self}
+
+    # `isInFluidDeeperThan(getFluidJumpThreshold(), ENTITY_FLOATABLE) || isInLava`.
+    defp deep?(self), do: self.mob.motion.water > Self.jump_threshold(self) or Self.in_lava?(self)
+  end
+
+  @doc "`Swim(chance)`: in water deeper than its jump threshold, or in lava, it jumps."
+  def swim(chance),
+    do: Behavior.timed(Swim, [], {60, 60}, %{chance: Float32.round(chance)})
+
+  ## InteractWithDoor
+
+  @doors MapSet.new(
+           Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:mob_interactable_doors"]
+         )
+
+  @doc "Whether `state` is a door mobs open (`MOB_INTERACTABLE_DOORS`)."
+  def mob_door?(state), do: MapSet.member?(@doors, Valimc.Data.Blocks.block_id(state))
+
+  @doc "Whether a door state is open."
+  def door_open?(state),
+    do: state |> Valimc.Data.Blocks.properties() |> List.keyfind("open", 0) == {"open", "true"}
+
+  @doc """
+  `InteractWithDoor.create()`: along its path the mob opens a closed door it
+  comes from or goes to (`{:door, pos, true}`, the owner's to apply) and
+  remembers it; doors it passed it closes again unless one of its kind is
+  coming through or the door is more than 3 blocks away. A node it checked
+  waits 20 ticks.
+  """
+  def interact_with_door do
+    Behavior.one_shot(
+      [path: :present, doors_to_close: :registered, nearest_living_entities: :registered],
+      %{last: nil, cooldown: 0},
+      fn self, st ->
+        case self.mind.navigation.path do
+          %{nodes: nodes, index: index} when index > 0 and index < tuple_size(nodes) ->
+            next = elem(nodes, index)
+
+            {wait, st} =
+              cond do
+                st.last == next -> {false, %{st | cooldown: 20}}
+                st.cooldown - 1 > 0 -> {true, %{st | cooldown: st.cooldown - 1}}
+                true -> {false, %{st | cooldown: st.cooldown - 1}}
+              end
+
+            if wait do
+              {false, self, st}
+            else
+              from = elem(nodes, index - 1)
+              self = through_doors(self, from, next)
+              {true, self, %{st | last: next}}
+            end
+
+          _ ->
+            {false, self, st}
+        end
+      end
+    )
+  end
+
+  defp through_doors(self, from, to) do
+    self =
+      case World.block(self.world, from) do
+        state when is_integer(state) ->
+          if mob_door?(state) do
+            self = if door_open?(state), do: self, else: open_door(self, from, true)
+            remember_door(self, from)
+          else
+            self
+          end
+
+        _ ->
+          self
+      end
+
+    self =
+      case World.block(self.world, to) do
+        state when is_integer(state) ->
+          if mob_door?(state) and not door_open?(state),
+            do: self |> open_door(to, true) |> remember_door(to),
+            else: self
+
+        _ ->
+          self
+      end
+
+    case Brain.get(self, :doors_to_close) do
+      nil -> self
+      doors -> close_doors(self, from, to, doors)
+    end
+  end
+
+  defp open_door(self, pos, open), do: Self.effect(self, {:door, pos, open})
+
+  defp remember_door(self, pos) do
+    door = {self.world.dimension, pos}
+    doors = Brain.get(self, :doors_to_close) || []
+    if door in doors, do: self, else: Brain.set(self, :doors_to_close, doors ++ [door])
+  end
+
+  @doc """
+  `closeDoorsThatIHaveOpenedOrPassedThrough`: each remembered door but the
+  ones at `from` and `to` (nil for none) is forgotten, and closed when it is
+  near, still an open door, and no mob of its kind comes through it.
+  """
+  def close_doors(self, from, to, doors) do
+    {kept, self} =
+      Enum.reduce(doors, {[], self}, fn {dimension, pos} = door, {kept, self} ->
+        cond do
+          pos == from or pos == to ->
+            {[door | kept], self}
+
+          dimension != self.world.dimension or
+              not near_center?(pos, self, 3.0) ->
+            {kept, self}
+
+          true ->
+            state = World.block(self.world, pos)
+
+            cond do
+              state == nil or not mob_door?(state) -> {kept, self}
+              not door_open?(state) -> {kept, self}
+              coming_through?(self, pos) -> {kept, self}
+              true -> {kept, open_door(self, pos, false)}
+            end
+        end
+      end)
+
+    Brain.set(self, :doors_to_close, Enum.reverse(kept))
+  end
+
+  defp near_center?({bx, by, bz}, self, distance) do
+    {dx, dy, dz} = {bx + 0.5 - self.x, by + 0.5 - self.y, bz + 0.5 - self.z}
+    dx * dx + dy * dy + dz * dz < distance * distance
+  end
+
+  # `areOtherMobsComingThroughDoor`: one of its type within 2 blocks whose
+  # path goes from or to the door.
+  defp coming_through?(self, pos) do
+    for ref <- Brain.get(self, :nearest_living_entities) || [],
+        %{kind: :mob, type: type, path_step: step} = m <- [World.entity(self.world, ref)],
+        type == self.type,
+        near_center?(pos, %{x: m.x, y: m.y, z: m.z}, 2.0),
+        reduce: false do
+      acc -> acc or match?({^pos, _}, step) or match?({_, ^pos}, step)
+    end
+  end
+
+  ## SetWalkTargetAwayFrom
+
+  @doc """
+  `SetWalkTargetAwayFrom.entity(memory, speed, distance, interrupt)`: closer
+  than `distance` to the remembered entity, a land target 16 blocks away
+  from it (ten tries); a walk at this speed already leading away stays.
+  """
+  def walk_away_from(memory, speed, distance, interrupt) do
+    speed = Float32.round(speed)
+
+    Behavior.one_shot([{:walk_target, :registered}, {memory, :present}], fn self ->
+      walk = Brain.get(self, :walk_target)
+
+      case World.entity(self.world, Brain.get(self, memory)) do
+        nil ->
+          {false, self}
+
+        _ when walk != nil and not interrupt ->
+          {false, self}
+
+        from ->
+          {ax, ay, az} = avoid = {from.x, from.y, from.z}
+          {dx, dy, dz} = {self.x - ax, self.y - ay, self.z - az}
+
+          cond do
+            dx * dx + dy * dy + dz * dz >= distance * distance ->
+              {false, self}
+
+            walk != nil and walk.speed == speed and leading_toward?(self, walk, avoid) ->
+              {false, self}
+
+            true ->
+              {true, flee(self, avoid, speed)}
+          end
+      end
+    end)
+  end
+
+  defp leading_toward?(self, walk, {ax, ay, az}) do
+    case position(self, walk.target) do
+      nil ->
+        false
+
+      {tx, ty, tz} ->
+        (tx - self.x) * (ax - self.x) + (ty - self.y) * (ay - self.y) +
+          (tz - self.z) * (az - self.z) >=
+          0.0
+    end
+  end
+
+  defp flee(self, avoid, speed) do
+    Enum.reduce_while(1..10, self, fn _, self ->
+      case RandomPos.land_away(self, 16, 7, avoid) do
+        {nil, self} ->
+          {:cont, self}
+
+        {pos, self} ->
+          {:halt, Brain.set(self, :walk_target, %{target: point(pos), speed: speed, close: 0})}
+      end
+    end)
   end
 end

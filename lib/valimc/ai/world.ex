@@ -11,6 +11,13 @@ defmodule Valimc.AI.World do
   the sky's darkening (`light/2`: `getLightLevelDependentMagicValue`), `search` how path searches run and
   `paths` the deferred results that arrived (`search/2`), `sea_level` and
   the stationary `border` (`{min_x, min_z, max_x, max_z}`) searches read.
+  `dimension` names the world, `day` is the overworld clock's ticks (the
+  villager schedule's), `pois` the POI tickets taken (`Valimc.AI.Pois`) and
+  `villages` the 16-block sections holding occupied village POIs (nil:
+  computed from `pois`) and `stand_up` where a mob of a type stands up from
+  a bed (`fn type, head, facing, yaw -> {x, y, z} | nil`, the owner's
+  `AbstractBedBlock.findStandUpPosition`; nil: above the bed); `sky`
+  whether a block sees the sky.
 
   Sensing is vanilla's: `TargetingConditions.test` (`test/4`), the nearest
   player or mob a goal asks for (`nearest_player/5`, `nearest_mob/6`),
@@ -76,7 +83,12 @@ defmodule Valimc.AI.World do
             loot_seeds: nil,
             # What players did that mobs react to before thinking (VMC-043d):
             # `{:anger, player_ref, seen}` (opening or breaking what piglins guard).
-            events: []
+            events: [],
+            dimension: :overworld,
+            pois: %{},
+            villages: nil,
+            stand_up: nil,
+            sky: nil
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,
@@ -184,6 +196,13 @@ defmodule Valimc.AI.World do
       end
     )
   end
+
+  @doc """
+  `canSeeSky` (full sky light) at a block: `sky` reads it (a column's
+  lowest sky source); without one, nothing sees the sky.
+  """
+  def sky?(%__MODULE__{sky: nil}, _position), do: false
+  def sky?(%__MODULE__{sky: sky}, position), do: sky.(position)
 
   @doc "`isOutsideBuildHeight`."
   def outside?(%__MODULE__{min_y: min, max_y: max}, {_, y, _}), do: y < min or y > max

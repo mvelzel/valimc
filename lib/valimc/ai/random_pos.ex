@@ -92,9 +92,49 @@ defmodule Valimc.AI.RandomPos do
     end)
   end
 
-  @doc "`LandRandomPos.getPosAway(mob, h, v, from)` (VMC-043d: fleeing)."
-  def land_away(%Self{} = self, h, v, {ax, _, az}) do
-    {dx, dz} = {self.x - ax, self.z - az}
+  @doc """
+  `LandRandomPos.getPos(mob, h, v, weight)`: the candidates weighed by
+  `weight.(self, pos)` in place of the walk target value.
+  """
+  def land_weighted(%Self{} = self, h, v, weight) do
+    restrict = restricted?(self, h)
+
+    best(
+      self,
+      fn self ->
+        {direction, self} = direction(self, h, v)
+
+        case toward(self, h, direction, true, restrict) do
+          {nil, self} -> {nil, self}
+          {pos, self} -> {out_of_solid(self, pos), self}
+        end
+      end,
+      weight
+    )
+  end
+
+  @doc "`LandRandomPos.getPosAway(mob, h, v, from)` (fleeing, VMC-043d, VMC-044a1)."
+  def land_away(%Self{} = self, h, v, {ax, ay, az}) do
+    {dx, dy, dz} = {self.x - ax, self.y - ay, self.z - az}
+
+    {{dx, dz}, self} =
+      if dx * dx + dy * dy + dz * dz == 0.0 do
+        {a, self} = Self.double(self)
+        {b, self} = Self.double(self)
+        {{a - 0.5, b - 0.5}, self}
+      else
+        {{dx, dz}, self}
+      end
+
+    land_in_direction(self, h, v, dx, dz)
+  end
+
+  @doc "`LandRandomPos.getPosTowards(mob, h, v, towards)`."
+  def land_towards(%Self{} = self, h, v, {tx, _, tz}),
+    do: land_in_direction(self, h, v, tx - self.x, tz - self.z)
+
+  # `getPosInDirection`: within a quarter turn of the direction.
+  defp land_in_direction(self, h, v, dx, dz) do
     restrict = restricted?(self, h)
 
     best(self, fn self ->
@@ -107,7 +147,7 @@ defmodule Valimc.AI.RandomPos do
   end
 
   # `generateRandomPos`: ten draws, the first of the best walk value.
-  defp best(self, candidate) do
+  defp best(self, candidate, weight \\ &walk_value/2) do
     {best, _, self} =
       Enum.reduce(1..10, {nil, :neg_infinity, self}, fn _, {best, value, self} ->
         case candidate.(self) do
@@ -115,7 +155,7 @@ defmodule Valimc.AI.RandomPos do
             {best, value, self}
 
           {pos, self} ->
-            v = walk_value(self, pos)
+            v = weight.(self, pos)
             if value == :neg_infinity or v > value, do: {pos, v, self}, else: {best, value, self}
         end
       end)

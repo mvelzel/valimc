@@ -11,7 +11,8 @@ defmodule Valimc.AI.Brain do
   `:kind` module implements `Valimc.AI.Behavior`.
 
   Memories are `%{name => {value, ttl}}`, `ttl` a count of ticks or
-  `:never`. Entities are kept by reference (`World.ref/1`) and read through
+  `:never`. `order` is the activity order it was made with, and `refresh`
+  the gate randoms a brain made again takes in turn (an oracle's). Entities are kept by reference (`World.ref/1`) and read through
   the world each tick, as vanilla's memories hold live entities.
   """
   alias Valimc.AI.{Random, Self}
@@ -23,16 +24,23 @@ defmodule Valimc.AI.Brain do
             behaviors: {},
             core: [:core],
             active: [:core],
-            default: :idle
+            default: :idle,
+            schedule_update: -9999,
+            order: %{},
+            refresh: nil
 
   @doc """
   A brain of mob module `module` (its activity choice, ambient sound and
   looting) with `sensors` (`[{module, scan_rate}]`, their countdowns drawn
   from `random` as `Sensor.randomlyDelayStart` does) and `activities`
-  (`[{activity, first_priority, [behavior], requirements, erase}]`).
+  (`[{activity, first_priority, [behavior], requirements, erase}]`, each
+  behaviour at the next priority, or `first_priority` `:each` and
+  `[{priority, behavior}]`). Behaviours of one priority run by activity in
+  `order` (`%{priority => [activity]}`, vanilla's hash order; by default the
+  order of `activities`), then in their activity's order.
   `{brain, random}`.
   """
-  def new(module, sensors, activities, random) do
+  def new(module, sensors, activities, random, order \\ %{}) do
     {sensors, random} =
       Enum.map_reduce(sensors, random, fn {module, scan}, random ->
         {time, random} = Random.int(random, scan)
@@ -41,10 +49,13 @@ defmodule Valimc.AI.Brain do
 
     behaviors =
       for {{activity, first, list, _, _}, a} <- Enum.with_index(activities),
-          {behavior, i} <- Enum.with_index(list),
-          do:
-            {{first + i, a, i},
-             Map.merge(behavior, %{activity: activity, priority: first + i, running: false})}
+          {entry, i} <- Enum.with_index(list) do
+        {priority, behavior} = if(first == :each, do: entry, else: {first + i, entry})
+        rank = order |> Map.get(priority, []) |> Enum.find_index(&(&1 == activity))
+
+        {{priority, rank || a, i},
+         Map.merge(behavior, %{activity: activity, priority: priority, running: false})}
+      end
 
     behaviors = behaviors |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
 
@@ -56,7 +67,8 @@ defmodule Valimc.AI.Brain do
       module: module,
       sensors: sensors,
       activities: activities,
-      behaviors: List.to_tuple(behaviors)
+      behaviors: List.to_tuple(behaviors),
+      order: order
     }
 
     {use_default(brain), random}
@@ -117,6 +129,30 @@ defmodule Valimc.AI.Brain do
   @doc "`getActiveNonCoreActivity`."
   def activity(%Self{mind: %{brain: brain}}),
     do: Enum.find(brain.active, &(&1 not in brain.core))
+
+  @doc "`setActiveActivityIfPossible`: the activity when its requirements hold, else the default."
+  def set_active_if_possible(self, activity) do
+    if requirements_met?(self, activity),
+      do: put(self, &activate(&1, activity)),
+      else: put(self, &activate(&1, &1.default))
+  end
+
+  @doc "`setDefaultActivity`."
+  def set_default(self, activity), do: put(self, &%{&1 | default: activity})
+
+  @doc """
+  `updateActivityFromSchedule`: at most once in 20 ticks, the scheduled
+  activity (`scheduled`, an atom) when it is not active.
+  """
+  def update_from_schedule(%Self{mind: %{brain: brain}, world: world} = self, scheduled) do
+    if world.time - brain.schedule_update > 20 do
+      self = put(self, &%{&1 | schedule_update: world.time})
+
+      if active?(self, scheduled), do: self, else: set_active_if_possible(self, scheduled)
+    else
+      self
+    end
+  end
 
   @doc "`setActiveActivityToFirstValid`."
   def first_valid(self, activities) do

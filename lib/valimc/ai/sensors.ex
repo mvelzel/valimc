@@ -179,9 +179,9 @@ defmodule Valimc.AI.Sensors do
 
   defmodule Items do
     @moduledoc false
-    alias Valimc.AI.Brains.Piglin
 
-    def scan(%Self{world: world} = self) do
+    # `NearestItemSensor`: what the brain's mob wants (`wantsToPickUp`).
+    def scan(%Self{world: world, mind: %{brain: %{module: module}}} = self) do
       box = World.inflate(Self.box(self), 32.0, 16.0, 32.0)
 
       wanted =
@@ -189,7 +189,7 @@ defmodule Valimc.AI.Sensors do
         |> Enum.filter(&(&1.count > 0 and World.intersects?(World.box(&1), box)))
         |> Enum.sort_by(&World.distance_sq(self, &1))
         |> Enum.find(fn item ->
-          Piglin.wants?(self, item) and World.distance_sq(self, item) < 1024.0 and
+          module.wants?(self, item) and World.distance_sq(self, item) < 1024.0 and
             World.line_of_sight?(self, item)
         end)
 

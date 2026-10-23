@@ -32,9 +32,11 @@ defmodule Valimc.AI do
 
   @doc """
   A mob's mind from what its record kept (`ai`: nil for a new mob, else
-  `Mind.record/1`'s map), its random seeded from `uuid` when new.
+  `Mind.record/1`'s map), its random seeded from `uuid` when new. A brain
+  mob's brain is made for its body's `data` and gets its saved memories
+  back; made in `world`, it starts as its constructor does (`started/2`).
   """
-  def mind(type, uuid, kept) do
+  def mind(type, uuid, kept, data \\ %{}, world \\ nil) do
     random =
       case kept do
         %Mind{random: random} -> random
@@ -61,10 +63,39 @@ defmodule Valimc.AI do
         mind
 
       module ->
-        {brain, random} = module.brain(mind.random, module.gates(uuid))
-        %{mind | brain: brain, random: random}
+        # A brain made for its body (a villager's for its age, VMC-044a1).
+        {brain, random} =
+          if exports?(module, :brain, 3),
+            do:
+              apply(module, :brain, [
+                mind.random,
+                apply(module, :gates, [uuid, baby?(data)]),
+                data
+              ]),
+            else: module.brain(mind.random, module.gates(uuid))
+
+        memories =
+          case kept do
+            %{memories: memories} when is_map(memories) -> memories
+            _ -> %{}
+          end
+
+        mind = %{mind | brain: %{brain | memories: memories}, random: random}
+
+        if world != nil and exports?(module, :started, 1),
+          do:
+            apply(module, :started, [
+              %Self{uuid: uuid, type: type, mind: mind, world: world, data: data}
+            ]).mind,
+          else: mind
     end
   end
+
+  defp exports?(module, name, arity),
+    do: Code.ensure_loaded?(module) and function_exported?(module, name, arity)
+
+  defp baby?(%{age: age}), do: age < 0
+  defp baby?(_data), do: false
 
   @doc """
   What others read of a mob of a section (`Valimc.AI.World`'s sensed mob):
@@ -104,9 +135,19 @@ defmodule Valimc.AI do
       own: mind && mind.own,
       panicking:
         mind != nil and
-          Valimc.AI.Goals.Panic in Selector.running(%Self{mind: mind}, :goals)
+          Valimc.AI.Goals.Panic in Selector.running(%Self{mind: mind}, :goals),
+      # What brain mobs read of each other (VMC-044a1): memories, own data,
+      # where its path leads now (doors), whether it sleeps.
+      memories: mind && mind.brain && mind.brain.memories,
+      sleeping: Map.get(body.data, :sleeping),
+      path_step: mind && path_step(mind.navigation.path)
     }
   end
+
+  defp path_step(%{nodes: nodes, index: index}) when index > 0 and index < tuple_size(nodes),
+    do: {elem(nodes, index - 1), elem(nodes, index)}
+
+  defp path_step(_path), do: nil
 
   defp match_mind(%Mind{} = mind), do: mind
   defp match_mind(_), do: nil
@@ -141,7 +182,7 @@ defmodule Valimc.AI do
   ctx}`.
   """
   def prepare(mobs, %World{} = world) do
-    mobs = Enum.map(mobs, fn {id, entry} -> {id, ensure(entry)} end)
+    mobs = Enum.map(mobs, fn {id, entry} -> {id, ensure(entry, world)} end)
     sensed = Enum.map(mobs, &sensed/1)
     world = %{world | mobs: sensed, by_type: Enum.group_by(sensed, & &1.type), moved: %{}}
     order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
@@ -170,9 +211,10 @@ defmodule Valimc.AI do
           Map.has_key?(order, other),
           do: {other, fun, sensed}
 
-    # Others read its own state and the changed mobs' as they are now.
+    # Others read its own state and the changed mobs' as they are now; a
+    # brain mob's memories after its tick (VMC-044a1: villagers' claims).
     world =
-      if own_of(body) != own_of(entry.body) or made != [],
+      if own_of(body) != own_of(entry.body) or made != [] or brain?(body),
         do: World.resense(world, uuid, &Map.merge(&1, sensed_state(body))),
         else: world
 
@@ -242,6 +284,19 @@ defmodule Valimc.AI do
   defp other_change({:own, uuid, change}, _world),
     do: {uuid, &own_body(&1, change), fn sensed -> %{sensed | own: change.(sensed.own)} end}
 
+  # A brain mob's change of another's memories (VMC-044a1: a villager
+  # yielding its job site, gossip, a golem seen): `fun` on its mind.
+  defp other_change({:remote, uuid, fun}, _world),
+    do:
+      {uuid,
+       fn
+         %Body{mob: %Mob{ai: %Mind{} = mind} = mob} = body ->
+           %{body | mob: %{mob | ai: fun.(mind)}}
+
+         body ->
+           body
+       end, & &1}
+
   defp other_change(_effect, _world), do: nil
 
   defp change(body, nil), do: body
@@ -251,10 +306,24 @@ defmodule Valimc.AI do
   defp sensed_state(%Body{type: type, data: data} = body) do
     own = %{own: own_of(body)}
 
+    own =
+      case body do
+        # What brain mobs read of each other (VMC-044a1): memories, own data,
+        # whether it sleeps.
+        %Body{mob: %Mob{ai: %Mind{brain: %{memories: memories}}}} ->
+          Map.merge(own, %{memories: memories, data: data, sleeping: Map.get(data, :sleeping)})
+
+        _ ->
+          own
+      end
+
     if Animal.animal?(type),
       do: Map.merge(own, %{in_love: data.in_love, age: data.age, data: data}),
       else: own
   end
+
+  defp brain?(%Body{mob: %Mob{ai: %Mind{brain: %{}}}}), do: true
+  defp brain?(_body), do: false
 
   # A brain mob's reactions before its section thinks (VMC-043d): to the
   # entities that hurt it since it last thought (`wasHurtBy`, which vanilla
@@ -354,9 +423,12 @@ defmodule Valimc.AI do
   defp own_body(body, _change), do: body
 
   # A mob of a type with an AI thinks with a mind (from its record, or new).
-  defp ensure(%{entity: e, body: %Body{type: type, mob: %Mob{ai: ai} = mob} = body} = entry) do
+  defp ensure(
+         %{entity: e, body: %Body{type: type, mob: %Mob{ai: ai} = mob} = body} = entry,
+         world
+       ) do
     if thinks?(type) and not match?(%Mind{}, ai),
-      do: %{entry | body: %{body | mob: %{mob | ai: mind(type, e.uuid, ai)}}},
+      do: %{entry | body: %{body | mob: %{mob | ai: mind(type, e.uuid, ai, body.data, world)}}},
       else: entry
   end
 
@@ -395,12 +467,12 @@ defmodule Valimc.AI do
         on_ground: body.on_ground,
         velocity: body.velocity,
         mob: mob,
+        data: body.data,
         mind: mob.ai,
         facts: Facts.mob(type),
         width: width,
         height: height,
         eye: eye,
-        data: body.data,
         world: world
       }
 
@@ -444,8 +516,7 @@ defmodule Valimc.AI do
            on_ground: self.on_ground,
            mob: mob,
            data: self.data
-       }, {self.x, self.y, self.z}, made ++ Enum.reverse(self.effects),
-       %{world | random: self.world.random, loot_seeds: self.world.loot_seeds}}
+       }, {self.x, self.y, self.z}, made ++ Enum.reverse(self.effects), self.world}
     end
   end
 
@@ -475,8 +546,8 @@ defmodule Valimc.AI do
         width: width,
         height: height,
         eye: eye,
-        data: body.data,
-        world: world
+        world: world,
+        data: body.data
       })
 
     mob = if match?(%Mind{}, mob.ai), do: %{self.mob | ai: self.mind}, else: self.mob

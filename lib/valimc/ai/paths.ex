@@ -75,7 +75,8 @@ defmodule Valimc.AI.Paths do
     nav = self.mind.navigation
     world = self.world
     follow = Valimc.Entity.Mob.value(self.type, self.mob, "minecraft:follow_range")
-    length = max(Valimc.Data.Float32.round(follow), 16.0)
+    # `getMaxPathLength`: the follow range, at least `setRequiredPathLength`'s.
+    length = max(Valimc.Data.Float32.round(follow), nav.required_length)
     radius = trunc(length + offset)
     {bx, by, bz} = Self.block(self)
     from = if above, do: {bx, by + 1, bz}, else: {bx, by, bz}

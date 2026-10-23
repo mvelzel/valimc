@@ -49,7 +49,8 @@ defmodule Valimc.AI.Navigation do
             # `WallClimberNavigation` (a spider's): where its last path went,
             # steered to straight when no path is left.
             climber: false,
-            climb_to: nil
+            climb_to: nil,
+            required_length: 16.0
 
   @doc "A navigation of `kind` (`:ground`, `:water`, `:fly`, `:amphibious`) with `options`."
   def new(kind \\ :ground, options \\ []) do
@@ -120,6 +121,12 @@ defmodule Valimc.AI.Navigation do
       do: path_to_block(self, block, reach),
       else: create(self, [block], 16, true, reach)
   end
+
+  @doc """
+  `createPath(targets, reach)` of a set of blocks (no surface raise):
+  `{path | pending | nil, self}`.
+  """
+  def path_to_any(%Self{} = self, targets, reach), do: create(self, targets, 8, false, reach)
 
   @doc "`createPath(x, y, z, reach)`: `{path | nil, self}`."
   def path_to(%Self{} = self, {x, y, z}, reach) do

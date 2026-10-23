@@ -10,8 +10,9 @@ defmodule Valimc.AI.Mind do
   offset, a rabbit's hops). An animal's age and love are its body's data
   (VMC-043c).
 
-  Only the random is saved (`record/1`): vanilla saves no goal state, and a
-  mob restored from its record starts with fresh selectors drawing on.
+  Only the random is saved (`record/1`), and a brain's serializable
+  memories: vanilla saves no goal state, and a mob restored from its record
+  starts with fresh selectors drawing on.
   """
   alias Valimc.AI.{Navigation, Random}
 
@@ -54,7 +55,16 @@ defmodule Valimc.AI.Mind do
             # `{:hurt_by, ref}` for each hurt by an entity since it last thought.
             pending: []
 
-  @doc "What a store saves of a mind: its random."
+  @doc """
+  What a store saves of a mind: its random, and a brain mob's memories its
+  brain saves (`saved/0` of its module: a villager's POIs, VMC-044a1).
+  """
+  def record(%__MODULE__{random: random, brain: %{module: module, memories: memories}}) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :saved, 0),
+      do: %{random: random, memories: Map.take(memories, apply(module, :saved, []))},
+      else: %{random: random}
+  end
+
   def record(%__MODULE__{random: random}), do: %{random: random}
 
   @doc "Whether `record` is a mind's record."
