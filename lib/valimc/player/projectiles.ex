@@ -190,8 +190,13 @@ defmodule Valimc.Player.Projectiles do
     end
   end
 
-  defp cooling?(state),
-    do: System.monotonic_time(:millisecond) < Map.get(state, :pearl_cooldown, 0)
+  # Monotonic time may be negative: no cooldown yet is none, not one until 0.
+  defp cooling?(state) do
+    case Map.get(state, :pearl_cooldown) do
+      nil -> false
+      until -> System.monotonic_time(:millisecond) < until
+    end
+  end
 
   defp cool_down(state, group) do
     send_packets(state, [
@@ -574,12 +579,11 @@ defmodule Valimc.Player.Projectiles do
     end
   end
 
-  defp touching?({_, %{kind: :object, type: "minecraft:arrow", at: {x, y, z}, body: body}}, box) do
+  defp touching?({_, %{kind: :object, takeable: true, at: {x, y, z}}}, box) do
     {x0, y0, z0, x1, y1, z1} = box
     {ax0, ay0, az0, ax1, ay1, az1} = {x0 - 1.0, y0 - 0.5, z0 - 1.0, x1 + 1.0, y1 + 0.5, z1 + 1.0}
 
-    body.data.in_ground and body.data.shake <= 0 and body.data.pickup != :disallowed and
-      x - 0.25 < ax1 and x + 0.25 > ax0 and y < ay1 and y + 0.5 > ay0 and z - 0.25 < az1 and
+    x - 0.25 < ax1 and x + 0.25 > ax0 and y < ay1 and y + 0.5 > ay0 and z - 0.25 < az1 and
       z + 0.25 > az0
   end
 

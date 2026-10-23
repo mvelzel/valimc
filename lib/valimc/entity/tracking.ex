@@ -152,7 +152,21 @@ defmodule Valimc.Entity.Tracking do
     view
     |> Map.take([:type, :yaw, :pitch, :alive])
     |> Map.put(:range, Valimc.Data.EntityTypes.tracking_range(view.type))
+    |> takeable(view)
   end
+
+  # A stuck arrow a player may take (`AbstractArrow.playerTouch`): in the
+  # ground, its shake over, its pickup rule not disallowed. The owner checks
+  # again when one is taken.
+  defp takeable(fields, %{type: "minecraft:arrow", body: %{data: data}}) do
+    Map.put(
+      fields,
+      :takeable,
+      data.in_ground and data.shake <= 0 and data.pickup != :disallowed
+    )
+  end
+
+  defp takeable(fields, _view), do: fields
 
   # Vanilla's `needsSync` for an item: its motion changed sharply this tick.
   defp sharp?(%{kind: :item, velocity: {x, y, z}}, %{previous: {px, py, pz}}),

@@ -163,6 +163,46 @@ defmodule Valimc.ProjectileConnectionTest do
     Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[37].count == 3 end)
   end
 
+  test "an arrow shot into the ground is picked up again", ctx do
+    save(ctx, %Inventory{slots: %{36 => ItemStack.new("bow"), 9 => ItemStack.new("arrow", 2)}})
+    {client, pid} = TestPlayer.login(ctx)
+
+    # Drawn fully, looking a little ahead of the feet.
+    use =
+      IO.iodata_to_binary([Wire.varint(0), Wire.varint(1), <<-90.0::float-32, 80.0::float-32>>])
+
+    Client.send_packet(client, :play, "use_item", use)
+    Valimc.TestWait.until(fn -> match?(%{kind: :bow}, TestPlayer.state(pid).active_use) end)
+    TestPlayer.ticks(pid, 21)
+
+    release =
+      IO.iodata_to_binary([
+        Wire.varint(ItemTypes.action_id("release_use_item")),
+        Wire.position({0, 0, 0}),
+        <<0>>,
+        Wire.varint(2)
+      ])
+
+    Client.send_packet(client, :play, "player_action", release)
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[9].count == 1 end)
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[9].count == 2 end)
+  end
+
+  test "a thrown ender pearl brings its thrower where it lands", ctx do
+    save(ctx, %Inventory{slots: %{36 => ItemStack.new("ender_pearl", 2)}})
+    {client, pid} = TestPlayer.login(ctx)
+    start = TestPlayer.state(pid).player
+
+    # Facing east and down: it lands a few blocks away on the floor.
+    use =
+      IO.iodata_to_binary([Wire.varint(0), Wire.varint(1), <<-90.0::float-32, 40.0::float-32>>])
+
+    Client.send_packet(client, :play, "use_item", use)
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[36].count == 1 end)
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).player.x - start.x > 1.0 end)
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 15.0 end)
+  end
+
   test "an ender pearl landing in another group brings its thrower there", ctx do
     save(ctx, %Inventory{slots: %{}})
     {_client, pid} = TestPlayer.login(ctx)

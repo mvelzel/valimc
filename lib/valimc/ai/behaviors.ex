@@ -150,9 +150,16 @@ defmodule Valimc.AI.Behaviors do
       end
     end
 
-    # `tryComputePath`.
+    # `tryComputePath`. A target entity gone from the world (killed, picked
+    # up, moved off the section) has no place to path to.
     defp compute(state, self, walk) do
-      target = Behaviors.block(self, walk.target)
+      case Behaviors.block(self, walk.target) do
+        nil -> {false, state, self}
+        target -> compute(state, self, walk, target)
+      end
+    end
+
+    defp compute(state, self, walk, target) do
       {path, self} = Navigation.path_to(self, block_point(target), 0)
       state = %{state | path: path, speed: walk.speed}
 
@@ -229,16 +236,17 @@ defmodule Valimc.AI.Behaviors do
           do: {%{state | path: current}, Brain.set(self, :path, current)},
           else: {state, self}
 
-      if current != nil and state.last != nil do
-        walk = Brain.get(self, :walk_target)
-        {tx, ty, tz} = Behaviors.block(self, walk.target)
+      walk = Brain.get(self, :walk_target)
+      target = walk && Behaviors.block(self, walk.target)
+
+      if current != nil and state.last != nil and target != nil do
+        {tx, ty, tz} = target
         {lx, ly, lz} = state.last
 
         if (tx - lx) ** 2 + (ty - ly) ** 2 + (tz - lz) ** 2 > 4 do
           case compute(state, self, walk) do
             {true, state, self} ->
-              state = %{state | last: Behaviors.block(self, walk.target)}
-              start(state, self)
+              start(%{state | last: target}, self)
 
             {false, state, self} ->
               {state, self}

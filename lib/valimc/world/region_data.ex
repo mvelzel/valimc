@@ -3568,8 +3568,15 @@ defmodule Valimc.World.RegionData do
 
   # The planning slot (`:plan` job): a worker plans a durable mutation from
   # values while the owner keeps answering; `pending` (with the caller) is
-  # what adopting the result needs.
+  # what adopting the result needs. One tick's phases may each want the slot
+  # (a cross merge out, then the auto merge after the move): the later waits.
   defp start_plan(state, pending, from, work) do
+    if planning?(state),
+      do: {:reply, Error.retry(:item_storage_busy), state},
+      else: start_plan!(state, pending, from, work)
+  end
+
+  defp start_plan!(state, pending, from, work) do
     case start_job(state, :plan, work,
            supervisor: Valimc.ItemWorkers,
            deadline: 5000,
