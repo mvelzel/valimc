@@ -1,7 +1,8 @@
 //! The entity physics kernel (VMC-077l, `valimc_core::physics`) for Elixir:
 //! views over published chunk rows, region owners' item ticks, placement and
 //! spawn obstruction and the border; the player's calls are in `player`, the
-//! oracle checks' one-by-one entry points in `physics_checks`.
+//! initial mob fluid and eye samples live here, and the oracle checks'
+//! remaining one-by-one entry points in `physics_checks`.
 //!
 //! A view is `{:rows, snapshots, outside}` (`snapshots` the published chunk
 //! handles `World.View` holds, VMC-077p, read in place; `outside` the state
@@ -24,6 +25,7 @@ use valimc_core::physics::border::Border;
 use valimc_core::physics::collide::{self, Extra};
 use valimc_core::physics::explosion;
 use valimc_core::physics::facts::Facts;
+use valimc_core::physics::fluid;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
 use valimc_core::physics::orb::{self, OrbBody};
 use valimc_core::physics::source::{BlockSource, Rows, States};
@@ -1390,4 +1392,73 @@ fn physics_pistons<'a>(
         .map(|b| (t3(b.position), t3(b.velocity), b.on_ground, b.pushed).encode(env))
         .collect();
     Ok(ok(env, out))
+}
+
+/// The fluid a body touches: `{:ok, nil}` for a degenerate body, else
+/// `{:ok, {water_depth, lava_depth, contacts}}` with contacts
+/// `{{x, y, z}, kind, amount, height, source, falling, depth}`.
+#[rustler::nif]
+fn physics_fluids<'a>(env: Env<'a>, view_term: Term<'a>, body: BoxT) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let body = aabb(body);
+    let view = view(view_term, facts, &body)?;
+    Ok(match fluid::contacts(&view, facts, &body) {
+        Ok(None) => ok(env, rustler::types::atom::nil()),
+        Ok(Some(found)) => {
+            let d = fluid::depths(&found);
+            let contacts: Vec<Term> = found
+                .iter()
+                .map(|c| {
+                    (
+                        (c.position[0], c.position[1], c.position[2]),
+                        kind(c.fluid.kind),
+                        c.fluid.amount,
+                        c.fluid.height as f64,
+                        (c.fluid.source, c.fluid.falling),
+                        c.depth,
+                    )
+                        .encode(env)
+                })
+                .collect();
+            ok(env, (d.water, d.lava, contacts))
+        }
+        Err(u) => unreadable(env, u),
+    })
+}
+
+/// Whether the eye at `eye` of a body is in water and the block there
+/// (`updateFluidOnEyes`, a mob's first base tick): `{:ok, {water, state}}`.
+#[rustler::nif]
+fn physics_eyes<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    body: BoxT,
+    eye: (f64, f64, f64),
+) -> NifResult<Term<'a>> {
+    use valimc_core::physics::source::BlockSource;
+    let facts = facts()?;
+    let body = aabb(body);
+    let eye = [eye.0, eye.1, eye.2];
+    let view = view(view_term, facts, &body)?;
+    let water = match fluid::eyes(&view, facts, &body, eye) {
+        Ok(found) => found.map(|(water, _)| water).unwrap_or(false),
+        Err(u) => return Ok(unreadable(env, u)),
+    };
+    let p = eye.map(|v| v.floor() as i32);
+    Ok(match view.state(p[0], p[1], p[2]) {
+        Some(state) => ok(env, (water, state)),
+        None => rustler::types::atom::error().encode(env),
+    })
+}
+
+fn kind(k: u8) -> Atom {
+    match k {
+        fluid_kind::WATER => atoms::water(),
+        fluid_kind::LAVA => atoms::lava(),
+        _ => rustler::types::atom::nil(),
+    }
+}
+
+mod fluid_kind {
+    pub use valimc_core::physics::facts::{LAVA, WATER};
 }

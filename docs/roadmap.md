@@ -29,7 +29,7 @@ atomic frame per owner per tick in one striped log, one entity store, one block 
 kernels for physics, block rules, light and generation scheduling, and a layered module layout. The
 final client run and its rechecks passed; see [VMC-077](tickets/VMC-077.md).
 
-## M3 — Survival core (planned)
+## M3 — Survival core (in progress)
 
 Gate: [VMC-078](tickets/VMC-078.md), a fresh-world survival run to the dragon's
 death. Slices: the [backlog](backlog.md#m3--survival-core). A lane owns its
@@ -47,17 +47,12 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
 | Finale | The End fight, then the gate | 045a → 078 |
 
-Phases:
+Current order:
 
-1. **Now:** 043a, 029d and 031a (029d and 031a share the rule engine).
-2. **After 043a and 029d:** 015i, 037n, 050a, 047a; Blocks goes on (029e).
-3. **After 015i:** 041a then 041b; 042a, 037o and 042b alongside.
-4. **After 041b, 037n, 037o, 050a:** families in parallel (043b first),
-   plus 034n4c, 034n4d, 034n4e, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
-5. **Last:** 045a, then the gate.
+1. Finish the pending client gates in one batched run; resolve integration failures.
+2. Blocks: double chests (032b).
+3. Finale: the Ender Dragon fight (045a), then the M3 gate (078).
 
-When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
-043c, 042b, 048a, 043d, 039a, 039b, 039c, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused

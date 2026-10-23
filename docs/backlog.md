@@ -7,7 +7,7 @@ actual-client and vanilla reference scenarios.
 
 ### M3 — Survival core
 
-The [roadmap](roadmap.md#m3--survival-core-planned) orders these and says which run in
+The [roadmap](roadmap.md#m3--survival-core-in-progress) orders these and says which run in
 parallel. In every slice:
 
 - Behaviour comes from pinned 26.3 through oracle extractors.

@@ -4,7 +4,8 @@ defmodule Valimc.Physics.Kernel do
   a `Valimc.World.View`. Live play makes three kinds of call: a player's
   move packet or resting tick in one call each (`player_move/5`,
   `player_rest/3`, VMC-077l2), a region owner's items in one call per tick
-  (`items/3`), and placement and spawn obstruction (`obstructs?/4`). The other
+  (`items/3`), mobs' batched travel and initial fluid and eye samples
+  (`fluids/2`, `eye_block/3`), and placement and spawn obstruction (`obstructs?/4`). The other
   functions reach the kernel's pieces one by one for the oracle checks; their
   NIFs exist only in dev, test and bench builds (the `parity` feature).
 

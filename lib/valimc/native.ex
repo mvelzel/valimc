@@ -361,6 +361,10 @@ defmodule Valimc.Native do
   def loot_enchant(_registry, _item, _enchantments, _min, _span, _special, _tag, _random),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  # A mob's initial body and eye fluid samples, before its first travel tick.
+  def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
+
   ## Parity and benchmarks (dev, test and bench builds)
 
   def spawn_scene(_case, _biome, _types), do: :erlang.nif_error(:nif_not_loaded)
@@ -381,8 +385,6 @@ defmodule Valimc.Native do
   def physics_new_collision(_view, _old, _new, _context, _extra),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
   def physics_fluid_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
   def physics_any_liquid(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
   def physics_flow(_view, _position), do: :erlang.nif_error(:nif_not_loaded)
