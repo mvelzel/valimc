@@ -253,6 +253,17 @@ defmodule Valimc.World.Blocks do
   end
 
   @doc """
+  Sky and block light (`{sky, block}`) at a block of the region or its ring,
+  nil where its light does not know the chunk (VMC-043b).
+  """
+  def light(%__MODULE__{} = blocks, position) do
+    case Native.region_light(blocks.ref, [position]) do
+      {:ok, [light]} -> light
+      _ -> nil
+    end
+  end
+
+  @doc """
   A chunk's owned block-entity carriers (single chests, furnaces) and those
   without data (end portals) as `position => block`.
   """

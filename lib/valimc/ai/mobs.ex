@@ -117,6 +117,51 @@ defmodule Valimc.AI.Mobs do
     if exports?(module, name, length(args)), do: apply(module, name, args), else: default
   end
 
+  @doc """
+  A family's part of `doHurtTarget` after a melee hit of `target` (its
+  `hit/2`: an `{:attack_extra, ref, extras}` effect), else `self`.
+  """
+  def hit(%{type: type} = self, target) do
+    module = @family[type]
+    if exports?(module, :hit, 2), do: module.hit(self, target), else: self
+  end
+
+  @doc "`wantsToPickUp` of an item id (a family's `wants?/2`, else `canHoldItem`)."
+  def wants?(%{type: type} = self, item) do
+    module = @family[type]
+    if exports?(module, :wants?, 2), do: module.wants?(self, item), else: can_hold?(self, item)
+  end
+
+  @doc "`canHoldItem` of an item id (a family's `can_hold?/2`, else true)."
+  def can_hold?(%{type: type} = self, item) do
+    module = @family[type]
+    if exports?(module, :can_hold?, 2), do: module.can_hold?(self, item), else: true
+  end
+
+  @doc "`getPreferredWeaponType`: a set of item ids, or nil."
+  def preferred_weapons(type) do
+    module = @family[type]
+    if exports?(module, :preferred_weapons, 1), do: module.preferred_weapons(type)
+  end
+
+  @doc """
+  A family's part of the tick after the move (`after_move/3` of `body` at
+  `position` with the kernel's tick `ticked`): `{body, effects}`.
+  """
+  def after_move(%{type: type} = body, position, ticked) do
+    module = @family[type]
+
+    if exports?(module, :after_move, 3),
+      do: module.after_move(body, position, ticked),
+      else: {body, []}
+  end
+
+  @doc "The base of a mob's voice pitch (`getVoicePitch`): a family's `voice/2`, else 1.0."
+  def voice(type, data) do
+    module = @family[type]
+    if exports?(module, :voice, 2), do: module.voice(type, data), else: 1.0
+  end
+
   defp exports?(nil, _name, _arity), do: false
   defp exports?(module, name, arity), do: MapSet.member?(@exports[module], {name, arity})
 

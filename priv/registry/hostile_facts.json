@@ -68,6 +68,573 @@
       1061662228
     ]
   },
+  "equippable": {
+    "minecraft:black_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:black_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:blue_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:blue_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:brown_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:brown_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:carved_pumpkin": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:chainmail_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_chain"
+    ],
+    "minecraft:chainmail_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_chain"
+    ],
+    "minecraft:chainmail_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_chain"
+    ],
+    "minecraft:chainmail_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_chain"
+    ],
+    "minecraft:copper_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_copper"
+    ],
+    "minecraft:copper_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_copper"
+    ],
+    "minecraft:copper_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_copper"
+    ],
+    "minecraft:copper_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:copper_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_copper"
+    ],
+    "minecraft:copper_nautilus_armor": [
+      "body",
+      [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:item.armor.equip_nautilus"
+    ],
+    "minecraft:creeper_head": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:cyan_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:cyan_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:diamond_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_diamond"
+    ],
+    "minecraft:diamond_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_diamond"
+    ],
+    "minecraft:diamond_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_diamond"
+    ],
+    "minecraft:diamond_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:diamond_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_diamond"
+    ],
+    "minecraft:diamond_nautilus_armor": [
+      "body",
+      [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:item.armor.equip_nautilus"
+    ],
+    "minecraft:dragon_head": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:elytra": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_elytra"
+    ],
+    "minecraft:golden_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_gold"
+    ],
+    "minecraft:golden_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_gold"
+    ],
+    "minecraft:golden_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_gold"
+    ],
+    "minecraft:golden_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:golden_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_gold"
+    ],
+    "minecraft:golden_nautilus_armor": [
+      "body",
+      [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:item.armor.equip_nautilus"
+    ],
+    "minecraft:gray_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:gray_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:green_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:green_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:iron_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_iron"
+    ],
+    "minecraft:iron_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_iron"
+    ],
+    "minecraft:iron_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_iron"
+    ],
+    "minecraft:iron_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:iron_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_iron"
+    ],
+    "minecraft:iron_nautilus_armor": [
+      "body",
+      [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:item.armor.equip_nautilus"
+    ],
+    "minecraft:leather_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_leather"
+    ],
+    "minecraft:leather_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_leather"
+    ],
+    "minecraft:leather_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_leather"
+    ],
+    "minecraft:leather_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:leather_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_leather"
+    ],
+    "minecraft:light_blue_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:light_blue_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:light_gray_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:light_gray_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:lime_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:lime_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:magenta_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:magenta_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:netherite_boots": [
+      "feet",
+      null,
+      "minecraft:item.armor.equip_netherite"
+    ],
+    "minecraft:netherite_chestplate": [
+      "chest",
+      null,
+      "minecraft:item.armor.equip_netherite"
+    ],
+    "minecraft:netherite_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_netherite"
+    ],
+    "minecraft:netherite_horse_armor": [
+      "body",
+      [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "minecraft:entity.horse.armor"
+    ],
+    "minecraft:netherite_leggings": [
+      "legs",
+      null,
+      "minecraft:item.armor.equip_netherite"
+    ],
+    "minecraft:netherite_nautilus_armor": [
+      "body",
+      [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:item.armor.equip_nautilus"
+    ],
+    "minecraft:orange_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:orange_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:piglin_head": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:pink_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:pink_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:player_head": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:purple_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:purple_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:red_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:red_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:saddle": [
+      "saddle",
+      [
+        "minecraft:horse",
+        "minecraft:skeleton_horse",
+        "minecraft:zombie_horse",
+        "minecraft:donkey",
+        "minecraft:mule",
+        "minecraft:pig",
+        "minecraft:strider",
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "minecraft:entity.horse.saddle"
+    ],
+    "minecraft:shield": [
+      "offhand",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:skeleton_skull": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:turtle_helmet": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_turtle"
+    ],
+    "minecraft:white_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:white_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:wither_skeleton_skull": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ],
+    "minecraft:wolf_armor": [
+      "body",
+      [
+        "minecraft:wolf"
+      ],
+      "minecraft:item.armor.equip_wolf"
+    ],
+    "minecraft:yellow_carpet": [
+      "body",
+      [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "minecraft:entity.llama.swag"
+    ],
+    "minecraft:yellow_harness": [
+      "body",
+      [
+        "minecraft:happy_ghast"
+      ],
+      "minecraft:entity.happy_ghast.equip"
+    ],
+    "minecraft:zombie_head": [
+      "head",
+      null,
+      "minecraft:item.armor.equip_generic"
+    ]
+  },
+  "sounds": {
+    "minecraft:entity.happy_ghast.equip": 824,
+    "minecraft:entity.horse.armor": 857,
+    "minecraft:entity.horse.saddle": 871,
+    "minecraft:entity.llama.swag": 951,
+    "minecraft:item.armor.equip_chain": 67,
+    "minecraft:item.armor.equip_copper": 74,
+    "minecraft:item.armor.equip_diamond": 68,
+    "minecraft:item.armor.equip_elytra": 69,
+    "minecraft:item.armor.equip_generic": 70,
+    "minecraft:item.armor.equip_gold": 71,
+    "minecraft:item.armor.equip_iron": 72,
+    "minecraft:item.armor.equip_leather": 73,
+    "minecraft:item.armor.equip_nautilus": 79,
+    "minecraft:item.armor.equip_netherite": 75,
+    "minecraft:item.armor.equip_turtle": 76,
+    "minecraft:item.armor.equip_wolf": 77
+  },
   "monsters_burn": {
     "period": 24000,
     "keyframes": [

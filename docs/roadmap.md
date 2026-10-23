@@ -70,6 +70,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 |---|---|
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-043e1](tickets/VMC-043e1.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt, drops shells; a pearl's endermite chases and bites |
+| [VMC-043b1](tickets/VMC-043b1.md) | Zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 
 ## Retrieve and update
 

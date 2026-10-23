@@ -82,6 +82,10 @@ checked =
 
           {:ok, results} = Valimc.Native.physics_mobs(v, mobs, [], nil)
 
+          # `baseTick`'s burning comes before the move (VMC-043b), out of the
+          # lava the last move left.
+          bodies = Enum.map(bodies, &elem(MobVitals.base_tick("minecraft:zombie", &1), 0))
+
           next =
             for {{result, expected, body}, index} <-
                   Enum.with_index(Enum.zip([results, row, bodies])) do
@@ -142,6 +146,8 @@ checked =
                     "#{where}: fire ticks #{vital.mob.living.fire_ticks}, vanilla #{expected["fire"]}"
                   )
 
+              {_, lava} = t.depths
+              vital = put_in(vital.mob.motion.lava, lava)
               {m, put_in(vital.mob.living.health, body.mob.living.health)}
             end
 

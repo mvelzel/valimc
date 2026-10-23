@@ -158,6 +158,19 @@ defmodule Valimc.Player.Hurt do
               state
           end
 
+        # What the attacker's hit adds (VMC-043b: a husk's hunger).
+        state =
+          case hit[:effect] do
+            {id, rung} when result == :hurt ->
+              case Valimc.Player.Vitals.apply_effect(state, id, [rung]) do
+                {:ok, _, next} -> next
+                _ -> state
+              end
+
+            _ ->
+              state
+          end
+
         {if(fully, do: :blocked, else: result), state}
     end
   end

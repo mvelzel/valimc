@@ -1159,8 +1159,17 @@ defmodule Valimc.World.RegionData do
       mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
       state = start_paths(%{state | ai_random: world.random, mob_paths: mob_paths})
 
+      # A hit's extras (VMC-043b: a burning zombie's fire, a husk's hunger).
       attacks =
-        for step <- steps, {:attack, {:player, target}} <- step.effects, do: {step.id, target}
+        for step <- steps, {:attack, {:player, target}} <- step.effects do
+          extras =
+            Enum.find_value(step.effects, %{}, fn
+              {:attack_extra, {:player, ^target}, extras} -> extras
+              _ -> nil
+            end)
+
+          {step.id, target, extras}
+        end
 
       # Items a mob picked up (a piglin's gold, VMC-041a2) and drops it let go.
       pickups =
@@ -1185,6 +1194,9 @@ defmodule Valimc.World.RegionData do
         for step <- steps, {:spawn, type, opts} <- step.effects, do: {step.position, type, opts}
 
       jockeys = for step <- steps, {:jockey, uuid} <- step.effects, do: uuid
+
+      # Mobs that turned into another (a zombie drowning, VMC-043b).
+      conversions = for step <- steps, {:convert, to} <- step.effects, do: {step.id, to}
 
       # Mobs travel through portals (VMC-026d), standing in one too.
       {steps, state} = portal_contacts(state, steps)
@@ -1223,12 +1235,13 @@ defmodule Valimc.World.RegionData do
       if level_events != [], do: publish_level_events(state, level_events)
       state = if companions == [], do: state, else: mob_companions(state, companions)
       state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
+      state = if conversions == [], do: state, else: mob_conversions(state, conversions)
       state = if tramples == [], do: state, else: elem(rule_run(state, %{actions: tramples}), 0)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
-      for {id, target} <- attacks,
+      for {id, target, extras} <- attacks,
           %{entity: %{uuid: uuid}} <- [state.entities.store.entries[id]] do
-        mob_attack(state, uuid, target)
+        mob_attack(state, uuid, target, extras)
       end
 
       state
@@ -1389,6 +1402,33 @@ defmodule Valimc.World.RegionData do
 
   defp companion(body, _opts), do: body
 
+  # `Mob.convertTo`: the converted mob takes the old one's place (a new
+  # entity, as vanilla's), the old one is discarded.
+  defp mob_conversions(state, conversions) do
+    {difficulty, _} = Clock.difficulty()
+    level = elem({:peaceful, :easy, :normal, :hard}, difficulty.level)
+
+    special =
+      Valimc.Living.LocalDifficulty.special(
+        Valimc.Living.LocalDifficulty.at(level, Clock.day_ticks())
+      )
+
+    {store, records} =
+      Enum.reduce(conversions, {state.entities.store, []}, fn {id, to}, {store, records} ->
+        with %{kind: :mob, body: body, entity: e, revision: revision} <- store.entries[id],
+             {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
+          uuid = :crypto.strong_rand_bytes(16)
+          new = Valimc.AI.Mobs.Zombie.convert(body, uuid, to, special)
+          {next, [Store.body_record(new, uuid, {e.x, e.y, e.z}) | records]}
+        else
+          _ -> {store, records}
+        end
+      end)
+
+    state = publish_item_views(%{state | entities: %{state.entities | store: store}})
+    adopt_drops(state, Enum.reverse(records))
+  end
+
   # `setChickenJockey`: the chickens baby zombies chose to ride.
   defp mob_jockeys(state, uuids) do
     store =
@@ -1444,10 +1484,31 @@ defmodule Valimc.World.RegionData do
             alive: true
           }
 
+    day = Clock.day_ticks()
+    name = Valimc.World.Dimension.name(state.dimension)
+    overworld = state.dimension == :overworld
+
+    %{rain_level: rain, thunder_level: thunder} =
+      if overworld, do: Clock.weather(), else: %{rain_level: 0.0, thunder_level: 0.0}
+
+    {zoom_seed, _} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), state.dimension)
+    blocks = state.blocks
+
     %Valimc.AI.World{
       read: &Valimc.World.View.block(view, &1),
       find: &find_blocks(view, &1, &2),
       time: state.game_tick || 0,
+      # What hostiles read (VMC-043b): the day, light, rain and biomes.
+      day: day,
+      light: &Valimc.World.Blocks.light(blocks, &1),
+      darken:
+        Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)),
+      monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
+      rain: fn position, top ->
+        match?({:ok, true}, Valimc.World.RainQuery.sample(position, top, view))
+      end,
+      biome: &Valimc.World.Blocks.biome(blocks, zoom_seed, &1),
+      halloween: Valimc.AI.Spawn.halloween?(local_date()),
       players: state.player_sensed,
       items: items,
       random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656)),
@@ -1457,6 +1518,12 @@ defmodule Valimc.World.RegionData do
       sea_level: Valimc.World.Dimension.sea_level(state.dimension),
       border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
     }
+  end
+
+  # Vanilla's `LocalDate.now()`: the host's own date.
+  defp local_date do
+    {{year, month, day}, _} = :calendar.local_time()
+    Date.new!(year, month, day)
   end
 
   defp find_blocks(view, {x0, y0, z0, x1, y1, z1}, states) do
@@ -3262,12 +3329,12 @@ defmodule Valimc.World.RegionData do
   in this group, which runs its hurt (`Player.Hurt`). `:ok` or `{:error,
   reason}`.
   """
-  def mob_attack(state, uuid, target) do
+  def mob_attack(state, uuid, target, extras \\ %{}) do
     store = state.entities.store
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
          {:ok, hit} <- Valimc.Entity.Combat.mob_hit(store, id, "minecraft:player") do
-      send(self(), {:player, target, {:hurt, hit}})
+      send(self(), {:player, target, {:hurt, Map.merge(hit, extras)}})
       :ok
     end
   end
@@ -3348,6 +3415,9 @@ defmodule Valimc.World.RegionData do
       else
         _ -> []
       end
+
+    # Its equipment as it fell (`dropCustomDeathLoot`, VMC-043b).
+    stacks = if drops, do: stacks ++ Map.get(death, :equipment, []), else: stacks
 
     items =
       for stack <- stacks do

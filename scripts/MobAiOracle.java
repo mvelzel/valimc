@@ -181,6 +181,11 @@ public class MobAiOracle {
     // The mob ticking: what it adds to the level and its level events are its own.
     Entity current;
     Probe() { super(null,null,null,null,null,null,false,0L,List.of(),false); }
+    // A family oracle's probe prepares the mobs of a scene (equipment, flags),
+    // records more of each per tick and describes the scene (VMC-043b).
+    void prepare(net.minecraft.world.entity.Mob m, int index) {}
+    void record(net.minecraft.world.entity.Mob m, JsonObject row) throws Exception {}
+    void scene(JsonObject out) {}
     public RegistryAccess registryAccess() { return access; }
     public BlockState getBlockState(BlockPos p) { return blocks.getOrDefault(p, Blocks.AIR.defaultBlockState()); }
     public FluidState getFluidState(BlockPos p) { return getBlockState(p).getFluidState(); }
@@ -309,6 +314,18 @@ public class MobAiOracle {
       hits.add(o);
       return true;
     }
+    // What a hit adds goes with it (VMC-043b: a burning zombie's fire, a husk's hunger).
+    public boolean addEffect(net.minecraft.world.effect.MobEffectInstance effect, Entity source) {
+      if (!hits.isEmpty()) {
+        var o = hits.get(hits.size() - 1);
+        o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
+        o.addProperty("duration", effect.getDuration());
+      }
+      return true;
+    }
+    public void igniteForTicks(int ticks) {
+      if (!hits.isEmpty()) hits.get(hits.size() - 1).addProperty("ignite", ticks);
+    }
   }
 
   /**
@@ -329,6 +346,17 @@ public class MobAiOracle {
       o.addProperty("by", source.getEntity() == null ? -1 : source.getEntity().getId());
       hits.add(o);
       return true;
+    }
+    public boolean addEffect(net.minecraft.world.effect.MobEffectInstance effect, Entity source) {
+      if (!hits.isEmpty()) {
+        var o = hits.get(hits.size() - 1);
+        o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
+        o.addProperty("duration", effect.getDuration());
+      }
+      return true;
+    }
+    public void igniteForTicks(int ticks) {
+      if (!hits.isEmpty()) hits.get(hits.size() - 1).addProperty("ignite", ticks);
     }
   }
 
@@ -655,6 +683,7 @@ public class MobAiOracle {
       }
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
+      level.prepare(m, mobs.size());
       mobs.add(m); level.entities.add(m);
     }
     var goalSelector = field(net.minecraft.world.entity.Mob.class, "goalSelector");
@@ -741,6 +770,7 @@ public class MobAiOracle {
         r.add("hits", hitsOut);
         var sounds = new JsonArray(); level.sounds.getOrDefault(m, List.of()).forEach(sounds::add);
         r.add("sounds", sounds);
+        level.record(m, r);
         row.add(r);
       }
       for (var f : fighters) f.hits.clear();
@@ -773,6 +803,7 @@ public class MobAiOracle {
     out.add("gates", gates);
     out.add("sensors", sensorTimes);
     out.add("ticks", trace);
+    level.scene(out);
     return out;
   }
 
@@ -1023,6 +1054,11 @@ public class MobAiOracle {
 
   /** The probe level every case runs in, its registries and tags bound (also NetherMobOracle's). */
   static Probe setup() throws Exception {
+    return setup(Probe.class);
+  }
+
+  /** A probe level of class `kind` (a family oracle's subclass), set up as `setup()` does. */
+  static <P extends Probe> P setup(Class<P> kind) throws Exception {
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
     var lookup = VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p -> p.apply());
@@ -1044,7 +1080,7 @@ public class MobAiOracle {
       loot = withLoot(lookup, resources);
     }
     var access = new RegistryAccess.ImmutableRegistryAccess(registries).freeze();
-    var level = probe(lookup, access, null);
+    var level = probe(kind, lookup, access, null);
     level.sources = new DamageSources(access);
     level.server.registries = new net.minecraft.server.ReloadableServerRegistries.Holder(loot);
     level.server.level = level;

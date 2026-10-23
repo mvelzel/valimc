@@ -200,6 +200,55 @@ kind_data = fn
     %{}
 end
 
+# How a family's scene prepares a mob (VMC-043b): equipment, a baby, loot
+# pickup, fire.
+prepare = fn
+  body, nil ->
+    body
+
+  body, p ->
+    equipment =
+      Map.new(p["equipment"], fn {slot, item} ->
+        {String.to_existing_atom(slot), Valimc.Protocol.ItemStack.new(item)}
+      end)
+
+    mob = %{body.mob | equipment: Map.merge(body.mob.equipment, equipment)}
+    mob = %{mob | can_pick_up_loot: p["loot"], living: %{mob.living | fire_ticks: p["fire"]}}
+    body = %{body | mob: mob}
+
+    if p["baby"] do
+      self = %Valimc.AI.Self{type: body.type, mob: body.mob, mind: body.mob.ai, data: body.data}
+      self = Valimc.AI.Mobs.Zombie.set_baby(self, true)
+      %{body | mob: self.mob, data: self.data}
+    else
+      body
+    end
+end
+
+# A family's extra fields of a mob's tick: fire, health, equipment (item,
+# wear, drop chance), its type and whether it converts or was removed.
+extras = fn body, step ->
+  equipment =
+    for {slot, stack} <- body.mob.equipment, into: %{} do
+      {Atom.to_string(slot),
+       [
+         Valimc.Protocol.ItemTypes.item(stack.item_id)["name"],
+         Map.get(stack.components, "minecraft:damage", 0),
+         bits.(Valimc.Entity.Mob.drop_chance(body.mob, slot))
+       ]}
+    end
+
+  %{
+    "type" => body.type,
+    "removed" => Enum.any?(step.effects, &match?({:convert, _}, &1)),
+    "fire" => body.mob.living.fire_ticks,
+    "health" => bits.(body.mob.living.health.value),
+    "equipment" => equipment,
+    "can_pick_up_loot" => body.mob.can_pick_up_loot,
+    "converting" => Map.get(body.data, :converting)
+  }
+end
+
 checked =
   for c <- cases, reduce: 0 do
     count ->
@@ -240,6 +289,30 @@ checked =
         difficulty: :normal
       }
 
+      # A family's lit scene (VMC-043b, HostileOracle): full sky light above
+      # each column's top block, never darkened; by day monsters burn. Hits
+      # read the probe's local difficulty.
+      world =
+        case c["day"] do
+          nil ->
+            world
+
+          day ->
+            tops =
+              Enum.reduce(c["blocks"], %{}, fn [x, y, z, _], acc ->
+                Map.update(acc, {x, z}, y, &max(&1, y))
+              end)
+
+            %{
+              world
+              | light: fn {x, y, z} ->
+                  {if(y > Map.get(tops, {x, z}, -65), do: 15, else: 0), 0}
+                end,
+                monsters_burn: day,
+                local: Valimc.Living.LocalDifficulty.new(:normal, 0, 0, 0.0)
+            }
+        end
+
       entries =
         for {m, i} <- Enum.with_index(c["mobs"]) do
           yaw = float.(m["yaw"])
@@ -257,6 +330,7 @@ checked =
           }
 
           body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind}}
+          body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
         end
 
@@ -350,8 +424,23 @@ checked =
                     nil
                 end
 
+              # A hit with what it adds (VMC-043b: fire, an effect).
               hits =
-                for {:attack, {:player, <<_::64, n::64>>}} <- step.effects, do: n
+                for {:attack, {:player, <<_::64, n::64>> = uuid}} <- step.effects do
+                  extras =
+                    Enum.find_value(step.effects, %{}, fn
+                      {:attack_extra, {:player, ^uuid}, extras} -> extras
+                      _ -> nil
+                    end)
+
+                  case extras do
+                    %{effect: {effect, {duration, _, _, _, _}}} ->
+                      {n, Valimc.Data.EffectTypes.name(effect), duration, extras[:ignite]}
+
+                    _ ->
+                      {n, nil, nil, extras[:ignite]}
+                  end
+                end
 
               sounds =
                 for event <- Map.get(hurt_events, id, []) ++ step.events,
@@ -367,7 +456,11 @@ checked =
                     do: {s["sound"], s["volume"], s["pitch"]}
 
               want_swings = for s <- expected["sounds"], s["swing"] != nil, do: s["swing"]
-              want_hits = for h <- expected["hits"], do: h["player"]
+
+              want_hits =
+                for h <- expected["hits"],
+                    do: {h["player"], h["effect"], h["duration"], h["ignite"]}
+
               takes = for {:pickup, _, n} <- step.effects, do: n
               want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
 
@@ -385,6 +478,18 @@ checked =
                     added = added.(effect),
                     added != nil,
                     do: added
+
+              # A converted mob is a new one where the old one was (VMC-043b).
+              adds =
+                adds ++
+                  for {:convert, type} <- step.effects,
+                      do: [
+                        type,
+                        Enum.map(Tuple.to_list(step.position), hex),
+                        Enum.map(Tuple.to_list(body.velocity), hex),
+                        bits.(body.yaw),
+                        bits.(body.pitch)
+                      ]
 
               want_adds =
                 for s <- expected["sounds"], s["add"] != nil do
@@ -479,6 +584,16 @@ checked =
                       gate_seeds: expected["gate_seeds"]
                     }),
                   else: want
+
+              {got, want} =
+                if expected["fire"] != nil do
+                  ours = extras.(body, step)
+
+                  {Map.merge(got, Map.new(ours, fn {k, v} -> {String.to_atom(k), v} end)),
+                   Map.merge(want, Map.new(Map.keys(ours), &{String.to_atom(&1), expected[&1]}))}
+                else
+                  {got, want}
+                end
 
               differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
 

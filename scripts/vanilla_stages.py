@@ -1113,6 +1113,10 @@ STAGES = [
         ('java', 'ShulkerBulletOracle', '@shulker-bullets.json'),
         ('check', 'check_shulker_bullets.exs', '@shulker-bullets.json'),
     ]),
+    ('hostile_ai', [
+        ('java', 'HostileOracle', 'cases', '@hostile-ai.json'),
+        ('check', 'check_mob_ai.exs', '@hostile-ai.json', '7'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

@@ -347,7 +347,7 @@ defmodule Valimc.AI do
   def make_sound(self, nil), do: self
 
   def make_sound(%Self{facts: facts} = self, name) do
-    {pitch, random} = Random.voice_pitch(self.mind.random)
+    {pitch, random} = Random.voice_pitch(self.mind.random, Mobs.voice(self.type, self.data))
     self = Self.mind(self, &%{&1 | random: random})
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
 
@@ -449,9 +449,15 @@ defmodule Valimc.AI do
         world: world
       }
 
-      # A family's `aiStep` after its super, the body control, its `tick`
-      # after its super (`Valimc.AI.Kind`).
-      self = self |> hook(:after_ai) |> Look.body({e.x, e.z}) |> hook(:after_tick)
+      # A family's `aiStep` after its super with `Mob.aiStep`'s looting
+      # (VMC-043b), the body control, its `tick` after its super
+      # (`Valimc.AI.Kind`).
+      self =
+        self
+        |> hook(:after_ai)
+        |> Valimc.AI.Pickup.tick()
+        |> Look.body({e.x, e.z})
+        |> hook(:after_tick)
 
       # Growing up or toward breeding again, and love running out (its heart
       # particles' draws are VMC-043c's, with breeding).
@@ -508,8 +514,8 @@ defmodule Valimc.AI do
   whether the hurt sound resets the ambient timer (`Mob.playHurtSound`):
   `{pitch, mind}`; a mob without a mind draws from the owner's random.
   """
-  def voice(%Mind{random: random} = mind, interval) do
-    {pitch, random} = Random.voice_pitch(random)
+  def voice(%Mind{random: random} = mind, interval, base \\ 1.0) do
+    {pitch, random} = Random.voice_pitch(random, base)
     mind = %{mind | random: random}
     {pitch, if(interval, do: %{mind | ambient: -interval}, else: mind)}
   end

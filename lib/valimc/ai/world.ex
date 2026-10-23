@@ -52,6 +52,10 @@ defmodule Valimc.AI.World do
             day: 0,
             biome: nil,
             halloween: false,
+            # Rain at a body's feet and head (`fn position, top -> bool`, nil:
+            # none) and whether the day burns monsters now.
+            rain: nil,
+            monsters_burn: false,
             # A local difficulty that holds everywhere (oracles), else nil.
             local: nil,
             # Seeds for the loot tables mobs roll (a piglin's barter, VMC-043d):

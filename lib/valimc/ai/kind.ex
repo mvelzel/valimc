@@ -31,6 +31,11 @@ defmodule Valimc.AI.Kind do
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `ignores?/2` (a
     hit it takes nothing from), `sound/2` (its hurt or death sound, nil for
     its type's) and `hurt/2` (what a hurt leaves on its body).
+  - Its fights and gear (VMC-043b): `hit/2` (what its `doHurtTarget` adds
+    to a melee hit), `wants?/2` and `can_hold?/2` (an item id it picks up,
+    `Valimc.AI.Pickup`), `preferred_weapons/1`, `voice/2` (the base of its
+    voice pitch) and `after_move/3` (its part of the tick after the kernel
+    moved it, `{body, effects}`: a zombie drowning).
   """
   alias Valimc.AI.Self
 
@@ -57,6 +62,12 @@ defmodule Valimc.AI.Kind do
   @callback ignores?(struct, map) :: boolean
   @callback sound(struct, String.t()) :: String.t() | nil
   @callback hurt(struct, map) :: struct
+  @callback hit(Self.t(), map) :: Self.t()
+  @callback wants?(Self.t(), integer) :: boolean
+  @callback can_hold?(Self.t(), integer) :: boolean
+  @callback preferred_weapons(String.t()) :: MapSet.t() | nil
+  @callback voice(String.t(), map) :: float
+  @callback after_move(struct, tuple, map) :: {struct, list}
 
   @optional_callbacks navigation: 0,
                       brain: 0,
@@ -78,5 +89,11 @@ defmodule Valimc.AI.Kind do
                       turns_body?: 0,
                       ignores?: 2,
                       sound: 2,
-                      hurt: 2
+                      hurt: 2,
+                      hit: 2,
+                      wants?: 2,
+                      can_hold?: 2,
+                      preferred_weapons: 1,
+                      voice: 2,
+                      after_move: 3
 end

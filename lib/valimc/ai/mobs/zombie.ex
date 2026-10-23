@@ -29,17 +29,21 @@ defmodule Valimc.AI.Mobs.Zombie do
   @zombie "minecraft:zombie"
   @husk "minecraft:husk"
   @villager "minecraft:zombie_villager"
-  @types [@zombie, @husk, @villager]
+  # Drowned keep a zombie's data; their own goals are VMC-043b2's.
+  @drowned "minecraft:drowned"
+  @types [@zombie, @husk, @villager, @drowned]
   # `Zombie.class` and its subclasses but zombified piglins (`setAlertOthers`).
   @alert %{
     @zombie => [@zombie, @husk, "minecraft:drowned", @villager],
     @husk => [@husk],
-    @villager => [@villager]
+    @villager => [@villager],
+    @drowned => [@drowned]
   }
   @villagers ["minecraft:villager", "minecraft:wandering_trader"]
   @turtle_eggs Enum.to_list(Valimc.Data.Blocks.states("turtle_egg"))
 
   @baby_speed {"minecraft:baby", 0.5, 1}
+  @hunger Valimc.Data.EffectTypes.id("hunger")
 
   def types, do: @types
 
@@ -126,8 +130,154 @@ defmodule Valimc.AI.Mobs.Zombie do
   def dimensions(%{type: type, data: %{baby: true}}), do: HostileFacts.baby(type)
   def dimensions(_body), do: nil
 
+  @doc "A baby's higher voice (`getVoicePitch`; a baby zombie villager's higher still)."
+  def voice(@villager, %{baby: true}), do: 2.0
+  def voice(_type, %{baby: true}), do: 1.5
+  def voice(_type, _data), do: 1.0
+
   @doc "Whether the body is a baby (`isBaby`)."
   def baby?(%{data: %{baby: baby}}), do: baby
+
+  ## Drowning
+
+  # `convertsInWater` and `convertsToWhenDrowning` with the conversion's
+  # level event (`getConversionSound`).
+  @converts %{@zombie => {"minecraft:drowned", 1040}, @husk => {@zombie, 1041}}
+
+  @doc """
+  `Zombie.tick`'s drowning tracker (`ConversionTracker`), after the move:
+  with its eyes in water for 600 ticks a zombie starts converting, 300 ticks
+  later it becomes a drowned (a husk a zombie): a `{:convert, type}` effect
+  and the conversion's level event. Out of water it starts over.
+  """
+  def after_move(%{type: type, mob: mob, data: data} = body, {x, y, z}, ticked)
+      when is_map_key(@converts, type) do
+    if Mob.alive?(mob) and not mob.no_ai do
+      if Valimc.Living.Air.submerged?(ticked.eye_water, ticked.eye_state) do
+        if data.converting do
+          conversion = data.conversion - 1
+
+          if conversion < 0 do
+            {to, event} = @converts[type]
+            cell = {floor(x), floor(y), floor(z)}
+
+            {%{body | data: %{data | conversion: conversion}},
+             [{:convert, to}, {:level_event, cell, event, 0}]}
+          else
+            {%{body | data: %{data | conversion: conversion}}, []}
+          end
+        else
+          in_water = data.in_water + 1
+
+          data =
+            if in_water >= 600,
+              do: %{data | in_water: in_water, converting: true, conversion: 300},
+              else: %{data | in_water: in_water}
+
+          {%{body | data: data}, []}
+        end
+      else
+        {%{body | data: %{data | in_water: -1, converting: false}}, []}
+      end
+    else
+      {body, []}
+    end
+  end
+
+  def after_move(body, _position, _ticked), do: {body, []}
+
+  @doc """
+  The mob a converting `body` becomes (`Mob.convertTo` with
+  `ConversionParams.single(keepEquipment, preserveCanPickUpLoot)`): a fresh
+  `to` with `uuid` that keeps its rotation, motion, equipment and drop
+  chances, effects, absorption, hurt time, the player that hurt it, baby
+  flag, loot pickup, handedness, persistence and name; then the zombie's
+  attributes drawn from its own random at the `special` multiplier
+  (`handleAttributes` for a conversion).
+  """
+  def convert(%Valimc.Entity.Body{} = body, uuid, to, special) do
+    {:ok, new} = Valimc.Entity.Body.new(to)
+    mob = body.mob
+    living = mob.living
+
+    fresh = %{
+      new.mob
+      | equipment: mob.equipment,
+        drop_chances: mob.drop_chances,
+        motion: %{new.mob.motion | fall_distance: mob.motion.fall_distance},
+        player_memory: mob.player_memory,
+        hurt_by_player: mob.hurt_by_player,
+        living: %{
+          new.mob.living
+          | effects: living.effects,
+            absorption: living.absorption,
+            health: %{new.mob.living.health | hurt_ticks: living.health.hurt_ticks}
+        },
+        can_pick_up_loot: mob.can_pick_up_loot,
+        left_handed: mob.left_handed,
+        no_ai: mob.no_ai,
+        persistent: mob.persistent
+    }
+
+    new = %{
+      new
+      | yaw: body.yaw,
+        pitch: body.pitch,
+        head_yaw: body.head_yaw,
+        velocity: body.velocity,
+        on_ground: body.on_ground,
+        no_gravity: body.no_gravity,
+        custom_name: body.custom_name,
+        portal_cooldown: body.portal_cooldown,
+        mob: fresh
+    }
+
+    mind = Valimc.AI.mind(to, uuid, nil)
+    self = %Self{type: to, uuid: uuid, mob: new.mob, mind: mind, data: new.data}
+    self = if baby?(body), do: set_baby(self, true), else: self
+    self = handle_attributes(self, special, :conversion)
+    %{new | data: self.data, mob: %{self.mob | ai: self.mind}}
+  end
+
+  ## Loot
+
+  @glow_ink Valimc.Protocol.ItemTypes.id("glow_ink_sac")
+
+  @doc "`Zombie.wantsToPickUp`: anything it can hold but glow ink sacs."
+  def wants?(_self, item), do: item != @glow_ink
+
+  ## Hits
+
+  @doc """
+  `Zombie.doHurtTarget` after the hit: a burning bare-handed zombie sets the
+  target alight for twice the local difficulty's seconds by a chance that
+  grows with it; a bare-handed husk then makes it hungry (`Husk`). The hit
+  is taken as landed.
+  """
+  def hit(%Self{mob: mob} = self, target) do
+    difficulty = Valimc.Living.LocalDifficulty.effective(Spawn.local(self))
+    bare = mob.equipment[:mainhand] == nil
+
+    {extras, self} =
+      if bare and mob.living.fire_ticks > 0 do
+        {f, self} = Self.float(self)
+
+        if f < Float32.round(difficulty * Float32.round(0.3)),
+          do: {%{ignite: 2 * trunc(difficulty) * 20}, self},
+          else: {%{}, self}
+      else
+        {%{}, self}
+      end
+
+    extras =
+      if self.type == @husk and bare,
+        do: Map.put(extras, :effect, {@hunger, {140 * trunc(difficulty), 0, false, true, true}}),
+        else: extras
+
+    if extras == %{},
+      do: self,
+      else: Self.effect(self, {:attack_extra, World.ref(target), extras})
+  end
 
   ## Spawning
 

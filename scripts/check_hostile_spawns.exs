@@ -196,6 +196,51 @@ checked =
         mob_seed: c["mob_seed_after"]
       }
 
+      # Then a death by a player (Looting or not) or by none: what equipment
+      # drops, worn, and the mob's random after (`dropCustomDeathLoot`).
+      d = c["death"]
+      sword = Valimc.Protocol.ItemStack.new("iron_sword")
+
+      sword =
+        if d["looting"] > 0,
+          do: %{
+            sword
+            | components: %{"minecraft:enchantments" => %{"minecraft:looting" => d["looting"]}}
+          },
+          else: sword
+
+      dead = %Body{
+        body
+        | mob: %{mob | ai: self.mind, player_memory: if(d["by_player"], do: 100, else: 0)},
+          data: self.data
+      }
+
+      {dead, drops} =
+        Valimc.Entity.Combat.drop_equipment(dead, %{
+          attacker: %{
+            player: true,
+            mainhand: sword,
+            uuid: <<2::128>>,
+            entity_id: 2,
+            type: "minecraft:player"
+          }
+        })
+
+      got =
+        Map.merge(got, %{
+          drops:
+            for(
+              s <- drops,
+              do: [
+                Valimc.Protocol.ItemTypes.item(s.item_id)["name"],
+                Map.get(s.components, "minecraft:damage", 0)
+              ]
+            ),
+          death_seed: dead.mob.ai.random
+        })
+
+      want = Map.merge(want, %{drops: d["drops"], death_seed: d["mob_seed_after"]})
+
       differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
 
       unless differ == [] do
@@ -209,5 +254,5 @@ checked =
   end
 
 IO.puts(
-  "PASS: #{checked} finalizeSpawn results equal vanilla's (equipment, enchantments, flags, attributes, jockeys, randoms)"
+  "PASS: #{checked} finalizeSpawn results equal vanilla's (equipment, enchantments, flags, attributes, jockeys, randoms, equipment dropped on death)"
 )

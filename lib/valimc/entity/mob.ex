@@ -237,6 +237,13 @@ defmodule Valimc.Entity.Mob do
     end
   end
 
+  @doc """
+  Whether a hurt of `source` gets past `hurtServer`'s first checks (alive,
+  not immune) so that it restarts the mob's idle time even when its damage
+  cooldown then turns it away (VMC-043b).
+  """
+  def stirs?(%__MODULE__{} = mob, type, source), do: alive?(mob) and not immune?(type, source)
+
   # `isInvulnerableToBase`: fire for fire-immune types, falls for immune ones.
   defp immune?(type, source),
     do:

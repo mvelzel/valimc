@@ -33,7 +33,11 @@ import net.minecraft.world.phys.Vec3;
  * over seeded level and mob randoms, at each difficulty and local difficulty,
  * spawn reason and with or without a chicken nearby: their equipment with its
  * enchantments, drop chances, flags, attribute modifiers, health, villager
- * data, the jockey they made and both randoms after.
+ * data, the jockey they made and both randoms after. `cases OUT` ticks whole
+ * vanilla mobs of the families in scenes (`MobAiOracle.run`) by night or by
+ * day, with a scene light (full sky light above each column's top block),
+ * the mobs prepared (equipment, babies, loot pickup, fire): each tick also
+ * their fire, health, worn and held items and what their hits add.
  */
 public class HostileOracle {
   static final List<String> FAMILY = List.of("minecraft:zombie", "minecraft:husk", "minecraft:zombie_villager",
@@ -57,6 +61,128 @@ public class HostileOracle {
     public boolean addFreshEntity(Entity e) { spawned.add(e); return true; }
     public void addFreshEntityWithPassengers(Entity e) { e.getSelfAndPassengers().forEach(spawned::add); }
     public boolean tryAddFreshEntityWithPassengers(Entity e) { addFreshEntityWithPassengers(e); return true; }
+  }
+
+  /** How a scene's mob starts: its equipment by slot, a baby, loot pickup, fire ticks. */
+  record Prep(int index, Map<String, String> equipment, boolean baby, boolean loot, int fire) {}
+
+  /** The probe by night or day, lit from the sky above each column's top block. */
+  static class Day extends MobAiOracle.Probe {
+    boolean day;
+    List<Prep> preps = List.of();
+    Day() { }
+    int sky(BlockPos p) {
+      for (var b : blocks.keySet()) if (b.getX() == p.getX() && b.getZ() == p.getZ() && b.getY() >= p.getY()) return 0;
+      return 15;
+    }
+    public boolean hasChunk(int x, int z) { return true; }
+    public int getBrightness(net.minecraft.world.level.LightLayer layer, BlockPos p) { return layer == net.minecraft.world.level.LightLayer.SKY ? sky(p) : 0; }
+    public int getRawBrightness(BlockPos p, int darken) { return Math.max(sky(p) - darken, 0); }
+    public float getLightLevelDependentMagicValue(BlockPos p) { float v = getRawBrightness(p, 0) / 15.0F; return v / (4.0F - 3.0F * v); }
+    public boolean canSeeSky(BlockPos p) { return sky(p) >= 15; }
+    public boolean isBrightOutside() { return day; }
+    // A converted mob is discarded, which untracks it as a waypoint.
+    net.minecraft.server.waypoints.ServerWaypointManager waypoints;
+    public net.minecraft.server.waypoints.ServerWaypointManager getWaypointManager() {
+      if (waypoints == null) waypoints = new net.minecraft.server.waypoints.ServerWaypointManager();
+      return waypoints;
+    }
+    void prepare(Mob m, int index) {
+      for (var p : preps) if (p.index == index) {
+        p.equipment.forEach((slot, item) -> m.setItemSlot(EquipmentSlot.byName(slot), new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(item)))));
+        if (p.baby) m.setBaby(true);
+        if (p.loot) m.setCanPickUpLoot(true);
+        if (p.fire > 0) m.setRemainingFireTicks(p.fire);
+      }
+    }
+    void record(Mob m, JsonObject r) {
+      r.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString());
+      r.addProperty("removed", m.isRemoved());
+      r.addProperty("fire", m.getRemainingFireTicks());
+      r.addProperty("health", Float.floatToRawIntBits(m.getHealth()));
+      var items = new JsonObject();
+      for (var slot : EquipmentSlot.VALUES) {
+        var stack = m.getItemBySlot(slot);
+        if (stack.isEmpty()) continue;
+        var row = new JsonArray(); row.add(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString()); row.add(stack.getDamageValue());
+        row.add(Float.floatToRawIntBits(m.getDropChances().byEquipment(slot)));
+        items.add(slot.getName(), row);
+      }
+      r.add("equipment", items);
+      r.addProperty("can_pick_up_loot", m.canPickUpLoot());
+      if (m instanceof net.minecraft.world.entity.monster.zombie.Zombie z) r.addProperty("converting", z.isUnderWaterConverting());
+    }
+    void scene(JsonObject out) {
+      out.addProperty("day", day);
+      var ps = new JsonArray();
+      for (var p : preps) {
+        var o = new JsonObject(); o.addProperty("index", p.index);
+        var e = new JsonObject(); p.equipment.forEach(e::addProperty); o.add("equipment", e);
+        o.addProperty("baby", p.baby); o.addProperty("loot", p.loot); o.addProperty("fire", p.fire); ps.add(o);
+      }
+      out.add("prepare", ps);
+    }
+  }
+
+  static JsonObject run(Day level, String name, boolean day, List<Prep> preps, List<MobAiOracle.Block> blocks, List<MobAiOracle.Spawn> spawns,
+      List<MobAiOracle.Stand> stands, List<MobAiOracle.Hit> hits, List<MobAiOracle.Drop> drops, int ticks) throws Exception {
+    level.day = day;
+    level.preps = preps;
+    var env = net.minecraft.world.attribute.EnvironmentAttributeSystem.builder();
+    if (day) env.addConstantLayer(net.minecraft.world.attribute.EnvironmentAttributes.MONSTERS_BURN, v -> true);
+    level.env = env.build();
+    return MobAiOracle.run(level, name, blocks, spawns, stands, hits, drops, ticks);
+  }
+
+  static JsonObject cases(Day level) throws Exception {
+    var stone = Blocks.STONE.defaultBlockState();
+    var water = Blocks.WATER.defaultBlockState();
+    var floor = MobAiOracle.floor(63, 12, stone);
+    var cases = new JsonArray();
+    var none = List.<MobAiOracle.Hit>of();
+    var noDrops = List.<MobAiOracle.Drop>of();
+    // A baby zombie chases a player, faster and smaller.
+    cases.add(run(level, "baby_zombie_chase", false, List.of(new Prep(0, Map.of(), true, false, 0)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:zombie", new Vec3(.5, 64, .5), 0, 73L)),
+        List.of(new MobAiOracle.Stand(new Vec3(8.5, 64, 4.5), "survival", null)), none, noDrops, 200));
+    // By day: one zombie burns in the open, one wears a helmet that wears down,
+    // one stands under a roof; a husk never burns.
+    var shade = new ArrayList<>(floor);
+    shade.addAll(MobAiOracle.box(-10, 67, -10, -6, 67, -6, stone));
+    cases.add(run(level, "zombie_daylight", true, List.of(new Prep(1, Map.of("head", "minecraft:iron_helmet"), false, false, 0)), shade,
+        List.of(new MobAiOracle.Spawn("minecraft:zombie", new Vec3(.5, 64, .5), 0, 79L),
+            new MobAiOracle.Spawn("minecraft:zombie", new Vec3(6.5, 64, -6.5), 90, 83L),
+            new MobAiOracle.Spawn("minecraft:zombie", new Vec3(-7.5, 64, -7.5), 180, 89L),
+            new MobAiOracle.Spawn("minecraft:husk", new Vec3(7.5, 64, 7.5), 270, 97L)),
+        List.of(), none, noDrops, 300));
+    // A husk's hits make the player hungry; a burning zombie's may set it alight.
+    cases.add(run(level, "husk_hunger", true, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:husk", new Vec3(.5, 64, .5), 0, 101L)),
+        List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, 2.5), "survival", null)), none, noDrops, 160));
+    cases.add(run(level, "zombie_fire_hit", false, List.of(new Prep(0, Map.of(), false, false, 2000)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:zombie", new Vec3(.5, 64, .5), 0, 103L)),
+        List.of(new MobAiOracle.Stand(new Vec3(2.5, 64, 1.5), "survival", null)), none, noDrops, 200));
+    // A zombie villager chases like a zombie.
+    cases.add(run(level, "zombie_villager_chase", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:zombie_villager", new Vec3(.5, 64, .5), 0, 107L)),
+        List.of(new MobAiOracle.Stand(new Vec3(-6.5, 64, 5.5), "survival", null)), none, noDrops, 200));
+    // One that picks up loot takes a sword and a helmet lying beside it.
+    cases.add(run(level, "zombie_pickup", false, List.of(new Prep(0, Map.of(), false, true, 0)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:zombie", new Vec3(.5, 64, .5), 0, 109L)),
+        List.of(), none, List.of(new MobAiOracle.Drop(new Vec3(1.2, 64, .5), "minecraft:iron_sword", 1),
+            new MobAiOracle.Drop(new Vec3(.5, 64, 1.3), "minecraft:golden_helmet", 1)), 40));
+    // A husk under water turns into a zombie (as a zombie into a drowned): 600
+    // ticks, then 300 more. (The probe's zombie never converts.)
+    var pool = new ArrayList<>(floor);
+    pool.addAll(MobAiOracle.box(-3, 63, -3, 3, 63, 3, Blocks.AIR.defaultBlockState()));
+    pool.addAll(MobAiOracle.box(-3, 60, -3, 3, 60, 3, stone));
+    pool.addAll(MobAiOracle.box(-3, 61, -3, 3, 64, 3, water));
+    cases.add(run(level, "husk_drowning", false, List.of(), MobAiOracle.scene(pool),
+        List.of(new MobAiOracle.Spawn("minecraft:husk", new Vec3(.5, 61, .5), 0, 113L)),
+        List.of(), none, noDrops, 901));
+    var out = new JsonObject(); out.addProperty("version", "26.3");
+    out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
+    return out;
   }
 
   static String bits(double d) { return MobAiOracle.bits(d); }
@@ -102,6 +228,25 @@ public class HostileOracle {
       row.add(Float.floatToRawIntBits(d.eyeHeight())); babies.add(type, row);
     }
     out.add("babies", babies);
+    // The slot each equippable item goes to and the types that may wear it
+    // (null: any), as a mob picking up loot reads them.
+    var equippable = new JsonObject();
+    BuiltInRegistries.ITEM.keySet().stream().sorted(Comparator.comparing(Identifier::toString)).forEach(id -> {
+      var e = BuiltInRegistries.ITEM.getValue(id).components().get(net.minecraft.core.component.DataComponents.EQUIPPABLE);
+      if (e == null) return;
+      var row = new JsonArray(); row.add(e.slot().getName());
+      if (e.allowedEntities().isEmpty()) row.add(JsonNull.INSTANCE);
+      else { var t = new JsonArray(); e.allowedEntities().get().forEach(h -> t.add(id(h))); row.add(t); }
+      row.add(e.equipSound().value().location().toString());
+      equippable.add(id.toString(), row);
+    });
+    out.add("equippable", equippable);
+    // The ids of the sounds the hostiles play beyond the AI and combat facts'.
+    var soundNames = new TreeSet<String>();
+    for (var row : equippable.entrySet()) soundNames.add(row.getValue().getAsJsonArray().get(2).getAsString());
+    var sounds = new JsonObject();
+    for (var n : soundNames) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
+    out.add("sounds", sounds);
     // When monsters burn (`EnvironmentAttributes.MONSTERS_BURN`): the overworld
     // day timeline's track (its keyframes over the day's period; the
     // dimension's own value is false).
@@ -235,6 +380,25 @@ public class HostileOracle {
     out.add("spawned", spawned);
     out.addProperty("level_seed_after", seed(random));
     out.addProperty("mob_seed_after", seed(m.getRandom()));
+    // Then a death (`dropCustomDeathLoot`): by a player with or without a
+    // Looting sword, or by no player; what equipment drops, worn.
+    var killer = new MobAiOracle.Fighter(level, 1, net.minecraft.world.level.GameType.SURVIVAL);
+    int looting = (int)(Math.abs(levelSeed) % 3);
+    var sword = new ItemStack(net.minecraft.world.item.Items.IRON_SWORD);
+    if (looting > 0) sword.enchant(lookup.lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(net.minecraft.world.item.enchantment.Enchantments.LOOTING), looting);
+    killer.setItemSlot(EquipmentSlot.MAINHAND, sword);
+    boolean byPlayer = Math.abs(mobSeed) % 4 != 0;
+    level.spawned.clear();
+    var drop = Mob.class.getDeclaredMethod("dropCustomDeathLoot", net.minecraft.server.level.ServerLevel.class, net.minecraft.world.damagesource.DamageSource.class, boolean.class);
+    drop.setAccessible(true);
+    drop.invoke(m, level, level.damageSources().playerAttack(killer), byPlayer);
+    var drops = new JsonArray();
+    for (var e : level.spawned) if (e instanceof net.minecraft.world.entity.item.ItemEntity item) {
+      var row = new JsonArray(); row.add(BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString()); row.add(item.getItem().getDamageValue()); drops.add(row);
+    }
+    var death = new JsonObject(); death.addProperty("looting", looting); death.addProperty("by_player", byPlayer);
+    death.add("drops", drops); death.addProperty("mob_seed_after", seed(m.getRandom()));
+    out.add("death", death);
     return out;
   }
 
@@ -262,6 +426,13 @@ public class HostileOracle {
   }
 
   public static void main(String[] args) throws Exception {
+    if (args[0].equals("cases")) {
+      var level = MobAiOracle.setup(Day.class);
+      var out = cases(level);
+      Files.writeString(Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla zombie family traces (baby, daylight, husk, fire, villager, pickup, drowning).");
+      return;
+    }
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
     MobAiOracle.unsafe = (sun.misc.Unsafe)MobAiOracle.field(sun.misc.Unsafe.class, "theUnsafe").get(null);
     try (var resources = new MultiPackResourceManager(PackType.SERVER_DATA, List.of(ServerPacksSource.createVanillaPackSource().fullResources()))) {
@@ -290,7 +461,7 @@ public class HostileOracle {
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
           System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins).");
         }
-        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns OUT.json");
+        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases OUT.json");
       }
     }
   }

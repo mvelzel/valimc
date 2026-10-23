@@ -23,13 +23,25 @@ defmodule Valimc.Entity.MobTicks do
   def steps(_view, [], world, _border), do: {[], world}
 
   def steps(view, mobs, %AI.World{} = world, border) do
+    # `baseTick`'s burning comes first (VMC-043b).
+    {mobs, burnt} =
+      Enum.map_reduce(mobs, %{}, fn {id, entry}, acc ->
+        case MobVitals.base_tick(entry.body.type, entry.body) do
+          {_, []} = {body, _} -> {{id, %{entry | body: body}}, acc}
+          {body, events} -> {{id, %{entry | body: body}}, Map.put(acc, id, events)}
+        end
+      end)
+
     {thought, world} = AI.think(mobs, world)
     old = Map.new(mobs)
 
     {mobs, effects} =
       Enum.zip_with(mobs, thought, fn {id, entry}, {id, body, {x, y, z}, effects} ->
         entity = %{entry.entity | x: x, y: y, z: z}
-        {{id, %{entry | body: body, entity: entity}}, {id, split(effects)}}
+        {made, rest} = split(effects)
+
+        {{id, %{entry | body: body, entity: entity}},
+         {id, {Map.get(burnt, id, []) ++ made, rest}}}
       end)
       |> Enum.unzip()
 
@@ -72,8 +84,13 @@ defmodule Valimc.Entity.MobTicks do
             AI.settle({id, old[id]}, body, position, world)
 
           {body, events} = MobVitals.apply(body.type, body, ticked)
+          # The sun on undead mobs and rain on burning ones (VMC-043b).
+          {body, sunned} = Valimc.AI.Daylight.tick(body, position, world)
+          events = events ++ sunned
+          # A family's own tick after the move (a zombie drowning, VMC-043b).
+          {body, own} = AI.Mobs.after_move(body, position, ticked)
           {made, rest} = effects[id]
-          {later, more} = split(settled)
+          {later, more} = split(settled ++ own)
 
           step = %{
             id: id,

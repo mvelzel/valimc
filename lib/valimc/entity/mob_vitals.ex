@@ -19,11 +19,25 @@ defmodule Valimc.Entity.MobVitals do
 
   @water_sensitive ["minecraft:blaze"]
 
+  @doc """
+  `baseTick`'s burning, before the mob thinks (VMC-043b: its hurt sound and
+  idle reset come before its goals, as vanilla's): a second's damage while
+  burning outside lava (the lava its last move left), counting down.
+  `{body, events}`.
+  """
+  def base_tick(type, %{mob: %Mob{} = mob} = body) do
+    if Mob.alive?(mob) do
+      {mob, events} = burn(type, EntityTypes.fetch(type), mob, [], mob.motion.lava > 0.0)
+      {%{body | mob: mob}, events}
+    else
+      {body, []}
+    end
+  end
+
   @doc "Apply kernel tick `ticked` (its landing, contacts and eye) to `body` of `type`."
   def apply(type, body, ticked) do
     facts = EntityTypes.fetch(type)
     {mob, events} = {body.mob, []}
-    {mob, events} = burn(type, facts, mob, events, ticked.lava)
     {mob, events} = breathe(type, mob, events, ticked)
     {mob, events} = landing(type, mob, events, ticked.landing)
     {mob, events} = contacts(type, facts, mob, events, ticked.fire_contacts)

@@ -61,20 +61,21 @@ defmodule Valimc.FallingBlockTest do
     refute Enum.any?(entries(owner), &match?(%{body: %Body{type: "minecraft:falling_block"}}, &1))
   end
 
-  test "an anvil that falls six blocks onto a zombie deals it 10 before armor", %{owner: owner} do
+  # A husk: a zombie's armour, and the sun does not burn it (VMC-043b).
+  test "an anvil that falls six blocks onto a husk deals it 10 before armor", %{owner: owner} do
     assert run("fill #{@x - 4} #{@y - 1} #{@z - 4} #{@x + 4} #{@y - 1} #{@z + 4} stone") =~
              "Successfully filled"
 
-    assert run("summon zombie #{@x + 0.5} #{@y} #{@z + 0.5}") =~ "Summoned new Zombie"
+    assert run("summon husk #{@x + 0.5} #{@y} #{@z + 0.5}") =~ "Summoned new Husk"
     assert run("setblock #{@x} #{@y + 6} #{@z} anvil") =~ "Changed the block"
 
     zombie = fn ->
-      Enum.find(entries(owner), &match?(%{body: %Body{type: "minecraft:zombie"}}, &1))
+      Enum.find(entries(owner), &match?(%{body: %Body{type: "minecraft:husk"}}, &1))
     end
 
     Valimc.TestWait.until(fn -> zombie.().body.mob.living.health.value < 20.0 end)
     # Two per block fallen past the first: six blocks, 10, through the
-    # zombie's natural armor of 2 (anvils do not bypass armor, VMC-037n).
+    # husk's natural armor of 2 (anvils do not bypass armor, VMC-037n).
     {:ok, dealt} = Valimc.Living.Damage.armor_absorb(10.0, 2.0, 0.0)
     assert zombie.().body.mob.living.health.value == Valimc.Data.Float32.round(20.0 - dealt)
     assert Valimc.Data.Blocks.class(at(@x, @y, @z)) == "AnvilBlock"

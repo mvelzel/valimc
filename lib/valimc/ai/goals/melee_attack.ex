@@ -143,6 +143,8 @@ defmodule Valimc.AI.Goals.MeleeAttack do
       case World.sees?(self, target) do
         {true, self} ->
           self = self |> Self.effect(:swing) |> Self.effect({:attack, World.ref(target)})
+          # What the type's `doHurtTarget` adds (VMC-043b: a zombie's fire).
+          self = Valimc.AI.Mobs.hit(self, target)
           {%{state | cooldown: adjusted(state, 20)}, self}
 
         {false, self} ->

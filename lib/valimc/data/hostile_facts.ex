@@ -5,7 +5,8 @@ defmodule Valimc.Data.HostileFacts do
   facts`): the armour `populateDefaultEquipmentSlots` hands out by slot and
   material, the default equipment drop chance, the spawn equipment's
   enchanting (`mob_spawn_equipment`), each family type's baby dimensions,
-  the villager type of each biome and the professions in registry order.
+  the villager type of each biome and the professions in registry order,
+  and when the day lets monsters burn.
   """
   use Valimc.Data.Facts, "registry/hostile_facts.json"
 
@@ -26,6 +27,14 @@ defmodule Valimc.Data.HostileFacts do
                end)
              )}
           end)
+  @burn @facts["monsters_burn"]
+  @burn_period @burn["period"]
+  @burn_frames Enum.map(@burn["keyframes"], &{&1["ticks"], &1["value"]})
+  @equippable Map.new(@facts["equippable"], fn {item, [slot, types, _sound]} ->
+                {item, {String.to_atom(slot), types}}
+              end)
+  @equip_sounds Map.new(@facts["equippable"], fn {item, [_, _, sound]} -> {item, sound} end)
+  @sounds @facts["sounds"]
   @villager_types @facts["villager_types"]
   @default_villager_type @facts["default_villager_type"]
   @professions List.to_tuple(@facts["professions"])
@@ -43,6 +52,31 @@ defmodule Valimc.Data.HostileFacts do
 
   @doc "A baby's `{width, height, eye height}` for a type that has one here, or nil."
   def baby(type), do: @babies[type]
+
+  @doc """
+  Whether monsters burn at `ticks` of the overworld clock (the day
+  timeline's `monsters_burn`: each keyframe holds until the next, looping).
+  """
+  def monsters_burn?(ticks) do
+    t = Integer.mod(ticks, @burn_period)
+    {_, last} = List.last(@burn_frames)
+
+    Enum.reduce(@burn_frames, last, fn {at, value}, held ->
+      if t >= at, do: value, else: held
+    end)
+  end
+
+  @doc """
+  Where an equippable item is worn (`Equippable.slot`) and the types that may
+  wear it (nil: any): `{slot, types}`, or nil for an item not worn.
+  """
+  def equippable(item), do: @equippable[item]
+
+  @doc "The sound an equippable item plays when worn (`Equippable.equipSound`)."
+  def equip_sound(item), do: @equip_sounds[item]
+
+  @doc "A hostile's sound's id (nil for one these facts do not hold)."
+  def sound_id(name), do: @sounds[name]
 
   @doc "`VillagerType.byBiome`."
   def villager_type(biome), do: Map.get(@villager_types, biome, @default_villager_type)
