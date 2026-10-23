@@ -39,6 +39,7 @@ parallel. In every slice:
 | [VMC-029d](tickets/VMC-029d.md) | Survival block states and shape updates | Every obtainable block places in its vanilla state; `ShapeOracle` excludes nothing |
 | [VMC-029e](tickets/VMC-029e.md) | Survival mining of every block | Every survival-obtainable block mines with vanilla's break time and drops; none is refused |
 | [VMC-031a](tickets/VMC-031a.md) | Water and lava flow | Flow, mixing, sources and buckets match the oracle across group lines |
+| [VMC-031b](tickets/VMC-031b.md) | Bubble columns and lava's fire | Columns and lava's fires match the oracle across section lines |
 | [VMC-039a](tickets/VMC-039a.md) | Crops, plants and saplings grow | Growth by random ticks and bone meal matches the oracle |
 | [VMC-032b](tickets/VMC-032b.md) | Double chests | Joined chests, the large menu and splitting, across group lines too |
 | [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |

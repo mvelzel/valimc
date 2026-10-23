@@ -104,4 +104,53 @@ defmodule Valimc.FluidRegionTest do
     {x, y, z} = position
     assert {block({x + 1, y, z}), level({x + 1, y, z})} == {"water", "1"}
   end
+
+  test "water over a magma block fills with a dragging bubble column", ctx do
+    {ax, z} = ctx.a
+    {x, z} = {ax * 128 + 100, z * 128 + 100}
+    water = BlockRegistry.default_state("water")
+    set({ctx.pa, ctx.ea}, Map.new(64..66, &{{x, &1, z}, water}))
+    set({ctx.pa, ctx.ea}, %{{x, 63, z} => BlockRegistry.default_state("magma_block")})
+    assert {:ok, _} = Region.step({ctx.pa, ctx.ea}, 25)
+
+    assert for(y <- 64..66, do: Valimc.TestBlocks.get({x, y, z})) ==
+             List.duplicate(BlockRegistry.state("bubble_column", %{"drag" => "true"}), 3)
+  end
+
+  test "lava lights what it can burn near a player", ctx do
+    {ax, z} = ctx.a
+    {x, z} = {ax * 128 + 20, z * 128 + 100}
+    planks = BlockRegistry.default_state("oak_planks")
+    # A pit of lava ringed by planks, a player's spread radius everywhere.
+    :persistent_term.put({Valimc.World.GameRules, :fire_spread_radius_around_player}, -1)
+
+    on_exit(fn ->
+      :persistent_term.erase({Valimc.World.GameRules, :fire_spread_radius_around_player})
+    end)
+
+    ring =
+      for dx <- -2..2,
+          dz <- -2..2,
+          abs(dx) == 2 or abs(dz) == 2,
+          do: {{x + dx, 64, z + dz}, planks}
+
+    set({ctx.pa, ctx.ea}, Map.new([{{x, 64, z}, BlockRegistry.default_state("lava")} | ring]))
+
+    :ok =
+      Valimc.TestRegion.replace_section({ctx.pa, ctx.ea}, fn s ->
+        %{s | random_tick_speed: 4096}
+      end)
+
+    fires =
+      Enum.reduce_while(1..200, 0, fn _, _ ->
+        {:ok, _} = Region.step({ctx.pa, ctx.ea})
+
+        fires =
+          for dx <- -3..3, dz <- -3..3, y <- 64..66, block({x + dx, y, z + dz}) == "fire", do: 1
+
+        if fires == [], do: {:cont, 0}, else: {:halt, length(fires)}
+      end)
+
+    assert fires > 0
+  end
 end

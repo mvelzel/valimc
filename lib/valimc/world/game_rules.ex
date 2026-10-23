@@ -13,7 +13,9 @@ defmodule Valimc.World.GameRules do
     players_nether_portal_creative_delay: 0,
     allow_entering_nether_using_portals: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
-    lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion")
+    lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),
+    fire_spread_radius_around_player:
+      Valimc.Blocks.Fluids.game_rule("fire_spread_radius_around_player")
   }
 
   # Rule name => the environment owner's configure operation.

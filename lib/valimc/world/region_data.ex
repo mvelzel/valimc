@@ -36,6 +36,8 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Txn.Permits
   alias Valimc.World.BlockRules
 
+  @lava_states Valimc.Data.Blocks.states("lava") |> Enum.to_list()
+
   defstruct [
     # The section's dimension and coordinates `{sx, sz}`; its routing key is
     # `{dimension, sx, sz}` (`route_key/1`, VMC-077j).
@@ -135,7 +137,8 @@ defmodule Valimc.World.RegionData do
     :ok =
       Blocks.random_ticking(
         blocks,
-        for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state)
+        for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state) ++
+          Enum.to_list(Valimc.Data.Blocks.states("lava"))
       )
 
     publication = :ets.new(:region_publication, [:set, :protected, read_concurrency: true])
@@ -1664,12 +1667,31 @@ defmodule Valimc.World.RegionData do
           effect <- state.tick_index[block].scheduled_tick(position, block, read, &random/1),
           do: effect
 
-    {random_effects, state} = random_ticks(state, read)
+    {random_effects, lava} = random_ticks(state, read)
 
     state
     |> rule_run(%{ticks: rule_due, fluid_ticks: fluid_due})
     |> elem(0)
+    |> lava_random_ticks(lava)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
+  end
+
+  # Lava's random ticks (VMC-031a) run in the block rules: fire spreads from
+  # lava only near a player (the `fire_spread_radius_around_player` game
+  # rule, `canSpreadFireAround`).
+  defp lava_random_ticks(state, []), do: state
+
+  defp lava_random_ticks(state, positions) do
+    radius = Valimc.World.GameRules.get(:fire_spread_radius_around_player)
+
+    near? = fn {x, y, z} ->
+      radius == -1 or
+        Enum.any?(state.player_targets, fn {{px, py, pz}, _} ->
+          :math.sqrt((px - x) ** 2 + (py - y) ** 2 + (pz - z) ** 2) < radius
+        end)
+    end
+
+    elem(rule_run(state, %{actions: for(p <- positions, do: {:random_tick, p, near?.(p)})}), 0)
   end
 
   # Generated chunks' post-processing marks (`LevelChunk.postProcessGeneration`,
@@ -1734,20 +1756,24 @@ defmodule Valimc.World.RegionData do
   # Vanilla picks `randomTickSpeed` positions per section per tick (the gamerule,
   # `:random_tick_speed`); the native sampler skips sections without handled
   # states and returns only hits.
-  defp random_ticks(%{tick_index: index} = state, _read) when map_size(index) == 0,
-    do: {[], state}
-
+  # The sampled cells' behaviour effects, and the lava cells among them.
   defp random_ticks(state, read) do
-    effects =
+    hits =
       for {{x, _, z} = position, block} <-
             Blocks.random_ticks(state.blocks, state.random_tick_speed),
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           in_region?(state, position),
+          do: {position, block}
+
+    {lava, others} = Enum.split_with(hits, fn {_, block} -> block in @lava_states end)
+
+    effects =
+      for {position, block} <- others,
           module = state.tick_index[block],
           effect <- module.random_tick(position, block, read, &random/1),
           do: effect
 
-    {effects, state}
+    {effects, for({position, _} <- lava, do: position)}
   end
 
   defp random(bound), do: :rand.uniform(bound) - 1

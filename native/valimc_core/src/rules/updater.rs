@@ -167,6 +167,9 @@ impl<'r, W: World> Engine<'r, W> {
         if !self.world.owns(pos) || self.world.get(pos) != state {
             return;
         }
+        if self.bubble_tick(pos, state) {
+            return;
+        }
         let mark = self.world.begin();
         let breaks = self.rules.live_breaks(&mut self.world, state, pos);
         if self.world.crossed(mark) {
@@ -211,8 +214,12 @@ impl<'r, W: World> Engine<'r, W> {
             return false;
         }
         self.placed(pos, old, new);
-        if self.rules.table.flag(new, LIQUID_BLOCK) && self.world.get(pos) == new {
-            self.liquid_changed(pos, new);
+        if self.rules.fluids.is_some() && self.world.get(pos) == new {
+            if self.rules.table.flag(new, LIQUID_BLOCK) {
+                self.liquid_changed(pos, new);
+            } else {
+                self.fire_placed(pos, old, new);
+            }
         }
         true
     }
@@ -237,11 +244,15 @@ impl<'r, W: World> Engine<'r, W> {
         if table.is_air(state) {
             return false;
         }
+        // Fire goes without its break particles and sound.
+        let block = table.block_of(state);
+        let fire =
+            block == self.rules.fire.fire_block() || block == self.rules.fire.soul_fire_block();
         self.report.destroyed.push(Destroyed {
             pos,
             state,
             drops: drop,
-            effects: true,
+            effects: !fire,
         });
         self.set_block(pos, table.remains[state as usize], ALL, limit)
     }
@@ -373,9 +384,15 @@ impl<'r, W: World> Engine<'r, W> {
         if flags & SKIP_WIRE_SHAPES != 0 && table.block_of(current) == self.rules.redstone.wire {
             return;
         }
-        if table.flag(current, LIQUID_BLOCK) && self.rules.fluids.is_some() {
-            self.liquid_shape(pos, current, neighbor_state);
-            return;
+        if let Some(fluids) = &self.rules.fluids {
+            if table.flag(current, LIQUID_BLOCK) {
+                self.liquid_shape(pos, current, direction, neighbor_state);
+                return;
+            }
+            if fluids.bubbles.is_column(table, current) {
+                self.column_shape(pos, direction, neighbor_state);
+                return;
+            }
         }
         let mark = self.world.begin();
         let new = self.rules.live_update_shape(

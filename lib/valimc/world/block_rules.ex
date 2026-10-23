@@ -64,7 +64,8 @@ defmodule Valimc.World.BlockRules do
   - `changes`: `position => old state` for cells the owner just changed;
   - `actions`: `{:empty, position, fluid, retry, secondary}` (a bucket of a
     fluid source poured, then at `retry` or nil), `{:pickup, position}` (a
-    bucket filled), `{:post, position}` (a post-processing mark);
+    bucket filled), `{:post, position}` (a post-processing mark),
+    `{:random_tick, position, fire?}` (a lava cell's random tick);
   - `ticks`: dependent blocks' due ticks, `[{position, state}]`;
   - `fluid_ticks`: due fluid ticks, `[{position, fluid}]`;
   - `options`: the fluid settings' bits (`Valimc.Blocks.Fluids.options/3`).
@@ -150,6 +151,9 @@ defmodule Valimc.World.BlockRules do
 
   defp pack_action({:post, position}),
     do: <<2, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:random_tick, position, fire}),
+    do: <<3, pos(position)::binary, 0, if(fire, do: 1, else: 0), pos({0, 0, 0})::binary>>
 
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
 

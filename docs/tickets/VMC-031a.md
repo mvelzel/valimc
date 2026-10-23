@@ -100,8 +100,8 @@ through a connection.
 
 ## Not here
 
-- Bubble columns' own ticks and lava's random ticks (fire) are other slices;
-  scenes leave them out.
+- Bubble columns and lava's random ticks (fire) are
+  [VMC-031b](VMC-031b.md).
 - Bucket sounds for other players, the evaporation's smoke, statistics and
   advancements; an interaction shape's face override in the clip (cauldrons,
   composters, hoppers). A fluid shape is clipped at its own height (vanilla

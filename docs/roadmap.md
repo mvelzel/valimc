@@ -44,7 +44,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
 | Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
 | Blocks | Block rules, placement, mining | 029d → 029e → 039a → 032b |
-| Fluids | A fluid module, fluid ticks | 031a |
+| Fluids | A fluid module, fluid ticks | 031a → 031b |
 | Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
 | Finale | The End fight, then the gate | 045a → 078 |
@@ -77,6 +77,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-015i](tickets/VMC-015i.md) | Summoned zombies fall and take fall damage, sink in water, burn in lava, push apart and are pushed |
 | [VMC-043a](tickets/VMC-043a.md) | Summoned zombie and primed TNT seen, killed, teleported across a group line and kept over a restart |
 | [VMC-031a](tickets/VMC-031a.md) | A bucket-built Nether portal frame (obsidian from lava and water), lit and entered |
+| [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
 
 ## Retrieve and update
 

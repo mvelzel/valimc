@@ -16,8 +16,9 @@ use valimc_core::rules::fluid::{Options, BREAK};
 use valimc_core::rules::live::{self, Action, Input, Outcome};
 use valimc_core::worldgen::random::Random;
 
-/// A scene action: tick, kind (0 set, 1 a bucket emptied, 2 a pickup),
-/// position and the state set or the bucket's fluid.
+/// A scene action: tick, kind (0 set, 1 a bucket emptied, 2 a pickup, 3 a
+/// lava cell's random tick), position and the state set, the bucket's fluid
+/// or whether fire spreads.
 type SceneAction = (i64, u8, i32, i32, i32, u16);
 
 /// A tick's outcome: the tick, the cells whose state differs from the tick's
@@ -163,6 +164,18 @@ fn fluid_scene(
                     let changes = [(pos, old)];
                     let input = Input {
                         changes: &changes,
+                        options,
+                        ..Input::default()
+                    };
+                    run(&mut scene, &input, &mut random)?;
+                }
+                3 => {
+                    let actions = [Action::RandomTick {
+                        pos,
+                        fire: value == 1,
+                    }];
+                    let input = Input {
+                        actions: &actions,
                         options,
                         ..Input::default()
                     };

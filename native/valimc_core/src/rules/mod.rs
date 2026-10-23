@@ -6,6 +6,7 @@
 //! the live region's store both implement. Live play's water and lava are
 //! `fluid`'s, run by the block-update engine.
 
+pub mod bubble;
 pub mod connect;
 pub mod fire;
 pub mod fluid;

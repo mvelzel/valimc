@@ -1,6 +1,7 @@
-# Differential check of water and lava (VMC-031a, `valimc_core::rules::fluid` run by the live
-# block-update engine) against FluidOracle's scenes: per game tick, the cells whose state
-# changed, the level events (fizzes, broken blocks) and each bucket's outcome. The scenes
+# Differential check of water and lava (VMC-031a, `valimc_core::rules::fluid` and `bubble` run
+# by the live block-update engine) against FluidOracle's scenes: per game tick, the cells whose
+# state changed (flow, mixing, bubble columns, lava's fires), the level events (fizzes, broken
+# blocks) and each bucket's outcome. The scenes
 # straddle chunk and section lines; the engine reads the four section stores as one group's.
 [filename] = System.argv()
 facts = JSON.decode!(File.read!(filename))
@@ -17,6 +18,7 @@ compare = fn scene ->
         ["set", x, y, z, s] -> {t, 0, x, y, z, s}
         ["empty", x, y, z, fluid] -> {t, 1, x, y, z, fluid}
         ["pickup", x, y, z] -> {t, 2, x, y, z, 0}
+        ["random", x, y, z] -> {t, 3, x, y, z, if(scene["fire_spread"], do: 1, else: 0)}
       end
     end
 
@@ -48,10 +50,14 @@ compare = fn scene ->
             do: {x, y, z, Map.fetch!(after_tick, {x, y, z})}
 
       results =
-        Enum.zip_with(step["items"], Enum.filter(step["actions"], &(hd(&1) != "set")), fn
-          item, ["pickup" | _] -> item
-          done, ["empty" | _] -> done
-        end)
+        Enum.zip_with(
+          step["items"],
+          Enum.filter(step["actions"], &(hd(&1) in ["empty", "pickup"])),
+          fn
+            item, ["pickup" | _] -> item
+            done, ["empty" | _] -> done
+          end
+        )
 
       {{step["t"],
         {Enum.sort(changes), Enum.sort(Enum.map(step["events"], &List.to_tuple/1)), results}},
@@ -66,7 +72,7 @@ compare = fn scene ->
       kinds =
         for %{"t" => ^t, "actions" => a} <- scene["steps"],
             action <- a,
-            hd(action) != "set",
+            hd(action) in ["empty", "pickup"],
             do: hd(action)
 
       results =

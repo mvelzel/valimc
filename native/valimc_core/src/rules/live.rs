@@ -48,6 +48,9 @@ pub enum Action {
     Pickup { pos: [i32; 3] },
     /// A generated chunk's post-processing mark.
     PostProcess { pos: [i32; 3] },
+    /// A random tick of a lava cell; `fire`: a player is near enough for its
+    /// fire to spread.
+    RandomTick { pos: [i32; 3], fire: bool },
 }
 
 /// One run's input.
@@ -74,6 +77,10 @@ struct Live<'s> {
     order: Vec<[i32; 3]>,
     block_ticks: Vec<([i32; 3], u16, i32)>,
     fluid_ticks: Vec<([i32; 3], u8, i32)>,
+    /// The run's due fluid ticks while they still wait for the fluid phase:
+    /// a tick scheduled meanwhile for one of them is dropped, as vanilla's
+    /// fluid `LevelTicks` still holds it then.
+    held: HashSet<([i32; 3], u8)>,
     crossed: bool,
     random: &'s mut Random,
 }
@@ -111,6 +118,9 @@ impl BlockAccess for Live<'_> {
     }
 
     fn schedule_fluid_tick(&mut self, pos: [i32; 3], fluid: u8, delay: i32) {
+        if self.held.contains(&(pos, fluid)) {
+            return;
+        }
         self.fluid_ticks.push((pos, fluid, delay));
     }
 
@@ -178,6 +188,7 @@ pub fn run(
         order: Vec::new(),
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
+        held: input.fluid_ticks.iter().copied().collect(),
         crossed: false,
         random,
     };
@@ -204,12 +215,17 @@ pub fn run(
             },
             Action::Pickup { pos } => engine.pickup(pos).map_or(0, |item| item as i32 + 1),
             Action::PostProcess { pos } => i32::from(engine.post_process(pos)),
+            Action::RandomTick { pos, fire } => {
+                engine.lava_random_tick(pos, fire);
+                0
+            }
         });
     }
     for &(pos, state) in input.ticks {
         engine.tick(pos, state);
     }
     if fluids {
+        engine.world.held.clear();
         for &(pos, kind) in input.fluid_ticks {
             engine.fluid_tick(pos, kind);
         }
@@ -253,6 +269,7 @@ pub fn first_surviving(
         order: Vec::new(),
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
+        held: HashSet::new(),
         crossed: false,
         random: &mut random,
     };
@@ -281,6 +298,7 @@ mod tests {
             order: Vec::new(),
             block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
+            held: HashSet::new(),
             crossed: false,
             random: &mut random,
         };

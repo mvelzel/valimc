@@ -37,6 +37,14 @@ impl Fire {
         })
     }
 
+    pub fn fire_block(&self) -> u16 {
+        self.fire_block
+    }
+
+    pub fn soul_fire_block(&self) -> u16 {
+        self.soul_fire_block
+    }
+
     /// `BaseFireBlock.getState`: soul fire on its base blocks, else fire
     /// (`FireBlock.getStateForPlacement`: burning toward flammable sides when
     /// what is below neither burns nor holds it).

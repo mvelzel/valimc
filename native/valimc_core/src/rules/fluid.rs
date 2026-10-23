@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use super::at;
+use super::bubble::Bubbles;
 use super::updater::{Engine, World, ALL, KNOWN_SHAPE, UPDATE_LIMIT, UPDATE_SHAPE_ORDER};
 use crate::physics::facts::Facts as Physics;
 use crate::physics::table::Context;
@@ -160,7 +161,8 @@ fn hex(json: &Json, key: &str) -> Result<Vec<u8>, String> {
 #[derive(Debug)]
 pub struct FluidFacts {
     /// Per state: bit 0 a liquid container, bit f (1..4) whether it takes
-    /// fluid f, bit 5 replaceable by water, bit 6 by lava.
+    /// fluid f, bit 5 replaceable by water, bit 6 by lava, bit 7 lava lights
+    /// it (`ignitedByLava`).
     liquid: Vec<u8>,
     waterlogs: HashMap<u16, u16>,
     pickups: HashMap<u16, (u16, u8)>,
@@ -176,7 +178,11 @@ pub struct FluidFacts {
     soul_soil: u16,
     blue_ice: u16,
     powder_snow: u16,
+    lava_block: u16,
     washed: BlockSet,
+    /// `BlockTags.BLOCKS_LAVA_FIRE_SPREAD`.
+    stops_lava_fire: BlockSet,
+    pub bubbles: Bubbles,
     physics: Option<&'static Physics>,
 }
 
@@ -238,7 +244,10 @@ impl FluidFacts {
             soul_soil: table.block("soul_soil")?,
             blue_ice: table.block("blue_ice")?,
             powder_snow: table.block("powder_snow")?,
+            lava_block: table.block("lava")?,
             washed: table.tag("minecraft:washed_away_by_fluids")?.clone(),
+            stops_lava_fire: table.tag("minecraft:blocks_lava_fire_spread")?.clone(),
+            bubbles: Bubbles::new(table)?,
             physics,
         })
     }
@@ -856,7 +865,8 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// `LiquidBlock.onPlace` and `neighborChanged`: mix, else schedule the
-    /// fluid's tick.
+    /// fluid's tick; a water source over a column's floor schedules its
+    /// column.
     pub(super) fn liquid_changed(&mut self, pos: [i32; 3], state: u16) {
         if !self.rules.table.flag(state, LIQUID_BLOCK) || self.rules.fluids.is_none() {
             return;
@@ -866,17 +876,135 @@ impl<W: World> Engine<'_, W> {
             let delay = self.tick_delay(kind);
             self.world.schedule_fluid_tick(pos, kind, delay);
         }
+        let below = self.world.get(at(pos, DOWN));
+        self.schedule_column(pos, state, below);
     }
 
-    /// `LiquidBlock.updateShape`: a source here or beside schedules the
-    /// fluid's tick; the state stays.
-    pub(super) fn liquid_shape(&mut self, pos: [i32; 3], state: u16, neighbor: u16) {
+    /// `LiquidBlock.updateShape` toward `d`: a source here or beside schedules
+    /// the fluid's tick, a new floor below a water source its column; the
+    /// state stays.
+    pub(super) fn liquid_shape(&mut self, pos: [i32; 3], state: u16, d: usize, neighbor: u16) {
         let table = &self.rules.table;
         let fluid = Fluid::of(table, state);
         if fluid.is_source() || Fluid::of(table, neighbor).is_source() {
             let delay = self.tick_delay(fluid.kind);
             self.world.schedule_fluid_tick(pos, fluid.kind, delay);
         }
+        if d == DOWN {
+            self.schedule_column(pos, state, neighbor);
+        }
+    }
+
+    /// A lava cell's random tick as `ServerLevel.tickChunk` runs it: the
+    /// block's (`LiquidBlock.randomTick`, its fluid's) and then its fluid's,
+    /// so `LavaFluid.randomTick` twice. `fire_spread`: a player is near
+    /// enough (`canSpreadFireAround`).
+    pub fn lava_random_tick(&mut self, pos: [i32; 3], fire_spread: bool) {
+        if !self.world.owns(pos) || !fire_spread {
+            return;
+        }
+        let state = self.world.get(pos);
+        if self.rules.table.block_of(state) != self.fluids().lava_block {
+            return;
+        }
+        for _ in 0..2 {
+            self.lava_fire(pos);
+        }
+    }
+
+    /// `LavaFluid.randomTick` where fire may spread: up to two steps up (one
+    /// cell aside at most each) to an air cell beside something lava lights,
+    /// stopped by a block that blocks lava's fire; or three tries beside the
+    /// lava for a block lava lights with air above.
+    fn lava_fire(&mut self, pos: [i32; 3]) {
+        let passes = self.world.next_int(3);
+        if passes > 0 {
+            let mut test = pos;
+            for _ in 0..passes {
+                let dx = self.world.next_int(3) - 1;
+                let dz = self.world.next_int(3) - 1;
+                test = [test[0] + dx, test[1] + 1, test[2] + dz];
+                if !self.world.owns(test) {
+                    return;
+                }
+                let state = self.world.get(test);
+                if self.rules.table.is_air(state) {
+                    if (0..6).any(|d| self.lights(at(test, d))) {
+                        let fire = self.fire_state(test);
+                        self.set_block(test, fire, ALL, UPDATE_LIMIT);
+                        return;
+                    }
+                } else if self
+                    .rules
+                    .table
+                    .in_tag(state, &self.fluids().stops_lava_fire)
+                {
+                    return;
+                }
+            }
+        } else {
+            for _ in 0..3 {
+                let dx = self.world.next_int(3) - 1;
+                let dz = self.world.next_int(3) - 1;
+                let test = [pos[0] + dx, pos[1], pos[2] + dz];
+                if !self.world.owns(test) {
+                    return;
+                }
+                let above = at(test, UP);
+                if self.rules.table.is_air(self.world.get(above)) && self.lights(test) {
+                    // Vanilla places the fire state it computes for `test`.
+                    let fire = self.fire_state(test);
+                    self.set_block(above, fire, ALL, UPDATE_LIMIT);
+                }
+            }
+        }
+    }
+
+    /// `LavaFluid.isFlammable`: lava lights the cell, in a chunk the owner
+    /// holds when it is within the build height.
+    fn lights(&mut self, pos: [i32; 3]) -> bool {
+        let inside = (crate::column::MIN_Y..crate::column::MIN_Y + crate::column::HEIGHT as i32)
+            .contains(&pos[1]);
+        if inside && !self.world.owns(pos) {
+            return false;
+        }
+        let state = self.world.get(pos);
+        self.fluids().liquid[state as usize] & 128 != 0
+    }
+
+    /// `BaseFireBlock.onPlace` and `FireBlock.onPlace` of the fire now at
+    /// `pos`: new fire that cannot stand goes (a portal frame's opening is
+    /// the caller's, `Valimc.World.Portal.Fire`); fire schedules its tick
+    /// 30–39 ticks out.
+    pub(super) fn fire_placed(&mut self, pos: [i32; 3], old: u16, new: u16) {
+        let table = self.rules.table.clone();
+        let block = table.block_of(new);
+        let fire = self.rules.fire.fire_block();
+        if block != fire && block != self.rules.fire.soul_fire_block() {
+            return;
+        }
+        if table.block_of(old) != block {
+            let world = &mut self.world;
+            let after = self
+                .rules
+                .fire
+                .update_shape(&table, &mut |p| world.get(p), new, pos);
+            if after.is_some_and(|s| table.is_air(s)) {
+                let remains = table.remains[new as usize];
+                self.set_block(pos, remains, ALL, UPDATE_LIMIT);
+            }
+        }
+        if block == fire {
+            let delay = 30 + self.world.next_int(10);
+            self.world.schedule_block_tick(pos, fire, delay);
+        }
+    }
+
+    /// `BaseFireBlock.getState`.
+    fn fire_state(&mut self, pos: [i32; 3]) -> u16 {
+        let table = self.rules.table.clone();
+        let world = &mut self.world;
+        self.rules.fire.state_at(&table, &mut |p| world.get(p), pos)
     }
 
     /// `BucketPickup.pickupBlock` at `pos`: the item index it gives, if any.
@@ -942,7 +1070,9 @@ impl<W: World> Engine<'_, W> {
         }
         if may_replace && !table.flag(state, LIQUID) && !table.is_air(state) {
             // `Level.destroyBlock`: fire goes without its particles.
-            let fire = table.class_name(state).ends_with("FireBlock");
+            let block = table.block_of(state);
+            let fire =
+                block == self.rules.fire.fire_block() || block == self.rules.fire.soul_fire_block();
             self.report.destroyed.push(super::updater::Destroyed {
                 pos,
                 state,

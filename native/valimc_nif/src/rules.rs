@@ -12,8 +12,8 @@
 //! records (signed coordinates): a changed cell with its old state, a due tick
 //! with its state; `fluid_ticks` `<<x, y, z, fluid::8>>`; `actions`
 //! `<<kind::8, x, y, z, fluid::8, flags::8, rx, ry, rz>>` (kind 0 a bucket
-//! emptied, 1 a pickup, 2 a post-processing mark; flags bit 0 a retry cell,
-//! bit 1 sneaking); `options` the fluid settings' bits (`Options::from_bits`).
+//! emptied, 1 a pickup, 2 a post-processing mark, 3 a lava cell's random
+//! tick; flags bit 0 a retry cell or fire spreading, bit 1 sneaking); `options` the fluid settings' bits (`Options::from_bits`).
 //! The reply is `{:ok, {{changes, destroyed, ticks, fluid_ticks, events,
 //! results}, {stopped, skipped, updates}}}`: `changes` packs `<<x, y, z,
 //! state::16>>` (final states, in the order they first changed), `destroyed`
@@ -106,6 +106,10 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 },
                 1 => Action::Pickup { pos },
                 2 => Action::PostProcess { pos },
+                3 => Action::RandomTick {
+                    pos,
+                    fire: r[14] & 1 == 1,
+                },
                 _ => return Err(atoms::invalid_positions()),
             })
         })

@@ -49,7 +49,7 @@ import net.minecraft.world.ticks.TickPriority;
  *   dimension type's `fast_lava` and `water_evaporates` (no biome sets either); `game_rules`: the
  *   source conversion rules' defaults; `liquid`: per state a byte (hex), bit 0 a
  *   `LiquidBlockContainer`, bit f (1..4) its `canPlaceLiquid` (no user) for fluid registry id f,
- *   bit 5 `canBeReplaced(WATER)`, bit 6 `canBeReplaced(LAVA)`; `waterlogs`: `(state, after)` u16
+ *   bit 5 `canBeReplaced(WATER)`, bit 6 `canBeReplaced(LAVA)`, bit 7 `ignitedByLava`; `waterlogs`: `(state, after)` u16
  *   pairs (hex), what `placeLiquid` with a water source sets, for every container that takes it
  *   (each also schedules its water tick); `pickups`: `(state, after, item)` (hex, u16, u16, u8)
  *   for every `BucketPickup` state whose `pickupBlock` (no user) returns an item: the state it
@@ -69,10 +69,12 @@ import net.minecraft.world.ticks.TickPriority;
  *   vanilla's own `LevelTicks`, run as `ServerLevel.tick` runs them (block ticks, then fluid
  *   ticks, each in drain order). Scenes straddle chunk and 8 x 8 chunk section lines. Each game
  *   tick first applies its actions (`/setblock`-style `setBlock(UPDATE_ALL)`, a water or lava
- *   bucket's `emptyContents` without a user or hit, or a `BucketPickup.pickupBlock`), then runs
+ *   bucket's `emptyContents` without a user or hit, a `BucketPickup.pickupBlock`, or a random tick
+ *   of a lava cell as `ServerLevel.tickChunk` runs one: the block's, then its fluid's), then runs
  *   the due ticks; per tick the cell writes in order, the level events (1501 fizz, 2001 break)
- *   and each bucket's outcome (emptied, or the item picked up). Some scenes convert lava sources or
- *   keep water from converting.
+ *   and each bucket's outcome (emptied, or the item picked up). Some scenes convert lava sources,
+ *   keep water from converting or keep lava from lighting fires (`canSpreadFireAround`). Fire's
+ *   own ticks do not run.
  *
  * Usage: FluidOracle (facts|outlines|clips|scenes) OUT [SCENES [SEED]]
  */
@@ -87,7 +89,7 @@ public class FluidOracle {
 
   static class Probe extends ServerLevel {
     Map<BlockPos,BlockState> cells;Server server;RandomSource random;GameRules rules;
-    LevelTicks<Block> blockTicks;LevelTicks<Fluid> fluidTicks;long time,subTick;net.minecraft.world.attribute.EnvironmentAttributeSystem attributes;
+    LevelTicks<Block> blockTicks;LevelTicks<Fluid> fluidTicks;long time,subTick;boolean fireSpread;net.minecraft.world.attribute.EnvironmentAttributeSystem attributes;
     JsonArray writes=new JsonArray(),events=new JsonArray();
     private Probe(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
     BlockState cell(BlockPos pos){return cells.getOrDefault(pos,Blocks.AIR.defaultBlockState());}
@@ -103,6 +105,9 @@ public class FluidOracle {
     @Override public LevelTicks<Block> getBlockTicks(){return blockTicks;}
     @Override public LevelTicks<Fluid> getFluidTicks(){return fluidTicks;}
     @Override public boolean isClientSide(){return false;}
+    @Override public boolean isLoaded(BlockPos pos){return !isOutsideBuildHeight(pos);}
+    @Override public boolean hasChunkAt(BlockPos pos){return true;}
+    @Override public boolean canSpreadFireAround(BlockPos pos){return fireSpread;}
     @Override public net.minecraft.world.attribute.EnvironmentAttributeSystem environmentAttributes(){return attributes;}
     @Override public void levelEvent(Entity source,int type,BlockPos pos,int data){events.add(row(pos,type,data));}
     @Override public void gameEvent(Holder<GameEvent> event,Vec3 at,GameEvent.Context context){}
@@ -212,13 +217,14 @@ public class FluidOracle {
     var rules=new JsonObject();
     rules.addProperty("water_source_conversion",probe.rules.get(GameRules.WATER_SOURCE_CONVERSION));
     rules.addProperty("lava_source_conversion",probe.rules.get(GameRules.LAVA_SOURCE_CONVERSION));
+    rules.addProperty("fire_spread_radius_around_player",probe.rules.get(GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER));
     result.add("game_rules",rules);
 
     var liquid=new StringBuilder();var waterlogs=new StringBuilder();var pickups=new StringBuilder();
     var items=new ArrayList<String>();int containers=0,waterlogging=0,taken=0;
     for(int id=0;id<count;id++){
       var state=Block.stateById(id);var block=state.getBlock();
-      int bits=(state.canBeReplaced(Fluids.WATER)?32:0)|(state.canBeReplaced(Fluids.LAVA)?64:0);
+      int bits=(state.canBeReplaced(Fluids.WATER)?32:0)|(state.canBeReplaced(Fluids.LAVA)?64:0)|(state.ignitedByLava()?128:0);
       if(block instanceof LiquidBlockContainer container){
         bits|=1;containers++;
         for(int f=1;f<FLUIDS.length;f++)if(container.canPlaceLiquid(null,probe,origin,state,FLUIDS[f]))bits|=1<<f;
@@ -306,7 +312,7 @@ public class FluidOracle {
   /** Blocks a clip scene or flow scene draws from. */
   static BlockState pick(Random random,boolean scene){
     var horizontal=List.of(Direction.NORTH,Direction.EAST,Direction.SOUTH,Direction.WEST);
-    int roll=random.nextInt(100);boolean wet=random.nextInt(3)==0;
+    int roll=random.nextInt(110);boolean wet=random.nextInt(3)==0;
     if(roll<16)return Blocks.WATER.defaultBlockState();
     if(roll<22)return Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL,1+random.nextInt(15));
     if(roll<32)return Blocks.LAVA.defaultBlockState();
@@ -335,7 +341,12 @@ public class FluidOracle {
     if(roll<95)return Blocks.SEAGRASS.defaultBlockState();
     if(roll<97)return Blocks.KELP.defaultBlockState();
     if(roll<99)return Blocks.POWDER_SNOW.defaultBlockState();
-    return Blocks.POINTED_DRIPSTONE.defaultBlockState().setValue(PointedDripstoneBlock.WATERLOGGED,wet);
+    if(roll<100)return Blocks.POINTED_DRIPSTONE.defaultBlockState().setValue(PointedDripstoneBlock.WATERLOGGED,wet);
+    if(roll<102)return Blocks.MAGMA_BLOCK.defaultBlockState();
+    if(roll<104)return Blocks.SOUL_SAND.defaultBlockState();
+    if(roll<106)return Blocks.BUBBLE_COLUMN.defaultBlockState().setValue(BubbleColumnBlock.DRAG_DOWN,random.nextBoolean());
+    if(roll<108)return Blocks.OAK_PLANKS.defaultBlockState();
+    return Blocks.HAY_BLOCK.defaultBlockState();
   }
 
   static void clips(String out)throws Exception{
@@ -387,7 +398,7 @@ public class FluidOracle {
     Method tickFluid=ServerLevel.class.getDeclaredMethod("tickFluid",BlockPos.class,Fluid.class);tickFluid.setAccessible(true);
     var water=(BucketItem)Items.WATER_BUCKET;var lava=(BucketItem)Items.LAVA_BUCKET;
     var stone=Blocks.STONE.defaultBlockState();var scenes=new JsonArray();
-    int writes=0,obsidian=0,cobble=0,stoneMade=0,basalt=0,sources=0,flowing=0,waterlogged=0,fizz=0,pickups=0,emptied=0;
+    int writes=0,fires=0,columns=0,obsidian=0,cobble=0,stoneMade=0,basalt=0,sources=0,flowing=0,waterlogged=0,fizz=0,pickups=0,emptied=0;
     for(int s=0;s<sceneCount;s++){
       long levelSeed=random.nextLong();probe.random=RandomSource.create(levelSeed);
       var dimension=s%2==1?"minecraft:the_nether":"minecraft:overworld";probe.attributes=attributes(dimension);
@@ -396,6 +407,7 @@ public class FluidOracle {
       boolean waterConversion=random.nextInt(6)!=0,lavaConversion=random.nextInt(6)==0;
       probe.rules.set(GameRules.WATER_SOURCE_CONVERSION,waterConversion,null);
       probe.rules.set(GameRules.LAVA_SOURCE_CONVERSION,lavaConversion,null);
+      probe.fireSpread=random.nextInt(6)!=0;
       probe.blockTicks=new LevelTicks<>(p->true);probe.fluidTicks=new LevelTicks<>(p->true);
       for(int cx=(MIN_X-16)>>4;cx<=(MAX_X+16)>>4;cx++)for(int cz=(MIN_Z-16)>>4;cz<=(MAX_Z+16)>>4;cz++){
         probe.blockTicks.addContainer(new net.minecraft.world.level.ChunkPos(cx,cz),new LevelChunkTicks<>());
@@ -405,7 +417,9 @@ public class FluidOracle {
       for(int x=MIN_X-8;x<MAX_X+8;x++)for(int z=MIN_Z-8;z<MAX_Z+8;z++){
         var base=new BlockPos(x,BASE_Y,z);probe.cells.put(base,stone);cells.add(row(base,Block.getId(stone)));
         if(x>=MIN_X&&x<MAX_X&&z>=MIN_Z&&z<MAX_Z&&random.nextInt(10)!=0){
-          var floor=new BlockPos(x,FLOOR_Y,z);var state=random.nextInt(12)==0?Blocks.SOUL_SOIL.defaultBlockState():stone;
+          var floor=new BlockPos(x,FLOOR_Y,z);int kind=random.nextInt(24);
+          var state=kind<2?Blocks.SOUL_SOIL.defaultBlockState():kind==2?Blocks.MAGMA_BLOCK.defaultBlockState()
+            :kind==3?Blocks.SOUL_SAND.defaultBlockState():kind==4?Blocks.OAK_PLANKS.defaultBlockState():stone;
           probe.cells.put(floor,state);cells.add(row(floor,Block.getId(state)));
         }
       }
@@ -417,6 +431,23 @@ public class FluidOracle {
       }
       // Actions at random ticks over the first 160, then the scene settles to 320.
       var actions=new TreeMap<Integer,List<JsonArray>>();int actionCount=10+random.nextInt(30);
+      // Bubble column sites: a pool of three sources over stone that becomes magma or soul sand.
+      for(int i=0;i<2;i++){
+        int x=MIN_X+1+random.nextInt(MAX_X-MIN_X-2),z=MIN_Z+1+random.nextInt(MAX_Z-MIN_Z-2);
+        probe.cells.put(new BlockPos(x,FLOOR_Y,z),stone);cells.add(row(new BlockPos(x,FLOOR_Y,z),Block.getId(stone)));
+        for(int y=FLOOR_Y+1;y<=FLOOR_Y+3;y++){
+          var pool=new BlockPos(x,y,z);var source=Blocks.WATER.defaultBlockState();
+          probe.cells.put(pool,source);cells.add(row(pool,Block.getId(source)));
+        }
+        var action=new JsonArray();action.add("set");action.add(x);action.add(FLOOR_Y);action.add(z);
+        action.add(Block.getId((random.nextBoolean()?Blocks.MAGMA_BLOCK:Blocks.SOUL_SAND).defaultBlockState()));
+        actions.computeIfAbsent(random.nextInt(40),k->new ArrayList<>()).add(action);
+      }
+      // Random ticks of lava cells, as a random tick speed would pick them.
+      for(int t=0;t<320;t++)if(random.nextInt(3)==0){
+        var action=new JsonArray();action.add("random");action.add(MIN_X);action.add(FLOOR_Y);action.add(MIN_Z);
+        actions.computeIfAbsent(t,k->new ArrayList<>()).add(action);
+      }
       for(int a=0;a<actionCount;a++){
         int t=random.nextInt(160);
         var pos=new BlockPos(MIN_X+random.nextInt(MAX_X-MIN_X),FLOOR_Y+(random.nextInt(4)==0?0:1+random.nextInt(3)),MIN_Z+random.nextInt(MAX_Z-MIN_Z));
@@ -435,6 +466,22 @@ public class FluidOracle {
           var pos=new BlockPos(action.get(1).getAsInt(),action.get(2).getAsInt(),action.get(3).getAsInt());
           switch(action.get(0).getAsString()){
             case "set"->probe.setBlock(pos,Block.stateById(action.get(4).getAsInt()),Block.UPDATE_ALL);
+            case "random"->{
+              // `ServerLevel.tickChunk` at a random lava cell, if any: the block's random tick
+              // (lava's), then its fluid's.
+              var candidates=new ArrayList<BlockPos>();
+              for(var entry:probe.cells.entrySet())if(entry.getValue().is(Blocks.LAVA))candidates.add(entry.getKey());
+              candidates.sort(Comparator.naturalOrder());
+              if(!candidates.isEmpty()){
+                pos=candidates.get(random.nextInt(candidates.size()));
+                action.set(1,new JsonPrimitive(pos.getX()));action.set(2,new JsonPrimitive(pos.getY()));action.set(3,new JsonPrimitive(pos.getZ()));
+              }
+              var state=probe.cell(pos);
+              if(state.is(Blocks.LAVA)){
+                var fluidState=state.getFluidState();
+                state.randomTick(probe,pos,probe.random);fluidState.randomTick(probe,pos,probe.random);
+              }
+            }
             case "empty"->{
               boolean done=(action.get(4).getAsInt()==2?water:lava).emptyContents(null,probe,pos,null);
               items.add(done?1:0);if(done)emptied++;
@@ -455,7 +502,8 @@ public class FluidOracle {
             }
           }
         }
-        probe.blockTicks.tick(t,65536,(pos,block)->invoke(tickBlock,probe,pos,block));
+        // Fire's own ticks (burning, spreading) are another slice.
+        probe.blockTicks.tick(t,65536,(pos,block)->{if(block!=Blocks.FIRE)invoke(tickBlock,probe,pos,block);});
         probe.fluidTicks.tick(t,65536,(pos,fluid)->invoke(tickFluid,probe,pos,fluid));
         for(var w:probe.writes){
           var written=Block.stateById(w.getAsJsonArray().get(3).getAsInt());
@@ -463,6 +511,8 @@ public class FluidOracle {
           if(written.is(Blocks.COBBLESTONE))cobble++;
           if(written.is(Blocks.STONE))stoneMade++;
           if(written.is(Blocks.BASALT))basalt++;
+          if(written.is(Blocks.FIRE)||written.is(Blocks.SOUL_FIRE))fires++;
+          if(written.is(Blocks.BUBBLE_COLUMN))columns++;
           var fluid=written.getFluidState();
           if(fluid.isSource()&&written.getBlock() instanceof LiquidBlock)sources++;
           if(!fluid.isEmpty()&&!fluid.isSource())flowing++;
@@ -477,17 +527,17 @@ public class FluidOracle {
         }
       }
       var scene=new JsonObject();scene.addProperty("seed",levelSeed);scene.addProperty("dimension",dimension);
-      scene.addProperty("water_conversion",waterConversion);scene.addProperty("lava_conversion",lavaConversion);
+      scene.addProperty("fire_spread",probe.fireSpread);scene.addProperty("water_conversion",waterConversion);scene.addProperty("lava_conversion",lavaConversion);
       scene.add("cells",cells);scene.add("steps",steps);scenes.add(scene);
     }
     var result=new JsonObject();result.add("scenes",scenes);
     Files.writeString(Path.of(out),new Gson().toJson(result)+"\n");
-    if(obsidian<40||cobble<200||stoneMade<20||basalt<3||sources<500||flowing<20000||waterlogged<100||fizz<300||pickups<100||emptied<300)
+    if(obsidian<40||cobble<200||stoneMade<20||basalt<3||sources<500||flowing<20000||waterlogged<100||fizz<300||pickups<100||emptied<300||fires<100||columns<300)
       throw new AssertionError("thin scenes: obsidian "+obsidian+", cobblestone "+cobble+", stone "+stoneMade+", basalt "+basalt
-        +", sources "+sources+", flowing "+flowing+", waterlogged "+waterlogged+", fizz "+fizz+", pickups "+pickups+", emptied "+emptied);
+        +", sources "+sources+", flowing "+flowing+", waterlogged "+waterlogged+", fizz "+fizz+", pickups "+pickups+", emptied "+emptied+", fires "+fires+", bubble columns "+columns);
     System.out.println("PASS: "+sceneCount+" fluid scenes of 320 ticks; "+writes+" writes: "+flowing+" flowing, "+sources
       +" new sources, "+waterlogged+" waterlogged, "+obsidian+" obsidian, "+cobble+" cobblestone, "+stoneMade+" stone, "+basalt
-      +" basalt; "+fizz+" fizzes, "+emptied+" buckets emptied, "+pickups+" picked up");
+      +" basalt; "+fizz+" fizzes, "+emptied+" buckets emptied, "+pickups+" picked up; "+fires+" fires, "+columns+" bubble column writes");
   }
 
   /** A dimension type's constant attributes, as its level reads them. */
