@@ -34,3 +34,27 @@ All four slices are implemented and match their oracle scenes; each waits on
 the client. Their client scenarios make one handoff: a fresh world's plains
 village through a day and a night, with a zombie and a golem summoned among
 its villagers, its cats and a summoned wandering trader.
+
+## Handoff (October 2026)
+
+Done and on main: the shared brain commit and VMC-044a1 (villagers), 044a2
+(iron golems), 044a3 (cats) and 044a4 (wandering traders), each Awaiting
+client with its implementation notes, checks and client scenario. Verified
+before the push: the affected test files (`villager_region`,
+`natural_spawning`, `animal_region`, `mob_*`, `combat`, `hostile_region`,
+`full_chunk`) and the oracle stages `village`, `animals`, `ai_facts` and
+`animal_facts`. Earlier rebases also passed every `--changed` stage for
+044a1 and 044a2; the last broad `--changed` run was cut short at wrap-up,
+so the other affected stages (`loot`, `mob_ai`, `hostile_*`) were not re-run
+on the final rebase.
+
+Remaining: the one client handoff for all four slices; trades, reputation,
+breeding and raids (VMC-044); trader llamas and taming (VMC-043); periodic
+effects on mobs; saving the trader spawner's delay and chance with the
+level (both custom spawners count per group).
+
+Gotchas: regenerate generated facts per commit after a rebase (a textual
+merge of `ai_facts.json` once dropped a new `monster` field from these
+entries); `loot/tables.json` is sorted by key. On main,
+`Combat.source_info(nil)` (since VMC-043d3) crashes `Store.kill/2` and
+`/kill`: three failures in `test/entity_bodies_test.exs`, not fixed here.
