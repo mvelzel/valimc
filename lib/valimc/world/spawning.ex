@@ -288,7 +288,8 @@ defmodule Valimc.World.Spawning do
       Native.dispatch(:natural_spawn, units, [region, siblings, group.absent, request])
 
     from_spawners = for {_, _, list} <- ticked, spawn <- list, do: spawn
-    by_section = Enum.reduce(spawned ++ from_spawners, %{}, &add_spawn/2)
+    by_section = Enum.reduce(spawned, %{}, &add_spawn(&1, &2, :natural))
+    by_section = Enum.reduce(from_spawners, by_section, &add_spawn(&1, &2, :spawner))
 
     # Each spawn of a spawner block is a level event (2004) at the block.
     by_section =
@@ -332,8 +333,8 @@ defmodule Valimc.World.Spawning do
         do: {chunk, kept}
   end
 
-  defp add_spawn({kind, x, y, z, yaw, _school}, acc) do
-    case Body.new(Valimc.Data.EntityTypes.name(kind)) do
+  defp add_spawn({kind, x, y, z, yaw, _school}, acc, reason) do
+    case Body.spawned(Valimc.Data.EntityTypes.name(kind), reason) do
       {:ok, body} ->
         body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
         record = Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
@@ -442,7 +443,7 @@ defmodule Valimc.World.Spawning do
 
       for {_chunk, list} <- spawned,
           {kind, x, y, z, yaw, _} <- list,
-          {:ok, body} <- [Body.new(Valimc.Data.EntityTypes.name(kind))] do
+          {:ok, body} <- [Body.spawned(Valimc.Data.EntityTypes.name(kind), :chunk_generation)] do
         body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
         Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
       end

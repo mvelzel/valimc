@@ -1,0 +1,132 @@
+{
+  "version": "26.3",
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "armour": {
+    "head": [
+      "minecraft:leather_helmet",
+      "minecraft:copper_helmet",
+      "minecraft:golden_helmet",
+      "minecraft:chainmail_helmet",
+      "minecraft:iron_helmet",
+      "minecraft:diamond_helmet"
+    ],
+    "chest": [
+      "minecraft:leather_chestplate",
+      "minecraft:copper_chestplate",
+      "minecraft:golden_chestplate",
+      "minecraft:chainmail_chestplate",
+      "minecraft:iron_chestplate",
+      "minecraft:diamond_chestplate"
+    ],
+    "legs": [
+      "minecraft:leather_leggings",
+      "minecraft:copper_leggings",
+      "minecraft:golden_leggings",
+      "minecraft:chainmail_leggings",
+      "minecraft:iron_leggings",
+      "minecraft:diamond_leggings"
+    ],
+    "feet": [
+      "minecraft:leather_boots",
+      "minecraft:copper_boots",
+      "minecraft:golden_boots",
+      "minecraft:chainmail_boots",
+      "minecraft:iron_boots",
+      "minecraft:diamond_boots"
+    ]
+  },
+  "drop_chance": 1034818683,
+  "spawn_enchanting": {
+    "min_cost": 5,
+    "max_cost_span": 17,
+    "tag": "minecraft:on_mob_spawn_equipment"
+  },
+  "babies": {
+    "minecraft:zombie": [
+      1056629064,
+      1065017672,
+      1061578342
+    ],
+    "minecraft:husk": [
+      1056629064,
+      1065017672,
+      1062417203
+    ],
+    "minecraft:zombie_villager": [
+      1056629064,
+      1065017672,
+      1059816735
+    ]
+  },
+  "monsters_burn": {
+    "period": 24000,
+    "keyframes": [
+      {
+        "ticks": 12542,
+        "value": false
+      },
+      {
+        "ticks": 23460,
+        "value": true
+      }
+    ]
+  },
+  "villager_types": {
+    "minecraft:badlands": "minecraft:desert",
+    "minecraft:bamboo_jungle": "minecraft:jungle",
+    "minecraft:deep_frozen_ocean": "minecraft:snow",
+    "minecraft:desert": "minecraft:desert",
+    "minecraft:eroded_badlands": "minecraft:desert",
+    "minecraft:frozen_ocean": "minecraft:snow",
+    "minecraft:frozen_peaks": "minecraft:snow",
+    "minecraft:frozen_river": "minecraft:snow",
+    "minecraft:grove": "minecraft:snow",
+    "minecraft:ice_spikes": "minecraft:snow",
+    "minecraft:jagged_peaks": "minecraft:snow",
+    "minecraft:jungle": "minecraft:jungle",
+    "minecraft:mangrove_swamp": "minecraft:swamp",
+    "minecraft:old_growth_pine_taiga": "minecraft:taiga",
+    "minecraft:old_growth_spruce_taiga": "minecraft:taiga",
+    "minecraft:savanna": "minecraft:savanna",
+    "minecraft:savanna_plateau": "minecraft:savanna",
+    "minecraft:snowy_beach": "minecraft:snow",
+    "minecraft:snowy_plains": "minecraft:snow",
+    "minecraft:snowy_slopes": "minecraft:snow",
+    "minecraft:snowy_taiga": "minecraft:snow",
+    "minecraft:sparse_jungle": "minecraft:jungle",
+    "minecraft:swamp": "minecraft:swamp",
+    "minecraft:taiga": "minecraft:taiga",
+    "minecraft:windswept_forest": "minecraft:taiga",
+    "minecraft:windswept_gravelly_hills": "minecraft:taiga",
+    "minecraft:windswept_hills": "minecraft:taiga",
+    "minecraft:windswept_savanna": "minecraft:savanna",
+    "minecraft:wooded_badlands": "minecraft:desert"
+  },
+  "default_villager_type": "minecraft:plains",
+  "villager_type_ids": [
+    "minecraft:desert",
+    "minecraft:jungle",
+    "minecraft:plains",
+    "minecraft:savanna",
+    "minecraft:snow",
+    "minecraft:swamp",
+    "minecraft:taiga"
+  ],
+  "professions": [
+    "minecraft:none",
+    "minecraft:armorer",
+    "minecraft:butcher",
+    "minecraft:cartographer",
+    "minecraft:cleric",
+    "minecraft:farmer",
+    "minecraft:fisherman",
+    "minecraft:fletcher",
+    "minecraft:leatherworker",
+    "minecraft:librarian",
+    "minecraft:mason",
+    "minecraft:nitwit",
+    "minecraft:shepherd",
+    "minecraft:toolsmith",
+    "minecraft:weaponsmith"
+  ]
+}

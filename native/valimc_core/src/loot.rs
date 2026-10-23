@@ -1703,7 +1703,7 @@ impl Loot {
             Some(o) => o.to_vec(),
             None => (0..self.enchantments.len()).collect(),
         };
-        let chosen = self.select_enchantments(ctx, &stack, cost, &all);
+        let chosen = self.select_enchantments(&mut ctx.random, &stack, cost, &all);
         let mut stack = if stack.is("minecraft:book") {
             Stack::new("minecraft:enchanted_book")
         } else {
@@ -1715,10 +1715,46 @@ impl Loot {
         stack
     }
 
+    /// `EnchantmentsByCostWithDifficulty.enchant` (a mob's spawn equipment,
+    /// VMC-043b): a cost from `min` to `min + span` scaled by the local
+    /// difficulty's special multiplier, then `selectEnchantment` over the
+    /// enchantments of `tag`, each upgraded onto the item's `enchantments`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn enchant_by_cost(
+        &self,
+        item: &str,
+        enchantments: &[(String, i32)],
+        min: i32,
+        span: i32,
+        special: f32,
+        tag: &str,
+        random: &mut Random,
+    ) -> Result<Vec<(String, i32)>, String> {
+        let set = self.holder_set("minecraft:enchantment", &Json::String(format!("#{tag}")))?;
+        let source = set
+            .members
+            .iter()
+            .map(|m| {
+                self.enchantment_index
+                    .get(m)
+                    .copied()
+                    .ok_or_else(|| format!("unknown enchantment {m}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let max = min + (special * span as f32) as i32;
+        let cost = next_int(random, min, max);
+        let mut stack = Stack::new(item);
+        stack.enchantments = enchantments.to_vec();
+        for (e, level) in self.select_enchantments(random, &stack, cost, &source) {
+            stack.enchant(&self.enchantments[e].id, level);
+        }
+        Ok(stack.enchantments)
+    }
+
     /// `EnchantmentHelper.selectEnchantment`.
     fn select_enchantments(
         &self,
-        ctx: &mut Ctx,
+        r: &mut Random,
         stack: &Stack,
         cost: i32,
         source: &[usize],
@@ -1728,7 +1764,6 @@ impl Loot {
         if enchantable <= 0 {
             return results;
         }
-        let r = &mut ctx.random;
         let mut cost = cost
             + 1
             + r.next_int_bounded(enchantable / 4 + 1)

@@ -28,6 +28,8 @@ defmodule Valimc.AI.Self do
     :height,
     :eye,
     :world,
+    # The body's own data (`Body.data`: a zombie's baby flag, VMC-043b).
+    data: %{},
     effects: []
   ]
 

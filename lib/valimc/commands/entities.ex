@@ -33,7 +33,8 @@ defmodule Valimc.Commands.Entities do
 
     body =
       case Body.new(type) do
-        {:ok, body} -> body
+        {:ok, %Body{mob: nil} = body} -> body
+        {:ok, body} -> %{body | mob: %{body.mob | finalize: :command}}
         {:error, :unmodelled_type} -> Error.refuse!("Summoning #{type} is not supported yet")
       end
 

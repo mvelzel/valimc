@@ -15,46 +15,17 @@ defmodule Valimc.AI.Mobs do
   alias Valimc.AI.Goals
   alias Valimc.Protocol.{Data, ItemTypes}
 
-  @zombies [
-    "minecraft:zombie",
-    "minecraft:husk",
-    "minecraft:drowned",
-    "minecraft:zombie_villager"
-  ]
-  @villagers ["minecraft:villager", "minecraft:wandering_trader"]
+  # The family modules (VMC-043b–e): each names its `types/0` and gives its
+  # goals (`goals/1`) and, where it has them, `finalize/2` (`Valimc.AI.Spawn`),
+  # its own data (`data/1`, `values/1`) and dimensions (`dimensions/1`).
+  @families [Valimc.AI.Mobs.Zombie]
+  @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
+  @exports for module <- @families,
+               into: %{},
+               do: {module, MapSet.new(module.__info__(:functions))}
+
   @pig_food MapSet.new(Data.tags()["minecraft:item"]["minecraft:pig_food"])
   @carrot_on_a_stick ItemTypes.id("minecraft:carrot_on_a_stick")
-  @turtle_eggs Enum.to_list(Valimc.Data.Blocks.states("turtle_egg"))
-
-  def registered("minecraft:zombie") do
-    {[
-       {4, "ZombieAttackTurtleEggGoal", Goals.RemoveBlock, [:move, :jump],
-        Goals.RemoveBlock.new(@turtle_eggs)},
-       {8, "LookAtPlayerGoal", Goals.LookAtPlayer, [:look], Goals.LookAtPlayer.new(8.0)},
-       {8, "RandomLookAroundGoal", Goals.RandomLookAround, [:move, :look],
-        Goals.RandomLookAround.new()},
-       {2, "SpearUseGoal", Goals.Idle, [:move, :look], Goals.Idle.new("SpearUseGoal")},
-       {3, "ZombieAttackGoal", Goals.MeleeAttack, [:move, :look],
-        Goals.MeleeAttack.new(1.0, false, raise_arms: true)},
-       {6, "MoveThroughVillageGoal", Goals.Idle, [:move],
-        Goals.Idle.new("MoveThroughVillageGoal")},
-       {7, "WaterAvoidingRandomStrollGoal", Goals.RandomStroll, [:move],
-        Goals.RandomStroll.new(1.0, water_avoiding: true)}
-     ],
-     [
-       {1, "HurtByTargetGoal", Goals.HurtByTarget, [:target],
-        Goals.HurtByTarget.new(alert: true, alert_types: @zombies)},
-       {2, "NearestAttackableTargetGoal", Goals.NearestAttackableTarget, [:target],
-        Goals.NearestAttackableTarget.new(:player, nil, true)},
-       {3, "NearestAttackableTargetGoal", Goals.NearestAttackableTarget, [:target],
-        Goals.NearestAttackableTarget.new(:mob, @villagers, false)},
-       {3, "NearestAttackableTargetGoal", Goals.NearestAttackableTarget, [:target],
-        Goals.NearestAttackableTarget.new(:mob, ["minecraft:iron_golem"], true)},
-       # `Turtle.BABY_ON_LAND_SELECTOR`: turtles are VMC-043e's.
-       {5, "NearestAttackableTargetGoal", Goals.NearestAttackableTarget, [:target],
-        Goals.NearestAttackableTarget.new(:mob, ["minecraft:turtle"], true, interval: 10)}
-     ]}
-  end
 
   def registered("minecraft:pig") do
     {[
@@ -80,6 +51,8 @@ defmodule Valimc.AI.Mobs do
   def registered("minecraft:zombified_piglin"),
     do: Valimc.AI.Mobs.ZombifiedPiglin.registered()
 
+  def registered(type) when is_map_key(@family, type), do: @family[type].goals(type)
+
   def registered(_type), do: nil
 
   @after_compile __MODULE__
@@ -104,12 +77,41 @@ defmodule Valimc.AI.Mobs do
   end
 
   @types [
-    "minecraft:zombie",
     "minecraft:pig",
     "minecraft:piglin",
     "minecraft:blaze",
-    "minecraft:zombified_piglin"
+    "minecraft:zombified_piglin" | Map.keys(@family)
   ]
+
+  @doc "The family module of `type`, or nil."
+  def family(type), do: @family[type]
+
+  @doc "The module whose `finalize/2` finishes a spawn of `type`, or nil (`Valimc.AI.Spawn`)."
+  def finalizer(type) do
+    module = @family[type]
+    if exports?(module, :finalize, 2), do: module
+  end
+
+  @doc "The own data of a body of `type` its family keeps, or nil."
+  def data(type) do
+    module = @family[type]
+    if exports?(module, :data, 1), do: module.data(type)
+  end
+
+  @doc "The own entity data values of `body` (`[{field, value, default}]`)."
+  def values(%{type: type} = body) do
+    module = @family[type]
+    if exports?(module, :values, 1), do: module.values(body), else: []
+  end
+
+  @doc "`body`'s dimensions `{width, height, eye}` where its family changes them, else nil."
+  def dimensions(%{type: type} = body) do
+    module = @family[type]
+    if exports?(module, :dimensions, 1), do: module.dimensions(body)
+  end
+
+  defp exports?(nil, _name, _arity), do: false
+  defp exports?(module, name, arity), do: MapSet.member?(@exports[module], {name, arity})
 
   @doc """
   The module of a type's own `customServerAiStep` (`custom_step/1`, after

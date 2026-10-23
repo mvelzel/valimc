@@ -43,7 +43,11 @@ public class CombatOracle {
   }
   // VMC-037o: an egg's chickens, an ender pearl's endermites; VMC-041a: pigs and piglins.
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite", "minecraft:pig",
-      "minecraft:piglin", "minecraft:blaze", "minecraft:zombified_piglin");
+      "minecraft:piglin", "minecraft:blaze", "minecraft:zombified_piglin",
+      // VMC-043b: the overworld hostiles.
+      "minecraft:husk", "minecraft:zombie_villager", "minecraft:drowned", "minecraft:skeleton", "minecraft:stray",
+      "minecraft:bogged", "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
+      "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
@@ -161,6 +165,8 @@ public class CombatOracle {
     int ids;
     @Override public int getNextEntityId() { return ++ids; }
     @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
+    // A drowned's goals read the sea level (VMC-043b).
+    @Override public int getSeaLevel() { return 63; }
     // A chicken's and a pig's variants (VMC-037o, VMC-041a) come from the level's registries.
     static RegistryAccess access;
     @Override public RegistryAccess registryAccess() { return access; }

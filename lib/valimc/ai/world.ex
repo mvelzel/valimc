@@ -6,8 +6,9 @@ defmodule Valimc.AI.World do
   nothing to stand on or see through), `time` the game time, `players` the
   group's playing players, `mobs` the section's mobs and `items` its items
   (`%{kind: :item, uuid, x, y, z, item, count, components, pickup_delay}`),
-  `random` the level's random (behaviours' run times), `light` the light-dependent magic value at a block
-  (`getLightLevelDependentMagicValue`), `search` how path searches run and
+  `random` the level's random (behaviours' run times), `light` the sky and
+  block light at a block (`{sky, block}`, nil where unknown) and `darken`
+  the sky's darkening (`light/2`: `getLightLevelDependentMagicValue`), `search` how path searches run and
   `paths` the deferred results that arrived (`search/2`), `sea_level` and
   the stationary `border` (`{min_x, min_z, max_x, max_z}`) searches read.
 
@@ -38,12 +39,21 @@ defmodule Valimc.AI.World do
             min_y: -64,
             max_y: 319,
             light: nil,
+            darken: 0,
             mob_griefing: true,
             universal_anger: false,
             search: :deferred,
             paths: %{},
             sea_level: 63,
-            border: nil
+            border: nil,
+            # VMC-043b: the overworld clock's ticks (local difficulty, the
+            # day's sky), the biome at a block (nil where unknown), whether
+            # it is Halloween.
+            day: 0,
+            biome: nil,
+            halloween: false,
+            # A local difficulty that holds everywhere (oracles), else nil.
+            local: nil
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,
@@ -80,9 +90,60 @@ defmodule Valimc.AI.World do
     end
   end
 
-  @doc "`getLightLevelDependentMagicValue` at a block (0 while light is not read)."
+  @doc """
+  `getLightLevelDependentMagicValue` at a block: its brightness (sky light
+  less the sky's darkening, or block light) on vanilla's curve; 0 where the
+  light is not known.
+  """
   def light(%__MODULE__{light: nil}, _position), do: 0.0
-  def light(%__MODULE__{light: light}, position), do: light.(position)
+
+  def light(%__MODULE__{light: light, darken: darken}, position) do
+    case light.(position) do
+      {sky, block} ->
+        v = Valimc.Data.Float32.round(max(sky - darken, block) / 15.0)
+
+        Valimc.Data.Float32.round(
+          v / Valimc.Data.Float32.round(4.0 - Valimc.Data.Float32.round(3.0 * v))
+        )
+
+      nil ->
+        0.0
+    end
+  end
+
+  @doc "`canSeeSky`: full sky light at the block (never where light is not known)."
+  def sees_sky?(%__MODULE__{light: nil}, _position), do: false
+
+  def sees_sky?(%__MODULE__{light: light}, position),
+    do: match?({15, _}, light.(position))
+
+  @doc "The biome at `position` (`Level.getBiome`), plains where unknown."
+  def biome(%__MODULE__{biome: nil}, _position), do: "minecraft:plains"
+  def biome(%__MODULE__{biome: biome}, position), do: biome.(position) || "minecraft:plains"
+
+  @doc """
+  `noCollision(box)` over blocks: no collision shape of a cell the box
+  reaches (and the cells around it, for tall shapes) meets it; an unreadable
+  cell collides.
+  """
+  def fits?(%__MODULE__{} = world, {x0, y0, z0, x1, y1, z1} = box) do
+    context = Valimc.Physics.CollisionContext.empty()
+
+    Enum.all?(
+      for(
+        x <- (floor(x0 - 1.0e-7) - 1)..(floor(x1 + 1.0e-7) + 1),
+        y <- (floor(y0 - 1.0e-7) - 1)..(floor(y1 + 1.0e-7) + 1),
+        z <- (floor(z0 - 1.0e-7) - 1)..(floor(z1 + 1.0e-7) + 1),
+        do: {x, y, z}
+      ),
+      fn position ->
+        case block(world, position) do
+          nil -> false
+          state -> not Valimc.Physics.Kernel.obstructs?(state, position, context, [box])
+        end
+      end
+    )
+  end
 
   @doc "`isOutsideBuildHeight`."
   def outside?(%__MODULE__{min_y: min, max_y: max}, {_, y, _}), do: y < min or y > max

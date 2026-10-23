@@ -60,7 +60,9 @@ public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
-      "minecraft:blaze", "minecraft:zombified_piglin");
+      "minecraft:blaze", "minecraft:zombified_piglin",
+      // VMC-043b: the zombie family.
+      "minecraft:husk", "minecraft:zombie_villager");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -146,7 +148,7 @@ public class MobAiOracle {
     Map<Entity, List<JsonObject>> sounds;
     // The mob ticking: what it adds to the level and its level events are its own.
     Entity current;
-    private Probe() { super(null,null,null,null,null,null,false,0L,List.of(),false); }
+    Probe() { super(null,null,null,null,null,null,false,0L,List.of(),false); }
     public RegistryAccess registryAccess() { return access; }
     public BlockState getBlockState(BlockPos p) { return blocks.getOrDefault(p, Blocks.AIR.defaultBlockState()); }
     public FluidState getFluidState(BlockPos p) { return getBlockState(p).getFluidState(); }
@@ -295,6 +297,11 @@ public class MobAiOracle {
     public boolean isConverting() { return false; }
   }
 
+  /**
+   * A fresh mob of `type`: the subclasses above where the probe needs one
+   * (no team, no conversions), otherwise the type's own (families add a
+   * subclass only to override something).
+   */
   static net.minecraft.world.entity.Mob mob(String type, Probe level) {
     return switch (type) {
       case "minecraft:zombie" -> new Zombie(level);
@@ -332,7 +339,12 @@ public class MobAiOracle {
   }
 
   static Probe probe(HolderLookup.Provider lookup, RegistryAccess access, DamageSources sources) throws Exception {
-    var level = (Probe)unsafe.allocateInstance(Probe.class);
+    return probe(Probe.class, lookup, access, sources);
+  }
+
+  /** A probe level of class `kind` (a subclass of `Probe` another oracle overrides). */
+  static <P extends Probe> P probe(Class<P> kind, HolderLookup.Provider lookup, RegistryAccess access, DamageSources sources) throws Exception {
+    var level = kind.cast(unsafe.allocateInstance(kind));
     level.blocks = new HashMap<>(); level.entities = new ArrayList<>(); level.fighters = new ArrayList<>();
     level.sounds = new HashMap<>();
     level.rules = new GameRules(FeatureFlagSet.of());
@@ -360,7 +372,8 @@ public class MobAiOracle {
 
   static String goalName(Goal g) {
     Class<?> c = g.getClass();
-    while (c.isAnonymousClass() || c.getName().startsWith("MobAiOracle")) c = c.getSuperclass();
+    // An oracle's own subclasses (in the default package) name vanilla's goal.
+    while (c.isAnonymousClass() || c.getPackageName().isEmpty()) c = c.getSuperclass();
     return c.getSimpleName();
   }
 

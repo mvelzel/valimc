@@ -338,6 +338,22 @@ fn region_biome(
     with_store(&region, |store| Ok(store.noise_biome(quart, default_biome)))
 }
 
+/// Sky and block light at each position (`{sky, block}`), nil where the
+/// region's light does not know its chunk (VMC-043b: mobs burning in
+/// daylight read where their eyes are).
+#[rustler::nif]
+fn region_light(
+    region: ResourceArc<Region>,
+    positions: Vec<(i32, i32, i32)>,
+) -> Result<Vec<Option<(u8, u8)>>, Atom> {
+    with_store(&region, |store| {
+        Ok(positions
+            .iter()
+            .map(|&(x, y, z)| store.light_at(x, y, z))
+            .collect())
+    })
+}
+
 /// Column images by chunk.
 type Images<'a> = Vec<(i32, i32, Binary<'a>)>;
 

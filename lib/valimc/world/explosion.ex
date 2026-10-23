@@ -217,7 +217,12 @@ defmodule Valimc.World.Explosion do
 
   defp size(:item, _), do: fact_size("minecraft:item")
   defp size(:orb, _), do: fact_size("minecraft:experience_orb")
-  defp size(_, %{body: %Body{type: type}}), do: fact_size(type)
+  defp size(_, %{body: %Body{mob: nil, type: type}}), do: fact_size(type)
+
+  defp size(_, %{body: %Body{} = body}) do
+    {w, h, _} = Body.dimensions(body)
+    {w, h}
+  end
 
   defp fact_size(type) do
     facts = Valimc.Data.EntityTypes.fetch(type)
@@ -225,6 +230,11 @@ defmodule Valimc.World.Explosion do
   end
 
   defp origin(%{entity: %{x: x, y: y, z: z}, body: %Body{type: "minecraft:tnt"}}), do: {x, y, z}
+
+  defp origin(%{entity: %{x: x, y: y, z: z}, body: %Body{mob: %{}} = body}) do
+    {_, _, eye} = Body.dimensions(body)
+    {x, y + eye, z}
+  end
 
   defp origin(%{kind: kind, entity: %{x: x, y: y, z: z}} = entry) do
     type =

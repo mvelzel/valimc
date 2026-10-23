@@ -298,6 +298,10 @@ defmodule Valimc.Entity.Combat do
   # one to three (`Animal.getBaseExperienceReward`), from its own random.
   defp experience(body) do
     cond do
+      # A chicken jockey's chicken (VMC-043b).
+      match?(%{type: "minecraft:chicken", data: %{jockey: true}}, body) ->
+        10
+
       CombatPackets.mob_sounds(body.type)["animal"] ->
         case body.mob.ai do
           %Valimc.AI.Mind{random: random} ->
@@ -313,16 +317,21 @@ defmodule Valimc.Entity.Combat do
     end
   end
 
+  # A baby zombie's reward is two and a half times an adult's (VMC-043b);
+  # equipment it would not lose unworn adds to it.
   defp reward(body) do
     case Weapons.experience(body.type) do
       0 ->
         0
 
       reward ->
+        reward = if match?(%{data: %{baby: true}}, body), do: trunc(reward * 2.5), else: reward
+
         reward +
           Enum.sum(
             for {slot, _stack} <- body.mob.equipment,
                 slot in [:mainhand, :offhand, :feet, :legs, :chest, :head],
+                Mob.drop_chance(body.mob, slot) <= 1.0,
                 do: :rand.uniform(3)
           )
     end

@@ -39152,6 +39152,146 @@
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/endermite"
   },
+  "minecraft:entities/husk": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/husk",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:rotten_flesh",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:rabbit_foot",
+            "condition": {
+              "predicate": {
+                "minecraft:vehicle": {
+                  "minecraft:entity_type": "minecraft:camel_husk"
+                }
+              },
+              "entity": "this",
+              "type": "minecraft:entity_properties"
+            },
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:iron_ingot",
+            "type": "minecraft:item"
+          },
+          {
+            "name": "minecraft:carrot",
+            "type": "minecraft:item"
+          },
+          {
+            "name": "minecraft:potato",
+            "modifier": {
+              "condition": {
+                "terms": [
+                  {
+                    "predicate": {
+                      "minecraft:flags": {
+                        "is_on_fire": true
+                      }
+                    },
+                    "entity": "this",
+                    "type": "minecraft:entity_properties"
+                  },
+                  {
+                    "predicate": {
+                      "minecraft:equipment": {
+                        "mainhand": {
+                          "predicates": {
+                            "minecraft:enchantments": [
+                              {
+                                "enchantments": "#minecraft:smelts_loot"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "entity": "direct_attacker",
+                    "type": "minecraft:entity_properties"
+                  }
+                ],
+                "type": "minecraft:any_of"
+              },
+              "type": "minecraft:furnace_smelt"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "terms": [
+            {
+              "type": "minecraft:killed_by_player"
+            },
+            {
+              "unenchanted_chance": 0.02500000037252903,
+              "enchanted_chance": {
+                "base": 0.03500000014901161,
+                "per_level_above_first": 0.009999999776482582,
+                "type": "minecraft:linear"
+              },
+              "enchantment": "minecraft:looting",
+              "type": "minecraft:random_chance_with_enchanted_bonus"
+            }
+          ],
+          "type": "minecraft:all_of"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/pig": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/pig",
@@ -39381,6 +39521,109 @@
               },
               "entity": "this",
               "type": "minecraft:entity_properties"
+            }
+          ],
+          "type": "minecraft:all_of"
+        },
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/zombie_villager": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/zombie_villager",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:rotten_flesh",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:iron_ingot",
+            "type": "minecraft:item"
+          },
+          {
+            "name": "minecraft:carrot",
+            "type": "minecraft:item"
+          },
+          {
+            "name": "minecraft:potato",
+            "modifier": {
+              "condition": {
+                "terms": [
+                  {
+                    "predicate": {
+                      "minecraft:flags": {
+                        "is_on_fire": true
+                      }
+                    },
+                    "entity": "this",
+                    "type": "minecraft:entity_properties"
+                  },
+                  {
+                    "predicate": {
+                      "minecraft:equipment": {
+                        "mainhand": {
+                          "predicates": {
+                            "minecraft:enchantments": [
+                              {
+                                "enchantments": "#minecraft:smelts_loot"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "entity": "direct_attacker",
+                    "type": "minecraft:entity_properties"
+                  }
+                ],
+                "type": "minecraft:any_of"
+              },
+              "type": "minecraft:furnace_smelt"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "terms": [
+            {
+              "type": "minecraft:killed_by_player"
+            },
+            {
+              "unenchanted_chance": 0.02500000037252903,
+              "enchanted_chance": {
+                "base": 0.03500000014901161,
+                "per_level_above_first": 0.009999999776482582,
+                "type": "minecraft:linear"
+              },
+              "enchantment": "minecraft:looting",
+              "type": "minecraft:random_chance_with_enchanted_bonus"
             }
           ],
           "type": "minecraft:all_of"

@@ -40,7 +40,15 @@ defmodule Valimc.Entity.Mob do
             # What a death the owner has not dropped yet leaves (`Entity.Combat`).
             death: nil,
             # `PersistenceRequired`: a named mob never despawns (VMC-042a).
-            persistent: false
+            persistent: false,
+            # `LeftHanded`, `CanPickUpLoot` and the equipment's drop chances
+            # by slot where not the default (VMC-043b).
+            left_handed: false,
+            can_pick_up_loot: false,
+            drop_chances: %{},
+            # The spawn reason of a mob whose `finalizeSpawn` is still to run
+            # (its first tick runs it, VMC-043b), else nil.
+            finalize: nil
 
   # `EquipmentSlot` ids, as the equipment packet numbers them.
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
@@ -65,7 +73,14 @@ defmodule Valimc.Entity.Mob do
       player_memory: mob.player_memory
     }
     |> then(&if(mob.persistent, do: Map.put(&1, :persistent, true), else: &1))
+    |> put_set(:left_handed, mob.left_handed, false)
+    |> put_set(:can_pick_up_loot, mob.can_pick_up_loot, false)
+    |> put_set(:drop_chances, mob.drop_chances, %{})
+    |> put_set(:finalize, mob.finalize, nil)
   end
+
+  defp put_set(record, _key, default, default), do: record
+  defp put_set(record, key, value, _default), do: Map.put(record, key, value)
 
   @doc "A mob of `type` from its record."
   def restore(
@@ -76,6 +91,10 @@ defmodule Valimc.Entity.Mob do
     memory = Map.get(record, :player_memory, 0)
     by = Map.get(record, :hurt_by_player)
     persistent = Map.get(record, :persistent, false)
+    left_handed = Map.get(record, :left_handed, false)
+    loot = Map.get(record, :can_pick_up_loot, false)
+    chances = Map.get(record, :drop_chances, %{})
+    finalize = Map.get(record, :finalize)
 
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
@@ -85,7 +104,8 @@ defmodule Valimc.Entity.Mob do
          true <- is_boolean(no_ai),
          true <- is_integer(memory) and memory in 0..@player_memory,
          true <- by == nil or (is_binary(by) and byte_size(by) == 16),
-         true <- is_boolean(persistent),
+         true <- is_boolean(persistent) and is_boolean(left_handed) and is_boolean(loot),
+         true <- valid_chances?(chances) and (finalize == nil or is_atom(finalize)),
          {:ok, restored} <- Living.restore(living),
          {:ok, health} <- Health.restore(living.health, max_health(type, attributes)) do
       {:ok,
@@ -98,7 +118,11 @@ defmodule Valimc.Entity.Mob do
          motion: motion,
          hurt_by_player: if(memory > 0, do: by),
          player_memory: memory,
-         persistent: persistent
+         persistent: persistent,
+         left_handed: left_handed,
+         can_pick_up_loot: loot,
+         drop_chances: chances,
+         finalize: finalize
        }}
     else
       _ -> {:error, :invalid_mob}
@@ -287,6 +311,28 @@ defmodule Valimc.Entity.Mob do
       end)
 
   defp valid_equipment?(_), do: false
+
+  defp valid_chances?(chances) when is_map(chances),
+    do:
+      Enum.all?(chances, fn {slot, chance} ->
+        Keyword.has_key?(@slots, slot) and is_float(chance) and chance >= 0.0
+      end)
+
+  defp valid_chances?(_), do: false
+
+  @doc """
+  The drop chance of the equipment in `slot` (`DropChances.byEquipment`): a
+  chance above 1 drops it whatever killed the mob, unworn (`isPreserved`).
+  """
+  def drop_chance(%__MODULE__{drop_chances: chances}, slot),
+    do: Map.get(chances, slot, Valimc.Data.HostileFacts.drop_chance())
+
+  @doc "`setDropChance`, kept only where it differs from the default."
+  def put_drop_chance(%__MODULE__{drop_chances: chances} = mob, slot, chance) do
+    if chance == Valimc.Data.HostileFacts.drop_chance(),
+      do: %{mob | drop_chances: Map.delete(chances, slot)},
+      else: %{mob | drop_chances: Map.put(chances, slot, chance)}
+  end
 
   defp valid_attributes?(attributes) when is_map(attributes),
     do:

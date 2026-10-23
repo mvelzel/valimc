@@ -358,6 +358,32 @@ fn loot_items<'a>(
     )
 }
 
+/// A mob's spawn equipment enchanted by cost (`EnchantmentsByCostWithDifficulty`,
+/// VMC-043b): `item` with its `enchantments`, the cost range `min` to
+/// `min + span` and the special multiplier, over the enchantments of `tag`,
+/// drawing from the 48-bit legacy random state `random`. The enchantments
+/// after and the random's state.
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn loot_enchant(
+    registry: ResourceArc<LootRegistry>,
+    item: String,
+    enchantments: Vec<(String, i32)>,
+    min: i32,
+    span: i32,
+    special: f64,
+    tag: String,
+    random: u64,
+) -> NifResult<(Atom, (Vec<(String, i32)>, u64))> {
+    let mut random = valimc_core::worldgen::random::Random::legacy_at(random);
+    reply(
+        registry
+            .loot
+            .enchant_by_cost(&item, &enchantments, min, span, special as f32, &tag, &mut random)
+            .map(|list| (list, random.legacy_state().unwrap_or(0))),
+    )
+}
+
 /// An entity's death drops (`LivingEntity.dropFromLootTable`, VMC-037n):
 /// `death` is `{on_fire, baby, vehicle, killed_by_player, attacker,
 /// direct_attacker}`, each attacker its main-hand enchantments as

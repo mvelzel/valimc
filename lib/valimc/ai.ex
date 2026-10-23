@@ -21,7 +21,7 @@ defmodule Valimc.AI do
   which read a bounded box.
   """
   alias Valimc.AI.{Facts, Look, Mind, Mobs, Navigation, Random, Selector, Self, World}
-  alias Valimc.Data.{EntityTypes, Float32}
+  alias Valimc.Data.EntityTypes
   alias Valimc.Entity.{Body, Mob}
 
   @doc "Whether mobs of `type` have an AI."
@@ -71,7 +71,7 @@ defmodule Valimc.AI do
   `{id, entry}` of the store.
   """
   def sensed({id, %{entity: e, body: %Body{type: type, mob: mob} = body}}) do
-    facts = EntityTypes.fetch(type)
+    {width, height, eye} = Body.dimensions(body)
     mind = match_mind(mob.ai)
 
     %{
@@ -84,9 +84,9 @@ defmodule Valimc.AI do
       z: e.z * 1.0,
       yaw: body.yaw,
       pitch: body.pitch,
-      eye: Float32.round(facts.eye_height),
-      width: Float32.round(facts.width),
-      height: Float32.round(facts.height),
+      eye: eye,
+      width: width,
+      height: height,
       alive: Mob.alive?(mob),
       target: mind && mind.target,
       in_love: (mind && mind.in_love) || 0,
@@ -163,15 +163,22 @@ defmodule Valimc.AI do
 
   # Another mob's alert sets the target through the type's `setTarget`.
   defp alerted(%Body{type: type, mob: %Mob{ai: %Mind{} = mind} = mob} = body, uuid, target, world) do
-    self = Self.set_target(%Self{type: type, uuid: uuid, mob: mob, mind: mind, world: world}, target)
+    self =
+      Self.set_target(%Self{type: type, uuid: uuid, mob: mob, mind: mind, world: world}, target)
+
     %{body | mob: %{mob | ai: self.mind}}
   end
 
-  defp think_one(id, %{entity: e, body: %Body{type: type, mob: mob} = body}, world) do
+  defp think_one(id, %{entity: e, body: %Body{} = body}, world) do
+    # A mob still to finalize its spawn does so first (VMC-043b), with or
+    # without goals.
+    {body, made, world} = finalize(id, e, body, world)
+    %Body{type: type, mob: mob} = body
+
     if not thinking?(%Body{type: type, mob: mob}) or not Mob.alive?(mob) do
-      {body, [], world}
+      {body, made, world}
     else
-      facts = EntityTypes.fetch(type)
+      {width, height, eye} = Body.dimensions(body)
 
       self = %Self{
         id: id,
@@ -187,9 +194,10 @@ defmodule Valimc.AI do
         mob: mob,
         mind: mob.ai,
         facts: Facts.mob(type),
-        width: Float32.round(facts.width),
-        height: Float32.round(facts.height),
-        eye: Float32.round(facts.eye_height),
+        width: width,
+        height: height,
+        eye: eye,
+        data: body.data,
         world: world
       }
 
@@ -199,9 +207,45 @@ defmodule Valimc.AI do
       mob = %{self.mob | ai: self.mind, motion: motion}
       mob = %{mob | ai: %{mob.ai | jump: false, rise: false}}
 
-      {%{body | pitch: self.pitch, head_yaw: self.head, mob: mob}, Enum.reverse(self.effects),
-       %{world | random: self.world.random}}
+      {%{body | pitch: self.pitch, head_yaw: self.head, mob: mob, data: self.data},
+       made ++ Enum.reverse(self.effects), %{world | random: self.world.random}}
     end
+  end
+
+  # `finalizeSpawn` of a mob that has not run it (`Valimc.AI.Spawn`): with its
+  # mind's random where it thinks, else one seeded from its uuid.
+  defp finalize(_id, _e, %Body{mob: %Mob{finalize: nil}} = body, world), do: {body, [], world}
+
+  defp finalize(id, e, %Body{type: type, mob: mob} = body, world) do
+    {width, height, eye} = Body.dimensions(body)
+    mind = if match?(%Mind{}, mob.ai), do: mob.ai, else: %Mind{random: Random.new(e.uuid)}
+
+    self =
+      Valimc.AI.Spawn.finalize(%Self{
+        id: id,
+        uuid: e.uuid,
+        type: type,
+        x: e.x * 1.0,
+        y: e.y * 1.0,
+        z: e.z * 1.0,
+        yaw: body.yaw,
+        pitch: body.pitch,
+        head: body.head_yaw,
+        on_ground: body.on_ground,
+        mob: mob,
+        mind: mind,
+        facts: Facts.mob(type),
+        width: width,
+        height: height,
+        eye: eye,
+        data: body.data,
+        world: world
+      })
+
+    mob = if match?(%Mind{}, mob.ai), do: %{self.mob | ai: self.mind}, else: self.mob
+
+    {%{body | mob: mob, data: self.data}, Enum.reverse(self.effects),
+     %{world | random: self.world.random}}
   end
 
   # `Mob.checkDespawn` without despawning (VMC-042a): near a player the mob
@@ -364,7 +408,7 @@ defmodule Valimc.AI do
         world
       ) do
     if Mob.alive?(mob) and thinking?(body) do
-      facts = EntityTypes.fetch(body.type)
+      {width, height, eye} = Body.dimensions(body)
 
       self = %Self{
         id: id,
@@ -380,9 +424,10 @@ defmodule Valimc.AI do
         mob: mob,
         mind: mind,
         facts: Facts.mob(body.type),
-        width: Float32.round(facts.width),
-        height: Float32.round(facts.height),
-        eye: Float32.round(facts.eye_height),
+        width: width,
+        height: height,
+        eye: eye,
+        data: body.data,
         world: world
       }
 
@@ -407,7 +452,7 @@ defmodule Valimc.AI do
           %{module: module} -> module.pick_up(self)
         end
 
-      {%{body | head_yaw: self.head, mob: %{self.mob | ai: self.mind}},
+      {%{body | head_yaw: self.head, mob: %{self.mob | ai: self.mind}, data: self.data},
        Enum.reverse(self.effects), self.world}
     else
       {body, [], world}

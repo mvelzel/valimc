@@ -332,7 +332,60 @@ defmodule Valimc.Protocol.EntityPackets do
     {fact["index"], [<<fact["index"]>>, Wire.varint(fact["serializer"]), payload]}
   end
 
+  # The overworld hostiles' own fields (VMC-043b).
+  @flags [
+    :zombie_baby,
+    :zombie_drowned_conversion,
+    :zombie_villager_converting,
+    :zombie_villager_finalized,
+    :skeleton_stray_conversion,
+    :bogged_sheared,
+    :creeper_powered,
+    :creeper_ignited,
+    :enderman_creepy,
+    :enderman_stared_at,
+    :raider_celebrating,
+    :witch_using_item
+  ]
+  @ints [:zombie_special_type, :creeper_swell_dir, :cube_size, :phantom_size]
+
+  defp metadata_value({name, value}) when name in @flags do
+    check(is_boolean(value), "invalid flag")
+    family(name, Wire.bool(value))
+  end
+
+  defp metadata_value({name, value}) when name in @ints do
+    check(is_integer(value) and value in -2_147_483_648..2_147_483_647, "invalid int")
+    family(name, Wire.varint(value))
+  end
+
+  defp metadata_value({:spider_flags, value}) do
+    check(is_integer(value) and value in 0..255, "invalid flags")
+    family(:spider_flags, <<value>>)
+  end
+
+  # `VillagerData`: its type and profession (registry ids) and level.
+  defp metadata_value({:zombie_villager_data, {type, profession, level}})
+       when is_integer(level) do
+    family(:zombie_villager_data, [
+      Wire.varint(Valimc.Data.HostileFacts.villager_type_id(type)),
+      Wire.varint(Valimc.Data.HostileFacts.profession_id(profession)),
+      Wire.varint(level)
+    ])
+  end
+
+  # An optional block state: what an enderman carries (0 for none).
+  defp metadata_value({:enderman_carry_state, value}) do
+    check(value == nil or (is_integer(value) and value > 0), "invalid block state")
+    family(:enderman_carry_state, Wire.varint(value || 0))
+  end
+
   defp metadata_value(_), do: raise(ArgumentError, "unknown or invalid metadata field")
+
+  defp family(name, payload) do
+    fact = EntityTypes.field(name)
+    {fact["index"], [<<fact["index"]>>, Wire.varint(fact["serializer"]), payload]}
+  end
 
   defp stack_bytes(stack) do
     check(

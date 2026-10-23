@@ -271,6 +271,23 @@ public class EntityOracle {
     fields.put("zombie_baby", field(Zombie.class, "DATA_BABY_ID"));
     fields.put("zombie_special_type", field(Zombie.class, "DATA_SPECIAL_TYPE_ID"));
     fields.put("zombie_drowned_conversion", field(Zombie.class, "DATA_DROWNED_CONVERSION_ID"));
+    // VMC-043b: the overworld hostiles.
+    fields.put("zombie_villager_converting", field(net.minecraft.world.entity.monster.zombie.ZombieVillager.class, "DATA_CONVERTING_ID"));
+    fields.put("zombie_villager_data", field(net.minecraft.world.entity.monster.zombie.ZombieVillager.class, "DATA_VILLAGER_DATA"));
+    fields.put("zombie_villager_finalized", field(net.minecraft.world.entity.monster.zombie.ZombieVillager.class, "DATA_VILLAGER_DATA_FINALIZED"));
+    fields.put("skeleton_stray_conversion", field(net.minecraft.world.entity.monster.skeleton.Skeleton.class, "DATA_STRAY_CONVERSION_ID"));
+    fields.put("bogged_sheared", field(net.minecraft.world.entity.monster.skeleton.Bogged.class, "DATA_SHEARED"));
+    fields.put("creeper_swell_dir", field(net.minecraft.world.entity.monster.Creeper.class, "DATA_SWELL_DIR"));
+    fields.put("creeper_powered", field(net.minecraft.world.entity.monster.Creeper.class, "DATA_IS_POWERED"));
+    fields.put("creeper_ignited", field(net.minecraft.world.entity.monster.Creeper.class, "DATA_IS_IGNITED"));
+    fields.put("spider_flags", field(net.minecraft.world.entity.monster.spider.Spider.class, "DATA_FLAGS_ID"));
+    fields.put("enderman_carry_state", field(net.minecraft.world.entity.monster.Enderman.class, "DATA_CARRY_STATE"));
+    fields.put("enderman_creepy", field(net.minecraft.world.entity.monster.Enderman.class, "DATA_CREEPY"));
+    fields.put("enderman_stared_at", field(net.minecraft.world.entity.monster.Enderman.class, "DATA_STARED_AT"));
+    fields.put("raider_celebrating", field(net.minecraft.world.entity.raid.Raider.class, "IS_CELEBRATING"));
+    fields.put("witch_using_item", field(net.minecraft.world.entity.monster.Witch.class, "DATA_USING_ITEM"));
+    fields.put("cube_size", field(net.minecraft.world.entity.monster.cubemob.AbstractCubeMob.class, "ID_SIZE"));
+    fields.put("phantom_size", field(net.minecraft.world.entity.monster.Phantom.class, "ID_SIZE"));
     fields.put("tnt_fuse", field(PrimedTnt.class, "DATA_FUSE_ID"));
     fields.put("tnt_block_state", field(PrimedTnt.class, "DATA_BLOCK_STATE_ID"));
     fields.put("falling_block_start_pos", field(net.minecraft.world.entity.item.FallingBlockEntity.class, "DATA_START_POS"));

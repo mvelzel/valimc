@@ -66,7 +66,9 @@ public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
   static final List<String> ENTITY_TABLES = List.of("minecraft:entities/zombie", "minecraft:entities/chicken",
       "minecraft:entities/endermite", "minecraft:entities/pig", "minecraft:entities/blaze",
-      "minecraft:entities/zombified_piglin");
+      "minecraft:entities/zombified_piglin",
+      // VMC-043b: the zombie family.
+      "minecraft:entities/husk", "minecraft:entities/zombie_villager");
 
   /** A dying mob: its flags and vehicle as the loot predicates read them. */
   static class Victim extends net.minecraft.world.entity.monster.zombie.Zombie {

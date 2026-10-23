@@ -1008,6 +1008,208 @@
           []
         ]
       ]
+    },
+    "minecraft:husk": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.husk.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          4,
+          "ZombieAttackTurtleEggGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "SpearUseGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "ZombieAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          6,
+          "MoveThroughVillageGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          5,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:zombie_villager": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.zombie_villager.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          4,
+          "ZombieAttackTurtleEggGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "SpearUseGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "ZombieAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          6,
+          "MoveThroughVillageGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          5,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
     }
   },
   "sounds": {
@@ -1021,7 +1223,9 @@
     "minecraft:entity.zombie.ambient": 1873,
     "minecraft:entity.pig.ambient": 1272,
     "minecraft:entity.blaze.ambient": 174,
-    "minecraft:entity.zombified_piglin.ambient": 1899
+    "minecraft:entity.zombified_piglin.ambient": 1899,
+    "minecraft:entity.husk.ambient": 881,
+    "minecraft:entity.zombie_villager.ambient": 1904
   },
   "swing_fields": "000106"
 }

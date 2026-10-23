@@ -107,6 +107,8 @@ defmodule Valimc.Native do
   def biome_temperature(_temperature, _frozen, _x, _y, _z, _sea_level),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def region_light(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
+
   def region_biome(_region, _zoom_seed, _position, _default_biome),
     do: :erlang.nif_error(:nif_not_loaded)
 
@@ -325,6 +327,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def loot_block(_registry, _table, _seed, _origin, _block),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def loot_enchant(_registry, _item, _enchantments, _min, _span, _special, _tag, _random),
     do: :erlang.nif_error(:nif_not_loaded)
 
   ## Parity and benchmarks (dev, test and bench builds)

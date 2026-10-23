@@ -1096,6 +1096,15 @@ STAGES = [
         ('java', 'NetherMobOracle', 'cases', '@nether-mobs.json'),
         ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4'),
     ]),
+    # VMC-043b: what the overworld hostiles read of vanilla, and their finalizeSpawn.
+    ('hostile_facts', [
+        ('regen', 'HostileOracle', 'facts', '@hostile-facts.json'),
+        ('same', '@hostile-facts.json', 'priv/registry/hostile_facts.json'),
+    ]),
+    ('hostile_spawns', [
+        ('java', 'HostileOracle', 'spawns', '@hostile-spawns.json'),
+        ('check', 'check_hostile_spawns.exs', '@hostile-spawns.json'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

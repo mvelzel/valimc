@@ -1864,7 +1864,21 @@
     "minecraft:pig": 0,
     "minecraft:piglin": 5,
     "minecraft:blaze": 10,
-    "minecraft:zombified_piglin": 5
+    "minecraft:zombified_piglin": 5,
+    "minecraft:husk": 5,
+    "minecraft:zombie_villager": 5,
+    "minecraft:drowned": 5,
+    "minecraft:skeleton": 5,
+    "minecraft:stray": 5,
+    "minecraft:bogged": 5,
+    "minecraft:creeper": 5,
+    "minecraft:spider": 5,
+    "minecraft:cave_spider": 5,
+    "minecraft:enderman": 5,
+    "minecraft:witch": 5,
+    "minecraft:slime": 0,
+    "minecraft:phantom": 5,
+    "minecraft:silverfish": 5
   },
   "mobs": {
     "minecraft:zombie": {
@@ -1906,6 +1920,90 @@
     "minecraft:zombified_piglin": {
       "hurt_sound": "minecraft:entity.zombified_piglin.hurt",
       "death_sound": "minecraft:entity.zombified_piglin.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:husk": {
+      "hurt_sound": "minecraft:entity.husk.hurt",
+      "death_sound": "minecraft:entity.husk.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:zombie_villager": {
+      "hurt_sound": "minecraft:entity.zombie_villager.hurt",
+      "death_sound": "minecraft:entity.zombie_villager.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:drowned": {
+      "hurt_sound": "minecraft:entity.drowned.hurt",
+      "death_sound": "minecraft:entity.drowned.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:skeleton": {
+      "hurt_sound": "minecraft:entity.skeleton.hurt",
+      "death_sound": "minecraft:entity.skeleton.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:stray": {
+      "hurt_sound": "minecraft:entity.stray.hurt",
+      "death_sound": "minecraft:entity.stray.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:bogged": {
+      "hurt_sound": "minecraft:entity.bogged.hurt",
+      "death_sound": "minecraft:entity.bogged.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:creeper": {
+      "hurt_sound": "minecraft:entity.creeper.hurt",
+      "death_sound": "minecraft:entity.creeper.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:spider": {
+      "hurt_sound": "minecraft:entity.spider.hurt",
+      "death_sound": "minecraft:entity.spider.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:cave_spider": {
+      "hurt_sound": "minecraft:entity.spider.hurt",
+      "death_sound": "minecraft:entity.spider.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:enderman": {
+      "hurt_sound": "minecraft:entity.enderman.hurt",
+      "death_sound": "minecraft:entity.enderman.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:witch": {
+      "hurt_sound": "minecraft:entity.witch.hurt",
+      "death_sound": "minecraft:entity.witch.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:slime": {
+      "hurt_sound": "minecraft:entity.slime.hurt_small",
+      "death_sound": "minecraft:entity.slime.death_small",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:phantom": {
+      "hurt_sound": "minecraft:entity.phantom.hurt",
+      "death_sound": "minecraft:entity.phantom.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:silverfish": {
+      "hurt_sound": "minecraft:entity.silverfish.hurt",
+      "death_sound": "minecraft:entity.silverfish.death",
       "sound_source": 5,
       "animal": false
     }
@@ -1951,7 +2049,33 @@
     "minecraft:entity.blaze.hurt": 177,
     "minecraft:entity.blaze.death": 176,
     "minecraft:entity.zombified_piglin.hurt": 1902,
-    "minecraft:entity.zombified_piglin.death": 1901
+    "minecraft:entity.zombified_piglin.death": 1901,
+    "minecraft:entity.husk.hurt": 884,
+    "minecraft:entity.husk.death": 883,
+    "minecraft:entity.zombie_villager.hurt": 1908,
+    "minecraft:entity.zombie_villager.death": 1907,
+    "minecraft:entity.drowned.hurt": 570,
+    "minecraft:entity.drowned.death": 568,
+    "minecraft:entity.skeleton.hurt": 1494,
+    "minecraft:entity.skeleton.death": 1485,
+    "minecraft:entity.stray.hurt": 1611,
+    "minecraft:entity.stray.death": 1610,
+    "minecraft:entity.bogged.hurt": 183,
+    "minecraft:entity.bogged.death": 182,
+    "minecraft:entity.creeper.hurt": 480,
+    "minecraft:entity.creeper.death": 479,
+    "minecraft:entity.spider.hurt": 1584,
+    "minecraft:entity.spider.death": 1583,
+    "minecraft:entity.enderman.hurt": 600,
+    "minecraft:entity.enderman.death": 599,
+    "minecraft:entity.witch.hurt": 1782,
+    "minecraft:entity.witch.death": 1780,
+    "minecraft:entity.slime.hurt_small": 1551,
+    "minecraft:entity.slime.death_small": 1550,
+    "minecraft:entity.phantom.hurt": 1263,
+    "minecraft:entity.phantom.death": 1261,
+    "minecraft:entity.silverfish.hurt": 1481,
+    "minecraft:entity.silverfish.death": 1480
   },
   "sound_sources": {
     "master": 0,

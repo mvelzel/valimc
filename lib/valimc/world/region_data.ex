@@ -755,7 +755,7 @@ defmodule Valimc.World.RegionData do
       for {sid, %{kind: :mob, body: %Body{type: type} = body, entity: e}} <-
             state.entities.store.entries,
           Body.alive?(body) do
-        %{width: w, height: h} = Valimc.Data.EntityTypes.fetch(type)
+        {w, h, _} = Body.dimensions(body)
         {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
 
         %{
@@ -1160,6 +1160,13 @@ defmodule Valimc.World.RegionData do
             {:level_event, cell, type, data} <- step.effects,
             do: {cell, type, data}
 
+      # Mobs a spawn brought (a chicken jockey's chicken, VMC-043b) and the
+      # chickens that became jockeys.
+      companions =
+        for step <- steps, {:spawn, type, opts} <- step.effects, do: {step.position, type, opts}
+
+      jockeys = for step <- steps, {:jockey, uuid} <- step.effects, do: uuid
+
       # Mobs travel through portals (VMC-026d), standing in one too.
       {steps, state} = portal_contacts(state, steps)
 
@@ -1180,6 +1187,8 @@ defmodule Valimc.World.RegionData do
       state = if drops == [], do: state, else: mob_drops(state, drops)
       state = Enum.reduce(shots, state, &mob_projectile/2)
       if level_events != [], do: publish_level_events(state, level_events)
+      state = if companions == [], do: state, else: mob_companions(state, companions)
+      state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
       state = if tramples == [], do: state, else: elem(rule_run(state, %{actions: tramples}), 0)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
@@ -1251,6 +1260,55 @@ defmodule Valimc.World.RegionData do
       end
 
     adopt_drops(state, records)
+  end
+
+  # Mobs another mob's spawn made (`Valimc.AI.Spawn`): a chicken jockey's
+  # chicken, already finalized from the spawning mob's draws, or a mob that
+  # finishes its own spawn on its first tick (a husk's camel husk).
+  defp mob_companions(state, companions) do
+    records =
+      for {position, type, opts} <- companions,
+          {:ok, body} <- [Body.spawned(type, Map.get(opts, :reason))] do
+        body = companion(body, opts)
+        Store.body_record(body, :crypto.strong_rand_bytes(16), position)
+      end
+
+    adopt_drops(state, records)
+  end
+
+  defp companion(body, %{jockey: true} = opts) do
+    mob = body.mob
+    follow = "minecraft:follow_range"
+    entry = %{base: nil, modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]}
+
+    %{
+      body
+      | yaw: opts.yaw,
+        head_yaw: opts.yaw,
+        data: %{body.data | jockey: true},
+        mob: %{
+          mob
+          | left_handed: opts.left_handed,
+            attributes: Map.put(mob.attributes, follow, entry)
+        }
+    }
+  end
+
+  defp companion(body, _opts), do: body
+
+  # `setChickenJockey`: the chickens baby zombies chose to ride.
+  defp mob_jockeys(state, uuids) do
+    store =
+      Enum.reduce(uuids, state.entities.store, fn uuid, store ->
+        with {:ok, {_, id, _}} <- Store.find(store, uuid),
+             %{kind: :mob, body: %Body{data: %{jockey: false}} = body} <- store.entries[id] do
+          Store.change_body(store, id, %{body | data: %{body.data | jockey: true}})
+        else
+          _ -> store
+        end
+      end)
+
+    put_entities(state, store)
   end
 
   # The next batch of mobs' path searches, when none runs (VMC-041b).

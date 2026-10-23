@@ -12,7 +12,6 @@ defmodule Valimc.Entity.MobMotion do
   tick. `water` and `lava` are the fluid heights the last move left, which
   the AI reads.
   """
-  alias Valimc.Data.{EntityTypes, Float32}
   alias Valimc.Living.Attributes
 
   defstruct fall_distance: 0.0,
@@ -65,7 +64,6 @@ defmodule Valimc.Entity.MobMotion do
   attribute bases, effects) and whether it is alive.
   """
   def kernel(type, position, body, attributes \\ nil) do
-    facts = EntityTypes.fetch(type)
     mob = body.mob
     motion = mob.motion
     effects = mob.living.effects
@@ -96,9 +94,8 @@ defmodule Valimc.Entity.MobMotion do
       forward: if(alive, do: motion.forward, else: 0.0),
       speed: motion.speed,
       control: {op, target, speed},
-      # EntityDimensions are floats.
-      size:
-        {Float32.round(facts.width), Float32.round(facts.height), Float32.round(facts.eye_height)},
+      # EntityDimensions are floats (a baby's its own, VMC-043b).
+      size: Valimc.Entity.Body.dimensions(body),
       attributes: attributes,
       no_gravity: body.no_gravity,
       slow_falling:
@@ -118,7 +115,8 @@ defmodule Valimc.Entity.MobMotion do
 
   @doc """
   The travel attributes the kernel reads of a mob of `type` with `overrides`
-  (their bases and modifiers: a zombified piglin's attacking speed).
+  (their bases and modifiers: a zombified piglin's attacking speed, a
+  baby's speed).
   """
   def travel(type, overrides),
     do:

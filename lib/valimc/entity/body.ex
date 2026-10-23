@@ -48,7 +48,7 @@ defmodule Valimc.Entity.Body do
   # with their type's data; their families' behaviour is VMC-043d's and 043b's.
   @modelled MapSet.new(
               ["minecraft:zombie", @chicken, "minecraft:endermite", @tnt, @falling, @cloud] ++
-                Projectile.types()
+                Projectile.types() ++ Valimc.AI.Mobs.Zombie.types()
             )
   @plain for name <- EntityTypes.names(),
              EntityTypes.living?(name) and EntityTypes.fetch(name).category != :misc,
@@ -76,6 +76,16 @@ defmodule Valimc.Entity.Body do
     else
       {:error, :unmodelled_type}
     end
+  end
+
+  @doc """
+  A fresh body of modelled type `type` that enters the world for `reason`
+  (`:natural`, `:spawner`, `:command`, `:chunk_generation`, ...): a mob
+  finishes its spawn (`finalizeSpawn`, VMC-043b) on its first tick.
+  """
+  def spawned(type, reason) do
+    with {:ok, %__MODULE__{mob: %Mob{} = mob} = body} <- new(type),
+         do: {:ok, %{body | mob: %{mob | finalize: reason}}}
   end
 
   @doc """
@@ -154,12 +164,17 @@ defmodule Valimc.Entity.Body do
       cancel_drop: false
     }
 
-  # `AgeableMob`'s age: negative while a baby (an egg's chicks are -24000).
-  defp data(@chicken), do: %{age: 0}
+  # `AgeableMob`'s age: negative while a baby (an egg's chicks are -24000);
+  # whether it is a chicken jockey's (VMC-043b: it stays, worth 10 XP).
+  defp data(@chicken), do: %{age: 0, jockey: false}
   defp data(@cloud), do: Valimc.Entity.EffectCloud.data()
 
+  # A mob family's own (VMC-043b–e: a zombie's baby flag), a projectile's.
   defp data(type) do
-    if Projectile.projectile?(type), do: Projectile.data(type), else: %{}
+    case Valimc.AI.Mobs.data(type) do
+      nil -> if Projectile.projectile?(type), do: Projectile.data(type), else: %{}
+      data -> data
+    end
   end
 
   @doc "The fields a record saves of `body` (position and uuid are the entry's)."
@@ -342,7 +357,7 @@ defmodule Valimc.Entity.Body do
         {:living_flags, 0, 0},
         {:health, living.health.value, 1.0},
         {:mob_flags, mob_flags(mob), 0}
-      ] ++ ageable(body) ++ family(body)
+      ] ++ ageable(body) ++ family(body) ++ Valimc.AI.Mobs.values(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -367,12 +382,31 @@ defmodule Valimc.Entity.Body do
 
   defp family(_body), do: []
 
-  # `Mob.setNoAi` (bit 0) and `setAggressive` (bit 2): a zombie raising its
-  # arms (VMC-041a).
+  # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
+  # (bit 2): a zombie raising its arms (VMC-041a).
   defp mob_flags(%Mob{} = mob) do
     no_ai = if mob.no_ai, do: 1, else: 0
+    left = if mob.left_handed, do: 2, else: 0
     aggressive = if match?(%{aggressive: true}, mob.ai), do: 4, else: 0
-    no_ai + aggressive
+    no_ai + left + aggressive
+  end
+
+  @doc """
+  The body's dimensions, `{width, height, eye height}` as floats
+  (`getDimensions`): its type's, or what its family changes (a baby's,
+  VMC-043b).
+  """
+  def dimensions(%__MODULE__{type: type} = body) do
+    case Valimc.AI.Mobs.dimensions(body) do
+      nil ->
+        facts = EntityTypes.fetch(type)
+
+        {Valimc.Data.Float32.round(facts.width), Valimc.Data.Float32.round(facts.height),
+         Valimc.Data.Float32.round(facts.eye_height)}
+
+      dimensions ->
+        dimensions
+    end
   end
 
   # Vanilla's on-fire flag (bit 0) for a burning body that is not fire immune.

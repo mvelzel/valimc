@@ -97,10 +97,10 @@ defmodule Valimc.Entity.MobTicks do
   # Farmland the mob landed on gives way (VMC-039a, `FarmlandBlock.fallOn`);
   # the owner applies it while mob griefing is on.
   defp trample(body, %{landing: {state, distance}, landing_pos: cell}) when cell != nil do
-    facts = Valimc.Data.EntityTypes.fetch(body.type)
+    {w, h, _} = Valimc.Entity.Body.dimensions(body)
     roll = (:rand.uniform(16_777_216) - 1) / 16_777_216
 
-    if Valimc.Blocks.Farmland.tramples?(state, distance, {facts.width, facts.height}, roll),
+    if Valimc.Blocks.Farmland.tramples?(state, distance, {w, h}, roll),
       do: [{:trample, cell}],
       else: []
   end
