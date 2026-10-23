@@ -72,6 +72,8 @@ public class LootOracle {
       "minecraft:entities/zombified_piglin",
       // VMC-043b: the zombie family.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager");
+  // VMC-043d: what a piglin gives for a gold ingot.
+  static final String BARTERING = "minecraft:gameplay/piglin_bartering";
 
   /** A dying mob: its flags and vehicle as the loot predicates read them. */
   static class Victim extends net.minecraft.world.entity.monster.zombie.Zombie {
@@ -225,6 +227,7 @@ public class LootOracle {
         .map(h -> h.key().identifier().toString())
         .sorted()
         .forEach(queue::add);
+    queue.add(BARTERING);
     var blockTables = new JsonArray();
     for (var block : BuiltInRegistries.BLOCK) {
       var key = block.getLootTable();
@@ -657,10 +660,12 @@ public class LootOracle {
       }
     }
     var deaths = entityCases(tables, lookup, ops, level, random);
+    var barters = barterCases(tables, ops, level, random);
     var result = new JsonObject();
     result.add("synthetic_tables", synthetic);
     result.add("cases", rows);
     result.add("entity_cases", deaths);
+    result.add("barter_cases", barters);
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: " + fills + " vanilla container fills over " + containerTables(tables).size() + " pack and "
         + SYNTHETIC.size() + " synthetic tables (" + items + " stacks)");
@@ -733,6 +738,31 @@ public class LootOracle {
         row.add("drops", drops);
         rows.add(row);
       }
+    }
+    return rows;
+  }
+
+  /** Barters (`PiglinAi.getBarterResponseItems`) from many seeds: the items, split into stacks. */
+  static JsonArray barterCases(HolderLookup.RegistryLookup<LootTable> tables, com.mojang.serialization.DynamicOps<JsonElement> ops,
+      ProbeLevel level, Random random) throws Exception {
+    var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    f.setAccessible(true);
+    var unsafe = (sun.misc.Unsafe) f.get(null);
+    var type = net.minecraft.world.entity.Entity.class.getDeclaredField("type");
+    type.setAccessible(true);
+    var table = tables.getOrThrow(ResourceKey.create(Registries.LOOT_TABLE, Identifier.parse(BARTERING))).value();
+    var piglin = (Victim) unsafe.allocateInstance(Victim.class);
+    type.set(piglin, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:piglin")));
+    var rows = new JsonArray();
+    for (int i = 0; i < 3000; i++) {
+      long seed = random.nextLong();
+      var params = new LootParams.Builder(level).withParameter(LootContextParams.THIS_ENTITY, piglin).create(LootContextParamSets.PIGLIN_BARTER);
+      var items = new JsonArray();
+      table.getRandomItems(params, seed).forEach(stack -> { if (!stack.isEmpty()) items.add(item(stack, ops)); });
+      var row = new JsonObject();
+      row.addProperty("seed", Long.toString(seed));
+      row.add("items", items);
+      rows.add(row);
     }
     return rows;
   }

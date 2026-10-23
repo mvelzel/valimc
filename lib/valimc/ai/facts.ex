@@ -99,4 +99,12 @@ defmodule Valimc.AI.Facts do
   main-hand swing of the default animation (an empty hand's).
   """
   def swing_fields, do: @swing
+
+  @doc "The same for a swing of `hand` (`:main_hand` or `:off_hand`, the hand's id first)."
+  def swing_fields(:main_hand), do: @swing
+
+  def swing_fields(:off_hand) do
+    <<0, rest::binary>> = @swing
+    <<1, rest::binary>>
+  end
 end

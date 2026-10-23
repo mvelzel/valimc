@@ -113,6 +113,7 @@ defmodule Valimc.Entity.MobTicks do
       Enum.split_with(effects, fn
         {:sound, _, _, _, _, _} -> true
         :swing -> true
+        {:swing, _} -> true
         _ -> false
       end)
 

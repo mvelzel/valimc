@@ -87,7 +87,8 @@ player = fn p ->
     armor_cover: 0.0,
     equipment: %{
       mainhand: p["mainhand"] && Valimc.Protocol.ItemTypes.id(p["mainhand"]),
-      offhand: nil
+      offhand: nil,
+      head: p["head"] && Valimc.Protocol.ItemTypes.id(p["head"])
     }
   }
 end
@@ -131,6 +132,31 @@ admiring = fn mind ->
     %{admiring_item: {_, ttl}} -> ttl
     _ -> -1
   end
+end
+
+# An entity a mob added, as the oracle records it: a projectile with its
+# rotation, a thrown item with its stack.
+added = fn
+  {:projectile, type, at, velocity, {yaw, pitch}} ->
+    [
+      type,
+      Enum.map(Tuple.to_list(at), hex),
+      Enum.map(Tuple.to_list(velocity), hex),
+      bits.(yaw),
+      bits.(pitch)
+    ]
+
+  {:throw, stack, at, velocity} ->
+    [
+      "minecraft:item",
+      Enum.map(Tuple.to_list(at), hex),
+      Enum.map(Tuple.to_list(velocity), hex),
+      Valimc.Protocol.ItemTypes.item(stack.item_id)["name"],
+      stack.count
+    ]
+
+  _ ->
+    nil
 end
 
 sound_name = fn
@@ -202,7 +228,14 @@ checked =
         Enum.reduce(Enum.with_index(c["ticks"]), {entries, world, count}, fn {row, tick},
                                                                              {entries, world,
                                                                               count} ->
-          world = %{world | time: 1001 + tick}
+          # The loot seeds vanilla's random sequences gave this tick, in mob order.
+          seeds =
+            for r <- row,
+                s <- r["sounds"],
+                s["loot_seed"] != nil,
+                do: String.to_integer(s["loot_seed"])
+
+          world = %{world | time: 1001 + tick, loot_seeds: seeds}
 
           # Hits between ticks, each as a player's attack (VMC-037n's one path).
           {entries, hurt_events} =
@@ -282,7 +315,7 @@ checked =
                       Map.get(hurt_events, id, []) ++ step.events,
                     do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
-              swings = for {:swing, :main_hand} <- step.events, do: "main_hand:whack:6"
+              swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
 
               want_sounds =
                 for s <- expected["sounds"],
@@ -305,19 +338,17 @@ checked =
                     do: [s["event"], s["at"], s["data"]]
 
               adds =
-                for {:projectile, type, at, velocity, {yaw, pitch}} <- step.effects,
-                    do: [
-                      type,
-                      Enum.map(Tuple.to_list(at), hex),
-                      Enum.map(Tuple.to_list(velocity), hex),
-                      bits.(yaw),
-                      bits.(pitch)
-                    ]
+                for effect <- step.effects,
+                    added = added.(effect),
+                    added != nil,
+                    do: added
 
               want_adds =
-                for s <- expected["sounds"],
-                    s["add"] != nil,
-                    do: [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                for s <- expected["sounds"], s["add"] != nil do
+                  if s["item"],
+                    do: [s["add"], s["position"], s["velocity"], s["item"], s["count"]],
+                    else: [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                end
 
               got = %{
                 position: Enum.map(Tuple.to_list({x, y, z}), hex),
@@ -352,7 +383,13 @@ checked =
                         Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
                         |> then(&(&1 && Atom.to_string(&1))),
                       offhand: offhand.(body.mob.equipment[:offhand]),
-                      admiring: admiring.(mind)
+                      admiring: admiring.(mind),
+                      gate_seeds:
+                        for(
+                          %{kind: Valimc.AI.Behavior.Gate} = b <-
+                            Tuple.to_list(mind.brain.behaviors),
+                          do: b.random
+                        )
                     }),
                   else: got
 
@@ -388,7 +425,8 @@ checked =
                       activity: expected["activity"],
                       offhand:
                         expected["offhand"] && Valimc.Protocol.ItemTypes.id(expected["offhand"]),
-                      admiring: expected["admiring"]
+                      admiring: expected["admiring"],
+                      gate_seeds: expected["gate_seeds"]
                     }),
                   else: want
 

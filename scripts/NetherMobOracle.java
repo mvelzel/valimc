@@ -41,6 +41,14 @@ public class NetherMobOracle {
       new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(-3.5, 64, 4.5), 90, 67L), new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(6.5, 64, -5.5), 180, 71L)),
       List.of(new MobAiOracle.Stand(new Vec3(2.5, 64, -8.5), "survival", null), new MobAiOracle.Stand(new Vec3(-10.5, 64, 10.5), "survival", null)),
       List.of(new MobAiOracle.Hit(10, 0, 0, 1.0F)), 300));
+    // A piglin takes a gold ingot, admires it and throws its barter toward the
+    // player it sees, who wears gold and so is left alone.
+    cases.add(MobAiOracle.run(level, "piglin_barter", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 73L)),
+      List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 4.5), "survival", null, "minecraft:golden_helmet")), List.of(),
+      List.of(new MobAiOracle.Drop(new Vec3(3.5, 64, 1.5), "minecraft:gold_ingot", 1)), 260));
+    // With no player in sight it throws toward a spot near itself.
+    cases.add(MobAiOracle.run(level, "piglin_barter_alone", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 79L)),
+      List.of(), List.of(), List.of(new MobAiOracle.Drop(new Vec3(-2.5, 64, 3.5), "minecraft:gold_ingot", 1)), 260));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -51,6 +59,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone).");
   }
 }

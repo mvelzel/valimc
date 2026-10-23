@@ -76,6 +76,32 @@ public class MobAiOracle {
     private Server() { super(null,null,null,null,Optional.empty(),null,null,null,null,null); }
     public net.minecraft.util.debug.ServerDebugSubscribers debugSubscribers() { return subscribers; }
     public net.minecraft.server.ReloadableServerRegistries.Holder reloadableRegistries() { return registries; }
+    // A loot table's random sequence (a piglin's barter, VMC-043d): a fresh
+    // seed each time, recorded as the drawing mob's event.
+    Probe level; long sequences;
+    public net.minecraft.util.RandomSource getRandomSequence(Identifier key) {
+      long seed = ++sequences * 7919L + 13L;
+      if (level != null && level.current != null) {
+        var o = new JsonObject(); o.addProperty("loot_seed", Long.toString(seed)); o.addProperty("table", key.toString());
+        level.sounds.computeIfAbsent(level.current, k -> new ArrayList<>()).add(o);
+      }
+      return net.minecraft.util.RandomSource.create(seed);
+    }
+  }
+
+  /** `lookup` with the loot tables mobs read: a piglin's bartering table from the vanilla pack. */
+  static HolderLookup.Provider withLoot(HolderLookup.Provider lookup, net.minecraft.server.packs.resources.ResourceManager resources) throws Exception {
+    var registry = new MappedRegistry<net.minecraft.world.level.storage.loot.LootTable>(Registries.LOOT_TABLE, com.mojang.serialization.Lifecycle.stable());
+    for (var name : List.of("gameplay/piglin_bartering")) {
+      var id = Identifier.withDefaultNamespace(name);
+      try (var reader = resources.getResourceOrThrow(Identifier.withDefaultNamespace("loot_table/" + name + ".json")).openAsReader()) {
+        var table = net.minecraft.world.level.storage.loot.LootTable.DIRECT_CODEC
+            .parse(lookup.createSerializationContext(com.mojang.serialization.JsonOps.INSTANCE), JsonParser.parseReader(reader)).getOrThrow();
+        registry.register(ResourceKey.create(Registries.LOOT_TABLE, id), table, RegistrationInfo.BUILT_IN);
+      }
+    }
+    registry.freeze();
+    return HolderLookup.Provider.create(java.util.stream.Stream.concat(lookup.listRegistries(), java.util.stream.Stream.of(registry)));
   }
 
   /** A chunk that reads the scene: goals scan blocks through `getChunk`. */
@@ -277,6 +303,48 @@ public class MobAiOracle {
       hits.add(o);
       return true;
     }
+  }
+
+  /**
+   * A fighter as the level lists it (`players()`, which sensors read as server
+   * players): a `Fighter`'s state copied into a `ServerPlayer` that is never
+   * ticked, its game mode and hits the fighter's.
+   */
+  static class ServerFighter extends ServerPlayer {
+    net.minecraft.world.level.GameType mode;
+    List<JsonObject> hits;
+    private ServerFighter() { super(null, null, null, null); }
+    public net.minecraft.world.level.GameType gameMode() { return mode; }
+    public boolean isSpectator() { return mode == net.minecraft.world.level.GameType.SPECTATOR; }
+    public boolean isCreative() { return mode == net.minecraft.world.level.GameType.CREATIVE; }
+    public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
+      var o = new JsonObject(); o.addProperty("player", getUUID().getLeastSignificantBits());
+      o.addProperty("amount", Float.floatToRawIntBits(amount)); o.addProperty("type", source.typeHolder().unwrapKey().orElseThrow().identifier().toString());
+      o.addProperty("by", source.getEntity() == null ? -1 : source.getEntity().getId());
+      hits.add(o);
+      return true;
+    }
+  }
+
+  static ServerFighter serverFighter(Fighter f) throws Exception {
+    var s = (ServerFighter)unsafe.allocateInstance(ServerFighter.class);
+    for (Class<?> c = Player.class; c != Object.class; c = c.getSuperclass())
+      for (var field : c.getDeclaredFields()) {
+        if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+        long at = unsafe.objectFieldOffset(field);
+        var t = field.getType();
+        if (t == int.class) unsafe.putInt(s, at, unsafe.getInt(f, at));
+        else if (t == long.class) unsafe.putLong(s, at, unsafe.getLong(f, at));
+        else if (t == double.class) unsafe.putDouble(s, at, unsafe.getDouble(f, at));
+        else if (t == float.class) unsafe.putFloat(s, at, unsafe.getFloat(f, at));
+        else if (t == boolean.class) unsafe.putBoolean(s, at, unsafe.getBoolean(f, at));
+        else if (t == byte.class) unsafe.putByte(s, at, unsafe.getByte(f, at));
+        else if (t == short.class) unsafe.putShort(s, at, unsafe.getShort(f, at));
+        else if (t == char.class) unsafe.putChar(s, at, unsafe.getChar(f, at));
+        else unsafe.putObject(s, at, unsafe.getObject(f, at));
+      }
+    s.mode = f.mode; s.hits = f.hits;
+    return s;
   }
 
   static class Zombie extends net.minecraft.world.entity.monster.zombie.Zombie {
@@ -511,6 +579,7 @@ public class MobAiOracle {
 
   static JsonObject run(Probe level, String name, List<Block> blocks, List<Spawn> spawns, List<Stand> stands, List<Hit> hits, List<Drop> drops, int ticks) throws Exception {
     level.blocks.clear(); level.entities.clear(); level.fighters.clear(); level.sounds.clear(); level.time = 1000L; level.ids = 0;
+    level.server.sequences = name.hashCode() & 0xffff;
     var levelRandom = net.minecraft.util.RandomSource.create(7L);
     unsafe.putObject(level, unsafe.objectFieldOffset(net.minecraft.world.level.Level.class.getDeclaredField("random")), levelRandom);
     for (var b : blocks) level.blocks.put(new BlockPos(b.x, b.y, b.z), b.state);
@@ -521,7 +590,8 @@ public class MobAiOracle {
       f.snapTo(s.position.x, s.position.y, s.position.z, 0, 0);
       if (s.mainhand != null) f.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.mainhand))));
       if (s.head != null) f.setItemSlot(EquipmentSlot.HEAD, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.head))));
-      fighters.add(f); level.fighters.add(f); level.entities.add(f);
+      var server = serverFighter(f);
+      fighters.add(f); level.fighters.add(server); level.entities.add(server);
     }
     var mobs = new ArrayList<net.minecraft.world.entity.Mob>();
     var seedField = field(net.minecraft.world.level.levelgen.LegacyRandomSource.class, "seed");
@@ -544,7 +614,7 @@ public class MobAiOracle {
         var g = new JsonArray();
         long k = 0;
         for (int priority : new int[]{15, 16}) {
-          var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).values().iterator().next()).iterator().next();
+          var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).get(net.minecraft.world.entity.schedule.Activity.IDLE)).iterator().next();
           var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
           var random = (net.minecraft.util.RandomSource)field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list);
           random.setSeed(s.seed + 101 * ++k);
@@ -584,6 +654,7 @@ public class MobAiOracle {
       level.current = null;
       // The players' own ticks come after the level's (their connections):
       // each pushes the mobs it touches.
+      // (The fighter shell's own push reads the server's tick rate: push as the fighter.)
       for (var f : fighters) push.invoke(f);
       var row = new JsonArray();
       for (var m : mobs) {
@@ -608,6 +679,20 @@ public class MobAiOracle {
           r.addProperty("activity", brain.getActiveNonCoreActivity().map(a -> a.getName()).orElse(null));
           var off = m.getOffhandItem();
           r.addProperty("offhand", off.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(off.getItem()).toString());
+          var memories = new JsonArray();
+          for (var type : ((Map<net.minecraft.world.entity.ai.memory.MemoryModuleType<?>, ?>)field(net.minecraft.world.entity.ai.Brain.class, "memories").get(brain)).keySet())
+            if (brain.hasMemoryValue(type)) memories.add(BuiltInRegistries.MEMORY_MODULE_TYPE.getKey(type).getPath());
+          r.add("memories", memories);
+          // The idle RunOnes' own randoms, as they shuffle (a start that ends the same tick shows here).
+          var gateSeeds = new JsonArray();
+          var byPriority = (Map<?, ?>)field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(brain);
+          for (int priority : new int[]{15, 16}) {
+            var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).get(net.minecraft.world.entity.schedule.Activity.IDLE)).iterator().next();
+            var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
+            var random = field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list);
+            gateSeeds.add(((java.util.concurrent.atomic.AtomicLong)seedField.get(random)).get());
+          }
+          r.add("gate_seeds", gateSeeds);
           r.addProperty("admiring", brain.hasMemoryValue(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM)
               ? brain.getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM) : -1L);
         }
@@ -647,7 +732,7 @@ public class MobAiOracle {
     int i = 0;
     for (var s : stands) {
       var o = new JsonObject(); o.addProperty("uuid", ++i); o.addProperty("id", fighters.get(i - 1).getId()); o.add("position", bits(s.position)); o.addProperty("mode", s.mode);
-      o.addProperty("mainhand", s.mainhand); ps.add(o);
+      o.addProperty("mainhand", s.mainhand); o.addProperty("head", s.head); ps.add(o);
     }
     out.add("players", ps);
     var hs = new JsonArray();
@@ -875,6 +960,7 @@ public class MobAiOracle {
     for (var key : List.of(Registries.ENCHANTMENT, Registries.PIG_VARIANT, Registries.PIG_SOUND_VARIANT))
       registries.add(registry((ResourceKey)key, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> registries.add(r));
+    HolderLookup.Provider loot;
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
         List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
       bind(resources, BuiltInRegistries.BLOCK);
@@ -882,10 +968,13 @@ public class MobAiOracle {
       bind(resources, BuiltInRegistries.ENTITY_TYPE);
       bind(resources, BuiltInRegistries.ITEM);
       bind(resources, damage);
+      loot = withLoot(lookup, resources);
     }
     var access = new RegistryAccess.ImmutableRegistryAccess(registries).freeze();
     var level = probe(lookup, access, null);
     level.sources = new DamageSources(access);
+    level.server.registries = new net.minecraft.server.ReloadableServerRegistries.Holder(loot);
+    level.server.level = level;
     return level;
   }
 

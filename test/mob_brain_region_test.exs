@@ -1,7 +1,9 @@
 defmodule Valimc.MobBrainRegionTest do
   @moduledoc """
   A brain mob in its owner (VMC-041a2): a summoned piglin sees a gold ingot
-  lying near it, walks to it, takes it into its off hand and admires it.
+  lying near it, walks to it, takes it into its off hand and admires it;
+  then it barters (VMC-043d): the ingot gone, the bartering table's items
+  thrown near it.
   """
   use ExUnit.Case, async: true
   alias Valimc.Entity.{Body, Store}
@@ -82,5 +84,19 @@ defmodule Valimc.MobBrainRegionTest do
     mind = store(ctx).entries[id].body.mob.ai
     assert Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind}) == :admire_item
     assert {:error, _} = Store.find(store(ctx), <<22::128>>)
+
+    # Admired for 119 ticks, the ingot becomes its barter.
+    gold = Valimc.Protocol.ItemTypes.id("gold_ingot")
+
+    Valimc.TestWait.until(fn ->
+      step(ctx, 10)
+
+      Enum.any?(store(ctx).entries, fn {_, entry} ->
+        entry.kind == :item and entry.stack.item_id != gold
+      end)
+    end)
+
+    {:ok, {_, id, _}} = Store.find(store(ctx), <<21::128>>)
+    assert store(ctx).entries[id].body.mob.equipment[:offhand] == nil
   end
 end

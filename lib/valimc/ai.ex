@@ -208,7 +208,8 @@ defmodule Valimc.AI do
       mob = %{mob | ai: %{mob.ai | jump: false, rise: false}}
 
       {%{body | pitch: self.pitch, head_yaw: self.head, mob: mob, data: self.data},
-       made ++ Enum.reverse(self.effects), %{world | random: self.world.random}}
+       made ++ Enum.reverse(self.effects),
+       %{world | random: self.world.random, loot_seeds: self.world.loot_seeds}}
     end
   end
 

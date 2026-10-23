@@ -20,11 +20,13 @@ Acceptance:
 2. **043d2 — zombified piglins** (done but spawn gear): NeutralMob anger,
    group alerts.
 3. **043d3 — ghasts**: flying travel, wandering, large fireballs.
-4. **043d4 — piglins and hoglins**: the piglin brain's fight, avoid,
-   celebrate and barter activities, hostility rules; hoglins' brain.
-5. **043d5 — wither skeletons and magma cubes**: on VMC-043b's skeleton and
+4. **043d4a — bartering** (done): a piglin's admired gold ingot becomes
+   the bartering table's items, thrown toward the player it sees.
+5. **043d4b — piglins and hoglins**: the piglin brain's fight, avoid and
+   celebrate activities, hostility rules, inventory; hoglins' brain.
+6. **043d5 — wither skeletons and magma cubes**: on VMC-043b's skeleton and
    slime parts.
-6. **043d6 — striders**: walking on lava, shivering, warped fungus.
+7. **043d6 — striders**: walking on lava, shivering, warped fungus.
 
 ## Oracle
 
@@ -76,7 +78,36 @@ factory, so other families' oracles reuse it the same way.
   shared `finalizeSpawn`; anger is not saved with the mob; universal anger
   does not yet reach the mob's kind around it.
 
+## 043d4a — bartering
+
+- Loot: `LootOracle` adds `gameplay/piglin_bartering` to the facts and 3000
+  barter cases (`table.getRandomItems(params, seed)`); `check_loot.exs`
+  replays them through `Blocks.Loot.barter/2`: all equal vanilla.
+- The piglin brain rolls the table when admiring a gold ingot ends
+  (`stopHoldingOffHandItem`) with a seed from `World.loot_seed/1` (vanilla
+  draws the world's random sequence for the table; the owner draws a fresh
+  seed), swings its off hand and throws each stack as
+  `BehaviorUtils.throwItem` does: from 0.3 below its eyes, at 0.3 toward a
+  block above the nearest visible player or a spot near itself. The owner
+  makes the `{:throw, …}` effects items with the default pickup delay.
+- Oracle: the probe's fighters are `ServerPlayer`s now (a `Fighter`'s state
+  copied into a `ServerPlayer` shell), so player sensors see them; the
+  probe's server serves the bartering table and hands out recorded random
+  sequence seeds (`loot_seed` rows); rows carry a brain's memories and its
+  idle `RunOne` randoms (`gate_seeds`, compared each tick). The oracle had
+  seeded the celebrate `RunOne` instead of the idle one at priority 15 (a
+  `HashMap`'s order), which left piglin traces flaky; it now picks the idle
+  activity's.
+- Evidence: `nether_mobs` passes 2760 ticks of 8 scenes, with two barter
+  scenes (toward a player in a golden helmet, and alone); `loot` passes
+  3000 barters; `mob_brain_region_test` has a summoned piglin barter.
+- Gaps: a baby's or a non-ingot loved item's handling (inventory, wearing),
+  `mobInteract` (a player giving an ingot by hand), piglins' anger at
+  players without gold armour: 043d4b.
+
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player
 above them, and a blaze killed by the player drops blaze rods; zombified
-piglins ignore the player until it hits one, then the group attacks.
+piglins ignore the player until it hits one, then the group attacks; a
+piglin given a dropped gold ingot admires it and throws barter items (over
+several barters, ender pearls).

@@ -12,7 +12,8 @@ defmodule Valimc.Blocks.Loot do
   `getRandomItems`. The world's answers come with the call: the biome at the
   loot origin, the structure an exploration map would find (none where
   ValiMC has no map search) and the next free map id. `entity_drops/5` is a
-  mob's death loot (VMC-037n), `block_drops/5` a broken block's (VMC-029e);
+  mob's death loot (VMC-037n), `barter/2` a piglin's barter (VMC-043d),
+  `block_drops/5` a broken block's (VMC-029e);
   `furnace_smelt` finds furnace results in the cooking recipes.
   """
   alias Valimc.Native
@@ -121,6 +122,15 @@ defmodule Valimc.Blocks.Loot do
       {:ok, stacks, next_map}
     end
   end
+
+  @doc """
+  What a piglin gives for a gold ingot (`PiglinAi.getBarterResponseItems`,
+  VMC-043d): the bartering table from `seed`, as `{:ok, stacks}`. Vanilla
+  draws from the world's random sequence for the table; a caller passes a
+  seed from its own random.
+  """
+  def barter(seed, opts \\ []) when is_integer(seed),
+    do: entity_drops("minecraft:gameplay/piglin_bartering", seed, {0.0, 0.0, 0.0}, %{}, opts)
 
   @doc """
   An entity's death drops (`LivingEntity.dropFromLootTable`): `{:ok, stacks}`.

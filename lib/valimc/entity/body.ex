@@ -319,12 +319,12 @@ defmodule Valimc.Entity.Body do
   def event_packet(id, {:event, event}, _), do: binary(EntityPackets.entity_event(id, event))
   def event_packet(id, {:damage, source}, _), do: binary(Packets.damage_event(id, source))
 
-  def event_packet(id, {:swing, :main_hand}, _),
+  def event_packet(id, {:swing, hand}, _) when hand in [:main_hand, :off_hand],
     do:
       binary(
         Valimc.Protocol.Packets.packet("swing_animation", [
           Valimc.Protocol.Wire.varint(id),
-          Valimc.AI.Facts.swing_fields()
+          Valimc.AI.Facts.swing_fields(hand)
         ])
       )
 

@@ -53,7 +53,10 @@ defmodule Valimc.AI.World do
             biome: nil,
             halloween: false,
             # A local difficulty that holds everywhere (oracles), else nil.
-            local: nil
+            local: nil,
+            # Seeds for the loot tables mobs roll (a piglin's barter, VMC-043d):
+            # nil draws fresh ones, a list (checks) hands them out in order.
+            loot_seeds: nil
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,
@@ -62,6 +65,19 @@ defmodule Valimc.AI.World do
   """
   def search(%__MODULE__{search: :deferred}, _request), do: :deferred
   def search(%__MODULE__{search: search}, request), do: search.(request)
+
+  @doc """
+  The seed of a loot table roll a mob makes (vanilla draws the world's
+  random sequence for the table): the next of `loot_seeds`, or a fresh one.
+  `{seed, world}`.
+  """
+  def loot_seed(%__MODULE__{loot_seeds: [seed | rest]} = world),
+    do: {seed, %{world | loot_seeds: rest}}
+
+  def loot_seed(%__MODULE__{} = world) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    {if(seed == 0, do: 1, else: seed), world}
+  end
 
   @doc "The state at `position` (nil where it cannot be read)."
   def block(%__MODULE__{read: read}, position), do: read.(position)

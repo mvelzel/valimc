@@ -17,7 +17,8 @@ defmodule Valimc.AI.Brains.Piglin do
 
   It picks up a gold item it wants into its off hand and admires it for
   119 ticks (`PiglinAi.pickUpItem`). When admiring ends it lets the item
-  go: a gold ingot is its barter (VMC-043d's loot), another loved item it
+  go: a gold ingot is its barter (VMC-043d), the bartering table's items
+  thrown toward the player it sees or a spot near it; another loved item it
   drops.
   """
   alias Valimc.AI.{Behavior, Behaviors, Brain, Navigation, Random, Self, Sensors, World}
@@ -218,23 +219,38 @@ defmodule Valimc.AI.Brains.Piglin do
   end
 
   # `PiglinAi.stopHoldingOffHandItem(level, body, true)` for an adult: a
-  # gold ingot is its barter, thrown toward the player it sees or a random
-  # spot near it (the loot is VMC-043d's: the spot is drawn even with nothing
-  # to throw); another loved item it drops (wearing it or keeping it in its
-  # inventory is VMC-043d's).
+  # gold ingot is its barter (VMC-043d): the bartering table rolled
+  # (`getBarterResponseItems`) and thrown; another loved item it drops
+  # (wearing it or keeping it in its inventory is still to come).
   defp stop_holding_offhand(self) do
     stack = offhand(self)
     self = %{self | mob: %{self.mob | equipment: Map.delete(self.mob.equipment, :offhand)}}
 
     if stack.item_id == @gold_ingot do
-      {target, self} = throw_target(self)
-      Self.effect(self, {:barter, stack, target})
+      {seed, world} = World.loot_seed(self.world)
+      {:ok, items} = Valimc.Blocks.Loot.barter(seed)
+      throw_items(%{self | world: world}, items)
     else
       Self.effect(self, {:drop, stack})
     end
   end
 
-  # `throwItems`: toward the nearest visible player, else `getRandomNearbyPos`.
+  # `throwItems`: toward the nearest visible player, else `getRandomNearbyPos`
+  # (drawn even with nothing to throw); an off-hand swing, then each item.
+  defp throw_items(self, items) do
+    {target, self} = throw_target(self)
+
+    if items == [] do
+      self
+    else
+      self = Self.effect(self, {:swing, :off_hand})
+
+      Enum.reduce(items, self, fn item, acc ->
+        Self.effect(acc, throw_item(self, item, target))
+      end)
+    end
+  end
+
   defp throw_target(self) do
     case World.entity(self.world, Brain.get(self, :nearest_visible_player)) do
       %{x: x, y: y, z: z} ->
@@ -246,6 +262,17 @@ defmodule Valimc.AI.Brains.Piglin do
           found -> found
         end
     end
+  end
+
+  # `BehaviorUtils.throwItem` toward a block above `target`: from the hand
+  # (0.3 below the eyes), at 0.3 a tick.
+  @hand Valimc.Data.Float32.round(0.3)
+  defp throw_item(self, stack, {tx, ty, tz}) do
+    {dx, dy, dz} =
+      Valimc.Entity.Projectile.normalize({tx - self.x, ty + 1.0 - self.y, tz - self.z})
+
+    {:throw, stack, {self.x, Self.eye_y(self) - @hand, self.z},
+     {dx * @hand, dy * @hand, dz * @hand}}
   end
 
   ## Activities and sounds

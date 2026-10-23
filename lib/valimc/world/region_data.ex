@@ -1150,6 +1150,8 @@ defmodule Valimc.World.RegionData do
         for step <- steps, {:pickup, {:item, uuid}, n} <- step.effects, do: {step.id, uuid, n}
 
       drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
+      # Items mobs threw (a piglin's barter, VMC-043d).
+      throws = for step <- steps, {:throw, _, _, _} = thrown <- step.effects, do: thrown
 
       # Projectiles mobs fired (a blaze's fireballs, VMC-043d) and their level events.
       shots =
@@ -1185,6 +1187,7 @@ defmodule Valimc.World.RegionData do
       state = route_bodies(state, steps)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
+      state = if throws == [], do: state, else: mob_throws(state, throws)
       state = Enum.reduce(shots, state, &mob_projectile/2)
       if level_events != [], do: publish_level_events(state, level_events)
       state = if companions == [], do: state, else: mob_companions(state, companions)
@@ -1271,6 +1274,24 @@ defmodule Valimc.World.RegionData do
           {:ok, body} <- [Body.spawned(type, Map.get(opts, :reason))] do
         body = companion(body, opts)
         Store.body_record(body, :crypto.strong_rand_bytes(16), position)
+      end
+
+    adopt_drops(state, records)
+  end
+
+  # `BehaviorUtils.throwItem`: each item from where and as fast as the mob
+  # threw it, picked up after the default delay.
+  defp mob_throws(state, throws) do
+    records =
+      for {:throw, stack, {x, y, z}, velocity} <- throws do
+        %{
+          uuid: :crypto.strong_rand_bytes(16),
+          x: x,
+          y: y,
+          z: z,
+          stack: stack,
+          motion: %Valimc.Entity.ItemMotionState{velocity: velocity, pickup_delay: 10}
+        }
       end
 
     adopt_drops(state, records)

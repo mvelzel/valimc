@@ -143,6 +143,23 @@ if death_failures != [] do
   System.halt(1)
 end
 
+# A piglin's barters (VMC-043d): 3000 seeds of the bartering table.
+barters = raw["barter_cases"]
+true = length(barters) == 3000
+
+barter_failures =
+  Enum.reject(barters, fn row ->
+    {:ok, items} = Loot.barter(String.to_integer(row["seed"]))
+    CheckLoot.same?(Enum.map(items, &CheckLoot.plain(ItemData.tag(&1))), row["items"])
+  end)
+
+for row <- Enum.take(barter_failures, 5), do: IO.puts("FAIL barter #{inspect(row)}")
+
+if barter_failures != [] do
+  IO.puts("FAIL: #{length(barter_failures)} of #{length(barters)} barters differ")
+  System.halt(1)
+end
+
 IO.puts(
-  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and #{length(deaths)} deaths of #{Enum.join(tables, ", ")} equal vanilla (#{stacks} stacks)"
+  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and #{length(deaths)} deaths of #{Enum.join(tables, ", ")} and #{length(barters)} barters equal vanilla (#{stacks} stacks)"
 )
