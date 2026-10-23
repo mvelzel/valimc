@@ -6,7 +6,8 @@ defmodule Valimc.Entity.MobMotion do
   and the last horizontal collision. The physics kernel runs the tick
   (`Valimc.Physics.Kernel.mobs/4`); `kernel/3` and `apply/3` convert.
 
-  `control` is `:wait`, `{:move_to, {x, y, z}, speed}` or `{:jumping,
+  `control` is `:wait`, `{:move_to, {x, y, z}, speed}`, `{:strafe,
+  forward, right, speed}` (VMC-043b) or `{:jumping,
   speed}`: what the AI (VMC-041a) sets each tick, as navigation sets
   `MoveControl.setWantedPosition`; `jump` is its `JumpControl.jump()` for the
   tick. `water` and `lava` are the fluid heights the last move left, and
@@ -74,6 +75,10 @@ defmodule Valimc.Entity.MobMotion do
   defp control?(:wait), do: true
   defp control?({:move_to, target, speed}), do: vector?(target) and is_float(speed)
   defp control?({:jumping, speed}), do: is_float(speed)
+
+  defp control?({:strafe, forward, right, speed}),
+    do: is_float(forward) and is_float(right) and is_float(speed)
+
   defp control?(_), do: false
 
   defp vector?({x, y, z}), do: is_float(x) and is_float(y) and is_float(z)
@@ -120,6 +125,7 @@ defmodule Valimc.Entity.MobMotion do
         {true, nil, :wait} -> {:wait, nil, 0.0}
         {true, nil, {:move_to, target, speed}} -> {:move_to, target, speed}
         {true, nil, {:jumping, speed}} -> {:jumping, nil, speed}
+        {true, nil, {:strafe, forward, right, speed}} -> {:strafe, {forward, right, 0.0}, speed}
       end
 
     attributes = attributes || travel(type, mob.attributes)
@@ -250,6 +256,7 @@ defmodule Valimc.Entity.MobMotion do
         :move_to -> {:move_to, target, speed}
         :jumping -> {:jumping, speed}
         op when op in [:set, :set_lift] -> body.mob.motion.control
+        :strafe -> {:strafe, elem(target, 0), elem(target, 1), speed}
       end
 
     motion = %__MODULE__{

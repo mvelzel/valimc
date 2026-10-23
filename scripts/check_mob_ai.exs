@@ -106,7 +106,10 @@ goal_names = fn body, which ->
   registered = if which == :goals, do: goals, else: targets
   entries = Tuple.to_list(if which == :goals, do: body.mob.ai.goals, else: body.mob.ai.targets)
 
-  for {%{running: true}, {_, name, _, _, _}} <- Enum.zip(entries, registered), do: name
+  # A goal that stands for another as the mob's weapon changes names it
+  # (`vanilla_name`, a skeleton's, VMC-043b3).
+  for {%{running: true} = entry, {_, name, _, _, _}} <- Enum.zip(entries, registered),
+      do: (is_map(entry.state) && Map.get(entry.state, :vanilla_name)) || name
 end
 
 # A brain as the oracle seeded it: its RunOnes' randoms and sensors' countdowns.
@@ -449,6 +452,7 @@ checked =
                   {if(y > Map.get(tops, {x, z}, -65), do: 15, else: 0), 0}
                 end,
                 monsters_burn: day,
+                bright: day,
                 local: Valimc.Living.LocalDifficulty.new(:normal, 0, 0, 0.0)
             }
         end
@@ -591,6 +595,12 @@ checked =
                     {name, volume, pitch} <- sound_of.(event),
                     do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
+              # A skeleton's shot sounds where it shot, from the owner (VMC-043b3).
+              sounds =
+                sounds ++
+                  for {:shoot, %{pitch: pitch}} <- step.effects,
+                      do: {"minecraft:entity.skeleton.shoot", bits.(1.0), bits.(pitch)}
+
               swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
 
               want_sounds =
@@ -626,6 +636,13 @@ checked =
                     added != nil,
                     do: added
 
+              # A skeleton's arrow (VMC-043b3) where it was loosed: its own
+              # random draws its flight, so only its type and start compare.
+              adds =
+                adds ++
+                  for {:shoot, %{from: {fx, fy, fz}}} <- step.effects,
+                      do: ["minecraft:arrow", Enum.map([fx, fy - 0.10000000149011612, fz], hex)]
+
               # A converted mob is a new one where the old one was (VMC-043b).
               adds =
                 adds ++
@@ -640,9 +657,11 @@ checked =
 
               want_adds =
                 for s <- expected["sounds"], s["add"] != nil do
-                  if s["item"],
-                    do: [s["add"], s["position"], s["velocity"], s["item"], s["count"]],
-                    else: [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                  cond do
+                    s["add"] == "minecraft:arrow" -> [s["add"], s["position"]]
+                    s["item"] -> [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
+                    true -> [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                  end
                 end
 
               got = %{

@@ -62,7 +62,7 @@ public class MobAiOracle {
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
       "minecraft:blaze", "minecraft:zombified_piglin",
       // VMC-043b: the zombie family.
-      "minecraft:husk", "minecraft:zombie_villager",
+      "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",

@@ -58,7 +58,10 @@ defmodule Valimc.Entity.Mob do
             # (its first tick runs it, VMC-043b), else nil.
             finalize: nil,
             leash: nil,
-            home: nil
+            home: nil,
+            # The item it is using (`useItem`): `{hand, ticks used}`, else nil
+            # (a skeleton drawing its bow, VMC-043b).
+            using: nil
 
   # `EquipmentSlot` ids, as the equipment packet numbers them.
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
@@ -97,6 +100,7 @@ defmodule Valimc.Entity.Mob do
     |> put_set(:finalize, mob.finalize, nil)
     |> put_set(:leash, mob.leash && %{holder: mob.leash.holder}, nil)
     |> put_set(:home, mob.home, nil)
+    |> put_set(:using, mob.using, nil)
   end
 
   defp put_set(record, _key, default, default), do: record
@@ -117,6 +121,7 @@ defmodule Valimc.Entity.Mob do
     finalize = Map.get(record, :finalize)
     leash = Map.get(record, :leash)
     home = Map.get(record, :home)
+    using = Map.get(record, :using)
 
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
@@ -130,6 +135,9 @@ defmodule Valimc.Entity.Mob do
          true <- valid_chances?(chances) and (finalize == nil or is_atom(finalize)),
          true <- leash == nil or holder?(leash[:holder]),
          true <- home == nil or home?(home),
+         true <-
+           using == nil or
+             match?({hand, t} when hand in [:main_hand, :off_hand] and is_integer(t), using),
          {:ok, restored} <- Living.restore(living),
          {:ok, health} <- Health.restore(living.health, max_health(type, attributes)) do
       {:ok,
@@ -148,7 +156,8 @@ defmodule Valimc.Entity.Mob do
          drop_chances: chances,
          finalize: finalize,
          leash: leash && %{holder: leash.holder, id: nil, momentum: 0.0, restored: true},
-         home: home
+         home: home,
+         using: using
        }}
     else
       _ -> {:error, :invalid_mob}

@@ -389,7 +389,7 @@ defmodule Valimc.Entity.Body do
   defp own(%__MODULE__{mob: %Mob{living: living} = mob} = body),
     do:
       [
-        {:living_flags, 0, 0},
+        {:living_flags, living_flags(mob), 0},
         {:health, living.health.value, 1.0},
         {:mob_flags, mob_flags(mob), 0}
       ] ++ Valimc.AI.Mobs.values(body)
@@ -406,6 +406,12 @@ defmodule Valimc.Entity.Body do
   defp own(%__MODULE__{type: @cloud} = body), do: Valimc.Entity.EffectCloud.values(body)
   defp own(%__MODULE__{type: @knot}), do: []
   defp own(%__MODULE__{} = body), do: Projectile.values(body)
+
+  # `LivingEntity`'s using flags: using an item (bit 0) in the off hand
+  # (bit 1), a skeleton drawing its bow (VMC-043b).
+  defp living_flags(%Mob{using: {:off_hand, _}}), do: 3
+  defp living_flags(%Mob{using: {:main_hand, _}}), do: 1
+  defp living_flags(_mob), do: 0
 
   # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
   # (bit 2): a zombie raising its arms (VMC-041a).

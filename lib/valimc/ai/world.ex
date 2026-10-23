@@ -63,6 +63,8 @@ defmodule Valimc.AI.World do
             day: 0,
             biome: nil,
             halloween: false,
+            # `isBrightOutside`: the sky darkened by less than 4 where time moves.
+            bright: false,
             # Rain at a body's feet and head (`fn position, top -> bool`, nil:
             # none) and whether the day burns monsters now.
             rain: nil,

@@ -43,7 +43,9 @@ defmodule Valimc.AI.Navigation do
             can_float: false,
             can_open_doors: false,
             can_pass_doors: true,
-            can_walk_over_fences: false
+            can_walk_over_fences: false,
+            # `GroundPathNavigation.setAvoidSun` (VMC-043b: skeletons by day).
+            avoid_sun: false
 
   @doc "A navigation of `kind` (`:ground`, `:water`, `:fly`, `:amphibious`) with `options`."
   def new(kind \\ :ground, options \\ []) do
@@ -203,7 +205,7 @@ defmodule Valimc.AI.Navigation do
   defp install(self, _pending, {nil, _random, _chunks}), do: put(self, %{nav(self) | path: nil})
 
   defp install(self, pending, {path, _random, _chunks}) do
-    path = if pending.trim, do: trim(self.world, path), else: path
+    path = if pending.trim, do: self |> trim(path) |> then(&sun(self, &1)), else: path
     put(self, %{nav(self) | path: path})
   end
 
@@ -225,7 +227,7 @@ defmodule Valimc.AI.Navigation do
     if done?(nav) do
       {false, put(self, nav)}
     else
-      nav = %{nav | path: trim(self.world, nav.path)}
+      nav = %{nav | path: sun(self, trim(self, nav.path))}
       position = temp_position(self, nav)
 
       {true,
@@ -267,6 +269,8 @@ defmodule Valimc.AI.Navigation do
 
   # `trimPath`: a node in a cauldron stands on its rim, and the node after
   # it no lower than that.
+  defp trim(%Self{world: world}, path), do: trim(world, path)
+
   defp trim(world, %{nodes: nodes, types: types} = path) do
     {nodes, types} =
       Enum.reduce(0..(tuple_size(nodes) - 1)//1, {nodes, types}, fn i, {nodes, types} ->
@@ -289,6 +293,31 @@ defmodule Valimc.AI.Navigation do
 
     %{path | nodes: nodes, types: types}
   end
+
+  # `GroundPathNavigation.trimPath` avoiding the sun: from the shade, the
+  # path ends before its first node under the open sky.
+  defp sun(%Self{mind: %{navigation: %{avoid_sun: true}}} = self, %{nodes: nodes} = path) do
+    if World.sees_sky?(self.world, {floor(self.x), floor(self.y + 0.5), floor(self.z)}) do
+      path
+    else
+      case Enum.find(0..(tuple_size(nodes) - 1)//1, &World.sees_sky?(self.world, elem(nodes, &1))) do
+        nil ->
+          path
+
+        i ->
+          %{
+            path
+            | nodes: nodes |> Tuple.to_list() |> Enum.take(i) |> List.to_tuple(),
+              types: path.types |> Tuple.to_list() |> Enum.take(i) |> List.to_tuple()
+          }
+      end
+    end
+  end
+
+  defp sun(_self, path), do: path
+
+  @doc "`GroundPathNavigation.setAvoidSun`."
+  def avoid_sun(%Self{} = self, avoid), do: put(self, %{nav(self) | avoid_sun: avoid})
 
   @cauldrons MapSet.new(
                for name <- ["cauldron", "water_cauldron", "lava_cauldron", "powder_snow_cauldron"],

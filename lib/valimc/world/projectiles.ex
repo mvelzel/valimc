@@ -344,6 +344,8 @@ defmodule Valimc.World.Projectiles do
 
     hit = projectile_hit(body, context.me, at, :arrow, damage * 1.0)
     hit = if Projectile.burning?(body), do: Map.put(hit, :ignite, 100), else: hit
+    # `Arrow.doPostHurtEffects`: a tipped arrow's effect (VMC-043b).
+    hit = if d.effects != [], do: Map.put(hit, :effect, hd(d.effects)), else: hit
 
     {:hurt, target, hit,
      fn

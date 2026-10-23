@@ -45,6 +45,8 @@ public class HostileOracle {
       "minecraft:zombified_piglin");
   // VMC-043d: the Nether's mobs that spawn with gear or as babies.
   static final List<String> NETHER = List.of("minecraft:piglin");
+  // VMC-043b3: the skeletons.
+  static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -111,6 +113,7 @@ public class HostileOracle {
       r.add("equipment", items);
       r.addProperty("can_pick_up_loot", m.canPickUpLoot());
       if (m instanceof net.minecraft.world.entity.monster.zombie.Zombie z) r.addProperty("converting", z.isUnderWaterConverting());
+      if (m instanceof net.minecraft.world.entity.monster.skeleton.Skeleton s) r.addProperty("converting", s.isShaking());
     }
     void scene(JsonObject out) {
       out.addProperty("day", day);
@@ -180,9 +183,45 @@ public class HostileOracle {
     cases.add(run(level, "husk_drowning", false, List.of(), MobAiOracle.scene(pool),
         List.of(new MobAiOracle.Spawn("minecraft:husk", new Vec3(.5, 61, .5), 0, 113L)),
         List.of(), none, noDrops, 901));
+    skeletons(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
+  }
+
+  // VMC-043b3: skeletons shooting, in melee, in the sun and freezing; strays and bogged shooting.
+  static void skeletons(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var stone = Blocks.STONE.defaultBlockState();
+    var none = List.<MobAiOracle.Hit>of();
+    var noDrops = List.<MobAiOracle.Drop>of();
+    var bow = Map.of("mainhand", "minecraft:bow");
+    // A skeleton with a bow walks up, circles the player and shoots.
+    cases.add(run(level, "skeleton_bow", false, List.of(new Prep(0, bow, false, false, 0)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:skeleton", new Vec3(.5, 64, .5), 0, 127L)),
+        List.of(new MobAiOracle.Stand(new Vec3(11.5, 64, 6.5), "survival", null)), none, noDrops, 320));
+    // Without a bow it fights in melee.
+    cases.add(run(level, "skeleton_melee", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:skeleton", new Vec3(.5, 64, .5), 0, 131L)),
+        List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 3.5), "survival", null)), none, noDrops, 160));
+    // By day a burning skeleton flees into the shade of a roof.
+    var shade = new ArrayList<>(floor);
+    shade.addAll(MobAiOracle.box(-9, 67, -9, -4, 67, -4, stone));
+    cases.add(run(level, "skeleton_sun", true, List.of(new Prep(0, bow, false, false, 0)), shade,
+        List.of(new MobAiOracle.Spawn("minecraft:skeleton", new Vec3(2.5, 64, 2.5), 0, 137L)),
+        List.of(), none, noDrops, 300));
+    // A stray's and a bogged's arrows; the bogged draws slower.
+    cases.add(run(level, "stray_bogged_bow", false,
+        List.of(new Prep(0, bow, false, false, 0), new Prep(1, bow, false, false, 0)), MobAiOracle.floor(63, 20, stone),
+        List.of(new MobAiOracle.Spawn("minecraft:stray", new Vec3(-12.5, 64, .5), 0, 139L),
+            new MobAiOracle.Spawn("minecraft:bogged", new Vec3(12.5, 64, .5), 0, 149L)),
+        List.of(new MobAiOracle.Stand(new Vec3(-12.5, 64, 9.5), "survival", null),
+            new MobAiOracle.Stand(new Vec3(12.5, 64, -9.5), "survival", null)), none, noDrops, 240));
+    // In powder snow a skeleton shakes and becomes a stray.
+    var snow = new ArrayList<>(floor);
+    snow.addAll(MobAiOracle.box(-2, 64, -2, 2, 65, 2, Blocks.POWDER_SNOW.defaultBlockState()));
+    cases.add(run(level, "skeleton_freezing", false, List.of(), MobAiOracle.scene(snow),
+        List.of(new MobAiOracle.Spawn("minecraft:skeleton", new Vec3(.5, 64, .5), 0, 151L)),
+        List.of(), none, noDrops, 443));
   }
 
   static String bits(double d) { return MobAiOracle.bits(d); }
@@ -413,7 +452,7 @@ public class HostileOracle {
     var biomes = List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "minecraft:swamp");
     var cases = new JsonArray();
     var picker = new Random(43L);
-    for (var type : java.util.stream.Stream.concat(FAMILY.stream(), NETHER.stream()).toList())
+    for (var type : java.util.stream.Stream.of(FAMILY, NETHER, SKELETONS).flatMap(List::stream).toList())
       for (var s : settings)
         for (int i = 0; i < 120; i++) {
           var reason = i % 10 == 9 ? EntitySpawnReason.SPAWNER
@@ -430,7 +469,7 @@ public class HostileOracle {
       var level = MobAiOracle.setup(Day.class);
       var out = cases(level);
       Files.writeString(Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla zombie family traces (baby, daylight, husk, fire, villager, pickup, drowning).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla hostile traces (zombies: baby, daylight, husk, fire, villager, pickup, drowning; skeletons: bow, melee, sun, stray, bogged, freezing).");
       return;
     }
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
@@ -459,7 +498,7 @@ public class HostileOracle {
         case "spawns" -> {
           var out = spawns(level, lookup);
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
-          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins).");
+          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins, skeletons).");
         }
         default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases OUT.json");
       }

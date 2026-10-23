@@ -22,6 +22,7 @@ defmodule Valimc.AI.Mobs do
   # `Valimc.Entity.Animal`.
   @families [
     Valimc.AI.Mobs.Zombie,
+    Valimc.AI.Mobs.Skeleton,
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,
     Valimc.AI.Mobs.Shulker,

@@ -75,8 +75,10 @@ defmodule Valimc.FallingBlockTest do
 
     Valimc.TestWait.until(fn -> zombie.().body.mob.living.health.value < 20.0 end)
     # Two per block fallen past the first: six blocks, 10, through the
-    # husk's natural armor of 2 (anvils do not bypass armor, VMC-037n).
-    {:ok, dealt} = Valimc.Living.Damage.armor_absorb(10.0, 2.0, 0.0)
+    # husk's natural armor of 2 (anvils do not bypass armor, VMC-037n); a
+    # Halloween pumpkin from its spawn takes a quarter off first (VMC-043b).
+    worn = zombie.().body.mob.equipment[:head] != nil
+    {:ok, dealt} = Valimc.Living.Damage.armor_absorb(if(worn, do: 7.5, else: 10.0), 2.0, 0.0)
     assert zombie.().body.mob.living.health.value == Valimc.Data.Float32.round(20.0 - dealt)
     assert Valimc.Data.Blocks.class(at(@x, @y, @z)) == "AnvilBlock"
   end

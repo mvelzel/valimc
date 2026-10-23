@@ -1124,7 +1124,7 @@ STAGES = [
     ]),
     ('hostile_ai', [
         ('java', 'HostileOracle', 'cases', '@hostile-ai.json'),
-        ('check', 'check_mob_ai.exs', '@hostile-ai.json', '7'),
+        ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12'),
     ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [

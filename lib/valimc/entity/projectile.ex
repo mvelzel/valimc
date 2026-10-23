@@ -68,7 +68,10 @@ defmodule Valimc.Entity.Projectile do
       crit: false,
       item: item(@arrow),
       sound: "minecraft:entity.arrow.hit",
-      weapon: nil
+      weapon: nil,
+      # A tipped arrow's effects on what it hits (`{id, rung}`, a stray's
+      # slowness, VMC-043b).
+      effects: []
     }
 
   defp own_data(@eye), do: %{item: item(@eye), target: nil, life: 0, survive: true}

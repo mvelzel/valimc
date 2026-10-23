@@ -187,56 +187,13 @@ defmodule Valimc.AI.Mobs.Zombie do
   def after_move(body, _position, _ticked), do: {body, []}
 
   @doc """
-  The mob a converting `body` becomes (`Mob.convertTo` with
-  `ConversionParams.single(keepEquipment, preserveCanPickUpLoot)`): a fresh
-  `to` with `uuid` that keeps its rotation, motion, equipment and drop
-  chances, effects, absorption, hurt time, the player that hurt it, baby
-  flag, loot pickup, handedness, persistence and name; then the zombie's
-  attributes drawn from its own random at the `special` multiplier
-  (`handleAttributes` for a conversion).
+  `handleAttributes` after a conversion into a zombie (`postConversionStep`):
+  the new mob's own random draws its attributes at the `special` multiplier.
   """
-  def convert(%Valimc.Entity.Body{} = body, uuid, to, special) do
-    {:ok, new} = Valimc.Entity.Body.new(to)
-    mob = body.mob
-    living = mob.living
-
-    fresh = %{
-      new.mob
-      | equipment: mob.equipment,
-        drop_chances: mob.drop_chances,
-        motion: %{new.mob.motion | fall_distance: mob.motion.fall_distance},
-        player_memory: mob.player_memory,
-        hurt_by_player: mob.hurt_by_player,
-        living: %{
-          new.mob.living
-          | effects: living.effects,
-            absorption: living.absorption,
-            health: %{new.mob.living.health | hurt_ticks: living.health.hurt_ticks}
-        },
-        can_pick_up_loot: mob.can_pick_up_loot,
-        left_handed: mob.left_handed,
-        no_ai: mob.no_ai,
-        persistent: mob.persistent
-    }
-
-    new = %{
-      new
-      | yaw: body.yaw,
-        pitch: body.pitch,
-        head_yaw: body.head_yaw,
-        velocity: body.velocity,
-        on_ground: body.on_ground,
-        no_gravity: body.no_gravity,
-        custom_name: body.custom_name,
-        portal_cooldown: body.portal_cooldown,
-        mob: fresh
-    }
-
-    mind = Valimc.AI.mind(to, uuid, nil)
-    self = %Self{type: to, uuid: uuid, mob: new.mob, mind: mind, data: new.data}
-    self = if baby?(body), do: set_baby(self, true), else: self
+  def after_conversion(%Valimc.Entity.Body{} = body, uuid, special) do
+    self = %Self{type: body.type, uuid: uuid, mob: body.mob, mind: body.mob.ai, data: body.data}
     self = handle_attributes(self, special, :conversion)
-    %{new | data: self.data, mob: %{self.mob | ai: self.mind}}
+    %{body | data: self.data, mob: %{self.mob | ai: self.mind}}
   end
 
   ## Loot

@@ -128,6 +128,63 @@ defmodule Valimc.AI.Self do
   @doc "`LivingEntity.getSpeed` (what the move control last set)."
   def speed(%__MODULE__{mob: mob}), do: mob.motion.speed
 
+  @doc "`MoveControl.strafe(forwards, right)` (its speed modifier 0.25), VMC-043b."
+  def strafe(%__MODULE__{mob: mob} = self, forward, right) do
+    control =
+      {:strafe, Valimc.Data.Float32.round(forward), Valimc.Data.Float32.round(right), 0.25}
+
+    %{self | mob: %{mob | motion: %{mob.motion | control: control}}}
+  end
+
+  @doc """
+  `Mob.lookAt(entity, yMax, xMax)`: the mob's own yaw and pitch turned
+  toward `target` (its eyes, or the middle of its box when it has none) by at
+  most the limits (VMC-043b).
+  """
+  def look_at_entity(%__MODULE__{} = self, target, y_max, x_max) do
+    alias Valimc.AI.Mth
+    {xd, zd} = {target.x - self.x, target.z - self.z}
+
+    yd =
+      case target do
+        %{kind: kind, eye: eye} when kind in [:player, :mob] -> target.y + eye - eye_y(self)
+        %{height: h} -> target.y + h / 2.0 - eye_y(self)
+      end
+
+    sd = :math.sqrt(xd * xd + zd * zd)
+    pitch = Mth.rotate_towards(self.pitch, Mth.pitch(yd, sd), x_max)
+    yaw = Mth.rotate_towards(self.yaw, Mth.yaw(xd, zd), y_max)
+
+    %{self | pitch: min(max(java_rem(pitch), -90.0), 90.0), yaw: yaw}
+  end
+
+  # `setXRot`'s `x % 360.0F` (the dividend's sign).
+  defp java_rem(x), do: Valimc.Data.Float32.round(:math.fmod(x, 360.0))
+
+  @doc "`isHolding(item)`: the item id in either hand."
+  def holding?(%__MODULE__{mob: mob}, item),
+    do:
+      match?(%{item_id: ^item}, mob.equipment[:mainhand]) or
+        match?(%{item_id: ^item}, mob.equipment[:offhand])
+
+  @doc "`startUsingItem(hand)`: a held item, unless it uses one already."
+  def start_using(%__MODULE__{mob: %{using: nil} = mob} = self, hand) do
+    slot = if hand == :off_hand, do: :offhand, else: :mainhand
+    if mob.equipment[slot], do: %{self | mob: %{mob | using: {hand, 0}}}, else: self
+  end
+
+  def start_using(self, _hand), do: self
+
+  @doc "`stopUsingItem`."
+  def stop_using(%__MODULE__{mob: mob} = self), do: %{self | mob: %{mob | using: nil}}
+
+  @doc "`getTicksUsingItem` (0 when it uses nothing)."
+  def ticks_using(%__MODULE__{mob: %{using: {_, ticks}}}), do: ticks
+  def ticks_using(_self), do: 0
+
+  @doc "`isUsingItem`."
+  def using?(%__MODULE__{mob: mob}), do: mob.using != nil
+
   @doc "`JumpControl.jump`."
   def jump(self), do: mind(self, &%{&1 | jump: true})
 

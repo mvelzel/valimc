@@ -39079,6 +39079,104 @@
       }
     ]
   },
+  "minecraft:entities/bogged": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/bogged",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:arrow",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:tipped_arrow",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "limit": 1,
+                "type": "minecraft:enchanted_count_increase"
+              },
+              {
+                "id": "minecraft:poison",
+                "type": "minecraft:set_potion"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "type": "minecraft:killed_by_player"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/chicken": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/chicken",
@@ -40838,6 +40936,68 @@
       }
     ]
   },
+  "minecraft:entities/skeleton": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/skeleton",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:arrow",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/squid": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/squid",
@@ -40868,6 +41028,104 @@
             "type": "minecraft:item"
           }
         ],
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/stray": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/stray",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:arrow",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:tipped_arrow",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "limit": 1,
+                "type": "minecraft:enchanted_count_increase"
+              },
+              {
+                "id": "minecraft:slowness",
+                "type": "minecraft:set_potion"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "type": "minecraft:killed_by_player"
+        },
         "rolls": 1
       }
     ]

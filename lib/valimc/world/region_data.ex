@@ -1250,6 +1250,10 @@ defmodule Valimc.World.RegionData do
 
       jockeys = for step <- steps, {:jockey, uuid} <- step.effects, do: uuid
 
+      # Arrows skeletons loosed (VMC-043b).
+      arrows =
+        for step <- steps, {:shoot, shot} <- step.effects, do: {step.id, shot}
+
       # Mobs that turned into another (a zombie drowning, VMC-043b).
       conversions = for step <- steps, {:convert, to} <- step.effects, do: {step.id, to}
 
@@ -1325,6 +1329,8 @@ defmodule Valimc.World.RegionData do
           planning?(state) -> put_in(state.entities.dropped, state.entities.dropped ++ born)
           true -> adopt_drops(state, born)
         end
+
+      state = Enum.reduce(arrows, state, &mob_shot/2)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,
@@ -1808,6 +1814,28 @@ defmodule Valimc.World.RegionData do
 
   defp companion(body, _opts), do: body
 
+  # A skeleton's arrow (`performRangedAttack`, VMC-043b3).
+  defp mob_shot({id, shot}, state) do
+    case state.entities.store.entries[id] do
+      %{entity: %{uuid: uuid}, body: %Body{type: type}} ->
+        effect =
+          case Valimc.AI.Mobs.Skeleton.arrow_effect(type) do
+            nil -> nil
+            {name, ticks} -> {Valimc.Data.EffectTypes.id(name), {ticks, 0, false, true, true}}
+          end
+
+        opts = %{from: shot.from, pitch: shot.pitch, effect: effect}
+
+        case mob_shoot(state, uuid, shot.at, shot.power, opts) do
+          {:ok, state} -> state
+          _ -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
   # `Mob.convertTo`: the converted mob takes the old one's place (a new
   # entity, as vanilla's), the old one is discarded.
   defp mob_conversions(state, conversions) do
@@ -1824,7 +1852,7 @@ defmodule Valimc.World.RegionData do
         with %{kind: :mob, body: body, entity: e, revision: revision} <- store.entries[id],
              {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
           uuid = :crypto.strong_rand_bytes(16)
-          new = Valimc.AI.Mobs.Zombie.convert(body, uuid, to, special)
+          new = Valimc.AI.Conversion.convert(body, uuid, to, special)
           {next, [Store.body_record(new, uuid, {e.x, e.y, e.z}) | records]}
         else
           _ -> {store, records}
@@ -1910,6 +1938,10 @@ defmodule Valimc.World.RegionData do
       darken:
         Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)),
       monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
+      bright:
+        not Valimc.Data.SleepFacts.dimension(state.dimension).fixed_time and
+          Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)) <
+            4,
       rain: fn position, top ->
         match?({:ok, true}, Valimc.World.RainQuery.sample(position, top, view))
       end,
@@ -4076,7 +4108,7 @@ defmodule Valimc.World.RegionData do
   difficulty, and the skeleton's shot sound. `{:ok, state}` or `{:error,
   reason}`.
   """
-  def mob_shoot(state, uuid, {tx, ty, tz, height}, power \\ 1.0) do
+  def mob_shoot(state, uuid, {tx, ty, tz, height}, power \\ 1.0, opts \\ %{}) do
     store = state.entities.store
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
@@ -4085,11 +4117,25 @@ defmodule Valimc.World.RegionData do
       difficulty = elem(Clock.difficulty(), 0).level
       eye = Valimc.Data.EntityTypes.fetch(type).eye_height
 
+      # Where it shot from (VMC-043b: its goal's tick, before it moved).
       {x, y, z} =
-        {e.x * 1.0, Valimc.Data.Float32.round(e.y + eye) - 0.10000000149011612, e.z * 1.0}
+        case opts do
+          %{from: {fx, fy, fz}} ->
+            {fx, fy - 0.10000000149011612, fz}
+
+          _ ->
+            {e.x * 1.0, Valimc.Data.Float32.round(e.y + eye) - 0.10000000149011612, e.z * 1.0}
+        end
 
       owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: type}
       arrow = Projectile.new("minecraft:arrow", owner, Valimc.Protocol.ItemStack.new("arrow"))
+
+      # A stray's or bogged's arrow carries its effect (`getArrow`).
+      arrow =
+        case opts[:effect] do
+          nil -> arrow
+          effect -> %{arrow | data: %{arrow.data | effects: [effect]}}
+        end
 
       # `setBaseDamageFromMob`: `power * 2 + triangle(difficulty * 0.11, 0.57425)`.
       damage =
@@ -4097,7 +4143,7 @@ defmodule Valimc.World.RegionData do
           0.57425 * (:rand.uniform() - :rand.uniform())
 
       arrow = %{arrow | data: %{arrow.data | damage: damage}}
-      {xd, zd} = {tx - e.x, tz - e.z}
+      {xd, zd} = {tx - x, tz - z}
       distance = :math.sqrt(xd * xd + zd * zd)
       yd = ty + height / 3.0 - y + distance * Valimc.Data.Float32.round(0.2)
       arrow = Projectile.shoot(arrow, {xd, yd, zd}, 1.6, 14 - difficulty * 4)
@@ -4105,18 +4151,22 @@ defmodule Valimc.World.RegionData do
 
       case Store.create_record(store, state.key, record) do
         {:ok, store, _} ->
+          # The pitch its own random drew (VMC-043b), else the owner's.
           pitch =
-            Valimc.Data.Float32.round(
-              1.0 / Valimc.Data.Float32.round(:rand.uniform() * 0.4 + 0.8)
-            )
+            opts[:pitch] ||
+              Valimc.Data.Float32.round(
+                1.0 / Valimc.Data.Float32.round(:rand.uniform() * 0.4 + 0.8)
+              )
 
           state = put_entities(state, store)
+          {sx, _, sz} = {x, y, z}
+          sy = if opts[:from], do: elem(opts.from, 1) - eye, else: e.y
 
           {:ok,
            projectile_effect(
              state,
              nil,
-             {:sound, "minecraft:entity.skeleton.shoot", "hostile", {e.x, e.y, e.z}, 1.0, pitch}
+             {:sound, "minecraft:entity.skeleton.shoot", "hostile", {sx, sy, sz}, 1.0, pitch}
            )}
 
         error ->

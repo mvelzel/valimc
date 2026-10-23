@@ -1211,6 +1211,276 @@
         ]
       ]
     },
+    "minecraft:skeleton": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.skeleton.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          2,
+          "RestrictSunGoal",
+          []
+        ],
+        [
+          3,
+          "FleeSunGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:stray": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.stray.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          2,
+          "RestrictSunGoal",
+          []
+        ],
+        [
+          3,
+          "FleeSunGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:bogged": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.bogged.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          2,
+          "RestrictSunGoal",
+          []
+        ],
+        [
+          3,
+          "FleeSunGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2190,6 +2460,9 @@
     "minecraft:entity.zombified_piglin.ambient": 1899,
     "minecraft:entity.husk.ambient": 881,
     "minecraft:entity.zombie_villager.ambient": 1904,
+    "minecraft:entity.skeleton.ambient": 1483,
+    "minecraft:entity.stray.ambient": 1609,
+    "minecraft:entity.bogged.ambient": 181,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

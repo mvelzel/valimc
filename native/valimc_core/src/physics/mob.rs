@@ -45,6 +45,15 @@ pub enum Control {
         speed: f64,
         lift: bool,
     },
+    /// `MoveControl.strafe`: `forward` and `right` inputs at `speed` times
+    /// the movement speed (VMC-043b: a skeleton circling its target; the
+    /// owner already turned a step into an unwalkable block into straight
+    /// ahead).
+    Strafe {
+        forward: f32,
+        right: f32,
+        speed: f64,
+    },
 }
 
 /// How a mob travels where vanilla's subclasses override it.
@@ -394,6 +403,17 @@ pub fn control(mob: &mut Mob, block: Option<(f64, u64)>, in_liquid: bool) -> boo
             if mob.on_ground || in_liquid {
                 mob.control = Control::Wait;
             }
+            false
+        }
+        Control::Strafe {
+            forward,
+            right,
+            speed,
+        } => {
+            mob.speed = speed as f32 * attribute as f32;
+            mob.forward = forward;
+            mob.strafe = right;
+            mob.control = Control::Wait;
             false
         }
         Control::Wait => {

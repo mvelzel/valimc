@@ -409,20 +409,23 @@ defmodule Valimc.AI do
       # plays its ambient sound; only its `serverAiStep` is skipped. A dying
       # mob of a family that ticks while dying (`dying?/0`) runs only its
       # own `tick` and `aiStep` (a dead fish still flops); one that dies in
-      # its base tick is immobile.
+      # its base tick is immobile. A mob its tick's start converted (a
+      # skeleton freezing, VMC-043b) is gone: the rest of its tick does not
+      # run.
       self =
         if Mob.alive?(mob) do
-          self =
-            self
-            |> despawn_check()
-            |> hook(:tick_start)
-            |> base_tick()
-            |> own_air()
+          self = self |> despawn_check() |> hook(:tick_start)
 
-          cond do
-            not Mob.alive?(self.mob) -> hook(self, :before_ai)
-            mob.no_ai or not world.goals -> hook(self, :before_ai)
-            true -> self |> hook(:before_ai) |> ai_step()
+          if Enum.any?(self.effects, &match?({:convert, _}, &1)) do
+            self
+          else
+            self = self |> base_tick() |> own_air() |> using_item()
+
+            cond do
+              not Mob.alive?(self.mob) -> hook(self, :before_ai)
+              mob.no_ai or not world.goals -> hook(self, :before_ai)
+              true -> self |> hook(:before_ai) |> ai_step()
+            end
           end
         else
           self |> hook(:tick_start) |> hook(:before_ai)
@@ -577,6 +580,41 @@ defmodule Valimc.AI do
 
   defp source(type), do: Valimc.Protocol.CombatPackets.mob_sounds(type)["sound_source"]
 
+  # `MoveControl.tick`'s strafe check, as the move control runs it next
+  # (VMC-043b): a step that would not land on a walkable block goes straight
+  # ahead instead.
+  defp strafe(%Self{mob: %{motion: %{control: {:strafe, forward, right, modifier}}}} = self) do
+    alias Valimc.Data.Float32
+    speed = Float32.round(Mob.value(self.type, self.mob, "minecraft:movement_speed"))
+    modified = Float32.round(Float32.round(modifier) * speed)
+    dist = max(Float32.round(:math.sqrt(Float32.round(forward * forward + right * right))), 1.0)
+    dist = Float32.round(modified / dist)
+    {xa, za} = {Float32.round(forward * dist), Float32.round(right * dist)}
+    radians = Float32.round(self.yaw * Float32.round(:math.pi() / 180.0))
+    {sin, cos} = {Valimc.Data.Mth.sin(radians), Valimc.Data.Mth.cos(radians)}
+    dx = Float32.round(Float32.round(xa * cos) - Float32.round(za * sin))
+    dz = Float32.round(Float32.round(za * cos) + Float32.round(xa * sin))
+    cell = {floor(self.x + dx), floor(self.y), floor(self.z + dz)}
+
+    if Valimc.AI.RandomPos.static(self.world, cell) == :walkable,
+      do: self,
+      else: Self.strafe(self, 1.0, 0.0)
+  end
+
+  defp strafe(self), do: self
+
+  # `updatingUsingItem` (VMC-043b): an item still in its hand counts another
+  # tick of use; one that left it stops.
+  defp using_item(%Self{mob: %{using: {hand, ticks}} = mob} = self) do
+    slot = if hand == :off_hand, do: :offhand, else: :mainhand
+
+    if mob.equipment[slot],
+      do: %{self | mob: %{mob | using: {hand, ticks + 1}}},
+      else: Self.stop_using(self)
+  end
+
+  defp using_item(self), do: self
+
   # `LivingEntity.aiStep` up to the move: a monster's idle time in light,
   # then `serverAiStep`.
   defp ai_step(%Self{} = self) do
@@ -611,7 +649,7 @@ defmodule Valimc.AI do
     # A family's own move control (a fish's) runs before the look control.
     self = hook(self, :move_control)
 
-    Look.tick(self)
+    self |> strafe() |> Look.tick()
   end
 
   # `getLightLevelDependentMagicValue` at the eyes: a blaze is always lit.
