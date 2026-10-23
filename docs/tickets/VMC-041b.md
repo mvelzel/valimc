@@ -1,6 +1,6 @@
 # VMC-041b — Pathfinding and navigation
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041a](VMC-041a.md).
 
@@ -124,3 +124,20 @@ other side where it sees it between the posts: it walks around the line's
 end to fetch it.
 
 Next: VMC-043b (zombie family), with VMC-043c–e alongside.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `dff984cb` (origin/main `abc89857` and the stand-up fix) and `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-01`, `run-04`)
+
+Passed in survival on normal (positions from `Valimc.World.entities`):
+
+- Superflat: a zombie that saw the player through a two-high wall's gap
+  walked into the gap and on to the player; without a sightline it went
+  around the wall's end, also a valid path.
+- A closed oak door in the gap stopped it at the door's face; an open door
+  let a fresh zombie through.
+- A zombie waded through a two-wide, one-deep water channel to the player.
+- Nether (seed 20261023): a piglin walked around the end of six unconnected
+  oak fence posts to a gold ingot it saw between them and took it. Two
+  earlier tries went to a gold nugget lying nearby first, as a piglin wants
+  any gold item.
+
+Seen in passing: a summoned husk never moved (the zombie family, VMC-043b).

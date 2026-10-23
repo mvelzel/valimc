@@ -1,6 +1,6 @@
 # VMC-040a — Beds, sleep and spawn points
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-029d](VMC-029d.md) (two-part beds), [VMC-050a](VMC-050a.md)
 (bed explosions).
@@ -132,3 +132,30 @@ In a fresh world with two clients A and B in survival, at night
    run tp ~ ~ ~`), a bed used there explodes; an anchor charged there and used
    with an empty hand sets the spawn, and a death there respawns beside it,
    one charge fewer.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `dff984cb` (origin/main `abc89857` and the stand-up fix) and `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-01`, `run-05`)
+
+One real client (A) with a scripted second player B (a protocol client in
+the server node, `.local/client-tests/M3-run-3/bot.ex`), since one test
+client runs at a time. Passed in survival on normal:
+
+- A's bed set the respawn point and A lay down; the night did not skip.
+  When B lay in its own bed, the action bar showed "Sleeping through this
+  night", morning came, and both woke beside their beds, B still connected.
+- At midnight with a zombie six blocks away the bed refused: monsters
+  nearby; by day it refused: only at night or during thunderstorms.
+- `/kill` respawned A beside the bed facing it; with the bed removed, at
+  the world spawn with the missing-bed message.
+- An anchor took two glowstone (two charges shown) and exploded with fire
+  under an empty hand in the overworld.
+- In the Nether a bed exploded with fire; an anchor charged twice and used
+  with an empty hand set the spawn, and a death respawned A beside it with
+  one charge fewer.
+
+Not seen: B's sleeping pose from A's view (A's sleep screen covered it) and
+the "1/2 players sleeping" line behind the Leave Bed button.
+
+The first frozen release (`abc89857`) disconnected B on waking:
+`World.StandUp.safe/4` called `physics_colliding`, a NIF built only with the
+crate's `parity` feature, which a release leaves out. `dff984cb` moved it to
+the live `physics.rs`; the run used that release.

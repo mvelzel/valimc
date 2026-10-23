@@ -1,6 +1,6 @@
 # VMC-048a — Repeaters, comparators and observers
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-047a](VMC-047a.md).
 
@@ -154,3 +154,16 @@ all 93 selected stages (`redstone`, `redstone_wire`, `placement`,
 Client gate: on the real client, a comparator reading a chest lights a lamp
 that goes out when the chest empties; a repeater line delays and a side
 repeater locks it; two observers facing each other pulse.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `dff984cb` (origin/main `abc89857` and the stand-up fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-01`)
+
+Passed in creative on a superflat world:
+
+- A comparator reading a chest lit a lamp when 64 cobblestone went into the
+  chest and turned it off when they came out.
+- A lever into three repeaters set to longer delays lit the line one
+  repeater at a time, then the lamp. A powered side repeater locked the
+  middle one (its bar showed): turning the lever off left it and the lamp
+  lit while the first repeater went off.
+- Two observers facing each other pulsed continuously; dust at the output
+  flickered, a lamp there stayed lit (its 4-tick turn-off, as vanilla's).

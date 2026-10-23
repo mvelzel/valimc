@@ -5,6 +5,13 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-040a Beds, sleep and spawn points](../tickets/VMC-040a.md) | `dff984cb`; sleeping and the night skip by share, monsters and daytime refusing, bed and anchor respawn with their fallback, bed and anchor explosions; client run October 23 (a release disconnected a waking sleeper; fixed and rerun) |
+| [VMC-041b Pathfinding and navigation](../tickets/VMC-041b.md) | `3858ad23`; vanilla's `PathFinder` with its node evaluators in Rust, searched off the owner over published snapshots: doors, gaps, water and fence lines; client run October 23 |
+| [VMC-048a Repeaters, comparators and observers](../tickets/VMC-048a.md) | `bf248944`; delays and locking, comparators over containers and the analog blocks, observers, vanilla's tick priorities; client run October 23 |
+| [VMC-039a Crops, plants and saplings grow](../tickets/VMC-039a.md) | `32dc2698`; random-tick growth of crops, stems, cane, cactus, farmland and saplings, bone meal, tilling, stripping and trampling; client run October 23 |
+| [VMC-034n4d Items and orbs burn](../tickets/VMC-034n4d.md) | `2cb8dd46`; items and orbs take fire, lava and cactus damage and burn up, netherite resists; client run October 23 |
+| [VMC-034n4e Burning items: rain, flames and explosions](../tickets/VMC-034n4e.md) | `d4cf6b43`; rain puts out burning items and orbs, observers see their flames, explosions take their health; client run October 23 |
+| [VMC-077e1 Simulation reach as vanilla's](../tickets/VMC-077e1.md) | `abc89857`; a player's simulation covers the server's `min(simulation, view)` distance whatever the client renders; client run October 23 |
 | [VMC-041a Goals, targets, brains and sensors](../tickets/VMC-041a.md): [041a1](../tickets/VMC-041a1.md), [041a2](../tickets/VMC-041a2.md) | `7dd08fb4`; goal and target selectors, sensing, straight-line navigation and the shared goal library (zombies hunt, pigs follow carrots and panic), brains with memories, sensors and activities (a piglin admires gold); client runs October 23 (a vanished walk target restarted Nether owners; fixed and rerun) |
 | [VMC-037o Projectiles](../tickets/VMC-037o.md) | `7dd08fb4`; arrows, bows and crossbows, thrown items, pearls, splash potions, fireballs and eyes in the projectile kernel; the player's side on the client October 23 (pearls and arrow pickup failed run 1; fixed and rerun); skeletons with VMC-043b |
 | [VMC-037n Melee combat, mob death, loot and XP](../tickets/VMC-037n.md) | `1b72b467`; player attacks, damage, armor and shields, mob death with loot and XP; zombies' hits on armor and shields on the client October 23 |

@@ -1,6 +1,6 @@
 # VMC-034n4d — Items and orbs burn
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-034n4c](VMC-034n4c.md) (orbs in lava), [VMC-077l](VMC-077l.md)
 (items in the kernel).
@@ -75,3 +75,11 @@ kernel cannot step (inside a block) do not burn.
 Drop a stack into lava and into a fire: it vanishes. Throw one through a
 fire onto stone: it burns out after a few seconds. Drop a netherite ingot
 into lava: it floats. Drop items against a cactus and orbs into lava.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `dff984cb` (origin/main `abc89857` and the stand-up fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-01`)
+
+Passed on a superflat world: a cobblestone stack thrown into lava and a
+dirt stack into a fire on netherrack vanished; a plank thrown through the
+fire onto stone burned out within 2 to 4 seconds; a netherite ingot in lava
+floated, rising slowly, and survived; a plank stack thrown at a cactus
+vanished. Orbs in lava belong to VMC-034n4c's gate.

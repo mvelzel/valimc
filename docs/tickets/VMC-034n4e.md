@@ -1,6 +1,6 @@
 # VMC-034n4e — Burning items: rain, flames and explosions
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-034n4d](VMC-034n4d.md) (items and orbs burn).
 
@@ -72,3 +72,15 @@ exist yet.
 Throw an item through a fire: it shows flames until it burns out. Throw one
 through a fire into the rain: the flames go out. Blow up TNT a few blocks
 from dropped items: the near ones vanish, the far ones fly.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `dff984cb` (origin/main `abc89857` and the stand-up fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-01`)
+
+Passed on a superflat world:
+
+- A plank thrown through a fire showed flames on the stone until it burned
+  out.
+- In `/weather rain` two planks thrown through the fire landed without
+  flames, survived more than 10 seconds and merged.
+- Primed TNT destroyed cobblestone beside it and a stack about 6.6 blocks
+  away (vanilla's damage there exceeds an item's 5 health), while planks
+  7.5 blocks away survived and moved slightly, as vanilla's exposure gives.

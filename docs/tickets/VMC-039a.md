@@ -1,6 +1,6 @@
 # VMC-039a — Crops, plants and saplings grow
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-029d](VMC-029d.md), [VMC-066](VMC-066.md) (random ticks).
 
@@ -90,3 +90,17 @@ by water; plant wheat, carrots and pumpkin seeds; watch them grow at
 `randomTickSpeed` 100 (or bone meal them); a stem sets its pumpkin; sugar
 cane by water grows to three; an oak sapling becomes a tree; jumping onto
 farmland from a height turns it to dirt; an axe strips a log.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-03`)
+
+Passed in survival on a superflat world at `randomTickSpeed` 100:
+
+- Grass tilled beside water turned to dark (wet) farmland; wheat, carrots
+  and a pumpkin stem ripened within one to two minutes.
+- Bone meal ripened the stem at once, and it set an attached pumpkin on the
+  next free block.
+- Sugar cane beside water grew three high.
+- An oak sapling grew into a tree within about a minute; a second one grew
+  at once under bone meal.
+- A three-block fall onto farmland turned it to dirt; an iron axe stripped
+  an oak log.
