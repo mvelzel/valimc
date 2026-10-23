@@ -1,7 +1,8 @@
-# Container loot parity (VMC-072a): every LootOracle case (each container
-# table over many seeds, luck values, biomes and origins, and synthetic tables
-# for the entry kinds and nesting the pack's container tables leave out)
-# filled by `Valimc.Blocks.Loot` equals vanilla's container, slot for slot, compared
+# Loot parity (VMC-072a, entity drops VMC-037n): every LootOracle case (each
+# container table over many seeds, luck values, biomes and origins, synthetic
+# tables for the entry kinds and nesting the pack's container tables leave
+# out, and the modelled mobs' death drops over victims, killers and weapons)
+# made by `Valimc.Blocks.Loot` equals vanilla's, slot for slot, compared
 # through the persistent item codec (enchantment maps compare as maps, since
 # their network order follows a hash map).
 [path] = System.argv()
@@ -47,7 +48,7 @@ end
 {:ok, synthetic} =
   Valimc.Native.loot_registry(
     Map.merge(read.("tables"), raw["synthetic_tables"]),
-    read.("registries")
+    Loot.registries()
   )
 
 {stacks, failures} =
@@ -97,6 +98,49 @@ if failures != [] do
   System.halt(1)
 end
 
+# A case's weapon: its item and enchantments (all the tables read of it).
+weapon = fn
+  nil ->
+    nil
+
+  json ->
+    %Valimc.Protocol.ItemStack{
+      item_id: Valimc.Protocol.ItemTypes.id(json["id"]),
+      count: 1,
+      components: %{
+        "minecraft:enchantments" => get_in(json, ["components", "minecraft:enchantments"]) || %{}
+      }
+    }
+end
+
+deaths = raw["entity_cases"]
+true = length(deaths) == 1500
+
+death_failures =
+  Enum.reject(deaths, fn row ->
+    [x, y, z] = row["origin"]
+    hand = weapon.(row["weapon"])
+
+    {:ok, drops} =
+      Loot.entity_drops(row["table"], String.to_integer(row["seed"]), {x, y, z}, %{
+        on_fire: row["on_fire"],
+        baby: row["baby"],
+        vehicle: row["vehicle"],
+        killed_by_player: row["killed_by_player"],
+        attacker: hand,
+        direct_attacker: hand
+      })
+
+    CheckLoot.same?(Enum.map(drops, &CheckLoot.plain(ItemData.tag(&1))), row["drops"])
+  end)
+
+for row <- Enum.take(death_failures, 5), do: IO.puts("FAIL death #{inspect(row)}")
+
+if death_failures != [] do
+  IO.puts("FAIL: #{length(death_failures)} of 1500 entity deaths differ")
+  System.halt(1)
+end
+
 IO.puts(
-  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables equal vanilla (#{stacks} stacks)"
+  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and 1500 zombie deaths equal vanilla (#{stacks} stacks)"
 )

@@ -251,7 +251,7 @@ defmodule Valimc.Native do
   def worldgen_place(_state, _biome_source, _spec, _pos, _chunks, _base, _seed),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  ## Loot (VMC-072a)
+  ## Loot (VMC-072a, entity drops VMC-037n)
 
   def loot_registry(_tables, _registries), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -259,6 +259,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def loot_items(_registry, _table, _seed, _luck, _origin, _biome, _structure, _next_map),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def loot_entity(_registry, _table, _seed, _luck, _origin, _death),
     do: :erlang.nif_error(:nif_not_loaded)
 
   ## Parity and benchmarks (dev, test and bench builds)

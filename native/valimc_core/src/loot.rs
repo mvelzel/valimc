@@ -198,6 +198,91 @@ enum Condition {
         biomes: Option<HolderSet>,
         offset: [i32; 3],
     },
+    KilledByPlayer,
+    /// `random_chance_with_enchanted_bonus`: the attacker's level of the
+    /// enchantment picks the chance (`LevelBasedValue.Linear` above zero).
+    EnchantedChance {
+        enchantment: String,
+        unenchanted: f32,
+        base: f32,
+        per_level: f32,
+    },
+    Entity(EntityTarget, EntityPredicate),
+}
+
+/// The entity an `entity_properties` condition asks about.
+#[derive(Debug, Clone, Copy)]
+enum EntityTarget {
+    This,
+    Attacker,
+    DirectAttacker,
+}
+
+/// The entity predicates the modelled mobs' tables use: the victim's flags
+/// and vehicle type, and enchantments on an attacker's main-hand item.
+#[derive(Debug, Default)]
+struct EntityPredicate {
+    on_fire: Option<bool>,
+    baby: Option<bool>,
+    vehicle: Option<Vec<String>>,
+    mainhand_enchantments: Option<Vec<String>>,
+}
+
+/// An entity's death as its loot table reads it (`LootContextParamSets.ENTITY`):
+/// the victim's flags and vehicle type, whether a player killed it, and the
+/// main-hand enchantments of the attacker and the direct attacker (None when
+/// there is no living one). Enchantment levels act from the main hand, where
+/// the tables' enchantments (Looting, the `smelts_loot` set) act.
+#[derive(Debug, Clone, Default)]
+pub struct Death {
+    pub on_fire: bool,
+    pub baby: bool,
+    pub vehicle: Option<String>,
+    pub killed_by_player: bool,
+    pub attacker: Option<Vec<(String, i32)>>,
+    pub direct_attacker: Option<Vec<(String, i32)>>,
+}
+
+impl Death {
+    fn attacker_level(&self, enchantment: &str) -> i32 {
+        self.attacker
+            .iter()
+            .flatten()
+            .filter(|(e, _)| e == enchantment)
+            .map(|(_, level)| *level)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+impl EntityPredicate {
+    fn matches(&self, target: EntityTarget, death: &Death) -> bool {
+        let mainhand = match target {
+            EntityTarget::This => None,
+            EntityTarget::Attacker => match &death.attacker {
+                Some(m) => Some(m),
+                None => return false,
+            },
+            EntityTarget::DirectAttacker => match &death.direct_attacker {
+                Some(m) => Some(m),
+                None => return false,
+            },
+        };
+        let this = matches!(target, EntityTarget::This);
+        // Only the victim's flags and vehicle, and only attackers' items, are known.
+        if (self.on_fire.is_some() || self.baby.is_some() || self.vehicle.is_some()) && !this {
+            return false;
+        }
+        self.on_fire.is_none_or(|v| v == death.on_fire)
+            && self.baby.is_none_or(|v| v == death.baby)
+            && self
+                .vehicle
+                .as_ref()
+                .is_none_or(|types| death.vehicle.as_ref().is_some_and(|v| types.contains(v)))
+            && self.mainhand_enchantments.as_ref().is_none_or(|set| {
+                mainhand.is_some_and(|m| m.iter().any(|(e, level)| *level > 0 && set.contains(e)))
+            })
+    }
 }
 
 #[derive(Debug)]
@@ -236,6 +321,12 @@ enum Function {
         radius: i32,
         skip_existing: bool,
     },
+    EnchantedCountIncrease {
+        enchantment: String,
+        count: FloatProvider,
+        limit: i32,
+    },
+    FurnaceSmelt(bool),
 }
 
 /// An item predicate: items, and components that must be present.
@@ -316,6 +407,8 @@ pub struct Loot {
     instantaneous: HashSet<String>,
     /// Per registry, per tag, its members in order.
     tags: HashMap<String, HashMap<String, Vec<String>>>,
+    /// Furnace (smelting) results by input item, for `furnace_smelt`.
+    smelting: HashMap<String, String>,
 }
 
 /// Where produced items go (vanilla's item consumers).
@@ -327,6 +420,7 @@ struct Ctx<'w> {
     origin: [f64; 3],
     world: &'w mut dyn LootWorld,
     visited: Vec<String>,
+    death: Option<Death>,
 }
 
 /// `Mth.floor` of a float.
@@ -415,6 +509,12 @@ impl Loot {
             });
         }
         loot.instantaneous = names(registries.field("instantaneous_effects")?)?;
+        if let Some(smelting) = registries.get("smelting") {
+            for (input, result) in smelting.entries()? {
+                loot.smelting
+                    .insert(input.clone(), result.as_str()?.to_string());
+            }
+        }
         for (id, json) in tables.entries()? {
             let table = loot
                 .table(json)
@@ -671,8 +771,104 @@ impl Loot {
                     offset: [o("offsetX")?, o("offsetY")?, o("offsetZ")?],
                 }
             }
+            "minecraft:killed_by_player" => Condition::KilledByPlayer,
+            "minecraft:random_chance_with_enchanted_bonus" => {
+                let (base, per_level) = match json.field("enchanted_chance")? {
+                    Json::Number(n) => (*n as f32, 0.0),
+                    v if v.field("type")?.as_str()? == "minecraft:linear" => (
+                        v.field("base")?.as_f64()? as f32,
+                        v.field("per_level_above_first")?.as_f64()? as f32,
+                    ),
+                    other => return Err(format!("enchanted chance {other:?} is not implemented")),
+                };
+                Condition::EnchantedChance {
+                    enchantment: json.field("enchantment")?.as_str()?.to_string(),
+                    unenchanted: json.field("unenchanted_chance")?.as_f64()? as f32,
+                    base,
+                    per_level,
+                }
+            }
+            "minecraft:entity_properties" => {
+                let target = match json.field("entity")?.as_str()? {
+                    "this" => EntityTarget::This,
+                    "attacker" => EntityTarget::Attacker,
+                    "direct_attacker" => EntityTarget::DirectAttacker,
+                    other => return Err(format!("entity target {other} is not implemented")),
+                };
+                let predicate = match json.get("predicate") {
+                    Some(p) => self.entity_predicate(p)?,
+                    None => EntityPredicate::default(),
+                };
+                Condition::Entity(target, predicate)
+            }
             other => return Err(format!("loot condition {other} is not implemented")),
         })
+    }
+
+    fn entity_predicate(&self, json: &Json) -> Result<EntityPredicate, String> {
+        let mut predicate = EntityPredicate::default();
+        for (key, value) in json.entries()? {
+            match key.as_str() {
+                "minecraft:flags" => {
+                    for (flag, v) in value.entries()? {
+                        match flag.as_str() {
+                            "is_on_fire" => predicate.on_fire = Some(v.as_bool()?),
+                            "is_baby" => predicate.baby = Some(v.as_bool()?),
+                            other => return Err(format!("entity flag {other} is not implemented")),
+                        }
+                    }
+                }
+                "minecraft:vehicle" => {
+                    let mut types = None;
+                    for (k, v) in value.entries()? {
+                        match (k.as_str(), v) {
+                            ("minecraft:entity_type", Json::String(t)) if !t.starts_with('#') => {
+                                types = Some(vec![t.clone()])
+                            }
+                            (other, _) => {
+                                return Err(format!("vehicle predicate {other} is not implemented"))
+                            }
+                        }
+                    }
+                    predicate.vehicle = types;
+                }
+                "minecraft:equipment" => {
+                    for (slot, item) in value.entries()? {
+                        if slot != "mainhand" {
+                            return Err(format!("equipment slot {slot} is not implemented"));
+                        }
+                        let mut set = Vec::new();
+                        for (k, v) in item.entries()? {
+                            if k != "predicates" {
+                                return Err(format!("item predicate {k} is not implemented"));
+                            }
+                            for (component, list) in v.entries()? {
+                                if component != "minecraft:enchantments" {
+                                    return Err(format!(
+                                        "item predicate {component} is not implemented"
+                                    ));
+                                }
+                                for e in list.as_array()? {
+                                    for (field, ids) in e.entries()? {
+                                        if field != "enchantments" {
+                                            return Err(format!(
+                                                "enchantment predicate {field} is not implemented"
+                                            ));
+                                        }
+                                        set.extend(
+                                            self.holder_set("minecraft:enchantment", ids)?.members,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        predicate.mainhand_enchantments = Some(set);
+                    }
+                }
+                other => return Err(format!("entity predicate {other} is not implemented")),
+            }
+        }
+        Ok(predicate)
     }
 
     fn function(&self, json: &Json) -> Result<Function, String> {
@@ -781,6 +977,15 @@ impl Loot {
                     .get("skip_existing_chunks")
                     .map_or(Ok(true), Json::as_bool)?,
             },
+            "minecraft:enchanted_count_increase" => Function::EnchantedCountIncrease {
+                enchantment: json.field("enchantment")?.as_str()?.to_string(),
+                count: Self::float_provider(json.field("count")?)?,
+                limit: json.get("limit").map_or(Ok(0), Json::as_i32)?,
+            },
+            "minecraft:furnace_smelt" => Function::FurnaceSmelt(
+                json.get("use_input_count")
+                    .map_or(Ok(true), Json::as_bool)?,
+            ),
             other => return Err(format!("loot function {other} is not implemented")),
         };
         Ok(match json.get("condition") {
@@ -861,6 +1066,28 @@ impl Condition {
             Condition::Inverted(term) => !term.test(ctx),
             Condition::AllOf(terms) => terms.iter().all(|t| t.test(ctx)),
             Condition::AnyOf(terms) => terms.iter().any(|t| t.test(ctx)),
+            Condition::KilledByPlayer => ctx.death.as_ref().is_some_and(|d| d.killed_by_player),
+            Condition::EnchantedChance {
+                enchantment,
+                unenchanted,
+                base,
+                per_level,
+            } => {
+                let level = ctx
+                    .death
+                    .as_ref()
+                    .map_or(0, |d| d.attacker_level(enchantment));
+                let chance = if level > 0 {
+                    base + per_level * (level - 1) as f32
+                } else {
+                    *unenchanted
+                };
+                ctx.random.next_float() < chance
+            }
+            Condition::Entity(target, predicate) => ctx
+                .death
+                .as_ref()
+                .is_some_and(|d| predicate.matches(*target, d)),
             Condition::Location { biomes, offset } => {
                 let pos = [
                     (ctx.origin[0] + offset[0] as f64).floor() as i32,
@@ -902,6 +1129,39 @@ impl Loot {
                     self.apply(f, stack, ctx)?
                 } else {
                     stack
+                }
+            }
+            Function::EnchantedCountIncrease {
+                enchantment,
+                count,
+                limit,
+            } => {
+                let level = match &ctx.death {
+                    Some(d) if d.attacker.is_some() => d.attacker_level(enchantment),
+                    _ => 0,
+                };
+                if level == 0 {
+                    return Ok(stack);
+                }
+                let addition = level as f32 * count.get(ctx);
+                stack.count += round_f(addition);
+                if *limit > 0 && stack.count > *limit {
+                    stack.count = *limit;
+                }
+                stack
+            }
+            Function::FurnaceSmelt(use_input_count) => {
+                if stack.is_empty() {
+                    return Ok(stack);
+                }
+                match self.smelting.get(&stack.item) {
+                    Some(result) => {
+                        let count = if *use_input_count { stack.count } else { 1 };
+                        let mut smelted = Stack::new(result);
+                        smelted.count = count.min(self.max_stack(result));
+                        smelted
+                    }
+                    None => stack,
                 }
             }
             Function::SetCount(count, add) => {
@@ -1370,6 +1630,7 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            death: None,
         };
         let mut items = self.random_items(id, &mut ctx)?;
         let random = &mut ctx.random;
@@ -1401,8 +1662,34 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            death: None,
         };
         self.random_items(id, &mut ctx)
+    }
+
+    /// An entity's death drops: `getRandomItems` with `random` and `death`,
+    /// without the empty stacks.
+    pub fn entity_items(
+        &self,
+        id: &str,
+        random: Random,
+        luck: f32,
+        origin: [f64; 3],
+        death: Death,
+        world: &mut dyn LootWorld,
+    ) -> Result<Vec<Stack>, String> {
+        let mut ctx = Ctx {
+            random,
+            luck,
+            origin,
+            world,
+            visited: Vec::new(),
+            death: Some(death),
+        };
+        // `spawnAtLocation` drops nothing for an empty stack.
+        let mut items = self.random_items(id, &mut ctx)?;
+        items.retain(|s| !s.is_empty());
+        Ok(items)
     }
 
     fn shuffle_and_split(&self, result: &mut Vec<Stack>, available: usize, random: &mut Random) {

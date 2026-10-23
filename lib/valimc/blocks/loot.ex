@@ -11,7 +11,9 @@ defmodule Valimc.Blocks.Loot do
   centre of the container's block. `items/3` is a brushable block's
   `getRandomItems`. The world's answers come with the call: the biome at the
   loot origin, the structure an exploration map would find (none where
-  ValiMC has no map search) and the next free map id.
+  ValiMC has no map search) and the next free map id. `entity_drops/5` is a
+  mob's death loot (VMC-037n); `furnace_smelt` finds furnace results in the
+  cooking recipes.
   """
   alias Valimc.Native
   alias Valimc.Protocol.{ItemData, ItemStack}
@@ -23,7 +25,7 @@ defmodule Valimc.Blocks.Loot do
         read = &Valimc.Data.Facts.read!("loot/#{&1}.json")
 
         tables = read.("tables")
-        {:ok, registry} = Native.loot_registry(tables, read.("registries"))
+        {:ok, registry} = Native.loot_registry(tables, registries())
         :persistent_term.put({__MODULE__, :tables}, MapSet.new(Map.keys(tables)))
         :persistent_term.put({__MODULE__, :registry}, registry)
         registry
@@ -32,6 +34,15 @@ defmodule Valimc.Blocks.Loot do
         registry
     end
   end
+
+  @doc "What evaluation reads: the loot registries and the furnace results."
+  def registries,
+    do:
+      Map.put(
+        Valimc.Data.Facts.read!("loot/registries.json"),
+        "smelting",
+        Valimc.Blocks.CookingRecipes.smelting()
+      )
 
   @doc "Whether the facts hold `table` (vanilla fills nothing from an unknown one)."
   def known?(table) do
@@ -87,6 +98,41 @@ defmodule Valimc.Blocks.Loot do
       {:ok, stacks, next_map}
     end
   end
+
+  @doc """
+  An entity's death drops (`LivingEntity.dropFromLootTable`): `{:ok, stacks}`.
+  `death` holds `:on_fire`, `:baby`, `:vehicle` (the type name of what the
+  victim rides, or nil), `:killed_by_player`, and `:attacker` and
+  `:direct_attacker`, each the living attacker's main-hand stack (nil for an
+  empty hand) or `:none` when there is no living one. Options as `fill/4`
+  (`:luck` the killing player's).
+  """
+  def entity_drops(table, seed, {x, y, z}, death, opts \\ [])
+      when is_binary(table) and is_integer(seed) and is_map(death) do
+    death =
+      {Map.get(death, :on_fire, false), Map.get(death, :baby, false), Map.get(death, :vehicle),
+       Map.get(death, :killed_by_player, false), mainhand(Map.get(death, :attacker, :none)),
+       mainhand(Map.get(death, :direct_attacker, :none))}
+
+    with {:ok, tags} <-
+           call(fn ->
+             Native.loot_entity(
+               Keyword.get_lazy(opts, :registry, &registry/0),
+               table,
+               seed,
+               Keyword.get(opts, :luck, 0.0) * 1.0,
+               {x * 1.0, y * 1.0, z * 1.0},
+               death
+             )
+           end),
+         do: stacks(tags)
+  end
+
+  defp mainhand(:none), do: nil
+  defp mainhand(nil), do: []
+
+  defp mainhand(%ItemStack{components: components}),
+    do: components |> Map.get("minecraft:enchantments", %{}) |> Map.to_list()
 
   # A stored seed of 0 means none: vanilla then draws from the world's random
   # sequence for the table, which ValiMC does not keep; a fresh seed gives the

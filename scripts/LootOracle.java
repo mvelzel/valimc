@@ -37,16 +37,44 @@ import net.minecraft.world.phys.Vec3;
  * size, damage, damageability and enchantability, the instantaneous mob effects, and the
  * enchantment, instrument, biome, structure and item tags.
  *
+ * The facts also hold the modelled mobs' entity tables (VMC-037n, `ENTITY_TABLES`).
+ *
  * Usage: LootOracle cases OUT.json — per container table, many seeds, luck values and loot origin
  * biomes: the container vanilla's `LootTable.fill` makes (`unpackLootTable` with the stored seed;
  * 27 slots for chests and barrels, 9 for dispensers, 1 for decorated pots) or, for archaeology,
  * the items `getRandomItems` gives a brushable block. Each slot holds the item as its persistent
  * codec writes it. The level answers the loot origin's biome from the case and finds map
  * structures by a fixed rule of the case (no structure for every third seed, else a position
- * from the seed), allocating map ids from 0 per case.
+ * from the seed), allocating map ids from 0 per case. Per entity table, many seeds and deaths:
+ * the drops `dropFromLootTable` makes (`getRandomItems` with the seed) for a victim on fire or
+ * not, a baby or not, riding nothing, a zombie horse or a chicken, killed by a player or not,
+ * by an attacker holding nothing or a sword with Looting or Fire Aspect.
  */
 public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
+  static final List<String> ENTITY_TABLES = List.of("minecraft:entities/zombie");
+
+  /** A dying mob: its flags and vehicle as the loot predicates read them. */
+  static class Victim extends net.minecraft.world.entity.monster.zombie.Zombie {
+    boolean fire, baby;
+    net.minecraft.world.entity.Entity vehicle;
+    private Victim() { super(null, null); }
+    @Override public boolean isOnFire() { return fire; }
+    @Override public boolean isBaby() { return baby; }
+    @Override public net.minecraft.world.entity.Entity getVehicle() { return vehicle; }
+    @Override public boolean isPassenger() { return vehicle != null; }
+  }
+
+  /** The killing player, holding `weapon`. */
+  static class Attacker extends net.minecraft.world.entity.player.Player {
+    ItemStack weapon;
+    private Attacker() { super(null, null); }
+    @Override public ItemStack getItemBySlot(net.minecraft.world.entity.EquipmentSlot slot) {
+      return slot == net.minecraft.world.entity.EquipmentSlot.MAINHAND ? weapon : ItemStack.EMPTY;
+    }
+    @Override public float getLuck() { return 0.0F; }
+    @Override public net.minecraft.world.level.GameType gameMode() { return net.minecraft.world.level.GameType.SURVIVAL; }
+  }
 
   static class ProbeServer extends DedicatedServer {
     ReloadableServerRegistries.Holder registries;
@@ -61,6 +89,8 @@ public class LootOracle {
     BlockPos destination;
     int nextMap;
     final Map<MapId, MapItemSavedData> maps = new HashMap<>();
+    net.minecraft.world.item.crafting.RecipeManager recipes;
+    @Override public net.minecraft.world.item.crafting.RecipeManager recipeAccess() { return recipes; }
     private ProbeLevel() { super(null, null, null, null, null, null, false, 0L, List.of(), false); }
     @Override public MinecraftServer getServer() { return server; }
     @Override public RegistryAccess registryAccess() { return access; }
@@ -122,6 +152,8 @@ public class LootOracle {
       var maps = ProbeLevel.class.getDeclaredField("maps");
       maps.setAccessible(true);
       maps.set(level, new HashMap<MapId, MapItemSavedData>());
+      // `furnace_smelt` asks the level's recipes.
+      level.recipes = new net.minecraft.world.item.crafting.RecipeManager(lookup);
       cases(Path.of(args[1]), tables, lookup, ops, level);
     }
   }
@@ -138,6 +170,7 @@ public class LootOracle {
     var out = new TreeMap<String, JsonElement>();
     var queue = new ArrayDeque<String>();
     containerTables(tables).forEach(k -> queue.add(k.identifier().toString()));
+    queue.addAll(ENTITY_TABLES);
     while (!queue.isEmpty()) {
       var id = queue.poll();
       if (out.containsKey(id)) continue;
@@ -334,12 +367,92 @@ public class LootOracle {
         fills++;
       }
     }
+    var deaths = entityCases(tables, lookup, ops, level, random);
     var result = new JsonObject();
     result.add("synthetic_tables", synthetic);
     result.add("cases", rows);
+    result.add("entity_cases", deaths);
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: " + fills + " vanilla container fills over " + containerTables(tables).size() + " pack and "
         + SYNTHETIC.size() + " synthetic tables (" + items + " stacks)");
+  }
+
+  static JsonArray entityCases(HolderLookup.RegistryLookup<LootTable> tables, HolderLookup.Provider lookup,
+      com.mojang.serialization.DynamicOps<JsonElement> ops, ProbeLevel level, Random random) throws Exception {
+    var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    f.setAccessible(true);
+    var unsafe = (sun.misc.Unsafe) f.get(null);
+    var type = net.minecraft.world.entity.Entity.class.getDeclaredField("type");
+    type.setAccessible(true);
+    var position = net.minecraft.world.entity.Entity.class.getDeclaredField("position");
+    position.setAccessible(true);
+    var enchantments = lookup.lookupOrThrow(Registries.ENCHANTMENT);
+    var damage = lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK);
+    var vehicles = Arrays.asList(null, "minecraft:zombie_horse", "minecraft:chicken");
+    var rows = new JsonArray();
+    for (var id : ENTITY_TABLES) {
+      var table = tables.getOrThrow(ResourceKey.create(Registries.LOOT_TABLE, Identifier.parse(id))).value();
+      for (int i = 0; i < 1500; i++) {
+        long seed = random.nextLong();
+        var victim = (Victim) unsafe.allocateInstance(Victim.class);
+        type.set(victim, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:zombie")));
+        var at = new Vec3(random.nextInt(2001) - 1000.5, random.nextInt(321) - 64, random.nextInt(2001) - 1000.5);
+        position.set(victim, at);
+        victim.fire = random.nextInt(4) == 0;
+        victim.baby = random.nextInt(4) == 0;
+        var vehicleName = vehicles.get(random.nextInt(3));
+        if (vehicleName != null) {
+          var vehicle = (Victim) unsafe.allocateInstance(Victim.class);
+          type.set(vehicle, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(vehicleName)));
+          position.set(vehicle, at);
+          victim.vehicle = vehicle;
+        }
+        boolean player = random.nextInt(3) != 0;
+        var weapon = switch (random.nextInt(5)) {
+          case 0 -> ItemStack.EMPTY;
+          case 1 -> new ItemStack(Items.DIAMOND_SWORD);
+          case 2, 3 -> enchanted(Items.IRON_SWORD, enchantments, Enchantments.LOOTING, 1 + random.nextInt(3));
+          default -> enchanted(Items.GOLDEN_SWORD, enchantments, Enchantments.FIRE_ASPECT, 1 + random.nextInt(2));
+        };
+        var attacker = (Attacker) unsafe.allocateInstance(Attacker.class);
+        type.set(attacker, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:player")));
+        position.set(attacker, at);
+        attacker.weapon = weapon;
+        var source = new net.minecraft.world.damagesource.DamageSource(damage, attacker);
+        var builder = new LootParams.Builder(level)
+            .withParameter(LootContextParams.THIS_ENTITY, victim)
+            .withParameter(LootContextParams.ORIGIN, at)
+            .withParameter(LootContextParams.DAMAGE_SOURCE, source)
+            .withOptionalParameter(LootContextParams.ATTACKING_ENTITY, attacker)
+            .withOptionalParameter(LootContextParams.DIRECT_ATTACKING_ENTITY, attacker);
+        if (player) builder = builder.withParameter(LootContextParams.LAST_DAMAGE_PLAYER, attacker).withLuck(0.0F);
+        var drops = new JsonArray();
+        table.getRandomItems(builder.create(LootContextParamSets.ENTITY), seed).forEach(stack -> { if (!stack.isEmpty()) drops.add(item(stack, ops)); });
+        var row = new JsonObject();
+        row.addProperty("table", id);
+        row.addProperty("seed", Long.toString(seed));
+        row.addProperty("on_fire", victim.fire);
+        row.addProperty("baby", victim.baby);
+        if (vehicleName != null) row.addProperty("vehicle", vehicleName);
+        row.addProperty("killed_by_player", player);
+        row.add("weapon", weapon.isEmpty() ? JsonNull.INSTANCE : item(weapon, ops));
+        var origin = new JsonArray();
+        origin.add(at.x);
+        origin.add(at.y);
+        origin.add(at.z);
+        row.add("origin", origin);
+        row.add("drops", drops);
+        rows.add(row);
+      }
+    }
+    return rows;
+  }
+
+  static ItemStack enchanted(Item item, HolderLookup.RegistryLookup<Enchantment> enchantments,
+      ResourceKey<Enchantment> enchantment, int level) {
+    var stack = new ItemStack(item);
+    stack.enchant(enchantments.getOrThrow(enchantment), level);
+    return stack;
   }
 
   static final Map<String, String> SYNTHETIC = new LinkedHashMap<>();

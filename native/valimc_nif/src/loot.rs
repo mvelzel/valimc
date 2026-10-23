@@ -344,3 +344,55 @@ fn loot_items<'a>(
             }),
     )
 }
+
+/// An entity's death drops (`LivingEntity.dropFromLootTable`, VMC-037n):
+/// `death` is `{on_fire, baby, vehicle, killed_by_player, attacker,
+/// direct_attacker}`, each attacker its main-hand enchantments as
+/// `[{id, level}]` or nil. The item tags of the drops.
+type DeathTerm = (
+    bool,
+    bool,
+    Option<String>,
+    bool,
+    Option<Vec<(String, i32)>>,
+    Option<Vec<(String, i32)>>,
+);
+
+#[rustler::nif]
+fn loot_entity<'a>(
+    env: Env<'a>,
+    registry: ResourceArc<LootRegistry>,
+    table: String,
+    seed: i64,
+    luck: f64,
+    origin: (f64, f64, f64),
+    death: DeathTerm,
+) -> NifResult<(Atom, Vec<Term<'a>>)> {
+    known(&registry, &table)?;
+    let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker) = death;
+    let mut world = LootAnswers {
+        biome: None,
+        structure: None,
+        next_map: 0,
+    };
+    reply(
+        registry
+            .loot
+            .entity_items(
+                &table,
+                loot_random(seed),
+                luck as f32,
+                [origin.0, origin.1, origin.2],
+                valimc_core::loot::Death {
+                    on_fire,
+                    baby,
+                    vehicle,
+                    killed_by_player,
+                    attacker,
+                    direct_attacker,
+                },
+                &mut world,
+            )
+            .map(|items| items.iter().map(|s| loot_stack(env, s)).collect()),
+    )
+}

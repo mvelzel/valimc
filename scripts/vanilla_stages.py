@@ -336,6 +336,11 @@ STAGES = [
         ('regen', 'EntityOracle', 'facts', '@entity-facts.json'),
         ('same', '@entity-facts.json', 'priv/registry/entity_facts.json'),
     ]),
+    # VMC-037n: weapon and shield components, the player's base attributes, mob experience.
+    ('combat_facts', [
+        ('regen', 'CombatOracle', 'facts', '@combat-facts.json'),
+        ('same', '@combat-facts.json', 'priv/registry/combat_facts.json'),
+    ]),
     ('enchantments', [
         ('regen', 'EnchantmentMetadata', '@enchantments.json'),
         ('same', '@enchantments.json', 'priv/registry/enchantments.json'),

@@ -34,6 +34,21 @@ defmodule Valimc.Blocks.CookingRecipes do
            end),
          do: raise("Wrong pinned cooking recipes")
 
+  @doc """
+  Smelting (furnace) results by input item name (`furnace_smelt` in loot
+  tables): the recipe a furnace finds for each item that has one.
+  """
+  def smelting do
+    furnace = elem(@items, 0)
+
+    for id <- 0..(tuple_size(furnace) - 1),
+        (index = elem(furnace, id)) >= 0,
+        into: %{},
+        do:
+          {ItemTypes.item(id)["name"],
+           ItemTypes.item(elem(@recipes, index).result.item_id)["name"]}
+  end
+
   @doc "The recipe names in recipe id order."
   def names, do: @names
 

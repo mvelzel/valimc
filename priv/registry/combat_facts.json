@@ -1,0 +1,1863 @@
+{
+  "items": {
+    "minecraft:carved_pumpkin": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:chainmail_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:chainmail_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:chainmail_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:chainmail_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:copper_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.200000047683716,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:copper_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:copper_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:copper_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:copper_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:copper_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:copper_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:copper_nautilus_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:copper_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:copper_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 2.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:copper_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.8235294818878174,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:copper_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:creeper_head": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:diamond_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:diamond_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:diamond_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:diamond_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:diamond_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:diamond_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 11.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:diamond_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:diamond_nautilus_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 11.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:diamond_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:diamond_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 4.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:diamond_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0476189851760864,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:diamond_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:dragon_head": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:golden_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:golden_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:golden_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:golden_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:golden_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:golden_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 7.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:golden_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:golden_nautilus_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 7.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:golden_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:golden_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:golden_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.9473683834075928,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:golden_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:iron_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0999999046325684,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:iron_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:iron_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:iron_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:iron_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -1.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:iron_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:iron_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:iron_nautilus_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:iron_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:iron_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 3.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:iron_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.9473683834075928,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:iron_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:leather_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:leather_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:leather_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:leather_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:leather_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:mace": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:netherite_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 9.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:netherite_boots": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.boots",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.boots",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "feet"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.boots",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "feet"
+        }
+      ]
+    },
+    "minecraft:netherite_chestplate": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.chestplate",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.chestplate",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "chest"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.chestplate",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "chest"
+        }
+      ]
+    },
+    "minecraft:netherite_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:netherite_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:netherite_horse_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 19.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.body",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:netherite_leggings": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.leggings",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.leggings",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "legs"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.leggings",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "legs"
+        }
+      ]
+    },
+    "minecraft:netherite_nautilus_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 19.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:knockback_resistance",
+          "id": "minecraft:armor.body",
+          "amount": 0.10000000149011612,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:netherite_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 5.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:netherite_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 5.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:netherite_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.13043475151062,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:netherite_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 7.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:piglin_head": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:player_head": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:shield": {
+      "minecraft:blocks_attacks": {
+        "block_delay_seconds": 0.25,
+        "item_damage": {
+          "threshold": 3.0,
+          "base": 1.0,
+          "factor": 1.0
+        },
+        "bypassed_by": "#minecraft:bypasses_shield",
+        "block_sound": "minecraft:item.shield.block",
+        "disabled_sound": "minecraft:item.shield.break"
+      }
+    },
+    "minecraft:skeleton_skull": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:stone_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.200000047683716,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:stone_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:stone_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:stone_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 2.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:stone_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.666666626930237,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:stone_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 4.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:trident": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 8.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.9000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:turtle_helmet": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.helmet",
+          "amount": 2.0,
+          "operation": "add_value",
+          "slot": "head"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.helmet",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "head"
+        }
+      ]
+    },
+    "minecraft:wither_skeleton_skull": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    },
+    "minecraft:wolf_armor": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:armor",
+          "id": "minecraft:armor.body",
+          "amount": 11.0,
+          "operation": "add_value",
+          "slot": "body"
+        },
+        {
+          "type": "minecraft:armor_toughness",
+          "id": "minecraft:armor.body",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "body"
+        }
+      ]
+    },
+    "minecraft:wooden_axe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 6.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.200000047683716,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2,
+        "disable_blocking_for_seconds": 5.0
+      }
+    },
+    "minecraft:wooden_hoe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:wooden_pickaxe": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.799999952316284,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:wooden_shovel": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 1.5,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {
+        "item_damage_per_attack": 2
+      }
+    },
+    "minecraft:wooden_spear": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 0.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4615384340286255,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {},
+      "minecraft:damage_type": "minecraft:spear",
+      "minecraft:minimum_attack_charge": 1.0
+    },
+    "minecraft:wooden_sword": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:attack_damage",
+          "id": "minecraft:base_attack_damage",
+          "amount": 3.0,
+          "operation": "add_value",
+          "slot": "mainhand"
+        },
+        {
+          "type": "minecraft:attack_speed",
+          "id": "minecraft:base_attack_speed",
+          "amount": -2.4000000953674316,
+          "operation": "add_value",
+          "slot": "mainhand"
+        }
+      ],
+      "minecraft:weapon": {}
+    },
+    "minecraft:zombie_head": {
+      "minecraft:attribute_modifiers": [
+        {
+          "type": "minecraft:waypoint_transmit_range",
+          "id": "minecraft:waypoint_transmit_range_hide",
+          "amount": -1.0,
+          "operation": "add_multiplied_total",
+          "slot": "head",
+          "display": {
+            "type": "hidden"
+          }
+        }
+      ]
+    }
+  },
+  "player_attributes": {
+    "minecraft:air_drag_modifier": 1.0,
+    "minecraft:armor": 0.0,
+    "minecraft:armor_toughness": 0.0,
+    "minecraft:attack_damage": 1.0,
+    "minecraft:attack_knockback": 0.0,
+    "minecraft:attack_speed": 4.0,
+    "minecraft:below_name_distance": 10.0,
+    "minecraft:block_break_speed": 1.0,
+    "minecraft:block_interaction_range": 4.5,
+    "minecraft:bounciness": 0.0,
+    "minecraft:burning_time": 1.0,
+    "minecraft:camera_distance": 4.0,
+    "minecraft:entity_interaction_range": 3.0,
+    "minecraft:explosion_knockback_resistance": 0.0,
+    "minecraft:fall_damage_multiplier": 1.0,
+    "minecraft:friction_modifier": 1.0,
+    "minecraft:gravity": 0.08,
+    "minecraft:jump_strength": 0.41999998688697815,
+    "minecraft:knockback_resistance": 0.0,
+    "minecraft:luck": 0.0,
+    "minecraft:max_absorption": 0.0,
+    "minecraft:max_health": 20.0,
+    "minecraft:mining_efficiency": 0.0,
+    "minecraft:movement_efficiency": 0.0,
+    "minecraft:movement_speed": 0.10000000149011612,
+    "minecraft:name_tag_distance": 64.0,
+    "minecraft:oxygen_bonus": 0.0,
+    "minecraft:safe_fall_distance": 3.0,
+    "minecraft:scale": 1.0,
+    "minecraft:sneaking_speed": 0.3,
+    "minecraft:step_height": 0.6,
+    "minecraft:submerged_mining_speed": 0.2,
+    "minecraft:sweeping_damage_ratio": 0.0,
+    "minecraft:water_movement_efficiency": 0.0,
+    "minecraft:waypoint_receive_range": 6.0E7,
+    "minecraft:waypoint_transmit_range": 6.0E7
+  },
+  "experience": {
+    "minecraft:zombie": 5
+  }
+}
