@@ -182,6 +182,7 @@ defmodule Valimc.Native do
   ## Physics (VMC-077l: items, obstruction, the border; VMC-077l2: players)
 
   def physics_border_clear(_border, _subject, _body), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_sin_cos(_x), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_obstructs(_state, _position, _context, _bodies),
     do: :erlang.nif_error(:nif_not_loaded)

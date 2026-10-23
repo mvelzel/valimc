@@ -41,8 +41,8 @@ public class CombatOracle {
     return List.of(DataComponents.ATTRIBUTE_MODIFIERS, DataComponents.WEAPON, DataComponents.BLOCKS_ATTACKS,
         DataComponents.DAMAGE_TYPE, DataComponents.MINIMUM_ATTACK_CHARGE);
   }
-  // VMC-037o: an egg's chickens, an ender pearl's endermites.
-  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite");
+  // VMC-037o: an egg's chickens, an ender pearl's endermites; VMC-041a: pigs.
+  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite", "minecraft:pig");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
@@ -67,6 +67,8 @@ public class CombatOracle {
     var levelRegistries = new ArrayList<Registry<?>>();
     levelRegistries.add(registry(Registries.CHICKEN_VARIANT, lookup));
     levelRegistries.add(registry(Registries.CHICKEN_SOUND_VARIANT, lookup));
+    levelRegistries.add(registry(Registries.PIG_VARIANT, lookup));
+    levelRegistries.add(registry(Registries.PIG_SOUND_VARIANT, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> levelRegistries.add(r));
     Probe.access = new RegistryAccess.ImmutableRegistryAccess(levelRegistries).freeze();
     var ops = lookup.createSerializationContext(JsonOps.INSTANCE);
@@ -107,6 +109,8 @@ public class CombatOracle {
       row.addProperty("hurt_sound", sound((net.minecraft.sounds.SoundEvent) hurt.invoke(mob, new net.minecraft.world.damagesource.DamageSource(generic))));
       row.addProperty("death_sound", sound((net.minecraft.sounds.SoundEvent) death.invoke(mob)));
       row.addProperty("sound_source", mob.getSoundSource().ordinal());
+      // An animal's reward is 1 to 3 (`Animal.getBaseExperienceReward`).
+      row.addProperty("animal", mob instanceof net.minecraft.world.entity.animal.Animal);
       mobs.add(name, row);
     }
     var sounds = new JsonObject();
@@ -156,7 +160,7 @@ public class CombatOracle {
     int ids;
     @Override public int getNextEntityId() { return ++ids; }
     @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
-    // A chicken's variants (VMC-037o) come from the level's registries.
+    // A chicken's and a pig's variants (VMC-037o, VMC-041a) come from the level's registries.
     static RegistryAccess access;
     @Override public RegistryAccess registryAccess() { return access; }
 

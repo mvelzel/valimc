@@ -248,6 +248,15 @@ defmodule Valimc.Entity.Body do
   def event_packet(id, {:event, event}, _), do: binary(EntityPackets.entity_event(id, event))
   def event_packet(id, {:damage, source}, _), do: binary(Packets.damage_event(id, source))
 
+  def event_packet(id, {:swing, :main_hand}, _),
+    do:
+      binary(
+        Valimc.Protocol.Packets.packet("swing_animation", [
+          Valimc.Protocol.Wire.varint(id),
+          Valimc.AI.Facts.swing_fields()
+        ])
+      )
+
   def event_packet(_id, {:sound, name, source, volume, pitch, seed}, %{x: x, y: y, z: z}),
     do: binary(Valimc.Protocol.CombatPackets.sound(name, source, {x, y, z}, volume, pitch, seed))
 
@@ -271,10 +280,13 @@ defmodule Valimc.Entity.Body do
     common ++ own(body)
   end
 
-  defp own(%__MODULE__{mob: %Mob{living: living}} = body),
+  defp own(%__MODULE__{mob: %Mob{living: living} = mob} = body),
     do:
-      [{:living_flags, 0, 0}, {:health, living.health.value, 1.0}, {:mob_flags, 0, 0}] ++
-        ageable(body)
+      [
+        {:living_flags, 0, 0},
+        {:health, living.health.value, 1.0},
+        {:mob_flags, mob_flags(mob), 0}
+      ] ++ ageable(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -292,6 +304,14 @@ defmodule Valimc.Entity.Body do
     do: [{:ageable_baby, age < 0, false}]
 
   defp ageable(_body), do: []
+
+  # `Mob.setNoAi` (bit 0) and `setAggressive` (bit 2): a zombie raising its
+  # arms (VMC-041a).
+  defp mob_flags(%Mob{} = mob) do
+    no_ai = if mob.no_ai, do: 1, else: 0
+    aggressive = if match?(%{aggressive: true}, mob.ai), do: 4, else: 0
+    no_ai + aggressive
+  end
 
   # Vanilla's on-fire flag (bit 0) for a burning body that is not fire immune.
   defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type})

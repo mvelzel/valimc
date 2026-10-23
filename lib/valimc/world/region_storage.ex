@@ -772,7 +772,7 @@ defmodule Valimc.World.RegionStorage do
         velocity: nil,
         rotation: nil,
         on_ground: nil,
-        mob: %{record.mob | motion: nil}
+        mob: %{record.mob | motion: nil, ai: nil}
     }
 
   # Burning out or finishing is a change; burning on is not.

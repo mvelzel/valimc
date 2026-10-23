@@ -3,9 +3,10 @@ defmodule Valimc.Entity.Mob do
   The living part of a mob's record (VMC-043a), as vanilla's `LivingEntity`
   and `Mob` hold it: its living state (`Valimc.Living`: health with its hurt
   and death timers, absorption, effects, fire, air, freezing), its equipment
-  by slot, its attribute overrides over the type's defaults, and an AI slot
-  that VMC-041a fills (nil until then), and whether it is persistent (a
-  name tag's `setPersistenceRequired`, VMC-042a).
+  by slot, its attribute overrides over the type's defaults, its AI (`ai`:
+  a `Valimc.AI.Mind` once it thought, or what its record kept of one: its
+  random, VMC-041a), and whether it is persistent (a name tag's
+  `setPersistenceRequired`, VMC-042a).
 
   Attributes are the type's generated defaults (`Valimc.Data.EntityTypes`)
   with `attributes` overriding a base value and adding modifiers, as
@@ -30,6 +31,8 @@ defmodule Valimc.Entity.Mob do
             equipment: %{},
             attributes: %{},
             ai: nil,
+            # `NoAI`: no goals run (`Mob.isNoAi`); it still falls and is pushed.
+            no_ai: false,
             motion: %MobMotion{},
             hurt_by_player: nil,
             player_memory: 0,
@@ -55,8 +58,9 @@ defmodule Valimc.Entity.Mob do
       living: Living.saved(mob.living),
       equipment: mob.equipment,
       attributes: mob.attributes,
-      ai: mob.ai,
-      motion: mob.motion,
+      ai: ai_record(mob.ai),
+      no_ai: mob.no_ai,
+      motion: %{mob.motion | jump: false},
       hurt_by_player: mob.hurt_by_player,
       player_memory: mob.player_memory
     }
@@ -75,6 +79,10 @@ defmodule Valimc.Entity.Mob do
 
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
+         ai = Map.get(record, :ai),
+         true <- ai == nil or Valimc.AI.Mind.valid?(ai),
+         no_ai = Map.get(record, :no_ai, false),
+         true <- is_boolean(no_ai),
          true <- is_integer(memory) and memory in 0..@player_memory,
          true <- by == nil or (is_binary(by) and byte_size(by) == 16),
          true <- is_boolean(persistent),
@@ -85,7 +93,8 @@ defmodule Valimc.Entity.Mob do
          living: %{restored | health: health},
          equipment: equipment,
          attributes: attributes,
-         ai: Map.get(record, :ai),
+         ai: ai,
+         no_ai: no_ai,
          motion: motion,
          hurt_by_player: if(memory > 0, do: by),
          player_memory: memory,
@@ -97,6 +106,9 @@ defmodule Valimc.Entity.Mob do
   end
 
   def restore(_type, _record), do: {:error, :invalid_mob}
+
+  defp ai_record(%Valimc.AI.Mind{} = mind), do: Valimc.AI.Mind.record(mind)
+  defp ai_record(kept), do: kept
 
   @doc "Whether the mob is alive (`LivingEntity.isAlive`)."
   def alive?(%__MODULE__{living: %{health: %{value: value}}}), do: value > 0

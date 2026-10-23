@@ -199,6 +199,27 @@ defmodule Valimc.Data.BlockFacts do
 
   @block_entity_types @facts["block_entity_types"]
 
+  # Collision shapes as `Physics.Clip` clips them (VMC-041a's line of sight).
+  clip_shape = fn %{"axes" => axes, "sizes" => sizes, "bits" => bits, "boxes" => boxes} ->
+    %{
+      axes:
+        axes
+        |> Enum.map(fn a -> a |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end)
+        |> List.to_tuple(),
+      sizes: List.to_tuple(sizes),
+      bits: Base.decode16!(bits, case: :lower),
+      boxes: Enum.map(boxes, fn b -> b |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end)
+    }
+  end
+
+  @collisions columns["shape"]["palette"]
+              |> Enum.map(fn
+                %{"context" => _, "shape" => shape} -> {:offset, clip_shape.(shape)}
+                %{"context" => name} -> {:context, name}
+                geometry -> {:fixed, clip_shape.(geometry)}
+              end)
+              |> List.to_tuple()
+
   # What the physics kernel reads (VMC-077l), as `block_facts_init` takes it.
   native_shape = fn %{"axes" => axes, "sizes" => sizes, "bits" => bits} ->
     {Enum.map(axes, fn a -> Enum.map(a, &(&1 * 1.0)) end), sizes,
@@ -262,6 +283,18 @@ defmodule Valimc.Data.BlockFacts do
                      end)
 
   def count, do: @count
+
+  @doc """
+  A state's collision shape: `{:fixed, shape}`, `{:offset, shape}` (moved by
+  the block's offset) or `{:context, block}` for one that depends on the
+  colliding entity or a block entity; shapes as `Valimc.Physics.Clip` reads
+  them.
+  """
+  def collision(state) do
+    skip = 2 * state
+    <<_::binary-size(^skip), index::16, _::binary>> = @shape_states
+    elem(@collisions, index)
+  end
 
   @doc "The flag bit set of a state."
   def flags(state) do

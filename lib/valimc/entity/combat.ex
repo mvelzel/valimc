@@ -70,6 +70,7 @@ defmodule Valimc.Entity.Combat do
       {:ok, mob, outcome} ->
         source = hit.source
         sounds = CombatPackets.mob_sounds(body.type)
+        mob = %{mob | ai: Valimc.AI.hurt(mob.ai, anger(hit, source), DamageSource.type(source))}
         body = %{body | mob: mob}
 
         {body, events} =
@@ -93,12 +94,21 @@ defmodule Valimc.Entity.Combat do
             {body, []}
           end
 
-        events =
+        {body, events} =
           cond do
-            outcome.died and outcome.full -> events ++ [sound(sounds, "death_sound"), {:event, 3}]
-            outcome.died -> events ++ [{:event, 3}]
-            outcome.full -> events ++ [sound(sounds, "hurt_sound")]
-            true -> events
+            outcome.died and outcome.full ->
+              {body, sound} = sound(body, sounds, "death_sound", false)
+              {body, events ++ [sound, {:event, 3}]}
+
+            outcome.died ->
+              {body, events ++ [{:event, 3}]}
+
+            outcome.full ->
+              {body, sound} = sound(body, sounds, "hurt_sound", true)
+              {body, events ++ [sound]}
+
+            true ->
+              {body, events}
           end
 
         body =
@@ -213,12 +223,34 @@ defmodule Valimc.Entity.Combat do
   defp away(nil, _position), do: {0.0, 0.0}
   defp away(%{x: x, z: z}, {sx, _, sz}), do: {sx - x, sz - z}
 
+  # What angers the mob (`resolveMobResponsibleForDamage`): a living attacker,
+  # unless the damage is `no_anger`.
+  defp anger(%{attacker: %{uuid: uuid} = attacker}, source) do
+    if DamageSource.is?(source, :no_anger),
+      do: nil,
+      else: {if(attacker.player, do: :player, else: :mob), uuid}
+  end
+
+  defp anger(_hit, _source), do: nil
+
   # `playHurtSound` and the death sound: the mob's voice (`getVoicePitch`, an
-  # adult's) at volume 1; the store stamps the position.
-  defp sound(sounds, key) do
+  # adult's) at volume 1, from its own random once it thinks (the hurt sound
+  # also restarts its ambient timer, `Mob.playHurtSound`); the store stamps
+  # the position.
+  defp sound(%Body{mob: %Mob{ai: %Valimc.AI.Mind{} = mind} = mob} = body, sounds, key, hurt) do
+    interval = if hurt, do: Valimc.AI.ambient_interval(body.type)
+    {pitch, mind} = Valimc.AI.voice(mind, interval)
+    {%{body | mob: %{mob | ai: mind}}, sound_event(sounds, key, pitch)}
+  end
+
+  defp sound(body, sounds, key, _hurt) do
     pitch =
       Float32.round(Float32.round(Float32.round(:rand.uniform() - :rand.uniform()) * 0.2) + 1.0)
 
+    {body, sound_event(sounds, key, pitch)}
+  end
+
+  defp sound_event(sounds, key, pitch) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
     {:sound, sounds[key], sounds["sound_source"], 1.0, pitch, seed}
   end
@@ -262,11 +294,26 @@ defmodule Valimc.Entity.Combat do
   defp mainhand(_), do: :none
 
   # `Mob.getBaseExperienceReward`: the type's reward and, for a mob that has
-  # one, one to three for each equipped hand or armor item; an animal's
-  # (`Animal.getBaseExperienceReward`) one to three.
-  defp experience(%Body{type: "minecraft:chicken"}), do: :rand.uniform(3)
-
+  # one, one to three for each equipped hand or armor item; an animal's is
+  # one to three (`Animal.getBaseExperienceReward`), from its own random.
   defp experience(body) do
+    cond do
+      CombatPackets.mob_sounds(body.type)["animal"] ->
+        case body.mob.ai do
+          %Valimc.AI.Mind{random: random} ->
+            {n, _} = Valimc.AI.Random.int(random, 3)
+            1 + n
+
+          _ ->
+            :rand.uniform(3)
+        end
+
+      true ->
+        reward(body)
+    end
+  end
+
+  defp reward(body) do
     case Weapons.experience(body.type) do
       0 ->
         0

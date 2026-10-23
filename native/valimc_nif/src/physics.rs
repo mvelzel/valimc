@@ -183,6 +183,16 @@ fn physics_obstructs(
 /// Whether the stationary border `{min_x, min_z, max_x, max_z}` leaves `body`
 /// clear for a mover at `subject` (`{x, z}`; nil: an anonymous query, which
 /// the border never blocks).
+/// `StrictMath.sin` and `cos` of `x` (vanilla's `Math` with the oracles'
+/// flags), for the AI's random look directions (VMC-041a).
+#[rustler::nif]
+fn physics_sin_cos(x: f64) -> (f64, f64) {
+    (
+        valimc_core::worldgen::java::sin(x),
+        valimc_core::worldgen::java::cos(x),
+    )
+}
+
 #[rustler::nif]
 fn physics_border_clear(
     border: (f64, f64, f64, f64),
@@ -401,6 +411,7 @@ struct MobT {
     levitation: Option<i32>,
     jump_boost: i32,
     alive: bool,
+    jump: bool,
 }
 
 /// A mob's tick: the mob after it and what its living rules read.
@@ -414,6 +425,8 @@ struct TickedT {
     landing: Option<(u16, f64)>,
     fire_contacts: crate::player::FiresT,
     climbing: bool,
+    /// The water and lava heights the move left.
+    depths: (f64, f64),
 }
 
 fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
@@ -465,6 +478,7 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         levitation: m.levitation,
         jump_boost: m.jump_boost,
         alive: m.alive,
+        jump: m.jump,
     })
 }
 
@@ -505,6 +519,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         levitation: m.levitation,
         jump_boost: m.jump_boost,
         alive: m.alive,
+        jump: m.jump,
     }
 }
 
@@ -582,6 +597,7 @@ fn mobs_step<'a>(
                     landing: t.landing,
                     fire_contacts: crate::player::fires(&t.touched),
                     climbing: t.climbing,
+                    depths: (t.depths.water, t.depths.lava),
                 },
             ),
             Err(f) => crate::player::fault(env, *f),

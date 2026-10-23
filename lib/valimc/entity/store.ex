@@ -687,6 +687,8 @@ defmodule Valimc.Entity.Store do
           physical_revision: entry.physical_revision + if(moved, do: 1, else: 0)
       }
 
+      # A thinking mob's idle time is its AI's (`noActionTime`, VMC-041a).
+      entry = if is_map_key(step, :idle), do: Map.put(entry, :idle, step.idle), else: entry
       state = %{state | entries: Map.put(state.entries, id, entry)}
 
       {:ok, put_body(state, id, body, Map.get(step, :events, [])),

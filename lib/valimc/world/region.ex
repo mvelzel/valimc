@@ -1346,21 +1346,26 @@ defmodule Valimc.World.Region do
     {state, published} = Host.track(state)
     targets = Host.targets(state)
     bodies = Host.bodies(state)
+    sensed = Host.sensed(state)
 
     Enum.reduce(state.sections, state, fn {key, section}, acc ->
       resource = section.resource
 
       case Map.fetch(published, key) do
         {:ok, players} ->
-          put_resource(acc, key, RegionData.players(resource, players, targets, bodies))
+          put_resource(acc, key, RegionData.players(resource, players, targets, bodies, sensed))
 
         :error
         when resource.player_views == %{} and resource.player_targets == targets and
-               resource.player_bodies == bodies ->
+               resource.player_bodies == bodies and resource.player_sensed == sensed ->
           acc
 
         :error ->
-          put_resource(acc, key, RegionData.players(resource, {%{}, %{}}, targets, bodies))
+          put_resource(
+            acc,
+            key,
+            RegionData.players(resource, {%{}, %{}}, targets, bodies, sensed)
+          )
       end
     end)
   end

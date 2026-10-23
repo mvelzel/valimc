@@ -1061,6 +1061,15 @@ STAGES = [
         ('java', 'ProjectileOracle', '@projectiles.json'),
         ('check', 'check_projectiles.exs', '@projectiles.json'),
     ]),
+    # VMC-041a: what the AI reads of vanilla, and whole mobs with their goals.
+    ('ai_facts', [
+        ('regen', 'MobAiOracle', 'facts', '@ai-facts.json'),
+        ('same', '@ai-facts.json', 'priv/registry/ai_facts.json'),
+    ]),
+    ('mob_ai', [
+        ('java', 'MobAiOracle', 'cases', '@mob-ai.json'),
+        ('check', 'check_mob_ai.exs', '@mob-ai.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

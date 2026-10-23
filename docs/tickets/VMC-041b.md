@@ -11,8 +11,11 @@ and path types from block facts (doors, fences, fluids, danger), then
 - Run the search in Rust as a bounded job over published chunk snapshots, so
   it never runs inside the owner.
 - The owner rejects a result made from snapshots older than its fence.
-- Node types come from the block facts (one generated source), so 029d's
-  states path correctly.
+- Node types come from one generated source (`ai_facts.json`'s path type of
+  every state, VMC-041a1), so 029d's states path correctly.
+- Replace VMC-041a1's straight one-node path (`Valimc.AI.Navigation`, and
+  `MobAiOracle`'s matching path finder) with the search; the following,
+  stuck detection and timeouts there stay.
 
 Acceptance:
 

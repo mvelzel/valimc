@@ -1,6 +1,6 @@
 # VMC-041a — Goals, targets, brains and sensors
 
-Status: Planned
+Status: In progress
 Milestone: M3
 Depends on: [VMC-015i](VMC-015i.md).
 
@@ -22,6 +22,13 @@ A new AI context runs both inside the owning group:
   follow parent, and the nearest-attackable and hurt-by targets.
 
 Families (VMC-043b–e) add their own goals on top of these.
+
+Slices:
+
+- [VMC-041a1](VMC-041a1.md) — goal selectors, sensing, navigation and the
+  shared goal library; zombies and pigs (Awaiting client).
+- [VMC-041a2](VMC-041a2.md) — brains: memories, sensors, activities and
+  behaviours; a piglin admires gold (Planned).
 
 Acceptance:
 

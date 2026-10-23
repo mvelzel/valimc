@@ -56,6 +56,8 @@ defmodule Valimc.MobTravelRegionTest do
 
   defp summon(ctx, uuid, {x, y, z}) do
     {:ok, body} = Body.new("minecraft:zombie")
+    # No goals: the test moves it alone (VMC-041a).
+    body = put_in(body.mob.no_ai, true)
     :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x, y, z})])
   end
 

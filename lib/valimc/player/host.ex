@@ -201,6 +201,54 @@ defmodule Valimc.Player.Host do
   end
 
   @doc """
+  What mobs' AI senses of this group's players (VMC-041a): every living,
+  non-spectator player in the group's dimension as `Valimc.AI.World`
+  describes a sensed player.
+  """
+  def sensed(state) do
+    for {uuid, %{session: %{player: player} = session}} <- state.players,
+        player.dimension == state.dimension and session.life_stage == :alive and
+          player.game_mode.current != :spectator do
+      pose = Map.get(player, :pose, :standing)
+      {:ok, dimensions} = Valimc.Data.PlayerPose.dimensions(pose)
+      inventory = session.inventory
+      item = fn slot -> (stack = Valimc.Menus.Inventory.get(inventory, slot)) && stack.item_id end
+      armor = for slot <- 5..8, item.(slot) != nil, do: slot
+      effects = player.living.effects
+
+      %{
+        kind: :player,
+        uuid: uuid,
+        id: player.entity_id,
+        x: player.x * 1.0,
+        y: player.y * 1.0,
+        z: player.z * 1.0,
+        yaw: player.yaw * 1.0,
+        pitch: player.pitch * 1.0,
+        eye: dimensions["eye_height"] * 1.0,
+        width: dimensions["width"] * 1.0,
+        height: dimensions["height"] * 1.0,
+        mode: player.game_mode.current,
+        invulnerable: player.game_mode.current == :creative,
+        alive: true,
+        crouching: pose == :crouching,
+        invisible:
+          Valimc.Living.Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("invisibility")) !=
+            nil,
+        armor_cover: Valimc.Data.Float32.round(length(armor) / 4),
+        equipment: %{
+          mainhand: item.(36 + inventory.selected),
+          offhand: item.(45),
+          head: item.(5),
+          chest: item.(6),
+          legs: item.(7),
+          feet: item.(8)
+        }
+      }
+    end
+  end
+
+  @doc """
   The players orbs follow (VMC-077i): every living, non-spectator player in
   this group's dimension, as `{feet, aim}`, `aim` at half its eye height.
   """

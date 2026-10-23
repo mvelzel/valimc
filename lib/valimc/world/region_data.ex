@@ -97,11 +97,13 @@ defmodule Valimc.World.RegionData do
     # packets not yet in a frame.
     {:player_views, %{}},
     {:player_frame, %{}},
-    # The playing players of the group the orbs follow: `{feet, aim}`.
+    # The playing players of the group the orbs follow: `{feet, aim}`; and
+    # what mobs' AI senses of them (`Player.Host.sensed/1`, VMC-041a).
     {:player_targets, []},
     # The same players as projectiles hit them (VMC-037o): `%{uuid, id,
     # position, box}`.
     {:player_bodies, []},
+    {:player_sensed, []},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -1105,20 +1107,63 @@ defmodule Valimc.World.RegionData do
     if mobs == [] or write_busy(state) != nil do
       state
     else
+      view = Valimc.World.View.new(state.dimension)
+      world = mob_world(state, view)
+
       steps =
-        Valimc.World.View.new()
-        |> Valimc.Entity.MobTicks.steps(
+        Valimc.Entity.MobTicks.steps(
+          view,
           Enum.sort(mobs),
-          state.player_targets,
+          world,
           Valimc.World.Clock.border_snapshot()
         )
-        |> Enum.reject(fn step ->
+
+      attacks =
+        for step <- steps, {:attack, {:player, target}} <- step.effects, do: {step.id, target}
+
+      steps =
+        Enum.reject(steps, fn step ->
           %{entity: e, body: body} = store.entries[step.id]
           step.events == [] and step.body == body and step.position == {e.x, e.y, e.z}
         end)
 
-      route_bodies(state, steps)
+      state = route_bodies(state, steps)
+
+      # A mob's melee hit (VMC-041a) goes to the player's session here.
+      for {id, target} <- attacks,
+          %{entity: %{uuid: uuid}} <- [state.entities.store.entries[id]] do
+        mob_attack(state, uuid, target)
+      end
+
+      state
     end
+  end
+
+  # What mobs' AI reads (`Valimc.AI.World`): this group's players, the
+  # section's mobs (`AI.think/2` adds them), published blocks, game time.
+  defp mob_world(state, view) do
+    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
+    {difficulty, _} = Valimc.World.Clock.difficulty()
+
+    %Valimc.AI.World{
+      read: &Valimc.World.View.block(view, &1),
+      find: &find_blocks(view, &1, &2),
+      time: state.game_tick || 0,
+      players: state.player_sensed,
+      difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
+      min_y: min_y,
+      max_y: min_y + height - 1
+    }
+  end
+
+  defp find_blocks(view, {x0, y0, z0, x1, y1, z1}, states) do
+    list = MapSet.to_list(states)
+
+    for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
+        cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
+        {{x, y, z}, state} <- Valimc.World.View.find(view, {cx, cz}, list),
+        x in x0..x1 and y in y0..y1 and z in z0..z1,
+        do: {{x, y, z}, state}
   end
 
   # Body steps by destination: this section, a sibling, or another group.
@@ -3254,7 +3299,7 @@ defmodule Valimc.World.RegionData do
   (`Valimc.Player.Host.track/1`): published with the entities' rows and
   frame.
   """
-  def players(state, {views, frame}, targets \\ [], bodies \\ []) do
+  def players(state, {views, frame}, targets \\ [], bodies \\ [], sensed \\ []) do
     frame = Map.merge(state.player_frame, frame, fn _, earlier, later -> earlier ++ later end)
 
     %{
@@ -3262,7 +3307,8 @@ defmodule Valimc.World.RegionData do
       | player_views: views,
         player_frame: frame,
         player_targets: targets,
-        player_bodies: bodies
+        player_bodies: bodies,
+        player_sensed: sensed
     }
   end
 

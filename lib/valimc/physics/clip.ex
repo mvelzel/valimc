@@ -40,13 +40,16 @@ defmodule Valimc.Physics.Clip do
   @doc """
   The hit of a ray from `from` to `to` (`{x, y, z}` floats), `fluid` `:none` or
   `:source_only`, reading cells with `read` (position => state; nil reads as
-  air).
+  air), against block outlines or, with `:collider`, collision shapes
+  (`ClipContext.Block.COLLIDER`, as a mob's line of sight casts it).
   """
-  def clip(from, to, fluid, read) do
+  def clip(from, to, fluid, read, shapes \\ :outline) do
+    shape = if shapes == :collider, do: &collider/2, else: &outline/2
+
     case traverse(from, to, nil, fn position, nil ->
            state = read.(position) || 0
 
-           case hit_cell(from, to, position, state, fluid) do
+           case hit_cell(from, to, position, state, fluid, shape) do
              nil -> {:cont, nil}
              hit -> {:hit, hit}
            end
@@ -141,8 +144,8 @@ defmodule Valimc.Physics.Clip do
   end
 
   # One cell: its outline's hit and its fluid's, the nearer (the block's on a tie).
-  defp hit_cell(from, to, position, state, fluid) do
-    block = shape_clip(outline(state, position), from, to, position)
+  defp hit_cell(from, to, position, state, fluid, shape) do
+    block = shape_clip(shape.(state, position), from, to, position)
     liquid = fluid_clip(fluid, state, position, from, to)
     distance = fn hit -> if hit, do: distance_sq(from, hit.location), else: :max end
 
@@ -179,6 +182,33 @@ defmodule Valimc.Physics.Clip do
       }
 
       shape_clip({box, {0.0, 0.0, 0.0}}, from, to, position)
+    end
+  end
+
+  @empty %{axes: {{0.0}, {0.0}, {0.0}}, sizes: {0, 0, 0}, bits: <<>>, boxes: []}
+  @full %{
+    axes: {{0.0, 1.0}, {0.0, 1.0}, {0.0, 1.0}},
+    sizes: {1, 1, 1},
+    bits: <<1>>,
+    boxes: [{0.0, 0.0, 0.0, 1.0, 1.0, 1.0}]
+  }
+
+  @doc """
+  A state's collision shape at `position` for a mob's ray: its geometry and
+  offset. Shapes that depend on the colliding entity or a block entity read
+  as vanilla gives a mob standing beside them: scaffolding, powder snow and
+  moving pistons as empty, shulker boxes as closed.
+  """
+  def collider(state, position) do
+    case BlockFacts.collision(state) do
+      {:fixed, shape} ->
+        {shape, {0.0, 0.0, 0.0}}
+
+      {:offset, shape} ->
+        {shape, elem(outline(state, position), 1)}
+
+      {:context, name} ->
+        {if(String.ends_with?(name, "shulker_box"), do: @full, else: @empty), {0.0, 0.0, 0.0}}
     end
   end
 

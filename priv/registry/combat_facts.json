@@ -1860,23 +1860,33 @@
   "experience": {
     "minecraft:zombie": 5,
     "minecraft:chicken": 0,
-    "minecraft:endermite": 3
+    "minecraft:endermite": 3,
+    "minecraft:pig": 0
   },
   "mobs": {
     "minecraft:zombie": {
       "hurt_sound": "minecraft:entity.zombie.hurt",
       "death_sound": "minecraft:entity.zombie.death",
-      "sound_source": 5
+      "sound_source": 5,
+      "animal": false
     },
     "minecraft:chicken": {
       "hurt_sound": "minecraft:entity.chicken.hurt",
       "death_sound": "minecraft:entity.chicken.death",
-      "sound_source": 6
+      "sound_source": 6,
+      "animal": true
     },
     "minecraft:endermite": {
       "hurt_sound": "minecraft:entity.endermite.hurt",
       "death_sound": "minecraft:entity.endermite.death",
-      "sound_source": 5
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:pig": {
+      "hurt_sound": "minecraft:entity.pig.hurt",
+      "death_sound": "minecraft:entity.pig.death",
+      "sound_source": 6,
+      "animal": true
     }
   },
   "sounds": {
@@ -1912,7 +1922,9 @@
     "minecraft:entity.chicken.hurt": 357,
     "minecraft:entity.chicken.death": 358,
     "minecraft:entity.endermite.hurt": 606,
-    "minecraft:entity.endermite.death": 605
+    "minecraft:entity.endermite.death": 605,
+    "minecraft:entity.pig.hurt": 1273,
+    "minecraft:entity.pig.death": 1274
   },
   "sound_sources": {
     "master": 0,

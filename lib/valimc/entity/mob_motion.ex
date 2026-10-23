@@ -8,7 +8,9 @@ defmodule Valimc.Entity.MobMotion do
 
   `control` is `:wait`, `{:move_to, {x, y, z}, speed}` or `{:jumping,
   speed}`: what the AI (VMC-041a) sets each tick, as navigation sets
-  `MoveControl.setWantedPosition`.
+  `MoveControl.setWantedPosition`; `jump` is its `JumpControl.jump()` for the
+  tick. `water` and `lava` are the fluid heights the last move left, which
+  the AI reads.
   """
   alias Valimc.Data.{EntityTypes, Float32}
   alias Valimc.Living.Attributes
@@ -20,7 +22,10 @@ defmodule Valimc.Entity.MobMotion do
             forward: 0.0,
             speed: 0.0,
             control: :wait,
-            horizontal_collision: false
+            horizontal_collision: false,
+            jump: false,
+            water: 0.0,
+            lava: 0.0
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -29,7 +34,8 @@ defmodule Valimc.Entity.MobMotion do
     do:
       is_float(m.fall_distance) and is_integer(m.no_jump_delay) and m.no_jump_delay in 0..10 and
         vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
-        is_boolean(m.horizontal_collision) and control?(m.control)
+        is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
+        is_float(m.water) and is_float(m.lava)
 
   def valid?(_), do: false
 
@@ -97,7 +103,8 @@ defmodule Valimc.Entity.MobMotion do
         Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("slow_falling")) != nil,
       levitation: Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("levitation")),
       jump_boost: Attributes.jump_boost_level(effects),
-      alive: alive
+      alive: alive,
+      jump: alive and motion.jump
     }
   end
 
@@ -108,8 +115,11 @@ defmodule Valimc.Entity.MobMotion do
       |> Enum.map(&(Valimc.Entity.Mob.base(type, overrides, "minecraft:" <> &1) * 1.0))
       |> List.to_tuple()
 
-  @doc "The body and position after a kernel tick's mob map `m`: `{body, position}`."
-  def apply(body, m) do
+  @doc """
+  The body and position after a kernel tick's mob map `m`, with the fluid
+  heights `{water, lava}` its move left: `{body, position}`.
+  """
+  def apply(body, m, {water, lava} \\ {0.0, 0.0}) do
     {op, target, speed} = m.control
 
     control =
@@ -127,7 +137,9 @@ defmodule Valimc.Entity.MobMotion do
       forward: m.forward,
       speed: m.speed,
       control: control,
-      horizontal_collision: m.horizontal_collision
+      horizontal_collision: m.horizontal_collision,
+      water: water,
+      lava: lava
     }
 
     body = %{

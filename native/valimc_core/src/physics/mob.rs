@@ -90,6 +90,8 @@ pub struct Mob {
     pub jump_boost: i32,
     /// Alive and not climbing: others push it (`isPushable`).
     pub alive: bool,
+    /// `JumpControl.jump()` from the AI this tick (`FloatGoal`).
+    pub jump: bool,
 }
 
 /// One tick's result: the mob after it and what its living rules read.
@@ -104,6 +106,9 @@ pub struct Ticked {
     pub landing: Option<(u16, f64)>,
     pub touched: Touched,
     pub climbing: bool,
+    /// The fluid heights the move left (`checkFallDamage`'s sample), which
+    /// the AI reads the next tick.
+    pub depths: Depths,
 }
 
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -390,8 +395,10 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
     let block = feet_block(w, &m)?;
-    let jumping = control(&mut m, block, water || lava);
-    m.head_yaw = m.yaw;
+    // `JumpControl.tick`: the move control's jump or the AI's. The head is
+    // the look control's (the AI's), before this tick.
+    let jumping = control(&mut m, block, water || lava) || m.jump;
+    m.jump = false;
     if jumping {
         let height = if lava { depths.lava } else { depths.water };
         let in_water = water && height > 0.0;
@@ -579,6 +586,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         landing: moved.landing,
         touched,
         climbing,
+        depths: moved.depths,
     })
 }
 
@@ -847,6 +855,7 @@ impl Default for Mob {
             levitation: None,
             jump_boost: -1,
             alive: true,
+            jump: false,
         }
     }
 }

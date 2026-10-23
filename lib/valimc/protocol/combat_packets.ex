@@ -22,7 +22,7 @@ defmodule Valimc.Protocol.CombatPackets do
   """
   def sound(name, source, {x, y, z}, volume, pitch, seed) do
     Packets.packet("sound", [
-      Wire.varint(Map.fetch!(@sounds, name) + 1),
+      Wire.varint(if(is_integer(name), do: name, else: Map.fetch!(@sounds, name)) + 1),
       Wire.varint(if(is_integer(source), do: source, else: Map.fetch!(@sources, source))),
       <<trunc(x * 8.0)::signed-32, trunc(y * 8.0)::signed-32, trunc(z * 8.0)::signed-32,
         volume::float-32, pitch::float-32, seed::signed-64>>

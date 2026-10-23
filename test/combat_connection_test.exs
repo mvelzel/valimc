@@ -53,6 +53,8 @@ defmodule Valimc.CombatConnectionTest do
   defp summon(ctx, uuid) do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {:ok, body} = Body.new("minecraft:zombie")
+    # No goals: the test moves it alone (VMC-041a).
+    body = put_in(body.mob.no_ai, true)
     record = Store.body_record(%{body | yaw: 90.0}, uuid, {ctx.pose.x + 2.0, 64.0, ctx.pose.z})
     :ok = Region.drop_items(owner, [record])
 

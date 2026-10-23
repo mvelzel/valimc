@@ -1,9 +1,10 @@
-# VMC-015i: an owner's mob phase for several hundred zombies on one floor —
-# one physics-kernel call (travel, collision, fluids, climbing, pushing), the
-# living rules and the store's steps — against the 50 ms tick. The zombies
-# stand a block apart, walking toward points across the floor, so they push
-# each other. Usage: MIX_ENV=bench mix run bench/mob_ticks.exs [ticks]
-alias Valimc.Entity.{Body, MobMotion, MobTicks, Store}
+# VMC-015i, VMC-041a: an owner's mob phase for several hundred zombies on one
+# floor — their AI, one physics-kernel call (travel, collision, fluids,
+# climbing, pushing), the living rules and the store's steps — against the
+# 50 ms tick. The zombies stand a block apart and chase a survival player at
+# the floor's far corner, so they push each other. Usage: MIX_ENV=bench mix
+# run bench/mob_ticks.exs [ticks]
+alias Valimc.Entity.{Body, MobTicks, Store}
 
 ticks = String.to_integer(List.first(System.argv()) || "60")
 Valimc.Data.BlockFacts.install!()
@@ -29,21 +30,36 @@ run = fn count ->
       {store, n}
     end)
 
-  # Each tick the AI's place: every zombie walks toward the far corner.
-  steer = fn store ->
-    entries =
-      Map.new(store.entries, fn {id, e} ->
-        motion = MobMotion.move_to(e.body.mob.motion, {40.5, 64.0, 40.5}, 1.0)
-        {id, put_in(e.body.mob.motion, motion)}
-      end)
+  # The player they chase, and the floor the AI reads.
+  player = %{
+    kind: :player,
+    uuid: <<0::128>>,
+    id: 0,
+    x: 40.5,
+    y: 64.0,
+    z: 40.5,
+    yaw: 0.0,
+    pitch: 0.0,
+    eye: 1.6200000047683716,
+    width: 0.6000000238418579,
+    height: 1.7999999523162842,
+    mode: :survival,
+    invulnerable: false,
+    alive: true,
+    crouching: false,
+    invisible: false,
+    armor_cover: 0.0,
+    equipment: %{mainhand: nil, offhand: nil}
+  }
 
-    %{store | entries: entries}
-  end
+  world = %Valimc.AI.World{
+    read: fn {x, y, z} -> if x in 0..47 and z in 0..47 and y == 63, do: stone, else: air end,
+    players: [player]
+  }
 
   tick = fn store ->
-    store = steer.(store)
     mobs = Enum.sort(store.entries)
-    {kernel, steps} = :timer.tc(fn -> MobTicks.steps(view, mobs, [], nil) end)
+    {kernel, steps} = :timer.tc(fn -> MobTicks.steps(view, mobs, world, nil) end)
 
     {applied, {:ok, store, _}} =
       :timer.tc(fn ->
@@ -71,7 +87,7 @@ run = fn count ->
 
   IO.puts(
     "#{count} zombies: #{Float.round(total / 1000, 2)} ms a tick " <>
-      "(kernel and living rules #{Float.round(kernel / 1000, 2)} ms, store steps " <>
+      "(AI, kernel and living rules #{Float.round(kernel / 1000, 2)} ms, store steps " <>
       "#{Float.round(applied / 1000, 2)} ms; #{Float.round(total / count, 1)} µs a mob; " <>
       "#{Float.round(total / 50_000 * 100, 1)}% of a 50 ms tick)"
   )
@@ -79,6 +95,11 @@ run = fn count ->
   %{count: count, total_us: total, kernel_us: kernel, steps_us: applied}
 end
 
-results = Enum.map([100, 300, 600], run)
+counts =
+  (System.get_env("MOB_COUNTS") || "100,300,600")
+  |> String.split(",")
+  |> Enum.map(&String.to_integer/1)
+
+results = Enum.map(counts, run)
 File.mkdir_p!("bench/results")
 File.write!("bench/results/mob-ticks.json", JSON.encode!(results))
