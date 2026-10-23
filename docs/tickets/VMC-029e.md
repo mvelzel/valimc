@@ -1,6 +1,6 @@
 # VMC-029e — Survival mining of every block
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-029a4](VMC-029a4.md) (block loot), [VMC-029d](VMC-029d.md)
 (placed states), [VMC-072](VMC-072.md) (the loot evaluator).
@@ -170,3 +170,22 @@ a Silk Touch pickaxe, shears and an axe:
    (snowballs), a decorated pot with the pickaxe (four bricks) and by hand
    (the pot).
 5. Reconnect: the drops and the broken blocks are unchanged.
+
+## Client runs (October 23, 2026; flat world; `.local/client-tests/M3-phase2/`)
+
+Run 1 (frozen `cab65365`, `run-05`, `run-06`): leaves by hand (sticks,
+saplings, an apple) and with shears, grass and tall grass with shears and by
+hand, the four ores with an iron pickaxe (and experience), Fortune III (more)
+and Silk Touch (the ore, no experience), ice melting over stone, snow layers
+with a shovel, a decorated pot with a pickaxe (four bricks) and by hand (the
+pot), a door from its lower half, a bed from its foot and a wall torch all
+dropped as vanilla's, and the broken area and its drops were unchanged after
+a reconnect. A door mined from its upper half, a sunflower from its top and
+the block under a standing torch dropped nothing for the block the rules
+removed: `mine_block` replaced the section's item store with the spill
+plan's after the rules had added their drops. Fixed in `0b70277e` (the
+spill's store goes first), with the door test now mining the upper half.
+
+Run 2 (frozen `0b70277e`, `run-07`): the upper door half, the sunflower's
+top and dirt and stone under a torch each dropped the door, sunflower and
+torch once, and the controls still dropped one item each.

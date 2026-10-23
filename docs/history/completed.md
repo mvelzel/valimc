@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-029e Survival mining](../tickets/VMC-029e.md) | `0b70277e`; every block mines with its loot table, experience and break as vanilla's (54,507 oracle breaks), and the blocks a break's rules destroy drop their loot; client runs October 23 |
 | [VMC-050a Explosions, TNT and falling blocks](../tickets/VMC-050a.md): [050a2 Falling blocks](../tickets/VMC-050a2.md) | `cab65365`; sand, gravel, concrete powder, anvils and the dragon egg fall as bodies and land, break or harden as vanilla's, anvils hurt and wear; client runs October 23 (a long anvil fall crashed run 1; fixed and rerun) |
 | [VMC-043a Entity kinds](../tickets/VMC-043a.md) | `44d23e4b`; generated entity facts for every type, one body record for mobs and objects with persistence, handoff and replication, `/summon` and `/kill` over bodies; client run October 23 |
 | [VMC-015i Mob travel](../tickets/VMC-015i.md) | `44d23e4b`; living-entity travel, movement control and pushing in the physics kernel, one NIF call per section, fall damage, drowning and burning; client run October 23 |
