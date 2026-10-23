@@ -316,5 +316,7 @@ pub fn shape_table(
         powder_snow_falling,
         empty: VoxelShape::empty(),
         block: VoxelShape::block(),
+        piston_heads: Vec::new(),
+        piston_bases: std::collections::HashMap::new(),
     })
 }

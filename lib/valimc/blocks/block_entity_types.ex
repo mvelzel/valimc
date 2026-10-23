@@ -55,7 +55,16 @@ defmodule Valimc.Blocks.BlockEntityTypes do
   @doc "The states whose block entity holds no data."
   def plain_states, do: @plain
 
-  def unsupported?(state), do: native?(state) and not supported?(state) and not plain?(state)
+  @moving Valimc.Data.Blocks.id("moving_piston")
+
+  @doc """
+  Whether `state` is a moving piston (VMC-048b), whose block entity the
+  section's pistons keep (`RegionData.pistons`) and chunk packets carry.
+  """
+  def moving?(state), do: Valimc.Data.Blocks.block_id(state) == @moving
+
+  def unsupported?(state),
+    do: native?(state) and not supported?(state) and not plain?(state) and not moving?(state)
 
   @doc "The network id of the block entity type a state creates, or nil."
   def type_id(state), do: Map.get(@by_state, state)

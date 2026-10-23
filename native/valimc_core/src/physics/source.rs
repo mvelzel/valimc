@@ -7,6 +7,7 @@
 
 use super::table::{ShapeTable, LARGE, MOVING_PISTON};
 use crate::column::{MIN_Y, SECTIONS};
+use crate::piston::Moving;
 use crate::section::Storage;
 use crate::snapshot::ChunkSnapshot;
 use std::collections::HashMap;
@@ -25,6 +26,12 @@ pub trait BlockSource {
     /// cells elsewhere (Moonrise's per-section special collider counts).
     fn special_near(&self, _x: i32, _y: i32, _z: i32) -> bool {
         true
+    }
+
+    /// The moving block at a position holding a moving piston (VMC-048b),
+    /// `None` where it has no block entity.
+    fn moving(&self, _x: i32, _y: i32, _z: i32) -> Option<Moving> {
+        None
     }
 }
 
@@ -94,6 +101,10 @@ impl BlockSource for Rows<'_> {
             (None, _) => true,
         }
     }
+
+    fn moving(&self, x: i32, y: i32, z: i32) -> Option<Moving> {
+        self.chunks.get(&(x >> 4, z >> 4))?.0.moving(x, y, z)
+    }
 }
 
 /// Air's block state (vanilla's first).
@@ -113,6 +124,10 @@ impl BlockSource for AirWhereUnreadable<'_> {
     fn special_near(&self, x: i32, y: i32, z: i32) -> bool {
         self.0.special_near(x, y, z)
     }
+
+    fn moving(&self, x: i32, y: i32, z: i32) -> Option<Moving> {
+        self.0.moving(x, y, z)
+    }
 }
 
 /// Supplied states only (oracles and tests): other positions cannot be read.
@@ -121,5 +136,25 @@ pub struct States(pub HashMap<[i32; 3], u16>);
 impl BlockSource for States {
     fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
         self.0.get(&[x, y, z]).copied()
+    }
+}
+
+/// Supplied states with moving blocks (oracles and tests).
+pub struct MovingStates<'a> {
+    pub states: &'a dyn BlockSource,
+    pub moving: HashMap<[i32; 3], Moving>,
+}
+
+impl BlockSource for MovingStates<'_> {
+    fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
+        self.states.state(x, y, z)
+    }
+
+    fn special_near(&self, x: i32, y: i32, z: i32) -> bool {
+        self.states.special_near(x, y, z)
+    }
+
+    fn moving(&self, x: i32, y: i32, z: i32) -> Option<Moving> {
+        self.moving.get(&[x, y, z]).copied()
     }
 }

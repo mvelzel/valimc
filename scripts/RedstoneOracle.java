@@ -285,6 +285,10 @@ public class RedstoneOracle {
       else if(block instanceof RepeaterBlock)kind="repeater";
       else if(block instanceof ComparatorBlock){kind="comparator";sounds.add(sound(net.minecraft.sounds.SoundEvents.COMPARATOR_CLICK));}
       else if(block instanceof ObserverBlock)kind="observer";
+      else if(block instanceof net.minecraft.world.level.block.piston.PistonBaseBlock){
+        kind="piston";entry.addProperty("sticky",block==Blocks.STICKY_PISTON);
+        sounds.add(sound(net.minecraft.sounds.SoundEvents.PISTON_EXTEND));sounds.add(sound(net.minecraft.sounds.SoundEvents.PISTON_CONTRACT));
+      }
       if(kind==null)continue;
       entry.addProperty("block",BuiltInRegistries.BLOCK.getKey(block).getPath());entry.addProperty("kind",kind);
       if(!sounds.isEmpty())entry.add("sounds",sounds);
@@ -293,7 +297,7 @@ public class RedstoneOracle {
       for(var e:entry.entrySet())ordered.add(e.getKey(),e.getValue());
       components.add(ordered);counts.merge(kind,1,Integer::sum);
     }
-    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern","repeater","comparator","observer"))
+    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern","repeater","comparator","observer","piston"))
       if(!counts.containsKey(kind))throw new AssertionError("no "+kind);
     var instruments=new JsonArray();
     for(var instrument:NoteBlockInstrument.values()){
@@ -311,12 +315,12 @@ public class RedstoneOracle {
       if(event==null)throw new AssertionError("unregistered sound "+name);
       soundIds.addProperty(name,BuiltInRegistries.SOUND_EVENT.getId(event));
     }
-    var analog=analogFacts(lookup);
+    var analog=analogFacts(lookup);var pistons=pistonFacts();
     var result=new JsonObject();result.add("components",components);result.add("bounds",bounds);
-    result.add("instruments",instruments);result.add("sound_ids",soundIds);result.add("analog",analog);result.add("day",dayFacts(lookup));
+    result.add("instruments",instruments);result.add("sound_ids",soundIds);result.add("analog",analog);result.add("pistons",pistons);result.add("day",dayFacts(lookup));
     Files.writeString(Path.of(out),new GsonBuilder().disableHtmlEscaping().create().toJson(result)+"\n");
     System.out.println("PASS: redstone facts for "+components.size()+" components "+counts+", "+bounds.size()+" bounds, "
-      +instruments.size()+" instruments, "+analog.size()+" analog outputs, the overworld day");
+      +instruments.size()+" instruments, "+analog.size()+" analog outputs, "+pistons.getAsJsonObject("reactions").size()+" push reactions, the overworld day");
   }
 
   /**
@@ -355,6 +359,26 @@ public class RedstoneOracle {
       entry.add(probe.outputUpdates>0);
       out.add(entry);
     }
+    return out;
+  }
+
+  /**
+   * What a piston reads of a block (VMC-048b, `PistonBaseBlock.isPushable`): its push reaction where
+   * not `PUSH_PULL` (`push`, `popped`, `immoveable`, `ignore_entity`), the blocks no tool breaks
+   * (destroy speed -1) and those with block entities. Each is the same for every state of a block.
+   */
+  static JsonObject pistonFacts(){
+    var reactions=new JsonObject();var unbreakable=new JsonArray();var entities=new JsonArray();
+    for(var block:BuiltInRegistries.BLOCK){
+      var name=BuiltInRegistries.BLOCK.getKey(block).getPath();var states=block.getStateDefinition().getPossibleStates();var first=states.get(0);
+      for(var state:states)if(state.getPistonPushReaction()!=first.getPistonPushReaction()||state.getDestroySpeed(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)!=first.getDestroySpeed(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)
+          ||state.hasBlockEntity()!=first.hasBlockEntity())throw new AssertionError("piston facts by state "+state);
+      var reaction=first.getPistonPushReaction();
+      if(reaction!=net.minecraft.world.level.material.PushReaction.PUSH_PULL)reactions.addProperty(name,reaction.name().toLowerCase(Locale.ROOT));
+      if(first.getDestroySpeed(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)==-1.0F)unbreakable.add(name);
+      if(first.hasBlockEntity())entities.add(name);
+    }
+    var out=new JsonObject();out.add("reactions",reactions);out.add("unbreakable",unbreakable);out.add("entities",entities);
     return out;
   }
 

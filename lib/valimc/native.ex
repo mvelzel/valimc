@@ -76,6 +76,12 @@ defmodule Valimc.Native do
   def region_give(_region, _to), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def read_box(_region, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
+  def set_pistons(_region, _kept, _gone), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_pistons(_view, _pushes, _bodies, _states, _border),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def chunk_pistons(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks_dirty(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -178,6 +184,12 @@ defmodule Valimc.Native do
       do: :erlang.nif_error(:nif_not_loaded)
 
   def fluid_scene(_rules, _cells, _actions, _ticks, _seed, _options),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def piston_scene(_rules, _cells, _actions, _ticks, _seed),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def piston_pushes(_cells, _moving, _ticking, _bodies, _states),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def redstone_scene(_rules, _cells, _actions, _entities, _days, _ticks, _seed, _tnt),
@@ -385,6 +397,7 @@ defmodule Valimc.Native do
   def physics_parity_box_shape(_body), do: :erlang.nif_error(:nif_not_loaded)
   def physics_parity_intersects(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
   def physics_parity_shape(_state, _position, _context), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_parity_moving(_position, _moving, _noclip), do: :erlang.nif_error(:nif_not_loaded)
   def physics_parity_colliders(_view, _body, _context), do: :erlang.nif_error(:nif_not_loaded)
   def physics_parity_new_collision(_old, _colliders), do: :erlang.nif_error(:nif_not_loaded)
 

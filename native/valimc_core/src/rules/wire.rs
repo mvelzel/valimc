@@ -68,18 +68,42 @@ impl<W: World> Engine<'_, W> {
             "RedstoneTorchBlock" | "RedstoneWallTorchBlock"
         ) {
             self.notify_around(pos, table.block_of(state));
-        } else {
+        } else if !self.piston_placed(pos, old, state) {
             self.component_placed(pos, old, state);
         }
     }
 
-    /// `affectNeighborsAfterRemoval` of the block `state` that left `pos`.
-    pub(super) fn removed(&mut self, pos: [i32; 3], state: u16) {
+    /// `affectNeighborsAfterRemoval` of the block `state` that left `pos`,
+    /// moved by a piston or not (wire, torches, levers, buttons, plates,
+    /// diodes, hooks and tripwire then do nothing).
+    pub(super) fn removed(&mut self, pos: [i32; 3], state: u16, moved: bool) {
+        if self.head_removed(pos, state) {
+            return;
+        }
         let table = self.rules.table.as_ref();
         let block = table.block_of(state);
         // Levers, buttons and plates give the same signal toward every side.
         let powered = table.signal(state, UP) > 0;
-        match table.class_name(state) {
+        let class = table.class_name(state);
+        if moved
+            && (self.is_wire(state)
+                || matches!(
+                    class,
+                    "RedstoneTorchBlock"
+                        | "RedstoneWallTorchBlock"
+                        | "LeverBlock"
+                        | "ButtonBlock"
+                        | "PressurePlateBlock"
+                        | "WeightedPressurePlateBlock"
+                        | "RepeaterBlock"
+                        | "ComparatorBlock"
+                        | "TripWireHookBlock"
+                        | "TripWireBlock"
+                ))
+        {
+            return;
+        }
+        match class {
             _ if self.is_wire(state) => self.wire_removed(pos, state),
             "RedstoneTorchBlock" | "RedstoneWallTorchBlock" => self.notify_around(pos, block),
             // `updateNeighbours`: the lever's or button's cell and the block it
@@ -144,6 +168,8 @@ impl<W: World> Engine<'_, W> {
         let Some(below) = self.read(at(pos, DOWN)) else {
             return;
         };
+        let rules = self.rules;
+        let below = rules.supporting(&mut self.world, at(pos, DOWN), below);
         let table = self.rules.table.as_ref();
         if self.rules.redstone.can_survive_on(table, below) {
             self.update_power(pos, state);

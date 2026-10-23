@@ -175,7 +175,7 @@ impl<W: World> Engine<'_, W> {
 
     /// Run `decide` (reads only) unless it reads past the border; `None`
     /// counts a stop.
-    fn decide<T>(&mut self, decide: impl FnOnce(&mut Self) -> T) -> Option<T> {
+    pub(super) fn decide<T>(&mut self, decide: impl FnOnce(&mut Self) -> T) -> Option<T> {
         let mark = self.world.begin();
         let decision = decide(self);
         if self.world.crossed(mark) {
@@ -312,6 +312,7 @@ impl<W: World> Engine<'_, W> {
             }
             Kind::Repeater | Kind::Comparator => self.diode_neighbor_changed(pos, state, kind),
             Kind::Observer => {}
+            Kind::Piston { .. } => self.check_if_extend(pos, state),
             _ => return false,
         }
         true
@@ -736,6 +737,7 @@ impl<W: World> Engine<'_, W> {
         let state = self.world.get(pos);
         match self.kind_of(state) {
             Some((Kind::Hook, _)) => self.calculate_state(pos, state, false, false, -1, None),
+            Some((Kind::Piston { .. }, _)) => self.check_if_extend(pos, state),
             Some((kind @ (Kind::Repeater | Kind::Comparator), _))
                 if self.decide(|e| e.diode_turns_on(pos, state, kind)) == Some(true) =>
             {
@@ -1453,7 +1455,7 @@ impl<W: World> Engine<'_, W> {
         });
         if above_works || table.is_air(self.world.get(at(pos, UP))) {
             let block = table.block_of(state);
-            self.report.block_events.push((pos, block, 0, 0));
+            self.block_event(pos, block, 0, 0);
         }
     }
 
@@ -1471,7 +1473,7 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// `Level.removeBlock`: the cell keeps its fluid.
-    fn remove_block(&mut self, pos: [i32; 3]) {
+    pub(super) fn remove_block(&mut self, pos: [i32; 3]) {
         let state = self.world.get(pos);
         let remains = self.rules.table.remains[state as usize];
         self.set_block(pos, remains, ALL, UPDATE_LIMIT);

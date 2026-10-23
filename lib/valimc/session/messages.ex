@@ -333,6 +333,10 @@ defmodule Valimc.Session.Messages do
   def info({:explosion, explosion, count}, state),
     do: {:noreply, Valimc.Player.Explosions.hit(state, explosion, count)}
 
+  # Moving blocks' pushes near the player (VMC-048b), from its group.
+  def info({:piston_pushes, pushes}, state),
+    do: {:noreply, Valimc.Player.Pistons.push(state, pushes)}
+
   # An anvil landing (VMC-050a2), from its group.
   def info({:falling_block, box, amount}, state),
     do: {:noreply, Valimc.Player.Explosions.falling_block(state, box, amount)}

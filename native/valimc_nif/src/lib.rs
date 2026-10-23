@@ -33,6 +33,8 @@ mod path;
 mod physics;
 #[cfg(feature = "parity")]
 mod physics_checks;
+#[cfg(feature = "parity")]
+mod piston_parity;
 mod player;
 #[cfg(feature = "parity")]
 mod player_parity;

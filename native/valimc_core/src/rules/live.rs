@@ -9,9 +9,11 @@ use std::collections::{HashMap, HashSet};
 
 use super::components::{EntityBox, Used};
 use super::fluid::{Emptied, Options};
+use super::piston::Event;
 use super::updater::{Engine, Report, World, ALL, UPDATE_LIMIT};
 use super::{BlockAccess, Rules};
 use crate::column::{ColumnStore, HEIGHT, MIN_Y};
+use crate::piston::Moving;
 use crate::worldgen::random::Random;
 
 /// A block change the owner already made: the position and its old state.
@@ -39,6 +41,15 @@ pub struct Outcome {
     /// Comparators' outputs the run changed (VMC-048a), in the order they
     /// first changed: the new output, or `None` for a comparator gone.
     pub outputs: Vec<([i32; 3], Option<i32>)>,
+    /// Moving pistons' block entities the run changed (VMC-048b), in the
+    /// order they first changed: the new one, or `None` for one gone.
+    pub pistons: Vec<([i32; 3], Option<Moving>)>,
+    /// The pending block events after the run: the input's and those it
+    /// raised, less those it ran.
+    pub events: Vec<Event>,
+    /// Changed cells no write told clients of (VMC-048b: a moving piston's
+    /// cells, which a client's own piston makes).
+    pub hidden: Vec<[i32; 3]>,
     pub report: Report,
 }
 
@@ -122,6 +133,8 @@ pub enum Action {
         to: Option<u16>,
         event: Option<i32>,
     },
+    /// The moving piston's block entity at `pos` ticks (VMC-048b).
+    Moving { pos: [i32; 3] },
 }
 
 /// One run's input.
@@ -153,6 +166,18 @@ pub struct Input<'a> {
     /// and the analog signals of the owner's block entities (containers).
     pub outputs: &'a [([i32; 3], i32)],
     pub containers: &'a [([i32; 3], i32)],
+    /// The owner's pending block events (VMC-048b), and whether this run
+    /// runs them (the tick's block event phase), after the rest.
+    pub events: &'a [Event],
+    pub run_events: bool,
+    /// Whether the run is in the tick's first part (`isHandlingTick`).
+    pub handling_tick: bool,
+    /// The first tick order a block entity made by the run takes.
+    pub order: i64,
+    /// The world border (min x, min z, max x, max z) and the level's lowest
+    /// and highest block y, which pistons cannot push past.
+    pub border: Option<[f64; 4]>,
+    pub build: Option<(i32, i32)>,
 }
 
 struct Live<'s> {
@@ -179,9 +204,18 @@ struct Live<'s> {
     sky: Option<i32>,
     crossed: bool,
     random: &'s mut Random,
+    /// Moving pistons' block entities the run wrote (VMC-048b).
+    moving: HashMap<[i32; 3], Option<Moving>>,
+    moving_order: Vec<[i32; 3]>,
+    next_order: i64,
 }
 
 impl Live<'_> {
+    fn base_moving(&self, pos: [i32; 3]) -> Option<Moving> {
+        self.store((pos[0] >> 4, pos[2] >> 4))
+            .and_then(|store| store.piston(pos))
+    }
+
     /// The store holding chunk `chunk`.
     fn store(&self, chunk: (i32, i32)) -> Option<&ColumnStore> {
         self.stores.iter().copied().find(|store| {
@@ -258,6 +292,17 @@ impl BlockAccess for Live<'_> {
     fn next_double(&mut self) -> f64 {
         self.random.next_double()
     }
+
+    fn next_long(&mut self) -> i64 {
+        self.random.next_long()
+    }
+
+    fn moving_at(&mut self, pos: [i32; 3]) -> Option<Moving> {
+        if !self.owns(pos) {
+            return None;
+        }
+        World::moving(self, pos)
+    }
 }
 
 impl World for Live<'_> {
@@ -319,6 +364,24 @@ impl World for Live<'_> {
             .find(|&&(p, _)| p == pos)
             .map_or(0, |&(_, signal)| signal)
     }
+
+    fn moving(&mut self, pos: [i32; 3]) -> Option<Moving> {
+        match self.moving.get(&pos) {
+            Some(written) => *written,
+            None => self.base_moving(pos),
+        }
+    }
+
+    fn set_moving(&mut self, pos: [i32; 3], moving: Option<Moving>) {
+        if self.moving.insert(pos, moving).is_none() {
+            self.moving_order.push(pos);
+        }
+    }
+
+    fn next_order(&mut self) -> i64 {
+        self.next_order += 1;
+        self.next_order - 1
+    }
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
@@ -351,6 +414,9 @@ pub fn run(
         sky: input.sky,
         crossed: false,
         random,
+        moving: HashMap::new(),
+        moving_order: Vec::new(),
+        next_order: input.order,
     };
     let mut engine = Engine::new(rules, world)
         .with_budget(budget.unwrap_or(u64::MAX))
@@ -361,6 +427,15 @@ pub fn run(
     engine.redstone.sky_darken = input.sky_darken;
     engine.redstone.sun_angle = input.sun_angle;
     engine.redstone.tnt_explodes = input.options.tnt_explodes;
+    engine.pistons.events = input.events.iter().copied().collect();
+    engine.pistons.handling_tick = input.handling_tick;
+    if let Some(border) = input.border {
+        engine.pistons.border = border;
+    }
+    if let Some((min_y, max_y)) = input.build {
+        engine.pistons.min_y = min_y;
+        engine.pistons.max_y = max_y;
+    }
     for &(pos, old) in input.changes {
         engine.changed(pos, old, ALL, UPDATE_LIMIT);
     }
@@ -402,6 +477,10 @@ pub fn run(
                 0
             }
             Action::BoneMeal { pos, face, corals } => engine.bone_meal(pos, face, corals),
+            Action::Moving { pos } => {
+                engine.moving_tick(pos);
+                0
+            }
             Action::Transform { pos, tool, face } => engine.transform(pos, tool, face),
             Action::Trample { pos } => engine.trample(pos),
             Action::Harvest { pos } => engine.harvest(pos),
@@ -448,6 +527,9 @@ pub fn run(
             engine.fluid_tick(pos, kind);
         }
     }
+    if input.run_events {
+        engine.run_block_events();
+    }
     if engine.report.over_budget {
         return Ok(None);
     }
@@ -455,6 +537,7 @@ pub fn run(
         world,
         report,
         redstone,
+        pistons,
         ..
     } = engine;
     let changes = world
@@ -469,6 +552,13 @@ pub fn run(
         .map(|&pos| (pos, world.written_outputs[&pos]))
         .filter(|&(pos, output)| output != world.outputs.get(&pos).copied())
         .collect();
+    let hidden = changes_hidden(&world, &report.sent);
+    let moved = world
+        .moving_order
+        .iter()
+        .map(|&pos| (pos, world.moving[&pos]))
+        .filter(|&(pos, moving)| moving != world.base_moving(pos))
+        .collect();
     Ok(Some(Outcome {
         changes,
         block_ticks: world.block_ticks,
@@ -476,8 +566,21 @@ pub fn run(
         results,
         toggles: redstone.toggles,
         outputs,
+        pistons: moved,
+        events: pistons.events.into_iter().collect(),
+        hidden,
         report,
     }))
+}
+
+/// The run's changed cells that no write sent to clients.
+fn changes_hidden(world: &Live, sent: &HashSet<[i32; 3]>) -> Vec<[i32; 3]> {
+    world
+        .order
+        .iter()
+        .copied()
+        .filter(|pos| !sent.contains(pos) && world.overlay[pos] != world.base(*pos))
+        .collect()
 }
 
 /// What placing `item` at `target` writes (`Rules::place`, VMC-029d) over
@@ -515,6 +618,9 @@ pub fn place(
         sky: None,
         crossed: false,
         random: &mut random,
+        moving: HashMap::new(),
+        moving_order: Vec::new(),
+        next_order: 0,
     };
     let (sky, block) = world
         .store((target[0] >> 4, target[2] >> 4))
@@ -559,6 +665,9 @@ mod tests {
             sky: None,
             crossed: false,
             random: &mut random,
+            moving: HashMap::new(),
+            moving_order: Vec::new(),
+            next_order: 0,
         };
         assert!(live.owns([128, 64, -128]));
         assert!(live.owns([255, 319, -1]));

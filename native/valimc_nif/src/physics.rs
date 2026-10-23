@@ -63,6 +63,7 @@ pub(crate) fn context(c: ContextT) -> Context {
         fall_distance: fall,
         falling_block: falling,
         powder_snow_walkable: walkable,
+        noclip: None,
     }
 }
 
@@ -94,6 +95,13 @@ impl BlockSource for View<'_> {
         match self {
             View::Rows(r) => r.special_near(x, y, z),
             View::States(s) => s.special_near(x, y, z),
+        }
+    }
+
+    fn moving(&self, x: i32, y: i32, z: i32) -> Option<valimc_core::piston::Moving> {
+        match self {
+            View::Rows(r) => r.moving(x, y, z),
+            View::States(_) => None,
         }
     }
 }
@@ -896,4 +904,131 @@ fn block_bodies_step<'a>(
         )
         .collect();
     Ok(ok(env, results))
+}
+
+/// A body moving pistons may push (VMC-048b): feet, `{half width, height}`,
+/// velocity, `{on_ground, max_step, simulates, ignored}` and `{bounciness,
+/// suppresses_bounce, living, gravity, air_drag}`.
+type PushBodyT = (
+    Vec3,
+    (f64, f64),
+    Vec3,
+    (bool, f32, bool, bool),
+    (f64, bool, bool, f64, f64),
+);
+
+/// A tick's moving-block pushes (VMC-048b) on `bodies` over a view:
+/// `pushes` are `piston::Moving` records each followed by its new progress
+/// (float bits), `states` the slime and honey block states. Each body
+/// comes back as `{feet, velocity, on_ground, pushed}`.
+#[rustler::nif]
+fn physics_pistons<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    pushes: rustler::Binary<'a>,
+    bodies: Vec<PushBodyT>,
+    states: (u16, u16),
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::physics::piston::{push_all, Push, PushBody, PushStates, World};
+    let facts = facts()?;
+    let packed = pushes.as_slice();
+    let record = valimc_core::piston::PACKED;
+    if !packed.len().is_multiple_of(record + 7) {
+        return Err(invalid());
+    }
+    let mut list = Vec::new();
+    for chunk in packed.chunks_exact(record + 7) {
+        let (pos, moving) = valimc_core::piston::Moving::unpack(&chunk[..record])
+            .and_then(|v| v.into_iter().next())
+            .ok_or_else(invalid)?;
+        let progress = f32::from_bits(u32::from_be_bytes(
+            chunk[record..record + 4].try_into().unwrap(),
+        ));
+        list.push(Push {
+            pos,
+            moving,
+            progress,
+            state: u16::from_be_bytes([chunk[record + 4], chunk[record + 5]]),
+            landed: chunk[record + 6] != 0,
+        });
+    }
+    let mut bodies: Vec<PushBody> = bodies
+        .into_iter()
+        .map(
+            |(
+                p,
+                (half_width, height),
+                v,
+                (on_ground, step, simulates, ignored),
+                (bounciness, suppress_bounce, living, gravity, air_drag),
+            )| PushBody {
+                position: v3(p),
+                half_width,
+                height,
+                velocity: v3(v),
+                on_ground,
+                step,
+                simulates,
+                ignored,
+                bounciness,
+                suppress_bounce,
+                living,
+                gravity,
+                air_drag,
+                pushed: false,
+            },
+        )
+        .collect();
+    let mut areas: Vec<Aabb> = list
+        .iter()
+        .filter(|p| !p.landed)
+        .map(|p| {
+            let c = p.pos.map(|v| v as f64);
+            Aabb::new(
+                [c[0] - 3.0, c[1] - 3.0, c[2] - 3.0],
+                [c[0] + 4.0, c[1] + 4.0, c[2] + 4.0],
+            )
+        })
+        .collect();
+    areas.extend(bodies.iter().map(|b| {
+        let p = b.position;
+        Aabb::new(
+            [
+                p[0] - b.half_width - 2.0,
+                p[1] - 2.0,
+                p[2] - b.half_width - 2.0,
+            ],
+            [
+                p[0] + b.half_width + 2.0,
+                p[1] + b.height + 2.0,
+                p[2] + b.half_width + 2.0,
+            ],
+        )
+    }));
+    let Some(region) = union(&areas) else {
+        return Ok(ok(env, Vec::<Term>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let border = border.map(|(min_x, min_z, max_x, max_z)| Border {
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+    });
+    let world = World {
+        source: &view,
+        facts,
+        border: border.as_ref(),
+        states: PushStates {
+            slime: states.0,
+            honey: states.1,
+        },
+    };
+    push_all(&world, &list, &mut bodies);
+    let out: Vec<Term> = bodies
+        .iter()
+        .map(|b| (t3(b.position), t3(b.velocity), b.on_ground, b.pushed).encode(env))
+        .collect();
+    Ok(ok(env, out))
 }

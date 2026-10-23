@@ -76,6 +76,10 @@ pub fn block_colliders<'t>(
                 {
                     continue;
                 }
+                if special & MOVING_PISTON != 0 {
+                    moving_colliders(source, table, [x, y, z], ctx, body, &query, &mut out);
+                    continue;
+                }
                 let picked = table.shape(state, [x, y, z], ctx);
                 let place = Place {
                     offset: (picked.offset != [0.0; 3]).then_some(picked.offset),
@@ -96,6 +100,39 @@ pub fn block_colliders<'t>(
         }
     }
     Ok(out)
+}
+
+/// A moving piston's collider (VMC-048b): its block entity's shape when it
+/// meets `query`; nothing without a block entity. `Shapes.block()` itself
+/// is tested as a box.
+fn moving_colliders<'t>(
+    source: &dyn BlockSource,
+    table: &ShapeTable,
+    pos: [i32; 3],
+    ctx: &Context,
+    body: &Aabb,
+    query: &VoxelShape,
+    out: &mut Vec<Collider<'t>>,
+) {
+    let Some(moving) = source.moving(pos[0], pos[1], pos[2]) else {
+        return;
+    };
+    let shape = table.moving_shape(&moving, pos, ctx);
+    if shape.is_empty() {
+        return;
+    }
+    let place = Place::at(pos.map(|v| v as f64));
+    let hit = if shape.full_block {
+        body.intersects(&Aabb::block(pos[0], pos[1], pos[2]))
+    } else {
+        shape.intersects(&place, query, &Place::ORIGIN)
+    };
+    if hit {
+        out.push(Collider {
+            shape: Cow::Owned(shape),
+            place,
+        });
+    }
 }
 
 /// `Shapes.collide`: the colliders clip a movement along one axis in order.

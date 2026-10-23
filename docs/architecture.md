@@ -215,7 +215,8 @@ was sent to.
   player (VMC-077i3).
 - **Tick pipeline.** Each group tick runs `TickPipeline` phases on each of its
   sections at the group's game tick: scheduled block ticks, random ticks (a
-  native per-section sampler), entities, cooking. Block ticks and item motion
+  native per-section sampler), block events, entities, moving pistons' block
+  entities, cooking. Block ticks and item motion
   run only in chunks a simulation ticket covers; cooking while any chunk of
   the section does (VMC-077e). Scheduled ticks sit in per-chunk containers, as
   vanilla's `LevelTicks`: a tick visits only the containers of simulated
@@ -233,7 +234,15 @@ was sent to.
   container's changed signal for the comparators reading it, and a
   generated chunk's post-processing marks, settled when it first ticks with
   its neighbours present. A fluid tick that would read past its group waits
-  its delay and runs again. Blocks with effects of
+  its delay and runs again. Block events (`Level.blockEvent`: pistons', note
+  blocks') wait in the section that raised them, as vanilla keeps them per
+  level, until the tick's event phase runs them in one call, those they
+  raise too (VMC-048b); a run in the tick's first part reads that it is
+  (`isHandlingTick`). Moving pistons' block entities live in the section of
+  their cell, in the Rust store beside the cells (so snapshots publish them)
+  and as persisted records, and tick after the entities in the order they
+  were made, one call per section; what each pushes goes to the entities of
+  the section, its siblings and the group's players. Blocks with effects of
   their own (portals, containers, cooking) keep `Valimc.Blocks.Behaviour`
   callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Each region owner holds one entity store (`Entity.Store`,
@@ -487,8 +496,8 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
-| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
-| Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Pistons (VMC-048b): block events, the structure resolver, moving pistons' block entities (read from the stores, their changes returned) and their ticks, which report the pushes they make. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
+| Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. A moving piston collides as its block entity's shape (VMC-048b, vanilla's `Shapes.or` grid included), and a tick's moving blocks push and carry bodies with the piston mover. Effects on living state (burning, landing damage, air, rain) come back as observations |
 | Path search (VMC-041b) | Vanilla's `PathFinder` with the walk, amphibious, swim and fly node evaluators (`valimc_core::path`) over published chunk snapshots read as `PathNavigation`'s region reads a level, with path types from `ai_facts.json` and shapes from the kernel's facts: a section's batch of searches is one call in its path job, each search bounded by the mob's visited-node limit (a zombie's 560 nodes take at most about 0.9 ms) |
 | Natural spawning (VMC-042a) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test: one call over the group's stores, about 0.3 ms a tick for a player's nine sections; the caps, despawn bookkeeping and the records stay in Elixir |
 

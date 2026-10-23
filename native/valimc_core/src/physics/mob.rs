@@ -377,6 +377,7 @@ impl Mob {
             fall_distance: fall,
             falling_block: false,
             powder_snow_walkable: self.powder_snow_walkable,
+            noclip: None,
         }
     }
 

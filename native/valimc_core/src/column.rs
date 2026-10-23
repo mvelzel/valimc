@@ -3,6 +3,7 @@
 use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
 use crate::light::LightFacts;
 use crate::light_grid::{light_alone, Blocks, ChunkLight, Kind, Layer, LightGrid, TooLarge};
+use crate::piston::Moving;
 use crate::section::{index, Biomes, Storage, VOLUME};
 use crate::snapshot::ChunkSnapshot;
 use crate::wire;
@@ -468,6 +469,9 @@ pub struct ColumnStore {
     flat: Column,
     /// Whether the region's dimension has sky light (VMC-026b).
     pub sky: bool,
+    /// Moving pistons' block entities by chunk (VMC-048b), which snapshots
+    /// share.
+    pub pistons: HashMap<(i32, i32), crate::piston::ChunkPistons>,
 }
 
 impl ColumnStore {
@@ -493,7 +497,56 @@ impl ColumnStore {
             stored: HashMap::new(),
             halo: HashMap::new(),
             sky: true,
+            pistons: HashMap::new(),
         }
+    }
+
+    /// The moving block at `pos` (VMC-048b).
+    pub fn piston(&self, pos: [i32; 3]) -> Option<Moving> {
+        self.pistons
+            .get(&(pos[0] >> 4, pos[2] >> 4))?
+            .iter()
+            .find(|(p, _)| *p == pos)
+            .map(|&(_, m)| m)
+    }
+
+    /// Keep or drop (`None`) the moving blocks at the given positions of the
+    /// region's chunks; the chunks they touch, sorted.
+    pub fn set_pistons(
+        &mut self,
+        edits: &[([i32; 3], Option<Moving>)],
+    ) -> Result<Vec<(i32, i32)>, StoreError> {
+        let mut chunks: Vec<(i32, i32)> = Vec::new();
+        for &(pos, _) in edits {
+            let chunk = (pos[0] >> 4, pos[2] >> 4);
+            self.check_chunk(chunk)?;
+            if !chunks.contains(&chunk) {
+                chunks.push(chunk);
+            }
+        }
+        for &chunk in &chunks {
+            let mut list: Vec<([i32; 3], Moving)> = self
+                .pistons
+                .get(&chunk)
+                .map(|l| l.as_ref().clone())
+                .unwrap_or_default();
+            for &(pos, moving) in edits {
+                if (pos[0] >> 4, pos[2] >> 4) != chunk {
+                    continue;
+                }
+                list.retain(|(p, _)| *p != pos);
+                if let Some(moving) = moving {
+                    list.push((pos, moving));
+                }
+            }
+            if list.is_empty() {
+                self.pistons.remove(&chunk);
+            } else {
+                self.pistons.insert(chunk, Arc::new(list));
+            }
+        }
+        chunks.sort_unstable();
+        Ok(chunks)
     }
 
     /// A region chunk's column: its own, or the base profile's while untouched.
@@ -1162,12 +1215,9 @@ impl ColumnStore {
         previous: Option<&ChunkSnapshot>,
     ) -> Result<ChunkSnapshot, StoreError> {
         self.check_chunk(chunk)?;
-        Ok(ChunkSnapshot::new(
-            chunk,
-            self.column(chunk),
-            revision,
-            previous,
-        ))
+        let mut snapshot = ChunkSnapshot::new(chunk, self.column(chunk), revision, previous);
+        snapshot.pistons = self.pistons.get(&chunk).cloned();
+        Ok(snapshot)
     }
 
     /// The store's columns and the base profile, for `snapshot::resident_bytes`.

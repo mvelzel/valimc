@@ -434,9 +434,39 @@ defmodule Valimc.Data.BlockFacts do
           hazards: native_hazards(),
           explosion_states: @explosion_states,
           explosions: for(r <- Tuple.to_list(@explosions), do: if(r, do: r * 1.0, else: -1.0)),
-          poses: Valimc.Data.PlayerPose.native_dimensions()
+          poses: Valimc.Data.PlayerPose.native_dimensions(),
+          piston_heads: piston_heads(),
+          piston_bases: piston_bases()
         })
     }
+  end
+
+  @facings ~w(down up north south west east)
+
+  # Moving pistons' shapes (VMC-048b): piston heads at `sticky * 12 + short
+  # * 6 + facing`, and every piston base with its extended state, stickiness
+  # and facing.
+  defp piston_heads do
+    for type <- ~w(normal sticky),
+        short <- ~w(false true),
+        facing <- @facings,
+        into: <<>>,
+        do:
+          <<Valimc.Data.Blocks.state("piston_head", %{
+              "type" => type,
+              "short" => short,
+              "facing" => facing
+            })::16>>
+  end
+
+  defp piston_bases do
+    for {name, sticky} <- [{"piston", false}, {"sticky_piston", true}],
+        {facing, index} <- Enum.with_index(@facings),
+        extended <- ~w(false true),
+        do:
+          {Valimc.Data.Blocks.state(name, %{"facing" => facing, "extended" => extended}),
+           Valimc.Data.Blocks.state(name, %{"facing" => facing, "extended" => "true"}), sticky,
+           index}
   end
 
   defp native_climbs,

@@ -200,6 +200,31 @@ defmodule Valimc.World.Blocks do
   end
 
   @doc """
+  Keep or drop (nil) moving pistons' block entities (VMC-048b,
+  `position => {moved, direction, extending?, source?, progress, progress_o,
+  last_ticked, order}`) beside the cells, where snapshots and the block rules
+  read them. Returns the chunks they touch.
+  """
+  def put_pistons(%__MODULE__{}, pistons) when map_size(pistons) == 0, do: []
+
+  def put_pistons(%__MODULE__{} = blocks, pistons) do
+    {kept, gone} = Enum.split_with(pistons, fn {_, moving} -> moving != nil end)
+    kept = for entry <- kept, into: <<>>, do: Valimc.Blocks.MovingPistons.pack(entry)
+
+    gone =
+      for {{x, y, z}, nil} <- gone, into: <<>>, do: <<x::32-signed, y::32-signed, z::32-signed>>
+
+    {:ok, chunks} = Native.set_pistons(blocks.ref, kept, gone)
+    chunks
+  end
+
+  @doc "Moving pistons' block entities in chunk `{cx, cz}` as `put_pistons/2` takes them."
+  def chunk_pistons(%__MODULE__{} = blocks, {cx, cz}) do
+    {:ok, packed} = Native.chunk_pistons(blocks.ref, cx, cz)
+    for <<record::binary-size(40) <- packed>>, do: Valimc.Blocks.MovingPistons.unpack(record)
+  end
+
+  @doc """
   Section data and heightmaps for a chunk packet, or `:flat` for an untouched
   overworld chunk (callers use the cached flat packet). Only the owner's
   dimension's sections are encoded. The owner hands the result to a worker.

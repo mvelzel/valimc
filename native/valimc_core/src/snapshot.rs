@@ -9,6 +9,7 @@
 use crate::column::{self, Column, HEIGHT, MIN_Y, SECTIONS};
 use crate::flags::{BlockFlags, MOTION_BLOCKING};
 use crate::light::LightFacts;
+use crate::piston::Moving;
 use crate::section::{index, Biomes, Storage};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -23,6 +24,8 @@ pub struct ChunkSnapshot {
     pub revisions: [u64; SECTIONS],
     /// Per-section biomes; `None` uses the region's default biome.
     pub biomes: Option<Arc<Vec<Biomes>>>,
+    /// The chunk's moving blocks (VMC-048b), shared with the store.
+    pub pistons: Option<crate::piston::ChunkPistons>,
 }
 
 impl ChunkSnapshot {
@@ -46,7 +49,17 @@ impl ChunkSnapshot {
             sections: column.sections.clone(),
             revisions,
             biomes: column.biomes.clone(),
+            pistons: None,
         }
+    }
+
+    /// The moving block at a position of the chunk (VMC-048b).
+    pub fn moving(&self, x: i32, y: i32, z: i32) -> Option<Moving> {
+        self.pistons
+            .as_ref()?
+            .iter()
+            .find(|(p, _)| *p == [x, y, z])
+            .map(|&(_, m)| m)
     }
 
     /// The state at a position of the chunk (x and z modulo 16), `None` outside

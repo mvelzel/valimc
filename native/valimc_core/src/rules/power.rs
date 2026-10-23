@@ -61,6 +61,10 @@ pub enum Kind {
     Repeater,
     Comparator,
     Observer,
+    /// `PistonBaseBlock` (VMC-048b): sticky or not.
+    Piston {
+        sticky: bool,
+    },
 }
 
 /// An analog output's value for a state (`getAnalogOutputSignal`).
@@ -87,6 +91,8 @@ pub struct Instrument {
     pub name: String,
     /// `worksAboveNoteBlock`: a block over the note block plays it.
     pub above: bool,
+    /// `hasCustomSound`: a mob head above names it.
+    pub custom: bool,
 }
 
 /// A float track of the day timeline (`KeyframeTrackSampler` with a period).
@@ -131,6 +137,8 @@ pub struct PowerFacts {
     /// Per block, whether its removal tells comparators
     /// (`Containers.updateNeighboursAfterDestroy`).
     removal_output: Vec<bool>,
+    /// What pistons read of the blocks (VMC-048b), when given.
+    pub pistons: Option<super::piston::PistonFacts>,
 }
 
 impl PowerFacts {
@@ -176,6 +184,9 @@ impl PowerFacts {
                 "repeater" => Kind::Repeater,
                 "comparator" => Kind::Comparator,
                 "observer" => Kind::Observer,
+                "piston" => Kind::Piston {
+                    sticky: flag("sticky")?,
+                },
                 other => return Err(format!("redstone facts: kind {other}")),
             };
             let mut sounds = [0; 4];
@@ -216,6 +227,7 @@ impl PowerFacts {
             facts.instruments.push(Instrument {
                 name: entry.field("name")?.as_str()?.to_string(),
                 above: entry.field("above")?.as_bool()?,
+                custom: entry.field("custom")?.as_bool()?,
             });
         }
         facts.analog = vec![-1; table.block_of.len()];
@@ -248,6 +260,10 @@ impl PowerFacts {
                 entry.get(2).ok_or("redstone analog")?.as_bool()?;
         }
         facts.day = Day::parse(json.field("day")?)?;
+        facts.pistons = json
+            .get("pistons")
+            .map(|p| super::piston::PistonFacts::parse(p, table))
+            .transpose()?;
         Ok(facts)
     }
 
@@ -482,6 +498,7 @@ impl super::Rules {
             Some((p, s)) if p == at(pos, d) => s,
             _ => access.get(at(pos, d)),
         };
+        let neighbour = self.supporting(access, at(pos, d), neighbour);
         let facing = |state: u16| super::components::facing(table, state);
         let air = table.default_state("air").ok()?;
         match kind {
@@ -500,6 +517,7 @@ impl super::Rules {
                     return Some(state);
                 }
                 let behind = access.get(at(pos, f ^ 1));
+                let behind = self.supporting(access, at(pos, f ^ 1), behind);
                 let survives = f >= 2 && table.flag(behind, crate::worldgen::blocks::STURDY << f);
                 Some(if survives { state } else { air })
             }
@@ -516,6 +534,7 @@ impl super::Rules {
                     return Some(state);
                 }
                 let attached = access.get(at(pos, d));
+                let attached = self.supporting(access, at(pos, d), attached);
                 let survives = table.flag(attached, crate::worldgen::blocks::STURDY << (d ^ 1));
                 Some(if survives { state } else { air })
             }
@@ -577,7 +596,10 @@ impl super::Rules {
         let floor = at(pos, DOWN);
         let mut read = |p: [i32; 3]| match below {
             Some(s) if p == floor => s,
-            _ => access.get(p),
+            _ => {
+                let s = access.get(p);
+                self.supporting(access, p, s)
+            }
         };
         live.survives(state, pos, &mut read)
     }

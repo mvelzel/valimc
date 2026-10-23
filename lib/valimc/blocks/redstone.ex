@@ -28,7 +28,7 @@ defmodule Valimc.Blocks.Redstone do
 
   @placed_by MapSet.new(
                Enum.flat_map(
-                 ~w(tripwire_hook repeater comparator),
+                 ~w(tripwire_hook repeater comparator piston sticky_piston),
                  &Enum.to_list(Blocks.states(&1))
                )
              )
@@ -67,7 +67,8 @@ defmodule Valimc.Blocks.Redstone do
 
   @doc """
   Whether placing `state` runs its `setPlacedBy`: a tripwire hook calculates
-  its line, a diode checks its input (VMC-048a).
+  its line, a diode checks its input (VMC-048a), a piston whether to extend
+  (VMC-048b).
   """
   def placed_by?(state), do: MapSet.member?(@placed_by, state)
 

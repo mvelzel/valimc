@@ -38,6 +38,10 @@ pub struct ShapeTable {
     pub powder_snow_falling: VoxelShape,
     pub empty: VoxelShape,
     pub block: VoxelShape,
+    /// Piston heads (VMC-048b) at `sticky * 12 + short * 6 + facing`.
+    pub piston_heads: Vec<u16>,
+    /// Piston bases: state => its extended state, sticky or not, facing.
+    pub piston_bases: std::collections::HashMap<u16, (u16, bool, u8)>,
 }
 
 pub const LARGE: u8 = 1;
@@ -56,6 +60,9 @@ pub struct Context {
     pub fall_distance: f64,
     pub falling_block: bool,
     pub powder_snow_walkable: bool,
+    /// The direction a piston moves the entity in (`PistonMovingBlockEntity.NOCLIP`):
+    /// moving blocks headed that way do not collide with it.
+    pub noclip: Option<u8>,
 }
 
 impl Context {
@@ -102,6 +109,61 @@ impl ShapeTable {
             Some(Entry::PowderSnow) => fixed(self.powder_snow(pos[1], ctx)),
             Some(Entry::Scaffolding) => fixed(self.scaffolding(state, pos[1], ctx)),
         }
+    }
+
+    /// The piston head facing `facing` (normal, not sticky) for a moving
+    /// source, short or not.
+    pub fn piston_head(&self, sticky: bool, short: bool, facing: u8) -> Option<u16> {
+        self.piston_heads
+            .get(usize::from(sticky) * 12 + usize::from(short) * 6 + facing as usize)
+            .copied()
+    }
+
+    /// `PistonMovingBlockEntity.getCollisionShape` of `moving` at `pos`
+    /// (VMC-048b), for an entity a piston moves toward `ctx.noclip` (or
+    /// none): the retracting base's extended shape joined with the head or
+    /// carried block lagging its cell by the progress, as `Shapes.or` joins
+    /// them.
+    pub fn moving_shape(
+        &self,
+        moving: &crate::piston::Moving,
+        pos: [i32; 3],
+        ctx: &Context,
+    ) -> VoxelShape {
+        use super::join::{join_or, Grid};
+        let empty = Context::default();
+        let head = match self.piston_bases.get(&moving.moved) {
+            Some(&(extended, _, _)) if !moving.extending && moving.source => {
+                self.shape(extended, pos, &empty).shape
+            }
+            _ => &self.empty,
+        };
+        if moving.progress < 1.0 && ctx.noclip == Some(moving.movement() as u8) {
+            return head.clone();
+        }
+        let state = if moving.source {
+            let short = moving.extending != (1.0 - moving.progress < 0.25);
+            self.piston_head(false, short, moving.direction)
+        } else {
+            Some(moving.moved)
+        };
+        let carried = match state {
+            Some(state) => {
+                let picked = self.shape(state, pos, &empty);
+                let ext = moving.extended_progress(moving.progress);
+                let step = crate::rules::STEP[moving.direction as usize];
+                let d: [f64; 3] = std::array::from_fn(|a| (step[a] as f32 * ext) as f64);
+                // `getCollisionShape` places an offset shape first, `move` then.
+                if picked.offset == [0.0; 3] {
+                    Grid::of(picked.shape, Some(d))
+                } else {
+                    let placed = Grid::of(picked.shape, Some(picked.offset)).shape();
+                    Grid::of(&placed, Some(d))
+                }
+            }
+            None => Grid::empty(),
+        };
+        join_or(&Grid::of(head, None), &carried).optimize().shape()
     }
 
     fn powder_snow(&self, y: i32, ctx: &Context) -> &VoxelShape {

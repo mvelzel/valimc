@@ -124,6 +124,15 @@ defmodule Valimc.World.RegionData do
     # Comparators' outputs (VMC-048a, their block entities'): `position =>
     # output`, persisted; the block rules keep it.
     {:comparators, %{}},
+    # Moving pistons' block entities (VMC-048b): `position => {moved,
+    # direction, extending?, source?, progress, progress_o, last_ticked,
+    # order}`, persisted, and in the section's store beside the cells; the
+    # order they tick in counts on from `piston_order`.
+    {:pistons, %{}},
+    {:piston_order, 0},
+    # Block events raised and not yet run (`ServerLevel.blockEvents`, as
+    # vanilla keeps them in memory): `[{position, block, b0, b1}]`.
+    {:block_events, []},
     # The containers as comparators last heard of them: a change of a
     # container's signal reaches them at the next block phase.
     :containers_seen,
@@ -167,6 +176,8 @@ defmodule Valimc.World.RegionData do
       end
 
     tick_index = TickBehaviours.index(TickBehaviours.modules(key))
+    # Moving pistons' block entities go beside their cells before any snapshot.
+    Blocks.put_pistons(blocks, loaded.pistons)
 
     # The native sampler returns only states some behaviour handles randomly.
     :ok =
@@ -200,6 +211,8 @@ defmodule Valimc.World.RegionData do
       containers: loaded.containers,
       containers_seen: loaded.containers,
       comparators: loaded.comparators,
+      pistons: loaded.pistons,
+      piston_order: next_piston_order(loaded.pistons),
       block_entities: block_entities,
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
@@ -241,6 +254,7 @@ defmodule Valimc.World.RegionData do
       ticks: state.scheduled_ticks,
       block_entities: state.block_entities,
       comparators: state.comparators,
+      pistons: state.pistons,
       post: state.post,
       structures: state.structures,
       game_tick: state.game_tick
@@ -2961,7 +2975,8 @@ defmodule Valimc.World.RegionData do
     |> rule_run(%{
       ticks: rule_due,
       fluid_ticks: fluid_due,
-      redstone: redstone_context(state, [], entities)
+      redstone: redstone_context(state, [], entities),
+      handling_tick: true
     })
     |> elem(0)
     |> daylight_ticks(tick)
@@ -3158,7 +3173,9 @@ defmodule Valimc.World.RegionData do
       |> redstone_context([], [])
       |> Map.put(:day, {Clock.day_ticks(), weather.rain_level, weather.thunder_level})
 
-    {state, outcome} = rule_run(state, %{actions: actions, redstone: context})
+    {state, outcome} =
+      rule_run(state, %{actions: actions, redstone: context, handling_tick: true})
+
     Valimc.World.Growth.grow(state.dimension, actions, outcome)
     state
   end
@@ -3182,7 +3199,7 @@ defmodule Valimc.World.RegionData do
     else
       marks = for chunk <- ready, {x, y, z} <- elem(state.post[chunk], 0), do: {x, y, z}
       actions = for position <- marks, do: {:post, position}
-      {state, outcome} = rule_run(state, %{actions: actions})
+      {state, outcome} = rule_run(state, %{actions: actions, handling_tick: true})
 
       kept =
         if outcome,
@@ -3311,7 +3328,7 @@ defmodule Valimc.World.RegionData do
   # applied, and the outcome (nil when it waits in the backlog, and for a run
   # with nothing to do).
   defp rule_run(state, input) do
-    work = Map.drop(input, [:redstone, :actor])
+    work = Map.drop(input, [:redstone, :actor, :handling_tick])
 
     if Enum.all?(work, fn {_, value} -> value == [] or value == %{} end) do
       {state, nil}
@@ -3326,12 +3343,13 @@ defmodule Valimc.World.RegionData do
           redstone_context(state, Map.get(input, :actions, []), [])
         end)
         |> Map.update!(:redstone, fn context ->
-          Map.update(
-            context,
+          context
+          |> Map.update(
             :pending,
             [],
             &(&1 ++ change_pending(state, Map.get(input, :changes, %{})))
           )
+          |> Map.put(:pistons, piston_context(state, input))
         end)
 
       outcome = BlockRules.run(state.blocks, stores, input, absent)
@@ -3352,13 +3370,199 @@ defmodule Valimc.World.RegionData do
 
         true ->
           {own, theirs} = Map.pop(parts, state.key)
-          state = play_redstone(%{state | torch_toggles: outcome.toggles}, outcome, input)
+
+          state = %{
+            state
+            | torch_toggles: outcome.toggles,
+              block_events: outcome.pending_events,
+              piston_order: next_piston_order(outcome.pistons, state.piston_order)
+          }
+
+          state = play_redstone(state, outcome, input)
           state = if own, do: apply_rules(state, own), else: state
           effects = for {key, part} <- theirs, do: {key, {:rules, part}}
           {%{state | sibling_effects: state.sibling_effects ++ effects}, outcome}
       end
     end
   end
+
+  # What pistons read in a run (VMC-048b): the section's pending block events,
+  # whether the run is the tick's block event phase and in its first part
+  # (`isHandlingTick`: block, random and chunk ticks and block events), the
+  # tick order its new moving pistons take, the border and build height.
+  defp piston_context(state, input) do
+    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
+
+    %{
+      events: state.block_events,
+      run_events: Map.has_key?(input, :block_events),
+      handling_tick: Map.get(input, :handling_tick, false),
+      order: state.piston_order,
+      border:
+        case Valimc.Physics.BorderSnapshot.bounds(Clock.border_snapshot(state.dimension)) do
+          {:ok, bounds} -> bounds
+          {:error, _} -> {-3.0e7, -3.0e7, 3.0e7, 3.0e7}
+        end,
+      build: {min_y, min_y + height - 1}
+    }
+  end
+
+  # The next tick order after the moving pistons `pistons` and `from`.
+  defp next_piston_order(pistons, from \\ 0) do
+    Enum.reduce(pistons, from, fn
+      {_, {_, _, _, _, _, _, _, order}}, acc -> max(acc, order + 1)
+      _, acc -> acc
+    end)
+  end
+
+  @doc """
+  The tick's block event phase (VMC-048b, `ServerLevel.runBlockEvents`): the
+  pending block events run in order, those they raise too, after the block
+  ticks.
+  """
+  def block_events(%{block_events: []} = state), do: state
+
+  def block_events(state) do
+    if Tickets.simulating?(state.tickets),
+      do: elem(rule_run(state, %{block_events: true, handling_tick: true}), 0),
+      else: state
+  end
+
+  @doc """
+  Moving pistons' block entities tick (VMC-048b, `PistonMovingBlockEntity.tick`)
+  after the entities, in the order they were made, in the chunks that tick:
+  each advances half a block (moving the entities it meets) or lands as its
+  block.
+  """
+  def moving_pistons(%{pistons: pistons} = state) when map_size(pistons) == 0, do: state
+
+  def moving_pistons(state) do
+    actions =
+      for {{x, _, z} = position, _} <- Enum.sort_by(state.pistons, &elem(elem(&1, 1), 7)),
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          do: {:moving, position}
+
+    if actions == [] do
+      state
+    else
+      {state, outcome} = rule_run(state, %{actions: actions})
+      if outcome, do: push_entities(state, outcome.pushes), else: state
+    end
+  end
+
+  # Moving blocks' pushes (VMC-048b) on the entities this section holds, its
+  # sibling sections' and the group's players near them (each owner pushes
+  # its own, as `moveCollidedEntities` and `moveStuckEntities` do).
+  defp push_entities(state, []), do: state
+
+  defp push_entities(state, pushes) do
+    effects =
+      for({key, _} <- state.siblings, key != state.key, do: {key, {:piston_pushes, pushes}}) ++
+        [{:players, {:piston_pushes, state.dimension, pushes}}]
+
+    push_own(%{state | sibling_effects: state.sibling_effects ++ effects}, pushes)
+  end
+
+  # Pushes reach a body within a few blocks of the moving block.
+  defp push_reach?(pushes, {x, y, z}) do
+    Enum.any?(pushes, fn {{px, py, pz}, _, _, _, landed} ->
+      not landed and
+        abs(x - px - 0.5) <= 4.0 and abs(y - py - 0.5) <= 5.0 and abs(z - pz - 0.5) <= 4.0
+    end)
+  end
+
+  defp push_own(state, pushes) do
+    candidates =
+      for {id, %{entity: %{x: x, y: y, z: z}} = entry} <- Enum.sort(state.entities.store.entries),
+          push_reach?(pushes, {x, y, z}),
+          body = push_body(entry),
+          body != nil,
+          do: {id, entry, body}
+
+    if candidates == [] or write_busy(state) != nil do
+      state
+    else
+      {:ok, results} =
+        Valimc.Physics.Kernel.pistons(
+          Valimc.World.View.new(state.dimension),
+          pushes,
+          for({_, _, body} <- candidates, do: body),
+          Clock.border_snapshot(state.dimension)
+        )
+
+      moved =
+        for {{id, entry, _}, {feet, velocity, on_ground, true}} <- Enum.zip(candidates, results),
+            do: {id, entry, feet, velocity, on_ground}
+
+      {items, bodies} = Enum.split_with(moved, fn {_, e, _, _, _} -> e.kind in [:item, :orb] end)
+
+      item_steps =
+        for {id, entry, feet, velocity, on_ground} <- items,
+            do: %{
+              id: id,
+              revision: entry.revision,
+              physical_revision: entry.physical_revision,
+              position: feet,
+              motion: %{entry.motion | velocity: velocity, on_ground: on_ground}
+            }
+
+      state =
+        if item_steps == [], do: state, else: elem(commit_simulated_items(state, item_steps), 1)
+
+      body_steps =
+        for {id, entry, feet, velocity, on_ground} <- bodies,
+            do: %{
+              id: id,
+              revision: entry.revision,
+              position: feet,
+              body: %{entry.body | velocity: velocity, on_ground: on_ground}
+            }
+
+      route_bodies(state, body_steps)
+    end
+  end
+
+  # What a push reads of an entity (VMC-048b): its box, motion, step height,
+  # whether the server simulates it (all but players), its push reaction (an
+  # effect cloud's is `IGNORE_ENTITY`), bounce and gravity.
+  defp push_body(%{kind: kind, entity: %{x: x, y: y, z: z}, motion: motion})
+       when kind in [:item, :orb] do
+    {half, height, gravity} =
+      if kind == :item, do: {0.125, 0.25, 0.04}, else: {0.25, 0.5, 0.03}
+
+    gravity = if motion.no_gravity, do: 0.0, else: gravity
+
+    {{x * 1.0, y * 1.0, z * 1.0}, {half, height}, motion.velocity,
+     {motion.on_ground, 0.0, true, false}, {0.0, false, false, gravity, 0.98}}
+  end
+
+  defp push_body(%{kind: kind, entity: %{x: x, y: y, z: z}, body: %Body{} = body})
+       when kind in [:mob, :object] do
+    case Valimc.Data.EntityTypes.fetch(body.type) do
+      nil ->
+        nil
+
+      facts ->
+        living = kind == :mob and body.mob != nil
+
+        {step, gravity} =
+          if living,
+            do:
+              {Valimc.Entity.Mob.value(body.type, body.mob, "minecraft:step_height"),
+               Valimc.Entity.Mob.value(body.type, body.mob, "minecraft:gravity")},
+            else: {0.0, 0.04}
+
+        gravity = if body.no_gravity, do: 0.0, else: gravity
+
+        {{x * 1.0, y * 1.0, z * 1.0},
+         {Valimc.Data.Float32.round(facts.width) / 2, Valimc.Data.Float32.round(facts.height)},
+         body.velocity,
+         {body.on_ground, step * 1.0, true, body.type == "minecraft:area_effect_cloud"},
+         {0.0, false, living, gravity * 1.0, 0.98}}
+    end
+  end
+
+  defp push_body(_), do: nil
 
   # The rules' level settings: the dimension's fluid attributes, the source
   # conversion game rules and whether TNT explodes (VMC-047a).
@@ -3370,11 +3574,12 @@ defmodule Valimc.World.RegionData do
     ) ||| if(Valimc.World.GameRules.get(:tnt_explodes), do: 16, else: 0)
   end
 
-  # A run's sounds and note blocks' block events (VMC-047a), to the players
-  # near them; a sound the acting player already played (its client's) skips
-  # that player's connection. A note block's event plays its instrument
-  # (`triggerEvent`) while the cell still holds a note block.
-  defp play_redstone(state, %{sounds: [], block_events: []}, _input), do: state
+  # A run's sounds and the block events it ran (VMC-047a, VMC-048b), to the
+  # players near them; a sound the acting player already played (its
+  # client's) skips that player's connection. A note block's event plays its
+  # instrument, a piston's moves the blocks on the clients within 64 blocks
+  # (`runBlockEvents`' broadcast), whose own pistons move them.
+  defp play_redstone(state, %{sounds: [], executed: []}, _input), do: state
 
   defp play_redstone(state, outcome, input) do
     actor = Map.get(input, :actor)
@@ -3389,18 +3594,21 @@ defmodule Valimc.World.RegionData do
 
     changes = Map.new(outcome.changes)
 
-    for {{x, y, z} = position, block, b0, b1} <- outcome.block_events,
-        current = Map.get(changes, position) || read_block(state, position),
-        current != nil and Valimc.Data.Blocks.block_id(current) == block,
-        {sound, pitch} <- List.wrap(Redstone.note_sound(current)) do
+    for {{x, y, z} = position, block, b0, b1} <- outcome.executed do
       at = {x + 0.5, y + 0.5, z + 0.5}
       key = Grid.section(state.dimension, Grid.chunk_key(x, z))
       event = Valimc.Protocol.Packets.block_event(position, b0, b1, block)
-
-      sound = Redstone.sound_packet(sound, "record", at, 3.0, pitch)
-
       Valimc.World.publish(key, {:sound, at, 64.0, event, nil})
-      Valimc.World.publish(key, {:sound, at, 48.0, sound, nil})
+
+      # A note block's sound is the instrument its state names at the event.
+      current = Map.get(changes, position) || read_block(state, position)
+
+      for {sound, pitch} <- List.wrap(current && Redstone.note_sound(current)),
+          do:
+            Valimc.World.publish(
+              key,
+              {:sound, at, 48.0, Redstone.sound_packet(sound, "record", at, 3.0, pitch), nil}
+            )
     end
 
     state
@@ -3427,7 +3635,9 @@ defmodule Valimc.World.RegionData do
       fluid_ticks: [],
       events: [],
       primed: [],
-      outputs: []
+      outputs: [],
+      pistons: [],
+      hidden: []
     }
 
     [
@@ -3437,7 +3647,9 @@ defmodule Valimc.World.RegionData do
       fluid_ticks: outcome.fluid_ticks,
       events: outcome.events,
       primed: for(cell <- outcome.primed, do: {cell}),
-      outputs: outcome.outputs
+      outputs: outcome.outputs,
+      pistons: outcome.pistons,
+      hidden: for(cell <- outcome.hidden, do: {cell})
     ]
     |> Enum.reduce(%{}, fn {field, records}, acc ->
       Enum.reduce(Enum.reverse(records), acc, fn record, acc ->
@@ -3462,6 +3674,7 @@ defmodule Valimc.World.RegionData do
   `target` here. A move that cannot land goes back to `source` the same way.
   """
   def apply_sibling(state, {:rules, part}), do: apply_rules(state, part)
+  def apply_sibling(state, {:piston_pushes, pushes}), do: push_own(state, pushes)
   def apply_sibling(state, {:halo, message}), do: Valimc.World.LightHalo.handle(message, state)
 
   def apply_sibling(state, {:entities, source, records}) do
@@ -3720,12 +3933,34 @@ defmodule Valimc.World.RegionData do
           in_region?(state, position),
           do: {:schedule, position, {:fluid, kind}, delay, 0}
 
+    hidden = for {cell} <- Map.get(part, :hidden, []), into: MapSet.new(), do: cell
+
     state
     |> schedule_ticks(rule_ticks(state, changes, ticks) ++ fluid_ticks)
-    |> commit_rule_changes(changes, drops, breaks)
+    |> put_pistons(Map.get(part, :pistons, []))
+    |> commit_rule_changes(changes, drops, breaks, hidden)
     |> rule_events(part.events)
     |> prime_tnt(for({cell} <- Map.get(part, :primed, []), do: cell))
     |> put_outputs(Map.get(part, :outputs, []))
+  end
+
+  # Moving pistons' block entities the rules changed (VMC-048b): nil for one
+  # gone. The store keeps them beside the cells, its snapshots publish them
+  # (their shapes), and the chunks' packets list them.
+  defp put_pistons(state, []), do: state
+
+  defp put_pistons(state, pistons) do
+    kept =
+      Enum.reduce(pistons, state.pistons, fn
+        {position, nil}, acc -> Map.delete(acc, position)
+        {position, moving}, acc -> Map.put(acc, position, moving)
+      end)
+
+    chunks = Blocks.put_pistons(state.blocks, Map.new(pistons))
+
+    %{state | pistons: kept, piston_order: next_piston_order(pistons, state.piston_order)}
+    |> light_changed(chunks)
+    |> publish_block_snapshots(chunks)
   end
 
   # Comparators' outputs the rules changed (VMC-048a): nil for one gone.
@@ -3784,12 +4019,13 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp commit_rule_changes(state, edits, _drops, _breaks) when map_size(edits) == 0, do: state
+  defp commit_rule_changes(state, edits, _drops, _breaks, _hidden) when map_size(edits) == 0,
+    do: state
 
-  defp commit_rule_changes(state, edits, [], _breaks) do
+  defp commit_rule_changes(state, edits, [], _breaks, hidden) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          {:ok, proposal} <- block_proposal(state, batch) do
-      publish_blocks(state, batch, proposal, false, false)
+      publish_blocks(state, client_frames(batch, edits, hidden), proposal, false, false)
     else
       _ -> state
     end
@@ -3798,7 +4034,7 @@ defmodule Valimc.World.RegionData do
   # Destroyed blocks break like vanilla `destroyBlock` (or, with no particles
   # and sound, `removeBlock` after `dropResources`): they leave their fluid and
   # drop their tool-less loot, in the frame that writes the rules' changes.
-  defp commit_rule_changes(state, edits, drops, breaks) do
+  defp commit_rule_changes(state, edits, drops, breaks, hidden) do
     # Each destroyed block's loot reads its neighbours as vanilla destroys them
     # in order: the ones destroyed before it already gone.
     {items, _} =
@@ -3810,6 +4046,7 @@ defmodule Valimc.World.RegionData do
 
     with {:ok, batch} <- BlockBatch.prepare(edits),
          {:ok, proposal} <- block_proposal(state, batch) do
+      batch = client_frames(batch, edits, hidden)
       {state, effects} = apply_blocks(state, batch, proposal, false, false)
       state = publish_item_views(%{state | entities: %{state.entities | store: items}})
 
@@ -3865,6 +4102,20 @@ defmodule Valimc.World.RegionData do
       end)
 
     publish_item_views(%{state | entities: %{state.entities | store: items}})
+  end
+
+  # What clients hear of a commit: no write of a moving piston's cells told
+  # them (VMC-048b, `UPDATE_CLIENTS` off), which their own piston makes from
+  # the block event, so those cells stay out of its frames.
+  defp client_frames(batch, edits, hidden) do
+    if MapSet.size(hidden) == 0 do
+      batch
+    else
+      case BlockBatch.prepare(Map.drop(edits, MapSet.to_list(hidden))) do
+        {:ok, visible} -> %{batch | frames: visible.frames}
+        {:error, _} -> %{batch | frames: []}
+      end
+    end
   end
 
   # A tool-less break's loot (VMC-029e), each stack popping like vanilla
@@ -4494,17 +4745,26 @@ defmodule Valimc.World.RegionData do
 
   # Live imported block entities of a chunk for its packet.
   defp preserved_entities(state, chunk) do
-    case BlockEntities.in_chunk(state.block_entities, chunk) do
-      [] ->
-        []
+    preserved =
+      case BlockEntities.in_chunk(state.block_entities, chunk) do
+        [] ->
+          []
 
-      positions ->
-        BlockEntities.chunk_entries(
-          state.block_entities,
-          chunk,
-          Blocks.get_many(state.blocks, positions)
-        )
-    end
+        positions ->
+          BlockEntities.chunk_entries(
+            state.block_entities,
+            chunk,
+            Blocks.get_many(state.blocks, positions)
+          )
+      end
+
+    # Moving pistons' block entities (VMC-048b), with their update tags.
+    preserved ++
+      for {{x, _, z} = position, moving} <- state.pistons,
+          Grid.chunk_key(x, z) == chunk,
+          do:
+            {position, Valimc.Blocks.MovingPistons.type_id(),
+             Valimc.Blocks.MovingPistons.update_tag(moving)}
   end
 
   defp build_block_proposal(state, batch) do

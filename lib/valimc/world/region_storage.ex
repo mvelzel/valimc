@@ -18,6 +18,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:ticks, chunk}`, `{:ticks, :shift}` | a chunk's scheduled block ticks (`ScheduledTicks.record/1`) |
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `{:comparator, position}` | a comparator's output (VMC-048a) |
+  | `{:piston, position}` | a moving piston's block entity (VMC-048b) |
   | `:game_tick` | the region's game tick when the frame was cut |
 
   The owner adopts every change in memory at once and replies at once (D2).
@@ -62,7 +63,16 @@ defmodule Valimc.World.RegionStorage do
   @autosave_ms 300_000
   # Item motion is written at most this often, like the item checkpoints before.
   @motion_ms 1000
-  @parts [:items, :containers, :ticks, :block_entities, :comparators, :post, :structures]
+  @parts [
+    :items,
+    :containers,
+    :ticks,
+    :block_entities,
+    :comparators,
+    :pistons,
+    :post,
+    :structures
+  ]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
 
@@ -552,7 +562,8 @@ defmodule Valimc.World.RegionStorage do
   @doc """
   The owner's keyed parts for commits and checkpoints: `items` (an
   `Valimc.Entity.Store`), `containers`, `ticks` (a `ScheduledTicks`),
-  `block_entities`, `comparators` (outputs by position), `post` (generated
+  `block_entities`, `comparators` (outputs by position), `pistons` (moving
+  pistons' block entities by position), `post` (generated
   chunks' post-processing) and `game_tick`.
 
   A frame carries only what changed, found in O(changes): each part is
@@ -650,6 +661,7 @@ defmodule Valimc.World.RegionStorage do
     do: [{entries, fn pos, %{type: type, nbt: nbt} -> {{:block_entity, pos}, {type, nbt}} end}]
 
   defp fields(:comparators, comparators), do: [{comparators, &{{:comparator, &1}, &2}}]
+  defp fields(:pistons, pistons), do: [{pistons, &{{:piston, &1}, &2}}]
 
   defp fields(:post, post), do: [{post, &{{:post, &1}, &2}}]
   defp fields(:structures, structures), do: [{structures, &{{:structures, &1}, &2}}]
@@ -846,6 +858,7 @@ defmodule Valimc.World.RegionStorage do
       ticks: ScheduledTicks.from_records(ticks),
       block_entities: %{},
       comparators: %{},
+      pistons: %{},
       game_tick: Map.get(records, :game_tick, 0),
       persistent: persistent
     }
@@ -868,6 +881,9 @@ defmodule Valimc.World.RegionStorage do
 
       {{:comparator, pos}, output}, acc ->
         put_in(acc, [:comparators, pos], output)
+
+      {{:piston, pos}, moving}, acc ->
+        put_in(acc, [:pistons, pos], moving)
 
       {{:entity, _}, record}, acc ->
         %{acc | items: [record | acc.items]}

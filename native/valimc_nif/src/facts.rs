@@ -60,6 +60,8 @@ struct Physics<'a> {
     explosion_states: Binary<'a>,
     explosions: Vec<f64>,
     poses: Vec<(f64, f64, f64)>,
+    piston_heads: Binary<'a>,
+    piston_bases: Vec<(u16, u16, bool, u8)>,
 }
 
 /// A climb palette entry: `{climbable, glide_through, scaffolding,
@@ -218,7 +220,7 @@ fn physics_facts(p: &Physics, flags: Vec<u64>, count: usize) -> Option<physics::
     for &(state, distance, bottom) in &p.scaffolding {
         *scaffolding.get_mut(state as usize)? = (distance, bottom);
     }
-    let table = physics::shape_table(
+    let mut table = physics::shape_table(
         shapes,
         entries,
         shape_states,
@@ -228,6 +230,22 @@ fn physics_facts(p: &Physics, flags: Vec<u64>, count: usize) -> Option<physics::
         p.scaffolding_below_height,
         shape(&p.powder_snow_falling)?,
     )?;
+    table.piston_heads = p
+        .piston_heads
+        .as_slice()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| u16::from_be_bytes(*b))
+        .collect();
+    if table.piston_heads.len() != 24 || p.piston_bases.len() != 24 {
+        return None;
+    }
+    table.piston_bases = p
+        .piston_bases
+        .iter()
+        .map(|&(state, extended, sticky, facing)| (state, (extended, sticky, facing)))
+        .collect();
     let motion = p
         .motion
         .iter()

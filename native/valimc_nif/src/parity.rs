@@ -1097,6 +1097,38 @@ fn physics_parity_shape<'a>(
     Ok((shape_term(env, picked.shape, &Place::ORIGIN), offset).encode(env))
 }
 
+/// A moving piston's collision shape (VMC-048b) at `pos` from its block
+/// entity `{moved, direction, extending, source, progress}`, for an entity
+/// moved toward `noclip` (-1 none): `{local shape, nil}`.
+#[rustler::nif]
+fn physics_parity_moving<'a>(
+    env: Env<'a>,
+    pos: (i32, i32, i32),
+    moving: (u16, u8, bool, bool, f32),
+    noclip: i32,
+) -> NifResult<Term<'a>> {
+    let facts = physics_facts()?;
+    let (moved, direction, extending, source, progress) = moving;
+    let moving = valimc_core::piston::Moving {
+        moved,
+        direction,
+        extending,
+        source,
+        progress,
+        progress_o: progress,
+        last_ticked: 0,
+        order: 0,
+    };
+    let ctx = valimc_core::physics::Context {
+        noclip: (noclip >= 0).then_some(noclip as u8),
+        ..Default::default()
+    };
+    let shape = facts
+        .shapes
+        .moving_shape(&moving, [pos.0, pos.1, pos.2], &ctx);
+    Ok((shape_term(env, &shape, &Place::ORIGIN), None::<Vec3>).encode(env))
+}
+
 /// The ordered block colliders of a box over a view: `{x, y, z}`, state and
 /// the shape in world coordinates.
 #[rustler::nif]

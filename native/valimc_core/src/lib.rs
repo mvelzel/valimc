@@ -11,6 +11,7 @@ pub mod lz4;
 pub mod nbt;
 pub mod path;
 pub mod physics;
+pub mod piston;
 pub mod rules;
 pub mod section;
 pub mod snapshot;

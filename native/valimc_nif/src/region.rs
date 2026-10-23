@@ -204,6 +204,49 @@ fn set_many(env: Env, region: &Region, changes: Binary) -> Result<(), Atom> {
     }
 }
 
+/// Keep moving pistons' block entities (VMC-048b): `kept` holds
+/// `piston::Moving` records, `gone` the positions whose block entity goes.
+/// Returns the chunks they touch.
+#[rustler::nif]
+fn set_pistons(
+    env: Env,
+    region: ResourceArc<Region>,
+    kept: Binary,
+    gone: Binary,
+) -> Result<Vec<(i32, i32)>, Atom> {
+    let kept =
+        valimc_core::piston::Moving::unpack(kept.as_slice()).ok_or(atoms::invalid_positions())?;
+    let mut edits: Vec<([i32; 3], Option<valimc_core::piston::Moving>)> =
+        positions(gone.as_slice())?
+            .map(|(x, y, z)| ([x, y, z], None))
+            .collect();
+    edits.extend(kept.into_iter().map(|(pos, m)| (pos, Some(m))));
+    with_owned(env, &region, |store| {
+        store.set_pistons(&edits).map_err(error)
+    })
+}
+
+/// The moving pistons' block entities in chunk `{cx, cz}` (VMC-048b), as
+/// `piston::Moving` records.
+#[rustler::nif]
+fn chunk_pistons<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+) -> Result<Binary<'a>, Atom> {
+    let out = with_store(&region, |store| {
+        let mut out = Vec::new();
+        if let Some(list) = store.pistons.get(&(cx, cz)) {
+            for (pos, moving) in list.iter() {
+                moving.pack(*pos, &mut out);
+            }
+        }
+        Ok(out)
+    })?;
+    Ok(crate::binary(env, &out))
+}
+
 /// `{sections, world_surface_longs, motion_blocking_longs}` for one chunk's
 /// stored sections `first..first + count` (the dimension's window).
 #[rustler::nif]

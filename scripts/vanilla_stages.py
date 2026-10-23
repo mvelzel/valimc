@@ -677,6 +677,15 @@ STAGES = [
         ('java', 'RedstoneOracle', 'scenes', '@redstone-scenes.json'),
         ('check', 'check_redstone.exs', '@redstone-scenes.json', '@day.json'),
     ]),
+    # VMC-048b: pistons and moving blocks on the block-update engine (block events, moving
+    # pistons' block entities and their ticks, pushes, pulls and short-pulse drops) and what
+    # moving blocks do to entities in the kernel.
+    ('pistons', [
+        ('java', 'PistonOracle', 'scenes', '@piston-scenes.json', '200', '48201'),
+        ('check', 'check_pistons.exs', '@piston-scenes.json'),
+        ('java', 'PistonOracle', 'pushes', '@piston-pushes.json', '400', '48202'),
+        ('check', 'check_piston_pushes.exs', '@piston-pushes.json'),
+    ]),
     # VMC-039a, VMC-039b: what grows by random ticks and bone meal on the block-update engine
     # (crops, stems, cane, cactus, farmland, saplings, grass, Nether, water and the other plants);
     # the tree growers and saplings' trees; what bone meal places through the generator; the

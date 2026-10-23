@@ -187,6 +187,7 @@ impl Player {
             fall_distance: fall,
             falling_block: false,
             powder_snow_walkable: false,
+            noclip: None,
         }
     }
 

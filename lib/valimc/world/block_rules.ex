@@ -142,7 +142,8 @@ defmodule Valimc.World.BlockRules do
 
     {:ok,
      {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates},
-      {sounds, block_events, primed, toggles, outputs}}} =
+      {sounds, block_events, primed, toggles, outputs},
+      {kept, gone, pending, executed, pushes, hidden}}} =
       case Native.dispatch(:block_updates, units, args) do
         # A cascade past the normal scheduler's budget runs again, dirty.
         {:error, :too_large} -> apply(Native, :block_updates_dirty, args)
@@ -198,6 +199,21 @@ defmodule Valimc.World.BlockRules do
           <<x::32-signed, y::32-signed, z::32-signed, output::32-signed <- outputs>>,
           do: {{x, y, z}, if(output < 0, do: nil, else: output)}
         ),
+      pistons:
+        for(<<record::binary-size(40) <- kept>>, do: Valimc.Blocks.MovingPistons.unpack(record)) ++
+          for(<<x::32-signed, y::32-signed, z::32-signed <- gone>>, do: {{x, y, z}, nil}),
+      pending_events: unpack_events(pending),
+      executed: unpack_events(executed),
+      pushes:
+        for(
+          <<record::binary-size(40), progress::float-32, state::16, landed <- pushes>>,
+          do:
+            (
+              {position, moving} = Valimc.Blocks.MovingPistons.unpack(record)
+              {position, moving, progress, state, landed == 1}
+            )
+        ),
+      hidden: for(<<x::32-signed, y::32-signed, z::32-signed <- hidden>>, do: {x, y, z}),
       stopped: stopped,
       skipped: skipped,
       updates: updates
@@ -265,6 +281,9 @@ defmodule Valimc.World.BlockRules do
   defp pack_action({:output_changed, position}),
     do: <<14, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
+  defp pack_action({:moving, position}),
+    do: <<17, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
 
   # The redstone context (`rules.rs`'s `context`); none packs empty.
@@ -294,8 +313,36 @@ defmodule Valimc.World.BlockRules do
       length(outputs)::32,
       for({p, output} <- outputs, into: <<>>, do: <<pos(p)::binary, output::32-signed>>)::binary,
       length(containers)::32,
-      for({p, signal} <- containers, into: <<>>, do: <<pos(p)::binary, signal::32-signed>>)::binary>>
+      for({p, signal} <- containers, into: <<>>, do: <<pos(p)::binary, signal::32-signed>>)::binary,
+      pack_pistons(Map.get(context, :pistons))::binary>>
   end
+
+  # Pistons' part of the context (VMC-048b): whether the run runs the block
+  # events and is in the tick's first part, the next tick order, the world
+  # border, the build height and the pending block events.
+  defp pack_pistons(nil), do: <<>>
+
+  defp pack_pistons(p) do
+    {min_x, min_z, max_x, max_z} = p.border
+    {min_y, max_y} = p.build
+    flags = if(p.run_events, do: 1, else: 0) ||| if(p.handling_tick, do: 2, else: 0)
+
+    <<flags, p.order::64-signed, min_x::float-64, min_z::float-64, max_x::float-64,
+      max_z::float-64, min_y::32-signed, max_y::32-signed, length(p.events)::32,
+      for(
+        {position, block, b0, b1} <- p.events,
+        into: <<>>,
+        do: <<pos(position)::binary, block::16, b0::32-signed, b1::32-signed>>
+      )::binary>>
+  end
+
+  defp unpack_events(packed),
+    do:
+      for(
+        <<x::32-signed, y::32-signed, z::32-signed, block::16, b0::32-signed,
+          b1::32-signed <- packed>>,
+        do: {{x, y, z}, block, b0, b1}
+      )
 
   defp entity_kind(:living), do: 1
   defp entity_kind(:arrow), do: 2

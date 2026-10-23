@@ -900,6 +900,22 @@ defmodule Valimc.World.Region do
     end)
   end
 
+  # Moving blocks' pushes (VMC-048b) go to each hosted player of their
+  # dimension near them, whose session moves its own body as vanilla's
+  # server moves a player (its client moves itself alike).
+  defp deliver_players(state, {:piston_pushes, dimension, pushes}) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
+      near =
+        player.dimension == dimension and
+          Enum.any?(pushes, fn {{x, y, z}, _, _, _, landed} ->
+            not landed and abs(player.x - x - 0.5) <= 4.0 and abs(player.y - y - 0.5) <= 5.0 and
+              abs(player.z - z - 0.5) <= 4.0
+          end)
+
+      if near, do: Host.info(acc, uuid, {:piston_pushes, pushes}), else: acc
+    end)
+  end
+
   defp deliver_players(state, {:explosion, %{center: {cx, cy, cz}}, _} = message) do
     Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
       dx = player.x - cx

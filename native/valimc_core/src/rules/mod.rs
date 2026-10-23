@@ -14,6 +14,7 @@ pub mod fire;
 pub mod fluid;
 pub mod growth;
 pub mod live;
+pub mod piston;
 pub mod placement;
 mod plants;
 pub mod power;
@@ -80,6 +81,14 @@ pub trait BlockAccess {
     /// The level random's `nextDouble()` (a primed TNT's hop).
     fn next_double(&mut self) -> f64 {
         0.0
+    }
+    /// The level random's `nextLong()` (a note block's sound seed).
+    fn next_long(&mut self) -> i64 {
+        0
+    }
+    /// The moving piston's block entity at `pos` (VMC-048b), where kept.
+    fn moving_at(&mut self, _pos: [i32; 3]) -> Option<crate::piston::Moving> {
+        None
     }
 }
 
@@ -526,6 +535,20 @@ impl Rules {
         if self.falls(state) {
             return Ok(self.falling_update(access, state, pos, replaced));
         }
+        // `PistonHeadBlock.updateShape` (VMC-048b): a head whose base went
+        // goes, its base read from the level.
+        if let Some(facts) = self.power.as_ref().and_then(|p| p.pistons.as_ref()) {
+            if self.table.block_of(state) == facts.head {
+                let facing = components::facing(&self.table, state);
+                if d == facing ^ 1 {
+                    let base = access.get(at(pos, d));
+                    if !piston::head_survives(&self.table, facts, state, base) {
+                        return self.table.default_state("air");
+                    }
+                }
+                return Ok(state);
+            }
+        }
         if let Some(result) = self.code_update(access, state, pos, d, replaced, true) {
             return result;
         }
@@ -540,9 +563,12 @@ impl Rules {
             .as_ref()
             .is_some_and(|p| p.component(&self.table, state).is_some());
         let replaced = if reads_level { None } else { replaced };
-        let mut read = |p: [i32; 3]| match replaced {
-            Some((at, s)) if at == p => s,
-            _ => access.get(p),
+        let mut read = |p: [i32; 3]| {
+            let s = match replaced {
+                Some((at, s)) if at == p => s,
+                _ => access.get(p),
+            };
+            self.supporting(access, p, s)
         };
         if let Some(live) = self.live.as_ref().filter(|l| l.dependent(state)) {
             return Ok(match live.update(state, pos, d, &mut read) {
@@ -612,9 +638,38 @@ impl Rules {
 
     /// At a dependent state's scheduled tick in live play: whether it breaks.
     pub fn live_breaks(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) -> bool {
-        self.live
-            .as_ref()
-            .is_some_and(|live| live.breaks(state, pos, &mut |p| access.get(p)))
+        self.live.as_ref().is_some_and(|live| {
+            live.breaks(state, pos, &mut |p| {
+                let s = access.get(p);
+                self.supporting(access, p, s)
+            })
+        })
+    }
+
+    /// What a neighbour's survival reads of `state` at `pos` (VMC-048b): a
+    /// retracting piston's base, while it moves, holds its neighbours as its
+    /// extended base does (its block entity's shape); every other state as
+    /// itself.
+    pub(super) fn supporting(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+    ) -> u16 {
+        let Some(facts) = self.power.as_ref().and_then(|p| p.pistons.as_ref()) else {
+            return state;
+        };
+        if self.table.block_of(state) != facts.moving {
+            return state;
+        }
+        match access.moving_at(pos) {
+            Some(m) if m.source && !m.extending => self
+                .table
+                .with(m.moved, "extended", "true")
+                .filter(|&s| self.table.block_of(s) != facts.moving)
+                .unwrap_or(state),
+            _ => state,
+        }
     }
 
     /// The updates whose rules are code; `None` for the rest.
@@ -666,6 +721,10 @@ impl Rules {
                 let floor = replaced.filter(|&(p, _)| d == 0 && p == at(pos, 0));
                 let mut level = |p: [i32; 3]| match floor {
                     Some((at, s)) if at == p => s,
+                    _ if p == at(pos, 0) => {
+                        let s = access.get(p);
+                        self.supporting(access, p, s)
+                    }
                     _ => access.get(p),
                 };
                 let new_state = self.redstone.update_shape(table, &mut level, state, pos, d);
@@ -711,9 +770,12 @@ impl Rules {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
-        let mut read = |p: [i32; 3]| match replaced {
-            Some((at, s)) if at == p => s,
-            _ => access.get(p),
+        let mut read = |p: [i32; 3]| {
+            let s = match replaced {
+                Some((at, s)) if at == p => s,
+                _ => access.get(p),
+            };
+            self.supporting(access, p, s)
         };
         let shapes = self.shapes.as_ref().ok_or("no shape update facts")?;
         let (new_state, ticks, random) = shapes.update(state, d, pos, &mut read)?;

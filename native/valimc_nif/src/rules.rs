@@ -172,6 +172,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                         event: (event >= 0).then_some(event),
                     }
                 }
+                17 => Action::Moving { pos },
                 _ => return Err(atoms::invalid_positions()),
             })
         })
@@ -195,6 +196,14 @@ type Updated<'a> = (
     ),
     (u64, u64, u64),
     (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>),
+    (
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+    ),
 );
 
 /// A run's packed inputs.
@@ -220,6 +229,13 @@ struct Context {
     /// Comparators' outputs and the owner's containers' signals (VMC-048a).
     outputs: Vec<([i32; 3], i32)>,
     containers: Vec<([i32; 3], i32)>,
+    /// Pistons' part (VMC-048b), when the context carries it.
+    events: Vec<valimc_core::rules::piston::Event>,
+    run_events: bool,
+    handling_tick: bool,
+    order: i64,
+    border: Option<[f64; 4]>,
+    build: Option<(i32, i32)>,
 }
 
 /// A reader over a packed binary that fails past its end.
@@ -291,6 +307,21 @@ fn context(packed: &[u8]) -> Result<Context, Atom> {
     }
     for _ in 0..r.count(16)? {
         context.containers.push((r.pos()?, r.i32()?));
+    }
+    // Pistons' part: flags (1 run events, 2 handling tick), the next tick
+    // order, the border, the build height and the pending block events.
+    if !r.0.is_empty() {
+        let flags = r.take::<1>()?[0];
+        context.run_events = flags & 1 != 0;
+        context.handling_tick = flags & 2 != 0;
+        context.order = r.i64()?;
+        context.border = Some([r.f64()?, r.f64()?, r.f64()?, r.f64()?]);
+        context.build = Some((r.i32()?, r.i32()?));
+        for _ in 0..r.count(22)? {
+            let pos = r.pos()?;
+            let block = u16::from_be_bytes(r.take()?);
+            context.events.push((pos, block, r.i32()?, r.i32()?));
+        }
     }
     if !r.0.is_empty() {
         return Err(atoms::invalid_positions());
@@ -484,6 +515,12 @@ fn updates<'a>(
         sky: None,
         outputs: &context.outputs,
         containers: &context.containers,
+        events: &context.events,
+        run_events: context.run_events,
+        handling_tick: context.handling_tick,
+        order: context.order,
+        border: context.border,
+        build: context.build,
     };
     let mut random = Random::legacy(seed);
     let outcome =
@@ -557,6 +594,39 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
         put_position(&mut outputs, *pos);
         outputs.extend_from_slice(&output.unwrap_or(-1).to_be_bytes());
     }
+    // Moving pistons kept (their records) and gone (positions), the pending
+    // block events, those that ran, and the pushes (VMC-048b).
+    let mut kept = Vec::new();
+    let mut gone = Vec::new();
+    for (pos, moving) in &outcome.pistons {
+        match moving {
+            Some(m) => m.pack(*pos, &mut kept),
+            None => put_position(&mut gone, *pos),
+        }
+    }
+    let event_records = |events: &[valimc_core::rules::piston::Event]| {
+        let mut out = Vec::with_capacity(events.len() * 22);
+        for (pos, block, b0, b1) in events {
+            put_position(&mut out, *pos);
+            out.extend_from_slice(&block.to_be_bytes());
+            out.extend_from_slice(&b0.to_be_bytes());
+            out.extend_from_slice(&b1.to_be_bytes());
+        }
+        out
+    };
+    let pending = event_records(&outcome.events);
+    let executed = event_records(&outcome.report.executed);
+    let mut hidden = Vec::with_capacity(outcome.hidden.len() * 12);
+    for pos in &outcome.hidden {
+        put_position(&mut hidden, *pos);
+    }
+    let mut pushes = Vec::new();
+    for push in &outcome.report.pushes {
+        push.moving.pack(push.pos, &mut pushes);
+        pushes.extend_from_slice(&push.progress.to_bits().to_be_bytes());
+        pushes.extend_from_slice(&push.state.to_be_bytes());
+        pushes.push(u8::from(push.landed));
+    }
     (
         (
             binary(env, &changed),
@@ -577,6 +647,14 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
             binary(env, &primed),
             binary(env, &toggles),
             binary(env, &outputs),
+        ),
+        (
+            binary(env, &kept),
+            binary(env, &gone),
+            binary(env, &pending),
+            binary(env, &executed),
+            binary(env, &pushes),
+            binary(env, &hidden),
         ),
     )
 }

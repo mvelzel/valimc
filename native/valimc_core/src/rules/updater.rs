@@ -71,6 +71,16 @@ pub trait World: BlockAccess {
     fn container_signal(&mut self, _pos: [i32; 3]) -> i32 {
         0
     }
+    /// The moving piston's block entity at `pos` (VMC-048b).
+    fn moving(&mut self, _pos: [i32; 3]) -> Option<crate::piston::Moving> {
+        None
+    }
+    /// Keep a moving piston's block entity at `pos`, or drop it (`None`).
+    fn set_moving(&mut self, _pos: [i32; 3], _moving: Option<crate::piston::Moving>) {}
+    /// The tick order of a block entity made now (after every one before).
+    fn next_order(&mut self) -> i64 {
+        0
+    }
 }
 
 pub(super) enum Update {
@@ -136,6 +146,13 @@ pub struct Report {
     pub block_events: Vec<([i32; 3], u16, i32, i32)>,
     /// Cells whose TNT primed.
     pub primed: Vec<[i32; 3]>,
+    /// Block events that ran and their clients see (VMC-048b), in order.
+    pub executed: Vec<super::piston::Event>,
+    /// The pushes moving blocks made as they ticked (VMC-048b).
+    pub pushes: Vec<super::piston::Push>,
+    /// Cells a write told clients of (`UPDATE_CLIENTS`); the others the run
+    /// changed stay unsent, as a moving piston's do (VMC-048b).
+    pub sent: std::collections::HashSet<[i32; 3]>,
 }
 
 pub struct Engine<'r, W: World> {
@@ -149,6 +166,8 @@ pub struct Engine<'r, W: World> {
     pub options: super::fluid::Options,
     /// What redstone reads beyond the cells (VMC-047a).
     pub redstone: super::components::Redstone,
+    /// Pistons' block events and what they read (VMC-048b).
+    pub pistons: super::piston::Pistons,
     pub report: Report,
 }
 
@@ -164,6 +183,7 @@ impl<'r, W: World> Engine<'r, W> {
             budget: u64::MAX,
             options: super::fluid::Options::default(),
             redstone: super::components::Redstone::default(),
+            pistons: super::piston::Pistons::default(),
             report: Report::default(),
         }
     }
@@ -246,6 +266,9 @@ impl<'r, W: World> Engine<'r, W> {
             return false;
         }
         self.world.set(pos, state);
+        if flags & CLIENTS != 0 {
+            self.report.sent.insert(pos);
+        }
         if !self.hooks(pos, old, state, flags) {
             return false;
         }
@@ -269,8 +292,14 @@ impl<'r, W: World> Engine<'r, W> {
         if table.block_of(old) != block && table.block_of(old) == comparator {
             self.world.set_comparator_output(pos, None);
         }
-        if table.block_of(old) != block && flags & NEIGHBORS != 0 {
-            self.removed(pos, old);
+        // So does a moving piston's (`preRemoveSideEffects`' `finalTick`
+        // finds the cell changed already).
+        if table.block_of(old) != block && self.world.moving(pos).is_some() {
+            self.world.set_moving(pos, None);
+        }
+        let moved = Self::moved_by_piston(flags);
+        if table.block_of(old) != block && (flags & NEIGHBORS != 0 || moved) {
+            self.removed(pos, old, moved);
         }
         if self.rules.table.block_of(self.world.get(pos)) != block {
             return false;
@@ -381,7 +410,13 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `BlockState.updateNeighbourShapes`.
-    fn update_neighbour_shapes(&mut self, state: u16, pos: [i32; 3], flags: i32, limit: i32) {
+    pub(super) fn update_neighbour_shapes(
+        &mut self,
+        state: u16,
+        pos: [i32; 3],
+        flags: i32,
+        limit: i32,
+    ) {
         for d in UPDATE_SHAPE_ORDER {
             self.add(Update::Shape {
                 direction: d ^ 1,
@@ -534,7 +569,14 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `Block.updateOrDestroy`.
-    fn update_or_destroy(&mut self, old: u16, new: u16, pos: [i32; 3], flags: i32, limit: i32) {
+    pub(super) fn update_or_destroy(
+        &mut self,
+        old: u16,
+        new: u16,
+        pos: [i32; 3],
+        flags: i32,
+        limit: i32,
+    ) {
         if new == old {
             return;
         }
@@ -558,7 +600,7 @@ impl<'r, W: World> Engine<'r, W> {
             self.wire_neighbor_changed(pos, state);
         } else if self.rules.table.flag(state, LIQUID_BLOCK) {
             self.liquid_changed(pos, state);
-        } else {
+        } else if !self.head_neighbor_changed(pos, state, block) {
             self.component_neighbor_changed(pos, state, block);
         }
     }

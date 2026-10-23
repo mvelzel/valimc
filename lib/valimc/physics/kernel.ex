@@ -280,6 +280,54 @@ defmodule Valimc.Physics.Kernel do
   end
 
   @doc """
+  A tick's moving-block pushes (VMC-048b) on `bodies`: `pushes` are the
+  moving pistons' ticks in order, `{position, moving, progress, state,
+  landed?}` (`moving` the block entity before it, as
+  `Valimc.Blocks.MovingPistons.unpack/1` gives it, `progress` its new one,
+  `state` the cell's before; a landed one pushes nothing), over the world
+  after them all; each body `{feet, {half_width, height}, velocity, {on_ground,
+  max_step, simulates?, ignored?}, {bounciness, suppresses_bounce?, living?,
+  gravity, air_drag}}`. `{:ok, [{feet, velocity, on_ground, pushed?}]}` in
+  order.
+  """
+  def pistons(_view, _pushes, [], _border), do: {:ok, []}
+
+  def pistons(view, pushes, bodies, border) do
+    regions =
+      for(
+        {{x, y, z}, _, _, _, _} <- pushes,
+        do: {x - 3.0, y - 3.0, z - 3.0, x + 4.0, y + 4.0, z + 4.0}
+      ) ++
+        for {{x, y, z}, {w, h}, _, _, _} <- bodies,
+            do: {x - w - 2.0, y - 2.0, z - w - 2.0, x + w + 2.0, y + h + 2.0, z + w + 2.0}
+
+    packed =
+      for {position, moving, progress, state, landed} <- pushes,
+          into: <<>>,
+          do:
+            <<Valimc.Blocks.MovingPistons.pack({position, moving})::binary, progress::float-32,
+              state::16, if(landed, do: 1, else: 0)>>
+
+    states =
+      {Valimc.Data.Blocks.default_state("slime_block"),
+       Valimc.Data.Blocks.default_state("honey_block")}
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    Native.physics_pistons(
+      native(view, Enum.reduce(regions, &union/2)),
+      packed,
+      bodies,
+      states,
+      bounds
+    )
+  end
+
+  @doc """
   One tick of every mob of an owner (VMC-015i), each a map as
   `Valimc.Entity.MobMotion.kernel/2` makes it, `players` the `{feet, box}`
   of the players that push them: `{:ok, results}` in order, each `{:ok,
