@@ -55,6 +55,9 @@ pub enum Control {
         right: f32,
         speed: f64,
     },
+    /// The mob's own move control did nothing this tick (an axolotl
+    /// playing dead): its speed and inputs stay.
+    Hold,
 }
 
 /// How a mob travels where vanilla's subclasses override it.
@@ -572,6 +575,7 @@ pub fn control(mob: &mut Mob, block: Option<(f64, u64)>, in_liquid: bool) -> boo
             mob.forward = 0.0;
             false
         }
+        Control::Hold => false,
         Control::Set { speed, .. } => {
             mob.speed = speed as f32;
             let [strafe, up, forward] = mob.set_inputs;

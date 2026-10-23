@@ -136,6 +136,11 @@ defmodule Valimc.AI do
       data: body.data,
       # What its family keeps of its own (a fish's school, VMC-043e).
       own: mind && mind.own,
+      # In water as its last move left it; hidden from enemies (an axolotl
+      # playing dead, `canBeSeenAsEnemy`); the player who last hurt it.
+      in_water: mob.motion.water > 0.0,
+      invulnerable: Mobs.hook(type, :hidden?, [body], false),
+      killed_by: if(mob.hurt_by_player, do: {:player, mob.hurt_by_player}),
       panicking:
         mind != nil and
           Valimc.AI.Goals.Panic in Selector.running(%Self{mind: mind}, :goals),
@@ -629,10 +634,9 @@ defmodule Valimc.AI do
           self
       end
 
-    # `LivingEntity.baseTick` ends with `tickEffects` (VMC-044a4): the
-    # mob's effects run down (their periodic actions on mobs are not
-    # modelled yet), before `Mob.baseTick`'s ambient sound.
-    self = tick_effects(self)
+    # `LivingEntity.baseTick`'s `tickEffects` ran before it thinks
+    # (`Valimc.Entity.MobVitals.base_tick/2`: durations and periodic heals
+    # and hurts).
 
     {n, self} = Self.int(self, 1000)
     ambient = self.mind.ambient
@@ -708,33 +712,6 @@ defmodule Valimc.AI do
   end
 
   defp strafe(self), do: self
-
-  @instant_health Valimc.Data.EffectTypes.id("instant_health")
-
-  defp tick_effects(%Self{mob: %{living: %{effects: effects} = living} = mob} = self)
-       when map_size(effects) > 0 do
-    # Instant health (a witch's drink, VMC-043b6) heals as it ticks.
-    living =
-      case effects[@instant_health] do
-        [{duration, amplifier, _, _, _} | _] when duration >= 1 ->
-          {:ok, {:heal, amount}} = Valimc.Living.Effects.instant(@instant_health, amplifier)
-          {:ok, health} = Valimc.Living.Health.heal(living.health, amount)
-          %{living | health: health}
-
-        _ ->
-          living
-      end
-
-    mob = %{mob | living: living}
-    self = %{self | mob: mob}
-
-    case Valimc.Living.Effects.tick(effects) do
-      {:ok, effects, _} -> %{self | mob: %{mob | living: %{living | effects: effects}}}
-      _ -> self
-    end
-  end
-
-  defp tick_effects(self), do: self
 
   # `updatingUsingItem` (VMC-043b): an item still in its hand counts another
   # tick of use; one that left it stops. A drink (VMC-044a4) plays its sound
@@ -822,8 +799,11 @@ defmodule Valimc.AI do
   # water as it began the tick, or drowning; its hurt (as a dolphin's own
   # `breath/1` in the base tick) goes through the one hurt path, which
   # leaves the hurt in its mind.
-  defp own_air(%Self{type: type, mob: mob} = self),
-    do: put_air(self, Mobs.hook(type, :air, [mob.living.air_supply, Self.in_water?(self)], nil))
+  # Wet in water, or rain where a family says so (an axolotl's).
+  defp own_air(%Self{type: type, mob: mob} = self) do
+    wet = Mobs.hook(type, :wet?, [self], Self.in_water?(self))
+    put_air(self, Mobs.hook(type, :air, [mob.living.air_supply, wet], nil))
+  end
 
   defp put_air(self, nil), do: self
 

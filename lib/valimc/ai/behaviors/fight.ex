@@ -58,7 +58,11 @@ defmodule Valimc.AI.Behaviors.Fight do
   when it cannot be attacked, has not been reached for 200 ticks, is dead or
   gone, or `stop_when.(self, target)` (`{stop, self}`).
   """
-  def stop_if_invalid(stop_when \\ fn self, _ -> {false, self} end, tired \\ true) do
+  def stop_if_invalid(
+        stop_when \\ fn self, _ -> {false, self} end,
+        tired \\ true,
+        on_stop \\ fn self, _target -> self end
+      ) do
     Behavior.one_shot(
       [attack_target: :present, cant_reach_walk_target_since: :registered],
       fn self ->
@@ -83,7 +87,7 @@ defmodule Valimc.AI.Behaviors.Fight do
               {not stop, self}
           end
 
-        {true, if(keep, do: self, else: Brain.erase(self, :attack_target))}
+        {true, if(keep, do: self, else: self |> on_stop.(target) |> Brain.erase(:attack_target))}
       end
     )
   end
@@ -100,7 +104,7 @@ defmodule Valimc.AI.Behaviors.Fight do
   in sight within reach needs no walk; else look at it and walk to it.
   """
   def walk_to_target(speed) do
-    speed = Float32.round(speed)
+    speed_of = if is_function(speed), do: speed, else: fn _ -> Float32.round(speed) end
 
     Behavior.one_shot(
       [
@@ -128,7 +132,11 @@ defmodule Valimc.AI.Behaviors.Fight do
             self =
               self
               |> Brain.set(:look_target, {:entity, ref, true})
-              |> Brain.set(:walk_target, %{target: {:entity, ref, false}, speed: speed, close: 0})
+              |> Brain.set(:walk_target, %{
+                target: {:entity, ref, false},
+                speed: speed_of.(self),
+                close: 0
+              })
 
             {true, self}
           end
@@ -200,6 +208,8 @@ defmodule Valimc.AI.Behaviors.Fight do
                 |> Brain.set(:look_target, {:entity, ref, true})
                 |> Self.swing()
                 |> Self.effect({:attack, ref})
+                |> Valimc.AI.Mobs.hit(target)
+                |> then(&%{&1 | world: World.melee(&1.world, ref, &1.effects)})
                 |> Brain.set(:attack_cooling_down, true, cooldown)
 
               {true, self}

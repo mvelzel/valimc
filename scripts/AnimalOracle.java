@@ -36,8 +36,8 @@ import net.minecraft.world.phys.Vec3;
 public class AnimalOracle {
   static final List<String> ANIMALS = List.of("minecraft:cow", "minecraft:mooshroom", "minecraft:pig", "minecraft:sheep",
       "minecraft:chicken", "minecraft:rabbit", "minecraft:cat",
-      // VMC-043e: turtles (their own fixtures in MobAiOracle).
-      "minecraft:turtle");
+      // VMC-043e: turtles and axolotls (their own fixtures in MobAiOracle).
+      "minecraft:turtle", "minecraft:axolotl");
   // Sounds the animals play beyond their sound variants' and AI facts' own.
   static final List<String> SOUNDS = List.of("minecraft:entity.cow.milk", "minecraft:entity.mooshroom.milk",
       "minecraft:entity.mooshroom.suspicious_milk", "minecraft:entity.mooshroom.shear", "minecraft:entity.mooshroom.eat",

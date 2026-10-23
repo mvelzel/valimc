@@ -150,7 +150,10 @@ defmodule Valimc.AI.Goals.MeleeAttack do
             if Valimc.AI.Mobs.hook(self.type, :harmless?, [], false),
               do: self,
               else:
-                self |> Self.effect({:attack, World.ref(target)}) |> Valimc.AI.Mobs.hit(target)
+                self
+                |> Self.effect({:attack, World.ref(target)})
+                |> Valimc.AI.Mobs.hit(target)
+                |> then(&%{&1 | world: World.melee(&1.world, World.ref(target), &1.effects)})
 
           {%{state | cooldown: adjusted(state, 20)}, self}
 

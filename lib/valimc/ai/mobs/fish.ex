@@ -55,7 +55,8 @@ defmodule Valimc.AI.Mobs.Fish do
   def navigation, do: {:water, []}
 
   @impl true
-  def motion, do: [fluid_pushed: false]
+  # Its travel when its AI does not choose one (dead, `NoAI`): no target.
+  def motion, do: [fluid_pushed: false, travel: {:fish, true}]
 
   @impl true
   def swim_sound, do: "minecraft:entity.fish.swim"

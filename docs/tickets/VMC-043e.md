@@ -33,6 +33,22 @@ Slices, in order:
   breathing, drying, leaps, items and Dolphin's Grace (Awaiting client).
 - [VMC-043e6](VMC-043e6.md) — turtles: home beaches, travels, eggs laid,
   hatched and crushed (Awaiting client).
-- VMC-043e7 — axolotls: their brain, playing dead, hunting.
+- [VMC-043e7](VMC-043e7.md) — axolotls: their brain, playing dead,
+  hunting, mid-tick melee on mobs, mob effects (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
+
+## Handoff (October 2026)
+
+- Done and verified (Awaiting client): 043e1–043e7. Stage `mob_ai` (50 scenes,
+  17463 ticks incl. dolphins, turtles, axolotls) and the targeted stages
+  (`combat`, `paths`, `ai_facts`, `animal_facts`, `animals`, `village`,
+  `nether_mobs`, `hostile_ai`) pass on the pushed tip.
+- Cross-cutting changes siblings should know: mob melee on a mob of the
+  same tick lands mid-tick in `MobTicks` (with `{:attack_extra, ...}`), mob
+  effects tick only in `MobVitals.base_tick/2`, the MobAiOracle reports
+  mob targets by entity id and stops ticking removed mobs.
+- Remains: picking axolotls and fish up in buckets, a spawn group's later
+  babies (axolotl variants, turtle packs), turtle eggs' `onPlace`
+  particles; the batched client handoff for 043e1–043e7. Then close
+  VMC-043e (Status stays In progress until the client gate).

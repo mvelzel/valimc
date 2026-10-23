@@ -93,6 +93,17 @@ defmodule Valimc.AI.Behavior do
       random: random
     }
 
+  @doc """
+  `GateBehavior(conditions, ..., ORDERED, TRY_ALL, children)`: with its
+  memory `conditions`, every stopped child in order tries to start.
+  """
+  def try_all_gate(conditions, children),
+    do: %{
+      kind: __MODULE__.TryAllGate,
+      conditions: conditions,
+      children: Enum.map(children, &%{behavior: Map.put(&1, :running, false)})
+    }
+
   @doc "`DoNothing(min, max)`."
   def do_nothing(min, max), do: %{kind: __MODULE__.DoNothing, min: min, max: max, end: 0}
 
@@ -268,6 +279,33 @@ defmodule Valimc.AI.Behavior do
 
     def tick_or_stop(b, self), do: {%{b | running: false}, self}
     def stop(b, self), do: {%{b | running: false}, self}
+  end
+
+  defmodule TryAllGate do
+    @moduledoc false
+    @behaviour Valimc.AI.Behavior
+    alias Valimc.AI.Behavior.Gate
+
+    def try_start(b, self) do
+      if Brain.conditions?(self, b.conditions) do
+        {children, self} =
+          Enum.map_reduce(b.children, self, fn child, self ->
+            if child.behavior.running do
+              {child, self}
+            else
+              {_, behavior, self} = child.behavior.kind.try_start(child.behavior, self)
+              {%{child | behavior: behavior}, self}
+            end
+          end)
+
+        {true, %{b | running: true, children: children}, self}
+      else
+        {false, b, self}
+      end
+    end
+
+    def tick_or_stop(b, self), do: Gate.tick_or_stop(b, self)
+    def stop(b, self), do: Gate.stop(b, self)
   end
 
   defmodule DoNothing do

@@ -79,7 +79,7 @@ public class LootOracle {
       "minecraft:entities/shulker", "minecraft:entities/cod", "minecraft:entities/salmon", "minecraft:entities/pufferfish",
       "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",
       "minecraft:entities/guardian", "minecraft:entities/elder_guardian", "minecraft:entities/dolphin",
-      "minecraft:entities/turtle", "minecraft:gameplay/turtle_grow",
+      "minecraft:entities/turtle", "minecraft:gameplay/turtle_grow", "minecraft:entities/axolotl",
       // VMC-043c: farm animals.
       "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit",
       // VMC-044a: villagers, iron golems, cats and wandering traders.

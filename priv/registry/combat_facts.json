@@ -1893,6 +1893,7 @@
     "minecraft:bat": 0,
     "minecraft:dolphin": 0,
     "minecraft:turtle": 0,
+    "minecraft:axolotl": 0,
     "minecraft:cow": 0,
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
@@ -2111,6 +2112,12 @@
       "sound_source": 6,
       "animal": true
     },
+    "minecraft:axolotl": {
+      "hurt_sound": "minecraft:entity.axolotl.hurt",
+      "death_sound": "minecraft:entity.axolotl.death",
+      "sound_source": 6,
+      "animal": true
+    },
     "minecraft:cow": {
       "hurt_sound": "minecraft:entity.cow.hurt",
       "death_sound": "minecraft:entity.cow.death",
@@ -2244,6 +2251,8 @@
     "minecraft:entity.dolphin.death": 526,
     "minecraft:entity.turtle.hurt": 1666,
     "minecraft:entity.turtle.death": 1661,
+    "minecraft:entity.axolotl.hurt": 93,
+    "minecraft:entity.axolotl.death": 92,
     "minecraft:entity.cow.hurt": 451,
     "minecraft:entity.cow.death": 452,
     "minecraft:entity.sheep.hurt": 1444,

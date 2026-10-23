@@ -540,6 +540,9 @@ defmodule Valimc.Player.Projectiles do
       {:curse, id, rung, limit}, acc ->
         curse(acc, id, rung, limit)
 
+      {:support, regen, fatigue}, acc ->
+        support(acc, regen, fatigue)
+
       {:hurt, type, amount}, acc ->
         hit =
           %{template | source: DamageSource.new(type), amount: amount} |> Map.delete(:direction)
@@ -549,6 +552,30 @@ defmodule Valimc.Player.Projectiles do
   end
 
   def splash(state, _actions, _template), do: state
+
+  # An axolotl's thanks (`Axolotl.applySupportingEffects`, VMC-043e):
+  # Regeneration for 100 ticks more (up to 2400) unless it has more, and no
+  # Mining Fatigue.
+  defp support(state, regen, fatigue) do
+    state =
+      case state.player.living.effects[regen] do
+        [{ticks, _, _, _, _} | _] when ticks == -1 or ticks > 2399 ->
+          state
+
+        current ->
+          previous = if current, do: elem(hd(current), 0), else: 0
+
+          case Vitals.apply_effect(state, regen, [{min(2400, 100 + previous), 0, false, true, true}]) do
+            {:ok, _, next} -> next
+            _ -> state
+          end
+      end
+
+    case Vitals.apply_effect(state, fatigue, :remove) do
+      {:ok, _, next} -> next
+      _ -> state
+    end
+  end
 
   # An elder guardian's curse (`MobEffectUtil.addEffectToPlayersAround`):
   # the effect unless the player has it as strong and for longer than

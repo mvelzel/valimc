@@ -66,7 +66,8 @@ defmodule Valimc.AI.Mobs.Guardian do
   def navigation, do: {:water, []}
 
   @impl true
-  def motion, do: [emission: :events]
+  # Its travel when its AI does not choose one (dead, `NoAI`): no target.
+  def motion, do: [emission: :events, travel: {:guardian, true}]
 
   @impl true
   def data(_type), do: %{moving: false, beam: 0}

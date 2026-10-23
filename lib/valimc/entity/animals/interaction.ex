@@ -78,12 +78,12 @@ defmodule Valimc.Entity.Animals.Interaction do
       data.age == 0 and Animal.can_fall_in_love?(type, data) ->
         {body, events} = Animal.fall_in_love(body, Map.get(request, :player))
         {body, eat} = eating_sound(body)
-        {:ok, body, outcome(hand: {:use, 1}, swing: true, events: events ++ eat)}
+        {:ok, body, outcome(hand: fed(id), swing: true, events: events ++ eat)}
 
       Animal.can_age_up?(data) ->
         body = Animal.feed_baby(body)
         {body, eat} = eating_sound(body)
-        {:ok, body, outcome(hand: {:use, 1}, events: eat)}
+        {:ok, body, outcome(hand: fed(id), events: eat)}
 
       true ->
         :pass
@@ -91,6 +91,15 @@ defmodule Valimc.Entity.Animals.Interaction do
   end
 
   defp feed(_body, _request), do: :pass
+
+  @tropical_fish_bucket ItemTypes.id("minecraft:tropical_fish_bucket")
+
+  # `usePlayerItem`: an axolotl's bucket of fish leaves a water bucket
+  # (`Axolotl.usePlayerItem`, VMC-043e), other food is used up.
+  defp fed(@tropical_fish_bucket),
+    do: {:fill, ItemStack.new("minecraft:water_bucket")}
+
+  defp fed(_id), do: {:use, 1}
 
   # `playEatingSound`: a pig's (its sound variant's, at its voice pitch).
   defp eating_sound(%Body{type: "minecraft:pig", data: data} = body) do

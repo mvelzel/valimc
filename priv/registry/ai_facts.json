@@ -2910,6 +2910,22 @@
       ],
       "targets": []
     },
+    "minecraft:axolotl": {
+      "max_head_y_rot": 1,
+      "max_head_x_rot": 1,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.axolotl.idle_air",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "water": 0.0,
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [],
+      "targets": []
+    },
     "minecraft:cow": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3829,6 +3845,13 @@
     "minecraft:entity.turtle.hurt_baby": 1667,
     "minecraft:entity.turtle.death": 1661,
     "minecraft:entity.turtle.death_baby": 1662,
+    "minecraft:entity.axolotl.idle_water": 95,
+    "minecraft:entity.axolotl.idle_air": 94,
+    "minecraft:entity.axolotl.attack": 91,
+    "minecraft:entity.axolotl.swim": 97,
+    "minecraft:entity.axolotl.splash": 96,
+    "minecraft:entity.axolotl.hurt": 93,
+    "minecraft:entity.axolotl.death": 92,
     "minecraft:entity.fish.swim": 642,
     "minecraft:entity.generic.swim": 708,
     "minecraft:entity.hostile.swim": 880,

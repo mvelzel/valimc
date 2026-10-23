@@ -34,6 +34,14 @@ defmodule Valimc.AnimalInteractionTest do
     assert {:ok, _, _} = apply_item(animal("minecraft:chicken"), "minecraft:wheat_seeds")
   end
 
+  test "an axolotl eats a bucket of tropical fish and leaves the water bucket" do
+    {:ok, axolotl, %{hand: {:fill, bucket}}} =
+      apply_item(animal("minecraft:axolotl"), "minecraft:tropical_fish_bucket")
+
+    assert axolotl.data.in_love == 600 and bucket.item_id == ItemTypes.id("minecraft:water_bucket")
+    assert apply_item(animal("minecraft:axolotl"), "minecraft:tropical_fish") == :pass
+  end
+
   test "a golden dandelion locks a baby's age back to a newborn's, and unlocks it" do
     {:ok, lamb, outcome} =
       apply_item(animal("minecraft:sheep", %{age: -100}), "minecraft:golden_dandelion")

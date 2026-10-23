@@ -70,6 +70,40 @@ defmodule Valimc.AI.RandomPos do
       else: swimmable(default(self, h, v), h, v, attempts + 1)
   end
 
+  @swim_tiers [{1, 1}, {3, 3}, {5, 5}, {6, 5}, {7, 7}, {10, 7}]
+
+  @doc """
+  `RandomStroll.getTargetSwimPos` (a brain's swimming stroll): a swimmable
+  target one block off, then each farther tier along the way to the last
+  one, stopping at the last target in water within its home.
+  """
+  def swim_target(%Self{} = self) do
+    Enum.reduce_while(@swim_tiers, {nil, nil, self}, fn {h, v}, {fallback, _, self} ->
+      {target, self} =
+        case fallback do
+          nil -> swimmable(self, h, v)
+          {fx, fy, fz} -> {along(self, {fx - self.x, fy - self.y, fz - self.z}, h, v), self}
+        end
+
+      if target == nil or World.fluid(self.world, block_of(target)) == :empty or
+           (restricted?(self, h) and not within_home?(self, block_of(target))),
+         do: {:halt, {fallback, nil, self}},
+         else: {:cont, {target, target, self}}
+    end)
+    |> then(fn {fallback, _, self} -> {fallback, self} end)
+  end
+
+  # `position.add(vectorTo(fallback).normalize().multiply(h, v, h))`.
+  defp along(self, {dx, dy, dz}, h, v) do
+    d = :math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    if d < Valimc.Data.Float32.round(1.0e-5),
+      do: {self.x, self.y, self.z},
+      else: {self.x + dx / d * h, self.y + dy / d * v, self.z + dz / d * h}
+  end
+
+  defp block_of({x, y, z}), do: {floor(x), floor(y), floor(z)}
+
   # `isPathfindable(PathComputationType.WATER)` of the block holding `pos`.
   defp swimmable?(world, {x, y, z}) do
     case World.block(world, {floor(x), floor(y), floor(z)}) do

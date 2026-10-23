@@ -131,6 +131,21 @@
       "food": [
         "minecraft:seagrass"
       ]
+    },
+    "minecraft:axolotl": {
+      "adult": [
+        1061158912,
+        1054280253,
+        1049418216
+      ],
+      "baby": [
+        1052770304,
+        1045891645,
+        1035993088
+      ],
+      "food": [
+        "minecraft:tropical_fish_bucket"
+      ]
     }
   },
   "monsters": [

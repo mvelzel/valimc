@@ -171,6 +171,9 @@ defmodule Valimc.AI.Brain do
 
   defp use_default(brain), do: activate(brain, brain.default)
 
+  @doc "`useDefaultActivity`."
+  def default_activity(%Self{} = self), do: put(self, &use_default/1)
+
   # `setActiveActivity`: a newly active activity erases what the others it
   # replaces erase when they stop.
   defp activate(brain, activity) do

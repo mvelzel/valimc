@@ -46,7 +46,8 @@ defmodule Valimc.Entity.MobTicks do
       ctx: ctx,
       world: world,
       travel: travel,
-      steps: []
+      steps: [],
+      pending: %{}
     }
 
     state =
@@ -99,12 +100,18 @@ defmodule Valimc.Entity.MobTicks do
     {body, burnt} = MobVitals.base_tick(entry.body.type, entry.body)
     entry = %{entry | body: body}
 
+    world = %{state.world | melee: &kills?(state, id, entry, &1, &2)}
+
     {{^id, body, {x, y, z}, effects}, ctx, world} =
-      AI.think_mob(state.ctx, i, {id, entry}, state.world)
+      AI.think_mob(state.ctx, i, {id, entry}, world)
+
+    world = %{world | melee: nil}
 
     entry = %{entry | body: body, entity: %{entry.entity | x: x, y: y, z: z}}
+    state = %{state | ctx: ctx, world: world}
+    {effects, state} = melee(ticker, id, entry, effects, state)
     {input, travel} = input(entry, state.travel)
-    state = %{state | ctx: ctx, world: world, travel: travel}
+    state = %{state | travel: travel}
     {result, pushed} = Kernel.mob_step(ticker, i, input)
 
     # The mobs it pushed carry their new motion into their own turns.
@@ -162,7 +169,7 @@ defmodule Valimc.Entity.MobTicks do
           revision: entry.revision,
           position: position,
           body: body,
-          events: burnt ++ made ++ events ++ sunned ++ later,
+          events: Map.get(state.pending, id, []) ++ burnt ++ made ++ events ++ sunned ++ later,
           effects: rest ++ more ++ trample(body, ticked) ++ crush_eggs(body.type, ticked, world)
         }
 
@@ -182,6 +189,101 @@ defmodule Valimc.Entity.MobTicks do
       _ ->
         state
     end
+  end
+
+  # Its melee hits on mobs of this tick land at once, as `doHurtTarget`
+  # lands them mid-tick (VMC-043e: an axolotl's prey): the target ticks
+  # (or ticked) hurt, its knockback in the ticker before any push; a hit on
+  # a mob elsewhere stays an effect for the region.
+  defp melee(ticker, id, entry, effects, state) do
+    index = state.ids |> Tuple.to_list() |> Enum.with_index() |> Map.new()
+    by_uuid = Map.new(state.entries, fn {other, e} -> {e.entity.uuid, other} end)
+
+    Enum.flat_map_reduce(effects, state, fn
+      {:attack, {:mob, uuid}} = effect, state when is_map_key(by_uuid, uuid) ->
+        target = by_uuid[uuid]
+        target_entry = state.entries[target]
+        store = %{entries: %{id => attacker(id, entry)}}
+
+        case Valimc.Entity.Combat.mob_hit(store, id, target_entry.body.type) do
+          {:ok, hit} ->
+            # What its family adds to the hit (an iron golem's, VMC-044a2).
+            hit = Map.merge(hit, extras(effects, uuid))
+
+            {body, events, hurt} =
+              Valimc.Entity.Combat.hit_body(target_entry.body, target_entry.entity, hit)
+
+            # One still to tick runs its hurt and death timers this tick
+            # (`baseTick`), as the owner's ageing ran them for the rest.
+            body =
+              if hurt and not Enum.any?(state.steps, &(&1.id == target)),
+                do: timers(body),
+                else: body
+
+            Kernel.mob_velocity(ticker, index[target], body.velocity)
+            {[], hurt(state, target, %{target_entry | body: body}, events)}
+
+          _ ->
+            {[effect], state}
+        end
+
+      effect, state ->
+        {[effect], state}
+    end)
+  end
+
+  # Whether mob `id`'s melee hit on `ref` kills it, for the rest of its think.
+  defp kills?(state, id, entry, {:mob, uuid}, effects) do
+    with {_, target} <- Enum.find(state.entries, fn {_, e} -> e.entity.uuid == uuid end),
+         {:ok, hit} <-
+           Valimc.Entity.Combat.mob_hit(
+             %{entries: %{id => attacker(id, entry)}},
+             id,
+             target.body.type
+           ),
+         hit = Map.merge(hit, extras(effects, uuid)),
+         {body, _, true} <- Valimc.Entity.Combat.hit_body(target.body, target.entity, hit) do
+      not Valimc.Entity.Mob.alive?(body.mob)
+    else
+      _ -> false
+    end
+  end
+
+  # The attacker as a store entry (`Combat.mob_hit/3`).
+  defp attacker(id, entry),
+    do: %{Map.put(entry, :kind, :mob) | entity: Map.put_new(entry.entity, :entity_id, id)}
+
+  defp extras(effects, uuid) do
+    Enum.find_value(effects, %{}, fn
+      {:attack_extra, {:mob, ^uuid}, extras} -> extras
+      _ -> nil
+    end)
+  end
+
+  defp timers(%{mob: mob} = body) do
+    health = Valimc.Living.Health.tick(mob.living.health)
+    %{body | mob: %{mob | living: %{mob.living | health: health}}}
+  end
+
+  # A hurt mob's entry, and its step if it already ticked (with the hit's
+  # entity events), as others sense it.
+  defp hurt(state, id, entry, events) do
+    {steps, stepped} =
+      Enum.map_reduce(state.steps, false, fn
+        %{id: ^id} = step, _ -> {%{step | body: entry.body, events: step.events ++ events}, true}
+        step, stepped -> {step, stepped}
+      end)
+
+    pending =
+      if stepped, do: state.pending, else: Map.update(state.pending, id, events, &(&1 ++ events))
+
+    %{
+      state
+      | entries: Map.put(state.entries, id, entry),
+        steps: steps,
+        pending: pending,
+        world: AI.resense_entry(state.world, id, entry)
+    }
   end
 
   # A mob's first tick reads the fluids it stands in and its eyes', as its

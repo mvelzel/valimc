@@ -68,7 +68,7 @@ public class MobAiOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
-      "minecraft:bat", "minecraft:dolphin", "minecraft:turtle",
+      "minecraft:bat", "minecraft:dolphin", "minecraft:turtle", "minecraft:axolotl",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems (cases in VillageOracle).
@@ -120,6 +120,10 @@ public class MobAiOracle {
       "minecraft:entity.turtle.ambient_land", "minecraft:entity.turtle.swim", "minecraft:entity.turtle.shamble",
       "minecraft:entity.turtle.shamble_baby", "minecraft:entity.turtle.lay_egg", "minecraft:entity.turtle.hurt",
       "minecraft:entity.turtle.hurt_baby", "minecraft:entity.turtle.death", "minecraft:entity.turtle.death_baby",
+      // An axolotl's.
+      "minecraft:entity.axolotl.idle_water", "minecraft:entity.axolotl.idle_air", "minecraft:entity.axolotl.attack",
+      "minecraft:entity.axolotl.swim", "minecraft:entity.axolotl.splash", "minecraft:entity.axolotl.hurt",
+      "minecraft:entity.axolotl.death",
       // Swimming (`getSwimSound`).
       "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
@@ -847,7 +851,7 @@ public class MobAiOracle {
     for (var s : spawns) {
       net.minecraft.world.entity.Mob m = mob(s.type, level);
       m.getRandom().setSeed(s.seed);
-      if (m instanceof Piglin) {
+      if (brained(m)) {
         // The idle RunOnes' own randoms (`ShufflingList`), seeded from the mob's.
         var g = new JsonArray();
         long k = 0;
@@ -922,6 +926,7 @@ public class MobAiOracle {
         mobs.get(h.mob).hurtServer(level, level.damageSources().playerAttack(fighters.get(h.player)), h.amount);
       }
       for (var m : mobs) {
+        if (m.isRemoved()) continue;
         level.current = m;
         m.checkDespawn();
         m.setOldPosAndRot();
@@ -951,11 +956,12 @@ public class MobAiOracle {
         r.addProperty("goals", running((GoalSelector)goalSelector.get(m)));
         r.addProperty("targets", running((GoalSelector)targetSelector.get(m)));
         var target = m.getTarget();
-        r.addProperty("target", target == null ? null : target.getUUID().getLeastSignificantBits());
+        // A player by its uuid, a mob by its id (as the check makes its uuid).
+        r.addProperty("target", target == null ? null : target instanceof Player ? target.getUUID().getLeastSignificantBits() : (long)target.getId());
         r.addProperty("aggressive", m.isAggressive());
         r.addProperty("ambient", ambient.getInt(m));
         r.addProperty("level_seed", ((java.util.concurrent.atomic.AtomicLong)seedField.get(levelRandom)).get());
-        if (m instanceof Piglin) {
+        if (brained(m)) {
           var brain = m.getBrain();
           r.add("behaviors", behaviors(brain));
           r.addProperty("activity", brain.getActiveNonCoreActivity().map(a -> a.getName()).orElse(null));
@@ -1097,6 +1103,15 @@ public class MobAiOracle {
       o.addProperty("lay", field(c, "layEggCounter").getInt(t));
       o.addProperty("age", t.getAge()); o.addProperty("in_love", t.getInLoveTime());
     }
+    if (m instanceof net.minecraft.world.entity.animal.axolotl.Axolotl a) {
+      var brain = a.getBrain();
+      o.addProperty("playing_dead", a.isPlayingDead()); o.addProperty("air", a.getAirSupply());
+      o.addProperty("play_dead", brain.getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.PLAY_DEAD_TICKS).orElse(-1));
+      o.addProperty("hunting_cooldown", brain.hasMemoryValue(net.minecraft.world.entity.ai.memory.MemoryModuleType.HAS_HUNTING_COOLDOWN)
+          ? brain.getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.HAS_HUNTING_COOLDOWN) : -1L);
+      var target = brain.getMemory(net.minecraft.world.entity.ai.memory.MemoryModuleType.ATTACK_TARGET);
+      o.addProperty("attack_target", target.isPresent() ? (target.get() instanceof Player p ? p.getUUID().getLeastSignificantBits() : (long)target.get().getId()) : null);
+    }
     if (m instanceof net.minecraft.world.entity.ambient.Bat b) {
       o.addProperty("resting", b.isResting());
       var t = (BlockPos)field(net.minecraft.world.entity.ambient.Bat.class, "targetPosition").get(b);
@@ -1125,12 +1140,20 @@ public class MobAiOracle {
     var avoid = net.minecraft.world.entity.schedule.Activity.AVOID;
     var idle = net.minecraft.world.entity.schedule.Activity.IDLE;
     var celebrate = net.minecraft.world.entity.schedule.Activity.CELEBRATE;
-    for (var slot : List.of(Map.entry(11, avoid), Map.entry(12, avoid), Map.entry(15, idle), Map.entry(15, celebrate), Map.entry(16, idle))) {
+    // An axolotl's one RunOne: tempted or following an adult (idle, 2).
+    var slots = byPriority.size() < 10 ? List.of(Map.entry(2, idle))
+        : List.of(Map.entry(11, avoid), Map.entry(12, avoid), Map.entry(15, idle), Map.entry(15, celebrate), Map.entry(16, idle));
+    for (var slot : slots) {
       var gate = ((Set<?>)((Map<?, ?>)byPriority.get(slot.getKey())).get(slot.getValue())).iterator().next();
       var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
       out.add((net.minecraft.util.RandomSource)field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list));
     }
     return out;
+  }
+
+  // The mobs with a brain the oracle seeds and reports: piglins, axolotls.
+  static boolean brained(net.minecraft.world.entity.Mob m) {
+    return m instanceof Piglin || m instanceof net.minecraft.world.entity.animal.axolotl.Axolotl;
   }
 
   static double speed(PathNavigation nav) throws Exception {
@@ -1290,6 +1313,17 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(5.5, 63, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 150));
     cases.add(run(level, "turtle_lay", beach, List.of(new Spawn("minecraft:turtle", new Vec3(4.5, 63, 2.5), 0, 124L,
       Map.of("turtle_home", new int[] {6, 63, 0}, "has_egg", true))), List.of(new Stand(new Vec3(11.5, 63, 11.5), "creative", null)), List.of(), 400));
+    // VMC-043e: axolotls. One swims about the pool, one hunts a cod, one hit
+    // now and then plays dead, one on land heads for the water.
+    cases.add(run(level, "axolotl_swim", pool, List.of(new Spawn("minecraft:axolotl", new Vec3(.5, 60, .5), 0, 131L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "axolotl_hunt", pool, List.of(new Spawn("minecraft:axolotl", new Vec3(.5, 60, .5), 0, 132L),
+      new Spawn("minecraft:cod", new Vec3(4.5, 60, 2.5), 0, 133L)), List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 300));
+    cases.add(run(level, "axolotl_play_dead", pool, List.of(new Spawn("minecraft:axolotl", new Vec3(.5, 60, .5), 0, 134L)),
+      List.of(new Stand(new Vec3(3.5, 60, .5), "survival", null)),
+      List.of(new Hit(10, 0, 0, 3.0F), new Hit(40, 0, 0, 3.0F), new Hit(70, 0, 0, 3.0F), new Hit(100, 0, 0, 3.0F)), 300));
+    cases.add(run(level, "axolotl_land", scene(floor(63, 12, stone), box(-12, 59, -12, -6, 59, 12, stone), box(-12, 60, -12, -6, 63, 12, water)),
+      List.of(new Spawn("minecraft:axolotl", new Vec3(4.5, 64, .5), 0, 135L)), List.of(new Stand(new Vec3(11.5, 64, 11.5), "creative", null)), List.of(), 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;

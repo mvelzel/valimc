@@ -120,7 +120,8 @@ defmodule Valimc.Entity.Animal do
     "minecraft:rabbit" => Valimc.Entity.Animals.Rabbit,
     "minecraft:cat" => Valimc.Entity.Animals.Cat,
     # VMC-043e.
-    "minecraft:turtle" => Valimc.Entity.Animals.Turtle
+    "minecraft:turtle" => Valimc.Entity.Animals.Turtle,
+    "minecraft:axolotl" => Valimc.Entity.Animals.Axolotl
   }
 
   @doc "The module of animal type `type`, or nil."

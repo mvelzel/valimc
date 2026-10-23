@@ -131,6 +131,14 @@ defmodule Valimc.AI.Self do
   def effect(%__MODULE__{effects: effects} = self, effect),
     do: %{self | effects: [effect | effects]}
 
+  @doc "`addEffect` on itself: effect `id` at `rung` (`Living.Effects.add/3`)."
+  def add_effect(%__MODULE__{mob: mob} = self, id, rung) do
+    case Valimc.Living.Effects.add(mob.living.effects, id, rung) do
+      {:ok, effects, _} -> %{self | mob: %{mob | living: %{mob.living | effects: effects}}}
+      _ -> self
+    end
+  end
+
   @doc """
   `Mob.setTarget` (`asValidTarget` is the reader's, `World.target/2`),
   through the type's own override when it has one (`Valimc.AI.Kind`'s

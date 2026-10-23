@@ -39042,6 +39042,10 @@
       }
     ]
   },
+  "minecraft:entities/axolotl": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/axolotl"
+  },
   "minecraft:entities/blaze": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/blaze",

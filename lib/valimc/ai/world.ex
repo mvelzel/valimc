@@ -87,6 +87,10 @@ defmodule Valimc.AI.World do
             # Seeds for the loot tables mobs roll (a piglin's barter, VMC-043d):
             # nil draws fresh ones, a list (checks) hands them out in order.
             loot_seeds: nil,
+            # A melee hit on a mob ticking with the thinking one lands mid-tick
+            # (VMC-043e: an axolotl's prey): `fn ref, effects -> killed?`, nil:
+            # unknown.
+            melee: nil,
             # What players did that mobs react to before thinking (VMC-043d):
             # `{:anger, player_ref, seen}` (opening or breaking what piglins guard).
             events: [],
@@ -535,6 +539,17 @@ defmodule Valimc.AI.World do
 
   defp now(%__MODULE__{moved: moved}, mobs) when map_size(moved) == 0, do: mobs
   defp now(%__MODULE__{moved: moved}, mobs), do: Enum.map(mobs, &Map.get(moved, &1.uuid, &1))
+
+  @doc """
+  The world after a melee hit on `ref` (`world.melee`, with the thinker's
+  `effects` so far: what its family adds to the hit): a mob it killed is
+  sensed dead for the rest of the tick (`isAlive`).
+  """
+  def melee(%__MODULE__{melee: melee} = world, {:mob, uuid} = ref, effects) when melee != nil do
+    if melee.(ref, effects), do: resense(world, uuid, &%{&1 | alive: false}), else: world
+  end
+
+  def melee(world, _ref, _effects), do: world
 
   @doc "The world with mob `uuid` sensed as `fun` changes it."
   def resense(%__MODULE__{} = world, uuid, fun) do

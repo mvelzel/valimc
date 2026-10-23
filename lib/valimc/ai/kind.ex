@@ -128,6 +128,9 @@ defmodule Valimc.AI.Kind do
   @callback look_control(Self.t()) :: Self.t()
   @callback pick_up(Self.t(), map) :: Self.t()
   @callback max_air() :: integer
+  @callback wet?(Self.t()) :: boolean
+  @callback hidden?(struct) :: boolean
+  @callback before_hurt(struct, map) :: struct
   @callback step_sound(Self.t()) :: Self.t()
   @callback swim_volume() :: float
   @callback stable_destination?(Self.t(), tuple) :: boolean
@@ -185,6 +188,9 @@ defmodule Valimc.AI.Kind do
                       look_control: 1,
                       pick_up: 2,
                       max_air: 0,
+                      wet?: 1,
+                      hidden?: 1,
+                      before_hurt: 2,
                       step_sound: 1,
                       swim_volume: 0,
                       stable_destination?: 2

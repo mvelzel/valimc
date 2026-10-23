@@ -143,6 +143,7 @@ defmodule Valimc.Entity.MobMotion do
     {op, target, speed} =
       case {alive, motion.set, motion.control} do
         {false, _, _} -> {:wait, nil, 0.0}
+        {true, :hold, _} -> {:hold, nil, 0.0}
         {true, {speed, true, _}, _} -> {:set_lift, nil, speed}
         {true, {speed, false, _}, _} -> {:set, nil, speed}
         {true, {speed, true}, _} -> {:set_lift, nil, speed}
@@ -310,7 +311,7 @@ defmodule Valimc.Entity.MobMotion do
         :wait -> :wait
         :move_to -> {:move_to, target, speed}
         :jumping -> {:jumping, speed}
-        op when op in [:set, :set_lift] -> body.mob.motion.control
+        op when op in [:set, :set_lift, :hold] -> body.mob.motion.control
         :strafe -> {:strafe, elem(target, 0), elem(target, 1), speed}
       end
 

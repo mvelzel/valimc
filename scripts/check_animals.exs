@@ -132,6 +132,10 @@ our_data = fn body ->
       "minecraft:chicken" ->
         %{"egg_time" => data.egg_time, "variant" => data.variant}
 
+      # VMC-043e: no variant in the oracle's rows (an axolotl's) or none at all.
+      type when type in ~w(minecraft:axolotl minecraft:turtle) ->
+        %{}
+
       # VMC-044a3: a cat's variant, collar, lying, tamable flags and moves.
       "minecraft:cat" ->
         Map.new(

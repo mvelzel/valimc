@@ -318,6 +318,28 @@ kind_data = fn
       "mainhand" => held && Valimc.Protocol.ItemTypes.item(held.item_id)["name"]
     }
 
+  %{type: "minecraft:axolotl", data: data, mob: mob} ->
+    ttl = fn name ->
+      case mob.ai.brain.memories do
+        %{^name => {value, :never}} -> value
+        %{^name => {_, ttl}} -> ttl
+        _ -> -1
+      end
+    end
+
+    %{
+      "playing_dead" => data.playing_dead,
+      "air" => mob.living.air_supply,
+      "play_dead" => ttl.(:play_dead_ticks),
+      "hunting_cooldown" => ttl.(:has_hunting_cooldown),
+      "attack_target" =>
+        case mob.ai.brain.memories[:attack_target] do
+          {{:mob, <<n::64, _::64>>}, _} -> n
+          {{:player, <<_::64, n::64>>}, _} -> n
+          _ -> nil
+        end
+    }
+
   %{type: "minecraft:turtle", data: data, mob: mob} ->
     own = Valimc.Entity.Animals.Turtle.own(mob.ai)
     {hx, hy, hz} = data.home
@@ -616,7 +638,9 @@ checked =
           body = start_data.(body, m["start"])
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           body = setup.(body, m)
-          {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
+
+          {m["id"],
+           %{entity: %{uuid: uuid, entity_id: m["id"], x: x, y: y, z: z}, body: body, revision: 1}}
         end
 
       {_, _, count} =
@@ -668,16 +692,22 @@ checked =
               end
             end)
 
-          # The bodies' timers (the hurt cooldown) run as the owner's ageing does.
+          # The bodies' timers (the hurt cooldown) run as the owner's ageing
+          # does, which removes a mob whose death animation ended.
           entries =
-            Enum.map(entries, fn {id, entry} ->
-              {body, _, _} = Body.tick(entry.body)
-              {id, %{entry | body: body}}
+            Enum.map(entries, fn
+              {id, %{gone: true} = entry} ->
+                {id, entry}
+
+              {id, entry} ->
+                {body, _, done} = Body.tick(entry.body)
+                {id, Map.put(%{entry | body: body}, :gone, done)}
             end)
 
-          {steps, world} = MobTicks.steps(kernel_view, entries, world, nil)
+          live = Enum.reject(entries, fn {_, e} -> e.gone end)
+          {steps, world} = MobTicks.steps(kernel_view, live, world, nil)
 
-          unless length(steps) == length(entries),
+          unless length(steps) == length(live),
             do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
 
           for step <- steps, effect <- step.effects do
@@ -699,325 +729,339 @@ checked =
             end
           end
 
+          by_id = Map.new(steps, &{&1.id, &1})
+
           entries =
-            Enum.zip_with(entries, steps, fn {id, entry}, step ->
-              {x, y, z} = step.position
-              {id, %{entry | body: step.body, entity: %{entry.entity | x: x, y: y, z: z}}}
+            Enum.map(entries, fn {id, entry} ->
+              case by_id[id] do
+                nil ->
+                  {id, entry}
+
+                step ->
+                  {x, y, z} = step.position
+                  {id, %{entry | body: step.body, entity: %{entry.entity | x: x, y: y, z: z}}}
+              end
             end)
 
+          steps = Enum.map(entries, fn {id, _} -> by_id[id] end)
+
           checks =
-            Enum.zip_with([entries, steps, row], fn [{id, entry}, step, expected] ->
-              body = entry.body
-              mind = body.mob.ai
-              {x, y, z} = step.position
+            Enum.zip_with([entries, steps, row], fn
+              [_, nil, _] ->
+                0
 
-              target =
-                case mind.target do
-                  {:player, <<_::64, n::64>>} -> n
-                  nil -> nil
-                  {:mob, _} -> :mob
-                end
+              [{id, entry}, step, expected] ->
+                body = entry.body
+                mind = body.mob.ai
+                {x, y, z} = step.position
 
-              path =
-                case mind.navigation.path do
-                  %{nodes: nodes, index: index} when index < tuple_size(nodes) ->
-                    {nx, ny, nz} = elem(nodes, index)
-                    [nx, ny, nz, hex.(mind.navigation.speed)]
+                target =
+                  case mind.target do
+                    {:player, <<_::64, n::64>>} -> n
+                    nil -> nil
+                    {:mob, <<n::64, _::64>>} -> n
+                  end
 
-                  _ ->
-                    nil
-                end
+                path =
+                  case mind.navigation.path do
+                    %{nodes: nodes, index: index} when index < tuple_size(nodes) ->
+                      {nx, ny, nz} = elem(nodes, index)
+                      [nx, ny, nz, hex.(mind.navigation.speed)]
 
-              # Melee hits with what they add, and a guardian's beam and thorns.
-              hits =
-                for effect <- step.effects,
-                    hit = hit_of.(effect, step.effects),
-                    hit != nil,
-                    do: hit
+                    _ ->
+                      nil
+                  end
 
-              # A guardian's entity events (the oracle records only theirs).
-              entity_events =
-                if body.type in ~w(minecraft:guardian minecraft:elder_guardian),
-                  do: for({:event, n} <- step.events, do: n),
-                  else: []
+                # Melee hits with what they add, and a guardian's beam and thorns.
+                hits =
+                  for effect <- step.effects,
+                      hit = hit_of.(effect, step.effects),
+                      hit != nil,
+                      do: hit
 
-              sounds =
-                for event <- Map.get(hurt_events, id, []) ++ step.events,
-                    {name, volume, pitch} <- sound_of.(event),
-                    do: {sound_name.(name), bits.(volume), bits.(pitch)}
+                # A guardian's entity events (the oracle records only theirs).
+                entity_events =
+                  if body.type in ~w(minecraft:guardian minecraft:elder_guardian),
+                    do: for({:event, n} <- step.events, do: n),
+                    else: []
 
-              # A skeleton's shot sounds where it shot, from the owner (VMC-043b3).
-              sounds =
-                sounds ++
-                  for {:shoot, %{pitch: pitch}} <- step.effects,
-                      do: {"minecraft:entity.skeleton.shoot", bits.(1.0), bits.(pitch)}
-
-              # A cube's attack sound as a player touches it (VMC-043d).
-              sounds =
-                sounds ++
-                  for {:touch, _, _, {name, volume, pitch}} <- step.effects,
+                sounds =
+                  for event <- Map.get(hurt_events, id, []) ++ step.events,
+                      {name, volume, pitch} <- sound_of.(event),
                       do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
-              swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
+                # A skeleton's shot sounds where it shot, from the owner (VMC-043b3).
+                sounds =
+                  sounds ++
+                    for {:shoot, %{pitch: pitch}} <- step.effects,
+                        do: {"minecraft:entity.skeleton.shoot", bits.(1.0), bits.(pitch)}
 
-              want_sounds =
-                for s <- expected["sounds"],
-                    s["sound"] != nil,
-                    not String.ends_with?(s["sound"], ".step"),
-                    do: {s["sound"], s["volume"], s["pitch"]}
+                # A cube's attack sound as a player touches it (VMC-043d).
+                sounds =
+                  sounds ++
+                    for {:touch, _, _, {name, volume, pitch}} <- step.effects,
+                        do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
-              want_swings = for s <- expected["sounds"], s["swing"] != nil, do: s["swing"]
+                swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
 
-              want_hits =
-                for h <- expected["hits"],
-                    do: {h["player"], h["effect"], h["duration"], h["ignite"]}
+                want_sounds =
+                  for s <- expected["sounds"],
+                      s["sound"] != nil,
+                      not String.ends_with?(s["sound"], ".step"),
+                      do: {s["sound"], s["volume"], s["pitch"]}
 
-              want_entity_events =
-                for s <- expected["sounds"], s["entity_event"], do: s["entity_event"]
+                want_swings = for s <- expected["sounds"], s["swing"] != nil, do: s["swing"]
 
-              takes = for {:pickup, _, n} <- step.effects, do: n
-              want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
+                want_hits =
+                  for h <- expected["hits"],
+                      do: {h["player"], h["effect"], h["duration"], h["ignite"]}
 
-              level_events =
-                for {:level_event, {cx, cy, cz}, type, data} <- step.effects,
-                    do: [type, [cx, cy, cz], data]
+                want_entity_events =
+                  for s <- expected["sounds"], s["entity_event"], do: s["entity_event"]
 
-              # A woken infested block's break event (`destroyBlock`).
-              level_events =
-                level_events ++
-                  for {:wake_infested, {cx, cy, cz}, state, true} <- step.effects,
-                      do: [2001, [cx, cy, cz], state]
+                takes = for {:pickup, _, n} <- step.effects, do: n
+                want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
 
-              want_events =
-                for s <- expected["sounds"],
-                    s["event"] != nil,
-                    do: [s["event"], s["at"], s["data"]]
+                level_events =
+                  for {:level_event, {cx, cy, cz}, type, data} <- step.effects,
+                      do: [type, [cx, cy, cz], data]
 
-              # The blocks an enderman took or put down (VMC-043b5).
-              blocks =
-                for effect <- step.effects,
-                    edit =
-                      (case effect do
-                         {:take_block, {bx, by, bz}, taken} ->
-                           [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(taken)]
+                # A woken infested block's break event (`destroyBlock`).
+                level_events =
+                  level_events ++
+                    for {:wake_infested, {cx, cy, cz}, state, true} <- step.effects,
+                        do: [2001, [cx, cy, cz], state]
 
-                         {:place_carried, {bx, by, bz}, carried} ->
-                           [[bx, by, bz], carried]
+                want_events =
+                  for s <- expected["sounds"],
+                      s["event"] != nil,
+                      do: [s["event"], s["at"], s["data"]]
 
-                         # A silverfish's stone and the friends it wakes (VMC-043b6).
-                         {:infest, {bx, by, bz}, infested} ->
-                           [[bx, by, bz], infested]
+                # The blocks an enderman took or put down (VMC-043b5).
+                blocks =
+                  for effect <- step.effects,
+                      edit =
+                        (case effect do
+                           {:take_block, {bx, by, bz}, taken} ->
+                             [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(taken)]
 
-                         {:wake_infested, {bx, by, bz}, state, true} ->
-                           [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(state)]
+                           {:place_carried, {bx, by, bz}, carried} ->
+                             [[bx, by, bz], carried]
 
-                         {:wake_infested, {bx, by, bz}, state, false} ->
-                           [[bx, by, bz], Valimc.AI.Mobs.Silverfish.host_of(state)]
+                           # A silverfish's stone and the friends it wakes (VMC-043b6).
+                           {:infest, {bx, by, bz}, infested} ->
+                             [[bx, by, bz], infested]
 
-                         # A turtle's eggs (VMC-043e).
-                         {:lay_eggs, {bx, by, bz}, n} ->
-                           [
-                             [bx, by, bz],
-                             Valimc.Data.Blocks.state("turtle_egg", %{"eggs" => "#{n}"})
-                           ]
+                           {:wake_infested, {bx, by, bz}, state, true} ->
+                             [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(state)]
 
-                         _ ->
-                           nil
-                       end),
-                    edit != nil,
-                    do: edit
+                           {:wake_infested, {bx, by, bz}, state, false} ->
+                             [[bx, by, bz], Valimc.AI.Mobs.Silverfish.host_of(state)]
 
-              want_blocks =
-                for s <- expected["sounds"], s["block"] != nil, do: [s["block"], s["state"]]
+                           # A turtle's eggs (VMC-043e).
+                           {:lay_eggs, {bx, by, bz}, n} ->
+                             [
+                               [bx, by, bz],
+                               Valimc.Data.Blocks.state("turtle_egg", %{"eggs" => "#{n}"})
+                             ]
 
-              # A creeper's explosion where it stood (VMC-043b4).
-              want_blasts =
-                for s <- expected["sounds"], s["explode"] != nil, do: [s["explode"], s["at"]]
+                           _ ->
+                             nil
+                         end),
+                      edit != nil,
+                      do: edit
 
-              blasts =
-                for {:explode, blast} <- step.effects,
-                    do: [bits.(blast.radius), Enum.map(Tuple.to_list(blast.center), hex)]
+                want_blocks =
+                  for s <- expected["sounds"], s["block"] != nil, do: [s["block"], s["state"]]
 
-              adds =
-                for effect <- step.effects,
-                    added = added.(effect),
-                    added != nil,
-                    do: added
+                # A creeper's explosion where it stood (VMC-043b4).
+                want_blasts =
+                  for s <- expected["sounds"], s["explode"] != nil, do: [s["explode"], s["at"]]
 
-              # A skeleton's arrow (VMC-043b3) where it was loosed: its own
-              # random draws its flight, so only its type and start compare.
-              adds =
-                adds ++
-                  for {:shoot, %{from: {fx, fy, fz}}} <- step.effects,
-                      do: ["minecraft:arrow", Enum.map([fx, fy - 0.10000000149011612, fz], hex)]
+                blasts =
+                  for {:explode, blast} <- step.effects,
+                      do: [bits.(blast.radius), Enum.map(Tuple.to_list(blast.center), hex)]
 
-              # A silverfish out of each infested block it woke (VMC-043b6).
-              adds =
-                adds ++
-                  for {:wake_infested, {bx, by, bz}, _, true} <- step.effects,
-                      do: [
-                        "minecraft:silverfish",
-                        Enum.map([bx + 0.5, by * 1.0, bz + 0.5], hex),
-                        Enum.map([0.0, 0.0, 0.0], hex),
-                        bits.(0.0),
-                        bits.(0.0)
-                      ]
+                adds =
+                  for effect <- step.effects,
+                      added = added.(effect),
+                      added != nil,
+                      do: added
 
-              # A witch's splash potion where it was thrown (VMC-043b6): its own
-              # random draws its spread, so its type, start and potion compare.
-              adds =
-                adds ++
-                  for {:throw_potion, %{from: from, stack: stack}} <- step.effects,
-                      do: [
-                        "minecraft:splash_potion",
-                        Enum.map(Tuple.to_list(from), hex),
-                        Valimc.Data.PotionTypes.name(
-                          stack.components["minecraft:potion_contents"].potion
-                        )
-                      ]
+                # A skeleton's arrow (VMC-043b3) where it was loosed: its own
+                # random draws its flight, so only its type and start compare.
+                adds =
+                  adds ++
+                    for {:shoot, %{from: {fx, fy, fz}}} <- step.effects,
+                        do: ["minecraft:arrow", Enum.map([fx, fy - 0.10000000149011612, fz], hex)]
 
-              # A converted mob is a new one where the old one was (VMC-043b).
-              adds =
-                adds ++
-                  for {:convert, type} <- step.effects,
-                      do: [
-                        type,
-                        Enum.map(Tuple.to_list(step.position), hex),
-                        Enum.map(Tuple.to_list(body.velocity), hex),
-                        bits.(body.yaw),
-                        bits.(body.pitch)
-                      ]
+                # A silverfish out of each infested block it woke (VMC-043b6).
+                adds =
+                  adds ++
+                    for {:wake_infested, {bx, by, bz}, _, true} <- step.effects,
+                        do: [
+                          "minecraft:silverfish",
+                          Enum.map([bx + 0.5, by * 1.0, bz + 0.5], hex),
+                          Enum.map([0.0, 0.0, 0.0], hex),
+                          bits.(0.0),
+                          bits.(0.0)
+                        ]
 
-              want_adds =
-                for s <- expected["sounds"], s["add"] != nil do
-                  cond do
-                    s["add"] == "minecraft:arrow" -> [s["add"], s["position"]]
-                    s["potion"] -> [s["add"], s["position"], s["potion"]]
-                    s["item"] -> [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
-                    true -> [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                # A witch's splash potion where it was thrown (VMC-043b6): its own
+                # random draws its spread, so its type, start and potion compare.
+                adds =
+                  adds ++
+                    for {:throw_potion, %{from: from, stack: stack}} <- step.effects,
+                        do: [
+                          "minecraft:splash_potion",
+                          Enum.map(Tuple.to_list(from), hex),
+                          Valimc.Data.PotionTypes.name(
+                            stack.components["minecraft:potion_contents"].potion
+                          )
+                        ]
+
+                # A converted mob is a new one where the old one was (VMC-043b).
+                adds =
+                  adds ++
+                    for {:convert, type} <- step.effects,
+                        do: [
+                          type,
+                          Enum.map(Tuple.to_list(step.position), hex),
+                          Enum.map(Tuple.to_list(body.velocity), hex),
+                          bits.(body.yaw),
+                          bits.(body.pitch)
+                        ]
+
+                want_adds =
+                  for s <- expected["sounds"], s["add"] != nil do
+                    cond do
+                      s["add"] == "minecraft:arrow" -> [s["add"], s["position"]]
+                      s["potion"] -> [s["add"], s["position"], s["potion"]]
+                      s["item"] -> [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
+                      true -> [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                    end
                   end
+
+                got = %{
+                  position: Enum.map(Tuple.to_list({x, y, z}), hex),
+                  velocity: Enum.map(Tuple.to_list(body.velocity), hex),
+                  yaw: bits.(body.yaw),
+                  head: bits.(body.head_yaw),
+                  body: bits.(mind.body_yaw),
+                  pitch: bits.(body.pitch),
+                  seed: mind.random,
+                  goals: Enum.join(goal_names.(body, :goals), ","),
+                  targets: Enum.join(goal_names.(body, :targets), ","),
+                  target: target,
+                  aggressive: mind.aggressive,
+                  path: path,
+                  sounds: sounds,
+                  swings: swings,
+                  hits: hits,
+                  entity_events: entity_events,
+                  takes: takes,
+                  level_events: level_events,
+                  blasts: blasts,
+                  blocks: blocks,
+                  adds: adds,
+                  level_seed: world.random,
+                  ambient: mind.ambient,
+                  no_action: mind.no_action,
+                  health: bits.(body.mob.living.health.value),
+                  data: kind_data.(body)
+                }
+
+                got =
+                  if mind.brain,
+                    do:
+                      Map.merge(got, %{
+                        behaviors: Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
+                        activity:
+                          Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
+                          |> then(&(&1 && Atom.to_string(&1))),
+                        offhand: offhand.(body.mob.equipment[:offhand]),
+                        admiring: admiring.(mind),
+                        gate_seeds:
+                          for(
+                            %{kind: Valimc.AI.Behavior.Gate} = b <-
+                              Tuple.to_list(mind.brain.behaviors),
+                            do: b.random
+                          )
+                      }),
+                    else: got
+
+                want = %{
+                  position: expected["position"],
+                  velocity: expected["velocity"],
+                  yaw: expected["yaw"],
+                  head: expected["head"],
+                  body: expected["body"],
+                  pitch: expected["pitch"],
+                  seed: expected["seed"],
+                  goals: expected["goals"],
+                  targets: expected["targets"],
+                  target: expected["target"],
+                  aggressive: expected["aggressive"],
+                  path: expected["path"],
+                  sounds: want_sounds,
+                  swings: want_swings,
+                  hits: want_hits,
+                  entity_events: want_entity_events,
+                  takes: want_takes,
+                  level_events: want_events,
+                  blasts: want_blasts,
+                  blocks: want_blocks,
+                  adds: want_adds,
+                  level_seed: expected["level_seed"],
+                  ambient: expected["ambient"],
+                  no_action: expected["no_action"],
+                  health: expected["health"],
+                  data: expected["data"]
+                }
+
+                # Health and a family's own data, where the oracle reports them.
+                want = Map.reject(want, fn {k, v} -> k in [:health, :data] and v == nil end)
+
+                want =
+                  if mind.brain,
+                    do:
+                      Map.merge(want, %{
+                        behaviors: expected["behaviors"],
+                        activity: expected["activity"],
+                        offhand:
+                          expected["offhand"] && Valimc.Protocol.ItemTypes.id(expected["offhand"]),
+                        admiring: expected["admiring"],
+                        gate_seeds: expected["gate_seeds"]
+                      }),
+                    else: want
+
+                {got, want} =
+                  if expected["fire"] != nil do
+                    ours = extras.(body, step)
+
+                    {Map.merge(got, Map.new(ours, fn {k, v} -> {String.to_atom(k), v} end)),
+                     Map.merge(want, Map.new(Map.keys(ours), &{String.to_atom(&1), expected[&1]}))}
+                  else
+                    {got, want}
+                  end
+
+                # A mob its AI removed mid-tick (a silverfish slipping into
+                # stone) does not move on: where it would have is moot.
+                want =
+                  if :discard in step.effects,
+                    do: Map.drop(want, [:position, :velocity]),
+                    else: want
+
+                differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
+
+                unless differ == [] do
+                  raise "#{c["name"]} tick #{tick} mob #{id}: " <>
+                          Enum.map_join(differ, "; ", fn {k, v, g} ->
+                            "#{k} vanilla #{inspect(v)} ours #{inspect(g)}"
+                          end)
                 end
 
-              got = %{
-                position: Enum.map(Tuple.to_list({x, y, z}), hex),
-                velocity: Enum.map(Tuple.to_list(body.velocity), hex),
-                yaw: bits.(body.yaw),
-                head: bits.(body.head_yaw),
-                body: bits.(mind.body_yaw),
-                pitch: bits.(body.pitch),
-                seed: mind.random,
-                goals: Enum.join(goal_names.(body, :goals), ","),
-                targets: Enum.join(goal_names.(body, :targets), ","),
-                target: target,
-                aggressive: mind.aggressive,
-                path: path,
-                sounds: sounds,
-                swings: swings,
-                hits: hits,
-                entity_events: entity_events,
-                takes: takes,
-                level_events: level_events,
-                blasts: blasts,
-                blocks: blocks,
-                adds: adds,
-                level_seed: world.random,
-                ambient: mind.ambient,
-                no_action: mind.no_action,
-                health: bits.(body.mob.living.health.value),
-                data: kind_data.(body)
-              }
-
-              got =
-                if mind.brain,
-                  do:
-                    Map.merge(got, %{
-                      behaviors: Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
-                      activity:
-                        Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
-                        |> then(&(&1 && Atom.to_string(&1))),
-                      offhand: offhand.(body.mob.equipment[:offhand]),
-                      admiring: admiring.(mind),
-                      gate_seeds:
-                        for(
-                          %{kind: Valimc.AI.Behavior.Gate} = b <-
-                            Tuple.to_list(mind.brain.behaviors),
-                          do: b.random
-                        )
-                    }),
-                  else: got
-
-              want = %{
-                position: expected["position"],
-                velocity: expected["velocity"],
-                yaw: expected["yaw"],
-                head: expected["head"],
-                body: expected["body"],
-                pitch: expected["pitch"],
-                seed: expected["seed"],
-                goals: expected["goals"],
-                targets: expected["targets"],
-                target: expected["target"],
-                aggressive: expected["aggressive"],
-                path: expected["path"],
-                sounds: want_sounds,
-                swings: want_swings,
-                hits: want_hits,
-                entity_events: want_entity_events,
-                takes: want_takes,
-                level_events: want_events,
-                blasts: want_blasts,
-                blocks: want_blocks,
-                adds: want_adds,
-                level_seed: expected["level_seed"],
-                ambient: expected["ambient"],
-                no_action: expected["no_action"],
-                health: expected["health"],
-                data: expected["data"]
-              }
-
-              # Health and a family's own data, where the oracle reports them.
-              want = Map.reject(want, fn {k, v} -> k in [:health, :data] and v == nil end)
-
-              want =
-                if mind.brain,
-                  do:
-                    Map.merge(want, %{
-                      behaviors: expected["behaviors"],
-                      activity: expected["activity"],
-                      offhand:
-                        expected["offhand"] && Valimc.Protocol.ItemTypes.id(expected["offhand"]),
-                      admiring: expected["admiring"],
-                      gate_seeds: expected["gate_seeds"]
-                    }),
-                  else: want
-
-              {got, want} =
-                if expected["fire"] != nil do
-                  ours = extras.(body, step)
-
-                  {Map.merge(got, Map.new(ours, fn {k, v} -> {String.to_atom(k), v} end)),
-                   Map.merge(want, Map.new(Map.keys(ours), &{String.to_atom(&1), expected[&1]}))}
-                else
-                  {got, want}
-                end
-
-              # A mob its AI removed mid-tick (a silverfish slipping into
-              # stone) does not move on: where it would have is moot.
-              want =
-                if :discard in step.effects,
-                  do: Map.drop(want, [:position, :velocity]),
-                  else: want
-
-              differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
-
-              unless differ == [] do
-                raise "#{c["name"]} tick #{tick} mob #{id}: " <>
-                        Enum.map_join(differ, "; ", fn {k, v, g} ->
-                          "#{k} vanilla #{inspect(v)} ours #{inspect(g)}"
-                        end)
-              end
-
-              1
+                1
             end)
 
           {entries, world, count + Enum.sum(checks)}

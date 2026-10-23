@@ -14,19 +14,24 @@ defmodule Valimc.Entity.MobVitals do
   """
   alias Valimc.Data.EntityTypes
   alias Valimc.Entity.Mob
-  alias Valimc.Living.{Air, Attributes, Burning, FallDamage, Landing}
+  alias Valimc.Living.{Air, Attributes, Burning, Effects, FallDamage, Landing}
   alias Valimc.Protocol.Registries
+
+  @instant_health Valimc.Data.EffectTypes.id("instant_health")
 
   @doc """
   `baseTick`'s burning, before the mob thinks (VMC-043b: its hurt sound and
   idle reset come before its goals, as vanilla's): a second's damage while
-  burning outside lava (the lava its last move left), counting down.
+  burning outside lava (the lava its last move left), counting down; then
+  its effects (`tickEffects`, VMC-043e): each periodic one's heal or hurt
+  from its duration before it counts down, an ended one removed.
   `{body, events}`.
   """
   def base_tick(type, %{mob: %Mob{} = mob} = body) do
     if Mob.alive?(mob) do
       kind = %{type: type, data: body.data}
       {mob, events} = burn(kind, EntityTypes.fetch(type), mob, [], mob.motion.lava > 0.0)
+      {mob, events} = tick_effects(kind, mob, events)
       {%{body | mob: mob, data: Valimc.Entity.Animal.hurt_if(type, body, mob)}, events}
     else
       {body, []}
@@ -125,6 +130,45 @@ defmodule Valimc.Entity.MobVitals do
     if burned.damage > 0,
       do: hurt(kind, mob, events, :on_fire, burned.damage),
       else: {mob, events}
+  end
+
+  defp tick_effects(_kind, %Mob{living: %{effects: effects}} = mob, events)
+       when map_size(effects) == 0,
+       do: {mob, events}
+
+  defp tick_effects(kind, mob, events) do
+    effects = mob.living.effects
+
+    # Instant health (a witch's drink, VMC-043b6) heals as it ticks.
+    mob =
+      case effects[@instant_health] do
+        [{duration, amplifier, _, _, _} | _] when duration >= 1 ->
+          {:ok, {:heal, amount}} = Effects.instant(@instant_health, amplifier)
+          {:ok, health} = Valimc.Living.Health.heal(mob.living.health, amount)
+          %{mob | living: %{mob.living | health: health}}
+
+        _ ->
+          mob
+      end
+
+    {:ok, next, _} = Effects.tick(effects)
+    mob = %{mob | living: %{mob.living | effects: next}}
+    age = with %Valimc.AI.Mind{tick: tick} <- mob.ai, do: tick, else: (_ -> 0)
+
+    for id <- Effects.periodic_ids(), Map.has_key?(effects, id), reduce: {mob, events} do
+      {mob, events} ->
+        case Effects.periodic(id, effects[id], age, mob.living.health) do
+          {:ok, {:heal, amount}} ->
+            {:ok, health} = Valimc.Living.Health.heal(mob.living.health, amount)
+            {%{mob | living: %{mob.living | health: health}}, events}
+
+          {:ok, {:hurt, source, amount}} ->
+            if Mob.alive?(mob), do: hurt(kind, mob, events, source, amount), else: {mob, events}
+
+          _ ->
+            {mob, events}
+        end
+    end
   end
 
   # `LivingEntity.baseTick`'s air: a type that breathes under water keeps it;

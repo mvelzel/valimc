@@ -74,10 +74,13 @@ defmodule Valimc.Entity.Combat do
   """
   def hurt_body(%Body{mob: nil}, _entity, _hit), do: :ignored
 
-  def hurt_body(%Body{mob: mob} = body, entity, hit) do
+  def hurt_body(%Body{mob: %Mob{}} = body, entity, hit) do
     hook = &Valimc.AI.Mobs.hook(body.type, &1, &2, &3)
     # A family's own take on the hit (a ghast's reflected fireball, VMC-043d).
     hit = hook.(:taken, [body, hit], hit)
+    # A family's part before the hurt lands (an axolotl's choice to play dead).
+    body = hook.(:before_hurt, [body, hit], body)
+    mob = body.mob
     mob_before = mob
 
     case if(hook.(:ignores?, [body, hit], false),
@@ -175,6 +178,17 @@ defmodule Valimc.Entity.Combat do
 
       {body, events, _} ->
         {body.mob, events, true}
+    end
+  end
+
+  @doc """
+  `hurt_body/3` of a hit that lands mid-tick (a mob's melee on a mob,
+  VMC-043e): `{body, events, hurt}`, an ignored hit only stirring it.
+  """
+  def hit_body(body, entity, hit) do
+    case hurt_body(body, entity, hit) do
+      :ignored -> {stir(body, hit), [], false}
+      {body, events, _} -> {body, events, true}
     end
   end
 

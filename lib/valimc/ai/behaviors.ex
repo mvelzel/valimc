@@ -369,28 +369,57 @@ defmodule Valimc.AI.Behaviors do
   def is?(_entity, _kind), do: false
 
   @doc """
+  `RandomStroll.swim(speed)`: in water, toward a swimmable target by
+  vanilla's widening tiers (`RandomPos.swim_target/1`); none found clears
+  the walk target.
+  """
+  def swim_stroll(speed) do
+    Behavior.one_shot([walk_target: :absent], fn self ->
+      if Self.in_water?(self) do
+        {pos, self} = RandomPos.swim_target(self)
+
+        self =
+          case pos do
+            nil -> Brain.erase(self, :walk_target)
+            pos -> Brain.set(self, :walk_target, %{target: point(pos), speed: speed, close: 0})
+          end
+
+        {true, self}
+      else
+        {false, self}
+      end
+    end)
+  end
+
+  @doc """
   `RandomStroll.stroll(speed)` (`stroll(speed, h, v)`): a land target ten
   (`h`) blocks around and seven (`v`) up or down, or none.
   """
-  def stroll(speed, h \\ 10, v \\ 7) do
+  def stroll(speed, h \\ 10, v \\ 7, may \\ fn _ -> true end) do
     Behavior.one_shot([walk_target: :absent], fn self ->
-      {pos, self} = RandomPos.land(self, h, v)
-
-      self =
-        case pos do
-          nil ->
-            Brain.erase(self, :walk_target)
-
-          pos ->
-            Brain.set(self, :walk_target, %{
-              target: point(pos),
-              speed: Float32.round(speed),
-              close: 0
-            })
-        end
-
-      {true, self}
+      if may.(self), do: strolled(self, speed, h, v), else: {false, self}
     end)
+  end
+
+  defp strolled(self, speed, h, v) do
+    (fn ->
+       {pos, self} = RandomPos.land(self, h, v)
+
+       self =
+         case pos do
+           nil ->
+             Brain.erase(self, :walk_target)
+
+           pos ->
+             Brain.set(self, :walk_target, %{
+               target: point(pos),
+               speed: Float32.round(speed),
+               close: 0
+             })
+         end
+
+       {true, self}
+     end).()
   end
 
   @doc "`SetWalkTargetFromLookTarget.create(speed, close)` behind `predicate` (`triggerIf`)."
@@ -400,10 +429,12 @@ defmodule Valimc.AI.Behaviors do
            Brain.has?(self, :look_target) do
         target = Brain.get(self, :look_target)
 
+        speed = if is_function(speed), do: speed.(self), else: Float32.round(speed)
+
         {true,
          Brain.set(self, :walk_target, %{
            target: target,
-           speed: Float32.round(speed),
+           speed: speed,
            close: close
          })}
       else

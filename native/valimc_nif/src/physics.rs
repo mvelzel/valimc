@@ -452,7 +452,7 @@ fn items_step<'a>(
 // ---- mobs (VMC-015i) ----
 
 mod mob_atoms {
-    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid, strafe, flying, dolphin }
+    rustler::atoms! { wait, move_to, jumping, set, set_lift, hold, ground, fish, guardian, squid, strafe, flying, dolphin }
 }
 
 /// A mob as its owner keeps it (`Valimc.Entity.MobMotion`): position, yaw
@@ -571,6 +571,8 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         }
     } else if op == mob_atoms::jumping() {
         Control::Jumping { speed }
+    } else if op == mob_atoms::hold() {
+        Control::Hold
     } else if op == mob_atoms::set() || op == mob_atoms::set_lift() {
         Control::Set {
             speed,
@@ -712,6 +714,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
             Some((forward as f64, right as f64, 0.0)),
             speed,
         ),
+        Control::Hold => (mob_atoms::hold(), None, 0.0),
     };
     let travel = match m.travel {
         Travel::Ground => (mob_atoms::ground(), false),
