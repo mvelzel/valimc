@@ -21,13 +21,13 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, Term};
 use std::collections::HashMap;
 use valimc_core::physics::block_body;
 use valimc_core::physics::border::Border;
-use valimc_core::physics::collide;
+use valimc_core::physics::collide::{self, Extra};
 use valimc_core::physics::explosion;
 use valimc_core::physics::facts::Facts;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
 use valimc_core::physics::orb::{self, OrbBody};
 use valimc_core::physics::source::{BlockSource, Rows, States};
-use valimc_core::physics::{Aabb, Context};
+use valimc_core::physics::{Aabb, Context, Unreadable};
 
 pub(crate) mod atoms {
     rustler::atoms! {
@@ -136,8 +136,7 @@ pub(crate) fn view<'a>(term: Term<'a>, facts: &Facts, region: &Aabb) -> NifResul
     Ok(View::Rows(rows))
 }
 
-#[cfg(feature = "parity")]
-pub(crate) fn unreadable<'a>(env: Env<'a>, u: valimc_core::physics::Unreadable) -> Term<'a> {
+pub(crate) fn unreadable<'a>(env: Env<'a>, u: Unreadable) -> Term<'a> {
     (
         atoms::error(),
         (atoms::unreadable(), (u.0[0], u.0[1], u.0[2])),
@@ -157,6 +156,51 @@ pub(crate) fn union(boxes: &[Aabb]) -> Option<Aabb> {
             std::array::from_fn(|i| a.max[i].max(b.max[i])),
         )
     }))
+}
+
+pub(crate) type ExtraT = (Vec<BoxT>, Option<(f64, f64, f64, f64)>);
+
+pub(crate) fn extra(e: ExtraT, subject: [f64; 2]) -> Extra {
+    Extra {
+        entities: e.0.into_iter().map(aabb).collect(),
+        border: e.1.map(|(min_x, min_z, max_x, max_z)| Border {
+            min_x,
+            min_z,
+            max_x,
+            max_z,
+        }),
+        subject,
+    }
+}
+
+/// Whether each box meets a collider (blocks, entity boxes, the border):
+/// `{:ok, [colliding?]}`. Live: where a player stands up from a bed
+/// (`World.StandUp`, VMC-040a).
+#[rustler::nif]
+fn physics_colliding<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    boxes: Vec<BoxT>,
+    ctx: ContextT,
+    extra_t: ExtraT,
+    subject: (f64, f64),
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let boxes: Vec<Aabb> = boxes.into_iter().map(aabb).collect();
+    let Some(region) = union(&boxes) else {
+        return Ok(ok(env, Vec::<bool>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let ctx = context(ctx);
+    let extra = extra(extra_t, [subject.0, subject.1]);
+    let result: Result<Vec<bool>, Unreadable> = boxes
+        .iter()
+        .map(|b| collide::no_collision(&view, &facts.shapes, b, &ctx, &extra).map(|free| !free))
+        .collect();
+    Ok(match result {
+        Ok(v) => ok(env, v),
+        Err(u) => unreadable(env, u),
+    })
 }
 
 /// Whether the collision shape of `state` at `position` (for `ctx`) meets

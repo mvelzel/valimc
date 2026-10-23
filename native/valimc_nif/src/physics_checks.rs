@@ -1,36 +1,22 @@
 //! The kernel's entry points one by one for the oracle checks
 //! (`scripts/check_*.exs` through `Valimc.Physics.Kernel`), built only with
-//! the `parity` feature: movement, colliding and new collisions, fluids, eyes,
+//! the `parity` feature: movement, new collisions, fluids, eyes,
 //! flow and currents, body sweeps, footing, inside shapes and restitution.
-//! Live play reaches them through the item and player calls.
+//! Live play reaches them through the item and player calls; colliding
+//! boxes are live (`physics.rs`).
 
 use crate::physics::{
-    aabb, atoms, context, facts, ok, t3, union, unreadable, v3, view, BoxT, ContextT, Vec3,
+    aabb, atoms, context, extra, facts, ok, t3, union, unreadable, v3, view, BoxT, ContextT,
+    ExtraT, Vec3,
 };
 use rustler::{Atom, Encoder, Env, NifResult, Term};
-use valimc_core::physics::border::Border;
-use valimc_core::physics::collide::{self, Extra};
+use valimc_core::physics::collide;
 use valimc_core::physics::fluid::{self, Pushed};
 use valimc_core::physics::response;
 use valimc_core::physics::source::BlockSource;
 use valimc_core::physics::support;
 use valimc_core::physics::sweep;
 use valimc_core::physics::{Aabb, Unreadable};
-
-type ExtraT = (Vec<BoxT>, Option<(f64, f64, f64, f64)>);
-
-fn extra(e: ExtraT, subject: [f64; 2]) -> Extra {
-    Extra {
-        entities: e.0.into_iter().map(aabb).collect(),
-        border: e.1.map(|(min_x, min_z, max_x, max_z)| Border {
-            min_x,
-            min_z,
-            max_x,
-            max_z,
-        }),
-        subject,
-    }
-}
 
 /// How a mover finds the ground for step-up.
 #[derive(Clone, Copy)]
@@ -114,35 +100,6 @@ fn physics_move<'a>(
 
 fn centre(b: &Aabb) -> [f64; 2] {
     [(b.min[0] + b.max[0]) / 2.0, (b.min[2] + b.max[2]) / 2.0]
-}
-
-/// Whether each box meets a collider (blocks, entity boxes, the border):
-/// `{:ok, [colliding?]}`.
-#[rustler::nif]
-fn physics_colliding<'a>(
-    env: Env<'a>,
-    view_term: Term<'a>,
-    boxes: Vec<BoxT>,
-    ctx: ContextT,
-    extra_t: ExtraT,
-    subject: (f64, f64),
-) -> NifResult<Term<'a>> {
-    let facts = facts()?;
-    let boxes: Vec<Aabb> = boxes.into_iter().map(aabb).collect();
-    let Some(region) = union(&boxes) else {
-        return Ok(ok(env, Vec::<bool>::new()));
-    };
-    let view = view(view_term, facts, &region)?;
-    let ctx = context(ctx);
-    let extra = extra(extra_t, [subject.0, subject.1]);
-    let result: Result<Vec<bool>, Unreadable> = boxes
-        .iter()
-        .map(|b| collide::no_collision(&view, &facts.shapes, b, &ctx, &extra).map(|free| !free))
-        .collect();
-    Ok(match result {
-        Ok(v) => ok(env, v),
-        Err(u) => unreadable(env, u),
-    })
 }
 
 /// `isEntityCollidingWithAnythingNew` between two bodies: `{:ok, new?}`.
