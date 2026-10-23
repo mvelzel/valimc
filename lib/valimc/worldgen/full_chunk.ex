@@ -145,6 +145,9 @@ defmodule Valimc.Worldgen.FullChunk do
   defp preserved_type({:chest, slots}, state),
     do: if(empty?(slots), do: :fresh, else: kept(state))
 
+  defp preserved_type({:machine, %{slots: slots}}, state),
+    do: if(empty?(slots), do: :fresh, else: kept(state))
+
   defp preserved_type({:cooking, %{cooking: cooking, recipes: recipes}}, state) do
     if empty?(cooking.slots) and cooking.burn_left == 0 and cooking.progress == 0 and
          recipes == %{},

@@ -9,7 +9,8 @@ defmodule Valimc.Menus.Menu do
   Addresses: an integer is a player inventory slot (0 the crafting result of
   the open grid, 1..4 the 2×2 inputs, 5..8 armour, 9..44 storage and hotbar,
   45 the offhand; -1 and -999 outside the slots), `{:table, i}` a crafting
-  table input, `{:container, i}` a chest slot and `{:cooking, i}` a furnace
+  table input, `{:container, i}` a chest's, a hopper's or a dispenser's slot
+  and `{:cooking, i}` a furnace
   slot (0 input, 1 fuel, 2 result). The 2×2 grid and a table's grid share
   the result address 0: `Inventory.crafting_result/1` reads the open one.
   """
@@ -18,6 +19,10 @@ defmodule Valimc.Menus.Menu do
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
 
   defstruct kind: :inventory, rows: nil, block: nil
+
+  # Menus over a container's plain slots: chests, hoppers (`HopperMenu`) and
+  # dispensers and droppers (`DispenserMenu`, VMC-049a).
+  @plain [:chest, :hopper, :dispenser]
 
   @bucket Data.item("bucket")
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
@@ -30,10 +35,25 @@ defmodule Valimc.Menus.Menu do
   def crafting(%Inventory{}), do: table()
   def chest(rows) when rows in 1..6, do: %__MODULE__{kind: :chest, rows: rows}
   def cooking(block), do: %__MODULE__{kind: :cooking, block: block}
+  def hopper, do: %__MODULE__{kind: :hopper}
+
+  def dispenser(kind) when kind in [:dropper, :dispenser],
+    do: %__MODULE__{kind: :dispenser, block: kind}
+
+  @doc "The menu of a machine kind (`:hopper`, `:dropper`, `:dispenser`)."
+  def machine(:hopper), do: hopper()
+  def machine(kind), do: dispenser(kind)
+
+  @doc "The container slots of a plain menu."
+  def size(%__MODULE__{kind: :chest, rows: rows}), do: rows * 9
+  def size(%__MODULE__{kind: :hopper}), do: 5
+  def size(%__MODULE__{kind: :dispenser}), do: 9
 
   @doc "The window type a menu opens with (`open_screen`)."
   def type(%__MODULE__{kind: :chest, rows: rows}), do: {:ok, rows - 1}
   def type(%__MODULE__{kind: :cooking, block: block}), do: cooking_type(CookingBlocks.kind(block))
+  def type(%__MODULE__{kind: :hopper}), do: {:ok, 16}
+  def type(%__MODULE__{kind: :dispenser}), do: {:ok, 6}
   def type(_), do: {:error, :invalid_menu}
 
   @doc "The window type of a furnace-family block's kind."
@@ -51,16 +71,19 @@ defmodule Valimc.Menus.Menu do
 
   def address(%__MODULE__{kind: :table}, slot) when slot in [0, -1, -999], do: {:ok, slot}
 
-  def address(%__MODULE__{kind: :chest, rows: rows}, slot) when is_integer(slot) and slot >= 0 do
+  def address(%__MODULE__{kind: kind} = menu, slot)
+      when kind in @plain and is_integer(slot) and slot >= 0 do
+    size = size(menu)
+
     cond do
-      slot < rows * 9 -> {:ok, {:container, slot}}
-      slot < rows * 9 + 36 -> {:ok, slot - rows * 9 + 9}
+      slot < size -> {:ok, {:container, slot}}
+      slot < size + 36 -> {:ok, slot - size + 9}
       true -> {:error, :invalid_menu_slot}
     end
   end
 
   def address(%__MODULE__{kind: kind}, slot)
-      when kind in [:chest, :cooking] and slot in [-1, -999],
+      when kind in [:cooking | @plain] and slot in [-1, -999],
       do: {:ok, slot}
 
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 0..2, do: {:ok, {:cooking, slot}}
@@ -78,9 +101,12 @@ defmodule Valimc.Menus.Menu do
          [Inventory.crafting_result(inventory) | Tuple.to_list(cells)] ++
            Enum.map(9..44, &Inventory.get(inventory, &1))}
 
-  def contents(%__MODULE__{kind: :chest, rows: rows}, storage, %Inventory{} = inventory)
-      when is_tuple(storage) and tuple_size(storage) == rows * 9,
-      do: {:ok, Tuple.to_list(storage) ++ Enum.map(9..44, &Inventory.get(inventory, &1))}
+  def contents(%__MODULE__{kind: kind} = menu, storage, %Inventory{} = inventory)
+      when kind in @plain and is_tuple(storage) do
+    if tuple_size(storage) == size(menu),
+      do: {:ok, Tuple.to_list(storage) ++ Enum.map(9..44, &Inventory.get(inventory, &1))},
+      else: {:error, :invalid_menu_contents}
+  end
 
   def contents(%__MODULE__{kind: :cooking}, storage, %Inventory{} = inventory)
       when is_tuple(storage) do
@@ -113,8 +139,8 @@ defmodule Valimc.Menus.Menu do
   def visible(%__MODULE__{kind: :inventory}), do: Enum.to_list(1..45)
   def visible(%__MODULE__{kind: :table}), do: Enum.map(0..8, &{:table, &1}) ++ Enum.to_list(9..44)
 
-  def visible(%__MODULE__{kind: :chest, rows: rows}),
-    do: Enum.map(0..(rows * 9 - 1), &{:container, &1}) ++ Enum.to_list(9..44)
+  def visible(%__MODULE__{kind: kind} = menu) when kind in @plain,
+    do: Enum.map(0..(size(menu) - 1), &{:container, &1}) ++ Enum.to_list(9..44)
 
   def visible(%__MODULE__{kind: :cooking}),
     do: Enum.map(0..2, &{:cooking, &1}) ++ Enum.to_list(9..44)
@@ -168,11 +194,11 @@ defmodule Valimc.Menus.Menu do
 
   def routes(%__MODULE__{kind: :table}, _inventory, _address, _stack), do: [Enum.to_list(9..44)]
 
-  def routes(%__MODULE__{kind: :chest}, _inventory, {:container, _}, _stack),
+  def routes(%__MODULE__{kind: kind}, _inventory, {:container, _}, _stack) when kind in @plain,
     do: [Enum.to_list(44..9//-1)]
 
-  def routes(%__MODULE__{kind: :chest, rows: rows}, _inventory, _slot, _stack),
-    do: [Enum.map(0..(rows * 9 - 1), &{:container, &1})]
+  def routes(%__MODULE__{kind: kind} = menu, _inventory, _slot, _stack) when kind in @plain,
+    do: [Enum.map(0..(size(menu) - 1), &{:container, &1})]
 
   def routes(%__MODULE__{kind: :cooking}, _inventory, {:cooking, 2}, _stack),
     do: [Enum.to_list(44..9//-1)]

@@ -19,6 +19,19 @@ defmodule Valimc.Menus.Packets do
     )
   end
 
+  @doc "A hopper's, dropper's or dispenser's screen (VMC-049a)."
+  def open_machine(container, kind) when container in 1..127 do
+    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.machine(kind))
+    open_screen(container, type, "container." <> Atom.to_string(kind))
+  end
+
+  def machine_inventory(container, kind, storage, inventory) when container in 1..127 do
+    {:ok, contents} =
+      Valimc.Menus.Menu.contents(Valimc.Menus.Menu.machine(kind), storage, inventory)
+
+    inventory_content(container, inventory, contents)
+  end
+
   def open_cooking(container, kind) when container in 1..127 do
     {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
     open_screen(container, type, "container." <> Atom.to_string(kind))

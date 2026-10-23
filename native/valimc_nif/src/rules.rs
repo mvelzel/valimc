@@ -31,7 +31,7 @@
 //! ticks and the weather's levels, which daylight detectors read).
 //! The reply is `{:ok, {{changes, destroyed, ticks, fluid_ticks, events,
 //! results}, {stopped, skipped, updates}, {sounds, block_events, primed,
-//! toggles}}}`: `changes` packs `<<x, y, z,
+//! toggles, outputs, dispensed}, ...}}`: `changes` packs `<<x, y, z,
 //! state::16>>` (final states, in the order they first changed), `destroyed`
 //! `<<x, y, z, state::16, flags::8>>` (bit 0: its loot drops; bit 1: it breaks
 //! with particles and sound), `ticks` `<<x, y, z, block::16, delay::32>>`,
@@ -41,7 +41,7 @@
 //! dropped at the group's edge, past the chain limit and run. `sounds` packs
 //! `<<x, y, z as float-64, sound::16, volume::float-32, pitch::float-32,
 //! actor::8>>`, `block_events` `<<x, y, z, block::16, b0::32, b1::32>>`,
-//! `primed` `<<x, y, z>>` and `toggles` as given.
+//! `primed` and `dispensed` (VMC-049a) `<<x, y, z>>` and `toggles` as given.
 
 use crate::region::Region;
 use crate::{atoms, binary, reply};
@@ -202,7 +202,14 @@ type Updated<'a> = (
         Vec<i32>,
     ),
     (u64, u64, u64),
-    (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>),
+    (
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+        Binary<'a>,
+    ),
     (
         Binary<'a>,
         Binary<'a>,
@@ -591,6 +598,10 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
     for pos in &report.primed {
         put_position(&mut primed, *pos);
     }
+    let mut dispensed = Vec::with_capacity(report.dispensed.len() * 12);
+    for pos in &report.dispensed {
+        put_position(&mut dispensed, *pos);
+    }
     let mut toggles = Vec::with_capacity(outcome.toggles.len() * 20);
     for (pos, when) in &outcome.toggles {
         put_position(&mut toggles, *pos);
@@ -654,6 +665,7 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
             binary(env, &primed),
             binary(env, &toggles),
             binary(env, &outputs),
+            binary(env, &dispensed),
         ),
         (
             binary(env, &kept),

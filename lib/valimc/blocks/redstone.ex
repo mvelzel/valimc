@@ -134,6 +134,10 @@ defmodule Valimc.Blocks.Redstone do
   def entry_signal(%{cooking: %{slots: slots}}),
     do: container_signal(Tuple.to_list(slots), tuple_size(slots))
 
+  # Hoppers, droppers and dispensers (VMC-049a).
+  def entry_signal(%{kind: _, slots: slots}),
+    do: container_signal(Tuple.to_list(slots), tuple_size(slots))
+
   def entry_signal(_), do: 0
 
   defp add_fullness(acc, count, stack) do

@@ -288,7 +288,8 @@ public class RedstoneOracle {
       else if(block instanceof net.minecraft.world.level.block.piston.PistonBaseBlock){
         kind="piston";entry.addProperty("sticky",block==Blocks.STICKY_PISTON);
         sounds.add(sound(net.minecraft.sounds.SoundEvents.PISTON_EXTEND));sounds.add(sound(net.minecraft.sounds.SoundEvents.PISTON_CONTRACT));
-      }
+      }else if(block instanceof HopperBlock)kind="hopper";
+      else if(block instanceof DispenserBlock){kind="dispenser";entry.addProperty("dropper",block instanceof DropperBlock);}
       if(kind==null)continue;
       entry.addProperty("block",BuiltInRegistries.BLOCK.getKey(block).getPath());entry.addProperty("kind",kind);
       if(!sounds.isEmpty())entry.add("sounds",sounds);
@@ -297,7 +298,7 @@ public class RedstoneOracle {
       for(var e:entry.entrySet())ordered.add(e.getKey(),e.getValue());
       components.add(ordered);counts.merge(kind,1,Integer::sum);
     }
-    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern","repeater","comparator","observer","piston"))
+    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern","repeater","comparator","observer","piston","hopper","dispenser"))
       if(!counts.containsKey(kind))throw new AssertionError("no "+kind);
     var instruments=new JsonArray();
     for(var instrument:NoteBlockInstrument.values()){

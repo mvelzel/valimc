@@ -65,6 +65,13 @@ pub enum Kind {
     Piston {
         sticky: bool,
     },
+    /// `HopperBlock` (VMC-049a): power locks it.
+    Hopper,
+    /// `DispenserBlock` and `DropperBlock` (VMC-049a): a rising edge fires
+    /// it four ticks later.
+    Dispenser {
+        dropper: bool,
+    },
 }
 
 /// An analog output's value for a state (`getAnalogOutputSignal`).
@@ -186,6 +193,10 @@ impl PowerFacts {
                 "observer" => Kind::Observer,
                 "piston" => Kind::Piston {
                     sticky: flag("sticky")?,
+                },
+                "hopper" => Kind::Hopper,
+                "dispenser" => Kind::Dispenser {
+                    dropper: flag("dropper")?,
                 },
                 other => return Err(format!("redstone facts: kind {other}")),
             };

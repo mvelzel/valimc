@@ -146,6 +146,8 @@ pub struct Report {
     pub block_events: Vec<([i32; 3], u16, i32, i32)>,
     /// Cells whose TNT primed.
     pub primed: Vec<[i32; 3]>,
+    /// Dispensers and droppers whose tick fired them (VMC-049a), in order.
+    pub dispensed: Vec<[i32; 3]>,
     /// Block events that ran and their clients see (VMC-048b), in order.
     pub executed: Vec<super::piston::Event>,
     /// The pushes moving blocks made as they ticked (VMC-048b).

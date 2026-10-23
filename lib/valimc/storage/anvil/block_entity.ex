@@ -3,9 +3,10 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   Vanilla block entities (a chunk's `block_entities` compounds) as ValiMC holds
   them (VMC-021e1).
 
-  ValiMC owns single chests and the furnace family (`Valimc.World.Containers`).
-  A chest or furnace whose compound holds only what ValiMC models (`Items`, and
-  for furnaces the cooking times, speed and `RecipesUsed`) becomes an owned
+  ValiMC owns single chests, the furnace family, hoppers, droppers and
+  dispensers (`Valimc.World.Containers`). One whose compound holds only what
+  ValiMC models (`Items`, for furnaces the cooking times, speed and
+  `RecipesUsed`, for hoppers `TransferCooldown`) becomes an owned
   container. Every other block entity is preserved as its compound
   (`Valimc.World.BlockEntities`): it renders through vanilla's update tag, stays
   for export, and its block refuses interactions ValiMC cannot perform. That
@@ -25,6 +26,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   @chest_fields ~w(id x y z keepPacked Items)
   @cooking_fields @chest_fields ++
                     ~w(cooking_time_spent cooking_total_time lit_time_remaining lit_total_time speed_multiplier RecipesUsed)
+  @hopper_fields @chest_fields ++ ~w(TransferCooldown)
   @metadata ~w(id x y z keepPacked)
 
   @doc """
@@ -52,7 +54,8 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
 
   @doc """
   `{:ok, position, held}` for a block entity compound at a block state, where
-  `held` is `{:chest, slots}`, `{:cooking, entry}` or `{:preserved, type_id}`;
+  `held` is `{:chest, slots}`, `{:cooking, entry}`, `{:machine, entry}` or
+  `{:preserved, type_id}`;
   `{:drop, reason}` when vanilla would not load it.
   """
   def convert({:compound, fields} = tag, state) do
@@ -79,6 +82,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
       case Valimc.Blocks.block_entity(state) do
         :chest -> chest(fields)
         nil -> :error
+        kind when kind in [:hopper, :dropper, :dispenser] -> machine(fields, kind)
         kind -> cooking(fields, kind, CookingBlocks.kind(state))
       end
 
@@ -92,6 +96,24 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
     with true <- only?(fields, @chest_fields),
          {:ok, slots} <- items(fields["Items"], 27) do
       {:ok, {:chest, slots}}
+    else
+      _ -> :error
+    end
+  end
+
+  # A hopper, dropper or dispenser (VMC-049a): its items and a hopper's cooldown.
+  defp machine(fields, kind) do
+    size = Map.fetch!(Valimc.World.Containers.machines(), kind)
+
+    with true <- only?(fields, if(kind == :hopper, do: @hopper_fields, else: @chest_fields)),
+         {:ok, slots} <- items(fields["Items"], size) do
+      cooldown =
+        case fields["TransferCooldown"] do
+          {:int, cooldown} -> cooldown
+          nil -> -1
+        end
+
+      {:ok, {:machine, %{kind: kind, slots: slots, cooldown: cooldown}}}
     else
       _ -> :error
     end
@@ -230,16 +252,23 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
     do: map_size(Map.drop(without_empty_components(fields), @metadata)) > 0
 
   @doc "An owned chest's or furnace's compound for a world file (export)."
-  def container_tag({x, y, z}, type, %{slots: slots}) do
-    {:compound,
-     %{
-       "id" => {:string, type},
-       "x" => {:int, x},
-       "y" => {:int, y},
-       "z" => {:int, z},
-       "keepPacked" => {:byte, 0},
-       "Items" => slot_list(slots)
-     }}
+  def container_tag({x, y, z}, type, %{slots: slots} = entry) do
+    fields = %{
+      "id" => {:string, type},
+      "x" => {:int, x},
+      "y" => {:int, y},
+      "z" => {:int, z},
+      "keepPacked" => {:byte, 0},
+      "Items" => slot_list(slots)
+    }
+
+    case entry do
+      %{kind: :hopper, cooldown: cooldown} ->
+        {:compound, Map.put(fields, "TransferCooldown", {:int, cooldown})}
+
+      _ ->
+        {:compound, fields}
+    end
   end
 
   def container_tag({x, y, z}, type, %{cooking: cooking, recipes: recipes}) do

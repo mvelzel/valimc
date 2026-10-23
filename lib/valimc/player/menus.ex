@@ -1,7 +1,7 @@
 defmodule Valimc.Player.Menus do
   @moduledoc """
-  A player's block menus (VMC-069, VMC-077i3): crafting tables, chests and
-  furnaces. The block's owner is the player's own group, so opening, every
+  A player's block menus (VMC-069, VMC-077i3): crafting tables, chests,
+  furnaces, hoppers, droppers and dispensers. The block's owner is the player's own group, so opening, every
   click and each refresh is a plain call to it (`Region.menu/4`,
   `Region.container_click/6`) answered at once; a crafting table's clicks
   stay in the session, and what a click or a close throws out drops at once
@@ -68,7 +68,7 @@ defmodule Valimc.Player.Menus do
 
           acknowledge_table_use(state, request)
 
-        {kind, block, view} when kind in [:chest, :cooking] ->
+        {kind, block, view} when kind in [:chest, :cooking, :hopper, :dispenser] ->
           open_container_menu(state, kind, position, owner, block, view, request.sequence)
 
         _ ->
@@ -120,7 +120,9 @@ defmodule Valimc.Player.Menus do
           menu: menu.kind,
           view_ref: menu[:view_ref],
           revision:
-            if(menu.kind in [:chest, :cooking] and kind not in [:refresh, :subscribe],
+            if(
+              menu.kind in [:chest, :cooking, :hopper, :dispenser] and
+                kind not in [:refresh, :subscribe],
               do: menu.view.revision
             )
         })
@@ -165,6 +167,10 @@ defmodule Valimc.Player.Menus do
         :chest ->
           {Valimc.Menus.Packets.open_chest(id, view.rows),
            Valimc.Menus.Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
+
+        machine when machine in [:hopper, :dispenser] ->
+          {Valimc.Menus.Packets.open_machine(id, view.kind),
+           Valimc.Menus.Packets.machine_inventory(id, view.kind, view.slots, inventory), []}
 
         :cooking ->
           {Valimc.Menus.Packets.open_cooking(id, view.kind),
@@ -236,7 +242,7 @@ defmodule Valimc.Player.Menus do
   def check_table_menu(%{table_menu: nil} = state), do: state
 
   def check_table_menu(%{table_menu: %{kind: kind} = menu} = state)
-      when kind in [:chest, :cooking] do
+      when kind in [:chest, :cooking, :hopper, :dispenser] do
     opener = kind == :chest and state.player.game_mode.current != :spectator
 
     cond do
@@ -445,7 +451,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "Release the open container view at its owner."
   def retire_container_view(%{table_menu: %{kind: kind} = menu} = state)
-      when kind in [:chest, :cooking],
+      when kind in [:chest, :cooking, :hopper, :dispenser],
       do: Region.unsubscribe_container(menu.owner, state.connection, menu.view_ref)
 
   def retire_container_view(_), do: :ok

@@ -686,6 +686,14 @@ STAGES = [
         ('java', 'PistonOracle', 'pushes', '@piston-pushes.json', '400', '48202'),
         ('check', 'check_piston_pushes.exs', '@piston-pushes.json'),
     ]),
+    # VMC-049a: hoppers moving items (chains, hopper-fed furnaces, item entities they take),
+    # tick by tick; what a dispenser does with each item.
+    ('hoppers', [
+        ('java', 'HopperOracle', 'scenes', '@hopper-scenes.json', '150', '49001'),
+        ('check', 'check_hoppers.exs', '@hopper-scenes.json'),
+        ('regen', 'DispenserOracle', 'facts', '@dispensers.json'),
+        ('same', '@dispensers.json', 'priv/physics/dispensers.json'),
+    ]),
     # VMC-039a, VMC-039b: what grows by random ticks and bone meal on the block-update engine
     # (crops, stems, cane, cactus, farmland, saplings, grass, Nether, water and the other plants);
     # the tree growers and saplings' trees; what bone meal places through the generator; the

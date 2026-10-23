@@ -12,6 +12,9 @@ defmodule Valimc.World.Containers do
   @max_entries 1024
   @contents_bytes 524_288
   @max_bytes 8_388_608
+  @machines %{hopper: 5, dropper: 9, dispenser: 9}
+  @machine_ids %{hopper: 0, dropper: 1, dispenser: 2}
+  @machine_kinds %{0 => :hopper, 1 => :dropper, 2 => :dispenser}
   def max_bytes, do: @max_bytes
 
   def observe(%__MODULE__{entries: entries}, position),
@@ -22,6 +25,53 @@ defmodule Valimc.World.Containers do
   end
 
   def create(_, _, _, _), do: {:error, :invalid_container_rows}
+
+  @doc """
+  An empty hopper, dropper or dispenser (VMC-049a): `%{kind, slots, cooldown,
+  order}`, where `cooldown` is a hopper's `TransferCooldown` (-1 none) and
+  `order` the revision it was created at, the order block entities tick in.
+  """
+  def create_machine(%__MODULE__{} = state, key, position, kind)
+      when is_map_key(@machines, kind) do
+    entry = %{
+      kind: kind,
+      slots: Tuple.duplicate(nil, @machines[kind]),
+      cooldown: -1,
+      order: state.sequence + 1
+    }
+
+    create_entry(state, key, position, entry)
+  end
+
+  def create_machine(_, _, _, _), do: {:error, :invalid_container_kind}
+
+  @doc "The machine kinds and their sizes."
+  def machines, do: @machines
+
+  @doc "Whether an entry is a hopper's, a dropper's or a dispenser's."
+  def machine?(%{kind: kind, slots: _}), do: is_map_key(@machines, kind)
+  def machine?(_), do: false
+
+  @doc """
+  Set a machine's cooldown alone: its revision stays, as a furnace's progress
+  leaves it (menus fence item identity and counts, not timers).
+  """
+  def put_cooldown(%__MODULE__{} = state, position, revision, cooldown)
+      when is_integer(cooldown) and cooldown in -2_147_483_648..2_147_483_647 do
+    case observe(state, position) do
+      {:ok, %{revision: ^revision, cooldown: ^cooldown}} ->
+        {:ok, state}
+
+      {:ok, %{revision: ^revision, cooldown: _} = entry} ->
+        {:ok, %{state | entries: Map.put(state.entries, position, %{entry | cooldown: cooldown})}}
+
+      {:ok, _} ->
+        {:error, :stale_container}
+
+      :error ->
+        {:error, :missing_container}
+    end
+  end
 
   def create_cooking(%__MODULE__{} = state, key, position, kind) do
     with {:ok, entry} <- CookingEntry.new(kind),
@@ -50,8 +100,8 @@ defmodule Valimc.World.Containers do
   end
 
   def replace(%__MODULE__{} = state, position, revision, slots) do
-    with {:ok, %{revision: ^revision, rows: rows} = entry} <- observe(state, position),
-         true <- valid_slots?(rows, slots) do
+    with {:ok, %{revision: ^revision, slots: old} = entry} <- observe(state, position),
+         true <- tuple_size(old) == tuple_size(slots) and valid_slots?(slots) do
       change(state, position, %{entry | slots: slots})
     else
       :error -> {:error, :missing_container}
@@ -92,10 +142,11 @@ defmodule Valimc.World.Containers do
              map_size(entries) <= @max_entries do
     true = region?(key)
 
-    # Version 3 holds furnaces; its (always empty) count of the player
-    # transfer receipts versions 2 and 3 held before VMC-077i3 stays.
+    # Version 3 holds furnaces and machines (tagged entries); its (always
+    # empty) count of the player transfer receipts versions 2 and 3 held
+    # before VMC-077i3 stays.
     version =
-      if Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end), do: 3, else: 1
+      if Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :kind) end), do: 3, else: 1
 
     receipt_count = if version == 1, do: <<>>, else: <<0::16>>
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
@@ -162,9 +213,26 @@ defmodule Valimc.World.Containers do
   def decode(_, _), do: invalid()
 
   defp entry_bytes(%{rows: rows, slots: slots} = entry, version) when map_size(entry) == 3 do
-    bytes = slot_bytes(rows, slots)
+    true = rows in 1..6 and tuple_size(slots) == rows * 9
+    bytes = slot_bytes(slots)
     tag = if version == 3, do: <<0>>, else: <<>>
     <<tag::binary, rows, byte_size(bytes)::32, bytes::binary>>
+  end
+
+  # A hopper, dropper or dispenser (VMC-049a): kind, cooldown, tick order, slots.
+  defp entry_bytes(
+         %{kind: kind, slots: slots, cooldown: cooldown, order: order, revision: revision} =
+           entry,
+         3
+       )
+       when map_size(entry) == 5 do
+    true = tuple_size(slots) == Map.fetch!(@machines, kind)
+    true = is_integer(cooldown) and cooldown in -2_147_483_648..2_147_483_647
+    true = is_integer(order) and order in 1..revision
+    bytes = slot_bytes(slots)
+
+    <<2, Map.fetch!(@machine_ids, kind), cooldown::signed-32, order::64, byte_size(bytes)::32,
+      bytes::binary>>
   end
 
   defp entry_bytes(%{cooking: _} = entry, 3) do
@@ -191,6 +259,22 @@ defmodule Valimc.World.Containers do
         {1, <<length::32, rest::binary>>} when length in 26..@contents_bytes ->
           <<bytes::binary-size(^length), rest::binary>> = rest
           {:ok, entry} = CookingEntry.decode(bytes, revision)
+          {entry, rest}
+
+        {2, <<id, cooldown::signed-32, order::64, length::32, rest::binary>>} ->
+          kind = Map.fetch!(@machine_kinds, id)
+          true = order in 1..revision and length in 1..@contents_bytes
+          <<bytes::binary-size(^length), rest::binary>> = rest
+          {slots, <<>>} = take_slots(bytes, @machines[kind], [])
+
+          entry = %{
+            revision: revision,
+            kind: kind,
+            slots: List.to_tuple(Enum.reverse(slots)),
+            cooldown: cooldown,
+            order: order
+          }
+
           {entry, rest}
       end
 
@@ -226,8 +310,8 @@ defmodule Valimc.World.Containers do
     take_slots(rest, count - 1, [stack | slots])
   end
 
-  defp valid_slots?(rows, slots) do
-    slot_bytes(rows, slots)
+  defp valid_slots?(slots) do
+    slot_bytes(slots)
     true
   rescue
     _ -> false
@@ -235,8 +319,7 @@ defmodule Valimc.World.Containers do
     _, _ -> false
   end
 
-  defp slot_bytes(rows, slots)
-       when rows in 1..6 and is_tuple(slots) and tuple_size(slots) == rows * 9 do
+  defp slot_bytes(slots) when is_tuple(slots) and tuple_size(slots) in 1..54 do
     {parts, _} =
       slots
       |> Tuple.to_list()

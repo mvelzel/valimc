@@ -37,7 +37,7 @@ defmodule Valimc.World.RegionStorage do
 
   Item motion (position, velocity) goes into a frame at most once a second.
   Counters that move every tick (an item's age and delays, a furnace's
-  remaining burn and progress) stay out of frames unless they cross zero; a
+  remaining burn and progress, a hopper's cooldown) stay out of frames unless they cross zero; a
   checkpoint saves them, at the latest five minutes after they moved, like
   vanilla's autosave. A crash can roll back only motion and counters.
 
@@ -751,7 +751,8 @@ defmodule Valimc.World.RegionStorage do
   end
 
   # Whether a changed record may wait: `:counters` when only its tick counters
-  # moved (an item's age and delays, a furnace burning on), `:motion` when an
+  # moved (an item's age and delays, a furnace burning on, a hopper's
+  # cooldown), `:motion` when an
   # item only moved and this is not a motion pass; nil when it goes now.
   defp wait({:entity, _}, %{motion: _} = old, %{motion: _} = new, full) do
     cond do
@@ -769,6 +770,10 @@ defmodule Valimc.World.RegionStorage do
 
   defp wait({:container, _}, %{cooking: %{} = a} = old, %{cooking: %{} = b} = new, _full),
     do: if(%{old | cooking: burning(a)} == %{new | cooking: burning(b)}, do: :counters)
+
+  # A hopper counting its cooldown down (VMC-049a); a move changes its slots.
+  defp wait({:container, _}, %{cooldown: _} = old, %{cooldown: _} = new, _full),
+    do: if(%{old | cooldown: 0} == %{new | cooldown: 0}, do: :counters)
 
   defp wait(_key, _old, _new, _full), do: nil
 

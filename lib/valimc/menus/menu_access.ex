@@ -1,7 +1,7 @@
 defmodule Valimc.Menus.MenuAccess do
   @moduledoc """
   The one access check for block menus (VMC-077i2): a chest, a furnace-family
-  block or a crafting table, opened and used under an expiring grant the
+  block, a hopper, a dropper or dispenser (VMC-049a) or a crafting table, opened and used under an expiring grant the
   player's connection makes and the block's owner checks against the block,
   its owned entry and the player's reach, as vanilla checks a menu's use and
   its `stillValid`.
@@ -17,7 +17,7 @@ defmodule Valimc.Menus.MenuAccess do
   import Bitwise
   alias Valimc.Blocks.{Cooking, CookingBlocks}
   alias Valimc.Living.Interaction
-  alias Valimc.Blocks.Chest
+  alias Valimc.Blocks.{Chest, Machine}
   alias Valimc.Protocol.Data
   use Valimc.Data.Facts, "protocol/chest_opening.json"
 
@@ -31,16 +31,23 @@ defmodule Valimc.Menus.MenuAccess do
   @kinds %{
     chest: [:open, :subscribe, :check, :click, :refresh],
     cooking: [:open, :subscribe, :check, :click, :refresh],
+    hopper: [:open, :subscribe, :check, :click, :refresh],
+    dispenser: [:open, :subscribe, :check, :click, :refresh],
     table: [:open, :click, :check]
   }
 
-  @doc "The menu a block opens: `:chest`, `:cooking`, `:table` or nil."
+  @doc "The menus over an owned container entry."
+  def containers, do: [:chest, :cooking, :hopper, :dispenser]
+
+  @doc "The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser` (droppers too), `:table` or nil."
   def menu(nil), do: nil
 
   def menu(block) do
     cond do
       Chest.single?(block) -> :chest
       CookingBlocks.kind(block) != nil -> :cooking
+      Machine.kind(block) == :hopper -> :hopper
+      Machine.kind(block) != nil -> :dispenser
       block == @table -> :table
       true -> nil
     end
@@ -197,6 +204,11 @@ defmodule Valimc.Menus.MenuAccess do
 
   defp entry?(:chest, _block, entry),
     do: match?(%{rows: 3, slots: slots} when tuple_size(slots) == 27, entry)
+
+  defp entry?(menu, block, %{kind: kind, slots: _}) when menu in [:hopper, :dispenser],
+    do: Machine.kind(block) == kind
+
+  defp entry?(menu, _block, _entry) when menu in [:hopper, :dispenser], do: false
 
   defp entry?(:cooking, block, entry) do
     kind = CookingBlocks.kind(block)

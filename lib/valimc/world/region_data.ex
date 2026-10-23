@@ -18,6 +18,7 @@ defmodule Valimc.World.RegionData do
     ContainerViewers,
     ContainerClicks,
     ContainerLifecycle,
+    Containers,
     Jobs,
     RegionEntities,
     EntityHandoffDelivery,
@@ -135,6 +136,12 @@ defmodule Valimc.World.RegionData do
     # Block events raised and not yet run (`ServerLevel.blockEvents`, as
     # vanilla keeps them in memory): `[{position, block, b0, b1}]`.
     {:block_events, []},
+    # When each hopper last ticked (VMC-049a, `tickedGameTime`, which vanilla
+    # keeps in memory): `position => game tick`.
+    {:hopper_ticked, %{}},
+    # Dispensers and droppers that fired while a plan held the item store
+    # (VMC-049a): they dispense at the next block phase.
+    {:dispense_backlog, []},
     # The containers as comparators last heard of them: a change of a
     # container's signal reaches them at the next block phase.
     :containers_seen,
@@ -2378,7 +2385,7 @@ defmodule Valimc.World.RegionData do
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          true <- in_region?(state, position) or {:error, :wrong_region},
          nil <- write_busy(state),
-         true <- menu in [:chest, :cooking] or {:error, :missing_container},
+         true <- menu in Valimc.Menus.MenuAccess.containers() or {:error, :missing_container},
          :ok <- Valimc.Menus.MenuAccess.authorize_action(menu, block, position, actor, now),
          {:ok, containers, inventory, orbs, learned, drops} <-
            ContainerClicks.apply(
@@ -3548,7 +3555,7 @@ defmodule Valimc.World.RegionData do
       ScheduledTicks.take_due(state.scheduled_ticks, tick, state.tickets.simulated)
 
     state = %{state | scheduled_ticks: scheduled}
-    state = state |> retry_rule_backlog() |> containers_changed()
+    state = state |> retry_rule_backlog() |> retry_dispense() |> containers_changed()
     read = &read_block(state, &1)
 
     # Fluid ticks run in the block rules after the block ticks (VMC-031a).
@@ -4065,6 +4072,626 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  @doc """
+  The section's hoppers for this tick (VMC-049a, `Valimc.World.Hoppers`), in
+  the chunks that simulate: their containers, the containers they reach and
+  the items they take change in this commit, together or not at all. Inserts
+  into a sibling section's containers go to it as a sibling effect, applied
+  before the group's next cut. While a plan holds the item store the hoppers
+  see no item entities.
+  """
+  def hoppers(state) do
+    hoppers =
+      for {{x, _, z} = position, %{kind: :hopper, order: order}} <- state.containers.entries,
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          do: {order, position}
+
+    if hoppers == [],
+      do: state,
+      else: run_hoppers(state, Enum.map(Enum.sort(hoppers), &elem(&1, 1)))
+  end
+
+  defp run_hoppers(state, hoppers) do
+    entries = state.containers.entries
+
+    result =
+      Valimc.World.Hoppers.tick(%{
+        tick: state.game_tick,
+        entries: entries,
+        foreign: hopper_foreign(state, hoppers),
+        block: &hopper_block(state, &1),
+        items: hopper_items(state, hoppers),
+        hoppers: hoppers,
+        ticked: state.hopper_ticked
+      })
+
+    ticked = Map.take(result.ticked, Map.keys(entries))
+
+    with {:ok, store} <- take_hopper_items(state.entities.store, result.items),
+         {:ok, containers, content} <- put_container_entries(state.containers, result.entries) do
+      inserts =
+        result.inserts
+        |> Enum.group_by(fn {{x, _, z}, _, _, _} -> Grid.region_key(Grid.chunk_key(x, z)) end)
+        |> Enum.map(fn {key, inserts} -> {key, {:hopper_inserts, inserts}} end)
+
+      state = %{
+        state
+        | containers: containers,
+          hopper_ticked: ticked,
+          sibling_effects: state.sibling_effects ++ inserts
+      }
+
+      state = if result.items == %{}, do: state, else: put_entities(state, store)
+      containers_moved(state, content)
+    else
+      _ ->
+        Valimc.Data.Metrics.add(:hopper_refused)
+        %{state | hopper_ticked: ticked}
+    end
+  end
+
+  # Dispensers and droppers whose tick fired (VMC-049a, `DispenserBlock.
+  # dispenseFrom`), in order; while a plan holds the item store they wait
+  # for the next block phase, so what they make or take is never lost.
+  defp dispense(state, []), do: state
+
+  defp dispense(state, cells) do
+    if planning?(state),
+      do: %{state | dispense_backlog: state.dispense_backlog ++ cells},
+      else: Enum.reduce(cells, state, &dispense_from(&2, &1))
+  end
+
+  defp retry_dispense(%{dispense_backlog: []} = state), do: state
+
+  defp retry_dispense(state) do
+    if planning?(state),
+      do: state,
+      else: dispense(%{state | dispense_backlog: []}, state.dispense_backlog)
+  end
+
+  defp dispense_from(state, position) do
+    block = read_block(state, position)
+    kind = Valimc.Blocks.Machine.kind(block)
+
+    case state.containers.entries[position] do
+      %{kind: ^kind, slots: slots} = entry when kind in [:dropper, :dispenser] ->
+        step = Valimc.Blocks.Machine.facing(block)
+
+        case Valimc.Blocks.Dispensing.random_slot(slots, &(:rand.uniform(&1) - 1)) do
+          nil ->
+            dispense_events(state, [{position, 1001, 0}])
+
+          slot when kind == :dropper ->
+            drop_into(state, position, entry, slot, step)
+
+          slot ->
+            stack = elem(slots, slot)
+            behaviour = Valimc.Blocks.Dispensing.behaviour(stack)
+            dispense_item(state, behaviour, position, entry, slot, step)
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  # `DropperBlock.dispenseFrom`: one item into the container in front (a
+  # sibling section's too), else dropped.
+  defp drop_into(state, {x, y, z} = position, entry, slot, {dx, dy, dz} = step) do
+    stack = elem(entry.slots, slot)
+    target = {x + dx, y + dy, z + dz}
+
+    side =
+      Map.fetch!(
+        %{
+          {0, 1, 0} => :down,
+          {0, -1, 0} => :up,
+          {0, 0, 1} => :north,
+          {0, 0, -1} => :south,
+          {1, 0, 0} => :west,
+          {-1, 0, 0} => :east
+        },
+        step
+      )
+
+    one = %{stack | count: 1}
+
+    case dropper_target(state, target) do
+      nil ->
+        dispense_item(state, :drop, position, entry, slot, step)
+
+      {:own, target_entry, target_block} ->
+        case Valimc.Blocks.ItemTransfer.add(target_entry, one, side, target_block) do
+          {next, nil, woke} ->
+            next =
+              if woke and match?(%{kind: :hopper}, next),
+                do: Valimc.Blocks.ItemTransfer.woken_cooldown(next, false),
+                else: next
+
+            entries =
+              state.containers.entries
+              |> Map.put(target, next)
+              |> Map.put(position, %{entry | slots: put_elem(entry.slots, slot, shrink(stack))})
+
+            commit_dispenser_entries(state, entries)
+
+          _ ->
+            state
+        end
+
+      {:sibling, key, target_entry, target_block} ->
+        case Valimc.Blocks.ItemTransfer.add(target_entry, one, side, target_block) do
+          {_next, nil, _woke} ->
+            entries =
+              Map.put(state.containers.entries, position, %{
+                entry
+                | slots: put_elem(entry.slots, slot, shrink(stack))
+              })
+
+            state = commit_dispenser_entries(state, entries)
+            effect = {key, {:hopper_inserts, [{target, one, side, nil}]}}
+            %{state | sibling_effects: state.sibling_effects ++ [effect]}
+
+          _ ->
+            state
+        end
+    end
+  end
+
+  defp dropper_target(state, {x, _, z} = target) do
+    block = hopper_block(state, target)
+    key = Grid.region_key(Grid.chunk_key(x, z))
+
+    entry =
+      if key == state.key,
+        do: state.containers.entries[target],
+        else: get_in(state.siblings, [key, :containers]) |> then(&(&1 && &1.entries[target]))
+
+    cond do
+      block == nil or entry == nil or not container_matches?(entry, block) -> nil
+      key == state.key -> {:own, entry, block}
+      true -> {:sibling, key, entry, block}
+    end
+  end
+
+  defp container_matches?(%{cooking: _, kind: kind}, block),
+    do: Valimc.Blocks.CookingBlocks.kind(block) == kind
+
+  defp container_matches?(%{rows: 3}, block), do: Valimc.Blocks.block_entity(block) == :chest
+
+  defp container_matches?(%{kind: kind, slots: _}, block),
+    do: Valimc.Blocks.Machine.kind(block) == kind
+
+  defp container_matches?(_, _), do: false
+
+  defp shrink(%{count: 1}), do: nil
+  defp shrink(stack), do: %{stack | count: stack.count - 1}
+
+  # A dispenser's behaviour for the stack in `slot` (`DispenseItemBehavior.
+  # dispense`): its effect, then its sound and smoke.
+  defp dispense_item(state, :drop, position, entry, slot, step) do
+    stack = elem(entry.slots, slot)
+    state = put_dispenser_slot(state, position, entry, slot, shrink(stack))
+
+    state
+    |> spawn_dispensed(position, step, %{stack | count: 1})
+    |> dispensed_events(position, step, 1000)
+  end
+
+  defp dispense_item(state, {:projectile, config}, position, entry, slot, step) do
+    stack = elem(entry.slots, slot)
+    body = Projectile.new(config.entity, nil, stack)
+
+    # `ArrowItem.asProjectile`: a dispensed arrow may be picked up.
+    body =
+      if config.entity == "minecraft:arrow",
+        do: %{body | data: %{body.data | pickup: :allowed}},
+        else: body
+
+    body = Projectile.shoot(body, step, config.power, config.uncertainty)
+    at = Valimc.Blocks.Dispensing.launch(position, step, config)
+    record = Store.body_record(body, :crypto.strong_rand_bytes(16), at)
+
+    state
+    |> put_dispenser_slot(position, entry, slot, shrink(stack))
+    |> adopt_dispensed([record])
+    |> dispensed_events(position, step, config.event)
+  end
+
+  defp dispense_item(state, :tnt, {x, y, z} = position, entry, slot, {dx, dy, dz} = step) do
+    if Valimc.World.GameRules.get(:tnt_explodes) do
+      target = {x + dx, y + dy, z + dz}
+      stack = elem(entry.slots, slot)
+      Valimc.World.Sounds.play(target, "minecraft:entity.tnt.primed", :block)
+
+      state
+      |> put_dispenser_slot(position, entry, slot, shrink(stack))
+      |> adopt_dispensed([Explosion.primed_record(target, 80)])
+      |> dispensed_events(position, step, 1000)
+    else
+      dispensed_events(state, position, step, 1001)
+    end
+  end
+
+  # A water or lava bucket pours in front (`BucketItem.emptyContents`, no
+  # player); one that cannot drops as an item instead.
+  defp dispense_item(
+         state,
+         {:pour, fluid},
+         {x, y, z} = position,
+         _entry,
+         slot,
+         {dx, dy, dz} = step
+       ) do
+    target = {x + dx, y + dy, z + dz}
+
+    case rule_run(state, %{actions: [{:empty, target, fluid, nil, false}]}) do
+      {state, %{results: [result]}} when result > 0 ->
+        entry = state.containers.entries[position]
+
+        state =
+          with_remainder(
+            state,
+            position,
+            entry,
+            slot,
+            Valimc.Protocol.ItemStack.new("bucket"),
+            step
+          )
+
+        dispensed_events(state, position, step, 1000)
+
+      {state, _} ->
+        entry = state.containers.entries[position]
+
+        state
+        |> dispense_item(:drop, position, entry, slot, step)
+        |> dispensed_events(position, step, 1000)
+    end
+  end
+
+  # An empty bucket fills from what is in front (`BucketPickup.pickupBlock`).
+  defp dispense_item(state, :fill, {x, y, z} = position, _entry, slot, {dx, dy, dz} = step) do
+    target = {x + dx, y + dy, z + dz}
+
+    case rule_run(state, %{actions: [{:pickup, target}]}) do
+      {state, %{results: [result]}} when result > 0 ->
+        filled = Valimc.Protocol.ItemStack.new(Valimc.Blocks.Fluids.pickup_item(result))
+        entry = state.containers.entries[position]
+        state = with_remainder(state, position, entry, slot, filled, step)
+        dispensed_events(state, position, step, 1000)
+
+      {state, _} ->
+        dispense_item(state, :drop, position, state.containers.entries[position], slot, step)
+    end
+  end
+
+  # Bone meal on what is in front (`BoneMealItem.growCrop`, else
+  # `growWaterPlant`): the generator's growth grows in a task; it fails on
+  # anything else.
+  defp dispense_item(state, :bone_meal, {x, y, z} = position, _entry, slot, {dx, dy, dz} = step) do
+    target = {x + dx, y + dy, z + dz}
+    block = read_block(state, target)
+    corals = Valimc.World.Growth.corals?(state.dimension, target)
+    action = {:bone_meal, target, nil, corals}
+
+    case rule_run(state, %{actions: [action]}) do
+      {state, %{results: [result]} = outcome} when result > 0 ->
+        Valimc.World.Growth.grow(state.dimension, [action], outcome)
+        entry = state.containers.entries[position]
+        stack = elem(entry.slots, slot)
+        state = put_dispenser_slot(state, position, entry, slot, shrink(stack))
+        state = if result == 3, do: pop_block_item(state, target, block), else: state
+        state |> dispense_events([{target, 1505, 15}]) |> dispensed_events(position, step, 1000)
+
+      {state, _} ->
+        dispensed_events(state, position, step, 1001)
+    end
+  end
+
+  # Armour and other dispensable equipment goes on the first mob in front
+  # that can wear it and picks up loot (`dispenseEquipment`); else it drops.
+  # Players in front are not dressed yet: it drops for them too.
+  defp dispense_item(state, :equipment, {x, y, z} = position, entry, slot, {dx, dy, dz} = step) do
+    stack = elem(entry.slots, slot)
+    cell = {x + dx, y + dy, z + dz}
+
+    name =
+      Valimc.Protocol.ItemTypes.item(stack.item_id)["name"]
+      |> String.replace_prefix("minecraft:", "")
+
+    case dressed(state.entities.store, cell, stack, name) do
+      {:ok, store} ->
+        state
+        |> put_dispenser_slot(position, entry, slot, shrink(stack))
+        |> put_entities(store)
+        |> dispensed_events(position, step, 1000)
+
+      :none ->
+        dispense_item(state, :drop, position, entry, slot, step)
+    end
+  end
+
+  defp dispense_item(state, :unsupported, position, _entry, _slot, step),
+    do: dispensed_events(state, position, step, 1001)
+
+  defp dressed(store, {cx, cy, cz}, stack, name) do
+    with {slot, types} <- Valimc.Data.HostileFacts.equippable(name),
+         {id, %{body: body}} <-
+           store.entries
+           |> Enum.sort()
+           |> Enum.find(fn {_, entry} ->
+             case {entry, Redstone.entity_box(entry)} do
+               {%{kind: :mob, body: %Body{mob: %{can_pick_up_loot: true} = mob} = body},
+                {{x0, y0, z0}, {x1, y1, z1}, _}} ->
+                 Body.alive?(body) and mob.equipment[slot] == nil and
+                   (types == nil or body.type in types) and x1 > cx and x0 < cx + 1 and
+                   y1 > cy and y0 < cy + 1 and z1 > cz and z0 < cz + 1
+
+               _ ->
+                 false
+             end
+           end) do
+      mob = body.mob
+      mob = %{mob | equipment: Map.put(mob.equipment, slot, %{stack | count: 1})}
+      mob = %{Valimc.Entity.Mob.put_drop_chance(mob, slot, 2.0) | persistent: true}
+      {:ok, Store.change_body(store, id, %{body | mob: mob})}
+    else
+      _ -> :none
+    end
+  end
+
+  # `consumeWithRemainder`: the stack shrinks; a last one becomes the
+  # remainder, else the remainder goes into the dispenser or drops.
+  defp with_remainder(state, position, entry, slot, remainder, step) do
+    stack = elem(entry.slots, slot)
+
+    case shrink(stack) do
+      nil ->
+        put_dispenser_slot(state, position, entry, slot, remainder)
+
+      left ->
+        slots = put_elem(entry.slots, slot, left)
+        {slots, rest} = Valimc.Blocks.Dispensing.insert(slots, remainder)
+        entries = Map.put(state.containers.entries, position, %{entry | slots: slots})
+        state = commit_dispenser_entries(state, entries)
+
+        if rest,
+          do:
+            state
+            |> spawn_dispensed(position, step, rest)
+            |> dispensed_events(position, step, 1000),
+          else: state
+    end
+  end
+
+  defp put_dispenser_slot(state, position, entry, slot, stack) do
+    entries =
+      Map.put(state.containers.entries, position, %{
+        entry
+        | slots: put_elem(entry.slots, slot, stack)
+      })
+
+    commit_dispenser_entries(state, entries)
+  end
+
+  defp commit_dispenser_entries(state, entries) do
+    case put_container_entries(state.containers, entries) do
+      {:ok, containers, content} -> containers_moved(%{state | containers: containers}, content)
+      {:error, _} -> state
+    end
+  end
+
+  # `spawnItem`: one item out of the front, with its random push.
+  defp spawn_dispensed(state, position, step, stack) do
+    {{x, y, z}, velocity} = Valimc.Blocks.Dispensing.drop(position, step, &:rand.uniform/0)
+
+    record = %{
+      uuid: :crypto.strong_rand_bytes(16),
+      x: x,
+      y: y,
+      z: z,
+      stack: stack,
+      motion: %Valimc.Entity.ItemMotionState{velocity: velocity, pickup_delay: 0}
+    }
+
+    adopt_dispensed(state, [record])
+  end
+
+  defp adopt_dispensed(state, records) do
+    if planning?(state),
+      do: %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}},
+      else: adopt_drops(state, records)
+  end
+
+  # Its sound (`event`) and its smoke toward its front (`playAnimation`).
+  defp dispensed_events(state, position, step, event),
+    do:
+      dispense_events(state, [
+        {position, event, 0},
+        {position, 2000, Valimc.Blocks.Dispensing.face(step)}
+      ])
+
+  defp dispense_events(state, events), do: release_effect(state, {:level_events, events})
+
+  # A sibling section's hoppers' inserts into this section's containers
+  # (VMC-049a); what no longer fits drops at the container, never lost.
+  defp hopper_inserts(state, inserts) do
+    {entries, spilled} =
+      Valimc.World.Hoppers.receive(
+        state.containers.entries,
+        inserts,
+        &hopper_block(state, &1),
+        state.hopper_ticked
+      )
+
+    {state, spilled} =
+      case put_container_entries(state.containers, entries) do
+        {:ok, containers, content} ->
+          {containers_moved(%{state | containers: containers}, content), spilled}
+
+        {:error, _} ->
+          {state, for({position, stack, _, _} <- inserts, do: {position, stack})}
+      end
+
+    records =
+      for {{x, y, z}, stack} <- spilled,
+          do: %{
+            uuid: :crypto.strong_rand_bytes(16),
+            x: x + 0.5,
+            y: y + 0.5,
+            z: z + 0.5,
+            stack: stack
+          }
+
+    cond do
+      records == [] ->
+        state
+
+      planning?(state) ->
+        %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}}
+
+      true ->
+        adopt_drops(state, records)
+    end
+  end
+
+  # The block at a position for the hoppers: this section's or a sibling's,
+  # nil where not generated or outside the group.
+  defp hopper_block(state, {x, y, z} = position) do
+    chunk = Grid.chunk_key(x, z)
+
+    case Grid.region_key(chunk) do
+      key when key == state.key ->
+        read_block(state, position)
+
+      key ->
+        with %{blocks: blocks, absent_set: absent} <- state.siblings[key],
+             false <- MapSet.member?(absent, chunk),
+             true <- Chunk.valid_y?(y),
+             do: Blocks.get(blocks, position),
+             else: (_ -> nil)
+    end
+  end
+
+  # The containers of sibling sections the hoppers face.
+  defp hopper_foreign(state, hoppers) do
+    for {x, y, z} = position <- hoppers,
+        block = read_block(state, position),
+        block != nil,
+        {dx, dy, dz} = Valimc.Blocks.Machine.facing(block),
+        target = {x + dx, y + dy, z + dz},
+        key = Grid.region_key(Grid.chunk_key(x + dx, z + dz)),
+        key != state.key,
+        %{containers: %{entries: %{^target => entry}}} <- [state.siblings[key]],
+        into: %{},
+        do: {target, entry}
+  end
+
+  # The items near the hoppers, in entity order, in chunks that simulate;
+  # none while a plan holds the store.
+  defp hopper_items(state, hoppers) do
+    if planning?(state) do
+      []
+    else
+      columns = MapSet.new(hoppers, fn {x, _, z} -> {x, z} end)
+      corners = [{-0.125, -0.125}, {-0.125, 0.125}, {0.125, -0.125}, {0.125, 0.125}]
+
+      near =
+        for {id, %{kind: :item, entity: %{x: x, y: y, z: z}, stack: stack}} <-
+              state.entities.store.entries,
+            Enum.any?(corners, fn {dx, dz} ->
+              MapSet.member?(columns, {floor(x + dx), floor(z + dz)})
+            end),
+            Tickets.simulated?(state.tickets, Grid.chunk_key(floor(x), floor(z))),
+            do: %{id: id, x: x, y: y, z: z, stack: stack}
+
+      Enum.sort_by(near, & &1.id)
+    end
+  end
+
+  # Items the hoppers took: what is left of each (nil: all of it).
+  defp take_hopper_items(store, taken) do
+    Enum.reduce_while(taken, {:ok, store}, fn {id, stack}, {:ok, store} ->
+      result =
+        case store.entries[id] do
+          %{kind: :item, revision: revision} when stack == nil ->
+            Store.remove(store, store.epoch, id, revision)
+
+          %{kind: :item, revision: revision} ->
+            with {:ok, next, _} <- Store.replace(store, store.epoch, id, revision, stack),
+                 do: {:ok, next}
+
+          _ ->
+            {:error, :missing_item}
+        end
+
+      case result do
+        {:ok, next} -> {:cont, {:ok, next}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # Container entries a tick moved items through, against the owner's: their
+  # slots under a new revision, a hopper's cooldown alone under the same.
+  # Returns the positions whose contents changed.
+  defp put_container_entries(containers, entries) do
+    Enum.reduce_while(entries, {:ok, containers, []}, fn {position, entry}, {:ok, acc, content} ->
+      old = acc.entries[position]
+
+      result =
+        cond do
+          entry == old ->
+            {:ok, acc, content}
+
+          match?(%{cooking: _}, entry) ->
+            with {:ok, next, _} <-
+                   Containers.replace_cooking(
+                     acc,
+                     position,
+                     old.revision,
+                     entry.cooking,
+                     entry.recipes
+                   ),
+                 do: {:ok, next, [position | content]}
+
+          entry.slots != old.slots ->
+            with {:ok, next, replaced} <-
+                   Containers.replace(acc, position, old.revision, entry.slots),
+                 {:ok, next} <- put_cooldown(next, position, replaced.revision, entry),
+                 do: {:ok, next, [position | content]}
+
+          true ->
+            with {:ok, next} <- put_cooldown(acc, position, old.revision, entry),
+                 do: {:ok, next, content}
+        end
+
+      case result do
+        {:ok, _, _} = ok -> {:cont, ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp put_cooldown(containers, position, revision, %{cooldown: cooldown}),
+    do: Containers.put_cooldown(containers, position, revision, cooldown)
+
+  defp put_cooldown(containers, _position, _revision, _entry), do: {:ok, containers}
+
+  # Viewers and permits learn of containers whose contents moved.
+  defp containers_moved(state, []), do: state
+
+  defp containers_moved(state, content) do
+    state = %{
+      state
+      | permits:
+          Permits.invalidate(state.permits, Map.new(content, &{&1, nil}), [:mining, :placement])
+    }
+
+    release_now(state, Enum.map(Enum.reverse(content), &{:container_changed, &1}))
+  end
+
   # Moving blocks' pushes (VMC-048b) on the entities this section holds, its
   # sibling sections' and the group's players near them (each owner pushes
   # its own, as `moveCollidedEntities` and `moveStuckEntities` do).
@@ -4250,6 +4877,7 @@ defmodule Valimc.World.RegionData do
       fluid_ticks: [],
       events: [],
       primed: [],
+      dispensed: [],
       outputs: [],
       pistons: [],
       hidden: []
@@ -4262,6 +4890,7 @@ defmodule Valimc.World.RegionData do
       fluid_ticks: outcome.fluid_ticks,
       events: outcome.events,
       primed: for(cell <- outcome.primed, do: {cell}),
+      dispensed: for(cell <- outcome.dispensed, do: {cell}),
       outputs: outcome.outputs,
       pistons: outcome.pistons,
       hidden: for(cell <- outcome.hidden, do: {cell})
@@ -4310,6 +4939,9 @@ defmodule Valimc.World.RegionData do
 
   # A sibling's projectile hits a body here (VMC-037o).
   def apply_sibling(state, {:hurt, uuid, hit}), do: elem(hurt_entity(state, uuid, hit), 1)
+
+  # A sibling's hoppers' inserts into this section's containers (VMC-049a).
+  def apply_sibling(state, {:hopper_inserts, inserts}), do: hopper_inserts(state, inserts)
 
   # A sibling's explosion reaches this section's entities (VMC-050a).
   def apply_sibling(state, {:explosion, explosion}) do
@@ -4596,6 +5228,7 @@ defmodule Valimc.World.RegionData do
     |> rule_events(part.events)
     |> prime_tnt(for({cell} <- Map.get(part, :primed, []), do: cell))
     |> put_outputs(Map.get(part, :outputs, []))
+    |> dispense(for({cell} <- Map.get(part, :dispensed, []), do: cell))
   end
 
   # Moving pistons' block entities the rules changed (VMC-048b): nil for one
@@ -5359,12 +5992,31 @@ defmodule Valimc.World.RegionData do
     with nil <- write_busy(state),
          block = Blocks.get(state.blocks, position),
          false <- LootChests.unrolled?(state.containers, state.block_entities, position, block),
+         # A preserved machine (a generated one's loot) stays preserved.
+         false <-
+           Valimc.Blocks.Machine.kind(block) != nil and
+             BlockEntities.live(state.block_entities, position, block) != nil,
          {:ok, containers} <-
            ContainerLifecycle.ensure(state.containers, state.key, position, block) do
       %{state | containers: containers}
     else
       _ -> state
     end
+  end
+
+  # A container block set without a container plan (a command, a raw set)
+  # gets its empty entry, as vanilla's block entity comes with the block
+  # (VMC-049a: a hopper reaches it at once); a preserved one stays preserved.
+  defp ensure_containers(containers, state, changes) do
+    Enum.reduce(changes, containers, fn {position, block}, acc ->
+      with true <- Valimc.Blocks.block_entity(block) != nil,
+           nil <- BlockEntities.live(state.block_entities, position, block),
+           {:ok, next} <- ContainerLifecycle.ensure(acc, state.key, position, block) do
+        next
+      else
+        _ -> acc
+      end
+    end)
   end
 
   defp unpack_to_break(state, position, block) do
@@ -5456,12 +6108,15 @@ defmodule Valimc.World.RegionData do
                    Valimc.Blocks.CookingBlocks.kind(original) == entry.kind and
                    Valimc.Blocks.CookingBlocks.kind(block) != entry.kind)
 
+        # A chest's or a machine's state that keeps its container (a hopper's
+        # `enabled`, a dispenser's `triggered`) keeps its entry; one that
+        # ends it with contents must spill them in the same commit.
         %{slots: slots} = entry ->
-          block != Blocks.get(state.blocks, position) and
-            Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
-            not (retired[position] == entry and
-                   Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) and
-                   not Valimc.Blocks.Chest.single?(block))
+          original = Blocks.get(state.blocks, position)
+
+          block != original and Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
+            Valimc.Blocks.block_entity(block) != Valimc.Blocks.block_entity(original) and
+            retired[position] != entry
 
         nil ->
           false
@@ -5484,7 +6139,10 @@ defmodule Valimc.World.RegionData do
 
     state = %{
       state
-      | containers: ContainerLifecycle.retire_replaced(state.containers, proposal.changes)
+      | containers:
+          state.containers
+          |> ContainerLifecycle.retire_replaced(proposal.changes)
+          |> ensure_containers(state, proposal.changes)
     }
 
     chunks =
@@ -5937,6 +6595,19 @@ defmodule Valimc.World.RegionData do
             preserved_use?(state, position, block) ->
               Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
+            # Hoppers, droppers and dispensers (VMC-049a).
+            Valimc.Blocks.Machine.kind(block) != nil or
+                (is_map(grant) and grant[:menu] in [:hopper, :dispenser]) ->
+              Valimc.Menus.MenuAccess.authorize(
+                Valimc.Menus.MenuAccess.menu(block) || grant[:menu],
+                block,
+                state.containers.entries[position],
+                nil,
+                position,
+                grant,
+                now
+              )
+
             true ->
               Valimc.Menus.MenuAccess.authorize(:table, block, nil, nil, position, grant, now)
           end
@@ -5960,8 +6631,9 @@ defmodule Valimc.World.RegionData do
         _ -> decision
       end
 
-    if is_map(grant) and grant[:menu] in [:chest, :cooking] and
-         (decision == :valid or match?({kind, _, _} when kind in [:chest, :cooking], decision)) do
+    if is_map(grant) and grant[:menu] in Valimc.Menus.MenuAccess.containers() and
+         (decision == :valid or
+            match?({kind, _, _} when kind in [:chest, :cooking, :hopper, :dispenser], decision)) do
       ref = grant[:view_ref]
       view = state.container_viewers.views[connection]
       opener = grant.menu == :chest and grant.mode != :spectator

@@ -107,7 +107,8 @@ defmodule Valimc.World.BlockRules do
   drops?, effects?}], ticks: [{position, block, delay, priority}], fluid_ticks:
   [{position, fluid, delay}], events: [{position, type, data}], results:
   [integer], sounds: [{{x, y, z}, sound, volume, pitch, actor?}],
-  block_events: [{position, block, b0, b1}], primed: [position], toggles:
+  block_events: [{position, block, b0, b1}], primed: [position], dispensed:
+  [position] (dispensers and droppers whose tick fired, VMC-049a), toggles:
   [{position, when}], outputs: [{position, output}], stopped: n, skipped:
   n, updates: n}` (`priority` a `TickPriority`, -3..3; `outputs` the
   comparators' outputs the run changed, nil for one gone; `effects?`: it
@@ -144,7 +145,7 @@ defmodule Valimc.World.BlockRules do
 
     {:ok,
      {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates},
-      {sounds, block_events, primed, toggles, outputs},
+      {sounds, block_events, primed, toggles, outputs, dispensed},
       {kept, gone, pending, executed, pushes, hidden}}} =
       case Native.dispatch(:block_updates, units, args) do
         # A cascade past the normal scheduler's budget runs again, dirty.
@@ -191,6 +192,7 @@ defmodule Valimc.World.BlockRules do
           do: {{x, y, z}, block, b0, b1}
         ),
       primed: for(<<x::32-signed, y::32-signed, z::32-signed <- primed>>, do: {x, y, z}),
+      dispensed: for(<<x::32-signed, y::32-signed, z::32-signed <- dispensed>>, do: {x, y, z}),
       toggles:
         for(
           <<x::32-signed, y::32-signed, z::32-signed, at::64-signed <- toggles>>,

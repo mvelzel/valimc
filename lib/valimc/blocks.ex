@@ -13,6 +13,7 @@ defmodule Valimc.Blocks do
     Furnace,
     Coral,
     Default,
+    Machine,
     NetherPortal
   }
 
@@ -31,7 +32,10 @@ defmodule Valimc.Blocks do
     "SandBlock" => FallingBlock,
     "ConcretePowderBlock" => FallingBlock,
     "AnvilBlock" => FallingBlock,
-    "DragonEggBlock" => FallingBlock
+    "DragonEggBlock" => FallingBlock,
+    "HopperBlock" => Machine,
+    "DispenserBlock" => Machine,
+    "DropperBlock" => Machine
   }
   @modules List.to_tuple([Default | Enum.uniq(Enum.sort(Map.values(@classes)))])
   @module_index @modules |> Tuple.to_list() |> Enum.with_index() |> Map.new()
@@ -44,7 +48,8 @@ defmodule Valimc.Blocks do
             )
             |> IO.iodata_to_binary()
 
-  # Owned block entities must stay exactly the generated chest and furnace states.
+  # Owned block entities must stay exactly the generated chest, furnace and
+  # machine (hopper, dropper, dispenser) states.
   unless Enum.all?(Map.keys(@classes), &Map.has_key?(Blocks.classes(), &1)) and
            byte_size(@by_state) == @count and
            Enum.all?(Valimc.Blocks.Chest.single_states(), fn state ->
@@ -53,6 +58,9 @@ defmodule Valimc.Blocks do
            Enum.all?(0..(@count - 1), fn state ->
              CookingBlocks.kind(state) == nil or
                elem(@modules, :binary.at(@by_state, state)) == Furnace
+           end) and
+           Enum.all?(0..(@count - 1), fn state ->
+             Machine.kind(state) == nil or elem(@modules, :binary.at(@by_state, state)) == Machine
            end),
          do: raise("Block behaviour classes do not cover the owned block entities")
 
@@ -90,7 +98,7 @@ defmodule Valimc.Blocks do
   def behaviour(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@modules, :binary.at(@by_state, state))
 
-  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`) or nil; any term is accepted."
+  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`, `:hopper`, `:dropper`, `:dispenser`) or nil; any term is accepted."
   def block_entity(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@entity_kinds, :binary.at(@entities, state))
 

@@ -46,6 +46,8 @@ const HIGH: i32 = -1;
 const NORMAL: i32 = 0;
 const COMPARATOR_DELAY: i32 = 2;
 const OBSERVER_DELAY: i32 = 2;
+/// `DispenserBlock.TRIGGER_DURATION`.
+const DISPENSER_DELAY: i32 = 4;
 
 /// An entity a contact or a check sees: its box and kind.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -313,9 +315,50 @@ impl<W: World> Engine<'_, W> {
             Kind::Repeater | Kind::Comparator => self.diode_neighbor_changed(pos, state, kind),
             Kind::Observer => {}
             Kind::Piston { .. } => self.check_if_extend(pos, state),
+            Kind::Hopper => self.check_hopper_power(pos, state),
+            Kind::Dispenser { .. } => {
+                let Some(signal) = self
+                    .decide(|e| e.has_neighbor_signal(pos) || e.has_neighbor_signal(at(pos, UP)))
+                else {
+                    return true;
+                };
+                let triggered = flag(&table, state, "triggered");
+                if signal && !triggered {
+                    self.world.schedule_block_tick(pos, block, DISPENSER_DELAY);
+                    self.set_block(
+                        pos,
+                        set(&table, state, "triggered", true),
+                        CLIENTS,
+                        UPDATE_LIMIT,
+                    );
+                } else if !signal && triggered {
+                    self.set_block(
+                        pos,
+                        set(&table, state, "triggered", false),
+                        CLIENTS,
+                        UPDATE_LIMIT,
+                    );
+                }
+            }
             _ => return false,
         }
         true
+    }
+
+    /// `HopperBlock.checkPoweredState`: power disables it.
+    fn check_hopper_power(&mut self, pos: [i32; 3], state: u16) {
+        let table = self.rules.table.clone();
+        let Some(powered) = self.decide(|e| e.has_neighbor_signal(pos)) else {
+            return;
+        };
+        if flag(&table, state, "enabled") == powered {
+            self.set_block(
+                pos,
+                set(&table, state, "enabled", !powered),
+                CLIENTS,
+                UPDATE_LIMIT,
+            );
+        }
     }
 
     /// A component's scheduled tick; whether it is one.
@@ -389,6 +432,9 @@ impl<W: World> Engine<'_, W> {
             Kind::Repeater => self.repeater_tick(pos, state),
             Kind::Comparator => self.comparator_refresh(pos, state),
             Kind::Observer => self.observer_tick(pos, state),
+            // `DispenserBlock.tick` (`dispenseFrom`): the owner dispenses, from
+            // its block entity.
+            Kind::Dispenser { .. } => self.report.dispensed.push(pos),
             _ => return false,
         }
         true
@@ -432,6 +478,7 @@ impl<W: World> Engine<'_, W> {
                 }
             }
             Kind::Tripwire => self.update_source(pos, state),
+            Kind::Hopper => self.check_hopper_power(pos, state),
             _ => {}
         }
     }

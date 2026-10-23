@@ -512,6 +512,19 @@ defmodule Valimc.Storage.Anvil.Import do
     end
   end
 
+  defp own(key, position, {:machine, entry}, containers) do
+    with {:ok, containers, created} <-
+           Containers.create_machine(containers, key, position, entry.kind),
+         {:ok, containers, replaced} <-
+           Containers.replace(containers, position, created.revision, entry.slots),
+         {:ok, containers} <-
+           Containers.put_cooldown(containers, position, replaced.revision, entry.cooldown) do
+      {:ok, containers}
+    else
+      _ -> :preserve
+    end
+  end
+
   defp own(_key, _position, {:preserved, _}, _containers), do: :preserve
 
   defp bump(counts, key), do: Map.update(counts, key, 1, &(&1 + 1))

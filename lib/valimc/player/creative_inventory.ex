@@ -104,6 +104,9 @@ defmodule Valimc.Player.CreativeInventory do
         %{kind: :cooking, id: id, view: view} ->
           Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory)
 
+        %{kind: kind, id: id, view: view} when kind in [:hopper, :dispenser] ->
+          Valimc.Menus.Packets.machine_inventory(id, view.kind, view.slots, inventory)
+
         %{id: id} ->
           Valimc.Menus.Packets.table_inventory(id, inventory)
 
@@ -136,6 +139,8 @@ defmodule Valimc.Player.CreativeInventory do
       case state.table_menu do
         %{kind: :chest, view: view} -> view.rows * 9 + 36
         %{kind: :cooking} -> 39
+        %{kind: :hopper} -> 41
+        %{kind: :dispenser} -> 45
         _ -> 46
       end
 

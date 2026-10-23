@@ -1,5 +1,5 @@
 defmodule Valimc.World.ContainerLifecycle do
-  @moduledoc "Pure owner-local chest and empty cooking-block metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
+  @moduledoc "Pure owner-local chest, empty cooking-block and machine (hopper, dropper, dispenser) metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
@@ -60,6 +60,20 @@ defmodule Valimc.World.ContainerLifecycle do
         {original, _} when original in [:furnace, :smoker, :blast_furnace] ->
           {:halt, {:error, :missing_or_invalid_cooking_entry}}
 
+        {original, %{kind: original, slots: _} = entry}
+        when original in [:hopper, :dropper, :dispenser] ->
+          if kind(replacement) == original,
+            do: {:cont, {:ok, current, removed}},
+            else: retire_entry(current, position, entry, removed)
+
+        # A machine without an entry (a generated one with loot, preserved)
+        # retires nothing.
+        {original, nil} when original in [:hopper, :dropper, :dispenser] ->
+          {:cont, {:ok, current, removed}}
+
+        {original, _} when original in [:hopper, :dropper, :dispenser] ->
+          {:halt, {:error, :missing_or_invalid_machine}}
+
         {nil, nil} ->
           {:cont, {:ok, current, removed}}
 
@@ -82,9 +96,11 @@ defmodule Valimc.World.ContainerLifecycle do
 
       if next_kind != nil and next_kind != kind(expected[position]) do
         result =
-          if next_kind == :chest,
-            do: Containers.create(current, key, position, 3),
-            else: Containers.create_cooking(current, key, position, next_kind)
+          cond do
+            next_kind == :chest -> Containers.create(current, key, position, 3)
+            machine?(next_kind) -> Containers.create_machine(current, key, position, next_kind)
+            true -> Containers.create_cooking(current, key, position, next_kind)
+          end
 
         case result do
           {:ok, next, _} -> {:cont, {:ok, next}}
@@ -117,7 +133,7 @@ defmodule Valimc.World.ContainerLifecycle do
   end
 
   @doc """
-  The empty entry a single chest or cooking block at `position` lacks, as
+  The empty entry a single chest, cooking block or machine at `position` lacks, as
   vanilla's block entity exists with the block however it was set
   (`EntityBlock.newBlockEntity`): `{:ok, containers}`, or `:none` when the
   state holds no container or its entry exists.
@@ -134,6 +150,9 @@ defmodule Valimc.World.ContainerLifecycle do
         cooking = Valimc.Blocks.CookingBlocks.kind(state) ->
           Containers.create_cooking(containers, key, position, cooking)
 
+        machine = Valimc.Blocks.Machine.kind(state) ->
+          Containers.create_machine(containers, key, position, machine)
+
         true ->
           :none
       end
@@ -145,7 +164,10 @@ defmodule Valimc.World.ContainerLifecycle do
   end
 
   defp entry_kind(%{cooking: _, kind: kind}), do: kind
+  defp entry_kind(%{slots: _, kind: kind}), do: kind
   defp entry_kind(_chest), do: :chest
+
+  defp machine?(kind), do: kind in [:hopper, :dropper, :dispenser]
 
   defp kind(state), do: Valimc.Blocks.block_entity(state)
 
