@@ -6639,6 +6639,20 @@
           ],
           "period": 24000
         },
+        "turtle_egg_hatch_chance": {
+          "ease": "constant",
+          "keyframes": [
+            [
+              21062,
+              1.0
+            ],
+            [
+              21905,
+              0.0020000000949949026
+            ]
+          ],
+          "period": 24000
+        },
         "surface_slime_spawn_chance": {
           "ease": "constant",
           "keyframes": [
@@ -6708,6 +6722,20 @@
             [
               22330,
               0.2666666805744171
+            ]
+          ],
+          "period": 24000
+        },
+        "turtle_egg_hatch_chance": {
+          "ease": "constant",
+          "keyframes": [
+            [
+              21062,
+              1.0
+            ],
+            [
+              21905,
+              0.0020000000949949026
             ]
           ],
           "period": 24000

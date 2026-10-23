@@ -368,6 +368,17 @@ defmodule Valimc.World.Region do
     :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
+  @doc """
+  Turtle eggs at `cell` crushed by a player (`TurtleEggBlock.destroyEgg`, one
+  chance in `odds`, VMC-043e): `:ok` (also when nothing broke).
+  """
+  def crush_egg({pid, epoch}, cell, odds) when is_pid(pid) and is_reference(epoch) do
+    call(pid, {:crush_egg, epoch, cell, odds}, budget(pid, 1000))
+  catch
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
+  end
+
   @doc "One fresh creative destruction through the owner, including its owned metadata journal."
   def destroy_block({pid, epoch}, revision, position, deadline) do
     call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))

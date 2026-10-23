@@ -68,7 +68,7 @@ public class MobAiOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
-      "minecraft:bat", "minecraft:dolphin",
+      "minecraft:bat", "minecraft:dolphin", "minecraft:turtle",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems (cases in VillageOracle).
@@ -116,6 +116,10 @@ public class MobAiOracle {
       "minecraft:entity.dolphin.ambient", "minecraft:entity.dolphin.ambient_water", "minecraft:entity.dolphin.jump",
       "minecraft:entity.dolphin.play", "minecraft:entity.dolphin.attack", "minecraft:entity.dolphin.eat",
       "minecraft:entity.dolphin.swim", "minecraft:entity.dolphin.splash",
+      // A turtle's.
+      "minecraft:entity.turtle.ambient_land", "minecraft:entity.turtle.swim", "minecraft:entity.turtle.shamble",
+      "minecraft:entity.turtle.shamble_baby", "minecraft:entity.turtle.lay_egg", "minecraft:entity.turtle.hurt",
+      "minecraft:entity.turtle.hurt_baby", "minecraft:entity.turtle.death", "minecraft:entity.turtle.death_baby",
       // Swimming (`getSwimSound`).
       "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
@@ -330,6 +334,12 @@ public class MobAiOracle {
     public boolean setBlock(BlockPos p, BlockState state, int flags, int recursion) {
       var old = getBlockState(p);
       blocks.put(p.immutable(), state);
+      // One a mob sets is recorded as its (a turtle's eggs, VMC-043e).
+      if (current != null) {
+        var o = new JsonObject(); var a = new JsonArray(); a.add(p.getX()); a.add(p.getY()); a.add(p.getZ());
+        o.add("block", a); o.addProperty("state", net.minecraft.world.level.block.Block.getId(state));
+        sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
+      }
       if (poi != null) {
         var was = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(old);
         var now = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(state);
@@ -408,6 +418,8 @@ public class MobAiOracle {
     public void playSeededSound(Entity e, double x, double y, double z, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) {
       Entity at = null;
       for (var m : entities) if (m.getX() == x && m.getY() == y && m.getZ() == z) at = m;
+      // A turtle's sound at its block (laying, VMC-043e) is its own.
+      if (at == null && current instanceof net.minecraft.world.entity.animal.turtle.Turtle) at = current;
       sound(at, s, v, p);
     }
     public void playSeededSound(Entity e, Entity t, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) { sound(t, s, v, p); }
@@ -868,6 +880,12 @@ public class MobAiOracle {
         var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
         attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
       }
+      if (m instanceof net.minecraft.world.entity.animal.turtle.Turtle t) {
+        if (s.data.containsKey("turtle_home")) { var h = (int[])s.data.get("turtle_home"); t.setHomePos(new BlockPos(h[0], h[1], h[2])); }
+        if (Boolean.TRUE.equals(s.data.get("has_egg"))) {
+          var set = net.minecraft.world.entity.animal.turtle.Turtle.class.getDeclaredMethod("setHasEgg", boolean.class); set.setAccessible(true); set.invoke(t, true);
+        }
+      }
       if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
         if (s.data.containsKey("air")) d.setAirSupply((Integer)s.data.get("air"));
         if (s.data.containsKey("moistness")) d.setMoisntessLevel((Integer)s.data.get("moistness"));
@@ -1069,6 +1087,16 @@ public class MobAiOracle {
       var held = d.getItemBySlot(EquipmentSlot.MAINHAND);
       o.addProperty("mainhand", held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString());
     }
+    if (m instanceof net.minecraft.world.entity.animal.turtle.Turtle t) {
+      var c = net.minecraft.world.entity.animal.turtle.Turtle.class;
+      o.addProperty("has_egg", t.hasEgg()); o.addProperty("laying_egg", t.isLayingEgg());
+      var home = t.getHomePos(); var h = new JsonArray(); h.add(home.getX()); h.add(home.getY()); h.add(home.getZ()); o.add("turtle_home", h);
+      o.addProperty("going_home", field(c, "goingHome").getBoolean(t));
+      var travel = (BlockPos)field(c, "travelPos").get(t);
+      if (travel != null) { var a = new JsonArray(); a.add(travel.getX()); a.add(travel.getY()); a.add(travel.getZ()); o.add("travel", a); }
+      o.addProperty("lay", field(c, "layEggCounter").getInt(t));
+      o.addProperty("age", t.getAge()); o.addProperty("in_love", t.getInLoveTime());
+    }
     if (m instanceof net.minecraft.world.entity.ambient.Bat b) {
       o.addProperty("resting", b.isResting());
       var t = (BlockPos)field(net.minecraft.world.entity.ambient.Bat.class, "targetPosition").get(b);
@@ -1249,6 +1277,19 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(4.5, 60, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
     cases.add(run(level, "dolphin_with_player", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 115L)),
       List.of(new Stand(new Vec3(5.5, 60, .5), "survival:swimming", null)), List.of(), 200));
+    // VMC-043e: turtles on a beach by the sea. One wanders the sand and takes
+    // to the water, one swims off on its travels, one hit runs for the water,
+    // one carrying an egg goes home and lays it.
+    var sand = Blocks.SAND.defaultBlockState();
+    var beach = scene(floor(62, 12, sand), box(-12, 55, -12, 12, 55, 12, stone), box(-12, 56, -12, -2, 62, 12, water));
+    cases.add(run(level, "turtle_beach", beach, List.of(new Spawn("minecraft:turtle", new Vec3(6.5, 63, .5), 0, 121L, Map.of("turtle_home", new int[] {6, 63, 0}))),
+      List.of(new Stand(new Vec3(11.5, 63, 11.5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "turtle_swim", beach, List.of(new Spawn("minecraft:turtle", new Vec3(-6.5, 59, .5), 0, 122L, Map.of("turtle_home", new int[] {6, 63, 0}))),
+      List.of(new Stand(new Vec3(11.5, 63, 11.5), "creative", null)), List.of(), 300));
+    cases.add(run(level, "turtle_panic", beach, List.of(new Spawn("minecraft:turtle", new Vec3(2.5, 63, .5), 0, 123L, Map.of("turtle_home", new int[] {2, 63, 0}))),
+      List.of(new Stand(new Vec3(5.5, 63, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 150));
+    cases.add(run(level, "turtle_lay", beach, List.of(new Spawn("minecraft:turtle", new Vec3(4.5, 63, 2.5), 0, 124L,
+      Map.of("turtle_home", new int[] {6, 63, 0}, "has_egg", true))), List.of(new Stand(new Vec3(11.5, 63, 11.5), "creative", null)), List.of(), 400));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -1457,7 +1498,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians; bats; dolphins).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians; bats; dolphins; turtles).");
       return;
     }
     if (args[0].equals("paths")) {

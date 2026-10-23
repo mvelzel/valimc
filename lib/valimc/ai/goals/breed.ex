@@ -3,14 +3,23 @@ defmodule Valimc.AI.Goals.Breed do
   `BreedGoal`: in love, the nearest mob of its type within eight blocks also
   in love and not panicking is walked to and looked at; after 60 ticks
   (30 updates) within three blocks they breed (`Valimc.Entity.Animal.breed/2`:
-  a child, an orb, both parents' age and love).
+  a child, an orb, both parents' age and love). `guard` keeps it from
+  starting (a turtle with an egg) and `breed` breeds its own way (a
+  turtle's egg).
   """
   use Valimc.AI.Goal
 
-  def new(speed), do: %{speed: speed * 1.0, partner: nil, love: 0}
+  def new(speed, opts \\ []),
+    do: %{
+      speed: speed * 1.0,
+      partner: nil,
+      love: 0,
+      guard: Keyword.get(opts, :guard, fn _ -> true end),
+      breed: Keyword.get(opts, :breed, &Valimc.Entity.Animal.breed/2)
+    }
 
   def can_use(state, self) do
-    if self.data.in_love > 0 do
+    if self.data.in_love > 0 and state.guard.(self) do
       {partner, self} = partner(self)
       {partner != nil, %{state | partner: World.ref(partner)}, self}
     else
@@ -65,7 +74,7 @@ defmodule Valimc.AI.Goals.Breed do
 
         self =
           if love >= adjusted(state, 60) and World.distance_sq(self, partner) < 9.0,
-            do: Valimc.Entity.Animal.breed(self, partner),
+            do: state.breed.(self, partner),
             else: self
 
         {%{state | love: love}, self}

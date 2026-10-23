@@ -37,6 +37,9 @@ defmodule Valimc.AI.World do
   alias Valimc.Physics.Clip
 
   defstruct read: nil,
+            # Whether a chunk is loaded (`hasChunk`, `fn {cx, cz} -> bool`), nil:
+            # where `read` reads (VMC-043e: a turtle's travel).
+            chunks: nil,
             find: nil,
             time: 0,
             players: [],
@@ -137,6 +140,12 @@ defmodule Valimc.AI.World do
   @doc "The state at `position` (nil where it cannot be read)."
   def block(%__MODULE__{read: read}, position), do: read.(position)
 
+  @doc "`hasChunk(cx, cz)` (at height `y` where the world reads blocks)."
+  def chunk?(%__MODULE__{chunks: nil} = world, {cx, cz}, y),
+    do: block(world, {cx * 16, y, cz * 16}) != nil
+
+  def chunk?(%__MODULE__{chunks: chunks}, chunk, _y), do: chunks.(chunk)
+
   @doc "The blocks of `states` (a set) in an inclusive box: `[{position, state}]`."
   def find(%__MODULE__{find: nil}, _box, _states), do: []
   def find(%__MODULE__{find: find}, box, states), do: find.(box, states)
@@ -163,6 +172,40 @@ defmodule Valimc.AI.World do
   @doc "`BlockState.isSolid` (legacy solidity)."
   def solid?(world, position),
     do: (state = block(world, position)) != nil and BlockFacts.flag?(state, :solid)
+
+  @doc "Whether the block at `position` has a collision shape (unreadable: yes)."
+  def collides?(world, position) do
+    case block(world, position) do
+      nil ->
+        true
+
+      state ->
+        {x, y, z} = position
+        cell = {x * 1.0, y * 1.0, z * 1.0, x + 1.0, y + 1.0, z + 1.0}
+        context = Valimc.Physics.CollisionContext.empty()
+        Valimc.Physics.Kernel.obstructs?(state, position, context, [cell])
+    end
+  end
+
+  @doc """
+  `BlockPos.manhattanOrdered` from `origin` within `rx`, `ry`, `rz` up to the
+  sum (`withinBoxByManhattanDistance`): nearest first, x then y, z and its
+  mirror.
+  """
+  def manhattan({ox, oy, oz}, rx, ry, rz) do
+    for depth <- 0..(rx + ry + rz),
+        x <- -min(rx, depth)..min(rx, depth)//1,
+        max_y = min(ry, depth - abs(x)),
+        y <- -max_y..max_y//1,
+        z = depth - abs(x) - abs(y),
+        z <= rz,
+        p <-
+          if(z != 0,
+            do: [{ox + x, oy + y, oz + z}, {ox + x, oy + y, oz - z}],
+            else: [{ox + x, oy + y, oz}]
+          ),
+        do: p
+  end
 
   @doc "`BlockState.isRedstoneConductor`."
   def conductor?(world, position),

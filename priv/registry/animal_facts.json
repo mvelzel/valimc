@@ -116,6 +116,21 @@
         "minecraft:cod",
         "minecraft:salmon"
       ]
+    },
+    "minecraft:turtle": {
+      "adult": [
+        1067030938,
+        1053609165,
+        1051595899
+      ],
+      "baby": [
+        1052266988,
+        1039516304,
+        1037100385
+      ],
+      "food": [
+        "minecraft:seagrass"
+      ]
     }
   },
   "monsters": [

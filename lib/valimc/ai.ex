@@ -851,14 +851,14 @@ defmodule Valimc.AI do
   (`Valimc.AI.Kind`). `{body, position, effects, world}`: a family may
   teleport it.
   """
-  def settle(mob, body, position, world, swim \\ nil)
+  def settle(mob, body, position, world, moves \\ nil)
 
   def settle(
         {id, %{entity: e}},
         %Body{mob: %Mob{ai: %Mind{} = mind} = mob} = body,
         {x, y, z},
         world,
-        swim
+        moves
       ) do
     alive = Mob.alive?(mob)
 
@@ -890,18 +890,22 @@ defmodule Valimc.AI do
       # The swim sound its move made, then a family's `aiStep` after its
       # super with `Mob.aiStep`'s looting (VMC-043b), the body control, its
       # `tick` after its super (`Valimc.AI.Kind`); a dying mob's own only.
+      # What its move made: swim sounds, a step (its family's step sound).
+      %{swims: swims, step: step} = moves || %{swims: [], step: false}
+      self = swim(self, swims)
+      self = if step, do: hook(self, :step_sound), else: self
+
       self =
         if alive,
           do:
             self
-            |> swim(swim)
             |> hook(:after_ai)
             |> Valimc.AI.Pickup.tick()
             |> Look.body(mind.snapped || {e.x, e.z})
             |> Self.mind(&%{&1 | snapped: nil})
             |> hook(:after_tick)
             |> Valimc.AI.Leash.control_flags(),
-          else: self |> swim(swim) |> hook(:after_ai) |> hook(:after_tick)
+          else: self |> hook(:after_ai) |> hook(:after_tick)
 
       self =
         case alive && mind.brain do
@@ -930,7 +934,7 @@ defmodule Valimc.AI do
   defp dying?(type), do: Mobs.hook(type, :dying?, [], false)
 
   # `playSwimSound(volume)`: its pitch from the mob's random (a goal's own
-  # move's first).
+  # move's first), louder for a family that scales it (a turtle's).
   defp swim(self, volumes) when is_list(volumes), do: Enum.reduce(volumes, self, &swim(&2, &1))
   defp swim(self, nil), do: self
 
@@ -942,6 +946,7 @@ defmodule Valimc.AI do
       pitch = f.(1.0 + f.(f.(a - b) * f.(0.4)))
       <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
       name = Mobs.hook(type, :swim_sound, [], default_swim(type))
+      volume = Valimc.Data.Float32.round(volume * Mobs.hook(type, :swim_volume, [], 1.0))
       Self.effect(self, {:sound, Facts.sound_id(name), source(type), volume, pitch, seed})
     else
       self

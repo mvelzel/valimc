@@ -173,7 +173,8 @@ public class NaturalSpawnOracle {
         var period = timeline.value().periodTicks().orElse(0);
         for (var e : map.entrySet()) {
           var name = BuiltInRegistries.ENVIRONMENT_ATTRIBUTE.getKey((net.minecraft.world.attribute.EnvironmentAttribute<?>) e.getKey()).toString();
-          if (!name.equals("minecraft:gameplay/sky_light_level") && !name.equals("minecraft:gameplay/surface_slime_spawn_chance")) continue;
+          if (!name.equals("minecraft:gameplay/sky_light_level") && !name.equals("minecraft:gameplay/surface_slime_spawn_chance")
+              && !name.equals("minecraft:gameplay/turtle_egg_hatch_chance")) continue;
           var t = track(e.getValue()); t.addProperty("period", period);
           tracks.add(name.substring("minecraft:gameplay/".length()), t);
         }

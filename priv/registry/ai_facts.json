@@ -2717,6 +2717,7 @@
       "ambient_sound": "minecraft:entity.dolphin.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -2827,6 +2828,87 @@
           ]
         ]
       ]
+    },
+    "minecraft:turtle": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 200,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "water": 0.0,
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0,
+        "door_open": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "TurtlePanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "TurtleBreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          1,
+          "TurtleLayEggGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TurtleGoToWaterGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          4,
+          "TurtleGoHomeGoal",
+          []
+        ],
+        [
+          7,
+          "TurtleTravelGoal",
+          []
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          9,
+          "TurtleRandomStrollGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": []
     },
     "minecraft:cow": {
       "max_head_y_rot": 75,
@@ -3738,6 +3820,15 @@
     "minecraft:entity.dolphin.eat": 527,
     "minecraft:entity.dolphin.swim": 532,
     "minecraft:entity.dolphin.splash": 531,
+    "minecraft:entity.turtle.ambient_land": 1660,
+    "minecraft:entity.turtle.swim": 1671,
+    "minecraft:entity.turtle.shamble": 1669,
+    "minecraft:entity.turtle.shamble_baby": 1670,
+    "minecraft:entity.turtle.lay_egg": 1668,
+    "minecraft:entity.turtle.hurt": 1666,
+    "minecraft:entity.turtle.hurt_baby": 1667,
+    "minecraft:entity.turtle.death": 1661,
+    "minecraft:entity.turtle.death_baby": 1662,
     "minecraft:entity.fish.swim": 642,
     "minecraft:entity.generic.swim": 708,
     "minecraft:entity.hostile.swim": 880,

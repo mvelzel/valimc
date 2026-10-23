@@ -75,7 +75,7 @@ defmodule Valimc.Entity.Animals.Interaction do
       not Animal.food?(type, id) ->
         :pass
 
-      data.age == 0 and Animal.can_fall_in_love?(data) ->
+      data.age == 0 and Animal.can_fall_in_love?(type, data) ->
         {body, events} = Animal.fall_in_love(body, Map.get(request, :player))
         {body, eat} = eating_sound(body)
         {:ok, body, outcome(hand: {:use, 1}, swing: true, events: events ++ eat)}

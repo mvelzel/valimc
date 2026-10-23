@@ -14,7 +14,8 @@ defmodule Valimc.Blocks do
     Coral,
     Default,
     Machine,
-    NetherPortal
+    NetherPortal,
+    TurtleEgg
   }
 
   alias Valimc.Blocks.CookingBlocks
@@ -35,7 +36,8 @@ defmodule Valimc.Blocks do
     "DragonEggBlock" => FallingBlock,
     "HopperBlock" => Machine,
     "DispenserBlock" => Machine,
-    "DropperBlock" => Machine
+    "DropperBlock" => Machine,
+    "TurtleEggBlock" => TurtleEgg
   }
   @modules List.to_tuple([Default | Enum.uniq(Enum.sort(Map.values(@classes)))])
   @module_index @modules |> Tuple.to_list() |> Enum.with_index() |> Map.new()

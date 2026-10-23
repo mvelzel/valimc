@@ -170,7 +170,7 @@ pub struct Mob {
     /// Flowing fluids push it (`isPushedByFluid`; not a water animal).
     pub fluid_pushed: bool,
     /// Motion its AI added after the dead zone (a move control's push).
-    pub impulse: [f64; 3],
+    pub impulse: Vec<[f64; 3]>,
     /// Its last move was stopped vertically (`verticalCollision`).
     pub vertical_collision: bool,
     /// It counts the distance it moves for its steps and swim sounds (its
@@ -183,6 +183,11 @@ pub struct Mob {
     pub float: Option<Float>,
     /// A slime's or magma cube's own jumps (`AbstractCubeMob`), or none.
     pub cube: Option<CubeJump>,
+    /// Its own `nextStep` gap past the distance walked (a turtle's 0.15),
+    /// else the next whole block.
+    pub step_gap: Option<f32>,
+    /// Out: its move made a step this tick.
+    pub stepped: bool,
 }
 
 /// `AbstractCubeMob.jumpFromGround`: its jump power plus `bonus` (a magma
@@ -335,6 +340,11 @@ pub struct Ticked {
     pub eye_after: (bool, u16),
     /// The swim sound a goal's own move made (`pre_move`).
     pub pre_swim: Option<f32>,
+    /// Its move made a step (its family's step sound, `playStepSound`).
+    pub step: bool,
+    /// The block it stands on after the move (`getOnPosLegacy`), on the
+    /// ground (`stepOn`: a turtle egg it may crush).
+    pub on_block: Option<([i32; 3], u16)>,
     /// The landing block and fall distance (`Block.fallOn`), if it landed.
     pub landing: Option<(u16, f64)>,
     /// The landing block's cell (farmland's trampling, VMC-039a).
@@ -711,8 +721,10 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
             m.velocity[1] += 0.005;
         }
     }
-    m.velocity = add(m.velocity, m.impulse);
-    m.impulse = [0.0; 3];
+    // Each add of its move control in order (a turtle's lift, then its push).
+    for push in std::mem::take(&mut m.impulse) {
+        m.velocity = add(m.velocity, push);
+    }
     let block = feet_block(w, &m)?;
     // A rabbit's move control picks its speed before it moves: none on the
     // ground between hops.
@@ -1026,6 +1038,12 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         },
     )?;
     m.alive = mob.alive;
+    let step = std::mem::take(&mut m.stepped);
+    let on_block = if m.on_ground {
+        Some(moved.material.legacy)
+    } else {
+        None
+    };
     let eye_after = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
     let eye_after = (
         w.eyes(&after_body, eye_after)?.0,
@@ -1039,6 +1057,8 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         eye_state,
         eye_after,
         pre_swim,
+        step,
+        on_block,
         landing: moved.landing,
         landing_pos: moved.landing.map(|_| moved.material.legacy.0),
         touched,
@@ -1071,6 +1091,8 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         eye_state,
         eye_after: (eye_water, eye_state),
         pre_swim: None,
+        step: false,
+        on_block: None,
         landing: None,
         landing_pos: None,
         touched: Touched::default(),
@@ -1234,16 +1256,25 @@ fn emission(w: &World, m: &mut Mob, actual: [f64; 3], water: bool) -> Result<Opt
         return Ok(None);
     }
     if m.on_ground || climbing {
-        m.next_step = (m.move_dist as i32 + 1) as f32;
+        m.next_step = next_step(m);
+        m.stepped = true;
         return Ok(None);
     }
     if !water {
         return Ok(None);
     }
-    m.next_step = (m.move_dist as i32 + 1) as f32;
+    m.next_step = next_step(m);
     let v = m.velocity;
     let speed = (v[0] * v[0] * 0.2_f32 as f64 + v[1] * v[1] + v[2] * v[2] * 0.2_f32 as f64).sqrt();
     Ok(Some((speed as f32 * 0.35).min(1.0)))
+}
+
+/// `Entity.nextStep`: the next whole block, or a family's own gap.
+fn next_step(m: &Mob) -> f32 {
+    match m.step_gap {
+        Some(gap) => m.move_dist + gap,
+        None => (m.move_dist as i32 + 1) as f32,
+    }
 }
 
 /// `Entity.push` between a pusher at `from` and a body at `to`: the push the
@@ -1464,9 +1495,11 @@ impl Default for Mob {
             up: 0.0,
             set_inputs: [None; 3],
             pre_move: None,
+            step_gap: None,
+            stepped: false,
             travel: Travel::Ground,
             fluid_pushed: true,
-            impulse: [0.0; 3],
+            impulse: Vec::new(),
             vertical_collision: false,
             emits: true,
             move_dist: 0.0,

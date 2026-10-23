@@ -41834,6 +41834,61 @@
       }
     ]
   },
+  "minecraft:entities/turtle": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/turtle",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:seagrass",
+            "weight": 3,
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bowl",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "predicate": {
+            "tags": [
+              {
+                "id": "#minecraft:is_lightning",
+                "expected": true
+              }
+            ]
+          },
+          "type": "minecraft:damage_source_properties"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/villager": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/villager"
@@ -42682,6 +42737,21 @@
               },
               "type": "minecraft:set_count"
             },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:gameplay/turtle_grow": {
+    "type": "minecraft:gift",
+    "random_sequence": "minecraft:gameplay/turtle_grow",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:turtle_scute",
             "type": "minecraft:item"
           }
         ],

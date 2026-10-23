@@ -14,6 +14,8 @@ defmodule Valimc.AI.Goals.MoveToBlock do
       speed: speed * 1.0,
       range: range,
       vertical: Keyword.get(opts, :vertical, 1),
+      vertical_start: Keyword.get(opts, :vertical_start, 0),
+      recalculate: Keyword.get(opts, :recalculate, 40),
       valid: valid,
       next: 0,
       tries: 0,
@@ -40,7 +42,7 @@ defmodule Valimc.AI.Goals.MoveToBlock do
     r = state.range
 
     cells =
-      for y <- ys(state.vertical),
+      for y <- ys(state.vertical_start, state.vertical),
           ring <- 0..(r - 1),
           x <- spiral(0, ring),
           z <- spiral(if(x < ring and x > -ring, do: ring, else: 0), ring),
@@ -60,8 +62,8 @@ defmodule Valimc.AI.Goals.MoveToBlock do
   end
 
   # `for (y = start; y <= v; y = y > 0 ? -y : 1 - y)`: 0, 1, -1, 2, -2, ...
-  defp ys(v),
-    do: Stream.iterate(0, &if(&1 > 0, do: -&1, else: 1 - &1)) |> Enum.take_while(&(&1 <= v))
+  defp ys(start, v),
+    do: Stream.iterate(start, &if(&1 > 0, do: -&1, else: 1 - &1)) |> Enum.take_while(&(&1 <= v))
 
   # `for (x = from; x <= r; x = x > 0 ? -x : 1 - x)`.
   defp spiral(from, r),
@@ -94,7 +96,7 @@ defmodule Valimc.AI.Goals.MoveToBlock do
       tries = state.tries + 1
 
       self =
-        if rem(tries, 40) == 0 do
+        if rem(tries, state.recalculate) == 0 do
           {_, self} = Navigation.move_to(self, {x + 0.5, y + 1.0, z + 0.5}, state.speed)
           self
         else

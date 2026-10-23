@@ -31,7 +31,8 @@ Slices, in order:
   client).
 - [VMC-043e5](VMC-043e5.md) — dolphins: the smooth swimming controls,
   breathing, drying, leaps, items and Dolphin's Grace (Awaiting client).
-- VMC-043e6 — turtles: eggs, beaches and home.
+- [VMC-043e6](VMC-043e6.md) — turtles: home beaches, travels, eggs laid,
+  hatched and crushed (Awaiting client).
 - VMC-043e7 — axolotls: their brain, playing dead, hunting.
 
 Acceptance: behaviour fixtures match the oracle.

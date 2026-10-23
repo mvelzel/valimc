@@ -202,7 +202,7 @@ defmodule Valimc.AI.RandomPos do
 
     ok =
       not World.outside?(world, pos) and not (restrict and not within_home?(self, pos)) and
-        stable?(self, pos) and (land or not malus?(self, pos))
+        stable_destination?(self, pos) and (land or not malus?(self, pos))
 
     {if(ok, do: pos), self}
   end
@@ -251,6 +251,14 @@ defmodule Valimc.AI.RandomPos do
   # `PathNavigation.isStableDestination`: a walker's needs a solid block
   # below, a swimmer's must not be solid itself, a flier's or amphibian's
   # needs something below.
+  # A family's own navigation may judge it (a turtle's).
+  defp stable_destination?(self, pos) do
+    case Valimc.AI.Mobs.hook(self.type, :stable_destination?, [self, pos], nil) do
+      nil -> stable?(self, pos)
+      stable -> stable
+    end
+  end
+
   defp stable?(%Self{mind: %{navigation: %{kind: :water}}, world: world}, pos),
     do: not World.solid_render?(world, pos)
 

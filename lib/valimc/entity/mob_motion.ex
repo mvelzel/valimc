@@ -192,7 +192,7 @@ defmodule Valimc.Entity.MobMotion do
           do: Valimc.AI.Mobs.hook(type, :climbs?, [body], false)
         ),
       hop: hop(motion.hop, position, body),
-      impulse: if(alive, do: motion.impulse, else: {0.0, 0.0, 0.0}),
+      impulse: if(alive, do: impulses(motion.impulse), else: []),
       vertical_collision: motion.vertical_collision,
       move_dist: motion.move_dist,
       next_step: motion.next_step,
@@ -204,6 +204,10 @@ defmodule Valimc.Entity.MobMotion do
     # A `NoAI` mob does not travel (`isEffectiveAi`).
     |> then(&if(mob.no_ai, do: %{&1 | fixed: true}, else: &1))
   end
+
+  # A move control's adds to its motion, in order (one, or a list).
+  defp impulses({_, _, _} = push), do: [push]
+  defp impulses(pushes) when is_list(pushes), do: pushes
 
   # A move control's own inputs (`xxa`, `yya`, `zza`; nil keeps vanilla's
   # `setSpeed`): a smooth swimmer's.
@@ -224,6 +228,7 @@ defmodule Valimc.Entity.MobMotion do
         match?(%{feet: %{item_id: @leather_boots}}, mob.equipment)
 
   @default_kind %{
+    step_gap: nil,
     fixed: false,
     pushable: true,
     pushes: true,

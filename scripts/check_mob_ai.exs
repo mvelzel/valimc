@@ -192,6 +192,7 @@ end
 sound_of = fn
   {:sound, name, _, volume, pitch, _} -> [{name, volume, pitch}]
   {:sound_at, name, _, _, volume, pitch} -> [{name, volume, pitch}]
+  {:sound_block, name, _, volume, pitch, _} -> [{name, volume, pitch}]
   _ -> []
 end
 
@@ -316,6 +317,25 @@ kind_data = fn
       "air" => mob.living.air_supply,
       "mainhand" => held && Valimc.Protocol.ItemTypes.item(held.item_id)["name"]
     }
+
+  %{type: "minecraft:turtle", data: data, mob: mob} ->
+    own = Valimc.Entity.Animals.Turtle.own(mob.ai)
+    {hx, hy, hz} = data.home
+
+    turtle = %{
+      "has_egg" => data.has_egg,
+      "laying_egg" => data.laying_egg,
+      "turtle_home" => [hx, hy, hz],
+      "going_home" => own.going_home,
+      "lay" => own.lay,
+      "age" => data.age,
+      "in_love" => data.in_love
+    }
+
+    case own.travel do
+      {x, y, z} -> Map.put(turtle, "travel", [x, y, z])
+      nil -> turtle
+    end
 
   %{type: "minecraft:bat", data: data, mob: mob} ->
     case mob.ai.own do
@@ -458,6 +478,10 @@ end
 # What a scene set on a family's mob as it was made (VMC-043e: a dolphin's
 # air and moistness).
 start_data = fn
+  %{type: "minecraft:turtle", data: data} = body, start ->
+    [hx, hy, hz] = start["turtle_home"]
+    %{body | data: %{data | home: {hx, hy, hz}, has_egg: start["has_egg"]}}
+
   %{type: "minecraft:dolphin", mob: mob, data: data} = body, start ->
     mob = %{mob | living: %{mob.living | air_supply: start["air"]}}
     %{body | mob: mob, data: %{data | moistness: start["moistness"]}}
@@ -513,6 +537,8 @@ checked =
 
       world = %AI.World{
         read: fn cell -> Process.get({:mob_ai_edit, cell}) || Map.get(scene, cell, air) end,
+        # The oracle's level has no chunks (`hasChunk`).
+        chunks: fn _ -> false end,
         # Block searches (a piglin's repellents) over the scene's blocks.
         find: fn {x0, y0, z0, x1, y1, z1}, states ->
           for {{x, y, z} = position, state} <- scene,
@@ -662,6 +688,12 @@ checked =
               {:place_carried, cell, carried} ->
                 Process.put({:mob_ai_edit, cell}, carried)
 
+              {:lay_eggs, cell, n} ->
+                Process.put(
+                  {:mob_ai_edit, cell},
+                  Valimc.Data.Blocks.state("turtle_egg", %{"eggs" => "#{n}"})
+                )
+
               _ ->
                 :ok
             end
@@ -781,6 +813,13 @@ checked =
 
                          {:wake_infested, {bx, by, bz}, state, false} ->
                            [[bx, by, bz], Valimc.AI.Mobs.Silverfish.host_of(state)]
+
+                         # A turtle's eggs (VMC-043e).
+                         {:lay_eggs, {bx, by, bz}, n} ->
+                           [
+                             [bx, by, bz],
+                             Valimc.Data.Blocks.state("turtle_egg", %{"eggs" => "#{n}"})
+                           ]
 
                          _ ->
                            nil

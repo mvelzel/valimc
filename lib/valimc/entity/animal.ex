@@ -118,7 +118,9 @@ defmodule Valimc.Entity.Animal do
     "minecraft:sheep" => Valimc.Entity.Animals.Sheep,
     "minecraft:chicken" => Valimc.Entity.Animals.Chicken,
     "minecraft:rabbit" => Valimc.Entity.Animals.Rabbit,
-    "minecraft:cat" => Valimc.Entity.Animals.Cat
+    "minecraft:cat" => Valimc.Entity.Animals.Cat,
+    # VMC-043e.
+    "minecraft:turtle" => Valimc.Entity.Animals.Turtle
   }
 
   @doc "The module of animal type `type`, or nil."
@@ -291,6 +293,15 @@ defmodule Valimc.Entity.Animal do
 
   @doc "`canFallInLove`."
   def can_fall_in_love?(data), do: data.in_love <= 0
+
+  @doc "`canFallInLove` of an animal of `type` (a turtle carrying an egg cannot)."
+  def can_fall_in_love?(type, data) do
+    module = module(type)
+
+    can_fall_in_love?(data) and
+      (module == nil or not function_exported?(module, :can_fall_in_love?, 1) or
+         apply(module, :can_fall_in_love?, [data]))
+  end
 
   @doc "What hurting it leaves in its data (an animal's love is gone)."
   def hurt(type, data), do: if(animal?(type), do: reset_love(data), else: data)

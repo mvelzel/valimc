@@ -1249,6 +1249,10 @@ defmodule Valimc.World.RegionData do
                    {:lay, velocity} ->
                      for stack <- laid(step.body), do: {step.position, stack, velocity}
 
+                   # A gift loot table's items (a grown turtle's scute, VMC-043e).
+                   {:gift, table, velocity} ->
+                     for stack <- gift(table, step.body), do: {step.position, stack, velocity}
+
                    {:lead, at} ->
                      [{at, Valimc.Protocol.ItemStack.new("minecraft:lead")}]
 
@@ -1341,6 +1345,9 @@ defmodule Valimc.World.RegionData do
             %{entity: e, body: body} <- [store.entries[step.id]],
             do: {e, body.type, target, type, amount, actions}
 
+      # Turtle eggs mobs landed or stood on (VMC-043e).
+      crushes = for step <- steps, {:crush_egg, cell, odds} <- step.effects, do: {cell, odds}
+
       # Effects mobs give others without a hurt (a dolphin's grace, VMC-043e).
       gifts =
         for step <- steps,
@@ -1391,6 +1398,7 @@ defmodule Valimc.World.RegionData do
       state = Enum.reduce(hurts, state, &mob_hurt/2)
       Enum.each(touches, &mob_touch/1)
       state = Enum.reduce(gifts, state, &mob_gift/2)
+      state = if crushes == [], do: state, else: crush_eggs(state, crushes)
       state = Enum.reduce(mob_attacks, state, &mob_attack_mob/2)
       Enum.each(curses, &mob_curse(&1, world.players))
       state = Enum.reduce(pickups, state, &mob_pickup/2)
@@ -1559,6 +1567,29 @@ defmodule Valimc.World.RegionData do
           _ -> state
         end
     end
+  end
+
+  @turtle_egg Valimc.Data.Blocks.id("turtle_egg")
+
+  @doc """
+  Turtle eggs crushed at `crushes` (`[{cell, odds}]`, `destroyEgg`): one chance
+  in `odds` each loses an egg, with the break's sound and event (VMC-043e).
+  """
+  def crush_eggs(state, crushes) do
+    effects =
+      for {cell, odds} <- crushes,
+          in_region?(state, cell),
+          block = Blocks.get(state.blocks, cell),
+          Valimc.Data.Blocks.block_id(block) == @turtle_egg,
+          {next, pitch} <- [Valimc.Blocks.TurtleEgg.crush(block, odds)],
+          effect <- [
+            {:sound, cell, "minecraft:entity.turtle.egg_break", 0.7, pitch},
+            {:set, cell, next},
+            {:level_event, cell, 2001, block}
+          ],
+          do: effect
+
+    apply_tick_effects(state, effects)
   end
 
   # Effect actions mob `e` gives `target` (`addEffect(effect, mob)`).
@@ -1861,6 +1892,18 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # A turtle's eggs on the sand (`setBlockAndUpdate`, VMC-043e) where the air
+  # still is.
+  defp mob_edit(view, {:lay_eggs, cell, n}) do
+    with from when from != nil <- Valimc.World.View.block(view, cell),
+         true <- Valimc.Data.BlockFacts.air?(from) do
+      {:edit, cell, from, Valimc.Data.Blocks.state("turtle_egg", %{"eggs" => "#{n}"}), nil,
+       [:updates]}
+    else
+      _ -> nil
+    end
+  end
+
   # An enderman takes a block (`removeBlock`): its fluid, neighbours updated.
   defp mob_edit(view, {:take_block, cell, taken}) do
     case Valimc.World.View.block(view, cell) do
@@ -1959,6 +2002,17 @@ defmodule Valimc.World.RegionData do
       end
 
     adopt_drops(state, records)
+  end
+
+  # `dropFromGiftLootTable(table)` of a mob.
+  defp gift(table, body) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    properties = Valimc.Entity.Animal.properties(body)
+
+    case Valimc.Blocks.Loot.entity_drops(table, seed, {0.0, 0.0, 0.0}, %{properties: properties}) do
+      {:ok, stacks} -> stacks
+      _ -> []
+    end
   end
 
   # `dropFromGiftLootTable(CHICKEN_LAY)`: the egg of the hen's variant.
@@ -3272,6 +3326,16 @@ defmodule Valimc.World.RegionData do
   def handle_call({:abort_box, _epoch, token}, _from, state),
     do: {:reply, :ok, %{state | permits: Permits.release(state.permits, token)}}
 
+  # Turtle eggs a player crushed (VMC-043e, `Region.crush_egg/3`).
+  def handle_call({:crush_egg, epoch, cell, odds}, _from, state) do
+    cond do
+      epoch != state.epoch -> {:reply, Error.retry(:stale_owner), state}
+      not in_region?(state, cell) -> {:reply, :ok, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
+      true -> {:reply, :ok, crush_eggs(state, [{cell, odds}])}
+    end
+  end
+
   def handle_call({:bucket, epoch, action}, _from, state) do
     position = elem(action, 1)
 
@@ -3943,16 +4007,38 @@ defmodule Valimc.World.RegionData do
     {others, growing} = Enum.split_with(others, fn {_, block} -> state.tick_index[block] end)
     growing = Enum.filter(growing, fn {_, block} -> Valimc.World.Growth.growing?(block) end)
 
+    context = tick_context(state, others)
+
     effects =
       for {position, block} <- others,
           module = state.tick_index[block],
-          effect <- module.random_tick(position, block, read, &random/1),
+          effect <- random_tick(module, position, block, read, context),
           do: effect
 
     {effects, for({position, _} <- lava, do: position), growing}
   end
 
   defp random(bound), do: :rand.uniform(bound) - 1
+
+  # A behaviour's random tick, with the region's context where it takes one.
+  defp random_tick(module, position, block, read, context) do
+    if function_exported?(module, :random_tick, 5),
+      do: module.random_tick(position, block, read, &random/1, context),
+      else: module.random_tick(position, block, read, &random/1)
+  end
+
+  # What behaviours' random ticks read of the world (VMC-043e: the turtle
+  # egg hatch chance of this dimension's clock now).
+  defp tick_context(_state, []), do: %{}
+
+  defp tick_context(state, _hits) do
+    dimension = Valimc.World.Dimension.name(state.dimension)
+
+    %{
+      hatch_chance:
+        Valimc.World.Spawning.turtle_hatch_chance(dimension, Valimc.World.Clock.day_ticks())
+    }
+  end
 
   # Vanilla's updates after a block commit (VMC-077m): behaviours with effects
   # of their own (portals) schedule from here; everything else is the block
@@ -5536,6 +5622,23 @@ defmodule Valimc.World.RegionData do
         body = Body.falling_block(Valimc.Blocks.FallingBlock.falling_state(block), position)
         Store.body_record(body, :crypto.strong_rand_bytes(16), {x + 0.5, y * 1.0, z + 0.5})
       end
+
+    # Mobs a block made (VMC-043e: a turtle egg's hatchlings), not finalized
+    # (`EntityType.create`), with the data it gave them.
+    records =
+      records ++
+        for {:mob, type, at, opts} <- effects,
+            {:ok, body} <- [Body.new(type)] do
+          body = %{body | data: Map.merge(body.data, Map.get(opts, :data, %{}))}
+          Store.body_record(body, :crypto.strong_rand_bytes(16), at)
+        end
+
+    # Their sounds (`playSound(null, pos, ...)`) and level events.
+    for {:sound, position, name, volume, pitch} <- effects,
+        do: Valimc.World.Sounds.play(position, name, :block, volume, pitch)
+
+    level_events = for {:level_event, position, type, data} <- effects, do: {position, type, data}
+    if level_events != [], do: publish_level_events(state, level_events)
 
     commit_landings(state, edits, records)
   end

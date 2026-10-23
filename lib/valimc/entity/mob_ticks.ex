@@ -138,7 +138,10 @@ defmodule Valimc.Entity.MobTicks do
         body = put_in(body.mob.motion.eye_water, ticked.eye_water)
 
         {body, position, settled, world} =
-          AI.settle({id, old[id]}, body, position, state.world, [ticked.pre_swim, ticked.swim])
+          AI.settle({id, old[id]}, body, position, state.world, %{
+            swims: [ticked.pre_swim, ticked.swim],
+            step: ticked.step
+          })
 
         # A family that set its motion after the move (a squid's stroke)
         # tells the ticker, so later pushes add to it.
@@ -160,7 +163,7 @@ defmodule Valimc.Entity.MobTicks do
           position: position,
           body: body,
           events: burnt ++ made ++ events ++ sunned ++ later,
-          effects: rest ++ more ++ trample(body, ticked)
+          effects: rest ++ more ++ trample(body, ticked) ++ crush_eggs(body.type, ticked, world)
         }
 
         step =
@@ -221,12 +224,49 @@ defmodule Valimc.Entity.MobTicks do
 
   defp trample(_body, _ticked), do: []
 
+  @turtle_eggs MapSet.new(Valimc.Data.Blocks.states("turtle_egg"))
+  @zombies ~w(minecraft:zombie minecraft:husk minecraft:drowned minecraft:zombie_villager
+              minecraft:zombified_piglin)
+
+  # `TurtleEggBlock.fallOn` (one in three, not by a zombie) and `stepOn` (one
+  # in a hundred) of the eggs a mob landed or stands on (VMC-043e): turtles
+  # and bats never crush them, others while mob griefing is on.
+  defp crush_eggs(type, _ticked, %{mob_griefing: false}) when is_binary(type), do: []
+
+  defp crush_eggs(type, _ticked, _world) when type in ["minecraft:turtle", "minecraft:bat"],
+    do: []
+
+  defp crush_eggs(type, ticked, _world) do
+    fall =
+      case ticked do
+        %{landing: {state, _}, landing_pos: cell} when cell != nil ->
+          if MapSet.member?(@turtle_eggs, state) and type not in @zombies,
+            do: [{:crush_egg, cell, 3}],
+            else: []
+
+        _ ->
+          []
+      end
+
+    step =
+      case ticked do
+        %{on_block: {cell, state}} ->
+          if MapSet.member?(@turtle_eggs, state), do: [{:crush_egg, cell, 100}], else: []
+
+        _ ->
+          []
+      end
+
+    fall ++ step
+  end
+
   # Sounds, entity events and swings are the mob's events; the rest leaves it.
   defp split(effects) do
     {events, rest} =
       Enum.split_with(effects, fn
         {:sound, _, _, _, _, _} -> true
         {:sound_at, _, _, _, _, _} -> true
+        {:sound_block, _, _, _, _, _} -> true
         {:damage, _} -> true
         {:damage, _, _, _, _} -> true
         {:event, _} -> true

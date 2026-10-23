@@ -35,7 +35,9 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AnimalOracle {
   static final List<String> ANIMALS = List.of("minecraft:cow", "minecraft:mooshroom", "minecraft:pig", "minecraft:sheep",
-      "minecraft:chicken", "minecraft:rabbit", "minecraft:cat");
+      "minecraft:chicken", "minecraft:rabbit", "minecraft:cat",
+      // VMC-043e: turtles (their own fixtures in MobAiOracle).
+      "minecraft:turtle");
   // Sounds the animals play beyond their sound variants' and AI facts' own.
   static final List<String> SOUNDS = List.of("minecraft:entity.cow.milk", "minecraft:entity.mooshroom.milk",
       "minecraft:entity.mooshroom.suspicious_milk", "minecraft:entity.mooshroom.shear", "minecraft:entity.mooshroom.eat",
@@ -694,7 +696,8 @@ public class AnimalOracle {
     var levelRandom = net.minecraft.util.RandomSource.create(7L);
     MobAiOracle.unsafe.putObject(level, MobAiOracle.unsafe.objectFieldOffset(net.minecraft.world.level.Level.class.getDeclaredField("random")), levelRandom);
     var temperatures = List.of("minecraft:cold", "minecraft:temperate", "minecraft:warm");
-    for (var type : ANIMALS) for (int n = 0; n < 40; n++) {
+    // A turtle breeds an egg (`TurtleBreedGoal`), never through this.
+    for (var type : ANIMALS) for (int n = 0; n < 40 && !type.equals("minecraft:turtle"); n++) {
       level.entities.clear(); level.added = new ArrayList<>(); level.ids = 0;
       var pick = new java.util.Random(n * 7919L + type.hashCode());
       var pair = new ArrayList<Mob>();

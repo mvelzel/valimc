@@ -154,6 +154,20 @@ defmodule Valimc.World.Spawning do
     end
   end
 
+  @doc """
+  `EnvironmentAttributes.TURTLE_EGG_HATCH_CHANCE` at `ticks` of the
+  dimension's clock: the timeline's value (the night's 1.0) or its default
+  0.002, whichever is greater (VMC-043e).
+  """
+  def turtle_hatch_chance(dimension, ticks) do
+    default = Float32.round(0.002)
+
+    case SpawnFacts.dimension(dimension)["tracks"]["turtle_egg_hatch_chance"] do
+      nil -> default
+      track -> max(default, sample(track, ticks))
+    end
+  end
+
   # `Mth.lerp(float, float, float)`.
   defp lerp(delta, a, b),
     do: Float32.round(a + Float32.round(delta * Float32.round(b - a)))

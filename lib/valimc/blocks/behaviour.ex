@@ -23,6 +23,19 @@ defmodule Valimc.Blocks.Behaviour do
   """
   @callback random_tick(position :: tuple(), state, read :: function(), random :: function()) ::
               [tuple()]
+  @doc """
+  `random_tick/4` with the region's `context` (VMC-043e: `hatch_chance`,
+  the turtle egg hatch chance of its dimension now), optional: an owner
+  calls it in place of `random_tick/4` where it is defined.
+  """
+  @callback random_tick(
+              position :: tuple(),
+              state,
+              read :: function(),
+              random :: function(),
+              map()
+            ) ::
+              [tuple()]
   @callback scheduled_tick(position :: tuple(), state, read :: function(), random :: function()) ::
               [tuple()]
 
@@ -33,7 +46,7 @@ defmodule Valimc.Blocks.Behaviour do
   """
   @callback shape_update(position :: tuple(), state, read :: function(), random :: function()) ::
               [tuple()]
-  @optional_callbacks random_tick: 4, scheduled_tick: 4, shape_update: 4
+  @optional_callbacks random_tick: 4, random_tick: 5, scheduled_tick: 4, shape_update: 4
 
   defmacro __using__(_) do
     quote do
