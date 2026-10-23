@@ -39,6 +39,8 @@ public class HostileOracle {
   static final List<String> FAMILY = List.of("minecraft:zombie", "minecraft:husk", "minecraft:zombie_villager",
       // VMC-043d.
       "minecraft:zombified_piglin");
+  // VMC-043d: the Nether's mobs that spawn with gear or as babies.
+  static final List<String> NETHER = List.of("minecraft:piglin");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -90,10 +92,12 @@ public class HostileOracle {
     out.add("spawn_enchanting", enchanting);
     // A baby's dimensions (`getDefaultDimensions` while a baby).
     var babies = new JsonObject();
-    for (var type : FAMILY) {
-      var m = (net.minecraft.world.entity.monster.zombie.Zombie)MobAiOracle.mob(type, level);
+    var defaultDimensions = LivingEntity.class.getDeclaredMethod("getDefaultDimensions", Pose.class);
+    defaultDimensions.setAccessible(true);
+    for (var type : java.util.stream.Stream.concat(FAMILY.stream(), NETHER.stream()).toList()) {
+      var m = MobAiOracle.mob(type, level);
       m.setBaby(true);
-      var d = m.getDefaultDimensions(Pose.STANDING);
+      var d = (net.minecraft.world.entity.EntityDimensions)defaultDimensions.invoke(m, Pose.STANDING);
       var row = new JsonArray(); row.add(Float.floatToRawIntBits(d.width())); row.add(Float.floatToRawIntBits(d.height()));
       row.add(Float.floatToRawIntBits(d.eyeHeight())); babies.add(type, row);
     }
@@ -212,10 +216,11 @@ public class HostileOracle {
     out.add("drop_chances", chances);
     out.addProperty("left_handed", m.isLeftHanded());
     out.addProperty("can_pick_up_loot", m.canPickUpLoot());
-    if (m instanceof net.minecraft.world.entity.monster.zombie.Zombie z) {
-      out.addProperty("baby", z.isBaby());
-      out.addProperty("can_break_doors", z.canBreakDoors());
-    }
+    out.addProperty("baby", m.isBaby());
+    if (m instanceof net.minecraft.world.entity.monster.zombie.Zombie z) out.addProperty("can_break_doors", z.canBreakDoors());
+    // A piglin's first hunt waits (`PiglinAi.initMemories`).
+    if (m instanceof net.minecraft.world.entity.monster.piglin.Piglin p)
+      out.addProperty("hunted_recently", p.getBrain().getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.HUNTED_RECENTLY));
     out.add("attributes", attributes(m));
     out.addProperty("health", Float.floatToRawIntBits(m.getHealth()));
     if (m instanceof net.minecraft.world.entity.monster.zombie.ZombieVillager zv) {
@@ -244,10 +249,11 @@ public class HostileOracle {
     var biomes = List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "minecraft:swamp");
     var cases = new JsonArray();
     var picker = new Random(43L);
-    for (var type : FAMILY)
+    for (var type : java.util.stream.Stream.concat(FAMILY.stream(), NETHER.stream()).toList())
       for (var s : settings)
         for (int i = 0; i < 120; i++) {
-          var reason = i % 10 == 9 ? EntitySpawnReason.SPAWNER : EntitySpawnReason.NATURAL;
+          var reason = i % 10 == 9 ? EntitySpawnReason.SPAWNER
+              : i % 10 == 8 && NETHER.contains(type) ? EntitySpawnReason.STRUCTURE : EntitySpawnReason.NATURAL;
           cases.add(spawn(level, type, s, reason, i % 2 == 0, biomes.get(picker.nextInt(biomes.size())),
               picker.nextLong(), picker.nextLong(), lookup));
         }
@@ -282,7 +288,7 @@ public class HostileOracle {
         case "spawns" -> {
           var out = spawns(level, lookup);
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
-          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family).");
+          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins).");
         }
         default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns OUT.json");
       }

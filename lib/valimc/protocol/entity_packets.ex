@@ -378,9 +378,23 @@ defmodule Valimc.Protocol.EntityPackets do
     :enderman_creepy,
     :enderman_stared_at,
     :raider_celebrating,
-    :witch_using_item
+    :witch_using_item,
+    # The Nether's (VMC-043d).
+    :ghast_charging,
+    :piglin_immune,
+    :piglin_baby,
+    :piglin_charging_crossbow,
+    :piglin_dancing,
+    :hoglin_immune,
+    :strider_suffocating
   ]
-  @ints [:zombie_special_type, :creeper_swell_dir, :cube_size, :phantom_size]
+  @ints [
+    :zombie_special_type,
+    :creeper_swell_dir,
+    :cube_size,
+    :phantom_size,
+    :strider_boost_time
+  ]
 
   defp metadata_value({name, value}) when name in @flags do
     check(is_boolean(value), "invalid flag")

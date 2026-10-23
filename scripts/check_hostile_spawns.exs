@@ -31,6 +31,14 @@ air = Valimc.Data.Blocks.default_state("air")
 scene =
   for y <- [63, 66], x <- -6..6, z <- -6..6, into: %{}, do: {{x, y, z}, stone}
 
+# A brain mob's brain (a piglin's first hunt is a memory, VMC-043d).
+brain = fn type ->
+  case AI.Mobs.brain(type) do
+    nil -> nil
+    module -> elem(module.brain(AI.Random.new(0), module.gates(<<1::128>>)), 0)
+  end
+end
+
 operations = %{"add_value" => 0, "add_multiplied_base" => 1, "add_multiplied_total" => 2}
 
 checked =
@@ -87,7 +95,7 @@ checked =
           head: 0.0,
           on_ground: true,
           mob: mob,
-          mind: %Mind{random: AI.Random.new(c["mob_seed"])},
+          mind: %Mind{random: AI.Random.new(c["mob_seed"]), brain: brain.(type)},
           facts: AI.Facts.mob(type),
           width: width,
           height: height,
@@ -160,7 +168,8 @@ checked =
         left_handed: mob.left_handed,
         can_pick_up_loot: mob.can_pick_up_loot,
         baby: self.data.baby,
-        can_break_doors: self.data.can_break_doors,
+        can_break_doors: Map.get(self.data, :can_break_doors),
+        hunted_recently: self.mind.brain && AI.Brain.ttl(self, :hunted_recently),
         attributes: got_attributes,
         health: mob.living.health.value,
         villager: if(type == "minecraft:zombie_villager", do: Tuple.to_list(self.data.villager)),
@@ -177,6 +186,7 @@ checked =
         can_pick_up_loot: c["can_pick_up_loot"],
         baby: c["baby"],
         can_break_doors: c["can_break_doors"],
+        hunted_recently: c["hunted_recently"],
         attributes: want_attributes,
         health: float.(c["health"]),
         villager: c["villager"],

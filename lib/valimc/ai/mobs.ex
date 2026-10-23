@@ -24,7 +24,8 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Zombie,
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,
-    Valimc.AI.Mobs.Shulker
+    Valimc.AI.Mobs.Shulker,
+    Valimc.AI.Mobs.Piglin
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
   @exports for module <- @families,
@@ -52,7 +53,6 @@ defmodule Valimc.AI.Mobs do
      ], []}
   end
 
-  def registered("minecraft:piglin"), do: {[], []}
   def registered("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze.registered()
 
   def registered(type) when is_map_key(@family, type), do: @family[type].goals(type)
@@ -82,7 +82,6 @@ defmodule Valimc.AI.Mobs do
 
   @types [
     "minecraft:pig",
-    "minecraft:piglin",
     "minecraft:blaze" | Map.keys(@family)
   ]
 

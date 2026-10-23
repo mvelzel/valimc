@@ -109,6 +109,16 @@ factory, so other families' oracles reuse it the same way.
   `mobInteract` (a player giving an ingot by hand), piglins' anger at
   players without gold armour: 043d4b.
 
+## 043d4b — piglins fight (in progress)
+
+- Spawning: `Valimc.AI.Mobs.Piglin` joins the mob families: one time in
+  five a baby (smaller, faster), else a crossbow or a golden sword (a
+  golden spear one time in ten), gold armour piece by piece one time in
+  ten, enchantments, the wait before its first hunt, loot pickup; a
+  structure's piglin is neither baby nor armed. Its entity data (baby,
+  immune, charging, dancing). `hostile_spawns` adds piglins (natural,
+  spawner and structure): 5400 results equal vanilla's.
+
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player
 above them, and a blaze killed by the player drops blaze rods; zombified
