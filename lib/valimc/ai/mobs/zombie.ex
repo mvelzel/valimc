@@ -166,8 +166,16 @@ defmodule Valimc.AI.Mobs.Zombie do
 
   def finalize(self, reason), do: zombie(self, reason)
 
-  # `Zombie.finalizeSpawn`.
-  defp zombie(self, reason) do
+  defp zombie(self, reason), do: zombie(self, reason, [])
+
+  @doc """
+  `Zombie.finalizeSpawn` for a subclass (a zombified piglin, VMC-043d):
+  `populate` is its `populateDefaultEquipmentSlots` (on the level's random),
+  `reinforcements: false` its `randomizeReinforcementsChance` that draws
+  nothing and leaves none.
+  """
+  def zombie(self, reason, opts) do
+    populate = Keyword.get(opts, :populate, &(&1 |> Spawn.armour() |> weapon()))
     self = Spawn.mob(self, reason)
     special = Spawn.special(self)
 
@@ -188,13 +196,13 @@ defmodule Valimc.AI.Mobs.Zombie do
 
     self =
       if reason != :conversion do
-        self |> Spawn.armour() |> weapon() |> Spawn.enchant_equipment()
+        self |> populate.() |> Spawn.enchant_equipment()
       else
         self
       end
 
     self = halloween(self)
-    handle_attributes(self, special, reason)
+    handle_attributes(self, special, reason, Keyword.get(opts, :reinforcements, true))
   end
 
   defp loot(self, f, special),
@@ -307,9 +315,15 @@ defmodule Valimc.AI.Mobs.Zombie do
   chance, a knockback resistance and follow range bonus and, by chance, a
   leader (more reinforcements and health, door breaking).
   """
-  def handle_attributes(self, special, reason) do
-    {d, self} = Self.double(self)
-    self = Spawn.set_base(self, "minecraft:spawn_reinforcements", d * Float32.round(0.1))
+  def handle_attributes(self, special, reason, reinforcements \\ true) do
+    self =
+      if reinforcements do
+        {d, self} = Self.double(self)
+        Spawn.set_base(self, "minecraft:spawn_reinforcements", d * Float32.round(0.1))
+      else
+        Spawn.set_base(self, "minecraft:spawn_reinforcements", 0.0)
+      end
+
     {d, self} = Self.double(self)
 
     self =

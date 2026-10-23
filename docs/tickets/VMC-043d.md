@@ -17,8 +17,8 @@ Acceptance:
 ## Slices
 
 1. **043d1 — blazes** (done): goals, attack, flight and loot below.
-2. **043d2 — zombified piglins** (done but spawn gear): NeutralMob anger,
-   group alerts.
+2. **043d2 — zombified piglins** (done): NeutralMob anger, group alerts,
+   spawn gear.
 3. **043d3 — ghasts**: flying travel, wandering, large fireballs.
 4. **043d4a — bartering** (done): a piglin's admired gold ingot becomes
    the bartering table's items, thrown toward the player it sees.
@@ -74,9 +74,13 @@ factory, so other families' oracles reuse it the same way.
   hit one whose kind joins it, angry and faster, leaving the other player
   alone); `mob_ai` still passes; `mob_ai_connection_test` has zombified
   piglins turn on the player who hits one.
-- Gaps: spawn gear (a golden sword or spear) and babies wait on VMC-043b's
-  shared `finalizeSpawn`; anger is not saved with the mob; universal anger
-  does not yet reach the mob's kind around it.
+- Spawning: a family of `Valimc.AI.Mobs` (VMC-043b1's `finalizeSpawn`):
+  a zombie's spawn (`Zombie.zombie/3`) with a golden sword, one time in
+  twenty a golden spear, no armour and no reinforcements; a zombie's data,
+  values and baby dimensions. `hostile_spawns` adds zombified piglins: 4320
+  results equal vanilla's.
+- Gaps: anger is not saved with the mob; universal anger does not yet reach
+  the mob's kind around it.
 
 ## 043d4a — bartering
 

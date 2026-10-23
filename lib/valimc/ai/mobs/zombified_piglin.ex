@@ -8,12 +8,15 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   it first finds a target, and every four to six seconds alerts the others
   that have no target, while it sees its own.
 
-  Its own mind fields (`Mind.own`): the neutral fields, the ticks to its
-  first anger sound and to its next alert.
+  It spawns as a zombie does, with a golden sword (`finalize/2`). Its own
+  mind fields (`Mind.own`): the neutral fields, the ticks to its first
+  anger sound and to its next alert.
   """
   alias Valimc.AI
-  alias Valimc.AI.{Goals, Neutral, Self, World}
+  alias Valimc.AI.{Goals, Neutral, Self, Spawn, World}
+  alias Valimc.AI.Mobs.Zombie
   alias Valimc.Data.Float32
+  alias Valimc.Protocol.ItemStack
 
   @type_name "minecraft:zombified_piglin"
   @anger {400, 780}
@@ -22,7 +25,41 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   @angry_sound "minecraft:entity.zombified_piglin.angry"
   @turtle_eggs Enum.to_list(Valimc.Data.Blocks.states("turtle_egg"))
 
+  @doc "The family's types (`Valimc.AI.Mobs`)."
+  def types, do: [@type_name]
+
   @doc "The goals a zombified piglin registers (a zombie's, with its own behaviour goals)."
+  def goals(_type), do: registered()
+
+  @doc "A zombie's own data (`Zombie.data/1`): the baby flag and the rest."
+  def data(_type), do: Zombie.data("minecraft:zombie")
+
+  @doc "A zombie's entity data values."
+  def values(body), do: Zombie.values(body)
+
+  @doc "A baby's dimensions, or nil."
+  def dimensions(body), do: Zombie.dimensions(body)
+
+  @doc """
+  `finalizeSpawn`: a zombie's (babies, jockeys, door breaking, a Halloween
+  head, its knockback and follow range bonuses), but a golden sword in hand,
+  one time in twenty a golden spear, and no armour
+  (`populateDefaultEquipmentSlots`), and no reinforcements
+  (`randomizeReinforcementsChance`).
+  """
+  def finalize(self, reason),
+    do: Zombie.zombie(self, reason, populate: &golden/1, reinforcements: false)
+
+  defp golden(self) do
+    {n, self} = Spawn.level_int(self, 20)
+
+    Spawn.equip(
+      self,
+      :mainhand,
+      ItemStack.new(if n == 0, do: "golden_spear", else: "golden_sword")
+    )
+  end
+
   def registered do
     {[
        {4, "ZombieAttackTurtleEggGoal", Goals.RemoveBlock, [:move, :jump],

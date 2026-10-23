@@ -18,7 +18,7 @@ defmodule Valimc.AI.Mobs do
   # The family modules (VMC-043b–e): each names its `types/0` and gives its
   # goals (`goals/1`) and, where it has them, `finalize/2` (`Valimc.AI.Spawn`),
   # its own data (`data/1`, `values/1`) and dimensions (`dimensions/1`).
-  @families [Valimc.AI.Mobs.Zombie]
+  @families [Valimc.AI.Mobs.Zombie, Valimc.AI.Mobs.ZombifiedPiglin]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
   @exports for module <- @families,
                into: %{},
@@ -48,9 +48,6 @@ defmodule Valimc.AI.Mobs do
   def registered("minecraft:piglin"), do: {[], []}
   def registered("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze.registered()
 
-  def registered("minecraft:zombified_piglin"),
-    do: Valimc.AI.Mobs.ZombifiedPiglin.registered()
-
   def registered(type) when is_map_key(@family, type), do: @family[type].goals(type)
 
   def registered(_type), do: nil
@@ -79,8 +76,7 @@ defmodule Valimc.AI.Mobs do
   @types [
     "minecraft:pig",
     "minecraft:piglin",
-    "minecraft:blaze",
-    "minecraft:zombified_piglin" | Map.keys(@family)
+    "minecraft:blaze" | Map.keys(@family)
   ]
 
   @doc "The family module of `type`, or nil."

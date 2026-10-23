@@ -36,7 +36,9 @@ import net.minecraft.world.phys.Vec3;
  * data, the jockey they made and both randoms after.
  */
 public class HostileOracle {
-  static final List<String> FAMILY = List.of("minecraft:zombie", "minecraft:husk", "minecraft:zombie_villager");
+  static final List<String> FAMILY = List.of("minecraft:zombie", "minecraft:husk", "minecraft:zombie_villager",
+      // VMC-043d.
+      "minecraft:zombified_piglin");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
