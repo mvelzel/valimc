@@ -74,6 +74,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
 | [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
 | [VMC-039a](tickets/VMC-039a.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal; trampling |
+| [VMC-048a](tickets/VMC-048a.md) | A comparator reading a chest into a lamp, a repeater line with a lock, an observer clock |
 
 ## Retrieve and update
 

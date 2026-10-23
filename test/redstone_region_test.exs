@@ -1,10 +1,11 @@
 defmodule Valimc.RedstoneRegionTest do
   @moduledoc """
-  Redstone in region owners (VMC-047a): a player's use reaches the block
-  rules, scheduled ticks run by block, entities press plates once a tick,
-  power primes TNT as an entity, daylight detectors follow the day, and an
-  update past a group's edge stops there until the groups merge. The rules
-  themselves are `check_redstone.exs`'s.
+  Redstone in region owners (VMC-047a, VMC-048a): a player's use reaches the
+  block rules, scheduled ticks run by block, entities press plates once a
+  tick, power primes TNT as an entity, daylight detectors follow the day, a
+  comparator reads a chest's fullness and keeps its output, a repeater's
+  use cycles its delay, and an update past a group's edge stops there until
+  the groups merge. The rules themselves are `check_redstone.exs`'s.
   """
   use ExUnit.Case, async: true
   alias Valimc.Data.Blocks, as: BlockRegistry
@@ -151,6 +152,72 @@ defmodule Valimc.RedstoneRegionTest do
     assert props(detector)["power"] == "15"
     assert {:ok, _} = Region.step(ctx.owner, 20)
     assert props(detector)["power"] == "0"
+  end
+
+  test "a comparator reads a chest's fullness; a repeater's use cycles its delay", ctx do
+    {x, z} = {ctx.x + 80, ctx.z + 20}
+    {chest, comparator, lamp} = {{x, 64, z}, {x + 1, 64, z}, {x + 2, 64, z}}
+
+    set(ctx.owner, %{
+      chest =>
+        state("chest", %{"facing" => "north", "type" => "single", "waterlogged" => "false"}),
+      comparator =>
+        state("comparator", %{"facing" => "west", "mode" => "compare", "powered" => "false"}),
+      lamp => BlockRegistry.default_state("redstone_lamp")
+    })
+
+    assert Valimc.TestRegion.section(ctx.owner).comparators[comparator] == 0
+
+    # Ten full stacks of 27 slots: `lerpDiscrete(10 / 27, 0, 15)` is 6.
+    fill = fn slots ->
+      Valimc.TestRegion.replace_section(ctx.owner, fn section ->
+        alias Valimc.World.Containers
+
+        {:ok, entry} =
+          Containers.observe(section.containers, chest)
+          |> case do
+            :error -> Containers.create(section.containers, section.key, chest, 3)
+            {:ok, entry} -> {:ok, section.containers, entry}
+          end
+          |> then(fn {:ok, containers, entry} -> {:ok, {containers, entry}} end)
+
+        {containers, entry} = entry
+        {:ok, containers, _} = Containers.replace(containers, chest, entry.revision, slots)
+        %{section | containers: containers}
+      end)
+    end
+
+    stone = ItemStack.new("stone", 64)
+    fill.(List.to_tuple(List.duplicate(stone, 10) ++ List.duplicate(nil, 17)))
+    # Heard at the next block phase, then the comparator's two ticks.
+    assert {:ok, _} = Region.step(ctx.owner, 3)
+    assert Valimc.TestRegion.section(ctx.owner).comparators[comparator] == 6
+    assert props(comparator)["powered"] == "true"
+    assert props(lamp)["lit"] == "true"
+
+    fill.(Tuple.duplicate(nil, 27))
+    assert {:ok, _} = Region.step(ctx.owner, 7)
+    assert Valimc.TestRegion.section(ctx.owner).comparators[comparator] == 0
+    assert props(lamp)["lit"] == "false"
+
+    repeater = {x, 64, z + 3}
+
+    set(ctx.owner, %{
+      repeater =>
+        state("repeater", %{
+          "facing" => "north",
+          "delay" => "1",
+          "locked" => "false",
+          "powered" => "false"
+        })
+    })
+
+    assert press(ctx.owner, repeater) == :used
+    assert props(repeater)["delay"] == "2"
+    refute press(ctx.owner, repeater, :adventure) == :used
+    # Its block entity goes with the comparator.
+    set(ctx.owner, %{comparator => BlockRegistry.default_state("air")})
+    refute Map.has_key?(Valimc.TestRegion.section(ctx.owner).comparators, comparator)
   end
 
   test "an update past the group's edge stops there; after a merge it reaches", ctx do

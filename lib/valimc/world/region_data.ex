@@ -116,6 +116,12 @@ defmodule Valimc.World.RegionData do
     # Redstone torches' recent toggles (VMC-047a, `RECENT_TOGGLES`, which
     # vanilla keeps per level in memory): `[{position, game tick}]`.
     {:torch_toggles, []},
+    # Comparators' outputs (VMC-048a, their block entities'): `position =>
+    # output`, persisted; the block rules keep it.
+    {:comparators, %{}},
+    # The containers as comparators last heard of them: a change of a
+    # container's signal reaches them at the next block phase.
+    :containers_seen,
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -187,6 +193,8 @@ defmodule Valimc.World.RegionData do
         simulate: Valimc.config(:item_simulation, key)
       },
       containers: loaded.containers,
+      containers_seen: loaded.containers,
+      comparators: loaded.comparators,
       block_entities: block_entities,
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
@@ -227,6 +235,7 @@ defmodule Valimc.World.RegionData do
       containers: state.containers,
       ticks: state.scheduled_ticks,
       block_entities: state.block_entities,
+      comparators: state.comparators,
       post: state.post,
       structures: state.structures,
       game_tick: state.game_tick
@@ -2137,8 +2146,9 @@ defmodule Valimc.World.RegionData do
 
       true ->
         {stores, absent} = rule_reach(state)
+        {outputs, _} = comparator_context(state)
 
-        case BlockRules.place(state.blocks, stores, item, values, position, absent) do
+        case BlockRules.place(state.blocks, stores, item, values, position, absent, outputs) do
           nil -> {:reply, {:error, :refused}, state}
           writes -> {:reply, {:ok, writes}, state}
         end
@@ -2190,12 +2200,13 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A placed tripwire hook calculates its line (`setPlacedBy`, VMC-047a).
+  # A placed tripwire hook calculates its line, a diode checks its input
+  # (`setPlacedBy`, VMC-047a, VMC-048a).
   defp hooks_placed(state, batch) do
     case for(
            {position, block} <- batch.edits,
-           Redstone.hook?(block),
-           do: {:hook_placed, position}
+           Redstone.placed_by?(block),
+           do: {:placed, position}
          ) do
       [] -> state
       actions -> elem(rule_run(state, %{actions: actions}), 0)
@@ -2438,7 +2449,7 @@ defmodule Valimc.World.RegionData do
       ScheduledTicks.take_due(state.scheduled_ticks, tick, state.tickets.simulated)
 
     state = %{state | scheduled_ticks: scheduled}
-    state = retry_rule_backlog(state)
+    state = state |> retry_rule_backlog() |> containers_changed()
     read = &read_block(state, &1)
 
     # Fluid ticks run in the block rules after the block ticks (VMC-031a).
@@ -2486,6 +2497,30 @@ defmodule Valimc.World.RegionData do
     |> daylight_ticks(tick)
     |> rule_random_ticks(lava, growing)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
+  end
+
+  # Containers whose signal changed since comparators last heard tell them
+  # (VMC-048a, `setChanged`'s `updateNeighbourForOutputSignal`); vanilla tells
+  # them at the change itself, a tick earlier at most.
+  defp containers_changed(%{containers: same, containers_seen: same} = state), do: state
+
+  defp containers_changed(%{containers_seen: nil} = state),
+    do: %{state | containers_seen: state.containers}
+
+  defp containers_changed(state) do
+    seen = state.containers_seen.entries
+
+    changed =
+      for {position, entry} <- state.containers.entries,
+          entry !== Map.get(seen, position),
+          Redstone.entry_signal(Map.get(seen, position)) != Redstone.entry_signal(entry),
+          do: {:output_changed, position}
+
+    state = %{state | containers_seen: state.containers}
+
+    if changed == [],
+      do: state,
+      else: elem(rule_run(state, %{actions: Enum.sort(changed)}), 0)
   end
 
   # Daylight detectors' block entities (VMC-047a), every twentieth game tick
@@ -2567,7 +2602,63 @@ defmodule Valimc.World.RegionData do
     # Toggles older than 60 ticks count for nothing (a torch's tick drops
     # them first), so they need not be kept.
     toggles = Enum.filter(state.torch_toggles, fn {_, at} -> state.game_tick - at <= 60 end)
-    %{time: state.game_tick, toggles: toggles, entities: entities, pending: pending}
+    {outputs, containers} = comparator_context(state)
+
+    %{
+      time: state.game_tick,
+      toggles: toggles,
+      entities: entities,
+      pending: pending,
+      outputs: outputs,
+      containers: containers
+    }
+  end
+
+  # The group's comparators' outputs, and the signals of the containers one
+  # or two cells beside them (VMC-048a: what a comparator reads, also through
+  # a conductor).
+  defp comparator_context(state) do
+    sections =
+      [{state.key, state.comparators, state.containers}] ++
+        for {key, peer} <- state.siblings,
+            key != state.key,
+            comparators = Map.get(peer, :comparators, %{}),
+            containers = Map.get(peer, :containers, %Valimc.World.Containers{}),
+            map_size(comparators) > 0 or map_size(containers.entries) > 0,
+            do: {key, comparators, containers}
+
+    case Enum.flat_map(sections, fn {_, comparators, _} -> Map.to_list(comparators) end) do
+      [] ->
+        {[], []}
+
+      outputs ->
+        entries = Map.new(sections, fn {key, _, containers} -> {key, containers.entries} end)
+
+        containers =
+          for {{x, y, z}, _} <- outputs,
+              {dx, dz} <- [{1, 0}, {2, 0}, {-1, 0}, {-2, 0}, {0, 1}, {0, 2}, {0, -1}, {0, -2}],
+              position = {x + dx, y, z + dz},
+              entry = get_in(entries, [Grid.region_key(Grid.chunk_key(x + dx, z + dz)), position]),
+              entry != nil,
+              uniq: true,
+              do: {position, Redstone.entry_signal(entry)}
+
+        {outputs, containers}
+    end
+  end
+
+  # The owner's pending ticks at the cells a run's changes name, for the old
+  # and new block there (an observer's onPlace and removal ask).
+  defp change_pending(_state, changes) when map_size(changes) == 0, do: []
+
+  defp change_pending(state, changes) do
+    for {position, old} <- changes,
+        state_id <- Enum.uniq([old, read_block(state, position)]),
+        state_id != nil,
+        block = Valimc.Data.Blocks.block_id(state_id),
+        key = Valimc.Data.Blocks.default_state(Valimc.Data.Blocks.name(block)),
+        ScheduledTicks.scheduled?(state.scheduled_ticks, position, key),
+        do: {position, block}
   end
 
   # Lava's (VMC-031a) and growing plants' (VMC-039a) random ticks run in the
@@ -2763,6 +2854,14 @@ defmodule Valimc.World.RegionData do
         |> Map.put_new_lazy(:redstone, fn ->
           redstone_context(state, Map.get(input, :actions, []), [])
         end)
+        |> Map.update!(:redstone, fn context ->
+          Map.update(
+            context,
+            :pending,
+            [],
+            &(&1 ++ change_pending(state, Map.get(input, :changes, %{})))
+          )
+        end)
 
       outcome = BlockRules.run(state.blocks, stores, input, absent)
       parts = by_section(outcome, state)
@@ -2849,7 +2948,16 @@ defmodule Valimc.World.RegionData do
   # group (ticks only) are dropped.
   defp by_section(outcome, state) do
     key = fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end
-    empty = %{changes: [], destroyed: [], ticks: [], fluid_ticks: [], events: [], primed: []}
+
+    empty = %{
+      changes: [],
+      destroyed: [],
+      ticks: [],
+      fluid_ticks: [],
+      events: [],
+      primed: [],
+      outputs: []
+    }
 
     [
       changes: outcome.changes,
@@ -2857,7 +2965,8 @@ defmodule Valimc.World.RegionData do
       ticks: outcome.ticks,
       fluid_ticks: outcome.fluid_ticks,
       events: outcome.events,
-      primed: for(cell <- outcome.primed, do: {cell})
+      primed: for(cell <- outcome.primed, do: {cell}),
+      outputs: outcome.outputs
     ]
     |> Enum.reduce(%{}, fn {field, records}, acc ->
       Enum.reduce(Enum.reverse(records), acc, fn record, acc ->
@@ -3142,6 +3251,20 @@ defmodule Valimc.World.RegionData do
     |> commit_rule_changes(changes, drops, breaks)
     |> rule_events(part.events)
     |> prime_tnt(for({cell} <- Map.get(part, :primed, []), do: cell))
+    |> put_outputs(Map.get(part, :outputs, []))
+  end
+
+  # Comparators' outputs the rules changed (VMC-048a): nil for one gone.
+  defp put_outputs(state, []), do: state
+
+  defp put_outputs(state, outputs) do
+    comparators =
+      Enum.reduce(outputs, state.comparators, fn
+        {position, nil}, acc -> Map.delete(acc, position)
+        {position, output}, acc -> Map.put(acc, position, output)
+      end)
+
+    %{state | comparators: comparators}
   end
 
   # TNT that power primed (VMC-047a, `TntBlock.prime`): a primed TNT with
@@ -3166,11 +3289,11 @@ defmodule Valimc.World.RegionData do
   defp rule_ticks(_state, _changes, []), do: []
 
   defp rule_ticks(state, _changes, ticks) do
-    for {position, block, delay} <- ticks,
+    for {position, block, delay, priority} <- ticks,
         in_region?(state, position),
         do:
           {:schedule, position, Valimc.Data.Blocks.default_state(Valimc.Data.Blocks.name(block)),
-           delay, 0}
+           delay, priority}
   end
 
   defp retry_rule_backlog(%{rule_backlog: []} = state), do: state

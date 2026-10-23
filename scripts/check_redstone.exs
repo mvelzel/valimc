@@ -1,14 +1,42 @@
-# Differential check of redstone (VMC-047a, `valimc_core::rules::power` and `components` on
-# the live block-update engine) against RedstoneOracle's circuit scenes: per game tick, the
-# cells whose state changed, the level events, the sounds, the block events, the primed TNT
-# and the uses' results. The scenes straddle chunk and section lines; the engine reads the
-# four section stores as one group's. With a day file, also the day cycle daylight detectors
-# read (`skyDarken` and the sun angle) at every sample.
+# Differential check of redstone (VMC-047a, VMC-048a: `valimc_core::rules::power` and
+# `components` on the live block-update engine) against RedstoneOracle's circuit scenes: per
+# game tick, the cells whose state changed, the level events, the sounds, the block events,
+# the primed TNT, the uses' results and the comparators whose output changed. The scenes
+# straddle chunk and section lines; the engine reads the four section stores as one group's.
+# A container's new contents give the signal ValiMC computes from them
+# (`Valimc.Blocks.Redstone.container_signal/2`), which must be vanilla's. With a day file,
+# also the day cycle daylight detectors read (`skyDarken` and the sun angle) at every sample.
 [scenes_file | rest] = System.argv()
 facts = JSON.decode!(File.read!(scenes_file))
 rules = Valimc.World.BlockRules.native()
 
-kinds = %{"set" => 0, "use" => 1, "placed" => 2, "page" => 3, "hit" => 4, "disarm" => 5}
+kinds = %{
+  "set" => 0,
+  "use" => 1,
+  "placed" => 2,
+  "page" => 3,
+  "hit" => 4,
+  "disarm" => 5,
+  "fill" => 6
+}
+
+# A fill's signal from its slots, as the owner computes it; vanilla's must match.
+fill_signal = fn
+  _at, -1, _slots, _size ->
+    -1
+
+  at, signal, slots, size ->
+    stacks = for [_, item, count] <- slots, do: {item, count}
+    ours = Valimc.Blocks.Redstone.container_signal(stacks, size)
+
+    if ours != signal,
+      do:
+        raise(
+          "container signal at #{inspect(at)}: vanilla #{signal}, ours #{ours} for #{inspect(slots)}"
+        )
+
+    signal
+end
 
 compare = fn scene ->
   cells = Map.new(scene["cells"], fn [x, y, z, s] -> {{x, y, z}, s} end)
@@ -18,8 +46,14 @@ compare = fn scene ->
     for %{"t" => t, "actions" => actions} <- steps,
         [kind, x, y, z | values] <- actions,
         Map.has_key?(kinds, kind) do
-      [a, b] = Enum.take(values ++ [0, 0], 2)
-      {t, kinds[kind], {x, y, z}, a, b}
+      case {kind, values} do
+        {"fill", [signal, slots, size]} ->
+          {t, 6, {x, y, z}, fill_signal.({x, y, z}, signal, slots, size), 0}
+
+        _ ->
+          [a, b] = Enum.take(values ++ [0, 0], 2)
+          {t, kinds[kind], {x, y, z}, a, b}
+      end
     end
 
   entities =
@@ -42,11 +76,12 @@ compare = fn scene ->
     )
 
   ours =
-    Map.new(ours, fn {t, changes, events, sounds, {block_events, primed, results}} ->
+    Map.new(ours, fn {t, changes, events, sounds, {block_events, primed, results, outputs}} ->
       sounds = for {{x, y, z}, name, v, p, a} <- sounds, do: [x, y, z, name, v, p, a]
       block_events = for {x, y, z, b, b0, b1} <- block_events, do: [x, y, z, b, b0, b1]
       primed = for {x, y, z} <- primed, do: [x, y, z]
-      {t, {changes, events, sounds, block_events, primed, results}}
+      outputs = for {x, y, z, o} <- outputs, do: [x, y, z, o]
+      {t, {changes, events, sounds, block_events, primed, results, outputs}}
     end)
 
   # Vanilla's writes folded into per-tick changes against the scene's cells.
@@ -66,11 +101,12 @@ compare = fn scene ->
 
       {{step["t"],
         {Enum.sort(changes), Enum.sort(Enum.map(step["events"], &List.to_tuple/1)), sounds,
-         step["block_events"], step["primed"], step["results"]}}, after_tick}
+         step["block_events"], step["primed"], step["results"], Map.get(step, "outputs", [])}},
+       after_tick}
     end)
 
   vanilla = Map.new(vanilla)
-  empty = {[], [], [], [], [], []}
+  empty = {[], [], [], [], [], [], []}
 
   0..199
   |> Enum.find(fn t -> Map.get(vanilla, t, empty) != Map.get(ours, t, empty) end)
@@ -93,7 +129,7 @@ mismatches = for {i, {:mismatch, t, vanilla, ours}} <- results, do: {i, t, vanil
 
 unless mismatches == [] do
   [{scene, t, vanilla, ours} | _] = mismatches
-  names = ~w(changes events sounds block_events primed results)
+  names = ~w(changes events sounds block_events primed results outputs)
 
   diffs =
     for {name, v, o} <- Enum.zip([names, Tuple.to_list(vanilla), Tuple.to_list(ours)]), v != o do
@@ -144,6 +180,6 @@ day =
   end
 
 IO.puts(
-  "PASS: #{length(results)} vanilla redstone scenes of 200 ticks (#{writes} writes) power, " <>
+  "PASS: #{length(results)} vanilla redstone scenes of 200 ticks (#{writes} writes) power, time, compare, " <>
     "light, open, sound and prime as the block-update engine does, across section lines" <> day
 )

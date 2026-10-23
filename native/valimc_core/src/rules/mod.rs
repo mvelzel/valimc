@@ -50,6 +50,24 @@ pub const WATER_DELAY: i32 = 5;
 pub trait BlockAccess {
     fn get(&mut self, pos: [i32; 3]) -> u16;
     fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16, delay: i32);
+    /// A block tick with a `TickPriority` (-3 extremely high to 3
+    /// extremely low; VMC-048a's diodes): where priorities are not kept, a
+    /// plain one.
+    fn schedule_block_tick_priority(
+        &mut self,
+        pos: [i32; 3],
+        block: u16,
+        delay: i32,
+        priority: i32,
+    ) {
+        let _ = priority;
+        self.schedule_block_tick(pos, block, delay);
+    }
+    /// The output of the comparator at `pos` (its block entity's), 0 where
+    /// none is kept.
+    fn comparator_output(&mut self, _pos: [i32; 3]) -> i32 {
+        0
+    }
     fn schedule_fluid_tick(&mut self, pos: [i32; 3], fluid: u8, delay: i32);
     fn has_block_tick(&mut self, pos: [i32; 3], block: u16) -> bool;
     /// The level random's `nextInt(bound)`.
@@ -228,7 +246,13 @@ impl Rules {
             Placed::Writes(writes) => writes,
         };
         let post = placement.post(item);
-        if post != Post::None {
+        if post == Post::Lock {
+            for (pos, state) in writes.iter_mut().filter(|(pos, _)| *pos == target) {
+                let locked = self.repeater_locked(access, *pos, *state);
+                let value = if locked { "true" } else { "false" };
+                *state = self.table.with(*state, "locked", value).unwrap_or(*state);
+            }
+        } else if post != Post::None {
             let table = self.table.as_ref();
             for (pos, state) in writes.iter_mut().filter(|(pos, _)| *pos == target) {
                 let mut read = |p: [i32; 3]| access.get(p);
@@ -245,7 +269,7 @@ impl Rules {
                         }
                     }),
                     Post::Leaves => self.leaf_distance(&mut read, *state, *pos),
-                    Post::None => *state,
+                    Post::None | Post::Lock => *state,
                 };
             }
         }
@@ -385,9 +409,9 @@ impl Rules {
 
     /// `Level.hasNeighborSignal`: whether a neighbour gives `pos` a signal,
     /// a conductor also the strongest direct signal into it. Wire gives its
-    /// power where it connects (its stored connections); a comparator's,
-    /// trapped chest's or jukebox's signal reads its block entity and is 0
-    /// here, as for wire (`wire.rs`).
+    /// power where it connects (its stored connections); a comparator's is
+    /// its output; a trapped chest's reads its viewers and is 0 here, as for
+    /// wire (`wire.rs`).
     pub fn has_neighbor_signal(&self, access: &mut dyn BlockAccess, pos: [i32; 3]) -> bool {
         let table = self.table.as_ref();
         (0..6).any(|d| {
@@ -405,11 +429,15 @@ impl Rules {
                     power
                 }
             } else {
-                table.signal(state, d)
+                self.block_signal(access, neighbour, state, d)
             };
             signal > 0
                 || table.flag2(state, REDSTONE_CONDUCTOR)
-                    && (0..6).any(|e| table.direct_signal(access.get(at(neighbour, e)), e) > 0)
+                    && (0..6).any(|e| {
+                        let beside = at(neighbour, e);
+                        let state = access.get(beside);
+                        self.block_direct_signal(access, beside, state, e) > 0
+                    })
         })
     }
 

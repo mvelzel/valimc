@@ -141,7 +141,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                     power: r[13] as i32,
                     arrow: r[14] & 1 == 1,
                 },
-                9 => Action::HookPlaced { pos },
+                9 => Action::Placed { pos },
                 10 => Action::Disarm { pos },
                 11 => Action::BoneMeal { pos },
                 12 => Action::Transform {
@@ -150,6 +150,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                     face: r[14] as usize,
                 },
                 13 => Action::Trample { pos },
+                14 => Action::OutputChanged { pos },
                 _ => return Err(atoms::invalid_positions()),
             })
         })
@@ -172,7 +173,7 @@ type Updated<'a> = (
         Vec<i32>,
     ),
     (u64, u64, u64),
-    (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>),
+    (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>),
 );
 
 /// A run's packed inputs.
@@ -195,6 +196,9 @@ struct Context {
     toggles: Vec<([i32; 3], i64)>,
     entities: Vec<EntityBox>,
     pending: Vec<([i32; 3], u16)>,
+    /// Comparators' outputs and the owner's containers' signals (VMC-048a).
+    outputs: Vec<([i32; 3], i32)>,
+    containers: Vec<([i32; 3], i32)>,
 }
 
 /// A reader over a packed binary that fails past its end.
@@ -261,6 +265,12 @@ fn context(packed: &[u8]) -> Result<Context, Atom> {
             .pending
             .push((r.pos()?, u16::from_be_bytes(r.take()?)));
     }
+    for _ in 0..r.count(16)? {
+        context.outputs.push((r.pos()?, r.i32()?));
+    }
+    for _ in 0..r.count(16)? {
+        context.containers.push((r.pos()?, r.i32()?));
+    }
     if !r.0.is_empty() {
         return Err(atoms::invalid_positions());
     }
@@ -268,7 +278,8 @@ fn context(packed: &[u8]) -> Result<Context, Atom> {
 }
 
 /// What placing `item` at `position` writes (VMC-029d), reading the
-/// section and its group's other sections (`siblings`): `[{x, y, z, state}]`
+/// section and its group's other sections (`siblings`) and the comparators'
+/// `outputs` (a repeater's lock): `[{x, y, z, state}]`
 /// (the placed block first among them) or `nil` when vanilla refuses it.
 /// `values` are the click's inputs by `placement::VARS` (the light ones are
 /// read here); `seed` seeds the random a placement draws from.
@@ -283,8 +294,13 @@ fn block_place(
     position: (i32, i32, i32),
     absent: Vec<(i32, i32)>,
     seed: i64,
+    outputs: Vec<((i32, i32, i32), i32)>,
 ) -> Result<Option<Vec<(i32, i32, i32, u16)>>, Atom> {
     let values: [u8; 13] = values.try_into().map_err(|_| atoms::invalid_state())?;
+    let outputs: Vec<([i32; 3], i32)> = outputs
+        .into_iter()
+        .map(|((x, y, z), output)| ([x, y, z], output))
+        .collect();
     let (x, y, z) = position;
     let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
     let guards = lock_group(&region, &siblings)?;
@@ -297,6 +313,7 @@ fn block_place(
         values,
         [x, y, z],
         seed,
+        &outputs,
     )
     .map_err(|_| atoms::invalid_state())?;
     Ok(writes.map(|writes| {
@@ -444,6 +461,8 @@ fn updates<'a>(
         sky_darken,
         sun_angle,
         sky: None,
+        outputs: &context.outputs,
+        containers: &context.containers,
     };
     let mut random = Random::legacy(seed);
     let outcome =
@@ -466,11 +485,12 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
         destroyed.extend_from_slice(&block.state.to_be_bytes());
         destroyed.push(u8::from(block.drops) | u8::from(block.effects) << 1);
     }
-    let mut scheduled = Vec::with_capacity(outcome.block_ticks.len() * 18);
-    for (pos, block, delay) in &outcome.block_ticks {
+    let mut scheduled = Vec::with_capacity(outcome.block_ticks.len() * 19);
+    for (pos, block, delay, priority) in &outcome.block_ticks {
         put_position(&mut scheduled, *pos);
         scheduled.extend_from_slice(&block.to_be_bytes());
         scheduled.extend_from_slice(&delay.to_be_bytes());
+        scheduled.push(*priority as i8 as u8);
     }
     let mut fluid = Vec::with_capacity(outcome.fluid_ticks.len() * 17);
     for (pos, kind, delay) in &outcome.fluid_ticks {
@@ -511,6 +531,11 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
         put_position(&mut toggles, *pos);
         toggles.extend_from_slice(&when.to_be_bytes());
     }
+    let mut outputs = Vec::with_capacity(outcome.outputs.len() * 16);
+    for (pos, output) in &outcome.outputs {
+        put_position(&mut outputs, *pos);
+        outputs.extend_from_slice(&output.unwrap_or(-1).to_be_bytes());
+    }
     (
         (
             binary(env, &changed),
@@ -530,6 +555,7 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
             binary(env, &block_events),
             binary(env, &primed),
             binary(env, &toggles),
+            binary(env, &outputs),
         ),
     )
 }

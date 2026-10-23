@@ -21,8 +21,9 @@ defmodule Valimc.World.BlockEntities do
   @max_update 262_144
   @update_limits %{NBT.disk_limits() | bytes: @max_update, duplicates: :refuse}
   # Kinds whose removal vanilla drops nothing for and whose data ValiMC writes
-  # itself (an end gateway's exit, VMC-026b4): their blocks change freely.
-  @replaceable ["minecraft:end_gateway"]
+  # itself (an end gateway's exit, VMC-026b4; a comparator's output, which an
+  # imported one starts again from 0, VMC-048a): their blocks change freely.
+  @replaceable ["minecraft:end_gateway", "minecraft:comparator"]
 
   defstruct entries: %{}
 

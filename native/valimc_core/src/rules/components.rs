@@ -2,11 +2,14 @@
 //! sources (levers, buttons, pressure plates, redstone torches with their
 //! burnout, daylight detectors, target blocks, tripwire hooks and tripwire,
 //! lecterns' page pulses) and the blocks that react to power (lamps, doors,
-//! trapdoors, fence gates, note blocks, TNT), as their vanilla classes do it
-//! with the experimental redstone off: `neighborChanged`, scheduled ticks,
-//! `onPlace` and `affectNeighborsAfterRemoval`, and the uses, entity contacts,
-//! detector updates, page turns and projectile hits that start them. Signals
-//! are `power.rs`'s; every write is a `Level.setBlock` with its flags, so the
+//! trapdoors, fence gates, note blocks, TNT), with VMC-048a's repeaters
+//! (delay, locking), comparators (compare and subtract, analog inputs, their
+//! block entity's output) and observers, as their vanilla classes do it
+//! with the experimental redstone off: `neighborChanged`, scheduled ticks
+//! with their priorities, `onPlace` and `affectNeighborsAfterRemoval`, and the
+//! uses, placements, entity contacts, detector updates, page turns,
+//! container changes and projectile hits that start them. Signals are
+//! `power.rs`'s; every write is a `Level.setBlock` with its flags, so the
 //! updates it starts run in vanilla's order.
 //!
 //! A reaction reads before it writes; one that reads past the owner's border
@@ -36,6 +39,13 @@ const HOOK_RANGE: i32 = 42;
 /// Level events: a torch burning out, a lectern's page.
 const BURNOUT: i32 = 1502;
 const PAGE: i32 = 1043;
+/// `TickPriority` values.
+const EXTREMELY_HIGH: i32 = -3;
+const VERY_HIGH: i32 = -2;
+const HIGH: i32 = -1;
+const NORMAL: i32 = 0;
+const COMPARATOR_DELAY: i32 = 2;
+const OBSERVER_DELAY: i32 = 2;
 
 /// An entity a contact or a check sees: its box and kind.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -300,6 +310,8 @@ impl<W: World> Engine<'_, W> {
                     self.remove_block(pos);
                 }
             }
+            Kind::Repeater | Kind::Comparator => self.diode_neighbor_changed(pos, state, kind),
+            Kind::Observer => {}
             _ => return false,
         }
         true
@@ -373,6 +385,9 @@ impl<W: World> Engine<'_, W> {
                 }
             }
             Kind::Lectern => self.lectern_powered(pos, state, false),
+            Kind::Repeater => self.repeater_tick(pos, state),
+            Kind::Comparator => self.comparator_refresh(pos, state),
+            Kind::Observer => self.observer_tick(pos, state),
             _ => return false,
         }
         true
@@ -385,10 +400,22 @@ impl<W: World> Engine<'_, W> {
         };
         let table = self.rules.table.clone();
         let block = table.block_of(state);
+        // `DiodeBlock.onPlace` tells its front at every change.
+        if matches!(kind, Kind::Repeater | Kind::Comparator) {
+            self.update_neighbors_in_front(pos, state);
+            return;
+        }
         if table.block_of(old) == block {
             return;
         }
         match kind {
+            Kind::Observer => {
+                if flag(&table, state, "powered") && !self.world.has_block_tick(pos, block) {
+                    let new = set(&table, state, "powered", false);
+                    self.set_block(pos, new, CLIENTS | KNOWN_SHAPE, UPDATE_LIMIT);
+                    self.update_neighbors_in_front(pos, new);
+                }
+            }
             Kind::Tnt => {
                 let Some(signal) = self.decide(|e| e.has_neighbor_signal(pos)) else {
                     return;
@@ -419,6 +446,13 @@ impl<W: World> Engine<'_, W> {
             Kind::Hook => self.hook_removed(state, pos, sounds),
             Kind::Tripwire => self.update_source(pos, set(&table, state, "powered", true)),
             Kind::Lectern if flag(&table, state, "powered") => self.update_below(pos, state),
+            Kind::Repeater | Kind::Comparator => self.update_neighbors_in_front(pos, state),
+            Kind::Observer => {
+                let block = table.block_of(state);
+                if flag(&table, state, "powered") && self.world.has_block_tick(pos, block) {
+                    self.update_neighbors_in_front(pos, set(&table, state, "powered", false));
+                }
+            }
             _ => {}
         }
     }
@@ -533,6 +567,34 @@ impl<W: World> Engine<'_, W> {
                 let new = set(&table, state, "inverted", !flag(&table, state, "inverted"));
                 self.set_block(pos, new, CLIENTS, UPDATE_LIMIT);
                 self.daylight_update(pos, new);
+            }
+            Kind::Repeater => {
+                if !may_build {
+                    return Used::Pass;
+                }
+                // `cycle(DELAY)`: 1 to 4, then 1.
+                let delay = int(&table, state, "delay") % 4 + 1;
+                self.set_block(
+                    pos,
+                    with_int(&table, state, "delay", delay),
+                    ALL,
+                    UPDATE_LIMIT,
+                );
+            }
+            Kind::Comparator => {
+                if !may_build {
+                    return Used::Pass;
+                }
+                let subtract = table.value(state, "mode") != Some("subtract");
+                let new = table
+                    .with(state, "mode", if subtract { "subtract" } else { "compare" })
+                    .unwrap_or(state);
+                let pitch = if subtract { 0.55 } else { 0.5 };
+                self.sound(centre(pos), sounds[0], 0.3, pitch, true);
+                self.set_block(pos, new, CLIENTS, UPDATE_LIMIT);
+                if table.block_of(self.world.get(pos)) == block {
+                    self.comparator_refresh(pos, new);
+                }
             }
             _ => return Used::Pass,
         }
@@ -665,14 +727,35 @@ impl<W: World> Engine<'_, W> {
         }
     }
 
-    /// `TripWireHookBlock.setPlacedBy`.
-    pub fn hook_placed(&mut self, pos: [i32; 3]) {
+    /// `setPlacedBy` of a tripwire hook (its line) or a diode (a tick if
+    /// it should turn on).
+    pub fn placed_by(&mut self, pos: [i32; 3]) {
         if !self.world.owns(pos) {
             return;
         }
         let state = self.world.get(pos);
-        if matches!(self.kind_of(state), Some((Kind::Hook, _))) {
-            self.calculate_state(pos, state, false, false, -1, None);
+        match self.kind_of(state) {
+            Some((Kind::Hook, _)) => self.calculate_state(pos, state, false, false, -1, None),
+            Some((kind @ (Kind::Repeater | Kind::Comparator), _))
+                if self.decide(|e| e.diode_turns_on(pos, state, kind)) == Some(true) =>
+            {
+                let block = self.rules.table.block_of(state);
+                self.world.schedule_block_tick(pos, block, 1);
+            }
+            _ => {}
+        }
+    }
+
+    /// A block entity's `setChanged` at `pos` (a container's contents): the
+    /// comparators reading it hear (`updateNeighbourForOutputSignal`).
+    pub fn output_changed(&mut self, pos: [i32; 3]) {
+        if !self.world.owns(pos) {
+            return;
+        }
+        let state = self.world.get(pos);
+        if !self.rules.table.is_air(state) {
+            let block = self.rules.table.block_of(state);
+            self.update_neighbour_for_output_signal(pos, block);
         }
     }
 
@@ -890,6 +973,257 @@ impl<W: World> Engine<'_, W> {
     fn update_below(&mut self, pos: [i32; 3], state: u16) {
         let block = self.rules.table.block_of(state);
         self.update_neighbors_at(at(pos, DOWN), block, None);
+    }
+
+    // ---- Diodes and observers (VMC-048a) ----
+
+    /// `DiodeBlock.getDelay`: a repeater's two ticks per step, a comparator's 2.
+    fn diode_delay(&self, state: u16, kind: Kind) -> i32 {
+        match kind {
+            Kind::Repeater => int(&self.rules.table, state, "delay") * 2,
+            _ => COMPARATOR_DELAY,
+        }
+    }
+
+    /// `getInputSignal`: the signal from behind (wire's power at least); a
+    /// comparator reads an analog output there, or behind a conductor there.
+    /// Item frames do not exist yet.
+    fn diode_input(&mut self, pos: [i32; 3], state: u16, kind: Kind) -> i32 {
+        let table = self.rules.table.clone();
+        let f = facing(&table, state);
+        let target = at(pos, f);
+        let mut input = self.level_signal(target, f);
+        let target_state = self.world.get(target);
+        if input < 15 && self.is_wire(target_state) {
+            input = input.max(int(&table, target_state, "power"));
+        }
+        if kind == Kind::Comparator {
+            let conductor = crate::worldgen::blocks::REDSTONE_CONDUCTOR;
+            if self.has_analog(target_state) {
+                input = self.analog_signal(target, target_state);
+            } else if input < 15 && table.flag2(target_state, conductor) {
+                let behind = at(target, f);
+                let behind_state = self.world.get(behind);
+                if self.has_analog(behind_state) {
+                    input = self.analog_signal(behind, behind_state);
+                }
+            }
+        }
+        input
+    }
+
+    /// `shouldTurnOn`: a repeater's input; a comparator's input over its
+    /// side's (or equal in compare mode).
+    fn diode_turns_on(&mut self, pos: [i32; 3], state: u16, kind: Kind) -> bool {
+        let input = self.diode_input(pos, state, kind);
+        if kind == Kind::Repeater || input == 0 {
+            return input > 0;
+        }
+        let rules = self.rules;
+        let side = rules.alternate_signal(&mut self.world, pos, state, false);
+        input > side || input == side && self.rules.table.value(state, "mode") == Some("compare")
+    }
+
+    /// `ComparatorBlock.calculateOutputSignal`.
+    fn comparator_value(&mut self, pos: [i32; 3], state: u16) -> i32 {
+        let input = self.diode_input(pos, state, Kind::Comparator);
+        if input == 0 {
+            return 0;
+        }
+        let rules = self.rules;
+        let side = rules.alternate_signal(&mut self.world, pos, state, false);
+        if side > input {
+            0
+        } else if self.rules.table.value(state, "mode") == Some("subtract") {
+            input - side
+        } else {
+            input
+        }
+    }
+
+    fn diode_locked(&mut self, pos: [i32; 3], state: u16, kind: Kind) -> bool {
+        let rules = self.rules;
+        kind == Kind::Repeater && rules.repeater_locked(&mut self.world, pos, state)
+    }
+
+    /// `shouldPrioritize`: a diode in front that does not face it.
+    fn diode_prioritized(&mut self, pos: [i32; 3], state: u16) -> bool {
+        let table = self.rules.table.clone();
+        let front = facing(&table, state) ^ 1;
+        let ahead = self.world.get(at(pos, front));
+        self.rules.redstone.is_diode(table.block_of(ahead)) && facing(&table, ahead) != front
+    }
+
+    /// `DiodeBlock.neighborChanged` with the state it is told it holds: one
+    /// without a rigid floor pops off (`dropResources`, `removeBlock`, its
+    /// neighbours told), any other checks for a tick.
+    fn diode_neighbor_changed(&mut self, pos: [i32; 3], state: u16, kind: Kind) {
+        let table = self.rules.table.clone();
+        let block = table.block_of(state);
+        if table.block_of(self.world.get(pos)) != block {
+            return;
+        }
+        let rules = self.rules;
+        let Some(survives) = self.decide(|e| rules.diode_survives(&mut e.world, state, pos, None))
+        else {
+            return;
+        };
+        if !survives {
+            self.report.destroyed.push(super::updater::Destroyed {
+                pos,
+                state,
+                drops: true,
+                effects: false,
+            });
+            self.remove_block(pos);
+            for d in 0..6 {
+                self.update_neighbors_at(at(pos, d), block, None);
+            }
+            return;
+        }
+        let on = flag(&table, state, "powered");
+        let priority = self.decide(|e| match kind {
+            Kind::Repeater => {
+                if e.diode_locked(pos, state, kind) {
+                    return None;
+                }
+                let turns_on = e.diode_turns_on(pos, state, kind);
+                if on == turns_on || e.will_tick_this_tick(pos, block) {
+                    return None;
+                }
+                Some(if e.diode_prioritized(pos, state) {
+                    EXTREMELY_HIGH
+                } else if on {
+                    VERY_HIGH
+                } else {
+                    HIGH
+                })
+            }
+            _ => {
+                if e.will_tick_this_tick(pos, block) {
+                    return None;
+                }
+                let output = e.comparator_value(pos, state);
+                let old = e.world.comparator_output(pos);
+                if output == old && on == e.diode_turns_on(pos, state, kind) {
+                    return None;
+                }
+                Some(if e.diode_prioritized(pos, state) {
+                    HIGH
+                } else {
+                    NORMAL
+                })
+            }
+        });
+        if let Some(Some(priority)) = priority {
+            let delay = self.diode_delay(state, kind);
+            self.world
+                .schedule_block_tick_priority(pos, block, delay, priority);
+        }
+    }
+
+    /// `DiodeBlock.tick` of a repeater: unless locked, it turns off, or on
+    /// (then off again after its delay unless its input holds).
+    fn repeater_tick(&mut self, pos: [i32; 3], state: u16) {
+        let table = self.rules.table.clone();
+        let Some(Some(turns_on)) = self.decide(|e| {
+            (!e.diode_locked(pos, state, Kind::Repeater))
+                .then(|| e.diode_turns_on(pos, state, Kind::Repeater))
+        }) else {
+            return;
+        };
+        let on = flag(&table, state, "powered");
+        if on && !turns_on {
+            self.set_block(
+                pos,
+                set(&table, state, "powered", false),
+                CLIENTS,
+                UPDATE_LIMIT,
+            );
+        } else if !on {
+            self.set_block(
+                pos,
+                set(&table, state, "powered", true),
+                CLIENTS,
+                UPDATE_LIMIT,
+            );
+            if !turns_on {
+                let delay = self.diode_delay(state, Kind::Repeater);
+                let block = table.block_of(state);
+                self.world
+                    .schedule_block_tick_priority(pos, block, delay, VERY_HIGH);
+            }
+        }
+    }
+
+    /// `ComparatorBlock.refreshOutputState`: its block entity takes the new
+    /// output; a change, or compare mode, sets its powered state and tells
+    /// its front.
+    fn comparator_refresh(&mut self, pos: [i32; 3], state: u16) {
+        let table = self.rules.table.clone();
+        let Some((output, turns_on)) = self.decide(|e| {
+            (
+                e.comparator_value(pos, state),
+                e.diode_turns_on(pos, state, Kind::Comparator),
+            )
+        }) else {
+            return;
+        };
+        let old = self.world.comparator_output(pos);
+        self.world.set_comparator_output(pos, Some(output));
+        if old != output || table.value(state, "mode") == Some("compare") {
+            let on = flag(&table, state, "powered");
+            if on && !turns_on {
+                self.set_block(
+                    pos,
+                    set(&table, state, "powered", false),
+                    CLIENTS,
+                    UPDATE_LIMIT,
+                );
+            } else if !on && turns_on {
+                self.set_block(
+                    pos,
+                    set(&table, state, "powered", true),
+                    CLIENTS,
+                    UPDATE_LIMIT,
+                );
+            }
+            self.update_neighbors_in_front(pos, state);
+        }
+    }
+
+    /// `ObserverBlock.tick`: a pulse of two ticks, its front told at each end.
+    fn observer_tick(&mut self, pos: [i32; 3], state: u16) {
+        let table = self.rules.table.clone();
+        if flag(&table, state, "powered") {
+            self.set_block(
+                pos,
+                set(&table, state, "powered", false),
+                CLIENTS,
+                UPDATE_LIMIT,
+            );
+        } else {
+            self.set_block(
+                pos,
+                set(&table, state, "powered", true),
+                CLIENTS,
+                UPDATE_LIMIT,
+            );
+            let block = table.block_of(state);
+            self.world.schedule_block_tick(pos, block, OBSERVER_DELAY);
+        }
+        self.update_neighbors_in_front(pos, state);
+    }
+
+    /// `updateNeighborsInFront` of a diode or observer: the cell its signal
+    /// goes to, then that cell's neighbours but itself.
+    fn update_neighbors_in_front(&mut self, pos: [i32; 3], state: u16) {
+        let table = self.rules.table.as_ref();
+        let f = facing(table, state);
+        let block = table.block_of(state);
+        let front = at(pos, f ^ 1);
+        self.neighbor_changed_at(front, block);
+        self.update_neighbors_at(front, block, Some(f));
     }
 
     // ---- Tripwire ----

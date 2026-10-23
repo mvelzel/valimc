@@ -75,7 +75,7 @@ impl Scene {
         for &(pos, state) in &outcome.changes {
             self.set(pos, state)?;
         }
-        for &(pos, block, delay) in &outcome.block_ticks {
+        for &(pos, block, delay, _) in &outcome.block_ticks {
             if self.keys.insert((pos, block)) {
                 self.pending
                     .insert((self.time + delay as i64, self.sequence), (pos, block));

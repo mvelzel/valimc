@@ -133,6 +133,7 @@ defmodule Valimc.StorageTest do
       containers: %Containers{},
       ticks: ScheduledTicks.new(),
       block_entities: %BlockEntities{},
+      comparators: %{},
       post: %{},
       structures: %{},
       game_tick: 0

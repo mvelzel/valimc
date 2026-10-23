@@ -4,9 +4,10 @@
 //! (also one step up or down) less one. A change re-evaluates the wire and
 //! notifies the wire and its six neighbours in `HashSet` order; placing or
 //! removing wire also reaches the wires around corners. The signals of the
-//! other blocks come from the block facts (`BlockTable::signal`); while a
-//! wire evaluates no wire signals (vanilla's `shouldSignal`). A comparator's,
-//! trapped chest's or jukebox's signal reads its block entity and is 0 here.
+//! other blocks come from the block facts (`BlockTable::signal`), a
+//! comparator's from its output; while a wire evaluates no wire signals
+//! (vanilla's `shouldSignal`). A trapped chest's signal reads its viewers and
+//! is 0 here.
 //! The sources' own placement and removal hooks notify the cells their
 //! signal reaches; the other components' are `components.rs`'s.
 
@@ -96,7 +97,16 @@ impl<W: World> Engine<'_, W> {
                 self.update_neighbors_at(pos, block, None);
                 self.update_neighbors_at(at(pos, DOWN), block, None);
             }
-            _ => self.component_removed(pos, state),
+            _ => {
+                self.component_removed(pos, state);
+                // `Containers.updateNeighboursAfterDestroy`.
+                if self
+                    .power_facts()
+                    .is_some_and(|f| f.removal_output(&self.rules.table, state))
+                {
+                    self.update_neighbour_for_output_signal(pos, block);
+                }
+            }
         }
     }
 
@@ -241,7 +251,8 @@ impl<W: World> Engine<'_, W> {
     /// direct signal into it.
     fn signal(&mut self, pos: [i32; 3], d: usize) -> i32 {
         let state = self.world.get(pos);
-        let signal = self.rules.table.signal(state, d);
+        let rules = self.rules;
+        let signal = rules.block_signal(&mut self.world, pos, state, d);
         if self.conductor(state) {
             signal.max(self.direct_signal_to(pos))
         } else {
@@ -253,8 +264,10 @@ impl<W: World> Engine<'_, W> {
     fn direct_signal_to(&mut self, pos: [i32; 3]) -> i32 {
         let mut result = 0;
         for d in 0..6 {
-            let state = self.world.get(at(pos, d));
-            result = result.max(self.rules.table.direct_signal(state, d));
+            let beside = at(pos, d);
+            let state = self.world.get(beside);
+            let rules = self.rules;
+            result = result.max(rules.block_direct_signal(&mut self.world, beside, state, d));
             if result >= 15 {
                 break;
             }

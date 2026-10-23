@@ -804,7 +804,7 @@ defmodule Valimc.World.Region do
   defp touch(touched, key, old, new) do
     if old.storage === new.storage and old.scheduled_ticks === new.scheduled_ticks and
          old.entities.store === new.entities.store and old.containers === new.containers and
-         old.block_entities === new.block_entities,
+         old.block_entities === new.block_entities and old.comparators === new.comparators,
        do: touched,
        else: MapSet.put(touched, key)
   end
@@ -816,8 +816,20 @@ defmodule Valimc.World.Region do
     absent = resource.generation.absent
     busy = RegionData.write_busy(resource) != nil
 
+    # What the block rules read of it besides its cells: its comparators'
+    # outputs and its containers (VMC-048a).
+    comparators = resource.comparators
+    containers = resource.containers
+
     case peers do
-      %{^key => %{absent_set: ^absent, busy: ^busy}} ->
+      %{
+        ^key => %{
+          absent_set: ^absent,
+          busy: ^busy,
+          comparators: ^comparators,
+          containers: ^containers
+        }
+      } ->
         peers
 
       _ ->
@@ -825,7 +837,9 @@ defmodule Valimc.World.Region do
           blocks: resource.blocks,
           absent_set: absent,
           absent: MapSet.to_list(absent),
-          busy: busy
+          busy: busy,
+          comparators: comparators,
+          containers: containers
         })
     end
   end

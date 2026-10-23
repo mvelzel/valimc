@@ -36,8 +36,10 @@ fn at(pos: [i32; 3], d: usize) -> [i32; 3] {
 #[derive(Debug)]
 pub struct RedstoneWire {
     pub wire: u16,
-    repeater: u16,
-    observer: u16,
+    pub repeater: u16,
+    pub comparator: u16,
+    pub observer: u16,
+    pub redstone_block: u16,
     hopper: u16,
     air: u16,
 }
@@ -47,10 +49,17 @@ impl RedstoneWire {
         Ok(RedstoneWire {
             wire: table.block("redstone_wire")?,
             repeater: table.block("repeater")?,
+            comparator: table.block("comparator")?,
             observer: table.block("observer")?,
+            redstone_block: table.block("redstone_block")?,
             hopper: table.block("hopper")?,
             air: table.default_state("air")?,
         })
+    }
+
+    /// `DiodeBlock.isDiode`: a repeater or comparator.
+    pub fn is_diode(&self, block: u16) -> bool {
+        block == self.repeater || block == self.comparator
     }
 
     fn side(table: &BlockTable, state: u16, d: usize) -> &str {

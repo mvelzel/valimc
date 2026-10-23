@@ -71,9 +71,9 @@ import net.minecraft.world.ticks.TickPriority;
  * is a table like the shape facts' (`ShapeOracle`): the cells it reads (offsets from the target),
  * a partition of all states per cell and per class combination an outcome. Partitions are found as
  * `ShapeOracle` finds them. Connecting blocks (stairs, fences, bars and panes, walls) read their
- * neighbours as air here and leaves read no distance; ValiMC then applies their shape updates and
- * leaf distance (`post` 1 and 2), and this oracle checks that vanilla's placement equals that
- * composition on random neighbourhoods.
+ * neighbours as air here, leaves read no distance and repeaters no diodes beside them; ValiMC then
+ * applies their shape updates, leaf distance and lock (`post` 1, 2 and 3), and this oracle checks
+ * that vanilla's placement equals that composition on random neighbourhoods.
  *
  * Output: per item `[item, root, post step, first state of its block, of its wall block or -1]`; an
  * outcome is null (refused), the cells written (`[dx, dy, dz, state]`, or `[dx, dy, dz, k, slot]`
@@ -105,7 +105,7 @@ public class PlacementOracle {
       SIGNAL = 10, SIGNAL_ABOVE = 11, OWN = 12;
   static final int[] DOMAIN = {48, 2, 4, 20, 27, 2, 6, 2, 16, 2, 2, 2, 2};
   static final double[] CURSOR_AT = {0.25, 0.5, 0.75};
-  static final int POST_SHAPE = 1, POST_LEAVES = 2;
+  static final int POST_SHAPE = 1, POST_LEAVES = 2, POST_LOCK = 3;
   static Direction[][] ORDERS = new Direction[48][];
   static float[][] ORDER_VIEWS = new float[48][];
   static int[][] ROTATIONS = new int[20][];
@@ -869,6 +869,11 @@ public class PlacementOracle {
         if (!(dx == 0 && dz == 0 && dy <= 0)) out.add(index(dx, dy, dz));
       return out;
     }
+    // A repeater's lock reads the diodes beside it.
+    if (job.post == POST_LOCK) {
+      for (var d : Direction.Plane.HORIZONTAL) out.add(index(d.getStepX(), 0, d.getStepZ()));
+      return out;
+    }
     for (var d : Direction.values()) out.add(index(d.getStepX(), d.getStepY(), d.getStepZ()));
     return out;
   }
@@ -877,6 +882,7 @@ public class PlacementOracle {
     if (block instanceof StairBlock || block instanceof FenceBlock || block instanceof IronBarsBlock || block instanceof WallBlock
         || block instanceof RedstoneWireBlock) return POST_SHAPE;
     if (block instanceof LeavesBlock) return POST_LEAVES;
+    if (block instanceof RepeaterBlock) return POST_LOCK;
     return 0;
   }
 
@@ -900,6 +906,8 @@ public class PlacementOracle {
         p.begin();
         if (job.post == POST_SHAPE) {
           for (var d : Direction.values()) s = s.updateShape(p.level, p.level, ORIGIN, d, ORIGIN.relative(d), p.at(ORIGIN.relative(d)), p.random);
+        } else if (job.post == POST_LOCK) {
+          s = s.setValue(RepeaterBlock.LOCKED, ((RepeaterBlock) s.getBlock()).isLocked(p.level, ORIGIN, s));
         } else {
           s = (BlockState) invoke(UPDATE_DISTANCE, null, s, p.level, ORIGIN);
         }
@@ -1117,15 +1125,13 @@ public class PlacementOracle {
       if (only != null && !only.contains(BuiltInRegistries.ITEM.getKey(item).getPath())) continue;
       int id = BuiltInRegistries.ITEM.getId(item);
       var block = blockItem.getBlock();
-      // A wither skull's check for a wither and a hook's tripwire circuit read far; neither changes the placed block.
-      // Repeaters and comparators read the signals beside them and the frames before them: redstone (VMC-047).
-      if (block instanceof DiodeBlock) { excluded.put(id, "a redstone component, placed with redstone"); continue; }
       // A creaking heart wakes by the time of day: with the creaking (VMC-043).
       if (block instanceof CreakingHeartBlock) { excluded.put(id, "awake by the time of day, placed with the creaking"); continue; }
       // A wither skull's check for a wither, a hook's tripwire circuit and a piston's extension read far;
       // none changes the placed block.
+      // A diode's `setPlacedBy` schedules a tick from the signals around it (VMC-048a).
       boolean placedBy = !(block instanceof WitherSkullBlock || block instanceof WitherWallSkullBlock || block instanceof TripWireHookBlock
-          || block instanceof net.minecraft.world.level.block.piston.PistonBaseBlock);
+          || block instanceof net.minecraft.world.level.block.piston.PistonBaseBlock || block instanceof DiodeBlock);
       jobs.add(new Job(blockItem, new ItemStack(item), post(block), placedBy));
     }
 

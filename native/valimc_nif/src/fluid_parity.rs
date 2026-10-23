@@ -87,7 +87,7 @@ impl Scene {
         for &(pos, state) in &outcome.changes {
             self.set(pos, state)?;
         }
-        for &(pos, block, delay) in &outcome.block_ticks {
+        for &(pos, block, delay, _) in &outcome.block_ticks {
             self.schedule(pos, Kind::Block(block), delay);
         }
         for &(pos, fluid, delay) in &outcome.fluid_ticks {

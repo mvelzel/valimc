@@ -1,8 +1,12 @@
-//! Redstone power (VMC-047a): what the signal sources and the blocks that
-//! react to power are, from RedstoneOracle's facts (`priv/physics/redstone.json`),
-//! and vanilla's `SignalGetter` reads as live play makes them, wire included
-//! (its `shouldSignal` on). Wire's own evaluation reads with wire silent
-//! (`wire.rs`). The reactions are `components.rs`.
+//! Redstone power (VMC-047a, VMC-048a): what the signal sources and the
+//! blocks that react to power are, from RedstoneOracle's facts
+//! (`priv/physics/redstone.json`), and vanilla's `SignalGetter` reads as live
+//! play makes them, wire included (its `shouldSignal` on). Wire's own
+//! evaluation reads with wire silent (`wire.rs`). A comparator's signal is its
+//! block entity's output, which the level holds (`BlockAccess::comparator_output`).
+//! Analog outputs (what comparators read) come from the facts per state, or
+//! from the owner's block entity (`World::container_signal`). The reactions
+//! are `components.rs`.
 //!
 //! The facts also carry the overworld's day cycle as daylight detectors read
 //! it: `SKY_LIGHT_LEVEL` (the dimension's value, the day timeline's
@@ -11,7 +15,8 @@
 
 use super::at;
 use super::updater::{Engine, World};
-use crate::worldgen::blocks::{BlockTable, REDSTONE_CONDUCTOR};
+use super::BlockAccess;
+use crate::worldgen::blocks::{BlockTable, REDSTONE_CONDUCTOR, SIGNAL_SOURCE};
 use crate::worldgen::json::Json;
 
 const DOWN: usize = 0;
@@ -52,6 +57,20 @@ pub enum Kind {
     Hook,
     Tripwire,
     Lectern,
+    /// `RepeaterBlock`, `ComparatorBlock` (VMC-048a).
+    Repeater,
+    Comparator,
+    Observer,
+}
+
+/// An analog output's value for a state (`getAnalogOutputSignal`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Analog {
+    None,
+    /// The state alone gives it.
+    Value(i32),
+    /// Its block entity does (a container's fullness): the owner's.
+    Entity,
 }
 
 /// A block's component: its kind and its sounds (indices into
@@ -106,6 +125,12 @@ pub struct PowerFacts {
     pub hook: u16,
     /// `BlockTags.WALLS` (fence gates).
     walls: crate::worldgen::blocks::BlockSet,
+    /// Per state, its analog output: -1 none, -2 its block entity's, else
+    /// the value.
+    analog: Vec<i8>,
+    /// Per block, whether its removal tells comparators
+    /// (`Containers.updateNeighboursAfterDestroy`).
+    removal_output: Vec<bool>,
 }
 
 impl PowerFacts {
@@ -148,6 +173,9 @@ impl PowerFacts {
                 "hook" => Kind::Hook,
                 "tripwire" => Kind::Tripwire,
                 "lectern" => Kind::Lectern,
+                "repeater" => Kind::Repeater,
+                "comparator" => Kind::Comparator,
+                "observer" => Kind::Observer,
                 other => return Err(format!("redstone facts: kind {other}")),
             };
             let mut sounds = [0; 4];
@@ -190,8 +218,54 @@ impl PowerFacts {
                 above: entry.field("above")?.as_bool()?,
             });
         }
+        facts.analog = vec![-1; table.block_of.len()];
+        facts.removal_output = vec![false; table.names.len()];
+        for entry in json.field("analog")?.as_array()? {
+            let entry = entry.as_array()?;
+            let name = entry.first().ok_or("redstone analog")?.as_str()?;
+            let block = table.block(name)?;
+            let states = table.states_of(block).collect::<Vec<_>>();
+            let values = entry.get(1).ok_or("redstone analog")?;
+            match values.as_array() {
+                Ok(values) => {
+                    if values.len() != states.len() {
+                        return Err(format!(
+                            "redstone analog: {name} has {} states",
+                            states.len()
+                        ));
+                    }
+                    for (&state, value) in states.iter().zip(values) {
+                        facts.analog[state as usize] = value.as_i32()?.clamp(0, 15) as i8;
+                    }
+                }
+                Err(_) => {
+                    for &state in &states {
+                        facts.analog[state as usize] = -2;
+                    }
+                }
+            }
+            facts.removal_output[block as usize] =
+                entry.get(2).ok_or("redstone analog")?.as_bool()?;
+        }
         facts.day = Day::parse(json.field("day")?)?;
         Ok(facts)
+    }
+
+    /// A state's analog output (`hasAnalogOutputSignal`, its value).
+    pub fn analog(&self, state: u16) -> Analog {
+        match self.analog.get(state as usize).copied().unwrap_or(-1) {
+            -1 => Analog::None,
+            -2 => Analog::Entity,
+            v => Analog::Value(v as i32),
+        }
+    }
+
+    /// Whether removing `state`'s block tells comparators.
+    pub fn removal_output(&self, table: &BlockTable, state: u16) -> bool {
+        self.removal_output
+            .get(table.block_of(state) as usize)
+            .copied()
+            .unwrap_or(false)
     }
 
     pub fn component(&self, table: &BlockTable, state: u16) -> Option<Component> {
@@ -445,6 +519,29 @@ impl super::Rules {
                 let survives = table.flag(attached, crate::worldgen::blocks::STURDY << (d ^ 1));
                 Some(if survives { state } else { air })
             }
+            Kind::Repeater | Kind::Comparator => {
+                if d == DOWN && !self.diode_survives(access, state, pos, Some(neighbour)) {
+                    return Some(air);
+                }
+                // A repeater's lock follows its sides (and an update from above
+                // or below), as the level holds them.
+                if kind == Kind::Repeater && d / 2 != facing(state) / 2 {
+                    let locked = self.repeater_locked(access, pos, state);
+                    return table.with(state, "locked", if locked { "true" } else { "false" });
+                }
+                Some(state)
+            }
+            Kind::Observer => {
+                // `startSignal`: what it faces changed shape.
+                let block = table.block_of(state);
+                if facing(state) == d
+                    && table.value(state, "powered") != Some("true")
+                    && !access.has_block_tick(pos, block)
+                {
+                    access.schedule_block_tick(pos, block, 2);
+                }
+                Some(state)
+            }
             Kind::Gate => {
                 // `getClockWise`: north to east, east to south, south to west,
                 // west to north; an axis is its directions' pair.
@@ -464,19 +561,92 @@ impl super::Rules {
 
 const NAMES: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
 
-impl<W: World> Engine<'_, W> {
-    pub(super) fn power_facts(&self) -> Option<&PowerFacts> {
-        self.rules.power.as_ref()
+impl super::Rules {
+    /// `DiodeBlock.canSurvive`: a rigid floor (live play's survival facts),
+    /// the floor read as `below` where an update gives it.
+    pub(super) fn diode_survives(
+        &self,
+        access: &mut dyn BlockAccess,
+        state: u16,
+        pos: [i32; 3],
+        below: Option<u16>,
+    ) -> bool {
+        let Some(live) = self.live.as_ref().filter(|l| l.dependent(state)) else {
+            return true;
+        };
+        let floor = at(pos, DOWN);
+        let mut read = |p: [i32; 3]| match below {
+            Some(s) if p == floor => s,
+            _ => access.get(p),
+        };
+        live.survives(state, pos, &mut read)
+    }
+
+    /// A diode's `getSignal` toward `d` (a repeater's from its state, a
+    /// comparator's its output): its own signal toward its front, while
+    /// powered.
+    fn comparator_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        d: usize,
+    ) -> i32 {
+        let table = self.table.as_ref();
+        if super::components::facing(table, state) == d
+            && table.value(state, "powered") == Some("true")
+        {
+            access.comparator_output(pos)
+        } else {
+            0
+        }
+    }
+
+    /// `state.getSignal(level, pos, d)` with wire silent: the facts', a
+    /// comparator's from its output.
+    pub(super) fn block_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        d: usize,
+    ) -> i32 {
+        if self.table.block_of(state) == self.redstone.comparator {
+            self.comparator_signal(access, pos, state, d)
+        } else {
+            self.table.signal(state, d)
+        }
+    }
+
+    /// `state.getDirectSignal(level, pos, d)` with wire silent.
+    pub(super) fn block_direct_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        d: usize,
+    ) -> i32 {
+        if self.table.block_of(state) == self.redstone.comparator {
+            self.comparator_signal(access, pos, state, d)
+        } else {
+            self.table.direct_signal(state, d)
+        }
     }
 
     /// `state.getSignal(level, pos, d)` with wire signalling: wire gives its
     /// power down and to the sides it connects to (its connections as the
     /// level makes them), never up.
-    fn state_signal(&mut self, pos: [i32; 3], state: u16, d: usize) -> i32 {
-        if !self.is_wire(state) {
-            return self.rules.table.signal(state, d);
+    pub(super) fn state_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        d: usize,
+    ) -> i32 {
+        let table = self.table.as_ref();
+        if table.block_of(state) != self.redstone.wire {
+            return self.block_signal(access, pos, state, d);
         }
-        let table = self.rules.table.as_ref();
         let power: i32 = table
             .value(state, "power")
             .and_then(|p| p.parse().ok())
@@ -487,10 +657,8 @@ impl<W: World> Engine<'_, W> {
         if d == UP {
             return power;
         }
-        let redstone = &self.rules.redstone;
-        let world = &mut self.world;
-        let mut read = |p: [i32; 3]| world.get(p);
-        let connected = redstone.connection_state(table, &mut read, state, pos);
+        let mut read = |p: [i32; 3]| access.get(p);
+        let connected = self.redstone.connection_state(table, &mut read, state, pos);
         if super::redstone::RedstoneWire::connected(table, connected, d ^ 1) {
             power
         } else {
@@ -499,38 +667,123 @@ impl<W: World> Engine<'_, W> {
     }
 
     /// `getDirectSignal`: wire's is its signal.
-    fn state_direct_signal(&mut self, pos: [i32; 3], state: u16, d: usize) -> i32 {
-        if self.is_wire(state) {
-            self.state_signal(pos, state, d)
+    pub(super) fn state_direct_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        d: usize,
+    ) -> i32 {
+        if self.table.block_of(state) == self.redstone.wire {
+            self.state_signal(access, pos, state, d)
         } else {
-            self.rules.table.direct_signal(state, d)
+            self.block_direct_signal(access, pos, state, d)
         }
     }
 
     /// `SignalGetter.getSignal(pos, d)`: a conductor also passes on the
     /// strongest direct signal into it.
-    pub(super) fn level_signal(&mut self, pos: [i32; 3], d: usize) -> i32 {
-        let state = self.world.get(pos);
-        let signal = self.state_signal(pos, state, d);
-        if self.rules.table.flag2(state, REDSTONE_CONDUCTOR) {
-            signal.max(self.level_direct_signal_to(pos))
+    pub(super) fn level_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        d: usize,
+    ) -> i32 {
+        let state = access.get(pos);
+        let signal = self.state_signal(access, pos, state, d);
+        if self.table.flag2(state, REDSTONE_CONDUCTOR) {
+            signal.max(self.level_direct_signal_to(access, pos))
         } else {
             signal
         }
     }
 
     /// `getDirectSignalTo`.
-    fn level_direct_signal_to(&mut self, pos: [i32; 3]) -> i32 {
+    fn level_direct_signal_to(&self, access: &mut dyn BlockAccess, pos: [i32; 3]) -> i32 {
         let mut result = 0;
         for d in 0..6 {
             let neighbour = at(pos, d);
-            let state = self.world.get(neighbour);
-            result = result.max(self.state_direct_signal(neighbour, state, d));
+            let state = access.get(neighbour);
+            result = result.max(self.state_direct_signal(access, neighbour, state, d));
             if result >= 15 {
                 break;
             }
         }
         result
+    }
+
+    /// `SignalGetter.getControlInputSignal`: a diode's side input from the
+    /// cell at `pos` toward `d` (only diodes count for a repeater).
+    pub(super) fn control_input(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        d: usize,
+        diodes_only: bool,
+    ) -> i32 {
+        let table = self.table.as_ref();
+        let state = access.get(pos);
+        let block = table.block_of(state);
+        if diodes_only {
+            if self.redstone.is_diode(block) {
+                self.state_direct_signal(access, pos, state, d)
+            } else {
+                0
+            }
+        } else if block == self.redstone.redstone_block {
+            15
+        } else if block == self.redstone.wire {
+            table
+                .value(state, "power")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0)
+        } else if table.flag2(state, SIGNAL_SOURCE) {
+            self.state_direct_signal(access, pos, state, d)
+        } else {
+            0
+        }
+    }
+
+    /// `DiodeBlock.getAlternateSignal`: the stronger side input.
+    pub(super) fn alternate_signal(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+        diodes_only: bool,
+    ) -> i32 {
+        let facing = super::components::facing(&self.table, state);
+        let (clockwise, counter) = (CLOCKWISE[facing], COUNTER_CLOCKWISE[facing]);
+        let a = self.control_input(access, at(pos, clockwise), clockwise, diodes_only);
+        let b = self.control_input(access, at(pos, counter), counter, diodes_only);
+        a.max(b)
+    }
+
+    /// `RepeaterBlock.isLocked`: a powered diode at either side.
+    pub(super) fn repeater_locked(
+        &self,
+        access: &mut dyn BlockAccess,
+        pos: [i32; 3],
+        state: u16,
+    ) -> bool {
+        self.alternate_signal(access, pos, state, true) > 0
+    }
+}
+
+/// `Direction.getClockWise` and `getCounterClockWise` of the horizontal
+/// directions (by index; up and down map to themselves, unused).
+pub(super) const CLOCKWISE: [usize; 6] = [0, 1, 5, 4, 2, 3];
+pub(super) const COUNTER_CLOCKWISE: [usize; 6] = [0, 1, 4, 5, 3, 2];
+
+impl<W: World> Engine<'_, W> {
+    pub(super) fn power_facts(&self) -> Option<&PowerFacts> {
+        self.rules.power.as_ref()
+    }
+
+    /// `SignalGetter.getSignal(pos, d)`.
+    pub(super) fn level_signal(&mut self, pos: [i32; 3], d: usize) -> i32 {
+        let rules = self.rules;
+        rules.level_signal(&mut self.world, pos, d)
     }
 
     /// `hasSignal(pos, d)`.
@@ -541,6 +794,35 @@ impl<W: World> Engine<'_, W> {
     /// `hasNeighborSignal`.
     pub(super) fn has_neighbor_signal(&mut self, pos: [i32; 3]) -> bool {
         (0..6).any(|d| self.level_signal(at(pos, d), d) > 0)
+    }
+
+    /// `state.getAnalogOutputSignal(level, pos, d)`: the facts' value, or
+    /// the owner's block entity's; a chest under a conductor gives none
+    /// (`ChestBlock.isBlockedChestByBlock`).
+    pub(super) fn analog_signal(&mut self, pos: [i32; 3], state: u16) -> i32 {
+        let Some(facts) = self.power_facts() else {
+            return 0;
+        };
+        match facts.analog(state) {
+            Analog::None => 0,
+            Analog::Value(v) => v,
+            Analog::Entity => {
+                let table = self.rules.table.as_ref();
+                if table.class_name(state).ends_with("ChestBlock") {
+                    let above = self.world.get(at(pos, UP));
+                    if self.rules.table.flag2(above, REDSTONE_CONDUCTOR) {
+                        return 0;
+                    }
+                }
+                self.world.container_signal(pos)
+            }
+        }
+    }
+
+    /// `hasAnalogOutputSignal`.
+    pub(super) fn has_analog(&self, state: u16) -> bool {
+        self.power_facts()
+            .is_some_and(|f| f.analog(state) != Analog::None)
     }
 }
 

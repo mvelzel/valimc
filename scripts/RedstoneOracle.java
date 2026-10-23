@@ -51,16 +51,17 @@ import net.minecraft.world.ticks.ScheduledTick;
 import net.minecraft.world.ticks.TickPriority;
 
 /**
- * Redstone power and its components (VMC-047a), from pinned 26.3. Three modes:
+ * Redstone power and its components (VMC-047a, VMC-048a), from pinned 26.3. Three modes:
  *
  * - `facts OUT`: what the components are. `components`: per block that reacts to or gives power
  *   (by class: levers, buttons, pressure plates, redstone torches, lamps, doors, trapdoors, fence
  *   gates, note blocks, TNT, target blocks, daylight detectors, tripwire hooks, tripwire,
- *   lecterns) its kind, its parameters (a button's pressed ticks and whether arrows press it, a
- *   plate's sensitivity, a weighted plate's maximum weight, whether a hand opens a door or
- *   trapdoor) and its sounds; `bounds`: the outline bounds of every button and tripwire state
- *   (their entity checks); `instruments`: the note block instruments; `sound_ids`: every sound's
- *   registry id; `day`: the overworld's
+ *   lecterns, repeaters, comparators, observers) its kind, its parameters (a button's pressed
+ *   ticks and whether arrows press it, a plate's sensitivity, a weighted plate's maximum weight,
+ *   whether a hand opens a door or trapdoor) and its sounds; `bounds`: the outline bounds of every
+ *   button and tripwire state (their entity checks); `instruments`: the note block instruments;
+ *   `sound_ids`: every sound's registry id; `analog`: every block with an analog output, its
+ *   signal per state or `entity`, and whether its removal tells comparators; `day`: the overworld's
  *   `SKY_LIGHT_LEVEL` (the dimension's value, the day timeline's multiplier keyframes and the
  *   weather's alpha blends) and `SUN_ANGLE` keyframes with their cubic Bezier easing.
  * - `day OUT`: `Level.skyDarken` and `SUN_ANGLE` from vanilla's own samplers, modifiers and
@@ -72,8 +73,11 @@ import net.minecraft.world.ticks.TickPriority;
  *   `setPlacedBy`, a lectern's page, a projectile's hit on a target, a tripwire disarmed), then
  *   each entity's contacts with the plates, buttons and tripwire it touches (`entityInside`, an
  *   entity's cells in x, then y, then z order). Per tick: the cell writes, level events, sounds,
- *   block events, primed TNT and use results. Some scenes run a lever-driven torch until it
- *   burns out, and a tripwire line between two hooks.
+ *   block events, primed TNT, use results and the comparators whose output changed. Some scenes
+ *   run a lever-driven torch until it burns out, a tripwire line between two hooks, a repeater
+ *   line with a lock, a comparator clock and a comparator reading a chest that is refilled
+ *   (`fill`: one change of its contents, its signal recorded), or two observers facing each
+ *   other. Comparators, chests and furnaces keep their block entities.
  *
  * Usage: RedstoneOracle (facts|day|scenes) OUT [SCENES [SEED]]
  */
@@ -94,11 +98,20 @@ public class RedstoneOracle {
     LevelTicks<Block> blockTicks;LevelTicks<Fluid> fluidTicks;long time,subTick;int darken;
     EnvironmentAttributeSystem attributes;List<Body> bodies=new ArrayList<>();Entity[] stubs;
     JsonArray writes=new JsonArray(),events=new JsonArray(),sounds=new JsonArray(),blockEvents=new JsonArray(),primed=new JsonArray();
+    /** The block entities of comparators, chests and furnaces, as `LevelChunk` keeps them. */
+    Map<BlockPos,BlockEntity> entities;
+    /** Facts: an analog output read from the state alone, at the origin; any other read throws. */
+    BlockState strict;int outputUpdates;
     private Probe(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
     BlockState cell(BlockPos pos){return cells.getOrDefault(pos,Blocks.AIR.defaultBlockState());}
-    @Override public BlockState getBlockState(BlockPos pos){return cell(pos);}
+    @Override public BlockState getBlockState(BlockPos pos){
+      if(strict!=null){if(!pos.equals(BlockPos.ZERO))throw new Contextual();return strict;}
+      return cell(pos);
+    }
     @Override public FluidState getFluidState(BlockPos pos){return cell(pos).getFluidState();}
-    @Override public BlockEntity getBlockEntity(BlockPos pos){return null;}
+    @Override public BlockEntity getBlockEntity(BlockPos pos){if(strict!=null)throw new Contextual();return entities.get(pos);}
+    @Override public void blockEntityChanged(BlockPos pos){}
+    @Override public void updateNeighbourForOutputSignal(BlockPos pos,Block block){outputUpdates++;super.updateNeighbourForOutputSignal(pos,block);}
     @Override public int getMinY(){return -64;}
     @Override public int getHeight(){return 384;}
     @Override public MinecraftServer getServer(){return server;}
@@ -144,28 +157,38 @@ public class RedstoneOracle {
       return out;
     }
     @Override public List<Entity> getEntities(Entity except,AABB bb,Predicate<? super Entity> selector){
+      if(strict!=null)throw new Contextual();
       var out=new ArrayList<Entity>();for(var e:touching(bb))if(e!=except&&selector.test(e))out.add(e);return out;
     }
     @Override public <T extends Entity> List<T> getEntities(EntityTypeTest<Entity,T> type,AABB bb,Predicate<? super T> selector){
+      if(strict!=null)throw new Contextual();
       var out=new ArrayList<T>();
       for(var e:touching(bb)){T t=type.tryCast(e);if(t!=null&&selector.test(t))out.add(t);}
       return out;
     }
 
-    /** `Level.setBlock` with `LevelChunk.setBlockState`'s hooks, over the map (as RedstoneWireOracle's). */
+    /**
+     * `Level.setBlock` with `LevelChunk.setBlockState`'s hooks, over the map (as RedstoneWireOracle's):
+     * a changed block loses its block entity before `affectNeighborsAfterRemoval`, a new one gets
+     * its own after `onPlace`; an analog output tells the comparators around it.
+     */
     @Override public boolean setBlock(BlockPos pos,BlockState state,int flags,int limit){
       if(isOutsideBuildHeight(pos))return false;
       pos=pos.immutable();var old=cell(pos);
       if(old==state)return false;
       cells.put(pos,state);writes.add(row(pos,Block.getId(state)));
       var block=state.getBlock();
+      if(!old.is(block))entities.remove(pos);
       if(!old.is(block)&&(flags&1)!=0)old.affectNeighborsAfterRemoval(this,pos,false);
       if(!cell(pos).is(block))return false;
       if((flags&512)==0)state.onPlace(this,pos,old,false);
+      if(entityBlock(state)&&cell(pos).is(block)&&!entities.containsKey(pos)){
+        var entity=((EntityBlock)block).newBlockEntity(pos,state);entity.setLevel(this);entities.put(pos,entity);
+      }
       if(cell(pos)!=state)return true;
       if((flags&1)!=0){
         updateNeighborsAt(pos,old.getBlock());
-        if(state.hasAnalogOutputSignal()&&!state.is(Blocks.LECTERN)&&!state.is(Blocks.TARGET))throw new AssertionError("analog output "+state);
+        if(state.hasAnalogOutputSignal())updateNeighbourForOutputSignal(pos,block);
       }
       if((flags&16)==0&&limit>0){
         int neighbour=flags&-34;
@@ -175,6 +198,14 @@ public class RedstoneOracle {
       }
       return true;
     }
+  }
+
+  /** A read past the state itself (its block entity, a neighbour, entities). */
+  static final class Contextual extends RuntimeException{Contextual(){super(null,null,false,false);}}
+
+  /** The blocks whose block entities scenes keep: comparators', chests' and furnaces'. */
+  static boolean entityBlock(BlockState state){
+    var b=state.getBlock();return b instanceof ComparatorBlock||b instanceof ChestBlock||b instanceof AbstractFurnaceBlock;
   }
 
   /** A player for uses: its facing, and whether it may build. */
@@ -251,6 +282,9 @@ public class RedstoneOracle {
       }else if(block instanceof TripWireBlock){
         kind="tripwire";for(var state:block.getStateDefinition().getPossibleStates())bounds.add(bounds(state));
       }else if(block instanceof LecternBlock)kind="lectern";
+      else if(block instanceof RepeaterBlock)kind="repeater";
+      else if(block instanceof ComparatorBlock){kind="comparator";sounds.add(sound(net.minecraft.sounds.SoundEvents.COMPARATOR_CLICK));}
+      else if(block instanceof ObserverBlock)kind="observer";
       if(kind==null)continue;
       entry.addProperty("block",BuiltInRegistries.BLOCK.getKey(block).getPath());entry.addProperty("kind",kind);
       if(!sounds.isEmpty())entry.add("sounds",sounds);
@@ -259,7 +293,7 @@ public class RedstoneOracle {
       for(var e:entry.entrySet())ordered.add(e.getKey(),e.getValue());
       components.add(ordered);counts.merge(kind,1,Integer::sum);
     }
-    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern"))
+    for(var kind:List.of("lever","button","plate","weighted","torch","wall_torch","lamp","door","trapdoor","gate","note","tnt","target","daylight","hook","tripwire","lectern","repeater","comparator","observer"))
       if(!counts.containsKey(kind))throw new AssertionError("no "+kind);
     var instruments=new JsonArray();
     for(var instrument:NoteBlockInstrument.values()){
@@ -277,11 +311,51 @@ public class RedstoneOracle {
       if(event==null)throw new AssertionError("unregistered sound "+name);
       soundIds.addProperty(name,BuiltInRegistries.SOUND_EVENT.getId(event));
     }
+    var analog=analogFacts(lookup);
     var result=new JsonObject();result.add("components",components);result.add("bounds",bounds);
-    result.add("instruments",instruments);result.add("sound_ids",soundIds);result.add("day",dayFacts(lookup));
+    result.add("instruments",instruments);result.add("sound_ids",soundIds);result.add("analog",analog);result.add("day",dayFacts(lookup));
     Files.writeString(Path.of(out),new GsonBuilder().disableHtmlEscaping().create().toJson(result)+"\n");
     System.out.println("PASS: redstone facts for "+components.size()+" components "+counts+", "+bounds.size()+" bounds, "
-      +instruments.size()+" instruments, the overworld day");
+      +instruments.size()+" instruments, "+analog.size()+" analog outputs, the overworld day");
+  }
+
+  /**
+   * Every block with an analog output (`hasAnalogOutputSignal`, which comparators read and whose
+   * sets tell comparators): its signal per state where the state alone gives it (the same toward
+   * every side), else `entity` (it reads its block entity, its neighbours or entities); and whether
+   * its removal tells comparators (`Containers.updateNeighboursAfterDestroy`).
+   */
+  static JsonArray analogFacts(HolderLookup.Provider lookup)throws Exception{
+    var probe=probe(lookup);probe.entities=new HashMap<>();probe.rules=new GameRules(FeatureFlags.DEFAULT_FLAGS);
+    setRandom(probe,RandomSource.create(0));
+    var out=new JsonArray();
+    for(var block:BuiltInRegistries.BLOCK){
+      var states=block.getStateDefinition().getPossibleStates();
+      if(!states.get(0).hasAnalogOutputSignal())continue;
+      for(var state:states)if(!state.hasAnalogOutputSignal())throw new AssertionError("an analog output by state "+state);
+      var entry=new JsonArray();entry.add(BuiltInRegistries.BLOCK.getKey(block).getPath());
+      var values=new JsonArray();
+      try{
+        for(var state:block.getStateDefinition().getPossibleStates()){
+          probe.strict=state;int value=-1;
+          for(var d:Direction.values()){
+            int v=state.getAnalogOutputSignal(probe,BlockPos.ZERO,d);
+            if(value>=0&&v!=value)throw new AssertionError("an analog output by side "+state);
+            value=v;
+          }
+          values.add(value);
+        }
+        entry.add(values);
+      }catch(Contextual e){entry.add("entity");}
+      finally{probe.strict=null;}
+      // Its removal, over an empty level.
+      probe.cells=new HashMap<>();probe.outputUpdates=0;
+      var state=block.defaultBlockState();probe.cells.put(BlockPos.ZERO,Blocks.AIR.defaultBlockState());
+      state.affectNeighborsAfterRemoval(probe,BlockPos.ZERO,false);
+      entry.add(probe.outputUpdates>0);
+      out.add(entry);
+    }
+    return out;
   }
 
   static JsonArray bounds(BlockState state){
@@ -402,6 +476,7 @@ public class RedstoneOracle {
   static BlockState pick(Random random,Probe probe,BlockPos pos,BlockState cross,Method connection)throws Exception{
     var horizontal=List.of(Direction.NORTH,Direction.EAST,Direction.SOUTH,Direction.WEST);
     var faces=List.of(AttachFace.FLOOR,AttachFace.WALL,AttachFace.CEILING);
+    if(random.nextInt(3)==0)return pickTimed(random);
     int roll=random.nextInt(100);
     if(roll<16)return (BlockState)connection.invoke(Blocks.REDSTONE_WIRE,probe,cross,pos);
     if(roll<22)return Blocks.AIR.defaultBlockState();
@@ -428,6 +503,62 @@ public class RedstoneOracle {
     return Blocks.LECTERN.defaultBlockState().setValue(LecternBlock.FACING,any(random,horizontal)).setValue(LecternBlock.HAS_BOOK,true);
   }
 
+  /** VMC-048a's blocks: repeaters, comparators and observers in any state, chests, furnaces, cakes and composters. */
+  static BlockState pickTimed(Random random){
+    var horizontal=List.of(Direction.NORTH,Direction.EAST,Direction.SOUTH,Direction.WEST);
+    int roll=random.nextInt(100);
+    if(roll<30)return Blocks.REPEATER.defaultBlockState().setValue(RepeaterBlock.FACING,any(random,horizontal))
+      .setValue(RepeaterBlock.DELAY,1+random.nextInt(4)).setValue(RepeaterBlock.LOCKED,random.nextInt(4)==0)
+      .setValue(RepeaterBlock.POWERED,random.nextInt(3)==0);
+    if(roll<55)return Blocks.COMPARATOR.defaultBlockState().setValue(ComparatorBlock.FACING,any(random,horizontal))
+      .setValue(ComparatorBlock.MODE,random.nextBoolean()?ComparatorMode.COMPARE:ComparatorMode.SUBTRACT)
+      .setValue(ComparatorBlock.POWERED,random.nextInt(3)==0);
+    if(roll<75)return Blocks.OBSERVER.defaultBlockState().setValue(ObserverBlock.FACING,any(random,List.of(Direction.values())))
+      .setValue(ObserverBlock.POWERED,random.nextInt(4)==0);
+    if(roll<87)return Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING,any(random,horizontal));
+    if(roll<92)return Blocks.FURNACE.defaultBlockState().setValue(FurnaceBlock.FACING,any(random,horizontal));
+    if(roll<96)return Blocks.CAKE.defaultBlockState().setValue(CakeBlock.BITES,random.nextInt(7));
+    // Not 7: a composter at 7 ticks itself to ready (not redstone).
+    return Blocks.COMPOSTER.defaultBlockState().setValue(ComposterBlock.LEVEL,any(random,List.of(0,1,2,3,4,5,6,8)));
+  }
+
+  /** The items fills draw from (after bootstrap). */
+  static List<net.minecraft.world.item.Item> fills(){return List.of(net.minecraft.world.item.Items.STONE,
+    net.minecraft.world.item.Items.ENDER_PEARL,net.minecraft.world.item.Items.DIAMOND_SWORD,net.minecraft.world.item.Items.COBBLESTONE,
+    net.minecraft.world.item.Items.SNOWBALL,net.minecraft.world.item.Items.TOTEM_OF_UNDYING,net.minecraft.world.item.Items.COAL,
+    net.minecraft.world.item.Items.RAW_IRON);}
+
+  /**
+   * A container's new contents, as one change (`setChanged` once): each slot empty or a random
+   * stack of a few items with different stack sizes. The action records them and vanilla's signal.
+   */
+  static JsonArray fill(Random random,Probe probe,BlockPos pos)throws Exception{
+    var entity=(net.minecraft.world.level.block.entity.BaseContainerBlockEntity)probe.entities.get(pos);
+    var getItems=net.minecraft.world.level.block.entity.BaseContainerBlockEntity.class.getDeclaredMethod("getItems");
+    getItems.setAccessible(true);
+    @SuppressWarnings("unchecked") var items=(List<net.minecraft.world.item.ItemStack>)getItems.invoke(entity);
+    var slots=new JsonArray();int full=random.nextInt(4);
+    for(int i=0;i<items.size();i++){
+      if(full==0||random.nextInt(4)==0&&full<3){items.set(i,net.minecraft.world.item.ItemStack.EMPTY);continue;}
+      var item=any(random,fills());int max=new net.minecraft.world.item.ItemStack(item).getMaxStackSize();
+      int count=full==3?max:1+random.nextInt(max);
+      items.set(i,new net.minecraft.world.item.ItemStack(item,count));
+      var slot=new JsonArray();slot.add(i);slot.add(BuiltInRegistries.ITEM.getKey(item).toString());slot.add(count);slots.add(slot);
+    }
+    entity.setChanged();
+    var a=action("fill",pos,net.minecraft.world.inventory.AbstractContainerMenu.getRedstoneSignalFromContainer(entity));
+    a.add(slots);a.add(items.size());
+    return a;
+  }
+
+  /** The comparators' outputs (their block entities'). */
+  static Map<BlockPos,Integer> outputs(Probe probe){
+    var out=new HashMap<BlockPos,Integer>();
+    for(var e:probe.entities.entrySet())
+      if(e.getValue() instanceof net.minecraft.world.level.block.entity.ComparatorBlockEntity c)out.put(e.getKey(),c.getOutputSignal());
+    return out;
+  }
+
   /** `TripWireBlock.getStateForPlacement`: connected toward hooks facing it and tripwire. */
   static BlockState tripwire(Probe probe,BlockPos pos){
     var wire=(TripWireBlock)Blocks.TRIPWIRE;
@@ -444,7 +575,7 @@ public class RedstoneOracle {
   static boolean usable(BlockState s){
     var b=s.getBlock();
     return b instanceof LeverBlock||b instanceof ButtonBlock||b instanceof DoorBlock||b instanceof TrapDoorBlock||b instanceof FenceGateBlock
-      ||b instanceof NoteBlock||b instanceof DaylightDetectorBlock;
+      ||b instanceof NoteBlock||b instanceof DaylightDetectorBlock||b instanceof DiodeBlock;
   }
 
   static boolean touchable(BlockState s){
@@ -503,7 +634,7 @@ public class RedstoneOracle {
         probe.blockTicks.addContainer(new net.minecraft.world.level.ChunkPos(cx,cz),new LevelChunkTicks<>());
         probe.fluidTicks.addContainer(new net.minecraft.world.level.ChunkPos(cx,cz),new LevelChunkTicks<>());
       }
-      probe.cells=new HashMap<>();var cells=new JsonArray();
+      probe.cells=new HashMap<>();probe.entities=new HashMap<>();var cells=new JsonArray();
       for(int x=MIN_X-2;x<MAX_X+2;x++)for(int z=MIN_Z-2;z<MAX_Z+2;z++){
         var floor=new BlockPos(x,FLOOR_Y,z);probe.cells.put(floor,stone);cells.add(row(floor,Block.getId(stone)));
       }
@@ -533,10 +664,15 @@ public class RedstoneOracle {
         scripted.computeIfAbsent(t1,k->new ArrayList<>()).add(action("entity",over,over.getX()+0.2,over.getY(),over.getZ()+0.2,
           over.getX()+0.8,over.getY()+1.8,over.getZ()+0.8,1,t1+5+random.nextInt(30)));
       }
+      if(s%5==2)repeaterChain(random,scripted);
+      if(s%5==3)comparatorClock(random,scripted);
+      if(s%5==4)observerPair(random,scripted);
+      if(s%5==0)priorityRace(random,scripted);
       var steps=new JsonArray();
       for(int t=0;t<TICKS;t++){
         probe.time=t;probe.writes=new JsonArray();probe.events=new JsonArray();probe.sounds=new JsonArray();
         probe.blockEvents=new JsonArray();probe.primed=new JsonArray();var results=new JsonArray();
+        var outputsBefore=outputs(probe);
         var now=new ArrayList<JsonArray>(scripted.getOrDefault(t,List.of()));
         final int tick=t;probe.bodies.removeIf(b->b.until()<=tick);
         // `ServerLevel.tick`: the due block ticks.
@@ -566,7 +702,7 @@ public class RedstoneOracle {
               now.add(action("set",pos.above(),Block.getId(door.setValue(DoorBlock.HALF,DoubleBlockHalf.UPPER))));
             }else{
               now.add(action("set",pos,Block.getId(state)));
-              if(state.is(Blocks.TRIPWIRE_HOOK)&&random.nextBoolean())now.add(action("placed",pos));
+              if((state.is(Blocks.TRIPWIRE_HOOK)||state.getBlock() instanceof DiodeBlock)&&random.nextBoolean())now.add(action("placed",pos));
             }
           }else if(roll<75){
             var candidates=cellsWhere(probe,RedstoneOracle::usable);
@@ -578,10 +714,14 @@ public class RedstoneOracle {
             double cx=at.getX()+0.5+(random.nextDouble()-0.5)*0.8,cz=at.getZ()+0.5+(random.nextDouble()-0.5)*0.8;
             double y=at.getY()+any(random,List.of(0.0,0.03125,0.0625,0.5));
             now.add(action("entity",at,cx-w/2,y,cz-w/2,cx+w/2,y+h,cz+w/2,kind,t+1+random.nextInt(50)));
-          }else if(roll<92){
+          }else if(roll<90){
             var candidates=cellsWhere(probe,st->st.is(Blocks.LECTERN));
             if(!candidates.isEmpty())now.add(action("page",any(random,candidates)));
-          }else if(roll<96){
+          }else if(roll<94){
+            var candidates=cellsWhere(probe,RedstoneOracle::entityBlock);
+            candidates.removeIf(c->probe.cell(c).is(Blocks.COMPARATOR));
+            if(!candidates.isEmpty())now.add(action("fill",any(random,candidates),0));
+          }else if(roll<97){
             var candidates=cellsWhere(probe,st->st.is(Blocks.TARGET));
             if(!candidates.isEmpty())now.add(action("hit",any(random,candidates),1+random.nextInt(15),random.nextInt(2)));
           }else{
@@ -593,17 +733,31 @@ public class RedstoneOracle {
           var pos=new BlockPos(a.get(1).getAsInt(),a.get(2).getAsInt(),a.get(3).getAsInt());
           switch(a.get(0).getAsString()){
             case "set"->probe.setBlock(pos,Block.stateById(a.get(4).getAsInt()),Block.UPDATE_ALL);
+            case "dust"->{
+              var state=(BlockState)connection.invoke(Blocks.REDSTONE_WIRE,probe,cross,pos);
+              a.set(0,new JsonPrimitive("set"));a.add(Block.getId(state));
+              probe.setBlock(pos,state,Block.UPDATE_ALL);
+            }
+            case "fill"->{
+              if(probe.entities.get(pos) instanceof net.minecraft.world.level.block.entity.BaseContainerBlockEntity){
+                var filled=fill(random,probe,pos);a.set(4,filled.get(4));a.add(filled.get(5));a.add(filled.get(6));
+              }else{a.set(4,new JsonPrimitive(-1));a.add(new JsonArray());a.add(0);}
+            }
             case "wire"->{
               var state=tripwire(probe,pos);
               a.set(0,new JsonPrimitive("set"));a.add(Block.getId(state));
               probe.setBlock(pos,state,Block.UPDATE_ALL);
             }
-            case "placed"->{var st=probe.cell(pos);if(st.is(Blocks.TRIPWIRE_HOOK))st.getBlock().setPlacedBy(probe,pos,st,null,net.minecraft.world.item.ItemStack.EMPTY);}
+            case "placed"->{
+              var st=probe.cell(pos);
+              if(st.is(Blocks.TRIPWIRE_HOOK)||st.getBlock() instanceof DiodeBlock)st.getBlock().setPlacedBy(probe,pos,st,null,net.minecraft.world.item.ItemStack.EMPTY);
+            }
             case "use"->{
               var facing=Direction.from3DDataValue(a.get(4).getAsInt());abilities.mayBuild=a.get(5).getAsInt()==1;
               user.setYRot(facing.toYRot());
-              var result=probe.cell(pos).useWithoutItem(probe,user,new BlockHitResult(Vec3.atCenterOf(pos),Direction.UP,pos,false));
-              results.add(result.consumesAction()?1:0);
+              // A scripted use of a cell a random set replaced passes (`useWithoutItem`'s default).
+              var used=usable(probe.cell(pos))&&probe.cell(pos).useWithoutItem(probe,user,new BlockHitResult(Vec3.atCenterOf(pos),Direction.UP,pos,false)).consumesAction();
+              results.add(used?1:0);
             }
             case "entity"->{
               var box=new AABB(a.get(4).getAsDouble(),a.get(5).getAsDouble(),a.get(6).getAsDouble(),a.get(7).getAsDouble(),a.get(8).getAsDouble(),a.get(9).getAsDouble());
@@ -620,6 +774,13 @@ public class RedstoneOracle {
           }
         }
         contacts(probe);
+        // The comparators whose output changed over the tick (a new one's from 0).
+        var outputChanges=new JsonArray();
+        var outputsAfter=new TreeMap<BlockPos,Integer>(outputs(probe));
+        for(var e:outputsAfter.entrySet())if(e.getValue()!=(int)outputsBefore.getOrDefault(e.getKey(),0)){
+          outputChanges.add(row(e.getKey(),e.getValue()));tally.merge("comparator outputs",1,Integer::sum);
+        }
+        for(var a:now)if(a.get(0).getAsString().equals("fill"))tally.merge("fills",1,Integer::sum);
         for(var w:probe.writes){
           var written=Block.stateById(w.getAsJsonArray().get(3).getAsInt());
           if(written.is(Blocks.REDSTONE_LAMP)&&written.getValue(RedstoneLampBlock.LIT))tally.merge("lamps lit",1,Integer::sum);
@@ -630,16 +791,21 @@ public class RedstoneOracle {
           if(written.is(Blocks.TRIPWIRE_HOOK)&&written.getValue(TripWireHookBlock.POWERED))tally.merge("hooks powered",1,Integer::sum);
           if(written.is(Blocks.DAYLIGHT_DETECTOR)&&written.getValue(DaylightDetectorBlock.POWER)>0)tally.merge("detectors powered",1,Integer::sum);
           if(written.is(Blocks.REDSTONE_WIRE)&&written.getValue(RedstoneWireBlock.POWER)>0)tally.merge("wire powered",1,Integer::sum);
+          if(written.is(Blocks.REPEATER)&&written.getValue(RepeaterBlock.POWERED))tally.merge("repeaters powered",1,Integer::sum);
+          if(written.is(Blocks.REPEATER)&&written.getValue(RepeaterBlock.LOCKED))tally.merge("repeaters locked",1,Integer::sum);
+          if(written.is(Blocks.COMPARATOR)&&written.getValue(ComparatorBlock.POWERED))tally.merge("comparators powered",1,Integer::sum);
+          if(written.is(Blocks.OBSERVER)&&written.getValue(ObserverBlock.POWERED))tally.merge("observers powered",1,Integer::sum);
         }
         for(var e:probe.events)if(e.getAsJsonArray().get(3).getAsInt()==1502)tally.merge("burnouts",1,Integer::sum);
         tally.merge("note events",probe.blockEvents.size(),Integer::sum);tally.merge("primed",probe.primed.size(),Integer::sum);
         tally.merge("sounds",probe.sounds.size(),Integer::sum);tally.merge("writes",probe.writes.size(),Integer::sum);
-        if(!now.isEmpty()||day!=null||!probe.writes.isEmpty()||!probe.events.isEmpty()||!probe.sounds.isEmpty()||!probe.blockEvents.isEmpty()){
+        if(!now.isEmpty()||day!=null||!probe.writes.isEmpty()||!probe.events.isEmpty()||!probe.sounds.isEmpty()||!probe.blockEvents.isEmpty()
+            ||!outputChanges.isEmpty()){
           var step=new JsonObject();step.addProperty("t",t);
           var acts=new JsonArray();now.forEach(acts::add);step.add("actions",acts);
           if(day!=null)step.add("day",day);
           step.add("results",results);step.add("writes",probe.writes);step.add("events",probe.events);step.add("sounds",probe.sounds);
-          step.add("block_events",probe.blockEvents);step.add("primed",probe.primed);steps.add(step);
+          step.add("block_events",probe.blockEvents);step.add("primed",probe.primed);step.add("outputs",outputChanges);steps.add(step);
         }
       }
       var scene=new JsonObject();scene.addProperty("seed",levelSeed);scene.addProperty("tnt_explodes",probe.rules.get(GameRules.TNT_EXPLODES));
@@ -647,9 +813,91 @@ public class RedstoneOracle {
     }
     var result=new JsonObject();result.add("scenes",scenes);
     Files.writeString(Path.of(out),new GsonBuilder().disableHtmlEscaping().create().toJson(result)+"\n");
-    for(var key:List.of("lamps lit","doors powered","trapdoors powered","gates powered","plates pressed","hooks powered","detectors powered","burnouts","note events","primed"))
+    for(var key:List.of("lamps lit","doors powered","trapdoors powered","gates powered","plates pressed","hooks powered","detectors powered","burnouts","note events","primed",
+        "repeaters powered","repeaters locked","comparators powered","observers powered","comparator outputs","fills"))
       if(tally.getOrDefault(key,0)<(key.equals("burnouts")||key.equals("hooks powered")?5:20))throw new AssertionError("thin scenes: "+tally);
     System.out.println("PASS: "+sceneCount+" redstone scenes of "+TICKS+" ticks; "+tally);
+  }
+
+  static void at(TreeMap<Integer,List<JsonArray>> scripted,int t,JsonArray a){scripted.computeIfAbsent(t,k->new ArrayList<>()).add(a);}
+
+  static int id(BlockState state){return Block.getId(state);}
+
+  /**
+   * A lever, a line of repeaters with random delays east across x 128 into a lamp, and a lever
+   * behind a repeater beside the line that locks one of them; both levers toggled now and then.
+   */
+  static void repeaterChain(Random random,TreeMap<Integer,List<JsonArray>> scripted){
+    int z=MIN_Z+random.nextInt(MAX_Z-MIN_Z),y=FLOOR_Y+1,t0=random.nextInt(20),lockX=MIN_X+1+random.nextInt(4);
+    var lever=Blocks.LEVER.defaultBlockState().setValue(LeverBlock.FACE,AttachFace.FLOOR);
+    at(scripted,t0,action("set",new BlockPos(MIN_X-1,y,z),id(lever)));
+    for(int x=MIN_X;x<MAX_X;x++){
+      var pos=new BlockPos(x,y,z);
+      at(scripted,t0,action("set",pos,id(Blocks.REPEATER.defaultBlockState().setValue(RepeaterBlock.FACING,Direction.WEST)
+        .setValue(RepeaterBlock.DELAY,1+random.nextInt(4)))));
+      at(scripted,t0,action("placed",pos));
+    }
+    at(scripted,t0,action("set",new BlockPos(MAX_X,y,z),id(Blocks.REDSTONE_LAMP.defaultBlockState())));
+    at(scripted,t0,action("set",new BlockPos(lockX,y,z+1),id(Blocks.REPEATER.defaultBlockState().setValue(RepeaterBlock.FACING,Direction.SOUTH))));
+    at(scripted,t0,action("set",new BlockPos(lockX,y,z+2),id(lever)));
+    for(int t=t0+2+random.nextInt(10);t<TICKS-5;t+=4+random.nextInt(22))at(scripted,t,action("use",new BlockPos(MIN_X-1,y,z),4,1));
+    for(int t=t0+20+random.nextInt(30);t<TICKS-5;t+=25+random.nextInt(40))at(scripted,t,action("use",new BlockPos(lockX,y,z+2),2,1));
+  }
+
+  /**
+   * A subtract-mode comparator clock fed by a redstone block (its wire runs back into its side),
+   * and a comparator reading a chest through a stone block into a lamp, the chest refilled now and then.
+   */
+  static void comparatorClock(Random random,TreeMap<Integer,List<JsonArray>> scripted){
+    int y=FLOOR_Y+1,z=MIN_Z+random.nextInt(MAX_Z-MIN_Z+1),x=MIN_X+random.nextInt(4),t0=random.nextInt(20);
+    var clock=new BlockPos(x,y,z);
+    at(scripted,t0,action("set",clock,id(Blocks.COMPARATOR.defaultBlockState().setValue(ComparatorBlock.FACING,Direction.WEST)
+      .setValue(ComparatorBlock.MODE,ComparatorMode.SUBTRACT))));
+    at(scripted,t0,action("placed",clock));
+    for(var wire:List.of(clock.east(),clock.east().south(),clock.south(),clock.east(2)))at(scripted,t0+1,action("dust",wire));
+    at(scripted,t0+3,action("set",clock.west(),id(Blocks.REDSTONE_BLOCK.defaultBlockState())));
+    at(scripted,t0+90+random.nextInt(40),action("set",clock.west(),id(Blocks.STONE.defaultBlockState())));
+    int r=MIN_X+random.nextInt(5);var reader=new BlockPos(r,y,z-2);
+    at(scripted,t0,action("set",reader.west(2),id(Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING,Direction.NORTH))));
+    at(scripted,t0,action("set",reader.west(),id(Blocks.STONE.defaultBlockState())));
+    at(scripted,t0,action("set",reader,id(Blocks.COMPARATOR.defaultBlockState().setValue(ComparatorBlock.FACING,Direction.WEST))));
+    at(scripted,t0,action("set",reader.east(),id(Blocks.REDSTONE_LAMP.defaultBlockState())));
+    for(int t=t0+2+random.nextInt(8);t<TICKS-5;t+=6+random.nextInt(20))at(scripted,t,action("fill",reader.west(2),0));
+  }
+
+  /**
+   * A race of tick priorities: a repeater turning off (very high) and one turning on (high, its
+   * front wire) due the same tick, the second scheduled first; the second's wire feeds the first.
+   * Lever A powers the wire behind repeater M; lever B is behind repeater N, whose front is that
+   * wire. Each round turns A on, then B on and A off in one tick, then B off.
+   */
+  static void priorityRace(Random random,TreeMap<Integer,List<JsonArray>> scripted){
+    int y=FLOOR_Y+1,z=MIN_Z+random.nextInt(MAX_Z-MIN_Z),x=MIN_X+random.nextInt(5),t0=random.nextInt(20);
+    var lever=Blocks.LEVER.defaultBlockState().setValue(LeverBlock.FACE,AttachFace.FLOOR);
+    var wire=new BlockPos(x,y,z);var leverA=wire.west();var leverB=wire.south(2);
+    at(scripted,t0,action("set",leverA,id(lever)));
+    at(scripted,t0,action("set",wire.east(),id(Blocks.REPEATER.defaultBlockState().setValue(RepeaterBlock.FACING,Direction.WEST))));
+    at(scripted,t0,action("set",wire.east(2),id(Blocks.REDSTONE_LAMP.defaultBlockState())));
+    at(scripted,t0,action("set",wire.south(),id(Blocks.REPEATER.defaultBlockState().setValue(RepeaterBlock.FACING,Direction.SOUTH))));
+    at(scripted,t0,action("set",leverB,id(lever)));
+    at(scripted,t0+1,action("dust",wire));
+    for(int t=t0+5;t+25<TICKS;t+=30+random.nextInt(10)){
+      at(scripted,t,action("use",leverA,4,1));
+      at(scripted,t+10,action("use",leverB,2,1));
+      at(scripted,t+10,action("use",leverA,4,1));
+      at(scripted,t+20,action("use",leverB,2,1));
+    }
+  }
+
+  /** Two observers facing each other (a clock) between two lamps, broken after a while. */
+  static void observerPair(Random random,TreeMap<Integer,List<JsonArray>> scripted){
+    int y=FLOOR_Y+1+random.nextInt(2),z=MIN_Z+random.nextInt(MAX_Z-MIN_Z),x=MIN_X+random.nextInt(4),t0=random.nextInt(30);
+    var a=new BlockPos(x,y,z);
+    at(scripted,t0,action("set",a.west(),id(Blocks.REDSTONE_LAMP.defaultBlockState())));
+    at(scripted,t0,action("set",a.east(2),id(Blocks.REDSTONE_LAMP.defaultBlockState())));
+    at(scripted,t0+1,action("set",a,id(Blocks.OBSERVER.defaultBlockState().setValue(ObserverBlock.FACING,Direction.EAST))));
+    at(scripted,t0+1,action("set",a.east(),id(Blocks.OBSERVER.defaultBlockState().setValue(ObserverBlock.FACING,Direction.WEST))));
+    at(scripted,t0+40+random.nextInt(60),action("set",a.east(),id(Blocks.AIR.defaultBlockState())));
   }
 
   static final class RedStoneWire{

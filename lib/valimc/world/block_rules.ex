@@ -79,24 +79,31 @@ defmodule Valimc.World.BlockRules do
     player's use; `facing` a horizontal direction index, 2..5),
     `:contacts` (the entities' contacts), `{:daylight, position}`,
     `{:page, position}`, `{:hit, position, power, arrow?}`,
-    `{:hook_placed, position}`, `{:disarm, position}`;
+    `{:placed, position}` (a tripwire hook's or diode's `setPlacedBy`),
+    `{:disarm, position}`, `{:output_changed, position}` (VMC-048a: a block
+    entity's `setChanged`, which comparators reading it hear);
   - `ticks`: due block ticks, `[{position, state}]` (a tick runs while the
     cell holds that state's block);
   - `fluid_ticks`: due fluid ticks, `[{position, fluid}]`;
   - `options`: the level settings' bits (`Valimc.Blocks.Fluids.options/3`, and 16
     for the `tnt_explodes` game rule);
   - `redstone`: `%{time:, day: {ticks, rain, thunder}, toggles: [{position,
-    when}], entities: [{min, max, kind}], pending: [{position, block}]}`
+    when}], entities: [{min, max, kind}], pending: [{position, block}],
+    outputs: [{position, output}], containers: [{position, signal}]}`
     (`day` the overworld clock's ticks and the weather's levels, which
     daylight detectors read; `kind` `:other`, `:living` or `:arrow`;
-    `pending` the owner's pending ticks the run may ask about).
+    `pending` the owner's pending ticks the run may ask about; `outputs`
+    the comparators' outputs, `containers` the analog signals of the
+    containers comparators may read, VMC-048a).
 
   Returns `%{changes: [{position, state}], destroyed: [{position, state,
-  drops?, effects?}], ticks: [{position, block, delay}], fluid_ticks:
+  drops?, effects?}], ticks: [{position, block, delay, priority}], fluid_ticks:
   [{position, fluid, delay}], events: [{position, type, data}], results:
   [integer], sounds: [{{x, y, z}, sound, volume, pitch, actor?}],
   block_events: [{position, block, b0, b1}], primed: [position], toggles:
-  [{position, when}], stopped: n, skipped: n, updates: n}` (`effects?`: it
+  [{position, when}], outputs: [{position, output}], stopped: n, skipped:
+  n, updates: n}` (`priority` a `TickPriority`, -3..3; `outputs` the
+  comparators' outputs the run changed, nil for one gone; `effects?`: it
   breaks with particles and sound; `results`: one per action, see
   `live::Outcome::results`; `sound` an index into
   `Valimc.Blocks.Redstone.sounds/0`; the counts: updates dropped at the
@@ -130,7 +137,7 @@ defmodule Valimc.World.BlockRules do
 
     {:ok,
      {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates},
-      {sounds, block_events, primed, toggles}}} =
+      {sounds, block_events, primed, toggles, outputs}}} =
       case Native.dispatch(:block_updates, units, args) do
         # A cascade past the normal scheduler's budget runs again, dirty.
         {:error, :too_large} -> apply(Native, :block_updates_dirty, args)
@@ -147,8 +154,9 @@ defmodule Valimc.World.BlockRules do
         ),
       ticks:
         for(
-          <<x::32-signed, y::32-signed, z::32-signed, block::16, delay::32-signed <- scheduled>>,
-          do: {{x, y, z}, block, delay}
+          <<x::32-signed, y::32-signed, z::32-signed, block::16, delay::32-signed,
+            priority::8-signed <- scheduled>>,
+          do: {{x, y, z}, block, delay, priority}
         ),
       fluid_ticks:
         for(
@@ -179,6 +187,11 @@ defmodule Valimc.World.BlockRules do
         for(
           <<x::32-signed, y::32-signed, z::32-signed, at::64-signed <- toggles>>,
           do: {{x, y, z}, at}
+        ),
+      outputs:
+        for(
+          <<x::32-signed, y::32-signed, z::32-signed, output::32-signed <- outputs>>,
+          do: {{x, y, z}, if(output < 0, do: nil, else: output)}
         ),
       stopped: stopped,
       skipped: skipped,
@@ -226,11 +239,14 @@ defmodule Valimc.World.BlockRules do
   defp pack_action({:hit, position, power, arrow}),
     do: <<8, pos(position)::binary, power, if(arrow, do: 1, else: 0), pos({0, 0, 0})::binary>>
 
-  defp pack_action({:hook_placed, position}),
+  defp pack_action({:placed, position}),
     do: <<9, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
   defp pack_action({:disarm, position}),
     do: <<10, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:output_changed, position}),
+    do: <<14, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
 
@@ -241,6 +257,8 @@ defmodule Valimc.World.BlockRules do
     toggles = Map.get(context, :toggles, [])
     entities = Map.get(context, :entities, [])
     pending = Map.get(context, :pending, [])
+    outputs = Map.get(context, :outputs, [])
+    containers = Map.get(context, :containers, [])
 
     {day, rain, thunder} = Map.get(context, :day, {0, 0.0, 0.0})
 
@@ -255,7 +273,11 @@ defmodule Valimc.World.BlockRules do
           <<x0::float-64, y0::float-64, z0::float-64, x1::float-64, y1::float-64, z1::float-64,
             entity_kind(kind)>>
       )::binary, length(pending)::32,
-      for({p, block} <- pending, into: <<>>, do: <<pos(p)::binary, block::16>>)::binary>>
+      for({p, block} <- pending, into: <<>>, do: <<pos(p)::binary, block::16>>)::binary,
+      length(outputs)::32,
+      for({p, output} <- outputs, into: <<>>, do: <<pos(p)::binary, output::32-signed>>)::binary,
+      length(containers)::32,
+      for({p, signal} <- containers, into: <<>>, do: <<pos(p)::binary, signal::32-signed>>)::binary>>
   end
 
   defp entity_kind(:living), do: 1
@@ -264,15 +286,26 @@ defmodule Valimc.World.BlockRules do
 
   @doc """
   What placing `item` at `position` writes (VMC-029d), read with `siblings`
-  as `run/4` reads: `[{position, state}]`, or nil when vanilla refuses it.
+  as `run/4` reads (and the comparators' `outputs`, `[{position, output}]`,
+  which a repeater's lock reads): `[{position, state}]`, or nil when vanilla
+  refuses it.
   `values` are the click's inputs (`Valimc.Blocks.Placement.values/2`); the
   rules read the target's light and redstone power themselves.
   """
-  def place(%Valimc.World.Blocks{ref: ref}, siblings, item, values, position, absent) do
+  def place(
+        %Valimc.World.Blocks{ref: ref},
+        siblings,
+        item,
+        values,
+        position,
+        absent,
+        outputs \\ []
+      ) do
     stores = for %Valimc.World.Blocks{ref: sibling} <- siblings, do: sibling
     seed = :rand.uniform(1 <<< 62)
+    outputs = for {{x, y, z}, output} <- outputs, do: {{x, y, z}, output}
 
-    case Native.block_place(ref, stores, native(), item, values, position, absent, seed) do
+    case Native.block_place(ref, stores, native(), item, values, position, absent, seed, outputs) do
       {:ok, nil} -> nil
       {:ok, writes} -> for {x, y, z, state} <- writes, do: {{x, y, z}, state}
     end

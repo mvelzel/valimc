@@ -63,6 +63,14 @@ pub trait World: BlockAccess {
     fn block_light(&mut self, _pos: [i32; 3]) -> i32 {
         0
     }
+    /// Keep the output of the comparator at `pos` (its block entity's), or
+    /// drop it with its block entity (`None`).
+    fn set_comparator_output(&mut self, _pos: [i32; 3], _output: Option<i32>) {}
+    /// The analog signal of the owner's block entity at `pos` (a container's
+    /// fullness), 0 where it keeps none.
+    fn container_signal(&mut self, _pos: [i32; 3]) -> i32 {
+        0
+    }
 }
 
 pub(super) enum Update {
@@ -75,6 +83,16 @@ pub(super) enum Update {
         neighbor_pos: [i32; 3],
         flags: i32,
         limit: i32,
+    },
+    /// `SimpleNeighborUpdate`: `pos` hears that a neighbour of kind `block`
+    /// changed (a diode's or observer's front).
+    Neighbor { pos: [i32; 3], block: u16 },
+    /// `FullNeighborUpdate`: the same with the state it is told it holds (a
+    /// comparator an analog output tells, `updateNeighbourForOutputSignal`).
+    Full {
+        pos: [i32; 3],
+        state: u16,
+        block: u16,
     },
     /// `MultiNeighborUpdate`: the neighbours of `source` in update order.
     Neighbors {
@@ -244,11 +262,22 @@ impl<'r, W: World> Engine<'r, W> {
     fn hooks(&mut self, pos: [i32; 3], old: u16, new: u16, flags: i32) -> bool {
         let table = self.rules.table.as_ref();
         let block = table.block_of(new);
+        // A comparator's block entity goes with its block, before the
+        // removal's updates (`LevelChunk.setBlockState`).
+        let comparator = self.rules.redstone.comparator;
+        if table.block_of(old) != block && table.block_of(old) == comparator {
+            self.world.set_comparator_output(pos, None);
+        }
         if table.block_of(old) != block && flags & NEIGHBORS != 0 {
             self.removed(pos, old);
         }
         if self.rules.table.block_of(self.world.get(pos)) != block {
             return false;
+        }
+        // A new comparator's block entity starts at 0 (it is made after
+        // `onPlace`, which reads 0 without it alike).
+        if block == comparator && self.rules.table.block_of(old) != comparator {
+            self.world.set_comparator_output(pos, Some(0));
         }
         self.placed(pos, old, new);
         if self.rules.fluids.is_some() && self.world.get(pos) == new {
@@ -265,6 +294,9 @@ impl<'r, W: World> Engine<'r, W> {
         let table = self.rules.table.as_ref();
         if flags & NEIGHBORS != 0 {
             self.update_neighbors_at(pos, table.block_of(old), None);
+            if self.has_analog(new) {
+                self.update_neighbour_for_output_signal(pos, table.block_of(new));
+            }
         }
         if flags & KNOWN_SHAPE == 0 && limit > 0 {
             let flags = flags & !(NEIGHBORS | SUPPRESS_DROPS);
@@ -303,6 +335,48 @@ impl<'r, W: World> Engine<'r, W> {
             skip,
             index,
         });
+    }
+
+    /// `Level.updateNeighbourForOutputSignal`: the comparators beside `pos`,
+    /// or behind a conductor beside it, hear that its analog output changed.
+    pub fn update_neighbour_for_output_signal(&mut self, pos: [i32; 3], block: u16) {
+        let comparator = self.rules.redstone.comparator;
+        for d in [2, 5, 3, 4] {
+            let mut beside = at(pos, d);
+            if !self.world.owns(beside) {
+                self.report.stopped += 1;
+                continue;
+            }
+            let mut state = self.world.get(beside);
+            if self.rules.table.block_of(state) != comparator {
+                if !self
+                    .rules
+                    .table
+                    .flag2(state, crate::worldgen::blocks::REDSTONE_CONDUCTOR)
+                {
+                    continue;
+                }
+                beside = at(beside, d);
+                if !self.world.owns(beside) {
+                    self.report.stopped += 1;
+                    continue;
+                }
+                state = self.world.get(beside);
+                if self.rules.table.block_of(state) != comparator {
+                    continue;
+                }
+            }
+            self.add(Update::Full {
+                pos: beside,
+                state,
+                block,
+            });
+        }
+    }
+
+    /// `Level.neighborChanged(pos, block)`.
+    pub(super) fn neighbor_changed_at(&mut self, pos: [i32; 3], block: u16) {
+        self.add(Update::Neighbor { pos, block });
     }
 
     /// `BlockState.updateNeighbourShapes`.
@@ -384,6 +458,14 @@ impl<'r, W: World> Engine<'r, W> {
                 self.shape_update(direction, pos, neighbor_pos, neighbor_state, flags, limit);
                 false
             }
+            Update::Neighbor { pos, block } => {
+                self.neighbor_changed(pos, block, None);
+                false
+            }
+            Update::Full { pos, state, block } => {
+                self.neighbor_changed(pos, block, Some(state));
+                false
+            }
             Update::Neighbors {
                 source,
                 block,
@@ -396,7 +478,7 @@ impl<'r, W: World> Engine<'r, W> {
                     *index += 1;
                 }
                 let more = *index < UPDATE_ORDER.len();
-                self.neighbor_changed(at(source, d), block);
+                self.neighbor_changed(at(source, d), block, None);
                 more
             }
         }
@@ -462,15 +544,15 @@ impl<'r, W: World> Engine<'r, W> {
         }
     }
 
-    /// `NeighborUpdater.executeUpdate`: the block at `pos` hears that a
-    /// neighbour of kind `block` changed. Redstone wire, liquids and the
-    /// redstone components react.
-    fn neighbor_changed(&mut self, pos: [i32; 3], block: u16) {
+    /// `NeighborUpdater.executeUpdate`: the block at `pos` (holding `given`,
+    /// else the cell's state) hears that a neighbour of kind `block` changed.
+    /// Redstone wire, liquids and the redstone components react.
+    fn neighbor_changed(&mut self, pos: [i32; 3], block: u16, given: Option<u16>) {
         if !self.world.owns(pos) {
             self.report.stopped += 1;
             return;
         }
-        let state = self.world.get(pos);
+        let state = given.unwrap_or_else(|| self.world.get(pos));
         if self.is_wire(state) {
             self.wire_neighbor_changed(pos, state);
         } else if self.rules.table.flag(state, LIQUID_BLOCK) {

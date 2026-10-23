@@ -1,11 +1,14 @@
 //! RedstoneOracle's circuit scenes on the live block-update engine
-//! (VMC-047a), built only with the `parity` feature. A scene's cells go into
-//! the stores of the 8 × 8-chunk sections it straddles, which each run reads
-//! as one group's sections. Each game tick runs the due block ticks (vanilla's
-//! `LevelTicks` order: trigger tick, then scheduling order; a position and
-//! block pending once), then every twentieth tick the daylight detectors'
-//! updates, then each action as its own run (a set cell is a change the owner
-//! made), then the entities' contacts. The day check samples `power::Day`.
+//! (VMC-047a, VMC-048a), built only with the `parity` feature. A scene's
+//! cells go into the stores of the 8 × 8-chunk sections it straddles, which
+//! each run reads as one group's sections. Each game tick runs the due block
+//! ticks (vanilla's `LevelTicks` order: trigger tick, then priority, then
+//! scheduling order; a position and block pending once), then every twentieth
+//! tick the daylight detectors' updates, then each action as its own run (a
+//! set cell is a change the owner made; a container's new contents its
+//! signal and `setChanged`), then the entities' contacts. Comparators'
+//! outputs and containers' signals are kept as an owner keeps them. The day
+//! check samples `power::Day`.
 
 use crate::atoms;
 use crate::facts::FLAGS;
@@ -18,10 +21,11 @@ use valimc_core::rules::fluid::Options;
 use valimc_core::rules::live::{self, Action, Input, Outcome};
 use valimc_core::worldgen::random::Random;
 
-/// A scene action: tick, kind (0 set, 1 use, 2 a hook placed, 3 a page
-/// turned, 4 a target hit, 5 tripwire disarmed), position, and two values
-/// (the state set; a use's facing and whether the player may build; a hit's
-/// power and whether an arrow made it).
+/// A scene action: tick, kind (0 set, 1 use, 2 a hook or diode placed, 3 a
+/// page turned, 4 a target hit, 5 tripwire disarmed, 6 a container filled),
+/// position, and two values (the state set; a use's facing and whether the
+/// player may build; a hit's power and whether an arrow made it; a fill's
+/// signal, -1 where no container was).
 type SceneAction = (i64, u8, (i32, i32, i32), i32, i32);
 
 /// An entity: the tick it appears, its box, kind (0 not living, 1 living,
@@ -37,7 +41,8 @@ type SceneSound = ((f64, f64, f64), String, u32, u32, bool);
 
 /// A tick's outcome: the tick, the cells whose state differs from the tick's
 /// start (sorted), level events (sorted), sounds, block events, primed TNT
-/// cells and use results, each in order.
+/// cells, use results, each in order, and the comparators whose output
+/// differs from the tick's start (a new one's from 0), sorted.
 type SceneTick = (
     i64,
     Vec<(i32, i32, i32, u16)>,
@@ -47,13 +52,14 @@ type SceneTick = (
         Vec<(i32, i32, i32, u16, i32, i32)>,
         Vec<(i32, i32, i32)>,
         Vec<i32>,
+        Vec<(i32, i32, i32, i32)>,
     ),
 );
 
 struct Scene {
     stores: Vec<ColumnStore>,
-    /// Pending block ticks: (trigger, sequence) => (position, block).
-    pending: BTreeMap<(i64, u64), ([i32; 3], u16)>,
+    /// Pending block ticks: (trigger, priority, sequence) => (position, block).
+    pending: BTreeMap<(i64, i32, u64), ([i32; 3], u16)>,
     keys: HashSet<([i32; 3], u16)>,
     sequence: u64,
     time: i64,
@@ -66,6 +72,10 @@ struct Scene {
     block_events: Vec<(i32, i32, i32, u16, i32, i32)>,
     primed: Vec<(i32, i32, i32)>,
     toggles: Vec<([i32; 3], i64)>,
+    table: std::sync::Arc<valimc_core::worldgen::blocks::BlockTable>,
+    /// Comparators' outputs, and containers' signals (their block entities').
+    outputs: HashMap<[i32; 3], i32>,
+    containers: HashMap<[i32; 3], i32>,
 }
 
 impl Scene {
@@ -86,6 +96,9 @@ impl Scene {
     fn set(&mut self, pos: [i32; 3], state: u16) -> Result<(), Atom> {
         let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
         let old = self.get(pos);
+        if self.table.block_of(old) != self.table.block_of(state) {
+            self.containers.remove(&pos);
+        }
         self.before.entry(pos).or_insert(old);
         self.known.insert((pos[1], pos[2], pos[0]));
         let i = self.store_of(pos).ok_or(atoms::out_of_region())?;
@@ -95,10 +108,12 @@ impl Scene {
         Ok(())
     }
 
-    fn schedule(&mut self, pos: [i32; 3], block: u16, delay: i32) {
+    fn schedule(&mut self, pos: [i32; 3], block: u16, delay: i32, priority: i32) {
         if self.keys.insert((pos, block)) {
-            self.pending
-                .insert((self.time + delay as i64, self.sequence), (pos, block));
+            self.pending.insert(
+                (self.time + delay as i64, priority, self.sequence),
+                (pos, block),
+            );
             self.sequence += 1;
         }
     }
@@ -111,8 +126,14 @@ impl Scene {
         for &(pos, state) in &outcome.changes {
             self.set(pos, state)?;
         }
-        for &(pos, block, delay) in &outcome.block_ticks {
-            self.schedule(pos, block, delay);
+        for &(pos, block, delay, priority) in &outcome.block_ticks {
+            self.schedule(pos, block, delay, priority);
+        }
+        for &(pos, output) in &outcome.outputs {
+            match output {
+                Some(output) => self.outputs.insert(pos, output),
+                None => self.outputs.remove(&pos),
+            };
         }
         let report = &outcome.report;
         for d in &report.destroyed {
@@ -188,6 +209,9 @@ fn redstone_scene(
         block_events: Vec::new(),
         primed: Vec::new(),
         toggles: Vec::new(),
+        outputs: HashMap::new(),
+        containers: HashMap::new(),
+        table: table.clone(),
     };
     for &(x, y, z, state) in &cells {
         scene.set([x, y, z], state)?;
@@ -210,6 +234,7 @@ fn redstone_scene(
         scene.primed.clear();
         bodies.retain(|&(_, until)| until > t);
         let mut results = Vec::new();
+        let outputs_before = scene.outputs.clone();
         // One run: the stores read as one group's, the entities and the
         // day as they stand.
         let run = |scene: &mut Scene,
@@ -223,6 +248,10 @@ fn redstone_scene(
             let entities: Vec<EntityBox> = bodies.iter().map(|&(b, _)| b).collect();
             let pending: Vec<([i32; 3], u16)> = scene.keys.iter().copied().collect();
             let toggles = scene.toggles.clone();
+            let outputs: Vec<([i32; 3], i32)> =
+                scene.outputs.iter().map(|(&p, &o)| (p, o)).collect();
+            let containers: Vec<([i32; 3], i32)> =
+                scene.containers.iter().map(|(&p, &s)| (p, s)).collect();
             let input = Input {
                 changes,
                 actions,
@@ -235,6 +264,8 @@ fn redstone_scene(
                 sky_darken: darken,
                 sun_angle: angle,
                 sky: Some(15),
+                outputs: &outputs,
+                containers: &containers,
                 ..Input::default()
             };
             let stores: Vec<&ColumnStore> = scene.stores.iter().collect();
@@ -327,7 +358,7 @@ fn redstone_scene(
                     facing: a as usize,
                     may_build: b == 1,
                 },
-                2 => Action::HookPlaced { pos },
+                2 => Action::Placed { pos },
                 3 => Action::Page { pos },
                 4 => Action::Hit {
                     pos,
@@ -335,6 +366,11 @@ fn redstone_scene(
                     arrow: b == 1,
                 },
                 5 => Action::Disarm { pos },
+                6 if a < 0 => continue,
+                6 => {
+                    scene.containers.insert(pos, a);
+                    Action::OutputChanged { pos }
+                }
                 _ => return Err(atoms::invalid_state()),
             };
             let outcome = run(
@@ -375,14 +411,29 @@ fn redstone_scene(
         let sounds = std::mem::take(&mut scene.sounds);
         let block_events = std::mem::take(&mut scene.block_events);
         let primed = std::mem::take(&mut scene.primed);
+        let mut outputs: Vec<(i32, i32, i32, i32)> = scene
+            .outputs
+            .iter()
+            .filter(|&(p, &o)| o != outputs_before.get(p).copied().unwrap_or(0))
+            .map(|(p, &o)| (p[0], p[1], p[2], o))
+            .collect();
+        // `BlockPos` order: y, then z, then x.
+        outputs.sort_unstable_by_key(|&(x, y, z, _)| (y, z, x));
         if !changed.is_empty()
             || !events.is_empty()
             || !sounds.is_empty()
             || !block_events.is_empty()
             || !primed.is_empty()
             || !results.is_empty()
+            || !outputs.is_empty()
         {
-            out.push((t, changed, events, sounds, (block_events, primed, results)));
+            out.push((
+                t,
+                changed,
+                events,
+                sounds,
+                (block_events, primed, results, outputs),
+            ));
         }
     }
     Ok(out)

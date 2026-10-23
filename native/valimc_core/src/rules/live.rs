@@ -23,8 +23,8 @@ pub struct Outcome {
     /// Cells whose state the run changed, with their final state, in the
     /// order they first changed.
     pub changes: Vec<([i32; 3], u16)>,
-    /// Block ticks scheduled: position, block, delay.
-    pub block_ticks: Vec<([i32; 3], u16, i32)>,
+    /// Block ticks scheduled: position, block, delay, `TickPriority`.
+    pub block_ticks: Vec<([i32; 3], u16, i32, i32)>,
     /// Fluid ticks scheduled: position, fluid, delay.
     pub fluid_ticks: Vec<([i32; 3], u8, i32)>,
     /// Per action, its result: a bucket's `Emptied` (0 failed, 1 placed, 2
@@ -36,6 +36,9 @@ pub struct Outcome {
     pub results: Vec<i32>,
     /// The redstone torches' recent toggles after the run.
     pub toggles: Vec<([i32; 3], i64)>,
+    /// Comparators' outputs the run changed (VMC-048a), in the order they
+    /// first changed: the new output, or `None` for a comparator gone.
+    pub outputs: Vec<([i32; 3], Option<i32>)>,
     pub report: Report,
 }
 
@@ -93,8 +96,11 @@ pub enum Action {
         power: i32,
         arrow: bool,
     },
-    /// A player placed the tripwire hook at `pos` (`setPlacedBy`).
-    HookPlaced { pos: [i32; 3] },
+    /// A player placed the tripwire hook or diode at `pos` (`setPlacedBy`).
+    Placed { pos: [i32; 3] },
+    /// The block entity at `pos` changed (`setChanged`: a container's
+    /// contents), which comparators reading it hear.
+    OutputChanged { pos: [i32; 3] },
     /// A player with shears is breaking the tripwire at `pos`.
     Disarm { pos: [i32; 3] },
 }
@@ -124,6 +130,10 @@ pub struct Input<'a> {
     /// One sky light for every cell instead of the stores' (parity scenes,
     /// whose stores hold no light).
     pub sky: Option<i32>,
+    /// The comparators' outputs (their block entities') the run may read,
+    /// and the analog signals of the owner's block entities (containers).
+    pub outputs: &'a [([i32; 3], i32)],
+    pub containers: &'a [([i32; 3], i32)],
 }
 
 struct Live<'s> {
@@ -135,8 +145,13 @@ struct Live<'s> {
     air: u16,
     overlay: HashMap<[i32; 3], u16>,
     order: Vec<[i32; 3]>,
-    block_ticks: Vec<([i32; 3], u16, i32)>,
+    block_ticks: Vec<([i32; 3], u16, i32, i32)>,
     fluid_ticks: Vec<([i32; 3], u8, i32)>,
+    /// Comparators' outputs: the owner's, then the run's.
+    outputs: HashMap<[i32; 3], i32>,
+    written_outputs: HashMap<[i32; 3], Option<i32>>,
+    output_order: Vec<[i32; 3]>,
+    containers: &'s [([i32; 3], i32)],
     /// The run's due fluid ticks while they still wait for the fluid phase:
     /// a tick scheduled meanwhile for one of them is dropped, as vanilla's
     /// fluid `LevelTicks` still holds it then.
@@ -176,7 +191,24 @@ impl BlockAccess for Live<'_> {
     }
 
     fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16, delay: i32) {
-        self.block_ticks.push((pos, block, delay));
+        self.block_ticks.push((pos, block, delay, 0));
+    }
+
+    fn schedule_block_tick_priority(
+        &mut self,
+        pos: [i32; 3],
+        block: u16,
+        delay: i32,
+        priority: i32,
+    ) {
+        self.block_ticks.push((pos, block, delay, priority));
+    }
+
+    fn comparator_output(&mut self, pos: [i32; 3]) -> i32 {
+        match self.written_outputs.get(&pos) {
+            Some(output) => output.unwrap_or(0),
+            None => self.outputs.get(&pos).copied().unwrap_or(0),
+        }
     }
 
     fn schedule_fluid_tick(&mut self, pos: [i32; 3], fluid: u8, delay: i32) {
@@ -192,7 +224,7 @@ impl BlockAccess for Live<'_> {
             || self
                 .block_ticks
                 .iter()
-                .any(|&(p, b, _)| p == pos && b == block)
+                .any(|&(p, b, _, _)| p == pos && b == block)
     }
 
     /// The level random's (a legacy random, as `RandomSource.create`'s).
@@ -255,6 +287,19 @@ impl World for Live<'_> {
             .and_then(|store| store.light_at(pos[0], pos[1], pos[2]))
             .map_or(0, |(_, block)| block as i32)
     }
+
+    fn set_comparator_output(&mut self, pos: [i32; 3], output: Option<i32>) {
+        if self.written_outputs.insert(pos, output).is_none() {
+            self.output_order.push(pos);
+        }
+    }
+
+    fn container_signal(&mut self, pos: [i32; 3]) -> i32 {
+        self.containers
+            .iter()
+            .find(|&&(p, _)| p == pos)
+            .map_or(0, |&(_, signal)| signal)
+    }
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
@@ -278,6 +323,10 @@ pub fn run(
         order: Vec::new(),
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
+        outputs: input.outputs.iter().copied().collect(),
+        written_outputs: HashMap::new(),
+        output_order: Vec::new(),
+        containers: input.containers,
         held: input.fluid_ticks.iter().copied().collect(),
         pending: input.pending,
         sky: input.sky,
@@ -321,8 +370,12 @@ pub fn run(
                 engine.target_hit(pos, power, arrow);
                 0
             }
-            Action::HookPlaced { pos } => {
-                engine.hook_placed(pos);
+            Action::Placed { pos } => {
+                engine.placed_by(pos);
+                0
+            }
+            Action::OutputChanged { pos } => {
+                engine.output_changed(pos);
                 0
             }
             Action::Disarm { pos } => {
@@ -384,21 +437,30 @@ pub fn run(
         .map(|&pos| (pos, world.overlay[&pos]))
         .filter(|&(pos, state)| state != world.base(pos))
         .collect();
+    let outputs = world
+        .output_order
+        .iter()
+        .map(|&pos| (pos, world.written_outputs[&pos]))
+        .filter(|&(pos, output)| output != world.outputs.get(&pos).copied())
+        .collect();
     Ok(Some(Outcome {
         changes,
         block_ticks: world.block_ticks,
         fluid_ticks: world.fluid_ticks,
         results,
         toggles: redstone.toggles,
+        outputs,
         report,
     }))
 }
 
 /// What placing `item` at `target` writes (`Rules::place`, VMC-029d) over
-/// `stores` (as `run`), the click's inputs `values` by `placement::VARS`.
+/// `stores` (as `run`) and the comparators' `outputs`, the click's inputs
+/// `values` by `placement::VARS`.
 /// The light and power inputs are filled in here from the target's light and
 /// its neighbours' signals; `seed` seeds the level random a placement draws
 /// from. A placement that reads past the group's edge is refused.
+#[allow(clippy::too_many_arguments)]
 pub fn place(
     rules: &Rules,
     stores: &[&ColumnStore],
@@ -407,6 +469,7 @@ pub fn place(
     mut values: [u8; 13],
     target: [i32; 3],
     seed: i64,
+    outputs: &[([i32; 3], i32)],
 ) -> Result<Option<Vec<([i32; 3], u16)>>, String> {
     let mut random = Random::legacy(seed);
     let mut world = Live {
@@ -417,6 +480,10 @@ pub fn place(
         order: Vec::new(),
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
+        outputs: outputs.iter().copied().collect(),
+        written_outputs: HashMap::new(),
+        output_order: Vec::new(),
+        containers: &[],
         held: HashSet::new(),
         pending: &[],
         sky: None,
@@ -457,6 +524,10 @@ mod tests {
             order: Vec::new(),
             block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
+            outputs: HashMap::new(),
+            written_outputs: HashMap::new(),
+            output_order: Vec::new(),
+            containers: &[],
             held: HashSet::new(),
             pending: &[],
             sky: None,

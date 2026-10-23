@@ -220,15 +220,17 @@ was sent to.
   the section does (VMC-077e). Scheduled ticks sit in per-chunk containers, as
   vanilla's `LevelTicks`: a tick visits only the containers of simulated
   chunks, so those of the rest wait untouched, with no cap on how many a
-  section holds (VMC-077s); a block tick runs while its cell holds the block
-  it was scheduled for, with the cell's state then. What a commit starts
+  section holds (VMC-077s), ordered by trigger tick, priority (a diode's,
+  VMC-048a) and scheduling order; a block tick runs while its cell holds the
+  block it was scheduled for, with the cell's state then. What a commit starts
   (neighbour and shape updates, survival, redstone power and its components'
   reactions, VMC-047a), the rules' due block ticks and due fluid ticks (water
   and lava, VMC-031a; keyed `{:fluid, id}`, run after the block ticks) run in
   the Rust block-update engine in one call per commit, over the group's
   section stores (VMC-077m, VMC-077j); so do a player's buckets and uses of
   redstone components, the entities' contacts with plates, buttons and
-  tripwire once a tick, daylight detectors every twentieth tick, and a
+  tripwire once a tick, daylight detectors every twentieth tick, a
+  container's changed signal for the comparators reading it, and a
   generated chunk's post-processing marks, settled when it first ticks with
   its neighbours present. A fluid tick that would read past its group waits
   its delay and runs again. Blocks with effects of
@@ -476,7 +478,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
-| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a): their signals, reactions, ticks and the uses, entity contacts and detector updates that start them. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
+| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. Effects on living state (burning, landing damage, air, rain) come back as observations |
 | Natural spawning (VMC-042a) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test: one call over the group's stores, about 0.3 ms a tick for a player's nine sections; the caps, despawn bookkeeping and the records stay in Elixir |
 

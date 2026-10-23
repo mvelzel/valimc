@@ -11,7 +11,7 @@ defmodule Valimc.Blocks.Redstone do
   """
   use Valimc.Data.Facts, "physics/redstone.json"
   import Bitwise, only: [<<<: 2]
-  alias Valimc.Data.Blocks
+  alias Valimc.Data.{Blocks, Float32}
   alias Valimc.Protocol.{CombatPackets, Packets, Wire}
 
   @sounds @facts["components"]
@@ -19,14 +19,19 @@ defmodule Valimc.Blocks.Redstone do
           |> Enum.uniq()
           |> List.to_tuple()
 
-  @usable_kinds ~w(lever button door trapdoor gate note daylight)
+  @usable_kinds ~w(lever button door trapdoor gate note daylight repeater comparator)
   @usable for %{"block" => block, "kind" => kind} <- @facts["components"],
               kind in @usable_kinds,
               state <- Blocks.states(block),
               into: MapSet.new(),
               do: state
 
-  @hooks MapSet.new(Blocks.states("tripwire_hook"))
+  @placed_by MapSet.new(
+               Enum.flat_map(
+                 ~w(tripwire_hook repeater comparator),
+                 &Enum.to_list(Blocks.states(&1))
+               )
+             )
   @checks for %{"block" => block, "kind" => kind} <- @facts["components"],
               kind in ~w(button plate weighted tripwire),
               state <- Blocks.states(block),
@@ -60,8 +65,11 @@ defmodule Valimc.Blocks.Redstone do
   @doc "Whether a player's use of `state` reaches the rules (`useWithoutItem`)."
   def usable?(state), do: MapSet.member?(@usable, state)
 
-  @doc "Whether `state` is a tripwire hook (its placement calculates its line)."
-  def hook?(state), do: MapSet.member?(@hooks, state)
+  @doc """
+  Whether placing `state` runs its `setPlacedBy`: a tripwire hook calculates
+  its line, a diode checks its input (VMC-048a).
+  """
+  def placed_by?(state), do: MapSet.member?(@placed_by, state)
 
   @doc "The daylight detector states, whose block entities tick."
   def detectors, do: @detectors
@@ -91,6 +99,48 @@ defmodule Valimc.Blocks.Redstone do
   def entity_box(_), do: nil
 
   @doc """
+  A container's analog signal (`AbstractContainerMenu.getRedstoneSignalFromContainer`,
+  VMC-048a): its fullness, each stack's count over its maximum (at most 99),
+  averaged over its `size` slots and spread over 1..15, in vanilla's float
+  arithmetic. `stacks` are the slots (`nil` empty), as `ItemStack`s or
+  `{item name, count}`.
+  """
+  def container_signal(stacks, size) do
+    total =
+      Enum.reduce(stacks, 0.0, fn
+        nil, acc ->
+          acc
+
+        {name, count}, acc ->
+          add_fullness(acc, count, Valimc.Protocol.ItemStack.new(name, count))
+
+        %Valimc.Protocol.ItemStack{count: count} = stack, acc ->
+          add_fullness(acc, count, stack)
+      end)
+
+    fullness = Float32.round(total / size)
+    # `Mth.lerpDiscrete(fullness, 0, 15)`.
+    floor(Float32.round(fullness * 14)) + if(fullness > 0, do: 1, else: 0)
+  end
+
+  @doc """
+  The analog signal of an owned container entry (VMC-048a): a chest's 27
+  slots, a furnace's 3.
+  """
+  def entry_signal(%{rows: rows, slots: slots}),
+    do: container_signal(Tuple.to_list(slots), rows * 9)
+
+  def entry_signal(%{cooking: %{slots: slots}}),
+    do: container_signal(Tuple.to_list(slots), tuple_size(slots))
+
+  def entry_signal(_), do: 0
+
+  defp add_fullness(acc, count, stack) do
+    max = min(99, Valimc.Protocol.ItemStack.max_stack_size(stack))
+    Float32.round(acc + Float32.round(count / max))
+  end
+
+  @doc """
   A note block's block event (`NoteBlock.triggerEvent`) at `state`: its
   instrument's sound and pitch (`getPitchFromNote` for a tunable one), or
   nil for a mob head's, which reads the head's block entity.
@@ -101,10 +151,7 @@ defmodule Valimc.Blocks.Redstone do
          %{"custom" => false} = instrument <- @instruments[props["instrument"]] do
       pitch =
         if instrument["tunable"],
-          do:
-            Valimc.Data.Float32.round(
-              :math.pow(2.0, (String.to_integer(props["note"]) - 12) / 12.0)
-            ),
+          do: Float32.round(:math.pow(2.0, (String.to_integer(props["note"]) - 12) / 12.0)),
           else: 1.0
 
       {instrument["sound"], pitch}

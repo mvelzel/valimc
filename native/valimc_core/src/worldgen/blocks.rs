@@ -312,6 +312,16 @@ impl BlockTable {
         self.default[block as usize]
     }
 
+    /// A block's states, by block id.
+    pub fn states_of(&self, block: u16) -> std::ops::Range<u16> {
+        let first = self.first[block as usize];
+        let size: usize = self.properties[block as usize]
+            .iter()
+            .map(|p| p.values.len())
+            .product();
+        first..first + size as u16
+    }
+
     /// The names of a state's properties, in state order.
     pub fn property_names(&self, state: u16) -> impl Iterator<Item = &str> {
         self.properties[self.block_of(state) as usize]

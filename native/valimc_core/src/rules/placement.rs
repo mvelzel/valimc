@@ -45,6 +45,8 @@ pub enum Post {
     Shape,
     /// Leaves: their distance from logs.
     Leaves,
+    /// Repeaters: locked by a powered diode beside them (VMC-048a).
+    Lock,
 }
 
 /// What a placement does.
@@ -213,6 +215,7 @@ impl Placement {
                 0 => Post::None,
                 1 => Post::Shape,
                 2 => Post::Leaves,
+                3 => Post::Lock,
                 other => return Err(format!("unknown placement post step {other}")),
             };
             items.insert(row[0] as u16, (row[1], post, [row[3], row[4]]));
