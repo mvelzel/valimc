@@ -133,7 +133,7 @@ defmodule Valimc.Player.Interact do
     position =
       case at do
         :player -> {state.player.x, state.player.y, state.player.z}
-        :animal -> {view.x, view.y, view.z}
+        :animal -> view.at
       end
 
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)

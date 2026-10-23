@@ -28,7 +28,7 @@ defmodule Valimc.AnimalConnectionTest do
     {id, store(owner).entries[id].body}
   end
 
-  test "a bucket milks a cow and wheat makes it fall in love", ctx do
+  test "a bucket milks a cow, wheat feeds it, and dye and shears change a sheep", ctx do
     player = %{
       living: %Valimc.Living{health: %Valimc.Living.Health{value: 20.0}},
       x: ctx.pose.x,
@@ -46,7 +46,9 @@ defmodule Valimc.AnimalConnectionTest do
     inventory = %Inventory{
       slots: %{
         36 => ItemStack.new("minecraft:bucket"),
-        37 => %{ItemStack.new("minecraft:wheat") | count: 3}
+        37 => %{ItemStack.new("minecraft:wheat") | count: 3},
+        38 => ItemStack.new("red_dye", 2),
+        39 => ItemStack.new("shears")
       }
     }
 
@@ -81,6 +83,38 @@ defmodule Valimc.AnimalConnectionTest do
 
     Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[37].count == 2 end)
     assert elem(body(owner, uuid), 1).data.in_love > 0
+
+    {:ok, sheep} = Body.new("minecraft:sheep")
+    sheep_uuid = <<7::128>>
+
+    record =
+      Store.body_record(
+        put_in(sheep.mob.no_ai, true),
+        sheep_uuid,
+        {ctx.pose.x + 2.0, 64.0, ctx.pose.z + 1.0}
+      )
+
+    :ok = Region.drop_items(owner, [record])
+    {_, client} = Client.await(client, :play, "add_entity")
+    {sheep_id, _} = body(owner, sheep_uuid)
+
+    use_sheep = fn selected ->
+      Client.send_packet(client, :play, "set_carried_item", <<selected::16>>)
+      Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.selected == selected end)
+
+      Client.send_packet(client, :play, "interact", [
+        Wire.varint(sheep_id),
+        Wire.varint(0),
+        <<0, 0>>
+      ])
+    end
+
+    use_sheep.(2)
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[38].count == 1 end)
+    assert elem(body(owner, sheep_uuid), 1).data.color == 14
+    use_sheep.(3)
+    Valimc.TestWait.until(fn -> elem(body(owner, sheep_uuid), 1).data.sheared end)
+    assert TestPlayer.state(pid).inventory.slots[39].components["minecraft:damage"] == 1
     _ = client
   end
 end

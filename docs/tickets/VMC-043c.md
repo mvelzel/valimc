@@ -213,3 +213,19 @@ host was loaded throughout (40–60), so only interleaved old/new runs under
 `MIX_ENV=bench` compare; `check_vanilla.py --changed` falls back to the
 static graph for `lib/valimc/ai/world.ex` and selects nearly every stage, so
 the eight stages that run the AI world were run instead.
+
+## Client interaction fix (October 24, 2026)
+
+M3 client run 4 on `0616ca29` plus the production fluid-sampling fix found
+that dyeing a sheep disconnected the player: `Player.Interact.others/3`
+read `view.x/y/z`, while a tracked body's position is `view.at`. Animal-use
+sounds now use that tuple. The existing connection scenario also dyes and
+shears a sheep after milking and feeding a cow, checking the consumed dye,
+colour, sheared state and tool wear. Both animal test files pass (12 tests).
+The affected vanilla stage (`tcp`) passes in `.local/m3-interact-vanilla.log`.
+The dedicated tester's fresh run-03 retry passed: one blue dye turned the
+sheep blue and emptied the held stack, then shears dropped blue wool and
+showed wear, with the connection live throughout. Evidence:
+`.local/client-tests/M3-run-04/sheep-dye-trace.txt`,
+`sheep-dye-disconnect.png` and the run-03 evidence; this does not close the
+family's remaining gates.
