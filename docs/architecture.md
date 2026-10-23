@@ -375,9 +375,10 @@ was sent to.
 
 Chunk tickets drive load, simulation and unload, as vanilla's `TicketType`s do
 (VMC-077e). A section holds the tickets of its chunks
-(`World.Tickets`): a connection's view (`player_loading`) and simulation
-(`player_simulation`, the chunks within `min(simulation distance, view
-distance)` of the player), `forced` from `/forceload`, timed `portal`,
+(`World.Tickets`): a connection's simulation (`player_simulation`, the chunks
+within the simulation distance of the player, Chebyshev and at most the
+server's view distance, whatever the client renders) and loading
+(`player_loading`, its view and those chunks), `forced` from `/forceload`, timed `portal`,
 `post_teleport`, `player_spawn` and `spawn_search` tickets of readers that need
 chunks loaded, and a fresh owner's one-tick `unknown` ticket of its own
 admission. Untimed tickets end with their holder process. A view's tickets

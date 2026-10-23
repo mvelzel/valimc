@@ -157,7 +157,8 @@ Passed in a vanilla world (seed 932992301210947215, old-growth spruce taiga):
   which made its chunks simulated, and the tick after that discarded it.
   Vanilla ticks entities within the server's simulation distance (10)
   whatever the client renders, so it would have discarded them at once. The
-  gap is the simulation ticket's reach, not peaceful.
+  gap is the simulation ticket's reach, not peaceful;
+  [VMC-077e1](VMC-077e1.md) gives it vanilla's reach.
 - A summoned zombie stayed while the player was near; after 8 s 165 blocks
   away it was gone.
 - A name tag "Bob" used in survival named a zombie and was used up; Bob

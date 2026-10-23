@@ -13,7 +13,7 @@ defmodule Valimc.World.Tickets do
 
   | Type | Timeout (ticks) | Loads | Simulates |
   |---|---|---|---|
-  | `:player_loading` (view) | none | yes | no |
+  | `:player_loading` (view and simulation) | none | yes | no |
   | `:player_simulation` | none | no | yes |
   | `:forced` | none | yes | yes |
   | `:portal` | 300 | yes | yes |

@@ -12,7 +12,8 @@ config :valimc,
   owner_call_scale: 1,
   # server.properties `view-distance` (2..32): clients track the distance they
   # request, at least 2 and at most this (VMC-070). `simulation-distance`: chunks
-  # within it of a player (and within its view) tick (VMC-077e).
+  # within it of a player (and within view-distance) load and tick, whatever the
+  # client renders (VMC-077e1).
   view_distance: 10,
   simulation_distance: 10,
   # A region without tickets and work in flight saves and unloads after this long.

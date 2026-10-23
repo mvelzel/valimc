@@ -73,6 +73,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-034n4c](tickets/VMC-034n4c.md), [034n4d](tickets/VMC-034n4d.md), [034n4e](tickets/VMC-034n4e.md) | A furnace's orbs scatter; orbs hop in lava and merge; items vanish in lava, fire and on a cactus, netherite floats; burning items show flames that rain puts out; TNT destroys near items and flings far ones |
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
 | [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
+| [VMC-077e1](tickets/VMC-077e1.md) | At `renderDistance:4`, monsters 5 to 10 chunks away vanish on the tick peaceful is set |
 | [VMC-039a](tickets/VMC-039a.md) | A tilled, watered farm grows wheat, a stem its pumpkin, cane and a sapling's tree; bone meal; trampling |
 | [VMC-048a](tickets/VMC-048a.md) | A comparator reading a chest into a lamp, a repeater line with a lock, an observer clock |
 | [VMC-041b](tickets/VMC-041b.md) | A zombie walks through a wall's gap and an open door to the player, not a closed one, and across water; a piglin walks around a fence line to gold |

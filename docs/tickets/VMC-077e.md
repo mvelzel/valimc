@@ -36,8 +36,10 @@ Acceptance:
   drive generation nearest first (they replace VMC-075's wants); scheduled and
   random block ticks and item motion run only in chunks a simulation ticket
   covers, cooking and orb ageing while any chunk of the region does; due ticks
-  elsewhere wait. A view's simulation ticket covers its chunks within
-  `min(simulation_distance, view distance)` (Chebyshev) of the player.
+  elsewhere wait. A player's simulation ticket covers the chunks within the
+  simulation distance (Chebyshev, at most the server's view distance) of
+  the player whatever its client renders, and its loading ticket covers
+  them as well as the view ([VMC-077e1](VMC-077e1.md)).
 - A region without tickets and work in flight for `region_unload_delay_ms`
   (10 s) retires its route, saves its volatile state and stops; worlds without a
   path and `/save-off` keep their regions. A walk across twelve regions with the

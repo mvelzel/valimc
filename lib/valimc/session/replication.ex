@@ -116,16 +116,24 @@ defmodule Valimc.Session.Replication do
     end
   end
 
-  # The player's tickets (VMC-077e): each region of the view loads its chunks
-  # of the view (`:player_loading`, generated nearest to the player first,
-  # VMC-075) and ticks those within the simulation distance
-  # (`:player_simulation`). Regions are admitted nearest first, as vanilla's
+  # The player's tickets (VMC-077e, VMC-077e1): the chunks within the
+  # simulation distance (Chebyshev, at most the server's view distance) tick
+  # (`:player_simulation`) whatever the client renders, as vanilla's do; the
+  # view and those chunks load (`:player_loading`, generated nearest to the
+  # player first, VMC-075). Regions are admitted nearest first, as vanilla's
   # player tickets load (VMC-071). An owner told before that is no longer the
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
-  defp want_chunks(%{view: {{cx, cz}, distance} = view} = state) do
-    loading = view |> ChunkView.chunks() |> Enum.group_by(&Grid.region_key/1)
-    reach = min(Valimc.config(:simulation_distance), distance)
+  defp want_chunks(%{view: {{cx, cz}, _} = view} = state) do
+    reach = min(Valimc.config(:simulation_distance), ChunkView.server_distance())
+    simulation = for x <- (cx - reach)..(cx + reach), z <- (cz - reach)..(cz + reach), do: {x, z}
+
+    loading =
+      view
+      |> ChunkView.chunks()
+      |> Enum.concat(Enum.reject(simulation, &ChunkView.contains?(view, &1)))
+      |> Enum.group_by(&Grid.region_key/1)
+
     size = Grid.region_size()
 
     {wanted, tickets} =

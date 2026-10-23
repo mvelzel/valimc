@@ -117,6 +117,18 @@ defmodule Valimc.ViewDistanceConnectionTest do
     # client's; chunks of a region still loading wait for a later batch.
     assert hd(batches) <= 9 and Enum.all?(batches, &(&1 <= 64)) and Enum.sum(batches) == 117
 
+    # Yet the chunks within the simulation distance load and tick, as vanilla's
+    # (VMC-077e1).
+    {cx, cz} = joined.center
+    square = MapSet.new(for x <- (cx - 10)..(cx + 10), z <- (cz - 10)..(cz + 10), do: {x, z})
+    wanted = Map.values(Valimc.TestConn.state(joined.owner).wanted)
+
+    assert Enum.reduce(wanted, MapSet.new(), fn {_, _, s}, acc -> MapSet.union(acc, s) end) ==
+             square
+
+    loading = Enum.reduce(wanted, MapSet.new(), fn {_, l, _}, acc -> MapSet.union(acc, l) end)
+    assert loading == MapSet.union(square, view(joined.center, 4))
+
     client = Client.send_packet(client, :play, "client_information", settings(6))
     {chunks, forgotten, _, client} = stream(client, 213 - 117)
     assert forgotten == []
