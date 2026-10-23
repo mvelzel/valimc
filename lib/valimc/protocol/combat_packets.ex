@@ -11,6 +11,14 @@ defmodule Valimc.Protocol.CombatPackets do
   @sounds @facts["sounds"]
   @sources @facts["sound_sources"]
   @particles @facts["particles"]
+  # A mob type `CombatOracle` does not model yet makes no hurt or death sound
+  # (M3 client run 3: hitting a cow closed the attacker's connection).
+  @unmodelled %{
+    "hurt_sound" => nil,
+    "death_sound" => nil,
+    "sound_source" => @sources["neutral"],
+    "animal" => false
+  }
 
   @doc "A sound source's ordinal (`\"block\"`, `\"record\"`, ...)."
   def source(name), do: Map.fetch!(@sources, name)
@@ -47,6 +55,6 @@ defmodule Valimc.Protocol.CombatPackets do
   @doc "The network id of particle type `name`."
   def particle_id(name), do: Map.fetch!(@particles, name)
 
-  @doc "A modelled mob type's hurt and death sounds and sound source."
-  def mob_sounds(type), do: Map.fetch!(@facts["mobs"], type)
+  @doc "A mob type's hurt and death sounds (nil when not modelled) and sound source."
+  def mob_sounds(type), do: Map.get(@facts["mobs"], type, @unmodelled)
 end

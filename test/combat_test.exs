@@ -15,8 +15,8 @@ defmodule Valimc.CombatTest do
     mainhand: nil
   }
 
-  defp zombie(position \\ {1.5, 64.0, 2.5}) do
-    {:ok, body} = Body.new("minecraft:zombie")
+  defp zombie(position \\ {1.5, 64.0, 2.5}, type \\ "minecraft:zombie") do
+    {:ok, body} = Body.new(type)
     record = Store.body_record(body, <<7::128>>, position)
     {:ok, store, {_, id, _}} = Store.create_record(Store.new(), {0, 0}, record)
     {store, id}
@@ -53,6 +53,14 @@ defmodule Valimc.CombatTest do
     assert {:ok, ^store, %{hurt: false}} = Combat.hurt(store, id, hit(5.0))
     {:ok, store, outcome} = Combat.hurt(store, id, hit(9.0))
     assert outcome.hurt and not outcome.full and length(store.entries[id].events) == 2
+  end
+
+  test "a mob whose sounds are not modelled yet is hurt without a sound" do
+    {store, id} = zombie({1.5, 64.0, 2.5}, "minecraft:cow")
+    {:ok, store, outcome} = Combat.hurt(store, id, hit(3.0))
+    assert outcome.hurt and outcome.full
+    assert [{_, damage}] = store.entries[id].events
+    assert damage == binary(Packets.damage_event(id, :player_attack, 900, 900))
   end
 
   test "a player's kill dies with its loot table and experience; another kill gives none" do

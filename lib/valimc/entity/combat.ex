@@ -98,14 +98,14 @@ defmodule Valimc.Entity.Combat do
           cond do
             outcome.died and outcome.full ->
               {body, sound} = sound(body, sounds, "death_sound", false)
-              {body, events ++ [sound, {:event, 3}]}
+              {body, events ++ List.wrap(sound) ++ [{:event, 3}]}
 
             outcome.died ->
               {body, events ++ [{:event, 3}]}
 
             outcome.full ->
               {body, sound} = sound(body, sounds, "hurt_sound", true)
-              {body, events ++ [sound]}
+              {body, events ++ List.wrap(sound)}
 
             true ->
               {body, events}
@@ -251,8 +251,10 @@ defmodule Valimc.Entity.Combat do
   end
 
   defp sound_event(sounds, key, pitch) do
-    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
-    {:sound, sounds[key], sounds["sound_source"], 1.0, pitch, seed}
+    if sounds[key] do
+      <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+      {:sound, sounds[key], sounds["sound_source"], 1.0, pitch, seed}
+    end
   end
 
   defp entity_id(nil), do: nil
