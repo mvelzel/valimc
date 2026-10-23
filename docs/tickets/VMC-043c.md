@@ -202,7 +202,9 @@ VMC-044a3's cats), with the breedings, spawns and drops. Stages `mob_ai`,
 (38 tests). Cost of the in-order tick: see [performance](../performance.md)
 (mob travel).
 
-Remains: `World.mobs_in/3` still scans every mob of its type in the section
+## Handoff (October 2026)
+
+VMC-043c4 is done and on main. Remains: `World.mobs_in/3` still scans every mob of its type in the section
 on each search (vanilla reads entity sections), so a herd of 600 with calves
 takes about 110 ms a tick. Next step: a spatial index over the sensed mobs
 built in `AI.prepare/2`, kept current by `resense_entry/3` and
