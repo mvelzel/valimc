@@ -29,12 +29,12 @@ use super::interval::{Interval, NAI};
 use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
-use super::region::{Area, ProtoChunk, Region};
+use super::region::{Area, ProtoChunk, Region, SpawnStructure};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
 use super::starts::{Around, StartTable};
 use super::structure::place::{place_in_chunk, visit_order, writable_area, Ctx, Placer};
 use super::structure::{
-    ClimateBiomes, Heights, Start, StructureEnv, StructureRegistry, DECORATION_STEPS,
+    ClimateBiomes, Heights, Start, StructureDef, StructureEnv, StructureRegistry, DECORATION_STEPS,
 };
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
@@ -1440,6 +1440,9 @@ impl Worldgen {
                 self.settings.sea_level,
             )?;
             region.lenient = lenient;
+            // The starts natural spawning reads as placing them left them
+            // (VMC-042b: a hut settles its height as it is placed).
+            let mut placed: Vec<((i32, i32), usize, SpawnStructure)> = Vec::new();
             let mut place = |step: usize, region: &mut Region, random: &mut Random, seed: i64| {
                 for (index, structure) in by_step.get(step).into_iter().flatten().enumerate() {
                     random.set_feature_seed(seed, index as i32, step as i32);
@@ -1453,8 +1456,18 @@ impl Worldgen {
                                 chunk: (cx, cz),
                                 reference: [0; 3],
                             };
-                            place_in_chunk(start, &mut c, &registry)
-                                .map_err(|e| format!("{}: {e}", registry.structures[*structure].id))
+                            place_in_chunk(start, &mut c, &registry).map_err(|e| {
+                                format!("{}: {e}", registry.structures[*structure].id)
+                            })?;
+                            let def = &registry.structures[*structure];
+                            if def.spawn_overrides {
+                                placed.push((
+                                    *source,
+                                    *structure,
+                                    spawn_structure(def, start, (cx, cz)),
+                                ));
+                            }
+                            Ok(())
                         })?;
                     }
                 }
@@ -1464,6 +1477,29 @@ impl Worldgen {
                 .decorate_with(&mut region, None, Some(&mut place))
                 .map_err(|e| format!("decorating {cx}, {cz}: {e}"))?;
             lenient_reads += region.lenient_reads;
+            drop(region);
+            // The chunk keeps the starts natural spawning reads (VMC-042b):
+            // those it placed as they are now, the others as they were.
+            let mut kept = Vec::new();
+            for &(index, source) in &references {
+                let def = &registry.structures[index];
+                if !def.spawn_overrides {
+                    continue;
+                }
+                if let Some((_, _, now)) = placed.iter().find(|p| p.0 == source && p.1 == index) {
+                    kept.push(now.clone());
+                } else if let Some(start) = starts
+                    .view(source)
+                    .into_iter()
+                    .flatten()
+                    .find(|s| s.structure == index)
+                {
+                    kept.push(spawn_structure(def, start, (cx, cz)));
+                }
+            }
+            if let Some(chunk) = area.chunk_mut(cx, cz) {
+                chunk.structures = kept;
+            }
         }
         Ok(lenient_reads)
     }
@@ -2378,6 +2414,25 @@ impl Compiling<'_> {
 
 /// Where a decoration finds structure starts: their views for references
 /// (which read nothing placement changes) and each one to place, mutably.
+/// A start chunk `chunk` keeps for natural spawning (VMC-042b): its box and
+/// its pieces that reach the chunk's columns.
+fn spawn_structure(def: &StructureDef, start: &Start, chunk: (i32, i32)) -> SpawnStructure {
+    let corners = |b: &crate::worldgen::structure::piece::BoundingBox| {
+        [b.min_x, b.min_y, b.min_z, b.max_x, b.max_y, b.max_z]
+    };
+    let (x0, z0) = (chunk.0 * 16, chunk.1 * 16);
+    SpawnStructure {
+        structure: Arc::from(def.id.as_str()),
+        bbox: corners(&start.bbox),
+        pieces: start
+            .pieces
+            .iter()
+            .filter(|p| p.bbox.intersects_xz(x0, z0, x0 + 15, z0 + 15))
+            .map(|p| corners(&p.bbox))
+            .collect(),
+    }
+}
+
 pub trait StartStore {
     fn view(&self, chunk: (i32, i32)) -> Option<&[Start]>;
     fn place(

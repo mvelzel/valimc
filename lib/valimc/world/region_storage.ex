@@ -11,6 +11,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:column, chunk}` | the chunk's column image (generation, `/fillbiome`, checkpoints) |
   | `{:cell, position}` | a block state changed since the column image |
   | `{:post, chunk}` | a generated chunk's post-processing marks and fluid ticks, until it first ticks |
+  | `{:structures, chunk}` | the starts a generated chunk references whose structures override spawns (VMC-042b) |
   | `{:entity, uuid}` | an entity's record (an item, an orb) |
   | `{:handoff, field}`, `{:handoff_in, source}` | the entity handoff ledger: sequence, outgoing intent, incoming receipts |
   | `{:container, position}`, `{:containers, :sequence}` | containers |
@@ -60,7 +61,7 @@ defmodule Valimc.World.RegionStorage do
   @autosave_ms 300_000
   # Item motion is written at most this often, like the item checkpoints before.
   @motion_ms 1000
-  @parts [:items, :containers, :ticks, :block_entities, :post]
+  @parts [:items, :containers, :ticks, :block_entities, :post, :structures]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
 
@@ -648,6 +649,7 @@ defmodule Valimc.World.RegionStorage do
     do: [{entries, fn pos, %{type: type, nbt: nbt} -> {{:block_entity, pos}, {type, nbt}} end}]
 
   defp fields(:post, post), do: [{post, &{{:post, &1}, &2}}]
+  defp fields(:structures, structures), do: [{structures, &{{:structures, &1}, &2}}]
 
   # `changes` with the records of `part` that changed between its last
   # committed value and `value`: `key => {old, new}`, `new` `:deleted` for a
@@ -831,6 +833,7 @@ defmodule Valimc.World.RegionStorage do
       columns: %{},
       cells: %{},
       post_processing: %{},
+      structures: %{},
       items: [],
       ledger: Store.empty_ledger(),
       containers: %Containers{},
@@ -849,6 +852,9 @@ defmodule Valimc.World.RegionStorage do
 
       {{:post, chunk}, value}, acc ->
         put_in(acc, [:post_processing, chunk], value)
+
+      {{:structures, chunk}, value}, acc ->
+        put_in(acc, [:structures, chunk], value)
 
       {{:block_entity, pos}, value}, acc ->
         put_in(acc, [:block_entities, pos], value)

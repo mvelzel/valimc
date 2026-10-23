@@ -35,6 +35,17 @@ defmodule Valimc.Worldgen.Facts do
   @doc "Structure ids."
   def structures, do: unquote(Macro.escape(@structures |> Map.keys() |> MapSet.new()))
 
+  @spawn_overrides for {name, %{"spawn_overrides" => o}} <- @structures,
+                       map_size(o) > 0,
+                       into: %{},
+                       do: {name, o}
+
+  @doc """
+  The structures' spawn overrides (VMC-042b): structure => category =>
+  `%{"bounding_box" => "piece" | "full", "spawns" => [spawner]}`.
+  """
+  def spawn_overrides, do: unquote(Macro.escape(@spawn_overrides))
+
   @doc "Structure set ids."
   def structure_sets, do: unquote(Macro.escape(@structure_sets |> Map.keys() |> MapSet.new()))
 

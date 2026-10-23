@@ -395,6 +395,9 @@ struct FullChunk<'a> {
     fluid_ticks: Vec<((i32, i32, i32), String)>,
     marks: Vec<(i32, i32, i32)>,
     entities: Vec<FullEntity>,
+    /// The starts natural spawning reads (VMC-042b): `{structure, box,
+    /// pieces}`, boxes as six ints.
+    structures: Vec<crate::spawn::Kept>,
 }
 
 /// A final chunk made full (VMC-077n), from its proto cell.
@@ -465,6 +468,17 @@ fn full_chunk<'a>(
                 .collect(),
             marks: chunk.marks.iter().map(t).collect(),
             entities: chunk.entities.iter().map(FullEntity::from).collect(),
+            structures: chunk
+                .structures
+                .iter()
+                .map(|s| {
+                    (
+                        s.structure.to_string(),
+                        s.bbox.to_vec(),
+                        s.pieces.iter().map(|p| p.to_vec()).collect(),
+                    )
+                })
+                .collect(),
         })
     }
 }

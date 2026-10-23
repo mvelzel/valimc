@@ -47,6 +47,9 @@ pub struct ProtoChunk {
     pub block_entity_data: BTreeMap<[i32; 3], BlockEntityData>,
     /// Entities features added (`addFreshEntity`), in order.
     pub entities: Vec<Entity>,
+    /// The starts the chunk references whose structures override natural
+    /// spawns (VMC-042b), as natural spawning reads them.
+    pub structures: Vec<SpawnStructure>,
     /// Whether a decoration wrote anything into the chunk since it was made
     /// or decoded (live generation re-encodes only those, VMC-025d).
     pub touched: bool,
@@ -69,6 +72,17 @@ pub struct Entity {
     /// Whether it rides the entity added just before it (a chicken jockey,
     /// a drowned on a zombie nautilus).
     pub rides: bool,
+}
+
+/// A start a chunk references, of a structure that overrides natural spawns
+/// (VMC-042b): the structure's identifier, the start's bounding box
+/// (`StructureStart.getBoundingBox`) and the boxes of its pieces that reach
+/// the chunk's columns, each `[min x, min y, min z, max x, max y, max z]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpawnStructure {
+    pub structure: Arc<str>,
+    pub bbox: [i32; 6],
+    pub pieces: Vec<[i32; 6]>,
 }
 
 /// A created block entity (VMC-025c): its type and what decoration writes
@@ -130,6 +144,11 @@ impl ProtoChunk {
             + (self.block_ticks.len() + self.fluid_ticks.len()) * 48
             + self.block_entity_data.len() * 160
             + self.entities.capacity() * size_of::<Entity>()
+            + self
+                .structures
+                .iter()
+                .map(|s| 64 + s.pieces.len() * 24)
+                .sum::<usize>()
     }
 
     /// A chunk from its terrain (`blocks` as tall as the dimension, `min_y`
@@ -168,6 +187,7 @@ impl ProtoChunk {
             block_entities: BTreeSet::new(),
             block_entity_data: BTreeMap::new(),
             entities: Vec::new(),
+            structures: Vec::new(),
             touched: false,
         };
         // Every heightmap in one scan down each column.

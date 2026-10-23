@@ -260,6 +260,8 @@ pub struct Tick<'w, 'a> {
     /// Whether the per-player local caps apply (an oracle's scene admits
     /// every category).
     pub caps: bool,
+    /// The starts the chunks reference whose structures override spawns.
+    pub structures: &'w super::structures::Areas,
 }
 
 impl Tick<'_, '_> {
@@ -313,7 +315,11 @@ impl Tick<'_, '_> {
         at == chunk || (self.ticking)(at)
     }
 
+    /// `mobsAt`: a structure's override there, else the biome's spawners.
     fn list(&self, category: Category, pos: [i32; 3]) -> (&[Spawner], i32) {
+        if let Some(list) = super::structures::mobs_at(self.world, self.structures, category, pos) {
+            return list;
+        }
         let biome = self.world.facts.biome(self.world.level.biome(pos));
         (
             &biome.spawns[category.index()],
@@ -428,7 +434,10 @@ impl Tick<'_, '_> {
         if !kind.spawn_far && d > (despawn * despawn) as f64 {
             return false;
         }
-        if !kind.summonable || !self.list(category, pos).0.contains(spawner) {
+        // `canSpawnMobAt`: the list there holds an equal `SpawnerData` (type
+        // and counts; weights are the list's), a structure's or the biome's.
+        let same = |s: &Spawner| s.kind == spawner.kind && counts(s.count) == counts(spawner.count);
+        if !kind.summonable || !self.list(category, pos).0.iter().any(same) {
             return false;
         }
         if !world.position_ok(kind, pos) {
@@ -466,6 +475,14 @@ impl Tick<'_, '_> {
 /// `removeWhenFarAway` of a mob that has just spawned.
 fn fresh_removal(kind: &TypeFacts) -> bool {
     kind.removal == super::facts::Removal::Always
+}
+
+/// A count provider's bounds (`SpawnerData`'s `minCount` and `maxCount`).
+fn counts(count: Count) -> (i32, i32) {
+    match count {
+        Count::Constant(v) => (v, v),
+        Count::Uniform(min, max) => (min, max),
+    }
 }
 
 /// `Mth.ceil(float)`.

@@ -21,6 +21,11 @@ defmodule Valimc.World.Spawning do
   The sky darkening (`darken/4`) follows vanilla's environment attributes:
   the dimension's sky light level, the day timeline and the weather.
 
+  Inside structures (VMC-042b) the spawns follow their overrides: the
+  starts a chunk references whose structures override spawns stay with the
+  chunk from its generation (`RegionData` `structures`), and a fortress's
+  nether bricks spawn its enemies.
+
   Spawner blocks (VMC-042b) tick in the same kernel call, after the
   natural spawns and despawns: each spawner block entity in a simulated
   chunk with a player in range counts down and spawns its type. Its
@@ -43,11 +48,31 @@ defmodule Valimc.World.Spawning do
       biomes = Data.registries()["minecraft:worldgen/biome"]
       ids = Map.new(biomes, &{&1, Data.registry_id("minecraft:worldgen/biome", &1)})
       tags = Data.tags()["minecraft:worldgen/biome"]
-      {:ok, _} = Native.spawn_facts_install(SpawnFacts.native(ids, tags))
+      facts = Map.put(SpawnFacts.native(ids, tags), "structures", overrides())
+      {:ok, _} = Native.spawn_facts_install(facts)
       :persistent_term.put({__MODULE__, :installed}, true)
     end
 
     :ok
+  end
+
+  # The structures' spawn overrides as the kernel reads them (VMC-042b):
+  # per category whether a piece must hold the spawn, and its spawners as
+  # the biomes' are listed.
+  defp overrides do
+    for {name, categories} <- Valimc.Worldgen.Facts.spawn_overrides(), into: %{} do
+      {name,
+       Map.new(categories, fn {category, %{"bounding_box" => box, "spawns" => spawns}} ->
+         {category, %{"piece" => box == "piece", "spawns" => Enum.map(spawns, &spawner/1)}}
+       end)}
+    end
+  end
+
+  defp spawner(%{"type" => type, "weight" => weight, "count" => count}) do
+    case count do
+      n when is_integer(n) -> [type, weight, "constant", n, n]
+      %{"min_inclusive" => min, "max_inclusive" => max} -> [type, weight, "uniform", min, max]
+    end
   end
 
   @doc """
@@ -237,7 +262,8 @@ defmodule Valimc.World.Spawning do
       persistent: rem(group.game_time, 400) == 0,
       random: group.spawning.random,
       finalize: group.spawning.mobs,
-      spawners: spawners
+      spawners: spawners,
+      structures: kept_starts(group)
     }
 
     [region | siblings] = group.stores
@@ -281,6 +307,14 @@ defmodule Valimc.World.Spawning do
       end)
 
     {%{group.spawning | random: random, mobs: finalize, spawners: cached}, by_section}
+  end
+
+  # The simulated chunks' kept starts of structures that override spawns.
+  defp kept_starts(group) do
+    for {_key, resource} <- group.sections,
+        {chunk, kept} <- resource.structures,
+        MapSet.member?(resource.tickets.simulated, chunk),
+        do: {chunk, kept}
   end
 
   defp add_spawn({kind, x, y, z, yaw, _school}, acc) do

@@ -350,7 +350,8 @@ public class StructurePlacementOracle {
    * Cases: the regions at the origin, then per structure of `LIVE_TARGETS` the region holding the
    * first piece of its first start (`findStarts`) and the region of the start's far corner (or
    * near corner, or the next one east), so that the structure crosses the border between them.
-   * Every chunk also lists its block entities as they save (`block_entity_nbt`), for `verifyLive`.
+   * Every chunk also lists its block entities as they save (`block_entity_nbt`), for `verifyLive`,
+   * and the starts it references whose structures override spawns (`structures`, VMC-042b).
    */
   static void live(Path out, String source, RegistryAccess registries, net.minecraft.world.level.chunk.PalettedContainerFactory factory,
       NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, LevelHeightAccessor heights, HolderGetter<Biome> biomeLookup,
@@ -450,6 +451,7 @@ public class StructurePlacementOracle {
         for (var pos : DecorationOracle.around(r, 0)) {
           var chunk = chunks.get(pos);
           var row = DecorationOracle.chunkJson(pos, chunk);
+          row.add("structures", spawnStructures(pos, withReferences.apply(pos), withStarts, world));
           var nbt = new TreeMap<String, String>();
           for (var be : chunk.getBlockEntities().values()) nbt.put(DecorationOracle.key(be.getBlockPos()), DecorationOracle.encode(be));
           for (var bp : chunk.getBlockEntityNbts().keySet()) {
@@ -491,6 +493,34 @@ public class StructurePlacementOracle {
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: " + DecorationOracle.DIMENSION + ": " + cases.size() + " live generation sequences with structures ("
         + blocks + " blocks of final chunks, " + entities + " block entities)");
+  }
+
+  /**
+   * The starts chunk `pos` references whose structures override natural spawns (VMC-042b), as
+   * placement left them: "id,box corners,pieces" (the corners of the pieces that reach the chunk's
+   * columns, sorted and joined by ";"), sorted.
+   */
+  static JsonArray spawnStructures(ChunkPos pos, ProtoChunk referencing,
+      java.util.function.Function<ChunkPos, ProtoChunk> withStarts, StructureOracle.World world) {
+    var kept = new TreeSet<String>();
+    var corners = (java.util.function.Function<net.minecraft.world.level.levelgen.structure.BoundingBox, String>) b ->
+        b.minX() + "," + b.minY() + "," + b.minZ() + "," + b.maxX() + "," + b.maxY() + "," + b.maxZ();
+    referencing.getAllReferences().forEach((structure, starts) -> {
+      if (structure.spawnOverrides().isEmpty()) return;
+      for (long key : starts) {
+        var start = withStarts.apply(ChunkPos.unpack(key)).getStartForStructure(structure);
+        if (start == null || !start.isValid()) continue;
+        var pieces = new TreeSet<String>();
+        for (var piece : start.getPieces()) {
+          var b = piece.getBoundingBox();
+          if (b.intersects(pos.getMinBlockX(), pos.getMinBlockZ(), pos.getMaxBlockX(), pos.getMaxBlockZ())) pieces.add(corners.apply(b));
+        }
+        kept.add(world.ids().get(structure) + "," + corners.apply(start.getBoundingBox()) + "," + String.join(";", pieces));
+      }
+    });
+    var out = new JsonArray();
+    kept.forEach(out::add);
+    return out;
   }
 
   /**

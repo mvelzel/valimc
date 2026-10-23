@@ -265,8 +265,11 @@ struct DecoratedChunk<'a> {
     /// Created block entities: "x,y,z,type,loot table,seed,spawned entity,
     /// bees,gateway exit" (the exit as "x;y;z;exact").
     block_entity_data: Vec<String>,
-    /// Entities features added: "type,x,y,z,yaw".
+    /// Entities features added: "type,x,y,z,yaw,persistent,vehicle,data".
     entities: Vec<String>,
+    /// Kept starts of structures that override spawns (VMC-042b): "id,box
+    /// corners,pieces" with the pieces' corners joined by ";", sorted.
+    structures: Vec<String>,
     /// Created block entities for NBT parity (VMC-025f): position, state,
     /// type, the NBT a template gave (or ""), loot table (or "") and seed.
     block_entity_nbt: Vec<BlockEntityNbt>,
@@ -434,6 +437,20 @@ fn decorated_chunk<'a>(
                 )
             })
             .collect(),
+        structures: {
+            let join = |b: &[i32; 6]| b.map(|c| c.to_string()).join(",");
+            let mut kept: Vec<String> = chunk
+                .structures
+                .iter()
+                .map(|s| {
+                    let mut pieces: Vec<String> = s.pieces.iter().map(join).collect();
+                    pieces.sort();
+                    format!("{},{},{}", s.structure, join(&s.bbox), pieces.join(";"))
+                })
+                .collect();
+            kept.sort();
+            kept
+        },
         block_entity_nbt: chunk
             .block_entity_data
             .iter()

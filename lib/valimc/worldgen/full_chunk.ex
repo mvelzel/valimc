@@ -6,7 +6,9 @@ defmodule Valimc.Worldgen.FullChunk do
   pending one as its block's new block entity, which `LevelChunk` promotes it
   to), block ticks at delay 0 where the block still matches, and, until fluids
   exist (VMC-031), post-processing marks and fluid ticks. The entities
-  structures and features added become body records (VMC-042b).
+  structures and features added become body records, and the starts the
+  chunk references whose structures override spawns stay with it
+  (VMC-042b).
 
   Block entities go through the import path (`Valimc.Storage.Anvil.BlockEntity`), so a
   generated dungeon chest is preserved with its loot table like an imported
@@ -28,7 +30,8 @@ defmodule Valimc.Worldgen.FullChunk do
       post_processing: %{},
       block_entities: entities,
       ticks: [ticks],
-      entities: %{}
+      entities: %{},
+      structures: %{}
     }
 
     full
@@ -50,7 +53,12 @@ defmodule Valimc.Worldgen.FullChunk do
                 post_processing: pending,
                 block_entities: entities,
                 ticks: [for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0}) | acc.ticks],
-                entities: Map.put(acc.entities, key, entity_records([chunk]))
+                entities: Map.put(acc.entities, key, entity_records([chunk])),
+                structures:
+                  case Map.get(chunk, :structures, []) do
+                    [] -> acc.structures
+                    kept -> Map.put(acc.structures, key, kept)
+                  end
             }}}
 
         error ->

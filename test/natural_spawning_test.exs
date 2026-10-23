@@ -3,7 +3,8 @@ defmodule Valimc.NaturalSpawningTest do
   Natural spawning in a group (VMC-042a): the caps hold for one player, for
   two players in one group and for players in separate groups; mobs despawn
   at vanilla's distances and in peaceful; a name tag makes a mob persistent.
-  A spawner block spawns near a player (VMC-042b).
+  A spawner block spawns near a player, a swamp hut's piece its witches
+  (VMC-042b).
   The oracle stage `natural_spawning` holds the rules' fixtures.
   """
   use ExUnit.Case, async: true
@@ -280,6 +281,32 @@ defmodule Valimc.NaturalSpawningTest do
     far = [{x - 40, y, z, false, false}]
     {spawning, _} = tick(owner, far, env, spawning, 399)
     assert elem(spawning.spawners[spawner], 2) == delay
+  end
+
+  test "inside a swamp hut's piece the monsters are witches", %{owners: [{key, owner} | _]} do
+    {x, y, z} = centre(key, 64, 64)
+    # A hut's start kept by the chunks around one 40 blocks east of the player.
+    {cx, cz} = {div(trunc(x) + 40, 16), div(trunc(z), 16)}
+    piece = [cx * 16 - 16, 64, cz * 16 - 16, cx * 16 + 31, 70, cz * 16 + 31]
+    kept = [{"minecraft:swamp_hut", piece, [piece]}]
+
+    Valimc.TestRegion.replace_section(owner, fn resource ->
+      %{
+        resource
+        | structures: Map.new(for dx <- -1..1, dz <- -1..1, do: {{cx + dx, cz + dz}, kept})
+      }
+    end)
+
+    run(owner, [{x, y, z, false, false}], 400)
+    [x0, y0, z0, x1, y1, z1] = piece
+
+    inside =
+      for {type, {mx, my, mz}} <- mobs(owner),
+          EntityTypes.fetch(type).category == :monster,
+          mx >= x0 and mx < x1 + 1 and my >= y0 and my < y1 + 1 and mz >= z0 and mz < z1 + 1,
+          do: type
+
+    assert inside != [] and Enum.all?(inside, &(&1 == "minecraft:witch"))
   end
 
   test "a tick's environment reads the published clock, weather and settings" do

@@ -112,6 +112,9 @@ pub struct StructureDef {
     /// The decoration step it is placed in (`GenerationStep.Decoration`).
     pub step: usize,
     pub kind: StructureKind,
+    /// Whether it overrides natural spawns in some category (VMC-042b): its
+    /// starts are kept with the chunks referencing them.
+    pub spawn_overrides: bool,
 }
 
 /// `GenerationStep.Decoration`, in order.
@@ -414,12 +417,15 @@ fn parse_structure(
         .iter()
         .position(|s| *s == step)
         .ok_or_else(|| format!("unknown decoration step {step}"))?;
+    let spawn_overrides =
+        matches!(json.get("spawn_overrides"), Some(Json::Object(o)) if !o.is_empty());
     Ok(StructureDef {
         id: id.to_string(),
         biomes: BiomeSet::from_ids(biomes),
         terrain_adaptation,
         step,
         kind,
+        spawn_overrides,
     })
 }
 

@@ -315,6 +315,7 @@ defmodule Valimc.World.RegionGeneration do
         block_entities: entities,
         scheduled_ticks: ticks,
         post: Map.merge(state.post, Map.take(parts.post_processing, chunks)),
+        structures: Map.merge(state.structures, Map.take(parts.structures, chunks)),
         storage: storage
     }
 

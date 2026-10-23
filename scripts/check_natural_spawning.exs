@@ -70,6 +70,24 @@ show = fn {id, x, y, z, yaw, school} -> {name.(id), x, y, z, yaw, school} end
       end
   end
 
+# VMC-042b: the structure scenes spawn their overrides' mobs (the fixtures
+# exercise them): a hut's witches, a monument's guardians, an outpost's
+# pillagers, a fortress's blazes.
+for {scene, type} <- [
+      {"swamp_hut", "minecraft:witch"},
+      {"monument", "minecraft:guardian"},
+      {"pillager_outpost", "minecraft:pillager"},
+      {"fortress", "minecraft:blaze"}
+    ] do
+  spawned =
+    for %{"kind" => "tick", "name" => ^scene, "runs" => runs} <- cases,
+        [_, _, list] <- runs,
+        [^type | _] <- list,
+        do: 1
+
+  if spawned == [], do: raise("the #{scene} scene spawned no #{type}")
+end
+
 # VMC-042b: spawner blocks tick as vanilla's: the same spawns, the same
 # delay after every tick, the random left where vanilla's is.
 {spawner_ticks, spawner_spawns} =

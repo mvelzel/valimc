@@ -86,6 +86,10 @@ defmodule Valimc.World.RegionData do
     # Generated chunks' post-processing (VMC-031a): `chunk => {marks, fluid
     # ticks}`, settled when the chunk first ticks with its neighbours present.
     {:post, %{}},
+    # Generated chunks' kept starts of structures that override spawns
+    # (VMC-042b): `chunk => [{structure, box, pieces}]`, which natural
+    # spawning reads.
+    {:structures, %{}},
     # The group's other sections (VMC-077j), as the group hands them in
     # (`Region`): what the block rules read across and whether a plan holds
     # each; and what this section's call did to them (block-rule changes,
@@ -204,6 +208,7 @@ defmodule Valimc.World.RegionData do
       tick_index: tick_index,
       rule_backlog: [],
       post: loaded.post_processing,
+      structures: loaded.structures,
       random_tick_speed: Valimc.config(:random_tick_speed, key),
       storage: storage
     }
@@ -223,6 +228,7 @@ defmodule Valimc.World.RegionData do
       ticks: state.scheduled_ticks,
       block_entities: state.block_entities,
       post: state.post,
+      structures: state.structures,
       game_tick: state.game_tick
     }
 

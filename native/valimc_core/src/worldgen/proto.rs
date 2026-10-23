@@ -6,25 +6,26 @@
 //! so they cannot be recomputed from the blocks), post-processing marks,
 //! scheduled ticks, block entity positions and created block entities.
 //!
-//! Layout (big-endian), version 6: version, chunk x and z, the dimension's
+//! Layout (big-endian), version 7: version, chunk x and z, the dimension's
 //! bottom Y and height, the column image's length and the image (the
 //! dimension's sections of states, then of biome registry ids), 6 × 256
 //! heightmap heights above the bottom, then counted lists of marks, block
 //! ticks, fluid ticks, block entity positions, created block entities (with
 //! an end gateway's exit and a template's NBT as a four-byte-length string)
 //! and the entities features added (with a flags byte, persistent and
-//! riding, and their NBT as such a string). A position inside the chunk is one byte
+//! riding, and their NBT as such a string), then the starts natural spawning
+//! reads (structure, box, pieces). A position inside the chunk is one byte
 //! `z << 4 | x` and a two-byte Y. Other versions are refused.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap};
-use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT};
+use super::region::{BlockEntityData, Entity, ProtoChunk, SpawnStructure, HEIGHT};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 6;
+const VERSION: u8 = 7;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
@@ -111,6 +112,19 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
         out.push(entity.persistent as u8 | (entity.rides as u8) << 1);
         long_string(&mut out, entity.nbt.as_deref());
     }
+    out.extend((chunk.structures.len() as u32).to_be_bytes());
+    for start in &chunk.structures {
+        string(&mut out, Some(&start.structure));
+        for c in start.bbox {
+            out.extend(c.to_be_bytes());
+        }
+        out.extend((start.pieces.len() as u32).to_be_bytes());
+        for piece in &start.pieces {
+            for c in piece {
+                out.extend(c.to_be_bytes());
+            }
+        }
+    }
     out
 }
 
@@ -177,6 +191,15 @@ impl<'a> Reader<'a> {
     }
 
     /// A count whose entries take at least `entry` bytes each.
+    /// A box's six corners.
+    fn corners(&mut self) -> Result<[i32; 6], String> {
+        let mut b = [0; 6];
+        for c in &mut b {
+            *c = self.i32()?;
+        }
+        Ok(b)
+    }
+
     fn count(&mut self, entry: usize) -> Result<usize, String> {
         let n = self.u32()? as usize;
         if n.saturating_mul(entry) > self.input.len() {
@@ -345,6 +368,19 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
             rides: flags & 2 != 0,
         });
     }
+    let mut structures = Vec::new();
+    for _ in 0..r.count(30)? {
+        let structure = r.string()?.ok_or("a kept start without a structure")?;
+        let bbox = r.corners()?;
+        let pieces = (0..r.count(24)?)
+            .map(|_| r.corners())
+            .collect::<Result<_, String>>()?;
+        structures.push(SpawnStructure {
+            structure: Arc::from(structure),
+            bbox,
+            pieces,
+        });
+    }
     if !r.input.is_empty() {
         return Err("a proto chunk has trailing bytes".into());
     }
@@ -363,6 +399,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         block_entities,
         block_entity_data,
         entities,
+        structures,
         touched: false,
     })
 }

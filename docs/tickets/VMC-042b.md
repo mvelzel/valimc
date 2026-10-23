@@ -1,6 +1,6 @@
 # VMC-042b — Structure mobs and spawners
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-042a](VMC-042a.md).
 
@@ -36,9 +36,9 @@ Acceptance:
 
 ## Slices
 
-- **042b1 — entities in the chunk's records.** Done (October 23, 2026).
-- **042b2 — spawner blocks.** Done (October 23, 2026).
-- **042b3 — structure spawn overrides.** Planned.
+- **042b1 — entities in the chunk's records.** Implemented (October 23, 2026).
+- **042b2 — spawner blocks.** Implemented (October 23, 2026).
+- **042b3 — structure spawn overrides.** Implemented (October 23, 2026).
 
 ## 042b1 — entities in the chunk's records
 
@@ -98,3 +98,68 @@ Not here: spawn potentials (a spawner always spawns the type its spawn
 data names), a spawn data's own position or entity data, the poof entity
 event and the block event the client's spin reads; the countdown restarts
 from the saved `Delay` after a restart or a group change.
+
+## 042b3 — structure spawn overrides
+
+- **Kept starts.** Decorating a chunk records the starts it references
+  whose structures override spawns (`spawn_overrides` in the structure
+  facts): the structure, the start's box (`getBoundingBox`, grown with its
+  terrain adaptation) and the boxes of its pieces that reach the chunk, as
+  placement left them. Proto chunks carry them (format 7), the full chunk
+  hands them to its section (`RegionData` `structures`, persisted as
+  `{:structures, chunk}` records) and natural spawning sends those of the
+  simulated chunks with each tick.
+- **Kernel.** `spawning::structures` is `NaturalSpawner.mobsAt`: a monster
+  on nether bricks inside a fortress's box is one of the fortress's
+  enemies; inside a start whose structure overrides the category (in any
+  of its pieces, or anywhere in its box) the override's spawners replace
+  the biome's, for both the pick and the position check (`canSpawnMobAt`
+  matches a spawner by type and counts, not weight, as `SpawnerData`
+  equality does: a fortress's zombified piglins fit the Nether wastes'
+  list). The overrides come
+  from `priv/worldgen/structures.json` (`Worldgen.Facts.spawn_overrides/0`)
+  into the spawn facts.
+- **Checks.** `StructurePlacementOracle live` lists each final chunk's
+  kept starts from vanilla's references and starts; `check_live_decoration`
+  compares them and the region's parts. `NaturalSpawnOracle` scenes hold
+  structure starts (a probe `StructureManager` whose starts every chunk
+  their box reaches references): a swamp hut (by night, and its creatures),
+  a monument, an outpost, a fortress's nether bricks and pieces, an
+  ancient city and a trial chamber's pieces.
+
+Not here: imported worlds' starts and references (Anvil's
+`structures` compound) are not read, so their chunks spawn as their biomes.
+
+## Checks (October 23, 2026)
+
+Every `worldgen_structure_placement*`, `worldgen_live*` (with structures,
+2,816 overworld final chunks), `worldgen_decoration*`, `worldgen_datapack`
+and `place` stage passes with the entities' new records; they caught the
+elder guardian's and the zombie nautilus's persistence, and a hut's height
+kept from before its placement. `natural_spawning`: 56,800 spawn ticks
+(12,674 mobs, the six structure scenes among them) and 73,200 spawner ticks
+(343 mobs, every delay) equal vanilla's; it caught `canSpawnMobAt`'s
+weight-blind match. `test/natural_spawning_test.exs` (a spawner's blazes, a
+hut's witches), `test/full_chunk_test.exs` (records of any type),
+`test/entity_bodies_test.exs`; `cargo test -p valimc_core`; `mix test.fast`
+471/471.
+
+Reference: 26.3 `BaseSpawner`, `SpawnerBlockEntity`, `NaturalSpawner`
+(`mobsAt`, `isInNetherFortressBounds`, `canSpawnMobAt`),
+`ChunkGenerator.getMobsAt`, `StructureManager`, `StructureSpawnOverride`,
+`Zombie`/`Drowned.finalizeSpawn`, `Chicken`, `AgeableMob`, `SwampHutPiece`,
+`OceanRuinPieces`, `OceanMonumentPieces`, `WoodlandMansionPieces`,
+`EndCityPieces`, `MineshaftPieces`, `StructureTemplate.placeEntities`, the
+spawn predicates of `Monster` and `Silverfish`; decompiled privately with
+Vineflower 1.12.0 (`research/decompiled/vmc-042b`).
+
+## Client scenario (phase-end handoff)
+
+In a fresh vanilla world: `/locate structure village_plains`, fly there —
+villagers (standing still) and the village's animals are there when the
+chunks first load, and stay after a reconnect. `/locate structure
+swamp_hut` at night: the witch and the black cat stand in the hut, and new
+monsters spawning on its floor are witches. In the Nether, `/locate
+structure fortress` and find a blaze spawner: within 16 blocks of it, in
+survival, blazes appear around it (with the spawner's flames) every 10–40
+seconds, at most six nearby; walking 20 blocks away stops them.

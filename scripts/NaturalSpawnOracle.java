@@ -77,8 +77,9 @@ import net.minecraft.world.phys.*;
  * decoration-seeded random, `Mob.checkDespawn` at distances, and the sky
  * darkening from the day timeline and the weather. The level random of a
  * scene is seeded; `finalizeSpawn` draws from a random of its own (vanilla
- * shares the level's), so the spawner's draws compare alone. Structure spawn
- * overrides are not exercised (no structure starts at runtime yet).
+ * shares the level's), so the spawner's draws compare alone. Scenes may hold
+ * structure starts (VMC-042b), each referenced by the chunks its box reaches,
+ * for the structures' spawn overrides.
  *
  * The fixtures also tick spawner blocks (VMC-042b, `BaseSpawner.serverTick`) in dungeon,
  * fortress, mineshaft and stronghold scenes.
@@ -285,6 +286,36 @@ public class NaturalSpawnOracle {
     boolean thundering = false;
     long seed = 1234567L;
     int[] spawn = {0, -200, 0};
+    /** Structure starts (VMC-042b): the structure and its pieces' boxes, the start in the chunk of its first piece. */
+    final List<Object[]> starts = new ArrayList<>();
+    List<StructureStart> built;
+    Scene start(String structure, int[]... pieces) { starts.add(new Object[]{structure, pieces}); built = null; return this; }
+    /** The scene's starts, each referenced by every chunk its box reaches. */
+    List<StructureStart> structureStarts() {
+      if (built != null) return built;
+      built = new ArrayList<>();
+      for (var s : starts) {
+        var structure = registries.lookupOrThrow(Registries.STRUCTURE).getValue(Identifier.parse((String) s[0]));
+        var pieces = new ArrayList<net.minecraft.world.level.levelgen.structure.StructurePiece>();
+        for (int[] b : (int[][]) s[1]) {
+          var box = new net.minecraft.world.level.levelgen.structure.BoundingBox(b[0], b[1], b[2], b[3], b[4], b[5]);
+          pieces.add(new net.minecraft.world.level.levelgen.structure.StructurePiece(
+              net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType.SWAMPLAND_HUT, 0, box) {
+            protected void addAdditionalSaveData(net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext c,
+                net.minecraft.nbt.CompoundTag t) {}
+            public void postProcess(WorldGenLevel l, StructureManager m, net.minecraft.world.level.chunk.ChunkGenerator g, RandomSource r,
+                net.minecraft.world.level.levelgen.structure.BoundingBox b, ChunkPos c, BlockPos p) {}
+          });
+        }
+        var first = pieces.get(0).getBoundingBox();
+        built.add(new StructureStart(structure, new ChunkPos(first.minX() >> 4, first.minZ() >> 4), 0,
+            new net.minecraft.world.level.levelgen.structure.pieces.PiecesContainer(pieces)));
+      }
+      return built;
+    }
+    static boolean reaches(StructureStart start, int cx, int cz) {
+      return start.getBoundingBox().intersects(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15);
+    }
     Scene(String name, String dimension, String biome) {
       this.name = name; this.dimension = dimension; this.biome = biome;
       if (dimension.equals("minecraft:the_nether")) { seaLevel = 32; sky = 0; }
@@ -358,6 +389,18 @@ public class NaturalSpawnOracle {
       o.addProperty("sea_level", seaLevel); o.addProperty("thundering", thundering); o.addProperty("seed", seed);
       o.addProperty("slime_chance", slimeChance);
       o.add("spawn", JSON.toJsonTree(spawn));
+      // The starts as the kernel keeps them: the start's box and its pieces.
+      var structures = new JsonArray();
+      for (var start : structureStarts()) {
+        var row = new JsonObject();
+        row.addProperty("id", registries.lookupOrThrow(Registries.STRUCTURE).getKey(start.getStructure()).toString());
+        row.add("box", corners(start.getBoundingBox()));
+        var pieces = new JsonArray();
+        for (var piece : start.getPieces()) pieces.add(corners(piece.getBoundingBox()));
+        row.add("pieces", pieces);
+        structures.add(row);
+      }
+      o.add("structures", structures);
       return o;
     }
   }
@@ -389,10 +432,32 @@ public class NaturalSpawnOracle {
     public net.minecraft.world.level.chunk.LevelChunkSection getSection(int index) { return probe.scene.section(at.x(), index - 4, at.z()); }
   }
 
+  static JsonArray corners(net.minecraft.world.level.levelgen.structure.BoundingBox b) {
+    var a = new JsonArray();
+    for (int v : new int[]{b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()}) a.add(v);
+    return a;
+  }
+
+  /** The scene's structure starts (VMC-042b), each referenced by the chunks its box reaches. */
   static class Structures extends StructureManager {
+    Scene scene;
     private Structures() { super(null, null, null); }
-    public Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> getAllStructuresAt(BlockPos p) { return Map.of(); }
-    public StructureStart getStructureAt(BlockPos p, Structure s) { return StructureStart.INVALID_START; }
+    public Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> getAllStructuresAt(BlockPos p) {
+      var out = new LinkedHashMap<Structure, it.unimi.dsi.fastutil.longs.LongSet>();
+      for (var start : scene.structureStarts())
+        if (Scene.reaches(start, p.getX() >> 4, p.getZ() >> 4))
+          out.computeIfAbsent(start.getStructure(), k -> new it.unimi.dsi.fastutil.longs.LongOpenHashSet()).add(start.getChunkPos().pack());
+      return out;
+    }
+    public void fillStartsForStructure(Structure s, it.unimi.dsi.fastutil.longs.LongSet refs, java.util.function.Consumer<StructureStart> c) {
+      for (var start : scene.structureStarts())
+        if (start.getStructure() == s && refs.contains(start.getChunkPos().pack())) c.accept(start);
+    }
+    public StructureStart getStructureAt(BlockPos p, Structure s) {
+      for (var start : scene.structureStarts())
+        if (start.getStructure() == s && Scene.reaches(start, p.getX() >> 4, p.getZ() >> 4) && start.getBoundingBox().isInside(p)) return start;
+      return StructureStart.INVALID_START;
+    }
     public RegistryAccess registryAccess() { return registries; }
   }
 
@@ -523,6 +588,7 @@ public class NaturalSpawnOracle {
     level.dimensionKey = levelKey(scene.dimension);
     level.finalizeRandom = new LegacyRandomSource(42L);
     level.structures = (Structures) unsafe.allocateInstance(Structures.class);
+    level.structures.scene = scene;
     level.cache = (Cache) unsafe.allocateInstance(Cache.class);
     level.cache.generator = (net.minecraft.world.level.chunk.ChunkGenerator) unsafe.allocateInstance(net.minecraft.world.level.levelgen.FlatLevelSource.class);
     var biome = level.biome;
@@ -883,6 +949,35 @@ public class NaturalSpawnOracle {
     var crimson = new Scene("generated_crimson_forest", "minecraft:the_nether", "minecraft:crimson_forest").ground(31, Blocks.CRIMSON_NYLIUM, Blocks.NETHERRACK)
         .fill(-64, 100, -64, 79, 127, 79, Blocks.NETHERRACK).fill(-64, 32, -64, 79, 33, 79, Blocks.LAVA);
     for (int c = 0; c < 160; c++) cases.add(generation(crimson, c % 20 - 10, c / 20 - 4));
+
+    // Structure spawn overrides (VMC-042b): a swamp hut's witches and cats in
+    // its piece, a monument's guardians, an outpost's pillagers, a fortress's
+    // enemies on its nether bricks and in its pieces, nothing in an ancient
+    // city or in a trial chamber's pieces.
+    var hut = new Scene("swamp_hut", "minecraft:overworld", "minecraft:swamp").ground(63, Blocks.GRASS_BLOCK, Blocks.DIRT)
+        .fill(1, 64, 1, 9, 64, 11, Blocks.SPRUCE_PLANKS).start("minecraft:swamp_hut", new int[]{1, 64, 1, 9, 70, 11}).player(-30.5, 64, 8.5);
+    hut.darken = 11;
+    cases.add(ticks(hut, 0, 0, false, 1600));
+    cases.add(ticks(hut, 0, 0, true, 800));
+    var monument = new Scene("monument", "minecraft:overworld", "minecraft:deep_ocean").ground(30, Blocks.GRAVEL, Blocks.STONE);
+    monument.fill(-64, 31, -64, 79, 62, 79, Blocks.WATER).fill(0, 31, 0, 30, 33, 30, Blocks.PRISMARINE_BRICKS)
+        .start("minecraft:monument", new int[]{0, 31, 0, 57, 61, 57}).player(-30.5, 63, 8.5);
+    monument.darken = 11;
+    cases.add(ticks(monument, 0, 0, false, 1600));
+    var outpost = plains("pillager_outpost", 11).start("minecraft:pillager_outpost", new int[]{2, 64, 2, 13, 86, 13}, new int[]{20, 64, 4, 26, 70, 10});
+    cases.add(ticks(outpost, 0, 0, false, 1600));
+    var bricks = new Scene("fortress", "minecraft:the_nether", "minecraft:nether_wastes").ground(31, Blocks.NETHERRACK, Blocks.NETHERRACK)
+        .fill(-64, 100, -64, 79, 127, 79, Blocks.NETHERRACK).fill(0, 31, 0, 15, 31, 7, Blocks.NETHER_BRICKS)
+        .start("minecraft:fortress", new int[]{0, 32, 0, 7, 40, 15}, new int[]{-20, 32, 20, 40, 34, 30}).player(-30.5, 32, 8.5);
+    cases.add(ticks(bricks, 0, 0, false, 4800));
+    var city = new Scene("ancient_city", "minecraft:overworld", "minecraft:plains").ground(63, Blocks.GRASS_BLOCK, Blocks.STONE);
+    city.fill(-64, -10, -64, 79, 55, 79, Blocks.DEEPSLATE).fill(-20, 10, -20, 36, 16, 36, Blocks.AIR).fill(-20, 9, -20, 36, 9, 36, Blocks.DEEPSLATE_TILES)
+        .start("minecraft:ancient_city", new int[]{0, 9, 0, 15, 20, 15}).player(-30.5, 11, 8.5);
+    cases.add(ticks(city, 0, 0, false, 1200));
+    var chambers = new Scene("trial_chambers", "minecraft:overworld", "minecraft:plains").ground(63, Blocks.GRASS_BLOCK, Blocks.STONE);
+    chambers.fill(-64, -10, -64, 79, 55, 79, Blocks.STONE).fill(-20, 10, -20, 36, 16, 36, Blocks.AIR).fill(-20, 9, -20, 36, 9, 36, Blocks.TUFF_BRICKS)
+        .start("minecraft:trial_chambers", new int[]{0, 9, 0, 7, 16, 15}, new int[]{8, 9, 0, 15, 12, 7}).player(-30.5, 11, 8.5);
+    cases.add(ticks(chambers, 0, 0, false, 1200));
 
     // Spawner blocks (VMC-042b): a dungeon's zombies, skeletons and spiders in
     // the dark, lit (no zombies), at peace (none) and with the player out of

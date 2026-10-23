@@ -17,6 +17,7 @@ use valimc_core::spawning::facts::Facts;
 use valimc_core::spawning::level::{Level, Live};
 use valimc_core::spawning::rules::{Player, World};
 use valimc_core::spawning::spawner::{self, Counted, Despawn, Drawn, SpawnState, Spawned, Tick};
+use valimc_core::spawning::structures::{Area, Areas};
 use valimc_core::worldgen::random::Random;
 
 pub(crate) static SPAWN: OnceLock<Facts> = OnceLock::new();
@@ -76,6 +77,41 @@ pub(crate) struct Request {
     /// The spawner blocks near the group's players, when spawner blocks
     /// work (VMC-042b).
     spawners: Vec<SpawnerBlock>,
+    /// The simulated chunks' kept starts of structures that override spawns
+    /// (VMC-042b): per chunk `{structure, box, pieces}`, boxes as six ints.
+    structures: Vec<((i32, i32), Vec<Kept>)>,
+}
+
+/// A kept start: its structure, box and pieces in the chunk.
+pub(crate) type Kept = (String, Vec<i32>, Vec<Vec<i32>>);
+
+/// The kept starts as the kernel reads them; structures without overrides
+/// in the facts are left out.
+fn areas(facts: &Facts, chunks: &[((i32, i32), Vec<Kept>)]) -> Result<Areas, String> {
+    let corners = |v: &[i32]| -> Result<[i32; 6], String> {
+        v.try_into().map_err(|_| "a box of six ints".to_string())
+    };
+    let mut out = Areas::new();
+    for (chunk, kept) in chunks {
+        let mut list = Vec::new();
+        for (name, bbox, pieces) in kept {
+            let Some(&structure) = facts.structure_names.get(name) else {
+                continue;
+            };
+            list.push(Area {
+                structure,
+                bbox: corners(bbox)?,
+                pieces: pieces
+                    .iter()
+                    .map(|p| corners(p))
+                    .collect::<Result<_, _>>()?,
+            });
+        }
+        if !list.is_empty() {
+            out.entry(*chunk).or_default().extend(list);
+        }
+    }
+    Ok(out)
 }
 
 /// A spawner block (`BaseSpawner`): its position and countdown, the type
@@ -236,6 +272,7 @@ fn natural(
     };
     let state = SpawnState::new(&world, spawner::spawnable_chunks(&world), &mobs);
     let categories = spawner::categories(&world, &state, request.enemies, request.persistent);
+    let structures = areas(facts, &request.structures)?;
     let mut tick = Tick {
         world: &world,
         state,
@@ -244,6 +281,7 @@ fn natural(
         ticking: &ticking,
         respawn: request.respawn.map(|(x, y, z)| [x, y, z]),
         caps: true,
+        structures: &structures,
     };
     // `collectSpawningChunks` then `Util.shuffle` with the level random.
     let mut chunks: Vec<(i32, i32)> = request
@@ -531,6 +569,31 @@ pub(crate) mod parity {
         })())
     }
 
+    /// A scene's structure starts (VMC-042b), each referenced by every chunk
+    /// its box reaches: `{id, box, pieces}`.
+    fn scene_structures(case: &Json, facts: &Facts) -> Result<Areas, String> {
+        let mut by_chunk: Vec<((i32, i32), Vec<Kept>)> = Vec::new();
+        let Some(list) = case.get("structures") else {
+            return Ok(Areas::new());
+        };
+        for start in list.as_array()? {
+            let id = start.field("id")?.as_str()?.to_string();
+            let bbox = ints(start.field("box")?)?;
+            let pieces = start
+                .field("pieces")?
+                .as_array()?
+                .iter()
+                .map(ints)
+                .collect::<Result<Vec<_>, _>>()?;
+            for cx in bbox[0] >> 4..=bbox[3] >> 4 {
+                for cz in bbox[2] >> 4..=bbox[5] >> 4 {
+                    by_chunk.push(((cx, cz), vec![(id.clone(), bbox.clone(), pieces.clone())]));
+                }
+            }
+        }
+        areas(facts, &by_chunk)
+    }
+
     fn player_boxes(players: &[Player]) -> Vec<Aabb> {
         players
             .iter()
@@ -619,6 +682,7 @@ pub(crate) mod parity {
             }
             bodies.extend(player_boxes(&players));
             let spawn = ints(case.field("spawn")?)?;
+            let structures = scene_structures(&case, facts)?;
             let overworld = env.dimension == "minecraft:overworld";
             let chunk = (
                 case.field("chunk_x")?.as_i32()?,
@@ -671,6 +735,7 @@ pub(crate) mod parity {
                             ticking: &ticking,
                             respawn: overworld.then_some([spawn[0], spawn[1], spawn[2]]),
                             caps: false,
+                            structures: &structures,
                         };
                         tick.chunk(chunk, &categories, &mut Recorded(schools));
                         runs.push((

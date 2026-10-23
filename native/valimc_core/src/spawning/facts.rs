@@ -276,8 +276,24 @@ pub struct Named {
     pub infested_host: u32,
 }
 
+/// A structure's spawn override in one category (`StructureSpawnOverride`,
+/// VMC-042b): inside any piece or anywhere in the start's box, its own
+/// weighted spawners instead of the biome's.
+#[derive(Clone, Debug, Default)]
+pub struct Override {
+    pub piece: bool,
+    pub spawns: Vec<Spawner>,
+    pub total: i32,
+}
+
 pub struct Facts {
     pub categories: [CategoryFacts; 8],
+    /// Per structure that overrides spawns (by index), per category its
+    /// override; `structure_names` indexes them, `fortress` is the Nether
+    /// fortress's (`isInNetherFortressBounds`).
+    pub structures: Vec<[Option<Override>; 8]>,
+    pub structure_names: HashMap<String, u16>,
+    pub fortress: Option<u16>,
     /// By entity registry id.
     pub types: Vec<Option<TypeFacts>>,
     /// By biome registry id.
@@ -486,24 +502,9 @@ impl Facts {
             };
             for (category, list) in object(b.field("spawns")?)? {
                 let c = Category::of(category)?.index();
-                for s in list.as_array()? {
-                    let s = s.as_array()?;
-                    let kind = *by_name
-                        .get(s[0].as_str()?)
-                        .ok_or_else(|| format!("biome {name} spawns unknown {:?}", s[0]))?;
-                    let (min, max) = (s[3].as_i32()?, s[4].as_i32()?);
-                    let count = match s[2].as_str()? {
-                        "constant" => Count::Constant(min),
-                        _ => Count::Uniform(min, max),
-                    };
-                    let weight = s[1].as_i32()?;
-                    facts.spawns[c].push(Spawner {
-                        kind,
-                        weight,
-                        count,
-                    });
-                    facts.totals[c] += weight;
-                }
+                let (spawns, total) = spawners(list, &by_name)?;
+                facts.spawns[c] = spawns;
+                facts.totals[c] = total;
             }
             for (kind, cost) in object(b.field("costs")?)? {
                 let kind = *by_name.get(kind).ok_or("spawn cost of an unknown type")?;
@@ -536,8 +537,30 @@ impl Facts {
             );
         }
 
+        let mut structures = Vec::new();
+        let mut structure_names = HashMap::new();
+        if let Some(listed) = json.get("structures") {
+            for (name, overrides) in object(listed)? {
+                let mut by_category: [Option<Override>; 8] = Default::default();
+                for (category, o) in object(overrides)? {
+                    let (spawns, total) = spawners(o.field("spawns")?, &by_name)?;
+                    by_category[Category::of(category)?.index()] = Some(Override {
+                        piece: o.field("piece")?.as_bool()?,
+                        spawns,
+                        total,
+                    });
+                }
+                structure_names.insert(name.clone(), structures.len() as u16);
+                structures.push(by_category);
+            }
+        }
+        let fortress = structure_names.get("minecraft:fortress").copied();
+
         Ok(Facts {
             categories,
+            structures,
+            structure_names,
+            fortress,
             types,
             biomes,
             dimensions,
@@ -547,6 +570,32 @@ impl Facts {
             plains: plains.ok_or("no plains biome")?,
         })
     }
+}
+
+/// A weighted spawner list, `[type, weight, "constant" | "uniform", min,
+/// max]` each, with its total weight.
+fn spawners(list: &Json, by_name: &HashMap<String, u16>) -> Result<(Vec<Spawner>, i32), String> {
+    let mut out = Vec::new();
+    let mut total = 0;
+    for s in list.as_array()? {
+        let s = s.as_array()?;
+        let kind = *by_name
+            .get(s[0].as_str()?)
+            .ok_or_else(|| format!("a spawn list names unknown {:?}", s[0]))?;
+        let (min, max) = (s[3].as_i32()?, s[4].as_i32()?);
+        let count = match s[2].as_str()? {
+            "constant" => Count::Constant(min),
+            _ => Count::Uniform(min, max),
+        };
+        let weight = s[1].as_i32()?;
+        out.push(Spawner {
+            kind,
+            weight,
+            count,
+        });
+        total += weight;
+    }
+    Ok((out, total))
 }
 
 fn object(json: &Json) -> Result<&[(String, Json)], String> {

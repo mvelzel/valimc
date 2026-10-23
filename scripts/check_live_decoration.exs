@@ -227,6 +227,12 @@ root =
              same_entities.(got.entities, expected["entities"] || []) and
                length(FullChunk.entity_records([whole])) == length(got.entities),
              fn -> {got.entities, expected["entities"]} end},
+            # VMC-042b: the starts natural spawning reads, kept with the chunk.
+            {:structures,
+             expected["structures"] == nil or
+               (got.structures == expected["structures"] and
+                  length(Map.get(whole, :structures, [])) == length(got.structures)),
+             fn -> {got.structures, expected["structures"]} end},
             {:block_entity_nbt, nbt == vanilla,
              fn ->
                differing = for {p, tag} <- vanilla, nbt[p] != tag, do: {p, nbt[p], tag}
