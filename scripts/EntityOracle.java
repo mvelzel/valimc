@@ -332,6 +332,18 @@ public class EntityOracle {
     fields.put("guardian_moving", field(net.minecraft.world.entity.monster.Guardian.class, "DATA_ID_MOVING"));
     fields.put("guardian_attack_target", field(net.minecraft.world.entity.monster.Guardian.class, "DATA_ID_ATTACK_TARGET"));
     fields.put("bat_flags", field(net.minecraft.world.entity.ambient.Bat.class, "DATA_ID_FLAGS"));
+    // VMC-043c: farm animals.
+    fields.put("age_locked", field(net.minecraft.world.entity.AgeableMob.class, "AGE_LOCKED"));
+    fields.put("cow_variant", field(net.minecraft.world.entity.animal.cow.Cow.class, "DATA_VARIANT_ID"));
+    fields.put("cow_sound_variant", field(net.minecraft.world.entity.animal.cow.Cow.class, "DATA_SOUND_VARIANT_ID"));
+    fields.put("mooshroom_type", field(net.minecraft.world.entity.animal.cow.MushroomCow.class, "DATA_TYPE"));
+    fields.put("pig_boost_time", field(net.minecraft.world.entity.animal.pig.Pig.class, "DATA_BOOST_TIME"));
+    fields.put("pig_variant", field(net.minecraft.world.entity.animal.pig.Pig.class, "DATA_VARIANT_ID"));
+    fields.put("pig_sound_variant", field(net.minecraft.world.entity.animal.pig.Pig.class, "DATA_SOUND_VARIANT_ID"));
+    fields.put("chicken_variant", field(net.minecraft.world.entity.animal.chicken.Chicken.class, "DATA_VARIANT_ID"));
+    fields.put("chicken_sound_variant", field(net.minecraft.world.entity.animal.chicken.Chicken.class, "DATA_SOUND_VARIANT_ID"));
+    fields.put("sheep_wool", field(net.minecraft.world.entity.animal.sheep.Sheep.class, "DATA_WOOL_ID"));
+    fields.put("rabbit_type", field(net.minecraft.world.entity.animal.rabbit.Rabbit.class, "DATA_TYPE_ID"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

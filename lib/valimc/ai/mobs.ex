@@ -13,13 +13,13 @@ defmodule Valimc.AI.Mobs do
   """
   def registered(type)
   alias Valimc.AI.Goals
-  alias Valimc.Protocol.{Data, ItemTypes}
 
   # The family modules (VMC-043b–e, `Valimc.AI.Kind`): each names its
   # `types/0` and gives its goals (`goals/1`) and, where it has them,
   # `finalize/2` (`Valimc.AI.Spawn`), its own data (`data/1`, `values/1`),
   # dimensions (`dimensions/1`) and the parts of vanilla's tick its class
-  # overrides (`hook/4`).
+  # overrides (`hook/4`). Farm animals (VMC-043c) are one module each over
+  # `Valimc.Entity.Animal`.
   @families [
     Valimc.AI.Mobs.Zombie,
     Valimc.AI.Mobs.ZombifiedPiglin,
@@ -27,32 +27,12 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Shulker,
     Valimc.AI.Mobs.Piglin,
     Valimc.AI.Mobs.Blaze
+    | Valimc.Entity.Animal.modules()
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
   @exports for module <- @families,
                into: %{},
                do: {module, MapSet.new(module.__info__(:functions))}
-
-  @pig_food MapSet.new(Data.tags()["minecraft:item"]["minecraft:pig_food"])
-  @carrot_on_a_stick ItemTypes.id("minecraft:carrot_on_a_stick")
-
-  def registered("minecraft:pig") do
-    {[
-       {0, "FloatGoal", Goals.Float, [:jump], %{}},
-       {1, "PanicGoal", Goals.Panic, [:move], Goals.Panic.new(1.25)},
-       {3, "BreedGoal", Goals.Breed, [:move, :look], Goals.Breed.new(1.0)},
-       {4, "TemptGoal", Goals.Tempt, [:move, :look],
-        Goals.Tempt.new(1.2, &(&1 == @carrot_on_a_stick), false)},
-       {4, "TemptGoal", Goals.Tempt, [:move, :look],
-        Goals.Tempt.new(1.2, &MapSet.member?(@pig_food, &1), false)},
-       {5, "FollowParentGoal", Goals.FollowParent, [], Goals.FollowParent.new(1.1)},
-       {6, "WaterAvoidingRandomStrollGoal", Goals.RandomStroll, [:move],
-        Goals.RandomStroll.new(1.0, water_avoiding: true)},
-       {7, "LookAtPlayerGoal", Goals.LookAtPlayer, [:look], Goals.LookAtPlayer.new(6.0)},
-       {8, "RandomLookAroundGoal", Goals.RandomLookAround, [:move, :look],
-        Goals.RandomLookAround.new()}
-     ], []}
-  end
 
   def registered(type) when is_map_key(@family, type), do: @family[type].goals(type)
 
@@ -79,7 +59,7 @@ defmodule Valimc.AI.Mobs do
         do: type
   end
 
-  @types ["minecraft:pig" | Map.keys(@family)]
+  @types Map.keys(@family)
 
   @doc "The family module of `type`, or nil."
   def family(type), do: @family[type]

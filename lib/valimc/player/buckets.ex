@@ -145,7 +145,7 @@ defmodule Valimc.Player.Buckets do
   # gain the new one if they have none like it; others use one of the held
   # stack, which becomes the new one when that was the last, else the new one
   # goes into the inventory.
-  defp filled(inventory, hand, stack, new) do
+  def filled(inventory, hand, stack, new) do
     slot = if hand == :main, do: 36 + inventory.selected, else: 45
 
     cond do

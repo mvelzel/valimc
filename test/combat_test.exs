@@ -56,7 +56,7 @@ defmodule Valimc.CombatTest do
   end
 
   test "a mob whose sounds are not modelled yet is hurt without a sound" do
-    {store, id} = zombie({1.5, 64.0, 2.5}, "minecraft:cow")
+    {store, id} = zombie({1.5, 64.0, 2.5}, "minecraft:sniffer")
     {:ok, store, outcome} = Combat.hurt(store, id, hit(3.0))
     assert outcome.hurt and outcome.full
     assert [{_, damage}] = store.entries[id].events

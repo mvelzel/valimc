@@ -1879,7 +1879,11 @@
     "minecraft:slime": 0,
     "minecraft:phantom": 5,
     "minecraft:silverfish": 5,
-    "minecraft:shulker": 5
+    "minecraft:shulker": 5,
+    "minecraft:cow": 0,
+    "minecraft:mooshroom": 0,
+    "minecraft:sheep": 0,
+    "minecraft:rabbit": 0
   },
   "mobs": {
     "minecraft:zombie": {
@@ -2013,6 +2017,30 @@
       "death_sound": "minecraft:entity.shulker.death",
       "sound_source": 5,
       "animal": false
+    },
+    "minecraft:cow": {
+      "hurt_sound": "minecraft:entity.cow.hurt",
+      "death_sound": "minecraft:entity.cow.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:mooshroom": {
+      "hurt_sound": "minecraft:entity.cow.hurt",
+      "death_sound": "minecraft:entity.cow.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:sheep": {
+      "hurt_sound": "minecraft:entity.sheep.hurt",
+      "death_sound": "minecraft:entity.sheep.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:rabbit": {
+      "hurt_sound": "minecraft:entity.rabbit.hurt",
+      "death_sound": "minecraft:entity.rabbit.death",
+      "sound_source": 6,
+      "animal": true
     }
   },
   "sounds": {
@@ -2084,7 +2112,13 @@
     "minecraft:entity.silverfish.hurt": 1481,
     "minecraft:entity.silverfish.death": 1480,
     "minecraft:entity.shulker.hurt_closed": 1475,
-    "minecraft:entity.shulker.death": 1473
+    "minecraft:entity.shulker.death": 1473,
+    "minecraft:entity.cow.hurt": 451,
+    "minecraft:entity.cow.death": 452,
+    "minecraft:entity.sheep.hurt": 1444,
+    "minecraft:entity.sheep.death": 1443,
+    "minecraft:entity.rabbit.hurt": 1356,
+    "minecraft:entity.rabbit.death": 1355
   },
   "sound_sources": {
     "master": 0,

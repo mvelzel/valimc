@@ -1176,6 +1176,15 @@ defmodule Valimc.World.RegionData do
         for step <- steps, {:pickup, {:item, uuid}, n} <- step.effects, do: {step.id, uuid, n}
 
       drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
+
+      # A hen's egg (VMC-043c): its laying table's item, launched as its AI drew.
+      drops =
+        drops ++
+          for step <- steps,
+              {:lay, velocity} <- step.effects,
+              stack <- laid(step.body),
+              do: {step.position, stack, velocity}
+
       # Items mobs threw (a piglin's barter, VMC-043d).
       throws = for step <- steps, {:throw, _, _, _} = thrown <- step.effects, do: thrown
 
@@ -1218,6 +1227,16 @@ defmodule Valimc.World.RegionData do
 
       # Mobs whose kind ends them (an endermite's lifetime, VMC-043e) leave.
       {discards, steps} = Enum.split_with(steps, &(:discard in &1.effects))
+      # A bred pair's child and orb, and the blocks animals ate (VMC-043c).
+      born =
+        for step <- steps, effect <- step.effects, record <- birth(effect), do: record
+
+      eaten =
+        for step <- steps,
+            effect <- step.effects,
+            edit <- [mob_edit(view, effect)],
+            edit != nil,
+            do: edit
 
       steps =
         Enum.reject(steps, fn step ->
@@ -1236,7 +1255,18 @@ defmodule Valimc.World.RegionData do
       state = if companions == [], do: state, else: mob_companions(state, companions)
       state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
       state = if conversions == [], do: state, else: mob_conversions(state, conversions)
-      state = if tramples == [], do: state, else: elem(rule_run(state, %{actions: tramples}), 0)
+
+      state =
+        if tramples ++ eaten == [],
+          do: state,
+          else: elem(rule_run(state, %{actions: tramples ++ eaten}), 0)
+
+      state =
+        cond do
+          born == [] -> state
+          planning?(state) -> put_in(state.entities.dropped, state.entities.dropped ++ born)
+          true -> adopt_drops(state, born)
+        end
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,
@@ -1311,6 +1341,97 @@ defmodule Valimc.World.RegionData do
     publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
 
+  # What an interaction did: the body changed in place, or (a conversion)
+  # the old entity gone and the new one in its place with the events; its
+  # drops launched from it.
+  defp interacted(state, id, revision, {x, y, z} = at, body, outcome) do
+    store = state.entities.store
+
+    store =
+      case outcome.convert do
+        nil ->
+          Store.change_body(store, id, body, outcome.events)
+
+        new ->
+          record = Store.body_record(new, :crypto.strong_rand_bytes(16), at)
+
+          with {:ok, store} <- Store.remove(store, store.epoch, id, revision),
+               {:ok, store, {_, new_id, _}} <- Store.create_record(store, state.key, record) do
+            Store.change_body(store, new_id, new, outcome.events)
+          else
+            _ -> store
+          end
+      end
+
+    state = publish_item_views(%{state | entities: %{state.entities | store: store}})
+
+    drops =
+      for {stack, {dx, dy, dz}, launch} <- outcome.drops do
+        [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+        {ax, ay, az} = {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1}
+
+        velocity =
+          case launch do
+            nil -> {ax, ay, az}
+            {:add, {bx, by, bz}} -> {ax + bx, ay + by, az + bz}
+          end
+
+        {{x + dx, y + dy, z + dz}, stack, velocity}
+      end
+
+    if drops == [], do: state, else: mob_drops(state, drops)
+  end
+
+  # A breeding's child where its parent stood, facing south, and its orb
+  # (`new ExperienceOrb`: one orb of the value).
+  defp birth({:offspring, type, data, at}) do
+    {:ok, body} = Valimc.Entity.Body.new(type)
+    [Store.body_record(%{body | data: data}, :crypto.strong_rand_bytes(16), at)]
+  end
+
+  defp birth({:orb, value, at}), do: [ExperienceOrbs.single(at, value)]
+  defp birth(_effect), do: []
+
+  @grass_block Valimc.Data.Blocks.default_state("grass_block")
+  @dirt Valimc.Data.Blocks.default_state("dirt")
+  @carrots Valimc.Data.Blocks.id("carrots")
+
+  # What a mob ate as a block-rule edit of the state it reads now: a sheep's
+  # grass turns to dirt (`EatBlockGoal`, after grass's break event), the
+  # plant it stands in breaks without drops, a raided carrot loses a stage
+  # (its youngest goes, quietly).
+  defp mob_edit(view, {:eat_block, cell, :dirt}) do
+    case Valimc.World.View.block(view, cell) do
+      nil -> nil
+      from -> {:edit, cell, from, @dirt, @grass_block}
+    end
+  end
+
+  defp mob_edit(view, {:eat_block, cell, :destroy}) do
+    case Valimc.World.View.block(view, cell) do
+      nil -> nil
+      from -> {:edit, cell, from, nil, nil}
+    end
+  end
+
+  defp mob_edit(view, {:raid_carrot, cell}) do
+    with from when from != nil <- Valimc.World.View.block(view, cell),
+         @carrots <- Valimc.Data.Blocks.block_id(from),
+         {"age", age} <- List.keyfind(Valimc.Data.Blocks.properties(from), "age", 0) do
+      case String.to_integer(age) do
+        0 ->
+          {:edit, cell, from, Valimc.Data.Blocks.default_state("air"), nil}
+
+        n ->
+          {:edit, cell, from, Valimc.Data.Blocks.state("carrots", %{"age" => "#{n - 1}"}), from}
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp mob_edit(_view, _effect), do: nil
+
   # `Mob.pickUpItem`'s `take`: `count` of item `uuid` leaves it for mob `id`
   # (the take animation goes to its viewers), the item gone when empty.
   defp mob_pickup({id, uuid, count}, state) do
@@ -1328,11 +1449,20 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # `spawnAtLocation`: stacks a mob lets go, where it stands.
+  # `spawnAtLocation`: stacks a mob lets go, where it stands (with the launch
+  # its AI drew, or a fresh one).
   defp mob_drops(state, drops) do
     records =
-      for {{x, y, z}, stack} <- drops do
-        [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+      for drop <- drops do
+        {{x, y, z}, stack, velocity} =
+          case drop do
+            {at, stack} ->
+              [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+              {at, stack, {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1}}
+
+            three ->
+              three
+          end
 
         %{
           uuid: :crypto.strong_rand_bytes(16),
@@ -1340,14 +1470,29 @@ defmodule Valimc.World.RegionData do
           y: y,
           z: z,
           stack: stack,
-          motion: %Valimc.Entity.ItemMotionState{
-            velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
-            pickup_delay: 10
-          }
+          motion: %Valimc.Entity.ItemMotionState{velocity: velocity, pickup_delay: 10}
         }
       end
 
     adopt_drops(state, records)
+  end
+
+  # `dropFromGiftLootTable(CHICKEN_LAY)`: the egg of the hen's variant.
+  defp laid(body) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    properties = Valimc.Entity.Animal.properties(body)
+
+    case Valimc.Blocks.Loot.entity_drops(
+           "minecraft:gameplay/chicken_lay",
+           seed,
+           {0.0, 0.0, 0.0},
+           %{
+             properties: properties
+           }
+         ) do
+      {:ok, stacks} -> stacks
+      _ -> []
+    end
   end
 
   # Mobs another mob's spawn made (`Valimc.AI.Spawn`): a chicken jockey's
@@ -1516,7 +1661,12 @@ defmodule Valimc.World.RegionData do
       min_y: min_y,
       max_y: min_y + height - 1,
       sea_level: Valimc.World.Dimension.sea_level(state.dimension),
-      border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
+      border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1),
+      mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
+      mob_drops: Valimc.World.GameRules.get(:mob_drops),
+      # Tests that move mobs alone turn their goals off per scope.
+      goals:
+        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key)
     }
   end
 
@@ -1832,6 +1982,33 @@ defmodule Valimc.World.RegionData do
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # A player's use of an item on an animal (VMC-043c,
+  # `Valimc.Entity.Animals.Interaction`): its change (or the body it becomes,
+  # a new entity), its events and drops apply here; the reply tells the
+  # session how its hand changes.
+  def handle_call({:interact_entity, epoch, uuid, request}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, revision}} <- Store.find(store, uuid),
+         %{kind: :mob, body: body, entity: e} <- store.entries[id] || {:error, :missing_item} do
+      case Valimc.Entity.Animals.Interaction.interact(body, request) do
+        {:ok, next, outcome} ->
+          at = {e.x, e.y, e.z}
+          state = interacted(state, id, revision, at, next, outcome)
+          {:reply, {:ok, Map.take(outcome, [:hand, :swing, :others])}, state}
+
+        other ->
+          {:reply, other, state}
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :not_living}, state}
     end
   end
 

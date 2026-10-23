@@ -13,7 +13,9 @@ defmodule Valimc.MobTravelRegionTest do
     TestScope.isolate(TestScope.neighborhood(key),
       world_path: base,
       item_simulation: true,
-      region_ticks: :manual
+      region_ticks: :manual,
+      # No goals: the tests move the mobs alone (VMC-041a).
+      mob_goals: false
     )
 
     File.mkdir_p!(base)
@@ -57,8 +59,6 @@ defmodule Valimc.MobTravelRegionTest do
   defp summon(ctx, uuid, {x, y, z}) do
     # A husk: a zombie's body, and the sun does not burn it (VMC-043b).
     {:ok, body} = Body.new("minecraft:husk")
-    # No goals: the test moves it alone (VMC-041a).
-    body = put_in(body.mob.no_ai, true)
     :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x, y, z})])
   end
 
@@ -209,8 +209,9 @@ defmodule Valimc.MobTravelRegionTest do
 
   test "a shulker's bullet hits a zombie for 4 and lifts it (VMC-043e)", ctx do
     {x, z} = ctx.at
-    {:ok, zombie} = Body.new("minecraft:zombie")
-    zombie = put_in(zombie.mob.no_ai, true)
+    # A husk (the sun does not burn it), its goals off for the scope: a
+    # `NoAI` mob would not travel, so the bullet could not lift it.
+    {:ok, zombie} = Body.new("minecraft:husk")
 
     :ok =
       Region.drop_items(ctx.owner, [Store.body_record(zombie, <<10::128>>, {x + 3.0, 64.0, z})])

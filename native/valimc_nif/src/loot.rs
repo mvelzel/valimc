@@ -394,8 +394,10 @@ fn loot_enchant(
 
 /// An entity's death drops (`LivingEntity.dropFromLootTable`, VMC-037n):
 /// `death` is `{on_fire, baby, vehicle, killed_by_player, attacker,
-/// direct_attacker}`, each attacker its main-hand enchantments as
-/// `[{id, level}]` or nil. The item tags of the drops.
+/// direct_attacker, properties}`, each attacker its main-hand enchantments as
+/// `[{id, level}]` or nil, `properties` the entity's own as `[{name,
+/// value}]` (VMC-043c). The item tags of the drops. A gift's or shearing's
+/// table reads the same entity.
 type DeathTerm = (
     bool,
     bool,
@@ -403,6 +405,7 @@ type DeathTerm = (
     bool,
     Option<Vec<(String, i32)>>,
     Option<Vec<(String, i32)>>,
+    Vec<(String, String)>,
 );
 
 #[rustler::nif]
@@ -416,7 +419,7 @@ fn loot_entity<'a>(
     death: DeathTerm,
 ) -> NifResult<(Atom, Vec<Term<'a>>)> {
     known(&registry, &table)?;
-    let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker) = death;
+    let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker, properties) = death;
     let mut world = LootAnswers {
         biome: None,
         structure: None,
@@ -437,6 +440,7 @@ fn loot_entity<'a>(
                     killed_by_player,
                     attacker,
                     direct_attacker,
+                    properties,
                 },
                 &mut world,
             )

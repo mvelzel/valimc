@@ -137,15 +137,17 @@ defmodule Valimc.Blocks.Loot do
   `death` holds `:on_fire`, `:baby`, `:vehicle` (the type name of what the
   victim rides, or nil), `:killed_by_player`, and `:attacker` and
   `:direct_attacker`, each the living attacker's main-hand stack (nil for an
-  empty hand) or `:none` when there is no living one. Options as `fill/4`
-  (`:luck` the killing player's).
+  empty hand) or `:none` when there is no living one, and `:properties`, the
+  entity's own as `[{name, value}]` its tables' predicates read (VMC-043c: a
+  sheep's colour and shearing). Options as `fill/4` (`:luck` the killing
+  player's). A gift's or shearing's table (eggs, wool) reads the same.
   """
   def entity_drops(table, seed, {x, y, z}, death, opts \\ [])
       when is_binary(table) and is_integer(seed) and is_map(death) do
     death =
       {Map.get(death, :on_fire, false), Map.get(death, :baby, false), Map.get(death, :vehicle),
        Map.get(death, :killed_by_player, false), mainhand(Map.get(death, :attacker, :none)),
-       mainhand(Map.get(death, :direct_attacker, :none))}
+       mainhand(Map.get(death, :direct_attacker, :none)), Map.get(death, :properties, [])}
 
     with {:ok, tags} <-
            call(fn ->

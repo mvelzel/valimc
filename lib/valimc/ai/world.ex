@@ -41,6 +41,9 @@ defmodule Valimc.AI.World do
             light: nil,
             darken: 0,
             mob_griefing: true,
+            mob_drops: true,
+            # False: no mob's goals run (tests that move mobs alone).
+            goals: true,
             universal_anger: false,
             search: :deferred,
             paths: %{},
@@ -178,6 +181,22 @@ defmodule Valimc.AI.World do
 
   def entity(%__MODULE__{items: items}, {:item, uuid}), do: Enum.find(items, &(&1.uuid == uuid))
   def entity(_world, nil), do: nil
+
+  @doc """
+  The world with sensed mob `uuid` changed by `fun` (a mob a breeding
+  changed, for those thinking after it).
+  """
+  def update_mob(%__MODULE__{mobs: mobs, by_type: by_type} = world, uuid, fun) do
+    case Enum.find(mobs, &(&1.uuid == uuid)) do
+      nil ->
+        world
+
+      old ->
+        new = fun.(old)
+        swap = fn list -> Enum.map(list, &if(&1.uuid == uuid, do: new, else: &1)) end
+        %{world | mobs: swap.(mobs), by_type: Map.update!(by_type, old.type, swap)}
+    end
+  end
 
   @doc "The reference a mind keeps of a sensed entity."
   def ref(%{kind: kind, uuid: uuid}), do: {kind, uuid}

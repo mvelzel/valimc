@@ -18,7 +18,7 @@ defmodule Valimc.Entity.Body do
   `getNonDefaultValues`), a tracker those that changed.
   """
   alias Valimc.Data.{Blocks, EntityTypes}
-  alias Valimc.Entity.{Mob, Projectile}
+  alias Valimc.Entity.{Animal, Mob, Projectile}
   alias Valimc.Protocol.{EntityPackets, Packets}
 
   defstruct type: nil,
@@ -41,14 +41,13 @@ defmodule Valimc.Entity.Body do
 
   @tnt "minecraft:tnt"
   @falling "minecraft:falling_block"
-  @chicken "minecraft:chicken"
   @cloud "minecraft:area_effect_cloud"
   @frames ["minecraft:item_frame", "minecraft:glow_item_frame"]
-  # An egg's chickens and an ender pearl's endermites (VMC-037o) are bodies
-  # with their type's data; their families' behaviour is VMC-043d's and 043b's.
+  # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
+  # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
-              ["minecraft:zombie", @chicken, "minecraft:endermite", @tnt, @falling, @cloud] ++
-                Projectile.types() ++ Valimc.AI.Mobs.Zombie.types()
+              ["minecraft:zombie", "minecraft:endermite", @tnt, @falling, @cloud] ++
+                Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
             )
   @plain for name <- EntityTypes.names(),
              EntityTypes.living?(name) and EntityTypes.fetch(name).category != :misc,
@@ -164,9 +163,6 @@ defmodule Valimc.Entity.Body do
       cancel_drop: false
     }
 
-  # `AgeableMob`'s age: negative while a baby (an egg's chicks are -24000);
-  # whether it is a chicken jockey's (VMC-043b: it stays, worth 10 XP).
-  defp data(@chicken), do: %{age: 0, jockey: false}
   defp data(@cloud), do: Valimc.Entity.EffectCloud.data()
 
   # A mob family's own (VMC-043b–e: a zombie's baby flag), a projectile's.
@@ -337,6 +333,13 @@ defmodule Valimc.Entity.Body do
     binary(Valimc.Protocol.CombatPackets.sound(name, source, position, volume, pitch, seed))
   end
 
+  # A sound at the centre of the block the body stands in (VMC-043c: a
+  # golden dandelion's).
+  def event_packet(_id, {:sound_block, name, source, volume, pitch, seed}, %{x: x, y: y, z: z}) do
+    at = {Float.floor(x) + 0.5, Float.floor(y) + 0.5, Float.floor(z) + 0.5}
+    binary(Valimc.Protocol.CombatPackets.sound(name, source, at, volume, pitch, seed))
+  end
+
   def event_packet(id, {:damage, source, cause, direct, position}, _),
     do: binary(Packets.damage_event(id, source, cause, direct, position))
 
@@ -363,7 +366,7 @@ defmodule Valimc.Entity.Body do
         {:living_flags, 0, 0},
         {:health, living.health.value, 1.0},
         {:mob_flags, mob_flags(mob), 0}
-      ] ++ ageable(body) ++ Valimc.AI.Mobs.values(body)
+      ] ++ Valimc.AI.Mobs.values(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -376,11 +379,6 @@ defmodule Valimc.Entity.Body do
 
   defp own(%__MODULE__{type: @cloud} = body), do: Valimc.Entity.EffectCloud.values(body)
   defp own(%__MODULE__{} = body), do: Projectile.values(body)
-
-  defp ageable(%__MODULE__{type: @chicken, data: %{age: age}}),
-    do: [{:ageable_baby, age < 0, false}]
-
-  defp ageable(_body), do: []
 
   # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
   # (bit 2): a zombie raising its arms (VMC-041a).

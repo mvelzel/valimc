@@ -143,15 +143,20 @@ defmodule Valimc.Entity.Combat do
 
   @doc """
   A hit of `amount` from damage type `source` on a mob of `type` without an
-  attacker (its own falls, fire and drowning, VMC-015i): `{mob, events}`.
+  attacker (its own falls, fire and drowning, VMC-015i), with its body's
+  `data`: `{mob, events, hurt}`.
   """
-  def hurt_mob(type, mob, source, amount) do
-    case hurt_body(%Body{type: type, mob: mob}, nil, %{
+  def hurt_mob(type, mob, source, amount, data \\ %{}) do
+    case hurt_body(%Body{type: type, mob: mob, data: data}, nil, %{
            source: DamageSource.new(source),
            amount: amount
          }) do
-      :ignored -> {stir(%Body{type: type, mob: mob}, %{source: DamageSource.new(source)}).mob, []}
-      {body, events, _} -> {body.mob, events}
+      :ignored ->
+        {stir(%Body{type: type, mob: mob, data: data}, %{source: DamageSource.new(source)}).mob,
+         [], false}
+
+      {body, events, _} ->
+        {body.mob, events, true}
     end
   end
 
@@ -261,10 +266,10 @@ defmodule Valimc.Entity.Combat do
 
   defp anger(_hit, _source), do: nil
 
-  # `playHurtSound` and the death sound: the mob's voice (`getVoicePitch`, an
-  # adult's) at volume 1, from its own random once it thinks (the hurt sound
-  # also restarts its ambient timer, `Mob.playHurtSound`); the store stamps
-  # the position.
+  # `playHurtSound` and the death sound: the mob's voice (`getVoicePitch`, its
+  # kind's base: a baby's higher) at its volume, from its own random once it
+  # thinks (the hurt sound also restarts its ambient timer,
+  # `Mob.playHurtSound`); the store stamps the position.
   defp sound(%Body{mob: %Mob{ai: %Valimc.AI.Mind{} = mind} = mob} = body, sounds, key, hurt) do
     interval = if hurt, do: Valimc.AI.ambient_interval(body.type)
     {pitch, mind} = Valimc.AI.voice(mind, interval, Valimc.AI.Mobs.voice(body.type, body.data))
@@ -272,8 +277,13 @@ defmodule Valimc.Entity.Combat do
   end
 
   defp sound(body, sounds, key, _hurt) do
+    base = Valimc.AI.Mobs.voice(body.type, body.data)
+
     pitch =
-      Float32.round(Float32.round(Float32.round(:rand.uniform() - :rand.uniform()) * 0.2) + 1.0)
+      Float32.round(
+        Float32.round(Float32.round(:rand.uniform() - :rand.uniform()) * Float32.round(0.2)) +
+          base
+      )
 
     {body, sound_event(sounds, key, pitch)}
   end
@@ -294,6 +304,8 @@ defmodule Valimc.Entity.Combat do
     override = fn sounds, key ->
       case Valimc.AI.Mobs.hook(body.type, :sound, [body, key], nil) do
         nil -> sounds
+        # A sound's id (an animal's sound variant's, VMC-043c) or name.
+        id when is_integer(id) -> Map.put(sounds, key, id)
         name -> Map.put(sounds, key, Valimc.AI.Facts.sound_id(name))
       end
     end
@@ -409,7 +421,8 @@ defmodule Valimc.Entity.Combat do
         vehicle: nil,
         killed_by_player: player_kill,
         attacker: mainhand(hit[:attacker]),
-        direct_attacker: mainhand(hit[:direct])
+        direct_attacker: mainhand(hit[:direct]),
+        properties: Valimc.Entity.Animal.properties(body)
       },
       experience: if(player_kill and not baby?(body), do: experience(body), else: 0)
     }

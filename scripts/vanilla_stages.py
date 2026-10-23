@@ -1122,6 +1122,15 @@ STAGES = [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),
         ('check', 'check_paths.exs', '@paths.json'),
     ]),
+    # VMC-043c: farm animals' facts, whole animals ticking, and breedings.
+    ('animal_facts', [
+        ('regen', 'AnimalOracle', 'facts', '@animal-facts.json'),
+        ('same', '@animal-facts.json', 'priv/registry/animal_facts.json'),
+    ]),
+    ('animals', [
+        ('java', 'AnimalOracle', 'cases', '@animals.json'),
+        ('check', 'check_animals.exs', '@animals.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

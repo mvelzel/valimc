@@ -159,6 +159,19 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 13 => Action::Trample { pos },
                 14 => Action::OutputChanged { pos },
                 15 => Action::Harvest { pos },
+                // A mob's edit: `from` and `to` (0xFFFF: destroyed), then the
+                // event's data (-1: none), big-endian.
+                16 => {
+                    let from = u16::from_be_bytes([r[15], r[16]]);
+                    let to = u16::from_be_bytes([r[17], r[18]]);
+                    let event = i32::from_be_bytes([r[19], r[20], r[21], r[22]]);
+                    Action::Edit {
+                        pos,
+                        from,
+                        to: (to != u16::MAX).then_some(to),
+                        event: (event >= 0).then_some(event),
+                    }
+                }
                 _ => return Err(atoms::invalid_positions()),
             })
         })

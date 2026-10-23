@@ -9,7 +9,8 @@ defmodule Valimc.AI.RandomPos do
   them.
 
   `walk_value/2` is `PathfinderMob.getWalkTargetValue`: an animal prefers
-  grass (10) and else light, a monster darkness, others nothing.
+  grass (a mooshroom mycelium, 10) and else light, a monster darkness,
+  others nothing.
   """
   alias Valimc.AI.{Facts, Mth, Self, World}
   alias Valimc.Data.Float32
@@ -193,12 +194,19 @@ defmodule Valimc.AI.RandomPos do
   end
 
   @grass MapSet.new(Valimc.Data.Blocks.states("grass_block"))
+  @mycelium MapSet.new(Valimc.Data.Blocks.states("mycelium"))
 
   @doc "`getWalkTargetValue` at a block for the mob's family."
   def walk_value(%Self{type: type, world: world}, {x, y, z} = pos) do
     case family(type) do
       :animal ->
         if MapSet.member?(@grass, World.block(world, {x, y - 1, z})),
+          do: 10.0,
+          else: Float32.round(World.light(world, pos) - 0.5)
+
+      # `MushroomCow.getWalkTargetValue`: mycelium.
+      :mooshroom ->
+        if MapSet.member?(@mycelium, World.block(world, {x, y - 1, z})),
           do: 10.0,
           else: Float32.round(World.light(world, pos) - 0.5)
 
@@ -211,9 +219,11 @@ defmodule Valimc.AI.RandomPos do
   end
 
   @monsters ["minecraft:zombie"]
-  @animals ["minecraft:pig"]
 
   defp family(type) when type in @monsters, do: :monster
-  defp family(type) when type in @animals, do: :animal
-  defp family(_type), do: :other
+  defp family("minecraft:mooshroom"), do: :mooshroom
+
+  defp family(type) do
+    if Valimc.Entity.Animal.animal?(type), do: :animal, else: :other
+  end
 end

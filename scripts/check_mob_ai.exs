@@ -46,10 +46,13 @@ hex = fn v -> Base.encode16(<<v::float-64>>, case: :lower) end
 
 air = Valimc.Data.Blocks.default_state("air")
 
+# Sound ids the AI plays by name, and the farm animals' by their sound
+# variants (VMC-043c).
 sound_names =
-  Map.new(:json.decode(File.read!("priv/registry/ai_facts.json"))["sounds"], fn {n, id} ->
-    {id, n}
-  end)
+  for file <- ~w(ai_facts animal_facts),
+      {n, id} <- :json.decode(File.read!("priv/registry/#{file}.json"))["sounds"],
+      into: %{},
+      do: {id, n}
 
 # A scene as a supplied view: its blocks, and air around them.
 view = fn blocks ->

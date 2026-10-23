@@ -64,7 +64,9 @@ public class MobAiOracle {
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager",
       // VMC-043e: the End's mobs.
-      "minecraft:endermite", "minecraft:shulker");
+      "minecraft:endermite", "minecraft:shulker",
+      // VMC-043c: farm animals (cases in AnimalOracle).
+      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -1066,7 +1068,8 @@ public class MobAiOracle {
     var registries = new ArrayList<Registry<?>>();
     var damage = registry(Registries.DAMAGE_TYPE, lookup);
     registries.add(damage);
-    for (var key : List.of(Registries.ENCHANTMENT, Registries.PIG_VARIANT, Registries.PIG_SOUND_VARIANT))
+    for (var key : List.of(Registries.ENCHANTMENT, Registries.PIG_VARIANT, Registries.PIG_SOUND_VARIANT, Registries.COW_VARIANT,
+        Registries.COW_SOUND_VARIANT, Registries.CHICKEN_VARIANT, Registries.CHICKEN_SOUND_VARIANT))
       registries.add(registry((ResourceKey)key, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> registries.add(r));
     HolderLookup.Provider loot;

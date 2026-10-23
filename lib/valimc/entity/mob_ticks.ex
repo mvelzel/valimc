@@ -129,12 +129,13 @@ defmodule Valimc.Entity.MobTicks do
 
   defp trample(_body, _ticked), do: []
 
-  # Sounds and swings are the mob's entity events; the rest leaves it.
+  # Sounds, entity events and swings are the mob's events; the rest leaves it.
   defp split(effects) do
     {events, rest} =
       Enum.split_with(effects, fn
         {:sound, _, _, _, _, _} -> true
         {:sound_at, _, _, _, _, _} -> true
+        {:event, _} -> true
         :swing -> true
         {:swing, _} -> true
         _ -> false

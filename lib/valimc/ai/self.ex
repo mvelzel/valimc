@@ -30,7 +30,8 @@ defmodule Valimc.AI.Self do
     :height,
     :eye,
     :world,
-    # The body's own data (`Body.data`: a zombie's baby flag, VMC-043b).
+    # The body's own data (`Body.data`: a zombie's baby flag, VMC-043b; an
+    # animal's age and love, VMC-043c).
     data: %{},
     effects: []
   ]
@@ -61,6 +62,29 @@ defmodule Valimc.AI.Self do
   def float(self), do: draw(self, &Random.float/1)
   @doc "`nextDouble()` of the mob's random."
   def double(self), do: draw(self, &Random.double/1)
+  @doc "`nextBoolean()` of the mob's random."
+  def boolean(self), do: draw(self, &Random.boolean/1)
+
+  @doc """
+  `nextGaussian()` (`MarsagliaPolarGaussian`): a pair drawn at once, the
+  second held back in the mind for the next call.
+  """
+  def gaussian(%__MODULE__{mind: %{gaussian: held} = mind} = self) when held != nil,
+    do: {held, %{self | mind: %{mind | gaussian: nil}}}
+
+  def gaussian(self) do
+    {v1, self} = double(self)
+    {v2, self} = double(self)
+    {v1, v2} = {2 * v1 - 1, 2 * v2 - 1}
+    s = v1 * v1 + v2 * v2
+
+    if s >= 1 or s == 0 do
+      gaussian(self)
+    else
+      multiplier = :math.sqrt(-2 * :math.log(s) / s)
+      {v1 * multiplier, mind(self, &%{&1 | gaussian: v2 * multiplier})}
+    end
+  end
 
   defp draw(%__MODULE__{mind: mind} = self, fun) do
     {value, random} = fun.(mind.random)

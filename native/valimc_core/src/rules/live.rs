@@ -111,6 +111,17 @@ pub enum Action {
     OutputChanged { pos: [i32; 3] },
     /// A player with shears is breaking the tripwire at `pos`.
     Disarm { pos: [i32; 3] },
+    /// A mob eats the block at `pos` while it still holds `from`
+    /// (VMC-043c): it becomes `to` (`Level.setBlock(.., 2)`, a grazed
+    /// grass block's dirt, a raided carrot's younger stage), or with no
+    /// `to` it is destroyed without drops (`destroyBlock(pos, false)`);
+    /// `event` is the block-break event's data shown first, if any.
+    Edit {
+        pos: [i32; 3],
+        from: u16,
+        to: Option<u16>,
+        event: Option<i32>,
+    },
 }
 
 /// One run's input.
@@ -394,6 +405,12 @@ pub fn run(
             Action::Transform { pos, tool, face } => engine.transform(pos, tool, face),
             Action::Trample { pos } => engine.trample(pos),
             Action::Harvest { pos } => engine.harvest(pos),
+            Action::Edit {
+                pos,
+                from,
+                to,
+                event,
+            } => engine.mob_edit(pos, from, to, event),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)
             }

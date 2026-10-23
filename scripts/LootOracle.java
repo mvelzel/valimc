@@ -73,9 +73,14 @@ public class LootOracle {
       // VMC-043b: the zombie family.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager",
       // VMC-043e: the End's mobs.
-      "minecraft:entities/shulker");
+      "minecraft:entities/shulker",
+      // VMC-043c: farm animals.
+      "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit");
   // VMC-043d: what a piglin gives for a gold ingot.
   static final String BARTERING = "minecraft:gameplay/piglin_bartering";
+  // VMC-043c: what shearing an animal and a laying hen give (AnimalOracle checks them).
+  static final List<String> ANIMAL_TABLES = List.of("minecraft:shearing/sheep", "minecraft:shearing/mooshroom",
+      "minecraft:gameplay/chicken_lay");
 
   /** A dying mob: its flags and vehicle as the loot predicates read them. */
   static class Victim extends net.minecraft.world.entity.monster.zombie.Zombie {
@@ -230,6 +235,7 @@ public class LootOracle {
         .sorted()
         .forEach(queue::add);
     queue.add(BARTERING);
+    queue.addAll(ANIMAL_TABLES);
     var blockTables = new JsonArray();
     for (var block : BuiltInRegistries.BLOCK) {
       var key = block.getLootTable();

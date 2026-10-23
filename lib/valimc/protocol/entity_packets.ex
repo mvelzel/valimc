@@ -201,7 +201,7 @@ defmodule Valimc.Protocol.EntityPackets do
   end
 
   # The water, ambient and End mobs' own fields (VMC-043e) by serializer.
-  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags]
+  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags, :sheep_wool]
   @mob_flags [
     :fish_from_bucket,
     :dolphin_got_fish,
@@ -209,7 +209,9 @@ defmodule Valimc.Protocol.EntityPackets do
     :turtle_laying_egg,
     :axolotl_playing_dead,
     :axolotl_from_bucket,
-    :guardian_moving
+    :guardian_moving,
+    # VMC-043c: an ageable mob's age lock.
+    :age_locked
   ]
   @mob_ints [
     :puff_state,
@@ -218,7 +220,17 @@ defmodule Valimc.Protocol.EntityPackets do
     :glow_squid_dark_ticks,
     :dolphin_moistness,
     :axolotl_variant,
-    :guardian_attack_target
+    :guardian_attack_target,
+    # VMC-043c: animals' variants by registry network id, a mooshroom's and a
+    # rabbit's type.
+    :cow_variant,
+    :cow_sound_variant,
+    :pig_variant,
+    :pig_sound_variant,
+    :chicken_variant,
+    :chicken_sound_variant,
+    :mooshroom_type,
+    :rabbit_type
   ]
 
   defp metadata_value({name, value})

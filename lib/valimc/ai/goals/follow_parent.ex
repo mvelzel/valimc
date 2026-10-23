@@ -9,7 +9,7 @@ defmodule Valimc.AI.Goals.FollowParent do
   def new(speed), do: %{speed: speed * 1.0, parent: nil, recalculate: 0}
 
   def can_use(state, self) do
-    if self.mind.age >= 0 do
+    if self.data.age >= 0 do
       {false, state, self}
     else
       box = World.inflate(Self.box(self), 8.0, 4.0, 8.0)
@@ -32,7 +32,7 @@ defmodule Valimc.AI.Goals.FollowParent do
 
   def can_continue(state, self) do
     case World.entity(self.world, state.parent) do
-      %{alive: true} = parent when self.mind.age < 0 ->
+      %{alive: true} = parent when self.data.age < 0 ->
         d = World.distance_sq(self, parent)
         {not (d < 9.0) and not (d > 256.0), state, self}
 

@@ -526,6 +526,17 @@ defmodule Valimc.AI.Navigation do
     end
   end
 
+  @doc "`getPath().getNextEntityPos(mob)` of an unfinished path, else nil."
+  def next_entity_position(%Self{} = self) do
+    case nav(self) do
+      %__MODULE__{path: %{nodes: nodes, index: index} = path} when index < tuple_size(nodes) ->
+        entity_position(self, path)
+
+      _ ->
+        nil
+    end
+  end
+
   # `Path.getNextEntityPos`: the node's corner plus half the mob's rounded-up width.
   defp entity_position(self, %{nodes: nodes, index: index}) do
     {x, y, z} = elem(nodes, index)

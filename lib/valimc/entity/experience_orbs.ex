@@ -53,6 +53,27 @@ defmodule Valimc.Entity.ExperienceOrbs do
     do: orbs(position, [points])
 
   @doc """
+  One orb of `value` at `position` (`new ExperienceOrb`, a breeding's: not
+  split into denominations), with the constructor's launch.
+  """
+  def single({x, y, z}, value) when is_integer(value) and value > 0 do
+    draws = {:rand.uniform_real(), :rand.uniform_real(), :rand.uniform_real()}
+    {:ok, launch} = Valimc.Entity.OrbMotion.launch({x, y, z}, {0.0, 0.0, 0.0}, draws)
+
+    %{
+      kind: :orb,
+      uuid: uuid(),
+      x: x,
+      y: y,
+      z: z,
+      value: value,
+      count: 1,
+      age: 0,
+      motion: %Valimc.Entity.ItemMotionState{velocity: launch.velocity}
+    }
+  end
+
+  @doc """
   The orb records of `amounts` awarded in turn at `position` (vanilla's
   `ExperienceOrb.award` of each): the orbs `plan/3` spawns, each with its
   count and vanilla's random launch velocity (the constructor's, no

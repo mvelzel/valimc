@@ -1343,6 +1343,399 @@
           ]
         ]
       ]
+    },
+    "minecraft:cow": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.cow.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 0.4,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "FollowParentGoal",
+          []
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          7,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:mooshroom": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.cow.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 0.4,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "FollowParentGoal",
+          []
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          7,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:sheep": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.sheep.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "FollowParentGoal",
+          []
+        ],
+        [
+          5,
+          "EatBlockGoal",
+          [
+            "move",
+            "look",
+            "jump"
+          ]
+        ],
+        [
+          6,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:chicken": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.chicken.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0,
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "FollowParentGoal",
+          []
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          7,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:rabbit": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.rabbit.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "ClimbOnTopOfPowderSnowGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "RabbitPanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "RabbitAvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "RabbitAvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "RabbitAvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "RaidGardenGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          6,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          11,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
     }
   },
   "shulker_look": [
@@ -1418,7 +1811,11 @@
     "minecraft:entity.husk.ambient": 881,
     "minecraft:entity.zombie_villager.ambient": 1904,
     "minecraft:entity.endermite.ambient": 604,
-    "minecraft:entity.shulker.ambient": 1467
+    "minecraft:entity.shulker.ambient": 1467,
+    "minecraft:entity.cow.ambient": 450,
+    "minecraft:entity.sheep.ambient": 1442,
+    "minecraft:entity.chicken.ambient": 356,
+    "minecraft:entity.rabbit.ambient": 1353
   },
   "swing_fields": "000106"
 }

@@ -49,7 +49,9 @@ public class CombatOracle {
       "minecraft:bogged", "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
       "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish",
       // VMC-043e: the End's mobs.
-      "minecraft:shulker");
+      "minecraft:shulker",
+      // VMC-043c: farm animals.
+      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
@@ -76,6 +78,8 @@ public class CombatOracle {
     levelRegistries.add(registry(Registries.CHICKEN_SOUND_VARIANT, lookup));
     levelRegistries.add(registry(Registries.PIG_VARIANT, lookup));
     levelRegistries.add(registry(Registries.PIG_SOUND_VARIANT, lookup));
+    levelRegistries.add(registry(Registries.COW_VARIANT, lookup));
+    levelRegistries.add(registry(Registries.COW_SOUND_VARIANT, lookup));
     BuiltInRegistries.REGISTRY.forEach(r -> levelRegistries.add(r));
     Probe.access = new RegistryAccess.ImmutableRegistryAccess(levelRegistries).freeze();
     var ops = lookup.createSerializationContext(JsonOps.INSTANCE);

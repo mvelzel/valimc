@@ -2,15 +2,15 @@ defmodule Valimc.AI.Goals.Breed do
   @moduledoc """
   `BreedGoal`: in love, the nearest mob of its type within eight blocks also
   in love and not panicking is walked to and looked at; after 60 ticks
-  (30 updates) within three blocks they breed (a `{:breed, partner}`
-  effect: the offspring is VMC-043c's).
+  (30 updates) within three blocks they breed (`Valimc.Entity.Animal.breed/2`:
+  a child, an orb, both parents' age and love).
   """
   use Valimc.AI.Goal
 
   def new(speed), do: %{speed: speed * 1.0, partner: nil, love: 0}
 
   def can_use(state, self) do
-    if self.mind.in_love > 0 do
+    if self.data.in_love > 0 do
       {partner, self} = partner(self)
       {partner != nil, %{state | partner: World.ref(partner)}, self}
     else
@@ -65,7 +65,7 @@ defmodule Valimc.AI.Goals.Breed do
 
         self =
           if love >= adjusted(state, 60) and World.distance_sq(self, partner) < 9.0,
-            do: Self.effect(self, {:breed, World.ref(partner)}),
+            do: Valimc.Entity.Animal.breed(self, partner),
             else: self
 
         {%{state | love: love}, self}

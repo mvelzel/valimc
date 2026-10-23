@@ -10,5 +10,7 @@ Code.require_file("support/client.ex", __DIR__)
 :ok = Valimc.TestScope.start()
 # Groups spawn no mobs unless a test turns natural spawning on for its scope (VMC-042a).
 Application.put_env(:valimc, :natural_spawning, false)
+# Mobs' goals run unless a test turns them off for its scope (`mob_goals: false`).
+Application.put_env(:valimc, :mob_goals, true)
 # Damage/movement fixtures assert exact health. Food tests explicitly enable recovery.
 :ok = Valimc.World.Clock.configure({:natural_regeneration, false})

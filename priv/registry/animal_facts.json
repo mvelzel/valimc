@@ -1,0 +1,494 @@
+{
+  "version": "26.3",
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "animals": {
+    "minecraft:cow": {
+      "adult": [
+        1063675494,
+        1068708659,
+        1067869798
+      ],
+      "baby": [
+        1055286886,
+        1060320051,
+        1060152279
+      ],
+      "food": [
+        "minecraft:wheat"
+      ]
+    },
+    "minecraft:mooshroom": {
+      "adult": [
+        1063675494,
+        1068708659,
+        1067869798
+      ],
+      "baby": [
+        1055286886,
+        1060320051,
+        1060152279
+      ],
+      "food": [
+        "minecraft:wheat"
+      ]
+    },
+    "minecraft:pig": {
+      "adult": [
+        1063675494,
+        1063675494,
+        1061410570
+      ],
+      "baby": [
+        1055286886,
+        1055286886,
+        1053818880
+      ],
+      "food": [
+        "minecraft:beetroot",
+        "minecraft:carrot",
+        "minecraft:potato"
+      ]
+    },
+    "minecraft:sheep": {
+      "adult": [
+        1063675494,
+        1067869798,
+        1067324539
+      ],
+      "baby": [
+        1055286886,
+        1059481190,
+        1059586048
+      ],
+      "food": [
+        "minecraft:wheat"
+      ]
+    },
+    "minecraft:chicken": {
+      "adult": [
+        1053609165,
+        1060320051,
+        1059380527
+      ],
+      "baby": [
+        1050253722,
+        1053609165,
+        1049624576
+      ],
+      "food": [
+        "minecraft:beetroot_seeds",
+        "minecraft:melon_seeds",
+        "minecraft:pitcher_pod",
+        "minecraft:pumpkin_seeds",
+        "minecraft:torchflower_seeds",
+        "minecraft:wheat_seeds"
+      ]
+    },
+    "minecraft:rabbit": {
+      "adult": [
+        1056629064,
+        1058642330,
+        1058474557
+      ],
+      "baby": [
+        1047904911,
+        1053609165,
+        1053273620
+      ],
+      "food": [
+        "minecraft:carrot",
+        "minecraft:dandelion",
+        "minecraft:golden_carrot"
+      ]
+    }
+  },
+  "monsters": [
+    "minecraft:blaze",
+    "minecraft:bogged",
+    "minecraft:breeze",
+    "minecraft:cave_spider",
+    "minecraft:creaking",
+    "minecraft:creeper",
+    "minecraft:drowned",
+    "minecraft:elder_guardian",
+    "minecraft:enderman",
+    "minecraft:endermite",
+    "minecraft:evoker",
+    "minecraft:giant",
+    "minecraft:guardian",
+    "minecraft:husk",
+    "minecraft:illusioner",
+    "minecraft:parched",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:pillager",
+    "minecraft:ravager",
+    "minecraft:silverfish",
+    "minecraft:skeleton",
+    "minecraft:spider",
+    "minecraft:stray",
+    "minecraft:vex",
+    "minecraft:vindicator",
+    "minecraft:warden",
+    "minecraft:witch",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
+    "minecraft:zoglin",
+    "minecraft:zombie",
+    "minecraft:zombie_villager",
+    "minecraft:zombified_piglin"
+  ],
+  "stew_flowers": {
+    "minecraft:allium": [
+      [
+        "minecraft:fire_resistance",
+        60
+      ]
+    ],
+    "minecraft:azure_bluet": [
+      [
+        "minecraft:blindness",
+        220
+      ]
+    ],
+    "minecraft:blue_orchid": [
+      [
+        "minecraft:saturation",
+        7
+      ]
+    ],
+    "minecraft:closed_eyeblossom": [
+      [
+        "minecraft:nausea",
+        140
+      ]
+    ],
+    "minecraft:cornflower": [
+      [
+        "minecraft:jump_boost",
+        100
+      ]
+    ],
+    "minecraft:dandelion": [
+      [
+        "minecraft:saturation",
+        7
+      ]
+    ],
+    "minecraft:golden_dandelion": [
+      [
+        "minecraft:saturation",
+        7
+      ]
+    ],
+    "minecraft:lily_of_the_valley": [
+      [
+        "minecraft:poison",
+        220
+      ]
+    ],
+    "minecraft:open_eyeblossom": [
+      [
+        "minecraft:blindness",
+        220
+      ]
+    ],
+    "minecraft:orange_tulip": [
+      [
+        "minecraft:weakness",
+        140
+      ]
+    ],
+    "minecraft:oxeye_daisy": [
+      [
+        "minecraft:regeneration",
+        140
+      ]
+    ],
+    "minecraft:pink_tulip": [
+      [
+        "minecraft:weakness",
+        140
+      ]
+    ],
+    "minecraft:poppy": [
+      [
+        "minecraft:night_vision",
+        100
+      ]
+    ],
+    "minecraft:red_tulip": [
+      [
+        "minecraft:weakness",
+        140
+      ]
+    ],
+    "minecraft:torchflower": [
+      [
+        "minecraft:night_vision",
+        100
+      ]
+    ],
+    "minecraft:white_tulip": [
+      [
+        "minecraft:weakness",
+        140
+      ]
+    ],
+    "minecraft:wither_rose": [
+      [
+        "minecraft:wither",
+        140
+      ]
+    ]
+  },
+  "variants": {
+    "minecraft:cow_variant": [
+      {
+        "name": "minecraft:cold",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_cold_variant_farm_animals"
+          }
+        ]
+      },
+      {
+        "name": "minecraft:temperate",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:warm",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_warm_variant_farm_animals"
+          }
+        ]
+      }
+    ],
+    "minecraft:pig_variant": [
+      {
+        "name": "minecraft:cold",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_cold_variant_farm_animals"
+          }
+        ]
+      },
+      {
+        "name": "minecraft:temperate",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:warm",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_warm_variant_farm_animals"
+          }
+        ]
+      }
+    ],
+    "minecraft:chicken_variant": [
+      {
+        "name": "minecraft:cold",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_cold_variant_farm_animals"
+          }
+        ]
+      },
+      {
+        "name": "minecraft:temperate",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:warm",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_warm_variant_farm_animals"
+          }
+        ]
+      }
+    ]
+  },
+  "sound_variants": {
+    "minecraft:cow_sound_variant": {
+      "minecraft:classic": {
+        "ambient": "minecraft:entity.cow.ambient",
+        "hurt": "minecraft:entity.cow.hurt",
+        "death": "minecraft:entity.cow.death",
+        "step": "minecraft:entity.cow.step"
+      },
+      "minecraft:moody": {
+        "ambient": "minecraft:entity.cow_moody.ambient",
+        "hurt": "minecraft:entity.cow_moody.hurt",
+        "death": "minecraft:entity.cow_moody.death",
+        "step": "minecraft:entity.cow_moody.step"
+      }
+    },
+    "minecraft:pig_sound_variant": {
+      "minecraft:big": {
+        "adult": {
+          "ambient": "minecraft:entity.pig_big.ambient",
+          "hurt": "minecraft:entity.pig_big.hurt",
+          "death": "minecraft:entity.pig_big.death",
+          "step": "minecraft:entity.pig.step",
+          "eat": "minecraft:entity.pig_big.eat"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_pig.ambient",
+          "hurt": "minecraft:entity.baby_pig.hurt",
+          "death": "minecraft:entity.baby_pig.death",
+          "step": "minecraft:entity.baby_pig.step",
+          "eat": "minecraft:entity.baby_pig.eat"
+        }
+      },
+      "minecraft:classic": {
+        "adult": {
+          "ambient": "minecraft:entity.pig.ambient",
+          "hurt": "minecraft:entity.pig.hurt",
+          "death": "minecraft:entity.pig.death",
+          "step": "minecraft:entity.pig.step",
+          "eat": "minecraft:entity.pig.eat"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_pig.ambient",
+          "hurt": "minecraft:entity.baby_pig.hurt",
+          "death": "minecraft:entity.baby_pig.death",
+          "step": "minecraft:entity.baby_pig.step",
+          "eat": "minecraft:entity.baby_pig.eat"
+        }
+      },
+      "minecraft:mini": {
+        "adult": {
+          "ambient": "minecraft:entity.pig_mini.ambient",
+          "hurt": "minecraft:entity.pig_mini.hurt",
+          "death": "minecraft:entity.pig_mini.death",
+          "step": "minecraft:entity.pig.step",
+          "eat": "minecraft:entity.pig_mini.eat"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_pig.ambient",
+          "hurt": "minecraft:entity.baby_pig.hurt",
+          "death": "minecraft:entity.baby_pig.death",
+          "step": "minecraft:entity.baby_pig.step",
+          "eat": "minecraft:entity.baby_pig.eat"
+        }
+      }
+    },
+    "minecraft:chicken_sound_variant": {
+      "minecraft:classic": {
+        "adult": {
+          "ambient": "minecraft:entity.chicken.ambient",
+          "hurt": "minecraft:entity.chicken.hurt",
+          "death": "minecraft:entity.chicken.death",
+          "step": "minecraft:entity.chicken.step"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_chicken.ambient",
+          "hurt": "minecraft:entity.baby_chicken.hurt",
+          "death": "minecraft:entity.baby_chicken.death",
+          "step": "minecraft:entity.baby_chicken.step"
+        }
+      },
+      "minecraft:picky": {
+        "adult": {
+          "ambient": "minecraft:entity.chicken_picky.ambient",
+          "hurt": "minecraft:entity.chicken_picky.hurt",
+          "death": "minecraft:entity.chicken_picky.death",
+          "step": "minecraft:entity.chicken.step"
+        },
+        "baby": {
+          "ambient": "minecraft:entity.baby_chicken.ambient",
+          "hurt": "minecraft:entity.baby_chicken.hurt",
+          "death": "minecraft:entity.baby_chicken.death",
+          "step": "minecraft:entity.baby_chicken.step"
+        }
+      }
+    }
+  },
+  "sounds": {
+    "minecraft:entity.baby_chicken.ambient": 350,
+    "minecraft:entity.baby_chicken.death": 351,
+    "minecraft:entity.baby_chicken.hurt": 353,
+    "minecraft:entity.baby_chicken.step": 355,
+    "minecraft:entity.baby_pig.ambient": 1268,
+    "minecraft:entity.baby_pig.death": 1271,
+    "minecraft:entity.baby_pig.eat": 1269,
+    "minecraft:entity.baby_pig.hurt": 1270,
+    "minecraft:entity.baby_pig.step": 1267,
+    "minecraft:entity.chicken.ambient": 356,
+    "minecraft:entity.chicken.death": 358,
+    "minecraft:entity.chicken.egg": 352,
+    "minecraft:entity.chicken.hurt": 357,
+    "minecraft:entity.chicken.step": 354,
+    "minecraft:entity.chicken_picky.ambient": 359,
+    "minecraft:entity.chicken_picky.death": 361,
+    "minecraft:entity.chicken_picky.hurt": 360,
+    "minecraft:entity.cow.ambient": 450,
+    "minecraft:entity.cow.death": 452,
+    "minecraft:entity.cow.hurt": 451,
+    "minecraft:entity.cow.milk": 449,
+    "minecraft:entity.cow.step": 453,
+    "minecraft:entity.cow_moody.ambient": 454,
+    "minecraft:entity.cow_moody.death": 456,
+    "minecraft:entity.cow_moody.hurt": 455,
+    "minecraft:entity.cow_moody.step": 457,
+    "minecraft:entity.leash_knot.break": -1,
+    "minecraft:entity.leash_knot.place": -1,
+    "minecraft:entity.mooshroom.convert": 989,
+    "minecraft:entity.mooshroom.eat": 990,
+    "minecraft:entity.mooshroom.milk": 991,
+    "minecraft:entity.mooshroom.shear": 993,
+    "minecraft:entity.mooshroom.suspicious_milk": 992,
+    "minecraft:entity.pig.ambient": 1272,
+    "minecraft:entity.pig.death": 1274,
+    "minecraft:entity.pig.eat": 1275,
+    "minecraft:entity.pig.hurt": 1273,
+    "minecraft:entity.pig.step": 1266,
+    "minecraft:entity.pig_big.ambient": 1280,
+    "minecraft:entity.pig_big.death": 1282,
+    "minecraft:entity.pig_big.eat": 1283,
+    "minecraft:entity.pig_big.hurt": 1281,
+    "minecraft:entity.pig_mini.ambient": 1276,
+    "minecraft:entity.pig_mini.death": 1278,
+    "minecraft:entity.pig_mini.eat": 1279,
+    "minecraft:entity.pig_mini.hurt": 1277,
+    "minecraft:entity.rabbit.ambient": 1353,
+    "minecraft:entity.rabbit.attack": 1354,
+    "minecraft:entity.rabbit.death": 1355,
+    "minecraft:entity.rabbit.hurt": 1356,
+    "minecraft:entity.rabbit.jump": 1357,
+    "minecraft:entity.sheep.ambient": 1442,
+    "minecraft:entity.sheep.death": 1443,
+    "minecraft:entity.sheep.hurt": 1444,
+    "minecraft:entity.sheep.shear": 1445,
+    "minecraft:item.dye.use": 575,
+    "minecraft:item.golden_dandelion.unuse": 758,
+    "minecraft:item.golden_dandelion.use": 757,
+    "minecraft:item.lead.break": 938,
+    "minecraft:item.lead.tied": 937,
+    "minecraft:item.lead.untied": 936,
+    "minecraft:item.shears.snip": 1447
+  }
+}

@@ -77,7 +77,9 @@ defmodule Valimc.World.BlockRules do
     `{:transform, position, tool, face}` (a tool's block transformer, its
     index in `Valimc.Blocks.Transformers`, from a clicked face 0..5),
     `{:trample, position}` (farmland trampled), `{:harvest, position}`
-    (berries picked, VMC-039b), and
+    (berries picked, VMC-039b), `{:edit, position, from, to, event}` (a mob
+    eating a block, VMC-043c: `from` becomes `to`, or nil destroys it, after
+    a break event of data `event`, or nil), and
     redstone's (VMC-047a) `{:use, position, facing, may_build?}` (a
     player's use; `facing` a horizontal direction index, 2..5),
     `:contacts` (the entities' contacts), `{:daylight, position}`,
@@ -233,6 +235,11 @@ defmodule Valimc.World.BlockRules do
 
   defp pack_action({:harvest, position}),
     do: <<15, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:edit, position, from, to, event}) do
+    {to, event} = {to || 0xFFFF, event || -1}
+    <<16, pos(position)::binary, 0, 0, from::16, to::16, event::32-signed, 0::32>>
+  end
 
   defp pack_action({:use, position, facing, may_build}),
     do:

@@ -54,6 +54,10 @@
       "index": 17,
       "serializer": 3
     },
+    "age_locked": {
+      "index": 17,
+      "serializer": 8
+    },
     "ageable_baby": {
       "index": 16,
       "serializer": 8
@@ -106,6 +110,14 @@
       "index": 16,
       "serializer": 8
     },
+    "chicken_sound_variant": {
+      "index": 19,
+      "serializer": 31
+    },
+    "chicken_variant": {
+      "index": 18,
+      "serializer": 30
+    },
     "cloud_particle": {
       "index": 10,
       "serializer": 16
@@ -117,6 +129,14 @@
     "cloud_waiting": {
       "index": 9,
       "serializer": 8
+    },
+    "cow_sound_variant": {
+      "index": 19,
+      "serializer": 24
+    },
+    "cow_variant": {
+      "index": 18,
+      "serializer": 23
     },
     "creeper_ignited": {
       "index": 18,
@@ -230,6 +250,10 @@
       "index": 15,
       "serializer": 0
     },
+    "mooshroom_type": {
+      "index": 18,
+      "serializer": 1
+    },
     "no_gravity": {
       "index": 5,
       "serializer": 8
@@ -237,6 +261,18 @@
     "phantom_size": {
       "index": 16,
       "serializer": 1
+    },
+    "pig_boost_time": {
+      "index": 18,
+      "serializer": 1
+    },
+    "pig_sound_variant": {
+      "index": 20,
+      "serializer": 29
+    },
+    "pig_variant": {
+      "index": 19,
+      "serializer": 28
     },
     "piglin_baby": {
       "index": 17,
@@ -262,6 +298,10 @@
       "index": 17,
       "serializer": 1
     },
+    "rabbit_type": {
+      "index": 18,
+      "serializer": 1
+    },
     "raider_celebrating": {
       "index": 16,
       "serializer": 8
@@ -272,6 +312,10 @@
     },
     "shared_flags": {
       "index": 0,
+      "serializer": 0
+    },
+    "sheep_wool": {
+      "index": 18,
       "serializer": 0
     },
     "shulker_attach_face": {

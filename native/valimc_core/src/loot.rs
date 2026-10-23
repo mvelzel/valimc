@@ -327,13 +327,16 @@ enum EntityTarget {
 }
 
 /// The entity predicates the modelled mobs' tables use: the victim's flags
-/// and vehicle type, and enchantments on an attacker's main-hand item.
+/// and vehicle type, enchantments on an attacker's main-hand item, and the
+/// entity's own properties (VMC-043c: its components' values, a sheep's
+/// shearing) as `(name, value)` strings.
 #[derive(Debug, Default)]
 struct EntityPredicate {
     on_fire: Option<bool>,
     baby: Option<bool>,
     vehicle: Option<Vec<String>>,
     mainhand_enchantments: Option<Vec<String>>,
+    properties: Vec<(String, String)>,
 }
 
 /// An entity's death as its loot table reads it (`LootContextParamSets.ENTITY`):
@@ -349,6 +352,9 @@ pub struct Death {
     pub killed_by_player: bool,
     pub attacker: Option<Vec<(String, i32)>>,
     pub direct_attacker: Option<Vec<(String, i32)>>,
+    /// The entity's own properties its predicates read (VMC-043c):
+    /// `("minecraft:sheep/color", "white")`, `("sheep/sheared", "false")`.
+    pub properties: Vec<(String, String)>,
 }
 
 impl Death {
@@ -369,6 +375,7 @@ impl EntityPredicate {
             && self.baby.is_none()
             && self.vehicle.is_none()
             && self.mainhand_enchantments.is_none()
+            && self.properties.is_empty()
     }
 
     fn matches(&self, target: EntityTarget, death: &Death) -> bool {
@@ -384,8 +391,17 @@ impl EntityPredicate {
             },
         };
         let this = matches!(target, EntityTarget::This);
-        // Only the victim's flags and vehicle, and only attackers' items, are known.
-        if (self.on_fire.is_some() || self.baby.is_some() || self.vehicle.is_some()) && !this {
+        // Only the victim's flags, vehicle and properties, and only attackers'
+        // items, are known.
+        if (self.on_fire.is_some()
+            || self.baby.is_some()
+            || self.vehicle.is_some()
+            || !self.properties.is_empty())
+            && !this
+        {
+            return false;
+        }
+        if !self.properties.iter().all(|p| death.properties.contains(p)) {
             return false;
         }
         self.on_fire.is_none_or(|v| v == death.on_fire)
@@ -1099,6 +1115,24 @@ impl Loot {
                             }
                         }
                         predicate.mainhand_enchantments = Some(set);
+                    }
+                }
+                // An entity's component values (a sheep's colour, a variant).
+                "minecraft:components" => {
+                    for (component, v) in value.entries()? {
+                        predicate
+                            .properties
+                            .push((component.clone(), v.as_str()?.to_string()));
+                    }
+                }
+                "minecraft:type_specific/sheep" => {
+                    for (field, v) in value.entries()? {
+                        if field != "sheared" {
+                            return Err(format!("sheep predicate {field} is not implemented"));
+                        }
+                        predicate
+                            .properties
+                            .push(("sheep/sheared".into(), v.as_bool()?.to_string()));
                     }
                 }
                 other => return Err(format!("entity predicate {other} is not implemented")),

@@ -31,7 +31,8 @@ defmodule Valimc.Entity.Mob do
             equipment: %{},
             attributes: %{},
             ai: nil,
-            # `NoAI`: no goals run (`Mob.isNoAi`); it still falls and is pushed.
+            # `NoAI`: no goals run and it does not travel (`Mob.isNoAi`); it
+            # still pushes and is pushed.
             no_ai: false,
             motion: %MobMotion{},
             hurt_by_player: nil,
@@ -57,7 +58,15 @@ defmodule Valimc.Entity.Mob do
   @doc "A fresh mob of `type`: full health at its maximum."
   def new(type) do
     {:ok, health} = Health.restore(nil, max_health(type, %{}))
-    %__MODULE__{living: %Living{health: health}}
+    # A rabbit moves by hopping (VMC-043c); made at the origin, its
+    # constructor's `setSpeedModifier(0.0)` leaves its move control wanting
+    # the origin, which it turns toward first.
+    motion =
+      if type == "minecraft:rabbit",
+        do: %MobMotion{hop: MobMotion.hop(), control: {:move_to, {0.0, 0.0, 0.0}, 0.0}},
+        else: %MobMotion{}
+
+    %__MODULE__{living: %Living{health: health}, motion: motion}
   end
 
   @doc "The record a store saves."

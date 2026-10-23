@@ -10,7 +10,9 @@ defmodule Valimc.Entity.MobMotion do
   speed}`: what the AI (VMC-041a) sets each tick, as navigation sets
   `MoveControl.setWantedPosition`; `jump` is its `JumpControl.jump()` for the
   tick. `water` and `lava` are the fluid heights the last move left, and
-  `powder_snow` whether it ended inside powder snow, which the AI reads.
+  `powder_snow` whether it ended inside powder snow, which the AI reads. A
+  rabbit's `hop` (VMC-043c) keeps its hopping controls: whether it is
+  jumping, its wanted position and speeds (`RabbitMoveControl`).
   """
   alias Valimc.Living.Attributes
 
@@ -26,7 +28,8 @@ defmodule Valimc.Entity.MobMotion do
             rise: false,
             water: 0.0,
             lava: 0.0,
-            powder_snow: false
+            powder_snow: false,
+            hop: nil
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -37,9 +40,21 @@ defmodule Valimc.Entity.MobMotion do
         vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
         is_boolean(Map.get(m, :rise)) and
-        is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow)
+        is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow) and hop?(m.hop)
 
   def valid?(_), do: false
+
+  defp hop?(nil), do: true
+
+  defp hop?(%{jumping: jumping, wanted: wanted, speed: speed, next_speed: next}),
+    do:
+      is_boolean(jumping) and (wanted == nil or vector?(wanted)) and is_float(speed) and
+        is_float(next)
+
+  defp hop?(_), do: false
+
+  @doc "A rabbit's controls before its first move (`hop`)."
+  def hop, do: %{jumping: false, wanted: {0.0, 0.0, 0.0}, speed: 0.0, next_speed: 0.0}
 
   defp control?(:wait), do: true
   defp control?({:move_to, target, speed}), do: vector?(target) and is_float(speed)
@@ -53,6 +68,16 @@ defmodule Valimc.Entity.MobMotion do
   `MoveControl.setWantedPosition`: move toward `target` at `speed` times the
   movement speed; a jump in progress keeps jumping, at the new speed.
   """
+  def move_to(%__MODULE__{hop: %{} = hop} = motion, {x, y, z}, speed) do
+    # `RabbitMoveControl.setWantedPosition`: in water at 1.5, its next hop's
+    # speed kept.
+    speed = if motion.water > 0.0, do: 1.5, else: speed * 1.0
+    target = {x * 1.0, y * 1.0, z * 1.0}
+    hop = %{hop | wanted: target, speed: speed}
+    hop = if speed > 0.0, do: %{hop | next_speed: speed}, else: hop
+    move_to(%{motion | hop: nil}, target, speed) |> Map.put(:hop, hop)
+  end
+
   def move_to(%__MODULE__{control: {:jumping, _}} = motion, _target, speed),
     do: %{motion | control: {:jumping, speed * 1.0}}
 
@@ -108,9 +133,12 @@ defmodule Valimc.Entity.MobMotion do
       fall_scale: fall_scale(type),
       rise: alive and motion.rise,
       powder_snow_walkable: powder_snow_walkable?(type, mob),
-      was_powder_snow: motion.powder_snow
+      was_powder_snow: motion.powder_snow,
+      hop: hop(motion.hop, position, body)
     }
     |> Map.merge(kind_motion(type))
+    # A `NoAI` mob does not travel (`isEffectiveAi`).
+    |> then(&if(mob.no_ai, do: %{&1 | fixed: true}, else: &1))
   end
 
   @walkable MapSet.new(
@@ -135,6 +163,22 @@ defmodule Valimc.Entity.MobMotion do
   # A blaze falls slowly (`Blaze.aiStep`).
   defp fall_scale("minecraft:blaze"), do: 0.6
   defp fall_scale(_type), do: 1.0
+
+  defp hop(nil, _position, _body), do: nil
+
+  defp hop(hop, position, body) do
+    %{
+      jumping: hop.jumping,
+      wanted: hop.wanted || position,
+      speed: hop.speed,
+      next_speed: hop.next_speed,
+      path_up: Map.get(hop, :path_up, false),
+      baby: Valimc.Entity.Animal.baby?(body),
+      started: false,
+      jumped: false,
+      nav_speed: nil
+    }
+  end
 
   @doc """
   The travel attributes the kernel reads of a mob of `type` with `overrides`
@@ -177,7 +221,10 @@ defmodule Valimc.Entity.MobMotion do
       horizontal_collision: m.horizontal_collision,
       water: water,
       lava: lava,
-      powder_snow: powder_snow
+      powder_snow: powder_snow,
+      # What the hop did this tick (`started`, `jumped`, `nav_speed`) stays
+      # until the rabbit's AI settles it.
+      hop: m.hop && Map.drop(m.hop, [:path_up, :baby])
     }
 
     body = %{

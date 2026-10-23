@@ -481,6 +481,22 @@ struct MobT {
     fixed: bool,
     pushable: bool,
     pushes: bool,
+    /// A rabbit's hop (VMC-043c), or nil.
+    hop: Option<HopT>,
+}
+
+/// A rabbit's hopping controls (`valimc_core::physics::mob::Hop`).
+#[derive(rustler::NifMap)]
+struct HopT {
+    jumping: bool,
+    wanted: Vec3,
+    speed: f64,
+    next_speed: f64,
+    path_up: bool,
+    baby: bool,
+    started: bool,
+    jumped: bool,
+    nav_speed: Option<f64>,
 }
 
 /// A mob's tick: the mob after it and what its living rules read.
@@ -557,6 +573,17 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         fixed: m.fixed,
         pushable: m.pushable,
         pushes: m.pushes,
+        hop: m.hop.as_ref().map(|h| valimc_core::physics::mob::Hop {
+            jumping: h.jumping,
+            wanted: v3(h.wanted),
+            speed: h.speed,
+            next_speed: h.next_speed,
+            path_up: h.path_up,
+            baby: h.baby,
+            started: h.started,
+            jumped: h.jumped,
+            nav_speed: h.nav_speed,
+        }),
     })
 }
 
@@ -605,6 +632,17 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         fixed: m.fixed,
         pushable: m.pushable,
         pushes: m.pushes,
+        hop: m.hop.map(|h| HopT {
+            jumping: h.jumping,
+            wanted: t3(h.wanted),
+            speed: h.speed,
+            next_speed: h.next_speed,
+            path_up: h.path_up,
+            baby: h.baby,
+            started: h.started,
+            jumped: h.jumped,
+            nav_speed: h.nav_speed,
+        }),
     }
 }
 

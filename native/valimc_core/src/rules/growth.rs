@@ -709,6 +709,29 @@ impl<W: World> Engine<'_, W> {
         i32::from(self.set_block(pos, dirt, ALL, UPDATE_LIMIT))
     }
 
+    /// A mob's edit of the block at `pos` (`Action::Edit`, VMC-043c): only
+    /// while it holds `from`. Whether it changed.
+    pub fn mob_edit(
+        &mut self,
+        pos: [i32; 3],
+        from: u16,
+        to: Option<u16>,
+        event: Option<i32>,
+    ) -> i32 {
+        if !self.world.owns(pos) || self.world.get(pos) != from {
+            return 0;
+        }
+        match to {
+            Some(to) => {
+                if let Some(data) = event {
+                    self.event(pos, super::fluid::BREAK, data);
+                }
+                i32::from(self.set_block(pos, to, CLIENTS, UPDATE_LIMIT))
+            }
+            None => i32::from(self.destroy(pos, false, UPDATE_LIMIT)),
+        }
+    }
+
     /// The scheduled tick of farmland or a dirt path: one that cannot
     /// survive turns to dirt (`turnToBaseBlock`; the entities on it are not
     /// pushed up). Whether `state` is one.

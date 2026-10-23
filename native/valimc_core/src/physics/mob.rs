@@ -102,12 +102,39 @@ pub struct Mob {
     pub powder_snow_walkable: bool,
     /// Its last move ended in powder snow (`wasInPowderSnow`).
     pub was_powder_snow: bool,
-    /// It never moves and has no motion (a shulker's `getDeltaMovement`).
+    /// It never moves and has no motion (a shulker's `getDeltaMovement`; a
+    /// `NoAI` mob's, which does not travel).
     pub fixed: bool,
     /// Others push it (`isPushable`; a shulker's `push(Entity)` does nothing).
     pub pushable: bool,
     /// It pushes what it touches (`pushEntities`; a bat's does nothing).
     pub pushes: bool,
+    /// A rabbit's hopping controls (VMC-043c), or none.
+    pub hop: Option<Hop>,
+}
+
+/// A rabbit's move and jump controls (`RabbitMoveControl`,
+/// `RabbitJumpControl`, `Rabbit.getJumpPower` and `jumpFromGround`): it
+/// moves only while it hops.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Hop {
+    /// `LivingEntity.jumping`: set when a hop starts, cleared on landing or
+    /// when the hop's duration ends (the AI's part).
+    pub jumping: bool,
+    /// The move control's wanted position and speed modifier, kept while it
+    /// waits, and the speed of its next hop (`nextJumpSpeed`).
+    pub wanted: [f64; 3],
+    pub speed: f64,
+    pub next_speed: f64,
+    /// Its path's next node is more than half a block above it.
+    pub path_up: bool,
+    pub baby: bool,
+    /// Out: the jump control started a hop (`startJumping`).
+    pub started: bool,
+    /// Out: it jumped off the ground (entity event 1).
+    pub jumped: bool,
+    /// Out: the speed modifier its move control gave its navigation.
+    pub nav_speed: Option<f64>,
 }
 
 /// One tick's result: the mob after it and what its living rules read.
@@ -273,6 +300,21 @@ pub fn jump_power(strength: f64, factor: f32, jump_boost: i32) -> f32 {
     strength as f32 * 1.0 * factor + bonus
 }
 
+/// `Rabbit.getJumpPower`: 0.3 of a jump, 0.2 at a stroll, 0.5 up a step
+/// (its path's next node, a wall, or the wanted spot it jumps to).
+fn hop_power(m: &Mob, hop: &Hop, at: [f64; 3], factor: f32) -> f32 {
+    let mut base = if hop.speed <= 0.6 { 0.2_f32 } else { 0.3 };
+    if hop.path_up || m.horizontal_collision || hop.jumping && hop.wanted[1] > at[1] + 0.5 {
+        base = 0.5;
+    }
+    let bonus = if m.jump_boost < 0 {
+        0.0
+    } else {
+        0.1 * (m.jump_boost as f32 + 1.0)
+    };
+    m.attributes.jump_strength as f32 * (base / 0.42) * factor + bonus
+}
+
 /// `MoveControl.tick` then `JumpControl.tick`: the yaw, speed and forward
 /// input, the next operation and whether the mob jumps.
 pub fn control(mob: &mut Mob, block: Option<(f64, u64)>, in_liquid: bool) -> bool {
@@ -425,9 +467,49 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
     let block = feet_block(w, &m)?;
+    // A rabbit's move control picks its speed before it moves: none on the
+    // ground between hops.
+    if let Some(hop) = m.hop.as_mut() {
+        hop.started = false;
+        hop.jumped = false;
+        hop.nav_speed = None;
+        let speed = if m.on_ground && !hop.jumping && !m.jump {
+            Some(0.0)
+        } else if matches!(m.control, Control::MoveTo { .. } | Control::Jumping { .. }) {
+            Some(hop.next_speed)
+        } else {
+            None
+        };
+        if let Some(speed) = speed {
+            hop.nav_speed = Some(speed);
+            let speed = if water { 1.5 } else { speed };
+            hop.speed = speed;
+            if speed > 0.0 {
+                hop.next_speed = speed;
+            }
+            m.control = match m.control {
+                Control::Jumping { .. } => Control::Jumping { speed },
+                _ => Control::MoveTo {
+                    target: hop.wanted,
+                    speed,
+                },
+            };
+        }
+    }
     // `JumpControl.tick`: the move control's jump or the AI's. The head is
-    // the look control's (the AI's), before this tick.
-    let jumping = control(&mut m, block, water || lava) || m.jump;
+    // the look control's (the AI's), before this tick. A rabbit's starts a
+    // hop, which keeps it jumping.
+    let asked = control(&mut m, block, water || lava) || m.jump;
+    let jumping = match m.hop.as_mut() {
+        Some(hop) => {
+            if asked {
+                hop.jumping = true;
+                hop.started = true;
+            }
+            hop.jumping
+        }
+        None => asked,
+    };
     m.jump = false;
     if jumping {
         let height = if lava { depths.lava } else { depths.water };
@@ -443,9 +525,21 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
                     } else {
                         footing.feet.jump_factor
                     };
-                    let power = jump_power(m.attributes.jump_strength, factor, m.jump_boost);
+                    let power = match &m.hop {
+                        Some(hop) => hop_power(&m, hop, start, factor),
+                        None => jump_power(m.attributes.jump_strength, factor, m.jump_boost),
+                    };
                     if power > 1.0e-5 {
                         m.velocity[1] = m.velocity[1].max(power as f64);
+                    }
+                    if let Some(hop) = m.hop.as_mut() {
+                        // `Rabbit.jumpFromGround`: a standing hop pushes it on.
+                        let [vx, _, vz] = m.velocity;
+                        if hop.speed > 0.0 && vx * vx + vz * vz < 0.01 {
+                            let up = if hop.baby { 0.5 } else { 1.5 };
+                            m.velocity = add(m.velocity, input_vector([0.0, up, 1.0], 0.1, m.yaw));
+                        }
+                        hop.jumped = true;
                     }
                     m.no_jump_delay = 10;
                 }
@@ -932,6 +1026,7 @@ impl Default for Mob {
             fixed: false,
             pushable: true,
             pushes: true,
+            hop: None,
         }
     }
 }

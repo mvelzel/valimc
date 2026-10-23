@@ -466,6 +466,14 @@ defmodule Valimc.World.Region do
   def hurt_entity({pid, epoch}, uuid, hit),
     do: call(pid, {:hurt_entity, epoch, uuid, hit}, budget(pid, 1000))
 
+  @doc """
+  A player's use of an item on the animal `uuid` of a section (VMC-043c,
+  `Valimc.Entity.Animals.Interaction`): `{:ok, %{hand, swing, others}}`,
+  `:pass` or `:consume`.
+  """
+  def interact_entity({pid, epoch}, uuid, request),
+    do: call(pid, {:interact_entity, epoch, uuid, request}, budget(pid, 1000))
+
   @doc "A name tag's `name` (a text component) on the mob `uuid`: `:ok` (VMC-042a)."
   def name_entity({pid, epoch}, uuid, name),
     do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))
