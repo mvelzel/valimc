@@ -144,6 +144,20 @@ Passed in a vanilla world (seed 932992301210947215, old-growth spruce taiga):
 - `/difficulty peaceful` removed them and the sheep stayed. Spiders were
   gone at once; a zombie, a skeleton and a creeper were still selectable a
   second or two later and gone by 5 s (vanilla discards them the next tick).
+
+  This was not a deferred discard. The despawn check discards every monster
+  in a simulated chunk on the first tick in peaceful
+  (`test/natural_spawning_test.exs` checks a single tick). A write under way
+  skips the discards for a tick at most, while a planning worker runs. The
+  test client plays at `renderDistance:4`, and a player's simulation ticket
+  covers `min(simulation_distance, view distance)`, so 4 chunks. The tester
+  had teleported to each monster before `/difficulty peaceful`, and the
+  monsters that spawned there stood outside the 4 chunks around the spawn.
+  The tester then teleported to each in turn (zombie, skeleton, creeper),
+  which made its chunks simulated, and the tick after that discarded it.
+  Vanilla ticks entities within the server's simulation distance (10)
+  whatever the client renders, so it would have discarded them at once. The
+  gap is the simulation ticket's reach, not peaceful.
 - A summoned zombie stayed while the player was near; after 8 s 165 blocks
   away it was gone.
 - A name tag "Bob" used in survival named a zombie and was used up; Bob

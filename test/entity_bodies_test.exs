@@ -219,7 +219,24 @@ defmodule Valimc.EntityBodiesTest do
       end)
 
       assert run.("tp @e[type=tnt,distance=..3] ~ ~ ~2") =~ "Teleported Primed TNT"
-      assert run.("kill @e[type=zombie,distance=..3]") =~ "Killed Zombie"
+      # `name=` matches `Entity.getName()`: a name tag's name, else the type's.
+      assert run.("tp @e[name=Zombie,distance=..3] ~ ~ ~") =~ "Teleported Zombie"
+
+      [zombie] =
+        for {_, %{body: %{type: "minecraft:zombie"}} = e} <- store(ctx.owner).entries,
+            do: e.entity.uuid
+
+      :ok = Region.name_entity(ctx.owner, zombie, Valimc.Text.literal("Bob"))
+
+      Valimc.TestWait.until(fn ->
+        Enum.any?(
+          Valimc.World.bodies(:overworld),
+          &match?({_, %{uuid: ^zombie, body: %{custom_name: {:compound, _}}}}, &1)
+        )
+      end)
+
+      assert run.("kill @e[name=Zombie,distance=..3]") =~ "No entity was found"
+      assert run.("kill @e[name=Bob,distance=..3]") =~ "Killed Bob"
       assert run.("kill @e[type=!player,type=!item,distance=..5]") =~ "Killed Primed TNT"
       # The zombie is dying, not yet gone (its loot dropped); the TNT is gone.
       assert [%{kind: :mob, body: body}] =
@@ -266,7 +283,7 @@ defmodule Valimc.EntityBodiesTest do
 
       Valimc.TestWait.until(fn -> Enum.any?(ours.(), &(&1.at == {x, 64.0, z + 5.0})) end)
 
-      assert run.("kill @e[type=item,distance=..4.5]") =~ "Killed Stone"
+      assert run.("kill @e[name=Stone,distance=..6]") =~ "Killed Stone"
       assert run.("kill @e[type=experience_orb,distance=..3]") =~ "Killed Experience Orb"
       assert run.("kill @e[distance=..6]") =~ "Killed Rotten Flesh"
       assert store(ctx.owner).entries == %{}

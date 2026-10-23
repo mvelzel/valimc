@@ -86,7 +86,9 @@ defmodule Valimc.Commands.Targets do
   @doc """
   Every entity a selector picks, players and bodies (`findEntities`). A body
   is `%{kind: :body, section, type, uuid, entity_id, dimension, x, y, z, yaw,
-  pitch, alive, width, height}`, an item's also with its `item_name`.
+  pitch, alive, width, height, display, name}`: `display` is its
+  `Entity.getName()` (its custom name, else an item's name or its type's) and
+  `name` that text's plain string, what `name=` matches.
   """
   def entities(%Source{} = source, %Selector{includes_entities: false} = selector),
     do: players(source, selector)
@@ -144,9 +146,18 @@ defmodule Valimc.Commands.Targets do
         height: type.height
       }
 
-      if view.kind == :item, do: Map.put(body, :item_name, view.item_name), else: body
+      display = display(view, type)
+      Map.merge(body, %{display: display, name: Valimc.Text.Render.string(display)})
     end
   end
+
+  # `Entity.getName()`: a custom name, else an item's (`ItemEntity.getName`) or the type's.
+  defp display(%{kind: kind, body: %{custom_name: name}}, _type)
+       when kind in [:mob, :object] and name != nil,
+       do: name
+
+  defp display(%{kind: :item, item_name: name}, _type), do: name
+  defp display(_view, type), do: Valimc.Text.translatable(type.description)
 
   defp type_name(%{kind: :item}), do: "minecraft:item"
   defp type_name(%{kind: :orb}), do: "minecraft:experience_orb"

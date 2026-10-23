@@ -202,7 +202,7 @@ defmodule Valimc.NaturalSpawningTest do
     refute alive?(owner, far)
     assert alive?(owner, cow) and alive?(owner, named)
 
-    # Peaceful: every monster goes, named or not; the cow stays.
+    # Peaceful: one tick discards every monster, named or not; the cow stays.
     {_, _} = tick(owner, [{x, y, z, false, false}], %{env | difficulty: 0}, Spawning.new(), 5)
     refute alive?(owner, near) or alive?(owner, mid) or alive?(owner, named)
     assert alive?(owner, cow)
