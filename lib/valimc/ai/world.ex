@@ -42,6 +42,8 @@ defmodule Valimc.AI.World do
             players: [],
             mobs: [],
             by_type: %{},
+            # The sensed mobs of `mobs` by uuid (nil: `entity/2` scans `mobs`).
+            index: nil,
             # Mobs sensed again this tick (moved, or their own state
             # changed), over the snapshot in `mobs` (VMC-043e).
             moved: %{},
@@ -234,11 +236,18 @@ defmodule Valimc.AI.World do
   def entity(%__MODULE__{players: players}, {:player, uuid}),
     do: Enum.find(players, &(&1.uuid == uuid))
 
-  def entity(%__MODULE__{mobs: mobs, moved: moved}, {:mob, uuid}),
-    do: Map.get(moved, uuid) || Enum.find(mobs, &(&1.uuid == uuid))
+  def entity(%__MODULE__{moved: moved} = world, {:mob, uuid}) do
+    case moved do
+      %{^uuid => mob} -> mob
+      _ -> sensed(world, uuid)
+    end
+  end
 
   def entity(%__MODULE__{items: items}, {:item, uuid}), do: Enum.find(items, &(&1.uuid == uuid))
   def entity(_world, nil), do: nil
+
+  defp sensed(%__MODULE__{index: nil, mobs: mobs}, uuid), do: Enum.find(mobs, &(&1.uuid == uuid))
+  defp sensed(%__MODULE__{index: index}, uuid), do: Map.get(index, uuid)
 
   @doc "The reference a mind keeps of a sensed entity."
   def ref(%{kind: kind, uuid: uuid}), do: {kind, uuid}
@@ -438,15 +447,26 @@ defmodule Valimc.AI.World do
   list, or a predicate on the type), meeting `box`, in the section's order.
   """
   def mobs_in(%Self{world: world}, types, box) when is_list(types) do
-    case for(t <- types, list = world.by_type[t], do: list) do
+    case for(t <- types, list = Map.get(world.by_type, t), do: list) do
       [] -> []
-      [one] -> for m <- now(world, one), intersects?(box(m), box), do: m
-      _ -> for m <- mob_list(world), m.type in types, intersects?(box(m), box), do: m
+      [one] -> meeting(world, one, box, nil)
+      _ -> meeting(world, world.mobs, box, &(&1 in types))
     end
   end
 
-  def mobs_in(%Self{world: world}, select, box),
-    do: for(m <- mob_list(world), select.(m.type), intersects?(box(m), box), do: m)
+  def mobs_in(%Self{world: world}, select, box), do: meeting(world, world.mobs, box, select)
+
+  # The mobs of `mobs` whose type `keep` accepts (nil: all), as sensed now,
+  # meeting `box`: one pass that reads a moved mob from the overlay.
+  defp meeting(%__MODULE__{moved: moved}, mobs, box, keep) do
+    mobs
+    |> Enum.reduce([], fn m, acc ->
+      m = Map.get(moved, m.uuid, m)
+
+      if (keep == nil or keep.(m.type)) and intersects?(box(m), box), do: [m | acc], else: acc
+    end)
+    |> Enum.reverse()
+  end
 
   @doc "The section's mobs as sensed now, in the section's order."
   def mob_list(%__MODULE__{mobs: mobs} = world), do: now(world, mobs)

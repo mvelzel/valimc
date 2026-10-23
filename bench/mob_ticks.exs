@@ -1,9 +1,12 @@
-# VMC-015i, VMC-041a: an owner's mob phase for several hundred zombies on one
-# floor — their AI, one physics-kernel call (travel, collision, fluids,
-# climbing, pushing), the living rules and the store's steps — against the
-# 50 ms tick. The zombies stand a block apart and chase a survival player at
-# the floor's far corner, so they push each other. Usage: MIX_ENV=bench mix
-# run bench/mob_ticks.exs [ticks]
+# VMC-015i, VMC-041a: an owner's mob phase for several hundred mobs on one
+# floor — one mob at a time (VMC-043e2), its AI, its turn in the physics
+# kernel's ticker (travel, collision, fluids, climbing, pushing) and its
+# living rules, then the store's steps — against the 50 ms tick. Zombies
+# stand a block apart and chase a survival player at the floor's far corner,
+# so they push each other; `MOB_TYPE=minecraft:cow` places a herd instead,
+# every other one a calf that looks for a parent among the herd as it moved
+# this tick (the AI world's moved overlay). Usage: MIX_ENV=bench mix run
+# bench/mob_ticks.exs [ticks]
 alias Valimc.Entity.{Body, MobTicks, Store}
 
 ticks = String.to_integer(List.first(System.argv()) || "60")
@@ -18,14 +21,24 @@ view =
      <<x::signed-32, y::signed-32, z::signed-32, if(y == 63, do: stone, else: air)::16>>
    end}
 
+type = System.get_env("MOB_TYPE") || "minecraft:zombie"
+herd = type != "minecraft:zombie"
+name = type |> String.replace_prefix("minecraft:", "") |> Kernel.<>("s")
+
 run = fn count ->
   side = ceil(:math.sqrt(count))
-  {:ok, zombie} = Body.new("minecraft:zombie")
+  {:ok, adult} = Body.new(type)
 
   {store, _} =
     Enum.reduce(0..(count - 1), {Store.new(), 0}, fn n, {store, _} ->
       position = {8.5 + rem(n, side) * 1.0, 64.0, 8.5 + div(n, side) * 1.0}
-      record = Store.body_record(zombie, <<n + 1::128>>, position)
+
+      body =
+        if herd and rem(n, 2) == 1,
+          do: %{adult | data: %{adult.data | age: -24_000}},
+          else: adult
+
+      record = Store.body_record(body, <<n + 1::128>>, position)
       {:ok, store, _} = Store.create_record(store, {0, 0}, record)
       {store, n}
     end)
@@ -88,7 +101,7 @@ run = fn count ->
   total = median.(Enum.map(samples, fn {k, a} -> k + a end))
 
   IO.puts(
-    "#{count} zombies: #{Float.round(total / 1000, 2)} ms a tick " <>
+    "#{count} #{name}: #{Float.round(total / 1000, 2)} ms a tick " <>
       "(AI, kernel and living rules #{Float.round(kernel / 1000, 2)} ms, store steps " <>
       "#{Float.round(applied / 1000, 2)} ms; #{Float.round(total / count, 1)} µs a mob; " <>
       "#{Float.round(total / 50_000 * 100, 1)}% of a 50 ms tick)"
@@ -104,4 +117,5 @@ counts =
 
 results = Enum.map(counts, run)
 File.mkdir_p!("bench/results")
-File.write!("bench/results/mob-ticks.json", JSON.encode!(results))
+suffix = if herd, do: "-" <> String.replace_prefix(type, "minecraft:", ""), else: ""
+File.write!("bench/results/mob-ticks#{suffix}.json", JSON.encode!(results))

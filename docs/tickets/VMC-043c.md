@@ -63,11 +63,9 @@ ambient sound; tests that move mobs alone turn goals off per scope with
 `mob_goals: false`), float `0.2F` in voice pitches, `mob_griefing` now
 reaches the AI.
 
-**Not exact by design**: ValiMC's AI reads every mob of a section as the tick
-began (one kernel call per section), where vanilla's later mob reads earlier
-ones after they moved; animals reading moving animals (a calf following a
-walking parent, two walking partners) can differ by that tick. A
-sequential-tick kernel session is the fix (follow-up).
+Animals reading moving animals (a calf following a walking parent, two
+walking partners) read them where they moved this tick, as vanilla does;
+see VMC-043c4.
 
 Checks: stage `animal_facts` (`AnimalOracle facts`); stage `animals`
 (`AnimalOracle cases`, `scripts/check_animals.exs`): 7,248 ticks of 12
@@ -170,3 +168,36 @@ a cow and walk: it follows and the lead stretches and pulls; use a fence:
 the cow is tied to a knot; use the knot to take it back; run off past 12
 blocks: the lead breaks with its sound and drops; shears on a leashed sheep
 snip the lead.
+
+## VMC-043c4 — animals read moving animals (October 23, 2026)
+
+043c1 recorded a one-tick lag: a section's mobs read each other as the tick
+began. VMC-043e2's in-order tick removed it (`MobTicks.steps/4`: each mob
+thinks, travels in the section's kernel ticker and pushes before the next
+thinks; `AI.resense_entry/3` puts the moved mob in the AI world's overlay,
+which `World.entity/2`, `mobs_in/3`, `mob_list/1` and `mobs_of/2` read).
+The kernel work stays one ticker resource per section and tick, so nothing
+was batched away.
+
+The in-order reads had a quadratic cost: `World.entity/2` found a mob by
+scanning the section's list, and `resense_entry/3` calls it for every mob
+after it moves. The AI world now indexes its sensed mobs by uuid (`index`,
+built in `AI.prepare/2`; a world built without one still scans), and
+`mobs_in/3` reads the overlay in its one pass over the candidates instead
+of first rebuilding the whole list. `bench/mob_ticks.exs` gained a herd
+(`MOB_TYPE=minecraft:cow`, every other one a calf looking for a parent).
+
+The animal scenes now cover it: `calf_follow_walking`
+(a wandering parent ticks before its calf, which follows it) and
+`cow_breed_walking` (two cows with goals, both in love, walk to each other
+and breed at tick 57, then the calf ticks with them). With the overlay
+switched off, the calf scene differs at tick 218 (it loses its parent) and
+the breeding one at tick 5 (a partner's head), so the scenes catch the lag.
+`AnimalOracle cases` no longer avoids animals that read moving animals.
+
+Checks: stage `animals`: 11,948 ticks of 22 scenes equal vanilla's (with
+VMC-044a3's cats), with the breedings, spawns and drops. Stages `mob_ai`,
+`nether_mobs`, `hostile_ai`, `mob_travel`, `paths`, `hostile_spawns` and
+`shulker_bullets` pass; the mob, animal, villager and AI ExUnit files pass
+(38 tests). Cost of the in-order tick: see [performance](../performance.md)
+(mob travel).

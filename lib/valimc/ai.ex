@@ -1,15 +1,18 @@
 defmodule Valimc.AI do
   @moduledoc """
   Mob AI (VMC-041a), run by the owning group once per section per tick,
-  never as a process per mob. Before the physics kernel moves a section's
-  mobs, `think/2` runs each living mob's part of vanilla's tick in id order:
-  `checkDespawn`'s idle reset near a player, `tickCount`, the expiry of who
-  hurt it, `Mob.baseTick`'s ambient sound, a monster's idle time in light,
-  and `Mob.serverAiStep`: its target and goal selectors (`Valimc.AI.Selector`:
+  never as a process per mob. `Valimc.Entity.MobTicks` ticks a section's
+  mobs one at a time in id order, as vanilla's level does; before a mob
+  moves, `think_mob/4` runs its part of vanilla's tick: `checkDespawn`'s
+  idle reset near a player, `tickCount`, the expiry of who hurt it,
+  `Mob.baseTick`'s ambient sound, a monster's idle time in light, and
+  `Mob.serverAiStep`: its target and goal selectors (`Valimc.AI.Selector`:
   a full update on alternate ticks by its id, otherwise only goals updated
   every tick), its navigation and its look control. The kernel then runs the
   move and jump controls with what the AI set; `settle/2` runs the body
-  rotation control and an animal's age after the move.
+  rotation control and an animal's age after the move, and
+  `resense_entry/3` shows the moved mob to the mobs after it (`think/2`
+  thinks a section's mobs without moving them).
 
   Each mob's random is its own and deterministic (`Valimc.AI.Random`,
   seeded from its uuid and saved), so a mob draws what vanilla's would.
@@ -184,7 +187,15 @@ defmodule Valimc.AI do
   def prepare(mobs, %World{} = world) do
     mobs = Enum.map(mobs, fn {id, entry} -> {id, ensure(entry, world)} end)
     sensed = Enum.map(mobs, &sensed/1)
-    world = %{world | mobs: sensed, by_type: Enum.group_by(sensed, & &1.type), moved: %{}}
+
+    world = %{
+      world
+      | mobs: sensed,
+        by_type: Enum.group_by(sensed, & &1.type),
+        index: Map.new(sensed, &{&1.uuid, &1}),
+        moved: %{}
+    }
+
     order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
     {mobs, early, world} = react(mobs, order, world)
     {mobs, world, %{order: order, changes: %{}, early: early}}

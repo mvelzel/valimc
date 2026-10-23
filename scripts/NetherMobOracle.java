@@ -57,9 +57,8 @@ public class NetherMobOracle {
     cases.add(MobAiOracle.run(level, "piglin_retaliate", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(-2.5, 64, 3.5), 90, 97L, sword),
       new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 89L, sword)),
       List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, -5.5), "survival", null, "minecraft:golden_helmet")), List.of(new MobAiOracle.Hit(20, 0, 1, 1.0F)), 200));
-    // A baby hit runs from the player; the adult takes up its anger. (The
-    // adult ticks first: a mob reads the others where they stood as the
-    // section's tick began, VMC-041a.)
+    // A baby hit runs from the player; the adult, ticking first, takes up
+    // its anger.
     cases.add(MobAiOracle.run(level, "piglin_baby_hit", floor, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(-3.5, 64, 2.5), 0, 103L, sword),
       new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 101L, Map.of("baby", true))),
       List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, -3.5), "survival", null, "minecraft:golden_helmet")), List.of(new MobAiOracle.Hit(30, 0, 1, 1.0F)), 200));

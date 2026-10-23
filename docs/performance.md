@@ -206,7 +206,17 @@ spread afterwards is machine noise or added contention; the six files alone also
 varied, 4.7–12.3 s async across five runs. Raw logs stay in
 `.local/perf/test-suite-split/`.
 
-[Mob travel](tickets/VMC-015i.md) (`bench/mob_ticks.exs`, zombies walking and
-pushing on a floor, medians of 60 ticks at host load about 40): a section's
-whole mob phase takes 8.3 ms a tick for 300 zombies and 17.2 ms for 600,
-about 28 µs a mob.
+[Mob travel](tickets/VMC-015i.md) (`bench/mob_ticks.exs`, medians of 60
+ticks under `MIX_ENV=bench` at host load 40–60): a section's mobs tick one
+at a time in one kernel ticker, so a later mob reads earlier ones where they
+moved ([VMC-043c4](tickets/VMC-043c.md)).
+For zombies walking and pushing on a floor (no mob reads another) the whole
+phase takes 17.7–20.8 ms a tick for 300 and 33.8–40.4 ms for 600, about
+60 µs a mob. A herd of cows, every other one a calf that looks for a parent
+among the herd (`MOB_TYPE=minecraft:cow`), costs more because each calf's
+search scans every cow of its section: in an interleaved A/B (raw output in
+`.local/perf/vmc-043c-sequential/`), indexing the sensed mobs by uuid took
+300 cows from 49–102 to 34–45 ms a tick and 600 from 127–187 to 106–119 ms.
+That scan is linear per search, quadratic per herd; vanilla reads entity
+sections instead, and a spatial index over the sensed mobs is the next step
+before herds of hundreds fit a 50 ms tick.

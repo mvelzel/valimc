@@ -16,7 +16,7 @@ alias Valimc.Entity.{Animal, Body, MobTicks}
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
-unless length(cases) >= 16, do: raise("Incomplete animal traces")
+unless length(cases) >= 22, do: raise("Incomplete animal traces")
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)

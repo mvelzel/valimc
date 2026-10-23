@@ -503,10 +503,8 @@ public class AnimalOracle {
     for (int x = -3; x <= 3; x += 2) for (int z = -3; z <= 3; z += 2) tufts.add(new MobAiOracle.Block(x, 64, z, shortGrass));
     var creative = List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, 4.5), "creative", null));
     var cases = new JsonArray();
-    // Mobs here tick one after another, each reading those before it as
-    // they moved this tick; ValiMC's AI reads every mob as the tick began
-    // (one kernel call per section). An animal with an AI therefore only
-    // reads animals that stand still (no AI) or none.
+    // Mobs tick one after another, each reading those before it as they
+    // moved this tick (ValiMC's owner ticks them the same way).
     // Each animal wanders over its ground and looks at a creative player now and then.
     cases.add(run(level, "cow_wander", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 5L)), creative, List.of(), 600));
     cases.add(run(level, "mooshroom_wander", MobAiOracle.floor(63, 12, mycelium),
@@ -544,6 +542,14 @@ public class AnimalOracle {
     // love runs out with its hearts.
     cases.add(run(level, "calf_follow", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 15L, -2000, Map.of()),
         new Beast("minecraft:cow", new Vec3(6.5, 64, 4.5), 0, 16L, 0, Map.of("no_ai", true))), creative, List.of(), 400));
+    // Animals reading animals that move this tick: a calf follows its
+    // wandering parent, which ticks before it; two cows in love walk to each
+    // other and breed.
+    cases.add(run(level, "calf_follow_walking", meadow, List.of(new Beast("minecraft:cow", new Vec3(6.5, 64, 4.5), 0, 17L),
+        new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 18L, -2000, Map.of())), creative, List.of(), 600));
+    cases.add(run(level, "cow_breed_walking", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 19L),
+        new Beast("minecraft:cow", new Vec3(5.5, 64, 3.5), 180, 20L)), creative,
+        List.of(new Act(0, 0, "love"), new Act(0, 1, "love")), 200));
     cases.add(run(level, "piglet_grow", meadow, List.of(new Beast("minecraft:pig", new Vec3(.5, 64, .5), 0, 23L, -100, Map.of())), creative,
         List.of(new Act(10, 0, "feed"), new Act(30, 0, "feed")), 200));
     cases.add(run(level, "cow_love", meadow, List.of(new Beast("minecraft:cow", new Vec3(.5, 64, .5), 0, 24L)), creative,

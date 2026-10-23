@@ -1165,9 +1165,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Mobs travel in the entity phase (VMC-015i): one kernel call for the
-  # section's simulated mobs and their living rules; each step lands here, in
-  # a sibling section in the same commit, or in another group by the handoff.
+  # Mobs travel in the entity phase (VMC-015i): the section's simulated mobs
+  # tick one at a time in one kernel ticker (VMC-043e2), with their living
+  # rules; each step lands here, in a sibling section in the same commit, or
+  # in another group by the handoff.
   defp move_mobs(state) do
     store = state.entities.store
 

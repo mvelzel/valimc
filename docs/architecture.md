@@ -251,11 +251,14 @@ was sent to.
   their own records; every other type is a body (`Entity.Body`, VMC-043a), one
   schema for living types (`:mob`, whose `Entity.Mob` holds its
   `Valimc.Living` state, equipment, attribute overrides, AI slot and travel
-  state) and the rest (`:object`). Mobs travel in the entity phase, all of a
-  section's in one kernel call, and their living rules (`Entity.MobVitals`)
-  follow the player's. Before that call the AI context (`Valimc.AI`,
-  VMC-041a) runs each living mob's part of vanilla's tick in id order: its
-  goal and target selectors, navigation, a brain mob's brain (memories,
+  state) and the rest (`:object`). Mobs tick in the entity phase one at a
+  time in id order, as vanilla's level ticks them (`Entity.MobTicks`): each
+  thinks, travels and pushes in the section's kernel ticker (one resource
+  holding the view, the mobs' motion and the push grid for the tick) and
+  runs its living rules (`Entity.MobVitals`, the player's) before the next
+  thinks, so a later mob reads earlier ones where they moved (the AI
+  world's moved overlay). Its think (`Valimc.AI`, VMC-041a) is its part of
+  vanilla's tick: its goal and target selectors, navigation, a brain mob's brain (memories,
   sensors, activities, behaviours) and look control, over what the owner
   hands it (the group's players, the section's mobs and items, published
   blocks, the section's level random); the kernel runs the move and jump
