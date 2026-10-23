@@ -55,6 +55,10 @@ pub trait World: BlockAccess {
     /// Whether the call since `mark` read a cell the owner does not hold; if
     /// so, what it scheduled since is dropped.
     fn crossed(&mut self, mark: usize) -> bool;
+    /// The sky light at `pos` (daylight detectors).
+    fn sky_light(&mut self, _pos: [i32; 3]) -> i32 {
+        15
+    }
 }
 
 pub(super) enum Update {
@@ -104,6 +108,12 @@ pub struct Report {
     pub over_budget: bool,
     /// Level events: position, event type and data (a fizz, a broken block).
     pub events: Vec<([i32; 3], i32, i32)>,
+    /// Sounds played (VMC-047a).
+    pub sounds: Vec<super::components::Sound>,
+    /// Block events (`Level.blockEvent`): position, block and its two values.
+    pub block_events: Vec<([i32; 3], u16, i32, i32)>,
+    /// Cells whose TNT primed.
+    pub primed: Vec<[i32; 3]>,
 }
 
 pub struct Engine<'r, W: World> {
@@ -115,6 +125,8 @@ pub struct Engine<'r, W: World> {
     max_chained: u64,
     budget: u64,
     pub options: super::fluid::Options,
+    /// What redstone reads beyond the cells (VMC-047a).
+    pub redstone: super::components::Redstone,
     pub report: Report,
 }
 
@@ -129,6 +141,7 @@ impl<'r, W: World> Engine<'r, W> {
             max_chained: MAX_CHAINED,
             budget: u64::MAX,
             options: super::fluid::Options::default(),
+            redstone: super::components::Redstone::default(),
             report: Report::default(),
         }
     }
@@ -162,12 +175,29 @@ impl<'r, W: World> Engine<'r, W> {
         }
     }
 
-    /// A dependent block's scheduled tick: it breaks if it cannot survive.
+    /// A block's scheduled tick for the block of `state`, which runs with
+    /// the cell's state if it still holds that block: a redstone
+    /// component's, a bubble column's, or a dependent block's (it breaks if
+    /// it cannot survive).
     pub fn tick(&mut self, pos: [i32; 3], state: u16) {
-        if !self.world.owns(pos) || self.world.get(pos) != state {
+        let table = self.rules.table.as_ref();
+        let block = table.block_of(state);
+        if let Some(i) = self
+            .redstone
+            .due
+            .iter()
+            .position(|&due| due == (pos, block))
+        {
+            self.redstone.due.remove(i);
+        }
+        if !self.world.owns(pos) {
             return;
         }
-        if self.bubble_tick(pos, state) {
+        let state = self.world.get(pos);
+        if table.block_of(state) != block {
+            return;
+        }
+        if self.component_tick(pos, state) || self.bubble_tick(pos, state) {
             return;
         }
         let mark = self.world.begin();
@@ -426,8 +456,9 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `NeighborUpdater.executeUpdate`: the block at `pos` hears that a
-    /// neighbour of kind `block` changed. Redstone wire and liquids react.
-    fn neighbor_changed(&mut self, pos: [i32; 3], _block: u16) {
+    /// neighbour of kind `block` changed. Redstone wire, liquids and the
+    /// redstone components react.
+    fn neighbor_changed(&mut self, pos: [i32; 3], block: u16) {
         if !self.world.owns(pos) {
             self.report.stopped += 1;
             return;
@@ -437,6 +468,8 @@ impl<'r, W: World> Engine<'r, W> {
             self.wire_neighbor_changed(pos, state);
         } else if self.rules.table.flag(state, LIQUID_BLOCK) {
             self.liquid_changed(pos, state);
+        } else {
+            self.component_neighbor_changed(pos, state, block);
         }
     }
 }

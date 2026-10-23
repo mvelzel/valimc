@@ -45,17 +45,20 @@ pub struct Options {
     pub water_evaporates: bool,
     pub water_conversion: bool,
     pub lava_conversion: bool,
+    /// The `tnt_explodes` game rule (VMC-047a: TNT that power primes).
+    pub tnt_explodes: bool,
 }
 
 impl Options {
     /// From the NIF's flag bits: fast lava, evaporating water, water and lava
-    /// source conversion.
+    /// source conversion, TNT exploding.
     pub fn from_bits(bits: u32) -> Options {
         Options {
             fast_lava: bits & 1 != 0,
             water_evaporates: bits & 2 != 0,
             water_conversion: bits & 4 != 0,
             lava_conversion: bits & 8 != 0,
+            tnt_explodes: bits & 16 != 0,
         }
     }
 }

@@ -34,6 +34,8 @@ mod player;
 #[cfg(feature = "parity")]
 mod player_parity;
 mod projectile;
+#[cfg(feature = "parity")]
+mod redstone_parity;
 mod region;
 mod rules;
 mod snapshot;

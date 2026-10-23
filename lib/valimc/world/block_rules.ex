@@ -54,7 +54,8 @@ defmodule Valimc.World.BlockRules do
       "shapes" => Worldgen.fact("shapes"),
       "live_support" => Valimc.Data.Facts.read!("physics/support.json"),
       "fluids" => Valimc.Blocks.Fluids.native_facts(),
-      "placement" => Valimc.Data.Facts.read!("physics/placement.json")
+      "placement" => Valimc.Data.Facts.read!("physics/placement.json"),
+      "redstone" => Valimc.Data.Facts.read!("physics/redstone.json")
     }
   end
 
@@ -67,18 +68,32 @@ defmodule Valimc.World.BlockRules do
   - `actions`: `{:empty, position, fluid, retry, secondary}` (a bucket of a
     fluid source poured, then at `retry` or nil), `{:pickup, position}` (a
     bucket filled), `{:post, position}` (a post-processing mark),
-    `{:random_tick, position, fire?}` (a lava cell's random tick);
-  - `ticks`: dependent blocks' due ticks, `[{position, state}]`;
+    `{:random_tick, position, fire?}` (a lava cell's random tick), and
+    redstone's (VMC-047a) `{:use, position, facing, may_build?}` (a
+    player's use; `facing` a horizontal direction index, 2..5),
+    `:contacts` (the entities' contacts), `{:daylight, position}`,
+    `{:page, position}`, `{:hit, position, power, arrow?}`,
+    `{:hook_placed, position}`, `{:disarm, position}`;
+  - `ticks`: due block ticks, `[{position, state}]` (a tick runs while the
+    cell holds that state's block);
   - `fluid_ticks`: due fluid ticks, `[{position, fluid}]`;
-  - `options`: the fluid settings' bits (`Valimc.Blocks.Fluids.options/3`).
+  - `options`: the level settings' bits (`Valimc.Blocks.Fluids.options/3`, and 16
+    for the `tnt_explodes` game rule);
+  - `redstone`: `%{time:, sky_darken:, sun_angle:, toggles: [{position,
+    when}], entities: [{min, max, kind}], pending: [{position, block}]}`
+    (`kind` `:other`, `:living` or `:arrow`; `pending` the owner's pending
+    ticks the run may ask about).
 
   Returns `%{changes: [{position, state}], destroyed: [{position, state,
   drops?, effects?}], ticks: [{position, block, delay}], fluid_ticks:
   [{position, fluid, delay}], events: [{position, type, data}], results:
-  [integer], stopped: n, skipped: n, updates: n}` (`effects?`: it breaks
-  with particles and sound; `results`: one per action, see
-  `live::Outcome::results`; the counts: updates dropped at the group's edge,
-  past the chain limit and run); storage is not changed.
+  [integer], sounds: [{{x, y, z}, sound, volume, pitch, actor?}],
+  block_events: [{position, block, b0, b1}], primed: [position], toggles:
+  [{position, when}], stopped: n, skipped: n, updates: n}` (`effects?`: it
+  breaks with particles and sound; `results`: one per action, see
+  `live::Outcome::results`; `sound` an index into
+  `Valimc.Blocks.Redstone.sounds/0`; the counts: updates dropped at the
+  group's edge, past the chain limit and run); storage is not changed.
   """
   def run(%Valimc.World.Blocks{ref: ref}, siblings, input, absent) do
     changes = Map.get(input, :changes, %{})
@@ -102,10 +117,13 @@ defmodule Valimc.World.BlockRules do
       for(action <- actions, into: <<>>, do: pack_action(action)),
       absent,
       :rand.uniform(1 <<< 62),
-      Map.get(input, :options, 0)
+      Map.get(input, :options, 0),
+      pack_redstone(Map.get(input, :redstone))
     ]
 
-    {:ok, {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates}}} =
+    {:ok,
+     {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates},
+      {sounds, block_events, primed, toggles}}} =
       case Native.dispatch(:block_updates, units, args) do
         # A cascade past the normal scheduler's budget runs again, dirty.
         {:error, :too_large} -> apply(Native, :block_updates_dirty, args)
@@ -137,6 +155,24 @@ defmodule Valimc.World.BlockRules do
           do: {{x, y, z}, type, data}
         ),
       results: results,
+      sounds:
+        for(
+          <<x::float-64, y::float-64, z::float-64, sound::16, volume::float-32, pitch::float-32,
+            actor::8 <- sounds>>,
+          do: {{x, y, z}, sound, volume, pitch, actor == 1}
+        ),
+      block_events:
+        for(
+          <<x::32-signed, y::32-signed, z::32-signed, block::16, b0::32-signed,
+            b1::32-signed <- block_events>>,
+          do: {{x, y, z}, block, b0, b1}
+        ),
+      primed: for(<<x::32-signed, y::32-signed, z::32-signed <- primed>>, do: {x, y, z}),
+      toggles:
+        for(
+          <<x::32-signed, y::32-signed, z::32-signed, at::64-signed <- toggles>>,
+          do: {{x, y, z}, at}
+        ),
       stopped: stopped,
       skipped: skipped,
       updates: updates
@@ -157,7 +193,54 @@ defmodule Valimc.World.BlockRules do
   defp pack_action({:random_tick, position, fire}),
     do: <<3, pos(position)::binary, 0, if(fire, do: 1, else: 0), pos({0, 0, 0})::binary>>
 
+  defp pack_action({:use, position, facing, may_build}),
+    do:
+      <<4, pos(position)::binary, facing, if(may_build, do: 1, else: 0), pos({0, 0, 0})::binary>>
+
+  defp pack_action(:contacts), do: <<5, pos({0, 0, 0})::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:daylight, position}),
+    do: <<6, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:page, position}),
+    do: <<7, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:hit, position, power, arrow}),
+    do: <<8, pos(position)::binary, power, if(arrow, do: 1, else: 0), pos({0, 0, 0})::binary>>
+
+  defp pack_action({:hook_placed, position}),
+    do: <<9, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
+  defp pack_action({:disarm, position}),
+    do: <<10, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
+
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
+
+  # The redstone context (`rules.rs`'s `context`); none packs empty.
+  defp pack_redstone(nil), do: <<>>
+
+  defp pack_redstone(context) do
+    toggles = Map.get(context, :toggles, [])
+    entities = Map.get(context, :entities, [])
+    pending = Map.get(context, :pending, [])
+
+    <<Map.get(context, :time, 0)::64-signed, Map.get(context, :sky_darken, 0)::32-signed,
+      Map.get(context, :sun_angle, 0.0)::float-32, length(toggles)::32,
+      for({p, at} <- toggles, into: <<>>, do: <<pos(p)::binary, at::64-signed>>)::binary,
+      length(entities)::32,
+      for(
+        {{x0, y0, z0}, {x1, y1, z1}, kind} <- entities,
+        into: <<>>,
+        do:
+          <<x0::float-64, y0::float-64, z0::float-64, x1::float-64, y1::float-64, z1::float-64,
+            entity_kind(kind)>>
+      )::binary, length(pending)::32,
+      for({p, block} <- pending, into: <<>>, do: <<pos(p)::binary, block::16>>)::binary>>
+  end
+
+  defp entity_kind(:living), do: 1
+  defp entity_kind(:arrow), do: 2
+  defp entity_kind(_), do: 0
 
   @doc """
   What placing `item` at `position` writes (VMC-029d), read with `siblings`

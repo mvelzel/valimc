@@ -152,7 +152,7 @@ impl RedstoneWire {
     }
 
     /// `getConnectionState`.
-    fn connection_state(
+    pub(crate) fn connection_state(
         &self,
         table: &BlockTable,
         read: &mut dyn FnMut([i32; 3]) -> u16,

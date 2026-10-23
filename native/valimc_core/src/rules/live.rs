@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::components::{EntityBox, Used};
 use super::fluid::{Emptied, Options};
 use super::updater::{Engine, Report, World, ALL, UPDATE_LIMIT};
 use super::{BlockAccess, Rules};
@@ -28,8 +29,11 @@ pub struct Outcome {
     pub fluid_ticks: Vec<([i32; 3], u8, i32)>,
     /// Per action, its result: a bucket's `Emptied` (0 failed, 1 placed, 2
     /// evaporated), a pickup's item index + 1 (0: none), a post-processing
-    /// mark's 1 (done) or 0 (it read past the owner: keep it).
+    /// mark's 1 (done) or 0 (it read past the owner: keep it), a use's 1
+    /// (used) or 0 (passed on); 0 for the others.
     pub results: Vec<i32>,
+    /// The redstone torches' recent toggles after the run.
+    pub toggles: Vec<([i32; 3], i64)>,
     pub report: Report,
 }
 
@@ -51,6 +55,30 @@ pub enum Action {
     /// A random tick of a lava cell; `fire`: a player is near enough for its
     /// fire to spread.
     RandomTick { pos: [i32; 3], fire: bool },
+    /// A player's use of the block at `pos` (`useWithoutItem`, VMC-047a),
+    /// facing horizontal direction `facing`, allowed to build or not.
+    Use {
+        pos: [i32; 3],
+        facing: usize,
+        may_build: bool,
+    },
+    /// The run's entities' contacts with the plates, buttons and tripwire
+    /// they touch (`entityInside`).
+    Contacts,
+    /// A daylight detector's update.
+    Daylight { pos: [i32; 3] },
+    /// A lectern's page turned.
+    Page { pos: [i32; 3] },
+    /// A projectile's hit on a target block, of `power`, an arrow's or not.
+    Hit {
+        pos: [i32; 3],
+        power: i32,
+        arrow: bool,
+    },
+    /// A player placed the tripwire hook at `pos` (`setPlacedBy`).
+    HookPlaced { pos: [i32; 3] },
+    /// A player with shears is breaking the tripwire at `pos`.
+    Disarm { pos: [i32; 3] },
 }
 
 /// One run's input.
@@ -64,6 +92,20 @@ pub struct Input<'a> {
     /// Due fluid ticks: position and fluid.
     pub fluid_ticks: &'a [([i32; 3], u8)],
     pub options: Options,
+    /// The owner's pending block ticks the run may ask about (position,
+    /// block), beside those it schedules.
+    pub pending: &'a [([i32; 3], u16)],
+    /// The entities redstone's contacts and checks see.
+    pub entities: &'a [EntityBox],
+    /// The game time, and the torches' recent toggles.
+    pub time: i64,
+    pub toggles: &'a [([i32; 3], i64)],
+    /// `skyDarken` and `SUN_ANGLE` (degrees) for daylight detectors.
+    pub sky_darken: i32,
+    pub sun_angle: f32,
+    /// One sky light for every cell instead of the stores' (parity scenes,
+    /// whose stores hold no light).
+    pub sky: Option<i32>,
 }
 
 struct Live<'s> {
@@ -81,6 +123,8 @@ struct Live<'s> {
     /// a tick scheduled meanwhile for one of them is dropped, as vanilla's
     /// fluid `LevelTicks` still holds it then.
     held: HashSet<([i32; 3], u8)>,
+    pending: &'s [([i32; 3], u16)],
+    sky: Option<i32>,
     crossed: bool,
     random: &'s mut Random,
 }
@@ -124,16 +168,26 @@ impl BlockAccess for Live<'_> {
         self.fluid_ticks.push((pos, fluid, delay));
     }
 
-    /// Ticks this run scheduled; the owner's earlier ticks are not visible.
+    /// Ticks this run scheduled, and those of the owner's it was given.
     fn has_block_tick(&mut self, pos: [i32; 3], block: u16) -> bool {
-        self.block_ticks
-            .iter()
-            .any(|&(p, b, _)| p == pos && b == block)
+        self.pending.contains(&(pos, block))
+            || self
+                .block_ticks
+                .iter()
+                .any(|&(p, b, _)| p == pos && b == block)
     }
 
     /// The level random's (a legacy random, as `RandomSource.create`'s).
     fn next_int(&mut self, bound: i32) -> i32 {
         self.random.next_int_bounded(bound)
+    }
+
+    fn next_float(&mut self) -> f32 {
+        self.random.next_float()
+    }
+
+    fn next_double(&mut self) -> f64 {
+        self.random.next_double()
     }
 }
 
@@ -165,6 +219,15 @@ impl World for Live<'_> {
         }
         self.crossed
     }
+
+    fn sky_light(&mut self, pos: [i32; 3]) -> i32 {
+        if let Some(sky) = self.sky {
+            return sky;
+        }
+        self.store((pos[0] >> 4, pos[2] >> 4))
+            .and_then(|store| store.light_at(pos[0], pos[1], pos[2]))
+            .map_or(0, |(sky, _)| sky as i32)
+    }
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
@@ -189,12 +252,20 @@ pub fn run(
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
         held: input.fluid_ticks.iter().copied().collect(),
+        pending: input.pending,
+        sky: input.sky,
         crossed: false,
         random,
     };
     let mut engine = Engine::new(rules, world)
         .with_budget(budget.unwrap_or(u64::MAX))
         .with_options(input.options);
+    engine.redstone.time = input.time;
+    engine.redstone.toggles = input.toggles.to_vec();
+    engine.redstone.entities = input.entities.to_vec();
+    engine.redstone.sky_darken = input.sky_darken;
+    engine.redstone.sun_angle = input.sun_angle;
+    engine.redstone.tnt_explodes = input.options.tnt_explodes;
     for &(pos, old) in input.changes {
         engine.changed(pos, old, ALL, UPDATE_LIMIT);
     }
@@ -202,6 +273,35 @@ pub fn run(
     let mut results = Vec::with_capacity(input.actions.len());
     for action in input.actions {
         results.push(match *action {
+            Action::Use {
+                pos,
+                facing,
+                may_build,
+            } => i32::from(engine.use_block(pos, facing, may_build) == Used::Used),
+            Action::Contacts => {
+                engine.contacts();
+                0
+            }
+            Action::Daylight { pos } => {
+                engine.daylight_tick(pos);
+                0
+            }
+            Action::Page { pos } => {
+                engine.page_turned(pos);
+                0
+            }
+            Action::Hit { pos, power, arrow } => {
+                engine.target_hit(pos, power, arrow);
+                0
+            }
+            Action::HookPlaced { pos } => {
+                engine.hook_placed(pos);
+                0
+            }
+            Action::Disarm { pos } => {
+                engine.disarm(pos);
+                0
+            }
             _ if !fluids => 0,
             Action::Empty {
                 pos,
@@ -221,6 +321,12 @@ pub fn run(
             }
         });
     }
+    let table = rules.table.as_ref();
+    engine.redstone.due = input
+        .ticks
+        .iter()
+        .map(|&(pos, state)| (pos, table.block_of(state)))
+        .collect();
     for &(pos, state) in input.ticks {
         engine.tick(pos, state);
     }
@@ -233,7 +339,12 @@ pub fn run(
     if engine.report.over_budget {
         return Ok(None);
     }
-    let Engine { world, report, .. } = engine;
+    let Engine {
+        world,
+        report,
+        redstone,
+        ..
+    } = engine;
     let changes = world
         .order
         .iter()
@@ -245,6 +356,7 @@ pub fn run(
         block_ticks: world.block_ticks,
         fluid_ticks: world.fluid_ticks,
         results,
+        toggles: redstone.toggles,
         report,
     }))
 }
@@ -273,6 +385,8 @@ pub fn place(
         block_ticks: Vec::new(),
         fluid_ticks: Vec::new(),
         held: HashSet::new(),
+        pending: &[],
+        sky: None,
         crossed: false,
         random: &mut random,
     };
@@ -311,6 +425,8 @@ mod tests {
             block_ticks: Vec::new(),
             fluid_ticks: Vec::new(),
             held: HashSet::new(),
+            pending: &[],
+            sky: None,
             crossed: false,
             random: &mut random,
         };

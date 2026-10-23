@@ -11,18 +11,31 @@
 //! `changes` and `ticks` are packed `<<x::32, y::32, z::32, state::16>>`
 //! records (signed coordinates): a changed cell with its old state, a due tick
 //! with its state; `fluid_ticks` `<<x, y, z, fluid::8>>`; `actions`
-//! `<<kind::8, x, y, z, fluid::8, flags::8, rx, ry, rz>>` (kind 0 a bucket
+//! `<<kind::8, x, y, z, value::8, flags::8, rx, ry, rz>>` (kind 0 a bucket
 //! emptied, 1 a pickup, 2 a post-processing mark, 3 a lava cell's random
-//! tick; flags bit 0 a retry cell or fire spreading, bit 1 sneaking); `options` the fluid settings' bits (`Options::from_bits`).
+//! tick, VMC-047a's 4 a use (value: the player's facing; flags bit 0: it
+//! may build), 5 the entities' contacts, 6 a daylight detector's update, 7 a
+//! lectern's page, 8 a target's hit (value: its power; flags bit 0: an
+//! arrow's), 9 a tripwire hook placed, 10 tripwire disarmed; for buckets the
+//! value is the fluid, flags bit 0 a retry cell or fire spreading, bit 1
+//! sneaking); `options` the level's settings' bits (`Options::from_bits`);
+//! `redstone` the redstone context: `<<time::64, sky_darken::32,
+//! sun_angle::float-32, n::32, toggles (x, y, z, when::64)..., n::32,
+//! entities (min x, y, z, max x, y, z as float-64, kind::8)..., n::32,
+//! pending ticks (x, y, z, block::16)...>>`.
 //! The reply is `{:ok, {{changes, destroyed, ticks, fluid_ticks, events,
-//! results}, {stopped, skipped, updates}}}`: `changes` packs `<<x, y, z,
+//! results}, {stopped, skipped, updates}, {sounds, block_events, primed,
+//! toggles}}}`: `changes` packs `<<x, y, z,
 //! state::16>>` (final states, in the order they first changed), `destroyed`
 //! `<<x, y, z, state::16, flags::8>>` (bit 0: its loot drops; bit 1: it breaks
 //! with particles and sound), `ticks` `<<x, y, z, block::16, delay::32>>`,
 //! `fluid_ticks` `<<x, y, z, fluid::8, delay::32>>`, `events` `<<x, y, z,
 //! type::32, data::32>>`, each in any of the group's sections, and `results`
 //! one integer per action (`live::Outcome::results`); the counts are updates
-//! dropped at the group's edge, past the chain limit and run.
+//! dropped at the group's edge, past the chain limit and run. `sounds` packs
+//! `<<x, y, z as float-64, sound::16, volume::float-32, pitch::float-32,
+//! actor::8>>`, `block_events` `<<x, y, z, block::16, b0::32, b1::32>>`,
+//! `primed` `<<x, y, z>>` and `toggles` as given.
 
 use crate::region::Region;
 use crate::{atoms, binary, reply};
@@ -31,6 +44,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::MutexGuard;
 use valimc_core::column::ColumnStore;
+use valimc_core::rules::components::{EntityBox, EntityKind};
 use valimc_core::rules::fluid::Options;
 use valimc_core::rules::live::{Action, Input};
 use valimc_core::rules::Rules;
@@ -110,6 +124,21 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                     pos,
                     fire: r[14] & 1 == 1,
                 },
+                4 => Action::Use {
+                    pos,
+                    facing: (r[13] as usize).min(5),
+                    may_build: r[14] & 1 == 1,
+                },
+                5 => Action::Contacts,
+                6 => Action::Daylight { pos },
+                7 => Action::Page { pos },
+                8 => Action::Hit {
+                    pos,
+                    power: r[13] as i32,
+                    arrow: r[14] & 1 == 1,
+                },
+                9 => Action::HookPlaced { pos },
+                10 => Action::Disarm { pos },
                 _ => return Err(atoms::invalid_positions()),
             })
         })
@@ -132,6 +161,7 @@ type Updated<'a> = (
         Vec<i32>,
     ),
     (u64, u64, u64),
+    (Binary<'a>, Binary<'a>, Binary<'a>, Binary<'a>),
 );
 
 /// A run's packed inputs.
@@ -141,6 +171,87 @@ pub(crate) struct Packed<'a> {
     fluid_ticks: Binary<'a>,
     actions: Binary<'a>,
     options: u32,
+    redstone: Binary<'a>,
+}
+
+/// The redstone context of a run (VMC-047a), unpacked.
+#[derive(Default)]
+struct Context {
+    time: i64,
+    sky_darken: i32,
+    sun_angle: f32,
+    toggles: Vec<([i32; 3], i64)>,
+    entities: Vec<EntityBox>,
+    pending: Vec<([i32; 3], u16)>,
+}
+
+/// A reader over a packed binary that fails past its end.
+struct Reader<'b>(&'b [u8]);
+
+impl Reader<'_> {
+    fn take<const N: usize>(&mut self) -> Result<[u8; N], Atom> {
+        let (head, rest) = self
+            .0
+            .split_first_chunk::<N>()
+            .ok_or(atoms::invalid_positions())?;
+        self.0 = rest;
+        Ok(*head)
+    }
+    fn i32(&mut self) -> Result<i32, Atom> {
+        Ok(i32::from_be_bytes(self.take()?))
+    }
+    fn i64(&mut self) -> Result<i64, Atom> {
+        Ok(i64::from_be_bytes(self.take()?))
+    }
+    fn f64(&mut self) -> Result<f64, Atom> {
+        Ok(f64::from_be_bytes(self.take()?))
+    }
+    fn pos(&mut self) -> Result<[i32; 3], Atom> {
+        Ok([self.i32()?, self.i32()?, self.i32()?])
+    }
+    /// A record count, bounded by what is left.
+    fn count(&mut self, size: usize) -> Result<usize, Atom> {
+        let n = self.i32()?;
+        if n < 0 || n as usize * size > self.0.len() {
+            return Err(atoms::invalid_positions());
+        }
+        Ok(n as usize)
+    }
+}
+
+fn context(packed: &[u8]) -> Result<Context, Atom> {
+    if packed.is_empty() {
+        return Ok(Context::default());
+    }
+    let mut r = Reader(packed);
+    let mut context = Context {
+        time: r.i64()?,
+        sky_darken: r.i32()?,
+        sun_angle: f32::from_be_bytes(r.take()?),
+        ..Context::default()
+    };
+    for _ in 0..r.count(20)? {
+        context.toggles.push((r.pos()?, r.i64()?));
+    }
+    for _ in 0..r.count(49)? {
+        let min = [r.f64()?, r.f64()?, r.f64()?];
+        let max = [r.f64()?, r.f64()?, r.f64()?];
+        let kind = match r.take::<1>()?[0] {
+            1 => EntityKind::Living,
+            2 => EntityKind::Arrow,
+            _ => EntityKind::Other,
+        };
+        context.entities.push(EntityBox { min, max, kind });
+    }
+    for _ in 0..r.count(14)? {
+        context
+            .pending
+            .push((r.pos()?, u16::from_be_bytes(r.take()?)));
+    }
+    if !r.0.is_empty() {
+        return Err(atoms::invalid_positions());
+    }
+    Ok(context)
 }
 
 /// What placing `item` at `position` writes (VMC-029d), reading the
@@ -221,6 +332,7 @@ fn block_updates<'a>(
     absent: Vec<(i32, i32)>,
     seed: i64,
     options: u32,
+    redstone: Binary<'a>,
 ) -> Result<Updated<'a>, Atom> {
     let packed = Packed {
         changes,
@@ -228,6 +340,7 @@ fn block_updates<'a>(
         fluid_ticks,
         actions,
         options,
+        redstone,
     };
     updates(
         env,
@@ -255,6 +368,7 @@ fn block_updates_dirty<'a>(
     absent: Vec<(i32, i32)>,
     seed: i64,
     options: u32,
+    redstone: Binary<'a>,
 ) -> Result<Updated<'a>, Atom> {
     let packed = Packed {
         changes,
@@ -262,6 +376,7 @@ fn block_updates_dirty<'a>(
         fluid_ticks,
         actions,
         options,
+        redstone,
     };
     updates(
         env,
@@ -293,12 +408,20 @@ fn updates<'a>(
     let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
     let guards = lock_group(region, siblings)?;
     let stores: Vec<&ColumnStore> = guards.iter().map(|guard| &**guard).collect();
+    let context = context(packed.redstone.as_slice())?;
     let input = Input {
         changes: &changes,
         actions: &actions,
         ticks: &ticks,
         fluid_ticks: &fluid_ticks,
         options: Options::from_bits(packed.options),
+        pending: &context.pending,
+        entities: &context.entities,
+        time: context.time,
+        toggles: &context.toggles,
+        sky_darken: context.sky_darken,
+        sun_angle: context.sun_angle,
+        sky: None,
     };
     let mut random = Random::legacy(seed);
     let outcome =
@@ -339,6 +462,33 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
         events.extend_from_slice(&kind.to_be_bytes());
         events.extend_from_slice(&data.to_be_bytes());
     }
+    let report = &outcome.report;
+    let mut sounds = Vec::with_capacity(report.sounds.len() * 35);
+    for sound in &report.sounds {
+        for c in sound.pos {
+            sounds.extend_from_slice(&c.to_be_bytes());
+        }
+        sounds.extend_from_slice(&sound.sound.to_be_bytes());
+        sounds.extend_from_slice(&sound.volume.to_be_bytes());
+        sounds.extend_from_slice(&sound.pitch.to_be_bytes());
+        sounds.push(u8::from(sound.actor));
+    }
+    let mut block_events = Vec::with_capacity(report.block_events.len() * 22);
+    for (pos, block, b0, b1) in &report.block_events {
+        put_position(&mut block_events, *pos);
+        block_events.extend_from_slice(&block.to_be_bytes());
+        block_events.extend_from_slice(&b0.to_be_bytes());
+        block_events.extend_from_slice(&b1.to_be_bytes());
+    }
+    let mut primed = Vec::with_capacity(report.primed.len() * 12);
+    for pos in &report.primed {
+        put_position(&mut primed, *pos);
+    }
+    let mut toggles = Vec::with_capacity(outcome.toggles.len() * 20);
+    for (pos, when) in &outcome.toggles {
+        put_position(&mut toggles, *pos);
+        toggles.extend_from_slice(&when.to_be_bytes());
+    }
     (
         (
             binary(env, &changed),
@@ -352,6 +502,12 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
             outcome.report.stopped,
             outcome.report.skipped,
             outcome.report.updates,
+        ),
+        (
+            binary(env, &sounds),
+            binary(env, &block_events),
+            binary(env, &primed),
+            binary(env, &toggles),
         ),
     )
 }

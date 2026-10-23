@@ -669,6 +669,14 @@ STAGES = [
         ('java', 'RedstoneWireOracle', '@redstone-wire.json'),
         ('check', 'check_wire.exs', '@redstone-wire.json'),
     ]),
+    # VMC-047a: redstone's components, power and the day cycle daylight detectors read.
+    ('redstone', [
+        ('regen', 'RedstoneOracle', 'facts', '@redstone.json'),
+        ('same', '@redstone.json', 'priv/physics/redstone.json'),
+        ('java', 'RedstoneOracle', 'day', '@day.json'),
+        ('java', 'RedstoneOracle', 'scenes', '@redstone-scenes.json'),
+        ('check', 'check_redstone.exs', '@redstone-scenes.json', '@day.json'),
+    ]),
     # VMC-031a: water and lava on the block-update engine; buckets' facts and clip.
     ('fluids', [
         ('regen', 'FluidOracle', 'facts', '@fluids.json'),

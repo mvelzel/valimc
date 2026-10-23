@@ -6,9 +6,9 @@
 //! removing wire also reaches the wires around corners. The signals of the
 //! other blocks come from the block facts (`BlockTable::signal`); while a
 //! wire evaluates no wire signals (vanilla's `shouldSignal`). A comparator's,
-//! trapped chest's or jukebox's signal reads its block entity and is 0 here,
-//! and nothing but wire reacts to a signal yet (M3). The sources' own
-//! placement and removal hooks notify the cells their signal reaches.
+//! trapped chest's or jukebox's signal reads its block entity and is 0 here.
+//! The sources' own placement and removal hooks notify the cells their
+//! signal reaches; the other components' are `components.rs`'s.
 
 use super::at;
 use super::updater::{Destroyed, Engine, Update, World, ALL, CLIENTS, UPDATE_LIMIT};
@@ -67,6 +67,8 @@ impl<W: World> Engine<'_, W> {
             "RedstoneTorchBlock" | "RedstoneWallTorchBlock"
         ) {
             self.notify_around(pos, table.block_of(state));
+        } else {
+            self.component_placed(pos, old, state);
         }
     }
 
@@ -94,7 +96,7 @@ impl<W: World> Engine<'_, W> {
                 self.update_neighbors_at(pos, block, None);
                 self.update_neighbors_at(at(pos, DOWN), block, None);
             }
-            _ => {}
+            _ => self.component_removed(pos, state),
         }
     }
 

@@ -8,11 +8,13 @@
 //! `placement`'s (VMC-029d).
 
 pub mod bubble;
+pub mod components;
 pub mod connect;
 pub mod fire;
 pub mod fluid;
 pub mod live;
 pub mod placement;
+pub mod power;
 pub mod redstone;
 pub mod shapes;
 pub mod support;
@@ -50,6 +52,14 @@ pub trait BlockAccess {
     fn has_block_tick(&mut self, pos: [i32; 3], block: u16) -> bool;
     /// The level random's `nextInt(bound)`.
     fn next_int(&mut self, bound: i32) -> i32;
+    /// The level random's `nextFloat()` (a door's sound).
+    fn next_float(&mut self) -> f32 {
+        0.0
+    }
+    /// The level random's `nextDouble()` (a primed TNT's hop).
+    fn next_double(&mut self) -> f64 {
+        0.0
+    }
 }
 
 /// `Direction` steps in vanilla order: down, up, north, south, west, east.
@@ -84,6 +94,8 @@ pub struct Rules {
     pub connections: Connections,
     /// Live play's fluid facts (`priv/physics/fluids.json`), when given.
     pub fluids: Option<fluid::FluidFacts>,
+    /// Live play's redstone facts (`priv/physics/redstone.json`), when given.
+    pub power: Option<power::PowerFacts>,
     vine_block: u16,
     speleothems: BlockSet,
     /// Blocks that hold leaves at distance 0 (`prevents_nearby_leaf_decay`).
@@ -116,6 +128,7 @@ impl Rules {
             shapes,
             live,
             fluids: None,
+            power: None,
             placement: None,
         })
     }
@@ -146,8 +159,13 @@ impl Rules {
             .get("fluids")
             .map(|f| fluid::FluidFacts::parse(f, &table, physics))
             .transpose()?;
+        let power = json
+            .get("redstone")
+            .map(|r| power::PowerFacts::parse(r, &table))
+            .transpose()?;
         let mut rules = Rules::new(table, support, shapes, live)?;
         rules.fluids = fluids;
+        rules.power = power;
         rules.placement = json.get("placement").map(Placement::parse).transpose()?;
         Ok(rules)
     }
@@ -438,7 +456,8 @@ impl Rules {
     /// code, then live play's survival facts (they hold under any light), then
     /// the shape facts; a state none of them models keeps its state. Wire
     /// reads the level and only its floor from the update, as vanilla's does;
-    /// the other rules read the neighbour's cell as the update gives it.
+    /// torches and the redstone components read the level too; the other
+    /// rules read the neighbour's cell as the update gives it.
     pub fn live_update_shape(
         &self,
         access: &mut dyn BlockAccess,
@@ -463,6 +482,17 @@ impl Rules {
         if let Some(result) = self.code_update(access, state, pos, d, replaced, true) {
             return result;
         }
+        // Torches and the redstone components read the level in
+        // `updateShape` (`canSurvive`, a note block's instrument), never the
+        // update's neighbour state (VMC-047a).
+        let reads_level = matches!(
+            self.table.class_name(state),
+            "TorchBlock" | "WallTorchBlock"
+        ) || self
+            .power
+            .as_ref()
+            .is_some_and(|p| p.component(&self.table, state).is_some());
+        let replaced = if reads_level { None } else { replaced };
         let mut read = |p: [i32; 3]| match replaced {
             Some((at, s)) if at == p => s,
             _ => access.get(p),
@@ -554,6 +584,11 @@ impl Rules {
         let class = table.class_name(state);
         if class.contains("Coral") {
             if let Some(new_state) = self.coral_update(access, replaced, class, state, pos, d) {
+                return Some(Ok(new_state));
+            }
+        }
+        if live {
+            if let Some(new_state) = self.component_shape(access, state, pos, d, replaced) {
                 return Some(Ok(new_state));
             }
         }

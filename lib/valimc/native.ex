@@ -129,7 +129,8 @@ defmodule Valimc.Native do
         _actions,
         _absent,
         _seed,
-        _options
+        _options,
+        _redstone
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 
@@ -143,7 +144,8 @@ defmodule Valimc.Native do
         _actions,
         _absent,
         _seed,
-        _options
+        _options,
+        _redstone
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 
@@ -157,6 +159,11 @@ defmodule Valimc.Native do
 
   def fluid_scene(_rules, _cells, _actions, _ticks, _seed, _options),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def redstone_scene(_rules, _cells, _actions, _entities, _days, _ticks, _seed, _tnt),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def redstone_day(_rules, _samples), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_init(_region, _absent), do: :erlang.nif_error(:nif_not_loaded)
