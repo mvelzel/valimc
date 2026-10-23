@@ -60,8 +60,7 @@ When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b,
 029d, 029e, 031a, 047a, 042a, 043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a,
 034n4c, 026d, 043e, 044a, 032b, 045a, 078.
 
-Later: enchanting and brewing, trading and raids, vehicles, then
-commands/admin and certification.
+Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused
 
@@ -77,6 +76,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-031a](tickets/VMC-031a.md) | A bucket-built Nether portal frame (obsidian from lava and water), lit and entered |
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
 | [VMC-050a1](tickets/VMC-050a1.md), [050a2](tickets/VMC-050a2.md) | TNT lit by flint and steel explodes (crater, drops, chained TNT, a player hurt and pushed); sand, gravel, powder and anvils fall and land |
+| [VMC-037n](tickets/VMC-037n.md) | A summoned zombie killed with a sword (cooldown, crits, knockback, drops, XP); a zombie's hits on armor and a raised shield |
 
 ## Retrieve and update
 

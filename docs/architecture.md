@@ -238,7 +238,12 @@ was sent to.
   `Valimc.Living` state, equipment, attribute overrides, AI slot and travel
   state) and the rest (`:object`). Mobs travel in the entity phase, all of a
   section's in one kernel call, and their living rules (`Entity.MobVitals`)
-  follow the player's. Only modelled types are made: their entity data is known
+  follow the player's. Every hurt of a mob (melee, explosions, falling
+  blocks, its own falls, fire and drowning, `/kill`) goes through one path,
+  `Entity.Combat` (VMC-037n); a death leaves its loot and experience on the
+  mob, and the owner drops them when it stores its entities. A player's
+  attack runs in the group hosting the player; a mob's hit on a player goes
+  to the player's session (`Player.Hurt`). Only modelled types are made: their entity data is known
   field by field, and each type's facts (size, attributes, loot, spawning,
   tracking) come from `Data.EntityTypes`. Network ids come from one `:atomics`
   counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
