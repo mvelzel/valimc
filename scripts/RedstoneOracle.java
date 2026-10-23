@@ -59,7 +59,8 @@ import net.minecraft.world.ticks.TickPriority;
  *   lecterns) its kind, its parameters (a button's pressed ticks and whether arrows press it, a
  *   plate's sensitivity, a weighted plate's maximum weight, whether a hand opens a door or
  *   trapdoor) and its sounds; `bounds`: the outline bounds of every button and tripwire state
- *   (their entity checks); `instruments`: the note block instruments; `day`: the overworld's
+ *   (their entity checks); `instruments`: the note block instruments; `sound_ids`: every sound's
+ *   registry id; `day`: the overworld's
  *   `SKY_LIGHT_LEVEL` (the dimension's value, the day timeline's multiplier keyframes and the
  *   weather's alpha blends) and `SUN_ANGLE` keyframes with their cubic Bezier easing.
  * - `day OUT`: `Level.skyDarken` and `SUN_ANGLE` from vanilla's own samplers, modifiers and
@@ -267,8 +268,17 @@ public class RedstoneOracle {
       entry.addProperty("tunable",instrument.isTunable());entry.addProperty("above",instrument.worksAboveNoteBlock());
       entry.addProperty("custom",instrument.hasCustomSound());instruments.add(entry);
     }
+    // Every sound's registry id (the sound packet names a registered event by it).
+    var soundIds=new JsonObject();var named=new TreeSet<String>();
+    for(var c:components)if(c.getAsJsonObject().has("sounds"))for(var n:c.getAsJsonObject().getAsJsonArray("sounds"))named.add(n.getAsString());
+    for(var i:instruments)named.add(i.getAsJsonObject().get("sound").getAsString());
+    for(var name:named){
+      var event=BuiltInRegistries.SOUND_EVENT.getValue(net.minecraft.resources.Identifier.parse(name));
+      if(event==null)throw new AssertionError("unregistered sound "+name);
+      soundIds.addProperty(name,BuiltInRegistries.SOUND_EVENT.getId(event));
+    }
     var result=new JsonObject();result.add("components",components);result.add("bounds",bounds);
-    result.add("instruments",instruments);result.add("day",dayFacts(lookup));
+    result.add("instruments",instruments);result.add("sound_ids",soundIds);result.add("day",dayFacts(lookup));
     Files.writeString(Path.of(out),new GsonBuilder().disableHtmlEscaping().create().toJson(result)+"\n");
     System.out.println("PASS: redstone facts for "+components.size()+" components "+counts+", "+bounds.size()+" bounds, "
       +instruments.size()+" instruments, the overworld day");

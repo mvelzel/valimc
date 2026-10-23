@@ -40,6 +40,8 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Protocol.Packets
   alias Valimc.Txn.Permits
   alias Valimc.World.BlockRules
+  alias Valimc.Blocks.Redstone
+  import Bitwise, only: [|||: 2]
 
   @lava_states Valimc.Data.Blocks.states("lava") |> Enum.to_list()
 
@@ -103,6 +105,9 @@ defmodule Valimc.World.RegionData do
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
+    # Redstone torches' recent toggles (VMC-047a, `RECENT_TOGGLES`, which
+    # vanilla keeps per level in memory): `[{position, game tick}]`.
+    {:torch_toggles, []},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -232,7 +237,11 @@ defmodule Valimc.World.RegionData do
           ),
         else: state
 
-    state = if Tickets.simulating?(state.tickets), do: simulate_items(state, now), else: state
+    state =
+      if Tickets.simulating?(state.tickets),
+        do: state |> simulate_items(now) |> redstone_contacts(),
+        else: state
+
     track_entities(state)
   end
 
@@ -1203,8 +1212,14 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
       when is_pid(viewer) do
-    {decision, state} = menu_request(state, epoch, viewer, position, grant)
-    {:reply, decision, state}
+    case redstone_use(state, epoch, viewer, position, grant) do
+      {:used, state} ->
+        {:reply, :used, state}
+
+      :pass ->
+        {decision, state} = menu_request(state, epoch, viewer, position, grant)
+        {:reply, decision, state}
+    end
   end
 
   # A click in a container menu (VMC-077i3), from the player's group: applied
@@ -1991,7 +2006,10 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :invalid_or_expired_placement}, state}
 
       not container_metadata_affected?(state.containers, expected, batch.edits) ->
-        handle_call({:set_blocks, epoch, revision, batch}, from, state)
+        case handle_call({:set_blocks, epoch, revision, batch}, from, state) do
+          {:reply, {:ok, _} = reply, next} -> {:reply, reply, hooks_placed(next, batch)}
+          other -> other
+        end
 
       epoch != state.epoch ->
         {:reply, Error.retry(:stale_owner), state}
@@ -2013,6 +2031,18 @@ defmodule Valimc.World.RegionData do
 
       true ->
         start_container_blocks(state, from, batch, expected)
+    end
+  end
+
+  # A placed tripwire hook calculates its line (`setPlacedBy`, VMC-047a).
+  defp hooks_placed(state, batch) do
+    case for(
+           {position, block} <- batch.edits,
+           Redstone.hook?(block),
+           do: {:hook_placed, position}
+         ) do
+      [] -> state
+      actions -> elem(rule_run(state, %{actions: actions}), 0)
     end
   end
 
@@ -2259,11 +2289,19 @@ defmodule Valimc.World.RegionData do
     {fluid_due, due} = Enum.split_with(due, &match?({_, {:fluid, _}}, &1))
     fluid_due = for {position, {:fluid, kind}} <- fluid_due, do: {position, kind}
 
-    # A tick a behaviour handles runs it; the others are dependent blocks'
-    # (VMC-029c), which the block rules break if they can no longer survive.
+    # A tick runs while its cell holds the block it was scheduled for, with
+    # the cell's state (`LevelTicks`, VMC-047a). A tick a behaviour handles
+    # runs it; the block rules run the others (dependent blocks, VMC-029c,
+    # and redstone's components).
     {behaviour_due, rule_due} =
       due
-      |> Enum.filter(fn {position, block} -> Blocks.get(state.blocks, position) == block end)
+      |> Enum.flat_map(fn {position, key} ->
+        current = Blocks.get(state.blocks, position)
+
+        if Valimc.Data.Blocks.block_id(current) == Valimc.Data.Blocks.block_id(key),
+          do: [{position, current}],
+          else: []
+      end)
       |> Enum.split_with(fn {_, block} ->
         module = state.tick_index[block]
         module != nil and function_exported?(module, :scheduled_tick, 4)
@@ -2276,11 +2314,104 @@ defmodule Valimc.World.RegionData do
 
     {random_effects, lava} = random_ticks(state, read)
 
+    # Plates, buttons and tripwire check the entities on them at their ticks.
+    entities =
+      if Enum.any?(rule_due, fn {_, block} -> Redstone.checks?(block) end),
+        do: contact_entities(state),
+        else: []
+
     state
-    |> rule_run(%{ticks: rule_due, fluid_ticks: fluid_due})
+    |> rule_run(%{
+      ticks: rule_due,
+      fluid_ticks: fluid_due,
+      redstone: redstone_context(state, [], entities)
+    })
     |> elem(0)
+    |> daylight_ticks(tick)
     |> lava_random_ticks(lava)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
+  end
+
+  # Daylight detectors' block entities (VMC-047a), every twentieth game tick
+  # in a dimension with sky light, in the chunks that tick.
+  defp daylight_ticks(state, tick) when rem(tick, 20) != 0, do: state
+
+  defp daylight_ticks(state, _tick) do
+    if Valimc.World.Dimension.facts(state.dimension).sky_light do
+      detectors =
+        for chunk <- state.tickets.simulated,
+            Grid.region_key(chunk) == state.key,
+            not RegionGeneration.absent?(state.generation, chunk),
+            {position, _} <- Blocks.find(state.blocks, chunk, Redstone.detectors()),
+            do: {:daylight, position}
+
+      if detectors == [] do
+        state
+      else
+        weather = Clock.weather()
+
+        context =
+          state
+          |> redstone_context([], [])
+          |> Map.put(:day, {Clock.day_ticks(), weather.rain_level, weather.thunder_level})
+
+        elem(rule_run(state, %{actions: Enum.sort(detectors), redstone: context}), 0)
+      end
+    else
+      state
+    end
+  end
+
+  # The entities' contacts with plates, buttons and tripwire (VMC-047a), once
+  # a tick after they moved: vanilla checks them as an entity moves
+  # (`checkInsideBlocks`), along its path.
+  defp redstone_contacts(state) do
+    case contact_entities(state) do
+      [] ->
+        state
+
+      entities ->
+        input = %{actions: [:contacts], redstone: redstone_context(state, [], entities)}
+        elem(rule_run(state, input), 0)
+    end
+  end
+
+  # What redstone sees of the section's entities and the players standing in
+  # it: their boxes (players standing, 0.6 by 1.8) and kinds. Spectators are
+  # not among the targets.
+  defp contact_entities(state) do
+    players =
+      for {{x, y, z}, _} <- state.player_targets,
+          Grid.region_key(Grid.chunk_key(floor(x), floor(z))) == state.key,
+          do: {{x - 0.3, y, z - 0.3}, {x + 0.3, y + 1.8, z + 0.3}, :living}
+
+    others =
+      for {_, entry} <- state.entities.store.entries,
+          box = Redstone.entity_box(entry),
+          do: box
+
+    players ++ others
+  end
+
+  # The redstone context of a run (`BlockRules.run/4`): the game time, the
+  # torches' toggles, the entities checks see, and the owner's pending ticks
+  # at the cells its actions name (a target's: a hit waits for its tick).
+  defp redstone_context(state, actions, entities) do
+    pending =
+      for {:hit, position, _, _} <- actions,
+          current = read_block(state, position),
+          current != nil,
+          key =
+            Valimc.Data.Blocks.default_state(
+              Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(current))
+            ),
+          ScheduledTicks.scheduled?(state.scheduled_ticks, position, key),
+          do: {position, Valimc.Data.Blocks.block_id(current)}
+
+    # Toggles older than 60 ticks count for nothing (a torch's tick drops
+    # them first), so they need not be kept.
+    toggles = Enum.filter(state.torch_toggles, fn {_, at} -> state.game_tick - at <= 60 end)
+    %{time: state.game_tick, toggles: toggles, entities: entities, pending: pending}
   end
 
   # Lava's random ticks (VMC-031a) run in the block rules: fire spreads from
@@ -2444,12 +2575,21 @@ defmodule Valimc.World.RegionData do
   # applied, and the outcome (nil when it waits in the backlog, and for a run
   # with nothing to do).
   defp rule_run(state, input) do
-    if Enum.all?(input, fn {_, value} -> value == [] or value == %{} end) do
+    work = Map.drop(input, [:redstone, :actor])
+
+    if Enum.all?(work, fn {_, value} -> value == [] or value == %{} end) do
       {state, nil}
     else
       siblings = Map.delete(state.siblings, state.key)
       {stores, absent} = rule_reach(state)
-      input = Map.put(input, :options, fluid_options(state))
+
+      input =
+        input
+        |> Map.put(:options, fluid_options(state))
+        |> Map.put_new_lazy(:redstone, fn ->
+          redstone_context(state, Map.get(input, :actions, []), [])
+        end)
+
       outcome = BlockRules.run(state.blocks, stores, input, absent)
       parts = by_section(outcome, state)
 
@@ -2468,6 +2608,7 @@ defmodule Valimc.World.RegionData do
 
         true ->
           {own, theirs} = Map.pop(parts, state.key)
+          state = play_redstone(%{state | torch_toggles: outcome.toggles}, outcome, input)
           state = if own, do: apply_rules(state, own), else: state
           effects = for {key, part} <- theirs, do: {key, {:rules, part}}
           {%{state | sibling_effects: state.sibling_effects ++ effects}, outcome}
@@ -2475,14 +2616,50 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # The fluid rules' settings: the dimension's attributes and the source
-  # conversion game rules.
+  # The rules' level settings: the dimension's fluid attributes, the source
+  # conversion game rules and whether TNT explodes (VMC-047a).
   defp fluid_options(state) do
     Valimc.Blocks.Fluids.options(
       Valimc.World.Dimension.facts(state.dimension).type,
       Valimc.World.GameRules.get(:water_source_conversion),
       Valimc.World.GameRules.get(:lava_source_conversion)
-    )
+    ) ||| if(Valimc.World.GameRules.get(:tnt_explodes), do: 16, else: 0)
+  end
+
+  # A run's sounds and note blocks' block events (VMC-047a), to the players
+  # near them; a sound the acting player already played (its client's) skips
+  # that player's connection. A note block's event plays its instrument
+  # (`triggerEvent`) while the cell still holds a note block.
+  defp play_redstone(state, %{sounds: [], block_events: []}, _input), do: state
+
+  defp play_redstone(state, outcome, input) do
+    actor = Map.get(input, :actor)
+
+    for {{x, _, z} = at, index, volume, pitch, by_actor} <- outcome.sounds do
+      packet = Redstone.sound_packet(Redstone.sound(index), "block", at, volume, pitch)
+
+      key = Grid.section(state.dimension, Grid.chunk_key(floor(x), floor(z)))
+      except = if by_actor, do: actor
+      Valimc.World.publish(key, {:sound, at, max(volume, 1.0) * 16.0, packet, except})
+    end
+
+    changes = Map.new(outcome.changes)
+
+    for {{x, y, z} = position, block, b0, b1} <- outcome.block_events,
+        current = Map.get(changes, position) || read_block(state, position),
+        current != nil and Valimc.Data.Blocks.block_id(current) == block,
+        {sound, pitch} <- List.wrap(Redstone.note_sound(current)) do
+      at = {x + 0.5, y + 0.5, z + 0.5}
+      key = Grid.section(state.dimension, Grid.chunk_key(x, z))
+      event = Valimc.Protocol.Packets.block_event(position, b0, b1, block)
+
+      sound = Redstone.sound_packet(sound, "record", at, 3.0, pitch)
+
+      Valimc.World.publish(key, {:sound, at, 64.0, event, nil})
+      Valimc.World.publish(key, {:sound, at, 48.0, sound, nil})
+    end
+
+    state
   end
 
   # What the block rules read beyond this section: the group's other
@@ -2498,14 +2675,15 @@ defmodule Valimc.World.RegionData do
   # group (ticks only) are dropped.
   defp by_section(outcome, state) do
     key = fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end
-    empty = %{changes: [], destroyed: [], ticks: [], fluid_ticks: [], events: []}
+    empty = %{changes: [], destroyed: [], ticks: [], fluid_ticks: [], events: [], primed: []}
 
     [
       changes: outcome.changes,
       destroyed: outcome.destroyed,
       ticks: outcome.ticks,
       fluid_ticks: outcome.fluid_ticks,
-      events: outcome.events
+      events: outcome.events,
+      primed: for(cell <- outcome.primed, do: {cell})
     ]
     |> Enum.reduce(%{}, fn {field, records}, acc ->
       Enum.reduce(Enum.reverse(records), acc, fn record, acc ->
@@ -2789,27 +2967,36 @@ defmodule Valimc.World.RegionData do
     |> schedule_ticks(rule_ticks(state, changes, ticks) ++ fluid_ticks)
     |> commit_rule_changes(changes, drops, breaks)
     |> rule_events(part.events)
+    |> prime_tnt(for({cell} <- Map.get(part, :primed, []), do: cell))
+  end
+
+  # TNT that power primed (VMC-047a, `TntBlock.prime`): a primed TNT with
+  # vanilla's 80-tick fuse at each cell's bottom centre, in this frame.
+  defp prime_tnt(state, []), do: state
+
+  defp prime_tnt(state, cells) do
+    records = for cell <- cells, do: Valimc.World.Explosion.primed_record(cell, 80)
+
+    if planning?(state),
+      do: %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}},
+      else: adopt_drops(state, records)
   end
 
   # The level events a run raised (lava fizzing, VMC-031a).
   defp rule_events(state, []), do: state
   defp rule_events(state, events), do: release_effect(state, {:level_events, events})
 
-  # The rules schedule a block's tick, as vanilla does; the owner's ticks name
-  # the state, so each takes the cell's state after the run when it is that
-  # block's (else vanilla's tick would not run either).
+  # The rules schedule a block's tick, as vanilla does: keyed by its block's
+  # default state (a cell and block pending once), it runs while the cell
+  # holds that block, with the cell's state then (VMC-047a).
   defp rule_ticks(_state, _changes, []), do: []
 
-  defp rule_ticks(state, changes, ticks) do
-    ticks = Enum.filter(ticks, fn {position, _, _} -> in_region?(state, position) end)
-
-    stored =
-      Blocks.get_many(state.blocks, for({p, _, _} <- ticks, not is_map_key(changes, p), do: p))
-
+  defp rule_ticks(state, _changes, ticks) do
     for {position, block, delay} <- ticks,
-        cell = Map.get(changes, position) || Map.fetch!(stored, position),
-        Valimc.Data.Blocks.block_id(cell) == block,
-        do: {:schedule, position, cell, delay, 0}
+        in_region?(state, position),
+        do:
+          {:schedule, position, Valimc.Data.Blocks.default_state(Valimc.Data.Blocks.name(block)),
+           delay, 0}
   end
 
   defp retry_rule_backlog(%{rule_backlog: []} = state), do: state
@@ -3803,6 +3990,46 @@ defmodule Valimc.World.RegionData do
   # chest, furnace or crafting table, decided at once by a plain call from the
   # player's group (`MenuAccess`). Container views subscribe their connection
   # (`viewer`) to changes.
+  # A player's use of a redstone component (VMC-047a, `useWithoutItem`): a
+  # lever, button, note block, daylight detector, or a door, trapdoor or
+  # fence gate a hand opens, in reach, with the hand that may use it; the
+  # rules decide whether it is used (an iron door passes the use on to
+  # placement). A spectator uses none; one in adventure mode may not invert
+  # a detector.
+  defp redstone_use(state, epoch, viewer, position, %{kind: :open} = grant) do
+    now = System.monotonic_time(:millisecond)
+
+    with true <- epoch == state.epoch and valid_block_query?([position], :any),
+         true <- in_region?(state, position),
+         block = Blocks.get(state.blocks, position),
+         true <- Redstone.usable?(block),
+         %{mode: mode, eye: eye, expires: expires, hand: hand} <- grant,
+         true <-
+           mode in [:survival, :creative, :adventure] and is_integer(expires) and now < expires,
+         true <-
+           Valimc.Living.Interaction.opens_block_menu?(
+             mode,
+             hand,
+             grant[:secondary] == true,
+             grant[:main] == true,
+             grant[:off] == true
+           ),
+         true <- Valimc.Living.Interaction.within_block?(mode, eye, position),
+         nil <- write_busy(state) do
+      facing = Enum.at([3, 4, 2, 5], Bitwise.band(floor((grant[:yaw] || 0.0) / 90.0 + 0.5), 3))
+      action = {:use, position, facing, mode != :adventure}
+
+      case rule_run(state, %{actions: [action], actor: viewer}) do
+        {state, %{results: [1]}} -> {:used, state}
+        _ -> :pass
+      end
+    else
+      _ -> :pass
+    end
+  end
+
+  defp redstone_use(_state, _epoch, _viewer, _position, _grant), do: :pass
+
   defp menu_request(state, epoch, viewer, position, grant) do
     state =
       if epoch == state.epoch and valid_block_query?([position], :any) and

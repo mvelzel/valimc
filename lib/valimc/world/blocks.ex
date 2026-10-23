@@ -281,6 +281,12 @@ defmodule Valimc.World.Blocks do
     end
   end
 
+  @doc "The cells of chunk `{cx, cz}` holding any of `states`: `[{position, state}]`."
+  def find(%__MODULE__{} = blocks, {cx, cz}, states) do
+    {:ok, found} = Native.chunk_find(blocks.ref, cx, cz, states)
+    for <<x::32-signed, y::32-signed, z::32-signed, block::16 <- found>>, do: {{x, y, z}, block}
+  end
+
   @doc "A complete chunk packet (the reference shape of `Chunk.encode/2`)."
   def packet(%__MODULE__{} = blocks, chunk) do
     case encode(blocks, chunk) do

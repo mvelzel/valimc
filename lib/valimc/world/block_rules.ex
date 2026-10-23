@@ -79,10 +79,11 @@ defmodule Valimc.World.BlockRules do
   - `fluid_ticks`: due fluid ticks, `[{position, fluid}]`;
   - `options`: the level settings' bits (`Valimc.Blocks.Fluids.options/3`, and 16
     for the `tnt_explodes` game rule);
-  - `redstone`: `%{time:, sky_darken:, sun_angle:, toggles: [{position,
+  - `redstone`: `%{time:, day: {ticks, rain, thunder}, toggles: [{position,
     when}], entities: [{min, max, kind}], pending: [{position, block}]}`
-    (`kind` `:other`, `:living` or `:arrow`; `pending` the owner's pending
-    ticks the run may ask about).
+    (`day` the overworld clock's ticks and the weather's levels, which
+    daylight detectors read; `kind` `:other`, `:living` or `:arrow`;
+    `pending` the owner's pending ticks the run may ask about).
 
   Returns `%{changes: [{position, state}], destroyed: [{position, state,
   drops?, effects?}], ticks: [{position, block, delay}], fluid_ticks:
@@ -224,8 +225,10 @@ defmodule Valimc.World.BlockRules do
     entities = Map.get(context, :entities, [])
     pending = Map.get(context, :pending, [])
 
-    <<Map.get(context, :time, 0)::64-signed, Map.get(context, :sky_darken, 0)::32-signed,
-      Map.get(context, :sun_angle, 0.0)::float-32, length(toggles)::32,
+    {day, rain, thunder} = Map.get(context, :day, {0, 0.0, 0.0})
+
+    <<Map.get(context, :time, 0)::64-signed, day::64-signed, rain::float-32, thunder::float-32,
+      length(toggles)::32,
       for({p, at} <- toggles, into: <<>>, do: <<pos(p)::binary, at::64-signed>>)::binary,
       length(entities)::32,
       for(

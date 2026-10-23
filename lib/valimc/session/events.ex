@@ -152,6 +152,13 @@ defmodule Valimc.Session.Events do
     state
   end
 
+  # A sound (or a block event, VMC-047a) at a position: to players within
+  # its range of it but the connection `except` names, whose client played it.
+  def view(state, {:sound, _, _, _, except}) when except == state.connection, do: state
+
+  def view(state, {:sound, at, range, packet, _except}),
+    do: view(state, {:sound, at, range, packet})
+
   # A sound at a position (VMC-050a): to players within its range of it.
   def view(
         %{phase: :play, player: %{x: px, y: py, z: pz}} = state,

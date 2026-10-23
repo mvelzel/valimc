@@ -19,10 +19,11 @@
 //! arrow's), 9 a tripwire hook placed, 10 tripwire disarmed; for buckets the
 //! value is the fluid, flags bit 0 a retry cell or fire spreading, bit 1
 //! sneaking); `options` the level's settings' bits (`Options::from_bits`);
-//! `redstone` the redstone context: `<<time::64, sky_darken::32,
-//! sun_angle::float-32, n::32, toggles (x, y, z, when::64)..., n::32,
+//! `redstone` the redstone context: `<<time::64, day::64, rain::float-32,
+//! thunder::float-32, n::32, toggles (x, y, z, when::64)..., n::32,
 //! entities (min x, y, z, max x, y, z as float-64, kind::8)..., n::32,
-//! pending ticks (x, y, z, block::16)...>>`.
+//! pending ticks (x, y, z, block::16)...>>` (`day` the overworld clock's
+//! ticks and the weather's levels, which daylight detectors read).
 //! The reply is `{:ok, {{changes, destroyed, ticks, fluid_ticks, events,
 //! results}, {stopped, skipped, updates}, {sounds, block_events, primed,
 //! toggles}}}`: `changes` packs `<<x, y, z,
@@ -178,8 +179,9 @@ pub(crate) struct Packed<'a> {
 #[derive(Default)]
 struct Context {
     time: i64,
-    sky_darken: i32,
-    sun_angle: f32,
+    day: i64,
+    rain: f32,
+    thunder: f32,
     toggles: Vec<([i32; 3], i64)>,
     entities: Vec<EntityBox>,
     pending: Vec<([i32; 3], u16)>,
@@ -226,8 +228,9 @@ fn context(packed: &[u8]) -> Result<Context, Atom> {
     let mut r = Reader(packed);
     let mut context = Context {
         time: r.i64()?,
-        sky_darken: r.i32()?,
-        sun_angle: f32::from_be_bytes(r.take()?),
+        day: r.i64()?,
+        rain: f32::from_be_bytes(r.take()?),
+        thunder: f32::from_be_bytes(r.take()?),
         ..Context::default()
     };
     for _ in 0..r.count(20)? {
@@ -409,6 +412,13 @@ fn updates<'a>(
     let guards = lock_group(region, siblings)?;
     let stores: Vec<&ColumnStore> = guards.iter().map(|guard| &**guard).collect();
     let context = context(packed.redstone.as_slice())?;
+    let (sky_darken, sun_angle) = match &rules.power {
+        Some(power) => (
+            power.day.sky_darken(context.day, context.rain, context.thunder),
+            power.day.sun_angle(context.day),
+        ),
+        None => (0, 0.0),
+    };
     let input = Input {
         changes: &changes,
         actions: &actions,
@@ -419,8 +429,8 @@ fn updates<'a>(
         entities: &context.entities,
         time: context.time,
         toggles: &context.toggles,
-        sky_darken: context.sky_darken,
-        sun_angle: context.sun_angle,
+        sky_darken,
+        sun_angle,
         sky: None,
     };
     let mut random = Random::legacy(seed);

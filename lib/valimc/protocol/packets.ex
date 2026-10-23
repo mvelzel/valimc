@@ -26,6 +26,10 @@ defmodule Valimc.Protocol.Packets do
         Wire.varint(245)
       ])
 
+  @doc "A block event (`ClientboundBlockEventPacket`): `b0` and `b1` for `block`'s registry id."
+  def block_event(position, b0, b1, block),
+    do: packet("block_event", [Wire.position(position), <<b0, b1>>, Wire.varint(block)])
+
   def held_slot(slot), do: packet("set_held_slot", Wire.varint(slot))
   def cursor(stack), do: packet("set_cursor_item", ItemStack.encode(stack))
 

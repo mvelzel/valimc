@@ -63,6 +63,7 @@ defmodule Valimc.Player.Menus do
       eye: Valimc.Living.Interaction.eye(state.player),
       expires: System.monotonic_time(:millisecond) + 250,
       hand: hand,
+      yaw: state.player.yaw,
       secondary: Input.pressed?(state.player.input, :shift),
       main: Inventory.held(state.inventory, :main) != nil,
       off: Inventory.held(state.inventory, :off) != nil

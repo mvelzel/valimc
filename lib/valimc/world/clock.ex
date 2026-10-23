@@ -50,6 +50,24 @@ defmodule Valimc.World.Clock do
     view
   end
 
+  @doc """
+  The overworld clock's ticks (`totalTicks`), which its day timeline samples
+  (VMC-047a: daylight detectors).
+  """
+  def day_ticks do
+    case :ets.lookup(__MODULE__, :day) do
+      [{:day, ticks}] -> ticks
+      [] -> 0
+    end
+  end
+
+  defp overworld_ticks(%{clocks: clocks}) do
+    case clocks["minecraft:overworld"] do
+      %{total_ticks: ticks} -> ticks
+      nil -> 0
+    end
+  end
+
   def survival do
     [{:survival, view}] = :ets.lookup(__MODULE__, :survival)
     view
@@ -326,7 +344,8 @@ defmodule Valimc.World.Clock do
       {:weather, view},
       {:weather_clear, clear_weather(state.table)},
       {:difficulty, difficulty},
-      {:survival, {state.data.difficulty.level, state.data.natural_regeneration}}
+      {:survival, {state.data.difficulty.level, state.data.natural_regeneration}},
+      {:day, overworld_ticks(state.data)}
       | borders
     ])
   end

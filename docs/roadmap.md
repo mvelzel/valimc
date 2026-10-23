@@ -56,9 +56,8 @@ Phases:
    plus 034n4c, 026d, 040a, 032b; Redstone goes on (048a, 048b, 049a).
 5. **Last:** 045a, then the gate.
 
-When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e,
-031a, 047a, 042a, 043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 026d,
-043e, 044a, 032b, 045a, 078.
+When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
+043c, 042b, 048a, 043d, 039a, 048b, 040a, 049a, 034n4c, 026d, 043e, 044a, 032b, 045a, 078.
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -73,6 +72,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-037n](tickets/VMC-037n.md) | A zombie's hits on armor and a raised shield, once VMC-041a's melee goal attacks |
 | [VMC-029e](tickets/VMC-029e.md) | Doors, beds, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
 | [VMC-037o](tickets/VMC-037o.md) | Bows, crossbows, stuck arrows picked up, snowballs, eggs, an ender pearl, a splash potion and a punched fireball |
+| [VMC-047a](tickets/VMC-047a.md) | A button-operated iron door and a lever-lit lamp |
 
 ## Retrieve and update
 

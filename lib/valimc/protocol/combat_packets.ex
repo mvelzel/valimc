@@ -12,6 +12,9 @@ defmodule Valimc.Protocol.CombatPackets do
   @sources @facts["sound_sources"]
   @particles @facts["particles"]
 
+  @doc "A sound source's ordinal (`\"block\"`, `\"record\"`, ...)."
+  def source(name), do: Map.fetch!(@sources, name)
+
   @doc """
   A sound (`ServerLevel.playSeededSound`): event `name` from `source`
   (`"player"`, `"hostile"`, ... or its ordinal) at `{x, y, z}` with
