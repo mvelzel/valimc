@@ -39,3 +39,16 @@ true = length(compared) == 40
 IO.puts(
   "PASS: 512 actual chest pitch calls and 40 supported registered chest sound bodies from 270 codec contexts; no runtime delivery claim."
 )
+
+for row <- raw["halves"] do
+  case Valimc.Blocks.Chest.sound_position(row["state"], {-1, 64, 15}) do
+    nil ->
+      true = row["sounds"] == []
+
+    {x, y, z} ->
+      true = length(row["sounds"]) == 2
+      for sound <- row["sounds"], do: true = sound["at"] == [x + 0.5, y + 0.5, z + 0.5]
+  end
+end
+
+IO.puts("PASS: 24 native chest-half sound locations and suppression traces")

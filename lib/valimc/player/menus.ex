@@ -250,7 +250,7 @@ defmodule Valimc.Player.Menus do
         close(state)
 
       menu.opener != opener ->
-        Region.unsubscribe_container(menu.owner, state.connection, menu.view_ref)
+        retire_container_view(state)
         subscribe(%{state | table_menu: %{menu | view_ref: make_ref(), opener: opener}})
 
       menu.dirty ->
@@ -277,7 +277,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "Another change to the open container (`container_changed`): it refreshes."
   def changed(%{table_menu: menu} = state, revision) do
-    if revision > menu.view.revision,
+    if is_map(menu.view.revision) or revision > menu.view.revision,
       do: check_table_menu(%{state | table_menu: %{menu | dirty: true}}),
       else: state
   end
@@ -452,7 +452,10 @@ defmodule Valimc.Player.Menus do
   @doc "Release the open container view at its owner."
   def retire_container_view(%{table_menu: %{kind: kind} = menu} = state)
       when kind in [:chest, :cooking, :hopper, :dispenser],
-      do: Region.unsubscribe_container(menu.owner, state.connection, menu.view_ref)
+      do:
+        Enum.each(Map.get(menu.view, :owners, [menu.owner]), fn owner ->
+          Region.unsubscribe_container(owner, state.connection, menu.view_ref)
+        end)
 
   def retire_container_view(_), do: :ok
 

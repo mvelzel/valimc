@@ -162,6 +162,12 @@ defmodule Valimc.LootChestRegionTest do
     refute Map.has_key?(durable(ctx, :block_entities), position)
     assert Map.has_key?(durable(ctx, :block_entities), ctx.chests.unseeded)
 
+    # Unsupported custom data must not acquire a second, empty owned record.
+    refute match?({:chest, _, _}, open(ctx, ctx.chests.named))
+    {:ok, protected} = Containers.decode(durable(ctx, :containers), ctx.key)
+    refute Map.has_key?(protected.entries, ctx.chests.named)
+    assert Map.has_key?(durable(ctx, :block_entities), ctx.chests.named)
+
     assert {:chest, @chest, again} = open(ctx, position)
     assert again.slots == view.slots and again.revision == view.revision
 

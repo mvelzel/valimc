@@ -487,7 +487,6 @@ defmodule Valimc.Player.Placement do
          {:ok, writes} <- Region.placement(owner, item, values, target),
          :ok <- in_section(writes, key),
          candidate = main_write(writes, target),
-         :ok <- single_chest(candidate),
          {:ok, batch} <- BlockBatch.prepare(Map.new(writes)) do
       {:ok, %{owner: owner, revision: fence, candidate: candidate, batch: batch}}
     end
@@ -541,12 +540,4 @@ defmodule Valimc.Player.Placement do
   end
 
   defp section_key({x, _, z}), do: Grid.region_key(Grid.chunk_key(x, z))
-
-  # A chest that would join its neighbour into a double chest is refused
-  # until double chests exist (VMC-032b).
-  defp single_chest(%{state: state}) do
-    if Valimc.Blocks.Chest.ordinary?(state) and not Valimc.Blocks.Chest.single?(state),
-      do: {:error, :unsupported_double_chest},
-      else: :ok
-  end
 end

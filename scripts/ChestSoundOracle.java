@@ -36,6 +36,15 @@ public class ChestSoundOracle {
       if(draws.size()!=2||world.sounds.size()!=2)throw new AssertionError("Changed chest sound lifecycle");
       var row=new JsonObject(); row.addProperty("seed",seed); row.add("draws",draws); row.add("sounds",world.sounds); traces.add(row);
     }
+    var halves=new JsonArray();
+    for(var state:Blocks.CHEST.getStateDefinition().getPossibleStates()){
+      var world=(ChestViewOracle.World)unsafe.allocateInstance(ChestViewOracle.World.class);
+      world.position=new BlockPos(-1,64,15);world.state=state;
+      world.events=new JsonArray();world.sounds=new JsonArray();world.games=new JsonArray();random.set(world,RandomSource.create(42));
+      world.chest=new ChestBlockEntity(world.position,state);world.chest.setLevel(world);
+      world.chest.startOpen(actor);world.chest.stopOpen(actor);
+      var row=new JsonObject();row.addProperty("state",net.minecraft.world.level.block.Block.getId(state));row.add("sounds",world.sounds);halves.add(row);
+    }
     var events=List.of(SoundEvents.CHEST_OPEN,SoundEvents.CHEST_CLOSE);
     var registry=new JsonArray();
     for(var event:events) {
@@ -57,7 +66,7 @@ public class ChestSoundOracle {
         } finally {buffer.release();}
       }
     var out=new JsonObject(); out.addProperty("version","26.3"); out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-    out.addProperty("blocks_source",SoundSource.BLOCKS.ordinal()); out.add("registry",registry); out.add("traces",traces); out.add("packets",packets);
+    out.addProperty("blocks_source",SoundSource.BLOCKS.ordinal()); out.add("registry",registry); out.add("traces",traces);out.add("halves",halves); out.add("packets",packets);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
     System.out.println("PASS: "+traces.size()+" actual native chest sound RNG traces and "+packets.size()+" registered sound codec bodies.");
   }

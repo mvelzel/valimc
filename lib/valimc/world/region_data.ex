@@ -3468,9 +3468,6 @@ defmodule Valimc.World.RegionData do
       busy = write_busy(state) ->
         {:reply, {:error, busy}, state}
 
-      not isolated_chest_changes?(state, batch) ->
-        {:reply, {:error, :unsupported_chest_neighbors}, state}
-
       true ->
         start_container_blocks(state, from, batch, expected)
     end
@@ -3789,15 +3786,32 @@ defmodule Valimc.World.RegionData do
 
     changed =
       for {position, entry} <- state.containers.entries,
-          entry !== Map.get(seen, position),
-          Redstone.entry_signal(Map.get(seen, position)) != Redstone.entry_signal(entry),
-          do: {:output_changed, position}
+          old <- [Map.get(seen, position)],
+          entry !== old,
+          at <- changed_container_positions(state, position, old, entry),
+          uniq: true,
+          do: {:output_changed, at}
 
     state = %{state | containers_seen: state.containers}
 
     if changed == [],
       do: state,
       else: elem(rule_run(state, %{actions: Enum.sort(changed)}), 0)
+  end
+
+  defp changed_container_positions(state, position, old, entry) do
+    block = read_block(state, position)
+
+    cond do
+      Valimc.Blocks.Chest.ordinary?(block) and (old == nil or old.slots != entry.slots) ->
+        Valimc.Blocks.Chest.positions(block, position, &local_or_sibling_block(state, &1))
+
+      Redstone.entry_signal(old) != Redstone.entry_signal(entry) ->
+        [position]
+
+      true ->
+        []
+    end
   end
 
   # Daylight detectors' block entities (VMC-047a), every twentieth game tick
@@ -3918,9 +3932,16 @@ defmodule Valimc.World.RegionData do
               entry = get_in(entries, [Grid.region_key(Grid.chunk_key(x + dx, z + dz)), position]),
               entry != nil,
               uniq: true,
-              do: {position, Redstone.entry_signal(entry)}
+              do: {position, chest_signal(state, position, entry)}
 
         {outputs, containers}
+    end
+  end
+
+  defp chest_signal(state, position, entry) do
+    case joined_chest(state, position) do
+      {:ok, view} -> Redstone.entry_signal(view)
+      _ -> Redstone.entry_signal(entry)
     end
   end
 
@@ -4299,18 +4320,14 @@ defmodule Valimc.World.RegionData do
 
     ticked = Map.take(result.ticked, Map.keys(entries))
 
-    with {:ok, store} <- take_hopper_items(state.entities.store, result.items),
+    with {:ok, effects} <- plan_foreign_containers(state, result.foreign),
+         {:ok, store} <- take_hopper_items(state.entities.store, result.items),
          {:ok, containers, content} <- put_container_entries(state.containers, result.entries) do
-      inserts =
-        result.inserts
-        |> Enum.group_by(fn {{x, _, z}, _, _, _} -> Grid.region_key(Grid.chunk_key(x, z)) end)
-        |> Enum.map(fn {key, inserts} -> {key, {:hopper_inserts, inserts}} end)
-
       state = %{
         state
         | containers: containers,
           hopper_ticked: ticked,
-          sibling_effects: state.sibling_effects ++ inserts
+          sibling_effects: state.sibling_effects ++ effects
       }
 
       state = if result.items == %{}, do: state, else: put_entities(state, store)
@@ -4392,6 +4409,34 @@ defmodule Valimc.World.RegionData do
       nil ->
         dispense_item(state, :drop, position, entry, slot, step)
 
+      {:joined, key, target_entry, target_block} ->
+        case Valimc.Blocks.ItemTransfer.add(target_entry, one, side, target_block) do
+          {_next, nil, _} ->
+            entries =
+              Map.put(state.containers.entries, position, %{
+                entry
+                | slots: put_elem(entry.slots, slot, shrink(stack))
+              })
+
+            case put_container_entries(state.containers, entries) do
+              {:ok, containers, content} ->
+                state = containers_moved(%{state | containers: containers}, content)
+
+                %{
+                  state
+                  | sibling_effects:
+                      state.sibling_effects ++
+                        [{key, {:hopper_inserts, [{target, one, side, nil}]}}]
+                }
+
+              _ ->
+                state
+            end
+
+          _ ->
+            state
+        end
+
       {:own, target_entry, target_block} ->
         case Valimc.Blocks.ItemTransfer.add(target_entry, one, side, target_block) do
           {next, nil, woke} ->
@@ -4440,9 +4485,20 @@ defmodule Valimc.World.RegionData do
         else: get_in(state.siblings, [key, :containers]) |> then(&(&1 && &1.entries[target]))
 
     cond do
-      block == nil or entry == nil or not container_matches?(entry, block) -> nil
-      key == state.key -> {:own, entry, block}
-      true -> {:sibling, key, entry, block}
+      block == nil or entry == nil or not container_matches?(entry, block) ->
+        nil
+
+      Valimc.Blocks.Chest.ordinary?(block) and not Valimc.Blocks.Chest.single?(block) ->
+        case joined_chest(state, target) do
+          {:ok, view} -> {:joined, key, view, block}
+          _ -> nil
+        end
+
+      key == state.key ->
+        {:own, entry, block}
+
+      true ->
+        {:sibling, key, entry, block}
     end
   end
 
@@ -4708,7 +4764,45 @@ defmodule Valimc.World.RegionData do
 
   # A sibling section's hoppers' inserts into this section's containers
   # (VMC-049a); what no longer fits drops at the container, never lost.
-  defp hopper_inserts(state, inserts) do
+  defp hopper_inserts(state, [{target, stack, side, _}] = inserts) do
+    case joined_chest(state, target) do
+      {:ok, view} ->
+        {view, rest, _} =
+          Valimc.Blocks.ItemTransfer.add(view, stack, side, hopper_block(state, target))
+
+        updates =
+          Map.new(Containers.chest_parts(view), fn {at, slots} ->
+            {at, %{container_entry(state, at) | slots: slots}}
+          end)
+
+        {own, foreign} =
+          Enum.split_with(updates, fn {at, _} -> route_of(state, at) == state.key end)
+
+        with {:ok, effects} <- plan_foreign_containers(state, Map.new(foreign)),
+             {:ok, containers, content} <- put_container_entries(state.containers, Map.new(own)) do
+          state =
+            containers_moved(
+              %{
+                state
+                | containers: containers,
+                  sibling_effects: state.sibling_effects ++ effects
+              },
+              content
+            )
+
+          spill_hopper_items(state, if(rest, do: [{target, rest}], else: []))
+        else
+          _ -> spill_hopper_items(state, [{target, stack}])
+        end
+
+      _ ->
+        plain_hopper_inserts(state, inserts)
+    end
+  end
+
+  defp hopper_inserts(state, inserts), do: plain_hopper_inserts(state, inserts)
+
+  defp plain_hopper_inserts(state, inserts) do
     {entries, spilled} =
       Valimc.World.Hoppers.receive(
         state.containers.entries,
@@ -4726,6 +4820,10 @@ defmodule Valimc.World.RegionData do
           {state, for({position, stack, _, _} <- inserts, do: {position, stack})}
       end
 
+    spill_hopper_items(state, spilled)
+  end
+
+  defp spill_hopper_items(state, spilled) do
     records =
       for {{x, y, z}, stack} <- spilled,
           do: %{
@@ -4772,12 +4870,57 @@ defmodule Valimc.World.RegionData do
         block = read_block(state, position),
         block != nil,
         {dx, dy, dz} = Valimc.Blocks.Machine.facing(block),
-        target = {x + dx, y + dy, z + dz},
-        key = Grid.region_key(Grid.chunk_key(x + dx, z + dz)),
+        target <- [{x + dx, y + dy, z + dz}, {x, y + 1, z}],
+        target_block = hopper_block(state, target),
+        target_block != nil,
+        at <- Valimc.Blocks.Chest.positions(target_block, target, &hopper_block(state, &1)),
+        key = route_of(state, at),
         key != state.key,
-        %{containers: %{entries: %{^target => entry}}} <- [state.siblings[key]],
+        entry = container_entry(state, at),
+        entry != nil,
         into: %{},
-        do: {target, entry}
+        do: {at, entry}
+  end
+
+  defp container_entry(state, at) do
+    case route_of(state, at) do
+      key when key == state.key ->
+        state.containers.entries[at]
+
+      key ->
+        with %{containers: containers} <- state.siblings[key],
+             do: containers.entries[at],
+             else: (_ -> nil)
+    end
+  end
+
+  defp joined_chest(state, at) do
+    with block when is_integer(block) <- hopper_block(state, at),
+         true <- Valimc.Blocks.Chest.ordinary?(block),
+         [_, _] = parts <- Valimc.Blocks.Chest.positions(block, at, &hopper_block(state, &1)),
+         do: Containers.chest_view(parts, &container_entry(state, &1)),
+         else: (_ -> :none)
+  end
+
+  # Sibling effects are applied between phases by the group, before another
+  # container action can run. Plan every replacement before adopting any.
+  defp plan_foreign_containers(state, entries) do
+    entries
+    |> Enum.group_by(fn {at, _} -> route_of(state, at) end)
+    |> Enum.reduce_while({:ok, []}, fn {key, entries}, {:ok, effects} ->
+      original = state.siblings[key].containers
+
+      case put_container_entries(original, Map.new(entries)) do
+        {:ok, ^original, []} ->
+          {:cont, {:ok, effects}}
+
+        {:ok, next, content} ->
+          {:cont, {:ok, effects ++ [{key, {:container_entries, original, next, content}}]}}
+
+        error ->
+          {:halt, error}
+      end
+    end)
   end
 
   # The items near the hoppers, in entity order, in chunks that simulate;
@@ -5134,6 +5277,11 @@ defmodule Valimc.World.RegionData do
 
   # A sibling's hoppers' inserts into this section's containers (VMC-049a).
   def apply_sibling(state, {:hopper_inserts, inserts}), do: hopper_inserts(state, inserts)
+
+  def apply_sibling(state, {:container_entries, expected, next, content}) do
+    true = state.containers == expected
+    containers_moved(%{state | containers: next}, content)
+  end
 
   # A sibling's explosion reaches this section's entities (VMC-050a).
   def apply_sibling(state, {:explosion, explosion}) do
@@ -6162,6 +6310,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  @doc "Prepare one half of an authorized chest menu inside the owning group."
+  def prepare_chest(state, position, unpack) do
+    state = if unpack, do: unpack_loot(state, position, 0.0), else: state
+    ensure_container(state, position)
+  end
+
   # Vanilla unpacks when a player who may open the chest opens it: not a
   # spectator, and only where the open itself succeeds (`createMenu`). The
   # opener's luck attribute has no source in ValiMC yet, so it is 0.
@@ -6201,10 +6355,8 @@ defmodule Valimc.World.RegionData do
     with nil <- write_busy(state),
          block = Blocks.get(state.blocks, position),
          false <- LootChests.unrolled?(state.containers, state.block_entities, position, block),
-         # A preserved machine (a generated one's loot) stays preserved.
-         false <-
-           Valimc.Blocks.Machine.kind(block) != nil and
-             BlockEntities.live(state.block_entities, position, block) != nil,
+         # Names, locks and other unowned data stay preserved, in either half.
+         nil <- BlockEntities.live(state.block_entities, position, block),
          {:ok, containers} <-
            ContainerLifecycle.ensure(state.containers, state.key, position, block) do
       %{state | containers: containers}
@@ -6240,7 +6392,7 @@ defmodule Valimc.World.RegionData do
     do: BlockEntities.protected?(state.block_entities, changes, &Blocks.get(state.blocks, &1))
 
   # Vanilla may consume a use of an imported block entity's block (signs, beds,
-  # lecterns, double chests...); ValiMC cannot perform it, so it refuses rather
+  # lecterns, locked chests...); ValiMC cannot perform it, so it refuses rather
   # than placing against the block (VMC-021e1).
   defp preserved_use?(state, position, block),
     do:
@@ -6436,33 +6588,6 @@ defmodule Valimc.World.RegionData do
       BlockSnapshot.publish_chunks(state.publication, state.blocks, chunks, state.revision)
 
     state
-  end
-
-  defp isolated_chest_changes?(state, batch) do
-    Enum.all?(batch.edits, fn {position, block} ->
-      if Valimc.Blocks.Chest.single?(block) and
-           not Valimc.Blocks.Chest.single?(Blocks.get(state.blocks, position)) do
-        # The player's group decided the chest stays single
-        # (`ChestPlacement.joins?/5`); only half of a double chest beside it
-        # refuses. A neighbour across a section line is read in its sibling,
-        # which the group holds; one outside the group refuses.
-        Enum.all?(Valimc.Blocks.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
-          neighbor_state =
-            case Grid.region_key(Grid.chunk_key(x, z)) do
-              key when key == state.key ->
-                Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
-
-              key ->
-                with %{blocks: blocks} <- state.siblings[key], do: Blocks.get(blocks, neighbor)
-            end
-
-          neighbor_state != nil and
-            not MapSet.member?(Valimc.Blocks.Chest.double_states(), neighbor_state)
-        end)
-      else
-        true
-      end
-    end)
   end
 
   # A chunk's packet is encoded as job `{:encode, chunk}`; `encodes` holds the
@@ -6788,7 +6913,7 @@ defmodule Valimc.World.RegionData do
                 now
               )
 
-            Valimc.Blocks.Chest.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
+            Valimc.Blocks.Chest.ordinary?(block) or (is_map(grant) and grant[:menu] == :chest) ->
               {x, y, z} = position
 
               Valimc.Menus.MenuAccess.authorize(
@@ -6902,17 +7027,20 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp notify_container_changed(state, position) do
+  def notify_container_changed(state, position) do
     case state.containers.entries[position] do
       %{revision: revision} ->
         {viewers, notices} = ContainerViewers.changed(state.container_viewers, position, revision)
 
-        for {pid, ref, revision} <- notices,
-            do:
-              Valimc.Player.PlayerList.deliver(
-                pid,
-                {:container_changed, {self(), state.epoch}, ref, position, revision}
-              )
+        for {pid, ref, revision} <- notices do
+          view = viewers.views[pid]
+          owner = view.origin || {self(), state.epoch}
+
+          Valimc.Player.PlayerList.deliver(
+            pid,
+            {:container_changed, owner, ref, view.position, revision}
+          )
+        end
 
         %{state | container_viewers: viewers}
 
@@ -6932,13 +7060,13 @@ defmodule Valimc.World.RegionData do
         do:
           Valimc.Player.PlayerList.deliver(
             view.pid,
-            {:container_closed, {self(), state.epoch}, view.ref}
+            {:container_closed, view.origin || {self(), state.epoch}, view.ref}
           )
 
     apply_container_viewers(state, {viewers, retired, lids}, false)
   end
 
-  defp apply_container_viewers(state, {viewers, retired, lids}, sound? \\ true) do
+  def apply_container_viewers(state, {viewers, retired, lids}, sound? \\ true) do
     for view <- retired, do: Process.demonitor(view.monitor, [:flush])
     state = %{state | container_viewers: viewers}
     threshold = Valimc.config(:compression_threshold)
@@ -6972,11 +7100,14 @@ defmodule Valimc.World.RegionData do
     for {position, open} <- lids do
       frame = Packets.frame(Packets.chest_lid(position, open), threshold)
 
+      sound_position =
+        Valimc.Blocks.Chest.sound_position(Blocks.get(state.blocks, position), position)
+
       sound =
-        if sound? do
+        if sound? and sound_position != nil do
           <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
           draw = (:rand.uniform(16_777_216) - 1) / 16_777_216
-          {:ok, packet} = Valimc.Protocol.ChestSounds.packet(open, position, draw, seed)
+          {:ok, packet} = Valimc.Protocol.ChestSounds.packet(open, sound_position, draw, seed)
           Packets.frame(packet, threshold)
         end
 

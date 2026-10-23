@@ -17,7 +17,7 @@ defmodule Valimc.Protocol.ChestSounds do
   def pitch(_), do: {:error, :invalid_chest_sound}
 
   def packet(open?, {x, y, z}, draw, seed)
-      when is_boolean(open?) and is_integer(x) and is_integer(y) and is_integer(z) and
+      when is_boolean(open?) and is_number(x) and is_integer(y) and is_number(z) and
              abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and y in -64..319 and
              is_integer(seed) and seed >= -9_223_372_036_854_775_808 and
              seed <= 9_223_372_036_854_775_807 do
@@ -26,8 +26,8 @@ defmodule Valimc.Protocol.ChestSounds do
        Packets.packet("sound", [
          Wire.varint(if(open?, do: @open, else: @close) + 1),
          Wire.varint(@source),
-         <<8 * x + 4::signed-32, 8 * y + 4::signed-32, 8 * z + 4::signed-32, 0.5::float-32,
-           pitch::float-32, seed::signed-64>>
+         <<trunc(8 * x + 4)::signed-32, 8 * y + 4::signed-32, trunc(8 * z + 4)::signed-32,
+           0.5::float-32, pitch::float-32, seed::signed-64>>
        ])}
     end
   end

@@ -14,9 +14,10 @@ import net.minecraft.world.phys.Vec3;
 /** Original single-chest state identities and actual block-entity validity boundaries. */
 public class ChestAccessOracle {
   static class World extends ServerLevel {
-    ChestBlockEntity chest; boolean present;
+    ChestBlockEntity chest; boolean present; Map<BlockPos,BlockState> blocks; Map<BlockPos,ChestBlockEntity> entities;
     private World(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
-    public BlockEntity getBlockEntity(BlockPos pos){return present?chest:null;}
+    public BlockEntity getBlockEntity(BlockPos pos){return entities!=null?entities.get(pos):present?chest:null;}
+    public BlockState getBlockState(BlockPos pos){return blocks.getOrDefault(pos,Blocks.AIR.defaultBlockState());}
   }
   static void set(Object object,Class<?> type,String field,Object value)throws Exception {
     var f=type.getDeclaredField(field);f.setAccessible(true);f.set(object,value);
@@ -51,7 +52,32 @@ public class ChestAccessOracle {
         row.addProperty("valid",Container.stillValidBlockEntity(world.chest,p));cases.add(row);
       }
     }
-    var output=new JsonObject();output.add("facts",facts);output.add("validity",cases);
+    var combined=new JsonArray();
+    var partners=new ArrayList<BlockState>();partners.add(Blocks.AIR.defaultBlockState());
+    for(var b:List.of(Blocks.CHEST,Blocks.TRAPPED_CHEST))partners.addAll(b.getStateDefinition().getPossibleStates());
+    for(var state:Blocks.CHEST.getStateDefinition().getPossibleStates())for(var partner:partners){
+      var pos=BlockPos.ZERO;var other=ChestBlock.getConnectedBlockPos(pos,state);
+      var world=(World)u.allocateInstance(World.class);world.blocks=Map.of(pos,state,other,partner);
+      world.entities=new HashMap<>();
+      var first=new ChestBlockEntity(pos,state);first.setItem(0,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND));
+      world.entities.put(pos,first);
+      if(partner.is(Blocks.CHEST)||partner.is(Blocks.TRAPPED_CHEST)){
+        var second=(ChestBlockEntity)((EntityBlock)partner.getBlock()).newBlockEntity(other,partner);
+        second.setItem(0,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD));world.entities.put(other,second);
+      }
+      var container=ChestBlock.getContainer((ChestBlock)Blocks.CHEST,state,world,pos,true);
+      var order=new JsonArray();
+      for(int slot=0;slot<container.getContainerSize();slot+=27){
+        var at=container.getItem(slot).is(net.minecraft.world.item.Items.DIAMOND)?pos:other;
+        order.add(new Gson().toJsonTree(List.of(at.getX(),at.getY(),at.getZ())));
+      }
+      var row=new JsonObject();row.addProperty("state",Block.getId(state));row.addProperty("neighbor",Block.getId(partner));
+      row.add("neighbor_position",new Gson().toJsonTree(List.of(other.getX(),other.getY(),other.getZ())));row.add("order",order);
+      first.clearContent();for(int i=0;i<27;i++)first.setItem(i,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STONE,64));
+      for(var e:world.entities.entrySet())if(!e.getKey().equals(pos))e.getValue().clearContent();
+      row.addProperty("filled_signal",net.minecraft.world.inventory.AbstractContainerMenu.getRedstoneSignalFromContainer(container));combined.add(row);
+    }
+    var output=new JsonObject();output.add("facts",facts);output.add("validity",cases);output.add("combined",combined);
     Files.writeString(Path.of(args[0]),new Gson().toJson(output));
     System.out.println("PASS: "+states.size()+" native ordinary chest states and "+cases.size()+" actual block-entity validity cases; opening obstruction/entities/menus excluded.");
   }

@@ -3,7 +3,6 @@ defmodule Valimc.World.ContainerLifecycle do
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
-  @double Valimc.Blocks.Chest.double_states()
 
   def plan(%Containers{} = containers, key, expected, edits)
       when is_map(expected) and is_map(edits) and map_size(edits) in 1..4096 and
@@ -29,8 +28,7 @@ defmodule Valimc.World.ContainerLifecycle do
     abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and Chunk.valid_y?(y) and
       Grid.region_key(Grid.chunk_key(x, z)) == key and
       is_integer(original) and original >= 0 and original < Data.block_state_count() and
-      state >= 0 and state < Data.block_state_count() and
-      not MapSet.member?(@double, original) and not MapSet.member?(@double, state)
+      state >= 0 and state < Data.block_state_count()
   end
 
   defp valid_change?(_, _, _), do: false
@@ -122,7 +120,7 @@ defmodule Valimc.World.ContainerLifecycle do
     Enum.reduce(changes, containers, fn {position, state}, current ->
       case current.entries[position] do
         %{revision: revision} = entry ->
-          if entry_kind(entry) == kind(state) and not MapSet.member?(@double, state),
+          if entry_kind(entry) == kind(state),
             do: current,
             else: elem(Containers.remove(current, position, revision), 1)
 
@@ -133,7 +131,7 @@ defmodule Valimc.World.ContainerLifecycle do
   end
 
   @doc """
-  The empty entry a single chest, cooking block or machine at `position` lacks, as
+  The empty entry a chest half, cooking block or machine at `position` lacks, as
   vanilla's block entity exists with the block however it was set
   (`EntityBlock.newBlockEntity`): `{:ok, containers}`, or `:none` when the
   state holds no container or its entry exists.
@@ -144,7 +142,7 @@ defmodule Valimc.World.ContainerLifecycle do
         Map.has_key?(containers.entries, position) ->
           :none
 
-        Valimc.Blocks.Chest.single?(state) ->
+        Valimc.Blocks.Chest.ordinary?(state) ->
           Containers.create(containers, key, position, 3)
 
         cooking = Valimc.Blocks.CookingBlocks.kind(state) ->

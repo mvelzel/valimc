@@ -96,8 +96,9 @@ its sections' changes at once into one record of the write-ahead log, so a
 change that spans sections is durable whole or not at all; it cuts only the
 sections changed since its last cut, so a group's cost follows what changes
 in it, not how many sections it holds. Inside a group the block rules read
-and write across section borders and stop only at its edge, light crosses by
-the group's own mailbox (generated columns as sibling effects before the next
+and write across section borders and stop only at its edge; sibling effects
+apply between tick phases so later phases observe what earlier ones changed.
+Light crosses by the group's own mailbox (generated columns as sibling effects before the next
 cut), and an entity crossing a section
 line is withdrawn and adopted in the same group commit; between groups it
 goes by the durable entity handoff, whose ends and receipts are section keys.

@@ -5,27 +5,39 @@ defmodule Valimc.World.ContainerViewers do
   @max_revision 18_446_744_073_709_551_615
   def max_views, do: @max_views
 
-  def register(%__MODULE__{} = state, pid, ref, monitor, {x, y, z} = position, opener, revision)
+  def register(state, pid, ref, monitor, position, opener, revision, origin \\ nil)
+
+  def register(
+        %__MODULE__{} = state,
+        pid,
+        ref,
+        monitor,
+        {x, y, z} = position,
+        opener,
+        revision,
+        origin
+      )
       when is_pid(pid) and is_reference(ref) and is_reference(monitor) and is_integer(x) and
              is_integer(y) and is_integer(z) and is_boolean(opener) and
-             is_integer(revision) and revision in 1..@max_revision do
+             (is_integer(revision) or is_map(revision)) do
     old = state.views[pid]
 
     cond do
-      not Valimc.World.Chunk.valid_y?(y) or abs(x) > 29_999_984 or abs(z) > 29_999_984 ->
+      not valid_revision?(revision) or not Valimc.World.Chunk.valid_y?(y) or
+        abs(x) > 29_999_984 or abs(z) > 29_999_984 ->
         {:error, :invalid_container_view}
 
       old == nil and map_size(state.views) >= @max_views ->
         {:error, :container_viewer_limit}
 
       old != nil and old.ref == ref ->
-        if old.position == position and old.opener == opener and old.monitor == monitor,
-          do: {:ok, state, [], []},
-          else: {:error, :container_view_reference_conflict}
+        if old.position == position and old.opener == opener and old.monitor == monitor and
+             positions(old) == positions(%{position: position, revision: revision}),
+           do: {:ok, state, [], []},
+           else: {:error, :container_view_reference_conflict}
 
       true ->
         {next, retired} = drop(state, pid)
-        {members, count} = Map.get(next.positions, position, {MapSet.new(), 0})
 
         view = %{
           pid: pid,
@@ -34,22 +46,26 @@ defmodule Valimc.World.ContainerViewers do
           position: position,
           opener: opener,
           revision: revision,
-          pending: false
+          pending: false,
+          origin: origin
         }
 
         next = %{
           next
           | views: Map.put(next.views, pid, view),
             positions:
-              Map.put(next.positions, position, {MapSet.put(members, pid), count + bit(opener)})
+              Enum.reduce(positions(view), next.positions, fn at, index ->
+                {members, count} = Map.get(index, at, {MapSet.new(), 0})
+                Map.put(index, at, {MapSet.put(members, pid), count + bit(opener)})
+              end)
         }
 
-        touched = if old, do: [old.position, position], else: [position]
+        touched = if old, do: positions(old) ++ positions(view), else: positions(view)
         {:ok, next, retired, lids(state, next, touched)}
     end
   end
 
-  def register(_, _, _, _, _, _, _), do: {:error, :invalid_container_view}
+  def register(_, _, _, _, _, _, _, _), do: {:error, :invalid_container_view}
 
   @doc "The views' section moved to another group process (VMC-077j): watch the viewers from it."
   def remonitor(%__MODULE__{} = state),
@@ -61,9 +77,9 @@ defmodule Valimc.World.ContainerViewers do
 
   def unregister(%__MODULE__{} = state, pid, ref) do
     case state.views[pid] do
-      %{ref: ^ref, position: position} ->
+      %{ref: ^ref} = view ->
         {next, retired} = drop(state, pid)
-        {next, retired, lids(state, next, [position])}
+        {next, retired, lids(state, next, positions(view))}
 
       _ ->
         {state, [], []}
@@ -88,7 +104,8 @@ defmodule Valimc.World.ContainerViewers do
         end)
       end)
 
-    {next, retired, lids(state, next, positions)}
+    touched = positions ++ Enum.flat_map(retired, &positions/1)
+    {next, retired, lids(state, next, touched)}
   end
 
   def changed(%__MODULE__{} = state, position, revision)
@@ -98,9 +115,15 @@ defmodule Valimc.World.ContainerViewers do
     Enum.reduce(members, {state, []}, fn pid, {current, notices} ->
       view = current.views[pid]
 
-      if revision > view.revision do
+      previous = if is_map(view.revision), do: view.revision[position], else: view.revision
+
+      if revision > previous do
         notices = if view.pending, do: notices, else: [{pid, view.ref, revision} | notices]
-        view = %{view | pending: true, revision: revision}
+
+        seen =
+          if is_map(view.revision), do: Map.put(view.revision, position, revision), else: revision
+
+        view = %{view | pending: true, revision: seen}
         {%{current | views: Map.put(current.views, pid, view)}, notices}
       else
         {current, notices}
@@ -153,10 +176,15 @@ defmodule Valimc.World.ContainerViewers do
   def observed_progress(state, _, _, _), do: state
 
   def observed(%__MODULE__{} = state, pid, ref, revision)
-      when is_integer(revision) and revision in 1..@max_revision do
+      when is_integer(revision) or is_map(revision) do
     case state.views[pid] do
-      %{ref: ^ref, revision: latest} = view when revision >= latest ->
-        %{state | views: Map.put(state.views, pid, %{view | revision: revision, pending: false})}
+      %{ref: ^ref} = view ->
+        if valid_revision?(revision) and observed?(revision, view.revision),
+          do: %{
+            state
+            | views: Map.put(state.views, pid, %{view | revision: revision, pending: false})
+          },
+          else: state
 
       _ ->
         state
@@ -174,13 +202,15 @@ defmodule Valimc.World.ContainerViewers do
         {state, []}
 
       {view, views} ->
-        {members, count} = Map.fetch!(state.positions, view.position)
-        members = MapSet.delete(members, pid)
-
         positions =
-          if MapSet.size(members) == 0,
-            do: Map.delete(state.positions, view.position),
-            else: Map.put(state.positions, view.position, {members, count - bit(view.opener)})
+          Enum.reduce(positions(view), state.positions, fn at, index ->
+            {members, count} = Map.fetch!(index, at)
+            members = MapSet.delete(members, pid)
+
+            if MapSet.size(members) == 0,
+              do: Map.delete(index, at),
+              else: Map.put(index, at, {members, count - bit(view.opener)})
+          end)
 
         {%{state | views: views, positions: positions}, [view]}
     end
@@ -196,6 +226,36 @@ defmodule Valimc.World.ContainerViewers do
       if was != now, do: [{position, now}], else: []
     end)
   end
+
+  defp positions(%{revision: revisions}) when is_map(revisions),
+    do: Enum.sort(Map.keys(revisions))
+
+  defp positions(view), do: [view.position]
+
+  defp valid_revision?(revision) when is_integer(revision), do: revision in 1..@max_revision
+
+  defp valid_revision?(revisions) when is_map(revisions) and map_size(revisions) in 1..2,
+    do:
+      Enum.all?(revisions, fn
+        {{x, y, z}, revision} ->
+          is_integer(x) and is_integer(z) and abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and
+            Valimc.World.Chunk.valid_y?(y) and valid_revision?(revision)
+
+        _ ->
+          false
+      end)
+
+  defp valid_revision?(_), do: false
+
+  defp observed?(revisions, previous) when is_map(revisions) and is_map(previous),
+    do:
+      MapSet.new(Map.keys(revisions)) == MapSet.new(Map.keys(previous)) and
+        Enum.all?(previous, fn {at, revision} -> revisions[at] >= revision end)
+
+  defp observed?(revision, previous) when is_integer(revision) and is_integer(previous),
+    do: revision >= previous
+
+  defp observed?(_, _), do: false
 
   defp bit(true), do: 1
   defp bit(false), do: 0

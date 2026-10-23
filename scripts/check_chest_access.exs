@@ -25,3 +25,32 @@ end
 IO.puts(
   "PASS: 24 native chest state identities and 112 actual block-entity validity boundaries; opening/physical lifecycle excluded."
 )
+
+for row <- raw["combined"] do
+  neighbor = List.to_tuple(row["neighbor_position"])
+  read = fn at -> if at == neighbor, do: row["neighbor"], else: 0 end
+  actual = Valimc.Blocks.Chest.positions(row["state"], {0, 0, 0}, read)
+  expected = Enum.map(row["order"], &List.to_tuple/1)
+  full = Tuple.duplicate(Valimc.Protocol.ItemStack.new("stone", 64), 27)
+
+  fetch = fn at ->
+    %{rows: 3, slots: if(at == {0, 0, 0}, do: full, else: Tuple.duplicate(nil, 27)), revision: 1}
+  end
+
+  view =
+    case actual do
+      [_, _] ->
+        {:ok, view} = Valimc.World.Containers.chest_view(actual, fetch)
+        view
+
+      [at] ->
+        fetch.(at)
+    end
+
+  true = Valimc.Blocks.Redstone.entry_signal(view) == row["filled_signal"]
+
+  unless actual == expected,
+    do: raise("combined chest order mismatch: #{inspect(row)}: #{inspect(actual)}")
+end
+
+IO.puts("PASS: #{length(raw["combined"])} native chest combinations and half slot orders")

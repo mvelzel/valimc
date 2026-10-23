@@ -12,8 +12,8 @@ defmodule Valimc.World.Hoppers do
   8 (7 when it already ticked).
 
   Pure over a context: the section's own container entries (which it
-  changes), the group's other sections' entries (`foreign`: an insert there
-  is recorded and applied by that section in the same commit), the blocks
+  changes), the group's other sections' entries (`foreign`: replacements
+  are planned together and applied by that section in the same commit), the blocks
   (`block.(position)`, nil where unreadable), the items in entity order
   (none while a plan holds the store), the game tick, the hoppers that tick
   (in simulated chunks) and when each last ticked. A target outside the
@@ -21,7 +21,8 @@ defmodule Valimc.World.Hoppers do
   least 25 chunks apart (`Regionizer`), so nothing a hopper reaches lies in
   another group.
   """
-  alias Valimc.Blocks.{CookingBlocks, ItemTransfer, Machine}
+  alias Valimc.Blocks.{Chest, CookingBlocks, ItemTransfer, Machine}
+  alias Valimc.World.Containers
   alias Valimc.Data.BlockFacts
   alias Valimc.Protocol.Data
 
@@ -42,13 +43,12 @@ defmodule Valimc.World.Hoppers do
   @doc """
   Run a tick. `context`: `%{tick, entries, foreign, block, items, hoppers,
   ticked}` (`items` `[%{id, x, y, z, stack}]` in entity order, `hoppers`
-  positions in tick order). Returns `%{entries, foreign, inserts, items,
-  ticked}`: `inserts` `[{position, stack, side, from_ticked}]` for foreign
-  containers in order, `items` the changed item stacks by id (nil taken
-  whole).
+  positions in tick order). Returns `%{entries, foreign, items, ticked}`:
+  physical entries, including both halves of joined chests, and the changed
+  item stacks by id (nil taken whole).
   """
   def tick(context) do
-    acc = Map.merge(context, %{inserts: [], taken: %{}})
+    acc = Map.put(context, :taken, %{})
     acc = Enum.reduce(context.items, acc, &entity_inside/2)
 
     acc = Enum.reduce(context.hoppers, acc, &push_items_tick/2)
@@ -56,7 +56,6 @@ defmodule Valimc.World.Hoppers do
     %{
       entries: acc.entries,
       foreign: acc.foreign,
-      inserts: Enum.reverse(acc.inserts),
       items: acc.taken,
       ticked: acc.ticked
     }
@@ -157,7 +156,7 @@ defmodule Valimc.World.Hoppers do
                     acc =
                       acc
                       |> put_entry(position, %{hopper | slots: put_elem(hopper.slots, slot, rest)})
-                      |> received(target, next, %{stack | count: 1}, side, woke, position)
+                      |> received(target, next, woke, position)
 
                     {:halt, {acc, true}}
 
@@ -247,9 +246,26 @@ defmodule Valimc.World.Hoppers do
     entry = acc.entries[position] || acc.foreign[position]
 
     cond do
-      block == nil or entry == nil -> nil
-      matches?(entry, block) -> {entry, block}
-      true -> nil
+      block == nil or entry == nil ->
+        nil
+
+      Chest.ordinary?(block) ->
+        case Chest.positions(block, position, acc.block) do
+          [_, _] = parts ->
+            case Containers.chest_view(parts, &(acc.entries[&1] || acc.foreign[&1])) do
+              {:ok, view} -> {view, block}
+              _ -> nil
+            end
+
+          [_] ->
+            {entry, block}
+        end
+
+      matches?(entry, block) ->
+        {entry, block}
+
+      true ->
+        nil
     end
   end
 
@@ -260,7 +276,7 @@ defmodule Valimc.World.Hoppers do
 
   # What a container received: a hopper that was empty waits (one tick less
   # when it ticked no earlier than the hopper that gave it).
-  defp received(acc, target, entry, stack, side, woke, from) do
+  defp received(acc, target, entry, woke, from) do
     if Map.has_key?(acc.entries, target) do
       entry =
         if woke and match?(%{kind: :hopper}, entry),
@@ -271,21 +287,17 @@ defmodule Valimc.World.Hoppers do
             ),
           else: entry
 
-      put_entry(acc, target, entry)
+      put_container(acc, target, entry)
     else
-      %{
-        acc
-        | foreign: Map.put(acc.foreign, target, entry),
-          inserts: [{target, stack, side, from_ticked(acc, from)} | acc.inserts]
-      }
+      put_container(acc, target, entry)
     end
   end
 
-  defp from_ticked(acc, from) do
-    case acc.entries[from] do
-      %{kind: :hopper} -> Map.get(acc.ticked, from, 0)
-      _ -> nil
-    end
+  defp put_container(acc, _position, %{parts: _} = view) do
+    Enum.reduce(Containers.chest_parts(view), acc, fn {at, slots}, acc ->
+      entry = acc.entries[at] || acc.foreign[at]
+      put_container(acc, at, %{entry | slots: slots})
+    end)
   end
 
   defp put_container(acc, position, entry) do

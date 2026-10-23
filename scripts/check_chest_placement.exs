@@ -19,6 +19,43 @@ end
 for [target, expected] <- raw["fluid_states"],
     do: {:ok, ^expected} = ChestPlacement.single_state(180.0, target)
 
+# The live shared placement rules also choose the joined halves, from the
+# same candidate contexts the oracle observed (targeting is a separate stage).
+item = Valimc.Protocol.Data.item("chest")
+
+neighbors =
+  raw["neighbors"]
+  |> Enum.with_index()
+  |> Map.new(fn {rows, i} ->
+    {i,
+     Enum.map(rows, fn row ->
+       [x, y, z] = row["position"]
+       {x, y, z, row["state"]}
+     end)}
+  end)
+
+prepared =
+  for row <- raw["cases"] do
+    request = %{
+      position: {0, 0, 0},
+      face: row["face"],
+      cursor: {0.5, 0.5, 0.5},
+      yaw: yaw[row["horizontal"]],
+      pitch: 0.0,
+      secondary: row["secondary"]
+    }
+
+    {:ok, %{values: values}} = Valimc.Blocks.Placement.target(item, 0, request)
+    {item, values, {0, 0, 0}, [{0, 0, 0, row["target"]} | neighbors[row["neighbor"]]]}
+  end
+
+{:ok, results} = Valimc.Native.rules_placement_cases(Valimc.World.BlockRules.native(), prepared)
+
+for {row, writes} <- Enum.zip(raw["cases"], results) do
+  unless writes == [{0, 0, 0, row["result"]}],
+    do: raise("chest candidate mismatch: #{inspect({row, writes})}")
+end
+
 IO.puts(
-  "PASS: 288 isolated native chest contexts, 35,723 target fluids and #{length(raw["yaw"])} yaw boundaries; 55,584 observed neighbor contexts include unsupported double candidates. No runtime placement claim."
+  "PASS: 55,584 native chest placement candidates including 960 joined halves, all target fluids and #{length(raw["yaw"])} yaw boundaries"
 )

@@ -251,6 +251,7 @@ defmodule Valimc.World.Region do
   @doc "Retire only the specified connection's current view in this owner incarnation."
   def unsubscribe_container({pid, epoch}, connection, ref)
       when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do
+    pid = Valimc.World.Directory.epoch_owner(epoch) || pid
     send(pid, {:resource, epoch, {:container_unsubscribe, connection, ref}})
     :ok
   end
@@ -812,7 +813,37 @@ defmodule Valimc.World.Region do
     if Map.has_key?(state.sections, key), do: {:section, key}, else: {:key, key}
   end
 
-  defp section_call(state, key, message, from) do
+  defp section_call(state, key, message, from)
+       when is_tuple(message) and elem(message, 0) in [:menu, :container_click] do
+    position = elem(message, if(elem(message, 0) == :menu, do: 3, else: 4))
+
+    keys =
+      [position | Valimc.Blocks.ChestPlacement.neighbors(position)]
+      |> Enum.map(fn {x, _, z} -> Grid.region_key(Grid.chunk_key(x, z)) end)
+
+    case Valimc.World.ChestMenus.handle(
+           Map.new(Map.take(state.sections, [key | keys]), fn {key, section} ->
+             {key, section.resource}
+           end),
+           key,
+           message
+         ) do
+      {:reply, reply, resources} ->
+        next =
+          Enum.reduce(resources, state, fn {part, resource}, acc ->
+            put_resource(acc, part, resource)
+          end)
+
+        {:reply, next, reply}
+
+      :pass ->
+        section_data_call(state, key, message, from)
+    end
+  end
+
+  defp section_call(state, key, message, from), do: section_data_call(state, key, message, from)
+
+  defp section_data_call(state, key, message, from) do
     {kind, resource, rest} =
       split_result(RegionData.handle_call(message, from, enter(state, key)))
 
@@ -1369,7 +1400,11 @@ defmodule Valimc.World.Region do
     |> Map.keys()
     |> Enum.sort()
     |> Enum.reduce(state, fn key, acc ->
-      acc |> put_resource(key, TickPipeline.run(enter(acc, key), tick, now)) |> deliver_rules(key)
+      Enum.reduce(TickPipeline.phases(), acc, fn phase, acc ->
+        acc
+        |> put_resource(key, TickPipeline.run(enter(acc, key), phase, tick, now))
+        |> deliver_rules(key)
+      end)
     end)
   end
 

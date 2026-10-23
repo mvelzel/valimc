@@ -3,7 +3,7 @@ defmodule Valimc.World.LootChests do
   Unrolled loot in chests (VMC-072b). Generated dungeon and structure chests,
   and imported chests nobody opened, keep a loot table and seed instead of
   items; ValiMC holds them as preserved block entities. `unpack/6` is
-  `RandomizableContainer.unpackLootTable` for a single chest whose compound
+  `RandomizableContainer.unpackLootTable` for a chest half whose compound
   holds nothing else ValiMC cannot own (no custom name or lock): vanilla's fill
   for the stored seed (a fresh one when none is stored) becomes the contents
   of an ordinary owned chest, and the preserved entry goes. The owner commits
@@ -32,7 +32,7 @@ defmodule Valimc.World.LootChests do
 
   def unrolled(_), do: :error
 
-  @doc "Whether the single chest `block` at `position` holds unrolled loot ValiMC can unpack."
+  @doc "Whether the chest half `block` at `position` holds unrolled loot ValiMC can unpack."
   def unrolled?(containers, entities, position, block) do
     match?({:ok, _, _}, unrolled_at(containers, entities, position, block))
   end
@@ -56,7 +56,7 @@ defmodule Valimc.World.LootChests do
   end
 
   defp unrolled_at(containers, entities, position, block) do
-    with true <- Valimc.Blocks.Chest.single?(block),
+    with true <- Valimc.Blocks.Chest.ordinary?(block),
          false <- Map.has_key?(containers.entries, position),
          %{nbt: nbt} <- BlockEntities.live(entities, position, block) do
       unrolled(nbt)

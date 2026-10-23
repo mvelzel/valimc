@@ -44,7 +44,7 @@ defmodule Valimc.Menus.MenuAccess do
 
   def menu(block) do
     cond do
-      Chest.single?(block) -> :chest
+      Chest.ordinary?(block) -> :chest
       CookingBlocks.kind(block) != nil -> :cooking
       Machine.kind(block) == :hopper -> :hopper
       Machine.kind(block) != nil -> :dispenser
@@ -182,9 +182,9 @@ defmodule Valimc.Menus.MenuAccess do
 
   def obstructed?(_, _), do: true
 
-  @doc "Whether a present single chest with `above` on it opens."
+  @doc "Whether a present chest half with `above` on it opens."
   def provider?(block, true, above, sitting_cat) when is_boolean(sitting_cat),
-    do: Chest.single?(block) and not obstructed?(above, sitting_cat)
+    do: Chest.ordinary?(block) and not obstructed?(above, sitting_cat)
 
   def provider?(_, _, _, _), do: false
 
@@ -203,7 +203,11 @@ defmodule Valimc.Menus.MenuAccess do
     do: expires <= now or expires > now + Valimc.Txn.Permits.window(250)
 
   defp entry?(:chest, _block, entry),
-    do: match?(%{rows: 3, slots: slots} when tuple_size(slots) == 27, entry)
+    do:
+      match?(
+        %{rows: rows, slots: slots} when rows in [3, 6] and tuple_size(slots) == rows * 9,
+        entry
+      )
 
   defp entry?(menu, block, %{kind: kind, slots: _}) when menu in [:hopper, :dispenser],
     do: Machine.kind(block) == kind

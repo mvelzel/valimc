@@ -20,6 +20,33 @@ defmodule Valimc.World.Containers do
   def observe(%__MODULE__{entries: entries}, position),
     do: Map.fetch(entries, position)
 
+  @doc "A joined chest's ephemeral menu or machine view, from its two owned entries."
+  def chest_view([_, _] = positions, fetch) do
+    entries = Enum.map(positions, fetch)
+
+    if Enum.all?(entries, &match?(%{rows: 3, slots: slots} when tuple_size(slots) == 27, &1)) do
+      {:ok,
+       %{
+         rows: 6,
+         parts: positions,
+         slots: entries |> Enum.flat_map(&Tuple.to_list(&1.slots)) |> List.to_tuple(),
+         revision:
+           Map.new(Enum.zip(positions, entries), fn {at, entry} -> {at, entry.revision} end)
+       }}
+    else
+      {:error, :missing_menu_entry}
+    end
+  end
+
+  @doc "The physical 27-slot replacements of a joined chest view."
+  def chest_parts(%{parts: positions, slots: slots}) do
+    positions
+    |> Enum.with_index()
+    |> Enum.map(fn {at, index} ->
+      {at, slots |> Tuple.to_list() |> Enum.slice(index * 27, 27) |> List.to_tuple()}
+    end)
+  end
+
   def create(%__MODULE__{} = state, key, position, rows) when rows in 1..6 do
     create_entry(state, key, position, %{rows: rows, slots: Tuple.duplicate(nil, rows * 9)})
   end

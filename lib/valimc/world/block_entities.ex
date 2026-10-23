@@ -1,7 +1,7 @@
 defmodule Valimc.World.BlockEntities do
   @moduledoc """
   Preserved vanilla block entities of one region (VMC-021e1): imported compounds
-  of kinds ValiMC does not own yet (signs, banners, beds, skulls, double chests,
+  of kinds ValiMC does not own yet (signs, banners, beds, skulls, named chests,
   locked containers...). The region owner holds them so chunk packets carry
   vanilla's update tag, so their blocks refuse changes that would lose the data,
   and so export writes them back.
