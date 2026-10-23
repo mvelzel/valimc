@@ -306,6 +306,14 @@ defmodule Valimc.World.RegionData do
         |> move_mobs()
         |> move_items(now)
       else
+        # A dead cube splits as it is removed (VMC-043d, `AbstractCubeMob.remove`).
+        splits =
+          for {_epoch, id, _revision} <- expired,
+              %{body: %Body{mob: %Valimc.Entity.Mob{}} = body, entity: e} <- [items.entries[id]],
+              not Body.alive?(body),
+              split <- Valimc.AI.Mobs.hook(body.type, :split, [body, {e.x, e.y, e.z}], []),
+              do: split
+
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
             {:ok, next} = Store.remove(acc, epoch, id, revision)
@@ -313,7 +321,10 @@ defmodule Valimc.World.RegionData do
           end)
 
         {:noreply, state} = commit_items(items, :ok, nil, state)
-        state
+
+        Enum.reduce(splits, state, fn {body, position}, state ->
+          create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+        end)
       end
     else
       if state.entities.simulate,
@@ -1287,6 +1298,14 @@ defmodule Valimc.World.RegionData do
 
       # Hurts mobs deal beyond their melee (VMC-043e): a pufferfish's
       # stings, a guardian's beam and thorns.
+      # Players a cube's touch hurts (VMC-043d), as a mob attack that
+      # plays its attack sound when it takes.
+      touches =
+        for step <- steps,
+            {:touch, {:player, _} = target, amount, sound} <- step.effects,
+            %{entity: e, body: body} <- [store.entries[step.id]],
+            do: {e, body.type, target, amount, sound}
+
       hurts =
         for step <- steps,
             {:hurt, target, type, amount, actions} <- step.effects,
@@ -1317,6 +1336,7 @@ defmodule Valimc.World.RegionData do
       state = if discards == [], do: state, else: discard_mobs(state, discards)
       state = Enum.reduce(fired, state, &mob_spawns/2)
       state = Enum.reduce(hurts, state, &mob_hurt/2)
+      Enum.each(touches, &mob_touch/1)
       state = Enum.reduce(mob_attacks, state, &mob_attack_mob/2)
       Enum.each(curses, &mob_curse(&1, world.players))
       state = Enum.reduce(pickups, state, &mob_pickup/2)
@@ -1410,6 +1430,22 @@ defmodule Valimc.World.RegionData do
   # Poison for `poison` ticks (a player's own touch, `playerTouch`, alike).
   # A mob's hurt of `type` on `target` with the effect actions after it (a
   # pufferfish's Poison; `Player.Projectiles.splash/3`'s actions).
+  defp mob_touch({e, type, {:player, uuid}, amount, {name, volume, pitch}}) do
+    me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
+    source = Valimc.Protocol.CombatPackets.mob_sounds(type)["sound_source"]
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:mob_attack),
+      amount: amount,
+      attacker: me,
+      direct: me,
+      position: {e.x, e.y, e.z},
+      taken_sound: {name, source, {e.x, e.y, e.z}, volume, pitch}
+    }
+
+    send(self(), {:player, uuid, {:hurt, hit}})
+  end
+
   defp mob_hurt({e, type, target, damage_type, amount, actions}, state) do
     me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
 

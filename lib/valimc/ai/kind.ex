@@ -51,6 +51,12 @@ defmodule Valimc.AI.Kind do
     bumped into, a spider's `onClimbable`).
   - Leads (VMC-043c3): `leashable?/0` (`canBeLeashed`; false where a family
     leaves it out, until its ticket models it).
+  - Sized mobs (VMC-043d, cubes): `volume/1` (`getSoundVolume` of a body,
+    else its type's), `jump/1` (`{bonus, lava}`: its own `jumpFromGround`
+    and `jumpInLiquid` in lava, for the kernel), `loot_properties/1` (what
+    its loot table reads of it), `experience/1` (its `xpReward`) and
+    `split/2` (the bodies a dead one leaves as it is removed, with their
+    positions).
   """
   alias Valimc.AI.Self
 
@@ -94,8 +100,18 @@ defmodule Valimc.AI.Kind do
   @callback dying?() :: boolean
   @callback walk_value(Self.t(), tuple) :: float
   @callback falls?() :: boolean
+  @callback volume(struct) :: float
+  @callback jump(struct) :: {float, float | nil}
+  @callback loot_properties(struct) :: [{String.t(), String.t()}]
+  @callback experience(struct) :: non_neg_integer
+  @callback split(struct, tuple) :: [{struct, tuple}]
 
   @optional_callbacks leashable?: 0,
+                      volume: 1,
+                      jump: 1,
+                      loot_properties: 1,
+                      experience: 1,
+                      split: 2,
                       navigation: 0,
                       brain: 0,
                       finalize: 2,

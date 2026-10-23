@@ -60,7 +60,7 @@ public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
-      "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast",
+      "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast", "minecraft:magma_cube",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider",
@@ -74,8 +74,11 @@ public class MobAiOracle {
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
       "minecraft:entity.piglin.celebrate",
-      // A zombified piglin's anger (VMC-043d).
-      "minecraft:entity.zombified_piglin.angry",
+      // A zombified piglin's anger; a magma cube's hops, landings and touch (VMC-043d).
+      "minecraft:entity.zombified_piglin.angry", "minecraft:entity.magma_cube.jump",
+      "minecraft:entity.magma_cube.squish", "minecraft:entity.magma_cube.squish_small", "minecraft:entity.slime.attack",
+      "minecraft:entity.magma_cube.hurt", "minecraft:entity.magma_cube.hurt_small", "minecraft:entity.magma_cube.death",
+      "minecraft:entity.magma_cube.death_small",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -599,10 +602,14 @@ public class MobAiOracle {
       row.addProperty("max_head_y_rot", mob.getMaxHeadYRot());
       row.addProperty("max_head_x_rot", mob.getMaxHeadXRot());
       row.addProperty("head_rot_speed", mob.getHeadRotSpeed());
+      // A resting bat draws whether it squeaks: seeded so it does, every run.
+      mob.getRandom().setSeed(4985L);
       var sound = (SoundEvent)ambient.invoke(mob);
       row.addProperty("ambient_sound", sound == null ? null : sound.location().toString());
       row.addProperty("ambient_sound_interval", mob.getAmbientSoundInterval());
       row.addProperty("sound_volume", (float)volume.invoke(mob));
+      // A `Monster` idles faster in light (`updateNoActionTime`; not a ghast's or cube's, VMC-043d).
+      row.addProperty("monster", mob instanceof net.minecraft.world.entity.monster.Monster);
       var malus = new JsonObject();
       for (var t : PathType.values()) if (mob.getPathfindingMalus(t) != t.getMalus()) malus.addProperty(t.name().toLowerCase(), mob.getPathfindingMalus(t));
       row.add("malus", malus);
@@ -738,6 +745,8 @@ public class MobAiOracle {
       if (s.data.containsKey("mainhand"))
         m.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse((String)s.data.get("mainhand")))));
       if (Boolean.TRUE.equals(s.data.get("baby"))) m.setBaby(true);
+      if (m instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob c && s.data.containsKey("size"))
+        c.setSize((Integer)s.data.get("size"), true);
       if (m instanceof net.minecraft.world.entity.monster.Shulker sh && s.data.containsKey("attach_face")) {
         var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
         attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
@@ -748,6 +757,10 @@ public class MobAiOracle {
       }
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
+      // A cube's move control starts facing its constructor's random yaw
+      // (`Math.random`): the spawn yaw instead, as the check sets it.
+      if (m instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob c)
+        field(c.getMoveControl().getClass(), "yRot").setFloat(c.getMoveControl(), s.yaw);
       // A flock goal's first wait, drawn as it was made, set to its least (VMC-043e).
       for (var w : ((GoalSelector)field(net.minecraft.world.entity.Mob.class, "goalSelector").get(m)).getAvailableGoals())
         if (w.getGoal() instanceof net.minecraft.world.entity.ai.goal.FollowFlockLeaderGoal g)
@@ -781,6 +794,11 @@ public class MobAiOracle {
       // each pushes the mobs it touches.
       // (The fighter shell's own push reads the server's tick rate: push as the fighter.)
       for (var f : fighters) push.invoke(f);
+      // Then each touches the cubes its box, a block wider and half a block
+      // taller, meets (`Player.touch`, VMC-043d).
+      for (var f : fighters) if (!f.isSpectator())
+        for (var m : mobs) if (m instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob
+            && f.getBoundingBox().inflate(1.0, 0.5, 1.0).intersects(m.getBoundingBox())) m.playerTouch(f);
       var row = new JsonArray();
       for (var m : mobs) {
         var r = new JsonObject();
@@ -850,6 +868,7 @@ public class MobAiOracle {
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(ms.size()).getId());
       if (s.data.containsKey("mainhand")) o.addProperty("mainhand", (String)s.data.get("mainhand"));
       if (Boolean.TRUE.equals(s.data.get("baby"))) o.addProperty("baby", true);
+      if (s.data.containsKey("size")) o.addProperty("size", (Integer)s.data.get("size"));
       o.add("start", starts.get(ms.size())); ms.add(o);
     }
     out.add("mobs", ms);
@@ -913,6 +932,12 @@ public class MobAiOracle {
       o.addProperty("z_rot", Float.floatToRawIntBits(q.zBodyRot));
       o.add("movement", bits((Vec3)field(c, "movementVector").get(q)));
       o.addProperty("age", q.getAge());
+    }
+    if (m instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob c) {
+      o.addProperty("size", c.getSize());
+      o.addProperty("was_on_ground", field(net.minecraft.world.entity.monster.cubemob.AbstractCubeMob.class, "wasOnGround").getBoolean(c));
+      var control = c.getMoveControl();
+      o.addProperty("jump_delay", field(control.getClass(), "jumpDelay").getInt(control));
     }
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
     if (m instanceof net.minecraft.world.entity.ambient.Bat b) {

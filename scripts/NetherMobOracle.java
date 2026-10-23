@@ -91,6 +91,20 @@ public class NetherMobOracle {
     }
     cases.add(MobAiOracle.run(level, "ghast_cage", cage, List.of(new MobAiOracle.Spawn("minecraft:ghast", new Vec3(.5, 67, .5), 0, 137L)),
       List.of(), List.of(), 200));
+    // A magma cube alone hops random ways, squishing as it lands.
+    cases.add(MobAiOracle.run(level, "magma_cube_hop", floor, List.of(new MobAiOracle.Spawn("minecraft:magma_cube", new Vec3(.5, 64, .5), 0, 139L,
+      Map.<String, Object>of("size", 2))), List.of(), List.of(), 400));
+    // A survival player near a big one: it hops at it three times as often
+    // and hurts it at a touch; hit, it groans.
+    cases.add(MobAiOracle.run(level, "magma_cube_attack", floor, List.of(new MobAiOracle.Spawn("minecraft:magma_cube", new Vec3(.5, 64, .5), 0, 149L,
+      Map.<String, Object>of("size", 4))), List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 3.5), "survival", null)),
+      List.of(new MobAiOracle.Hit(150, 0, 0, 1.0F)), 300));
+    // The smallest in a lava pool leaps out of it.
+    var pool = new ArrayList<>(floor);
+    pool.addAll(MobAiOracle.box(-3, 64, -3, 3, 64, 3, stone));
+    pool.addAll(MobAiOracle.box(-2, 64, -2, 2, 64, 2, Blocks.LAVA.defaultBlockState()));
+    cases.add(MobAiOracle.run(level, "magma_cube_lava", pool, List.of(new MobAiOracle.Spawn("minecraft:magma_cube", new Vec3(.5, 64, .5), 0, 151L,
+      Map.<String, Object>of("size", 1))), List.of(), List.of(), 200));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -101,6 +115,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage; magma cube hop, attack, lava).");
   }
 }

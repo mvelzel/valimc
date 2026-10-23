@@ -308,6 +308,7 @@ defmodule Valimc.Entity.Combat do
   defp sounds(body) do
     sounds = CombatPackets.mob_sounds(body.type) || %{}
     volume = (Valimc.AI.Facts.mob(body.type) || %{volume: 1.0}).volume
+    volume = Valimc.AI.Mobs.hook(body.type, :volume, [body], volume)
 
     override = fn sounds, key ->
       case Valimc.AI.Mobs.hook(body.type, :sound, [body, key], nil) do
@@ -432,7 +433,9 @@ defmodule Valimc.Entity.Combat do
         direct_attacker: mainhand(hit[:direct]),
         attacker_type: entity_type(hit[:attacker]),
         direct_attacker_type: entity_type(hit[:direct]),
-        properties: Valimc.Entity.Animal.properties(body),
+        properties:
+          Valimc.Entity.Animal.properties(body) ++
+            Valimc.AI.Mobs.hook(body.type, :loot_properties, [body], []),
         source: source_info(hit)
       },
       experience: if(player_kill and not baby?(body), do: experience(body), else: 0)
@@ -472,6 +475,10 @@ defmodule Valimc.Entity.Combat do
       # A chicken jockey's chicken (VMC-043b).
       match?(%{type: "minecraft:chicken", data: %{jockey: true}}, body) ->
         10
+
+      # A cube's is its size (VMC-043d).
+      Valimc.AI.Mobs.hook(body.type, :experience, [body], nil) != nil ->
+        Valimc.AI.Mobs.hook(body.type, :experience, [body], nil)
 
       CombatPackets.mob_sounds(body.type)["animal"] ->
         case body.mob.ai do

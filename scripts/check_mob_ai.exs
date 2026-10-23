@@ -207,6 +207,16 @@ setup = fn body, m ->
         %{body | mob: %{body.mob | equipment: Map.put(body.mob.equipment, :mainhand, stack)}}
     end
 
+  body =
+    case m["size"] do
+      nil ->
+        body
+
+      size ->
+        {mob, data} = Valimc.AI.Mobs.MagmaCube.set_size(body.mob, body.data, size)
+        %{body | mob: mob, data: data}
+    end
+
   if m["baby"] do
     speed = %{base: nil, modifiers: [{"minecraft:baby", Valimc.Data.Float32.round(0.2), 1}]}
     attributes = Map.put(body.mob.attributes, "minecraft:movement_speed", speed)
@@ -228,6 +238,13 @@ kind_data = fn
 
   %{type: "minecraft:endermite", data: data} ->
     %{"life" => data.life}
+
+  %{type: "minecraft:magma_cube", data: data, mob: mob} ->
+    %{
+      "size" => data.size,
+      "was_on_ground" => data.was_on_ground,
+      "jump_delay" => Valimc.AI.Mobs.Cube.own(mob.ai).jump_delay
+    }
 
   %{type: type, data: data, mob: mob} = body
   when type in ~w(minecraft:cod minecraft:salmon minecraft:tropical_fish minecraft:pufferfish) ->
@@ -391,6 +408,10 @@ hit_of = fn
   {:hurt, {:player, <<_::64, n::64>>}, type, _, _}, _effects when type != :mob_attack ->
     {n, nil, nil, nil}
 
+  # A cube a player touches (VMC-043d: the oracle's players touch cubes).
+  {:touch, {:player, <<_::64, n::64>>}, _, _}, _effects ->
+    {n, nil, nil, nil}
+
   _, _ ->
     nil
 end
@@ -495,6 +516,12 @@ checked =
           }
 
           mind = %{mind | own: own_start.(m["type"], m["start"])}
+
+          # A cube's move control faces its spawn yaw, as the oracle sets it (VMC-043d).
+          mind =
+            if m["type"] == "minecraft:magma_cube",
+              do: %{mind | own: %{AI.Mobs.Cube.own(mind) | y_rot: yaw}},
+              else: mind
 
           home =
             case m["start"]["home"] do
@@ -621,6 +648,12 @@ checked =
                 sounds ++
                   for {:shoot, %{pitch: pitch}} <- step.effects,
                       do: {"minecraft:entity.skeleton.shoot", bits.(1.0), bits.(pitch)}
+
+              # A cube's attack sound as a player touches it (VMC-043d).
+              sounds =
+                sounds ++
+                  for {:touch, _, _, {name, volume, pitch}} <- step.effects,
+                      do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
               swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
 

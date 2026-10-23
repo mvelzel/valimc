@@ -5,7 +5,8 @@ defmodule Valimc.MobAiConnectionTest do
   and panics when the player hits it. A blaze (VMC-043d) sets the player on
   fire with its fireballs; zombified piglins leave the player alone until it
   hits one, then all turn on it; a piglin leaves a player in a golden
-  helmet alone until it hits it.
+  helmet alone until it hits it. A magma cube hurts the player it touches
+  and splits in halves when it dies.
   """
   use ExUnit.Case, async: false
   @moduletag :tcp
@@ -50,9 +51,13 @@ defmodule Valimc.MobAiConnectionTest do
   end
 
   defp summon(ctx, type, uuid, dx, equipment \\ %{}) do
-    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     {:ok, body} = Body.new(type)
     body = %{body | mob: %{body.mob | equipment: Map.merge(body.mob.equipment, equipment)}}
+    summon_body(ctx, body, uuid, dx)
+  end
+
+  defp summon_body(ctx, body, uuid, dx) do
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     record = Store.body_record(body, uuid, {ctx.pose.x + dx, 64.0, ctx.pose.z})
     :ok = Region.drop_items(owner, [record])
     Valimc.TestWait.until(fn -> match?({:ok, _}, Store.find(store(owner), uuid)) end)
@@ -199,6 +204,46 @@ defmodule Valimc.MobAiConnectionTest do
     )
 
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
+  end
+
+  test "a magma cube hurts the player it touches and splits when it dies", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    uuid = <<18::128>>
+    {:ok, body} = Body.new("minecraft:magma_cube")
+    {mob, data} = Valimc.AI.Mobs.MagmaCube.set_size(body.mob, body.data, 2)
+    owner = summon_body(ctx, %{body | mob: mob, data: data}, uuid, 3.0)
+
+    # Its size and two: 4 at normal difficulty.
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 16.0 end, 30_000)
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:player_attack),
+      amount: 100.0,
+      attacker: %{
+        uuid: ctx.uuid,
+        entity_id: 1,
+        player: true,
+        type: "minecraft:player",
+        mainhand: nil
+      },
+      position: {ctx.pose.x, 64.0, ctx.pose.z}
+    }
+
+    {:ok, _} = Region.hurt_entity(owner, uuid, hit)
+
+    # Removed after its death animation, it leaves two to four of size one.
+    Valimc.TestWait.until(
+      fn ->
+        cubes =
+          for {_, %{body: %Body{type: "minecraft:magma_cube"} = b}} <- store(owner).entries,
+              do: b.data.size
+
+        match?({:error, _}, Store.find(store(owner), uuid)) and length(cubes) in 2..4 and
+          Enum.all?(cubes, &(&1 == 1))
+      end,
+      10_000
+    )
   end
 
   test "a ghast charges and its fireball hurts the player", ctx do

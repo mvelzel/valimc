@@ -672,6 +672,7 @@
       "ambient_sound": "minecraft:entity.zombie.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -773,6 +774,7 @@
       "ambient_sound": "minecraft:entity.pig.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -853,6 +855,7 @@
       "ambient_sound": "minecraft:entity.piglin.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -867,6 +870,7 @@
       "ambient_sound": "minecraft:entity.blaze.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {
         "lava": 8.0,
         "water": -1.0,
@@ -936,6 +940,7 @@
       "ambient_sound": "minecraft:entity.zombified_piglin.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {
         "lava": 8.0
       },
@@ -1016,6 +1021,7 @@
       "ambient_sound": "minecraft:entity.ghast.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 5.0,
+      "monster": false,
       "malus": {},
       "goals": [
         [
@@ -1048,6 +1054,64 @@
         ]
       ]
     },
+    "minecraft:magma_cube": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 0,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 80,
+      "sound_volume": 0.4,
+      "monster": false,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "CubeMobFloatGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          4,
+          "CubeMobRandomDirectionGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          5,
+          "CubeMobKeepOnJumpingGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "CubeMobAttackGoal",
+          [
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:husk": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -1055,6 +1119,7 @@
       "ambient_sound": "minecraft:entity.husk.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1156,6 +1221,7 @@
       "ambient_sound": "minecraft:entity.zombie_villager.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1257,6 +1323,7 @@
       "ambient_sound": "minecraft:entity.skeleton.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1347,6 +1414,7 @@
       "ambient_sound": "minecraft:entity.stray.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1437,6 +1505,7 @@
       "ambient_sound": "minecraft:entity.bogged.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1527,6 +1596,7 @@
       "ambient_sound": null,
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1612,6 +1682,7 @@
       "ambient_sound": "minecraft:entity.spider.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1698,6 +1769,7 @@
       "ambient_sound": "minecraft:entity.spider.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1784,6 +1856,7 @@
       "ambient_sound": "minecraft:entity.endermite.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {},
       "goals": [
         [
@@ -1855,6 +1928,7 @@
       "ambient_sound": "minecraft:entity.shulker.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {},
       "goals": [
         [
@@ -1917,6 +1991,7 @@
       "ambient_sound": "minecraft:entity.cod.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -1957,6 +2032,7 @@
       "ambient_sound": "minecraft:entity.salmon.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -1997,6 +2073,7 @@
       "ambient_sound": null,
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -2037,6 +2114,7 @@
       "ambient_sound": "minecraft:entity.tropical_fish.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -2077,6 +2155,7 @@
       "ambient_sound": "minecraft:entity.squid.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 0.4,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -2101,6 +2180,7 @@
       "ambient_sound": "minecraft:entity.glow_squid.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 0.4,
+      "monster": false,
       "malus": {
         "water": 0.0
       },
@@ -2125,6 +2205,7 @@
       "ambient_sound": "minecraft:entity.guardian.ambient_land",
       "ambient_sound_interval": 160,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {
         "water": 0.0
       },
@@ -2193,6 +2274,7 @@
       "ambient_sound": "minecraft:entity.elder_guardian.ambient_land",
       "ambient_sound_interval": 160,
       "sound_volume": 1.0,
+      "monster": true,
       "malus": {
         "water": 0.0
       },
@@ -2258,9 +2340,10 @@
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
       "head_rot_speed": 10,
-      "ambient_sound": null,
+      "ambient_sound": "minecraft:entity.bat.ambient",
       "ambient_sound_interval": 80,
       "sound_volume": 0.1,
+      "monster": false,
       "malus": {},
       "goals": [],
       "targets": []
@@ -2272,6 +2355,7 @@
       "ambient_sound": "minecraft:entity.cow.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 0.4,
+      "monster": false,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -2344,6 +2428,7 @@
       "ambient_sound": "minecraft:entity.cow.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 0.4,
+      "monster": false,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -2416,6 +2501,7 @@
       "ambient_sound": "minecraft:entity.sheep.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -2497,6 +2583,7 @@
       "ambient_sound": "minecraft:entity.chicken.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "water": 0.0,
         "fire_in_neighbor": 16.0,
@@ -2570,6 +2657,7 @@
       "ambient_sound": "minecraft:entity.rabbit.ambient",
       "ambient_sound_interval": 120,
       "sound_volume": 1.0,
+      "monster": false,
       "malus": {
         "fire_in_neighbor": 16.0,
         "fire": -1.0
@@ -2717,6 +2805,14 @@
     "minecraft:entity.piglin.angry": 1286,
     "minecraft:entity.piglin.celebrate": 1287,
     "minecraft:entity.zombified_piglin.angry": 1900,
+    "minecraft:entity.magma_cube.jump": 969,
+    "minecraft:entity.magma_cube.squish": 970,
+    "minecraft:entity.magma_cube.squish_small": 971,
+    "minecraft:entity.slime.attack": 1497,
+    "minecraft:entity.magma_cube.hurt": 967,
+    "minecraft:entity.magma_cube.hurt_small": 968,
+    "minecraft:entity.magma_cube.death": 966,
+    "minecraft:entity.magma_cube.death_small": 953,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,

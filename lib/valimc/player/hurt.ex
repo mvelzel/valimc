@@ -138,6 +138,21 @@ defmodule Valimc.Player.Hurt do
             true -> sound(state, "minecraft:entity.player.hurt", 1.0, 1.0)
           end
 
+        # What the attacker plays when its hit takes (a cube's attack
+        # sound, VMC-043d).
+        state =
+          case hit[:taken_sound] do
+            {name, source, position, volume, pitch} when result in [:hurt, :dead] ->
+              <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+              packet = CombatPackets.sound(name, source, position, volume, pitch, seed)
+              Movement.broadcast_player_packet(state, packet)
+              send_packets(state, [packet])
+              state
+
+            _ ->
+              state
+          end
+
         state =
           case hit[:extra_knockback] do
             {power, direction} when power > 0 and result in [:hurt, :dead] ->

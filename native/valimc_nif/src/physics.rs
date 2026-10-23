@@ -504,6 +504,8 @@ struct MobT {
     next_step: f64,
     /// A ghast's move control: `%{wanted, duration, random, speed}`, or nil.
     float: Option<FloatT>,
+    /// A cube's jumps: `{bonus, lava}` (lava nil but a magma cube's), or nil.
+    cube: Option<(f64, Option<f64>)>,
 }
 
 /// A ghast's move control (`valimc_core::physics::mob::Float`).
@@ -656,6 +658,12 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
             random: f.random as u64,
             speed: f.speed,
         }),
+        cube: m
+            .cube
+            .map(|(bonus, lava)| valimc_core::physics::mob::CubeJump {
+                bonus: bonus as f32,
+                lava: lava.map(|l| l as f32),
+            }),
     })
 }
 
@@ -754,6 +762,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
             random: f.random as i64,
             speed: f.speed,
         }),
+        cube: m.cube.map(|c| (c.bonus as f64, c.lava.map(|l| l as f64))),
     }
 }
 

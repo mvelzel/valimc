@@ -459,6 +459,7 @@ fn loot_entity<'a>(
                             direct,
                             source,
                             is_direct,
+                            source_properties: Vec::new(),
                         }
                     }),
                 },

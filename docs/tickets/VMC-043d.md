@@ -24,8 +24,8 @@ Acceptance:
    the bartering table's items, thrown toward the player it sees.
 5. **043d4b — piglins and hoglins**: the piglin brain's fight, avoid and
    celebrate activities, hostility rules, inventory; hoglins' brain.
-6. **043d5 — wither skeletons and magma cubes**: on VMC-043b's skeleton and
-   slime parts.
+6. **043d5 — magma cubes** (done; wither skeletons next, on VMC-043b3's
+   skeletons): the shared cube (`AbstractCubeMob`) and magma cubes.
 7. **043d6 — striders**: walking on lava, shivering, warped fungus.
 
 ## Oracle
@@ -182,10 +182,42 @@ factory, so other families' oracles reuse it the same way.
   piglin's inventory, food and equipping what it picks up, creative
   breaking's anger, zombification outside the Nether.
 
+## 043d5 — magma cubes
+
+- `Valimc.AI.Mobs.Cube` is vanilla's `AbstractCubeMob`, shared with slimes
+  (VMC-043b6): its goals (float, random direction, keep jumping, attack;
+  players within four blocks up or down, iron golems), its move control as
+  a family `move_control/1` (turn, hop when the jump delay runs out, the
+  jump sound), size (entity data `cube_size`; box, health, speed),
+  `finalizeSpawn`'s size from the level's random, landing (the particle
+  draws and squish), touch damage and splitting. `Valimc.AI.Mobs.MagmaCube`
+  adds its own: four times the delay, attack and armor by size, a bigger
+  jump and a lava leap (the kernel's `cube` jump), its sounds, experience
+  its size, always lit.
+- Shared: Kind `volume/1`, `jump/1`, `loot_properties/1`, `experience/1`,
+  `split/2`; a `Monster`'s idle time in light now follows the facts'
+  `monster` (a ghast or cube is not one); a player's hurt can carry the
+  attacker's `taken_sound`; the loot engine reads `type_specific/cube_mob`
+  sizes and a damage source entity's components (none modelled yet: a
+  frog's variant).
+- Owner: `{:touch, player, amount, sound}` hurts a player (`playerTouch`;
+  the oracle's players touch cubes after the mobs tick); a dead cube's
+  removal creates its halves (`AbstractCubeMob.remove`, `split/2`).
+- Loot: a stack a function set below one counts as none
+  (`ItemStack.getCount`), so Looting can still lift a cube's cream above it.
+- Evidence: `nether_mobs` passes 5880 ticks of 19 scenes (hop, attack with
+  touches, lava leaps among them); `loot` 39000 deaths (magma cubes of
+  sizes one to four among them); `hostile_spawns` 9720 spawns with magma
+  cube sizes; `mob_ai_connection_test` has a size-two cube hurt a
+  logged-in player and split into halves when killed.
+- Gaps: touching iron golems (`push`), slimes' own module (VMC-043b6),
+  spawn rules beyond the existing natural spawning, magma cream from frogs.
+
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player
 above them, and a blaze killed by the player drops blaze rods; zombified
 piglins ignore the player until it hits one, then the group attacks; a
 piglin given a dropped gold ingot admires it and throws barter items (over
 several barters, ender pearls); piglins attack a player without gold armour;
-a ghast shoots fireballs that the player can hit back to kill it.
+a ghast shoots fireballs that the player can hit back to kill it; a magma
+cube hops at the player, hurts it at a touch and splits when killed.

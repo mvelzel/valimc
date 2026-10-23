@@ -61,6 +61,7 @@ defmodule Valimc.AI.Facts do
              ambient_sound: row["ambient_sound"],
              ambient_interval: row["ambient_sound_interval"],
              volume: row["sound_volume"] * 1.0,
+             monster: row["monster"],
              malus:
                Map.merge(
                  @malus,

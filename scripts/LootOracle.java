@@ -69,7 +69,7 @@ public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
   static final List<String> ENTITY_TABLES = List.of("minecraft:entities/zombie", "minecraft:entities/chicken",
       "minecraft:entities/endermite", "minecraft:entities/pig", "minecraft:entities/blaze",
-      "minecraft:entities/zombified_piglin", "minecraft:entities/ghast",
+      "minecraft:entities/zombified_piglin", "minecraft:entities/ghast", "minecraft:entities/magma_cube",
       // VMC-043b: the overworld hostiles.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager", "minecraft:entities/skeleton",
       "minecraft:entities/stray", "minecraft:entities/bogged", "minecraft:entities/creeper", "minecraft:entities/spider",
@@ -95,6 +95,15 @@ public class LootOracle {
     @Override public boolean isBaby() { return baby; }
     @Override public net.minecraft.world.entity.Entity getVehicle() { return vehicle; }
     @Override public boolean isPassenger() { return vehicle != null; }
+  }
+
+  /** A dying magma cube of a size (VMC-043d: `type_specific/cube_mob`). */
+  static class CubeVictim extends net.minecraft.world.entity.monster.cubemob.MagmaCube {
+    boolean fire;
+    int size;
+    private CubeVictim() { super(null, null); }
+    @Override public boolean isOnFire() { return fire; }
+    @Override public int getSize() { return size; }
   }
 
   /** The killing player, holding `weapon`. */
@@ -707,6 +716,16 @@ public class LootOracle {
         position.set(victim, at);
         victim.fire = random.nextInt(4) == 0;
         victim.baby = random.nextInt(4) == 0;
+        // A magma cube's own victim, its size one to four.
+        CubeVictim cube = null;
+        if (id.equals("minecraft:entities/magma_cube")) {
+          cube = (CubeVictim) unsafe.allocateInstance(CubeVictim.class);
+          type.set(cube, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:magma_cube")));
+          position.set(cube, at);
+          cube.fire = victim.fire;
+          cube.size = 1 + random.nextInt(4);
+        }
+        net.minecraft.world.entity.Entity dying = cube != null ? cube : victim;
         var vehicleName = vehicles.get(random.nextInt(3));
         if (vehicleName != null) {
           var vehicle = (Victim) unsafe.allocateInstance(Victim.class);
@@ -737,7 +756,7 @@ public class LootOracle {
           source = new net.minecraft.world.damagesource.DamageSource(fireballDamage, direct, attacker);
         }
         var builder = new LootParams.Builder(level)
-            .withParameter(LootContextParams.THIS_ENTITY, victim)
+            .withParameter(LootContextParams.THIS_ENTITY, dying)
             .withParameter(LootContextParams.ORIGIN, at)
             .withParameter(LootContextParams.DAMAGE_SOURCE, source)
             .withOptionalParameter(LootContextParams.ATTACKING_ENTITY, attacker)
@@ -753,6 +772,7 @@ public class LootOracle {
         if (vehicleName != null) row.addProperty("vehicle", vehicleName);
         row.addProperty("killed_by_player", player);
         row.addProperty("by_fireball", byFireball);
+        if (cube != null) row.addProperty("size", cube.size);
         row.add("weapon", weapon.isEmpty() ? JsonNull.INSTANCE : item(weapon, ops));
         var origin = new JsonArray();
         origin.add(at.x);

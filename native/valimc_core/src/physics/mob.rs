@@ -169,6 +169,17 @@ pub struct Mob {
     pub next_step: f32,
     /// A ghast's move control (`GhastMoveControl`), or none.
     pub float: Option<Float>,
+    /// A slime's or magma cube's own jumps (`AbstractCubeMob`), or none.
+    pub cube: Option<CubeJump>,
+}
+
+/// `AbstractCubeMob.jumpFromGround`: its jump power plus `bonus` (a magma
+/// cube's `size * 0.1F`), replacing its vertical motion; a magma cube's
+/// `jumpInLiquid` in lava sets it to `lava`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CubeJump {
+    pub bonus: f32,
+    pub lava: Option<f32>,
 }
 
 /// A ghast's move control (`Ghast.GhastMoveControl`, not careful): every two
@@ -738,7 +749,9 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
                         Some(hop) => hop_power(&m, hop, start, factor),
                         None => jump_power(m.attributes.jump_strength, factor, m.jump_boost),
                     };
-                    if power > 1.0e-5 {
+                    if let Some(cube) = m.cube {
+                        m.velocity[1] = (power + cube.bonus) as f64;
+                    } else if power > 1.0e-5 {
                         m.velocity[1] = m.velocity[1].max(power as f64);
                     }
                     if let Some(hop) = m.hop.as_mut() {
@@ -752,6 +765,8 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
                     }
                     m.no_jump_delay = 10;
                 }
+            } else if let Some(lava) = m.cube.and_then(|c| c.lava) {
+                m.velocity[1] = lava as f64;
             } else {
                 m.velocity[1] += 0.04_f32 as f64;
             }
@@ -1406,6 +1421,7 @@ impl Default for Mob {
             move_dist: 0.0,
             next_step: 1.0,
             float: None,
+            cube: None,
         }
     }
 }

@@ -615,11 +615,11 @@ defmodule Valimc.AI do
 
   defp using_item(self), do: self
 
-  # `LivingEntity.aiStep` up to the move: a monster's idle time in light,
+  # `LivingEntity.aiStep` up to the move: a `Monster`'s idle time in light,
   # then `serverAiStep`.
   defp ai_step(%Self{} = self) do
     self =
-      if EntityTypes.fetch(self.type).category == :monster and light(self) > 0.5,
+      if monster?(self) and light(self) > 0.5,
         do: Self.mind(self, &%{&1 | no_action: &1.no_action + 2}),
         else: self
 
@@ -657,6 +657,10 @@ defmodule Valimc.AI do
 
   defp light(self),
     do: World.light(self.world, {floor(self.x), floor(Self.eye_y(self)), floor(self.z)})
+
+  # `instanceof Monster` (not a ghast or a cube), by its facts where it has them.
+  defp monster?(%Self{facts: %{monster: monster}}), do: monster
+  defp monster?(self), do: EntityTypes.fetch(self.type).category == :monster
 
   # A family's override of part of vanilla's tick (`Valimc.AI.Kind`).
   defp hook(%Self{type: type} = self, name), do: Mobs.hook(type, name, [self], self)

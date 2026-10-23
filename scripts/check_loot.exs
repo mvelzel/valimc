@@ -131,6 +131,8 @@ death_failures =
         killed_by_player: row["killed_by_player"],
         attacker: hand,
         direct_attacker: if(row["by_fireball"], do: :none, else: hand),
+        # A magma cube's size (VMC-043d).
+        properties: if(row["size"], do: [{"cube_mob/size", "#{row["size"]}"}], else: []),
         # The killing damage (VMC-043d): a player's attack or its large fireball.
         source:
           if(row["by_fireball"],

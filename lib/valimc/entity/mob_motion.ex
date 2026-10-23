@@ -180,7 +180,9 @@ defmodule Valimc.Entity.MobMotion do
       vertical_collision: motion.vertical_collision,
       move_dist: motion.move_dist,
       next_step: motion.next_step,
-      float: float(type, motion.float, mob)
+      float: float(type, motion.float, mob),
+      # A cube's own jumps (VMC-043d): `{bonus, lava}`.
+      cube: Valimc.AI.Mobs.hook(type, :jump, [body], nil)
     }
     |> Map.merge(kind_motion(type, motion))
     # A `NoAI` mob does not travel (`isEffectiveAi`).

@@ -230,11 +230,15 @@ enum Condition {
     /// whether the two are one.
     DamageSource {
         tags: Vec<(String, bool)>,
-        direct: Option<Vec<String>>,
-        source: Option<Vec<String>>,
+        direct: Option<SourceEntity>,
+        source: Option<SourceEntity>,
         is_direct: Option<bool>,
     },
 }
+
+/// A damage's direct or source entity as a predicate names it: its types and
+/// component values (a warm frog's variant).
+type SourceEntity = (Vec<String>, Vec<(String, String)>);
 
 /// Blocks and property values (`match_block`, a location's block).
 #[derive(Debug)]
@@ -349,6 +353,9 @@ struct EntityPredicate {
     /// `minecraft:entity_type`: the types it may be (VMC-043b: a creeper's
     /// music disc when a skeleton killed it).
     types: Option<Vec<String>>,
+    /// `type_specific/cube_mob`'s size bounds (VMC-043d): the victim's
+    /// `cube_mob/size` property within them.
+    size: Option<(Option<i32>, Option<i32>)>,
 }
 
 /// An entity's death as its loot table reads it (`LootContextParamSets.ENTITY`):
@@ -383,6 +390,9 @@ pub struct DamageInfo {
     pub direct: Option<String>,
     pub source: Option<String>,
     pub is_direct: bool,
+    /// The source entity's component values (none modelled yet: a frog's
+    /// variant).
+    pub source_properties: Vec<(String, String)>,
 }
 
 impl Death {
@@ -405,6 +415,7 @@ impl EntityPredicate {
             && self.mainhand_enchantments.is_none()
             && self.properties.is_empty()
             && self.types.is_none()
+            && self.size.is_none()
     }
 
     fn matches(&self, target: EntityTarget, death: &Death) -> bool {
@@ -435,13 +446,25 @@ impl EntityPredicate {
         if (self.on_fire.is_some()
             || self.baby.is_some()
             || self.vehicle.is_some()
-            || !self.properties.is_empty())
+            || !self.properties.is_empty()
+            || self.size.is_some())
             && !this
         {
             return false;
         }
         if !self.properties.iter().all(|p| death.properties.contains(p)) {
             return false;
+        }
+        if let Some((min, max)) = self.size {
+            let size = death
+                .properties
+                .iter()
+                .find(|(k, _)| k == "cube_mob/size")
+                .and_then(|(_, v)| v.parse::<i32>().ok());
+            match size {
+                Some(size) if min.is_none_or(|m| size >= m) && max.is_none_or(|m| size <= m) => {}
+                _ => return false,
+            }
         }
         self.on_fire.is_none_or(|v| v == death.on_fire)
             && self.baby.is_none_or(|v| v == death.baby)
@@ -1126,19 +1149,26 @@ impl Loot {
     }
 
     /// An entity predicate that names only a type (a damage source's entities).
-    fn entity_types(json: &Json) -> Result<Vec<String>, String> {
+    fn entity_types(json: &Json) -> Result<SourceEntity, String> {
         let mut types = None;
+        let mut components = Vec::new();
         for (key, value) in json.entries()? {
             match (key.as_str(), value) {
                 ("minecraft:entity_type", Json::String(t)) if !t.starts_with('#') => {
                     types = Some(vec![t.clone()])
+                }
+                ("minecraft:components", values) => {
+                    for (component, v) in values.entries()? {
+                        components.push((component.clone(), v.as_str()?.to_string()));
+                    }
                 }
                 (other, _) => {
                     return Err(format!("damage source entity {other} is not implemented"))
                 }
             }
         }
-        types.ok_or_else(|| "damage source entity without a type".to_string())
+        let types = types.ok_or_else(|| "damage source entity without a type".to_string())?;
+        Ok((types, components))
     }
 
     fn entity_predicate(&self, json: &Json) -> Result<EntityPredicate, String> {
@@ -1207,6 +1237,26 @@ impl Loot {
                         predicate
                             .properties
                             .push((component.clone(), v.as_str()?.to_string()));
+                    }
+                }
+                "minecraft:type_specific/cube_mob" => {
+                    for (field, v) in value.entries()? {
+                        if field != "size" {
+                            return Err(format!("cube mob predicate {field} is not implemented"));
+                        }
+                        predicate.size = Some(match v {
+                            Json::Number(n) => (Some(*n as i32), Some(*n as i32)),
+                            bounds => (
+                                bounds
+                                    .get("min")
+                                    .map(|m| m.as_f64().map(|m| m as i32))
+                                    .transpose()?,
+                                bounds
+                                    .get("max")
+                                    .map(|m| m.as_f64().map(|m| m as i32))
+                                    .transpose()?,
+                            ),
+                        });
                     }
                 }
                 "minecraft:type_specific/sheep" => {
@@ -1491,14 +1541,20 @@ impl Condition {
             } => match ctx.death.as_ref().and_then(|d| d.source.as_ref()) {
                 None => false,
                 Some(info) => {
-                    let named = |want: &Option<Vec<String>>, got: &Option<String>| match want {
-                        None => true,
-                        Some(types) => got.as_ref().is_some_and(|g| types.contains(g)),
-                    };
+                    let named =
+                        |want: &Option<SourceEntity>,
+                         got: &Option<String>,
+                         properties: &[(String, String)]| match want {
+                            None => true,
+                            Some((types, components)) => {
+                                got.as_ref().is_some_and(|g| types.contains(g))
+                                    && components.iter().all(|c| properties.contains(c))
+                            }
+                        };
                     tags.iter()
                         .all(|(tag, expected)| info.tags.contains(tag) == *expected)
-                        && named(direct, &info.direct)
-                        && named(source, &info.source)
+                        && named(direct, &info.direct, &[])
+                        && named(source, &info.source, &info.source_properties)
                         && is_direct.is_none_or(|d| d == info.is_direct)
                 }
             },
