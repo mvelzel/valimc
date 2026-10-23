@@ -201,3 +201,13 @@ VMC-044a3's cats), with the breedings, spawns and drops. Stages `mob_ai`,
 `shulker_bullets` pass; the mob, animal, villager and AI ExUnit files pass
 (38 tests). Cost of the in-order tick: see [performance](../performance.md)
 (mob travel).
+
+Remains: `World.mobs_in/3` still scans every mob of its type in the section
+on each search (vanilla reads entity sections), so a herd of 600 with calves
+takes about 110 ms a tick. Next step: a spatial index over the sensed mobs
+built in `AI.prepare/2`, kept current by `resense_entry/3` and
+`World.resense/3`, returning results in the section's order. Gotchas: the
+host was loaded throughout (40–60), so only interleaved old/new runs under
+`MIX_ENV=bench` compare; `check_vanilla.py --changed` falls back to the
+static graph for `lib/valimc/ai/world.ex` and selects nearly every stage, so
+the eight stages that run the AI world were run instead.
