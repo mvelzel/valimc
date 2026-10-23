@@ -160,7 +160,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     orbs = for {_, %{kind: :orb} = view} <- Valimc.TestWorld.item_snapshot(ctx.key), do: view
     assert Enum.sum(Enum.map(orbs, &(&1.value * &1.count))) == 35
     # Vanilla's greedy denominations (`getExperienceValue`): 17 + 17 + 1.
-    assert Enum.sort(Enum.map(orbs, &{&1.value, &1.count})) == [{1, 1}, {17, 2}]
+    assert Enum.sort(for o <- orbs, _ <- 1..o.count, do: o.value) == [1, 17, 17]
     client = respawn(client, pid)
     assert state(pid).player.progression.experience == %Valimc.Player.Experience{}
     {:ok, saved} = saved(ctx, name)

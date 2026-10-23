@@ -252,16 +252,17 @@ defmodule Valimc.Physics.Kernel do
   end
 
   @doc """
-  One tick for each experience orb `{position, velocity, on_ground, target}`,
-  `target` the followed player's position at half its eye height or nil:
-  results as `items/3`'s.
+  One tick for each experience orb `{position, velocity, on_ground, target,
+  draws}`, `target` the followed player's position at half its eye height or
+  nil, `draws` four 24-bit `nextFloat` draws for a jump in lava: results as
+  `items/3`'s.
   """
   def orbs(_view, [], _border), do: {:ok, []}
 
   def orbs(view, orbs, border) do
     region =
       orbs
-      |> Enum.map(fn {{x, y, z}, velocity, _, _} ->
+      |> Enum.map(fn {{x, y, z}, velocity, _, _, _} ->
         expand({x - 1.0, y - 2.0, z - 1.0, x + 1.0, y + 2.0, z + 1.0}, velocity)
       end)
       |> Enum.reduce(&union/2)
@@ -272,7 +273,7 @@ defmodule Valimc.Physics.Kernel do
         border -> elem(BorderSnapshot.bounds(border), 1)
       end
 
-    cells = Enum.reduce(orbs, 0, fn {_, velocity, _, _}, sum -> sum + scan_cells(velocity) end)
+    cells = Enum.reduce(orbs, 0, fn {_, velocity, _, _, _}, sum -> sum + scan_cells(velocity) end)
     Native.dispatch(:physics_orbs, cells, [native(view, region), orbs, bounds])
   end
 

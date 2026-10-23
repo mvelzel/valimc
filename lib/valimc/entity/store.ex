@@ -15,7 +15,7 @@ defmodule Valimc.Entity.Store do
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemData, ItemStack, ItemTypes}
-  alias Valimc.Entity.{Body, Ids, View}
+  alias Valimc.Entity.{Body, ExperienceOrbs, Ids, View}
 
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
   # the receipts of incoming handoffs by source.
@@ -63,8 +63,61 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
+  @doc """
+  Advance counters and identify expired/below-world items and the orbs merged
+  away (`merge_orbs/2`); removal waits for the owner's durable commit.
+  """
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y()) do
+    {state, absorbed} = merge_orbs(state, ticks)
+
+    {state, expired} = age_entries(state, ticks, minimum_y)
+    {state, Enum.uniq(absorbed ++ expired)}
+  end
+
+  # Orbs merge when they scan (VMC-034n4c): on their first tick and every
+  # twentieth after (`ExperienceOrb.tick` at `tickCount % 20 == 1`), in id
+  # order; `lived` counts an orb's ticks in this VM, as vanilla's `tickCount`.
+  defp merge_orbs(state, ticks) do
+    orbs = for {id, %{kind: :orb} = entry} <- state.entries, do: {id, entry}
+
+    scanning =
+      for {id, %{lived: lived}} <- orbs,
+          lived + 1 + Integer.mod(-lived, 20) <= lived + ticks,
+          do: id
+
+    if scanning == [] do
+      {state, []}
+    else
+      before =
+        Map.new(orbs, fn {id, %{entity: e} = entry} ->
+          {id, %{value: entry.value, count: entry.count, age: entry.age, at: {e.x, e.y, e.z}}}
+        end)
+
+      {merged, absorbed} = ExperienceOrbs.merge(before, Enum.sort(scanning))
+
+      state =
+        Enum.reduce(merged, state, fn {id, orb}, acc ->
+          if orb == before[id] do
+            acc
+          else
+            entry = acc.entries[id]
+            revision = entry.revision + 1
+            entry = %{entry | count: orb.count, age: orb.age, revision: revision}
+            view = %{acc.views[id] | count: orb.count, revision: revision}
+
+            %{
+              acc
+              | entries: Map.put(acc.entries, id, entry),
+                views: Map.put(acc.views, id, view)
+            }
+          end
+        end)
+
+      {state, for(id <- absorbed, do: {state.epoch, id, state.entries[id].revision})}
+    end
+  end
+
+  defp age_entries(state, ticks, minimum_y) do
     Enum.reduce(state.entries, {state, []}, fn
       {id, %{kind: kind} = entry}, {items, expired} when kind in @bodies ->
         # A body's timers (a dying mob's death animation); an inert one is unchanged.
@@ -90,7 +143,8 @@ defmodule Valimc.Entity.Store do
         # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
         # handles and view stay.
         age = min(entry.age + ticks, 6000)
-        items = %{items | entries: Map.put(items.entries, id, %{entry | age: age})}
+        entry = %{entry | age: age, lived: entry.lived + ticks}
+        items = %{items | entries: Map.put(items.entries, id, entry)}
 
         expired =
           if age >= 6000 or entry.entity.y < minimum_y - 64,
@@ -338,6 +392,7 @@ defmodule Valimc.Entity.Store do
       value: value,
       count: record.count,
       age: record.age,
+      lived: 0,
       motion: motion,
       saved: Map.get(record, :saved),
       revision: 1,

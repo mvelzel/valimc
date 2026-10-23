@@ -1,14 +1,15 @@
 //! One experience orb tick (vanilla's `ExperienceOrb.tick` with
-//! `Entity.move`, without block effects or merging): fluid currents, water
-//! drag or gravity, the pull toward the player it follows, collision with the
-//! blocks and border, block speed and friction, and the bounce off the ground.
-//! Choosing the player, ageing and pickup stay with the owner.
+//! `Entity.move`, without block effects): fluid currents, water drag or
+//! gravity, the random jump in lava, the pull toward the player it follows,
+//! collision with the blocks and border, block speed and friction, and the
+//! bounce off the ground. Choosing the player, merging, ageing and pickup stay
+//! with the owner.
 
 use super::aabb::Aabb;
 use super::border::Border;
 use super::collide::{collide_with, colliders, scan_cells, Extra};
-use super::facts::Facts;
-use super::fluid::{current, normalize, Pushed};
+use super::facts::{Facts, LAVA};
+use super::fluid::{current, eyes, normalize, Pushed};
 use super::item::{bounded, context, f32r, position_ok, translated, ItemFault, MAX_SCAN};
 use super::response::{respond, Response};
 use super::source::BlockSource;
@@ -23,8 +24,8 @@ pub struct OrbBody {
 }
 
 const GRAVITY: f64 = 0.03;
-/// `EntityType.EXPERIENCE_ORB`'s eye: 0.85 of its 0.5 height.
-const EYE: f64 = 0.425;
+/// `EntityType.EXPERIENCE_ORB`'s eye: 0.85F of its 0.5F height.
+const EYE: f32 = 0.425;
 /// The distance at which an orb stops following a player (`followNearbyPlayer`).
 pub const FOLLOW_RANGE: f64 = 8.0;
 
@@ -36,12 +37,14 @@ fn body(p: [f64; 3]) -> Aabb {
 }
 
 /// One tick of an orb pulled toward `target` (the followed player's position
-/// at half its eye height), if it follows one.
+/// at half its eye height), if it follows one. `draws` are four supplied
+/// `nextFloat` draws as 24-bit integers, read only by the jump in lava.
 pub fn step(
     source: &dyn BlockSource,
     facts: &Facts,
     orb: &OrbBody,
     target: Option<[f64; 3]>,
+    draws: [u32; 4],
     border: Option<&Border>,
 ) -> Result<OrbBody, ItemFault> {
     if !bounded(orb.velocity) || !position_ok(orb.position) {
@@ -58,18 +61,37 @@ pub fn step(
     let b = body(orb.position);
     let inside = !shapes_for(&b.deflate(1.0e-7), orb.position)?.is_empty();
     // `Entity.baseTick`: the currents push every entity, normalized for all but players.
-    let (depths, velocity) = current(source, facts, &b, orb.velocity, true, false, Pushed::Item)?
+    let (_, velocity) = current(source, facts, &b, orb.velocity, true, false, Pushed::Item)?
         .ok_or(ItemFault::Limit)?;
     let [x, y, z] = velocity;
-    let mut v = if depths.water > EYE {
-        // `setUnderwaterMovement`.
-        let rise = if y < f32r(0.06) { f32r(5.0e-4) } else { 0.0 };
-        [x * f32r(0.99), y + rise, z * f32r(0.99)]
+    let eye = [orb.position[0], orb.position[1] + EYE as f64, orb.position[2]];
+    let (eye_in_water, _) = eyes(source, facts, &b, eye)?.ok_or(ItemFault::Limit)?;
+    let mut v = if eye_in_water {
+        // `setUnderwaterMovement`: a slow rise, capped at 0.06F.
+        [
+            x * f32r(0.99),
+            (y + f32r(5.0e-4)).min(f32r(0.06)),
+            z * f32r(0.99),
+        ]
     } else if !inside {
-        [x, y - GRAVITY, z]
+        // `Vec3.add` turns a negative zero positive.
+        [x + 0.0, y - GRAVITY, z + 0.0]
     } else {
         [x, y, z]
     };
+    // An orb whose block holds lava jumps at random (`ExperienceOrb.tick`).
+    let cell = orb.position.map(|c| c.floor() as i32);
+    let state = source
+        .state(cell[0], cell[1], cell[2])
+        .ok_or(ItemFault::Unreadable(cell))?;
+    if facts.fluid(state).kind == LAVA {
+        let f = draws.map(|n| (n & 0xff_ffff) as f32 / 16_777_216.0);
+        v = [
+            ((f[0] - f[1]) * 0.2f32) as f64,
+            0.2f32 as f64,
+            ((f[2] - f[3]) * 0.2f32) as f64,
+        ];
+    }
     match target {
         Some(t) => {
             let to = [

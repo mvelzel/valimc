@@ -8,7 +8,7 @@ defmodule Valimc.ExperienceTransfersTest do
   alias Valimc.Menus.Inventory
   alias Valimc.Player.State, as: PlayerState
 
-  alias Valimc.Entity.{Store, ExperienceOrbs}
+  alias Valimc.Entity.Store
 
   setup :scope
 
@@ -29,11 +29,10 @@ defmodule Valimc.ExperienceTransfersTest do
       File.rm_rf(base)
     end)
 
-    {:ok, award} =
-      Valimc.Blocks.CookingAwards.plan(%{"minecraft:gold_ingot_from_smelting_gold_ore" => 6}, %{})
-
-    # Six XP from one recipe: one orb entity of value 3, count 2.
-    [%{uuid: orb, value: 3, count: 2} = record] = ExperienceOrbs.award(at, award)
+    # Six XP as one resting orb entity of value 3 with two units, as merging leaves it.
+    orb = :crypto.strong_rand_bytes(16)
+    {x, y, z} = at
+    record = %{kind: :orb, uuid: orb, x: x, y: y, z: z, value: 3, count: 2, age: 0}
     Valimc.TestDisk.write(base, key, :items, %{records: [record]})
     {:ok, owner} = Valimc.TestWorld.item_owner(key)
 

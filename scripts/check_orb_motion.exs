@@ -3,8 +3,7 @@ alias Valimc.Entity.OrbMotion
 data = path |> File.read!() |> JSON.decode!()
 true = data["version"] == "26.3"
 true = data["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
-true = length(data["launches"]) == 56 and length(data["ticks"]) == 5184
-true = length(data["ages"]) == 5
+true = length(data["launches"]) == 56
 
 bits = fn vector ->
   for n <- Tuple.to_list(vector),
@@ -22,4 +21,4 @@ Enum.each(data["launches"], fn row ->
          do: raise("Native launch differs: #{inspect({row, result})}")
 end)
 
-IO.puts("PASS: 56 bit-exact native XP launches (orb tick motion is not live).")
+IO.puts("PASS: 56 bit-exact native XP launches (ticks are the orb_travel stage's).")

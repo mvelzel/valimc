@@ -64,7 +64,17 @@ defmodule Valimc.CookingOrbConnectionTest do
         %{"minecraft:iron_ingot_from_smelting_raw_iron" => 0}
       )
 
-    orbs = ExperienceOrbs.award({pose.x + 4.0, 64.5, pose.z}, award)
+    # The award's orbs merged into one resting orb per value, the 3 first and
+    # holding two units, keep the tracking below exact: the player's touch
+    # takes one unit of it and leaves both. They would scatter otherwise.
+    orbs =
+      ExperienceOrbs.award({pose.x + 4.0, 64.5, pose.z}, award)
+      |> Enum.group_by(& &1.value)
+      |> Enum.sort(:desc)
+      |> Enum.map(fn {_, [orb | _] = same} ->
+        %{Map.delete(orb, :motion) | count: Enum.sum(Enum.map(same, & &1.count))}
+      end)
+
     outgoing = %{destination: Valimc.TestWorld.section(key), records: orbs, merge: nil}
 
     Valimc.TestDisk.write(base, source_key, :items, %{

@@ -24,7 +24,7 @@ defmodule Valimc.World.ItemStep do
   @doc """
   The experience orbs a region owner's tick moves (VMC-077i): each orb
   `%{position, motion, target}` stepped like `steps/1`'s items, pulled toward
-  its `target` (nil when it follows no player).
+  its `target` (nil when it follows no player), jumping at random in lava.
   """
   def orb_steps(orbs) do
     for {:ok, orb} <-
@@ -33,11 +33,16 @@ defmodule Valimc.World.ItemStep do
         do: orb
   end
 
-  @doc "The next state of each orb `%{position, motion, target}`, as `run/3`'s for items."
+  @doc """
+  The next state of each orb `%{position, motion, target}`, as `run/3`'s for
+  items. An orb's optional `draws` (four integers below 2^24) are the jump in
+  lava's `nextFloat` draws; fresh random ones otherwise.
+  """
   def run_orbs(view, orbs, border) do
     inputs =
       Enum.map(orbs, fn %{position: {x, y, z}, motion: m} = orb ->
-        {{x * 1.0, y * 1.0, z * 1.0}, m.velocity, m.on_ground, Map.get(orb, :target)}
+        draws = Map.get_lazy(orb, :draws, fn -> {draw(), draw(), draw(), draw()} end)
+        {{x * 1.0, y * 1.0, z * 1.0}, m.velocity, m.on_ground, Map.get(orb, :target), draws}
       end)
 
     {:ok, results} = Kernel.orbs(view, inputs, border)
@@ -58,6 +63,8 @@ defmodule Valimc.World.ItemStep do
 
     Enum.zip_with(items, results, &result(&1, &2, true))
   end
+
+  defp draw, do: :rand.uniform(16_777_216) - 1
 
   # An item's counters tick with its motion; an orb's age is its owner's.
   defp result(entity, {:ok, position, velocity, on_ground}, counters) do

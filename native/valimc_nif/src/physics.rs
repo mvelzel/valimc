@@ -209,11 +209,12 @@ fn physics_border_clear(
     subject.is_none_or(|(x, z)| border.collider(x, z, &aabb(body)).is_none())
 }
 
-type OrbT = (Vec3, Vec3, bool, Option<Vec3>);
+type OrbT = (Vec3, Vec3, bool, Option<Vec3>, (u32, u32, u32, u32));
 
-/// One tick for each orb `{position, velocity, on_ground, target}`
+/// One tick for each orb `{position, velocity, on_ground, target, draws}`
 /// (`ExperienceOrb.tick` with `Entity.move`, pulled toward `target` when it
-/// follows a player): results as `physics_items`'.
+/// follows a player; `draws` are the jump in lava's four 24-bit float draws):
+/// results as `physics_items`'.
 #[rustler::nif]
 fn physics_orbs<'a>(
     env: Env<'a>,
@@ -242,9 +243,9 @@ fn orbs_step<'a>(
     border: Option<(f64, f64, f64, f64)>,
 ) -> NifResult<Term<'a>> {
     let facts = facts()?;
-    let bodies: Vec<(OrbBody, Option<[f64; 3]>)> = orbs
+    let bodies: Vec<(OrbBody, Option<[f64; 3]>, [u32; 4])> = orbs
         .into_iter()
-        .map(|(p, v, on_ground, target)| {
+        .map(|(p, v, on_ground, target, (a, b, c, d))| {
             (
                 OrbBody {
                     position: v3(p),
@@ -252,13 +253,14 @@ fn orbs_step<'a>(
                     on_ground,
                 },
                 target.map(v3),
+                [a, b, c, d],
             )
         })
         .collect();
     let Some(region) = union(
         &bodies
             .iter()
-            .map(|(b, _)| {
+            .map(|(b, _, _)| {
                 let p = b.position;
                 Aabb::new(
                     [p[0] - 1.0, p[1] - 2.0, p[2] - 1.0],
@@ -279,16 +281,16 @@ fn orbs_step<'a>(
     });
     let results: Vec<Term> = bodies
         .iter()
-        .map(
-            |(b, target)| match orb::step(&view, facts, b, *target, border.as_ref()) {
+        .map(|(b, target, draws)| {
+            match orb::step(&view, facts, b, *target, *draws, border.as_ref()) {
                 Ok(n) => (atoms::ok(), t3(n.position), t3(n.velocity), n.on_ground).encode(env),
                 Err(ItemFault::Inside) => atoms::inside().encode(env),
                 Err(ItemFault::Limit) => atoms::limit().encode(env),
                 Err(ItemFault::Unreadable(p)) => {
                     (atoms::unreadable(), (p[0], p[1], p[2])).encode(env)
                 }
-            },
-        )
+            }
+        })
         .collect();
     Ok(ok(env, results))
 }
