@@ -278,6 +278,15 @@ kind_data = fn
 
     if type == "minecraft:glow_squid", do: Map.put(squid, "dark", data.dark), else: squid
 
+  %{type: type, data: data, mob: mob}
+  when type in ~w(minecraft:guardian minecraft:elder_guardian) ->
+    guardian = %{"moving" => data.moving, "beam" => data.beam}
+
+    case mob.home do
+      {{x, y, z}, r} -> Map.put(guardian, "home", [x, y, z, r])
+      nil -> guardian
+    end
+
   _ ->
     %{}
 end
@@ -329,6 +338,33 @@ extras = fn body, step ->
     "can_pick_up_loot" => body.mob.can_pick_up_loot,
     "converting" => Map.get(body.data, :converting)
   }
+end
+
+# The hit a mob's effect lands on a player, with what it adds (VMC-043b:
+# fire, an effect): a melee hit, a guardian's beam or thorns (a pufferfish's
+# sting on a player stands for the player's own touch, which the oracle's
+# players do not run).
+hit_of = fn
+  {:attack, {:player, <<_::64, n::64>> = uuid}}, effects ->
+    extras =
+      Enum.find_value(effects, %{}, fn
+        {:attack_extra, {:player, ^uuid}, extras} -> extras
+        _ -> nil
+      end)
+
+    case extras do
+      %{effect: {effect, {duration, _, _, _, _}}} ->
+        {n, Valimc.Data.EffectTypes.name(effect), duration, extras[:ignite]}
+
+      _ ->
+        {n, nil, nil, extras[:ignite]}
+    end
+
+  {:hurt, {:player, <<_::64, n::64>>}, type, _, _}, _effects when type != :mob_attack ->
+    {n, nil, nil, nil}
+
+  _, _ ->
+    nil
 end
 
 # A squid's tentacle speed, drawn as vanilla made it (VMC-043e).
@@ -428,7 +464,14 @@ checked =
           }
 
           mind = %{mind | own: own_start.(m["type"], m["start"])}
-          body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind}}
+
+          home =
+            case m["start"]["home"] do
+              [hx, hy, hz, r] -> {{hx, hy, hz}, r}
+              nil -> nil
+            end
+
+          body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind, home: home}}
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           body = setup.(body, m)
           {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
@@ -524,23 +567,18 @@ checked =
                     nil
                 end
 
-              # A hit with what it adds (VMC-043b: fire, an effect).
+              # Melee hits with what they add, and a guardian's beam and thorns.
               hits =
-                for {:attack, {:player, <<_::64, n::64>> = uuid}} <- step.effects do
-                  extras =
-                    Enum.find_value(step.effects, %{}, fn
-                      {:attack_extra, {:player, ^uuid}, extras} -> extras
-                      _ -> nil
-                    end)
+                for effect <- step.effects,
+                    hit = hit_of.(effect, step.effects),
+                    hit != nil,
+                    do: hit
 
-                  case extras do
-                    %{effect: {effect, {duration, _, _, _, _}}} ->
-                      {n, Valimc.Data.EffectTypes.name(effect), duration, extras[:ignite]}
-
-                    _ ->
-                      {n, nil, nil, extras[:ignite]}
-                  end
-                end
+              # A guardian's entity events (the oracle records only theirs).
+              entity_events =
+                if body.type in ~w(minecraft:guardian minecraft:elder_guardian),
+                  do: for({:event, n} <- step.events, do: n),
+                  else: []
 
               sounds =
                 for event <- Map.get(hurt_events, id, []) ++ step.events,
@@ -560,6 +598,9 @@ checked =
               want_hits =
                 for h <- expected["hits"],
                     do: {h["player"], h["effect"], h["duration"], h["ignite"]}
+
+              want_entity_events =
+                for s <- expected["sounds"], s["entity_event"], do: s["entity_event"]
 
               takes = for {:pickup, _, n} <- step.effects, do: n
               want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
@@ -614,6 +655,7 @@ checked =
                 sounds: sounds,
                 swings: swings,
                 hits: hits,
+                entity_events: entity_events,
                 takes: takes,
                 level_events: level_events,
                 adds: adds,
@@ -659,6 +701,7 @@ checked =
                 sounds: want_sounds,
                 swings: want_swings,
                 hits: want_hits,
+                entity_events: want_entity_events,
                 takes: want_takes,
                 level_events: want_events,
                 adds: want_adds,

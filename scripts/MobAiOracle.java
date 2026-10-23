@@ -65,7 +65,7 @@ public class MobAiOracle {
       "minecraft:husk", "minecraft:zombie_villager",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
-      "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid",
+      "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
@@ -81,6 +81,12 @@ public class MobAiOracle {
       "minecraft:entity.cod.flop", "minecraft:entity.salmon.flop", "minecraft:entity.puffer_fish.flop",
       "minecraft:entity.tropical_fish.flop", "minecraft:entity.puffer_fish.blow_up", "minecraft:entity.puffer_fish.blow_out",
       "minecraft:entity.puffer_fish.sting", "minecraft:entity.squid.squirt", "minecraft:entity.glow_squid.squirt",
+      // A guardian's sounds in and out of water.
+      "minecraft:entity.guardian.ambient", "minecraft:entity.guardian.ambient_land", "minecraft:entity.guardian.hurt",
+      "minecraft:entity.guardian.hurt_land", "minecraft:entity.guardian.death", "minecraft:entity.guardian.death_land",
+      "minecraft:entity.elder_guardian.ambient", "minecraft:entity.elder_guardian.ambient_land",
+      "minecraft:entity.elder_guardian.hurt", "minecraft:entity.elder_guardian.hurt_land",
+      "minecraft:entity.elder_guardian.death", "minecraft:entity.elder_guardian.death_land",
       // Swimming (`getSwimSound`).
       "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
@@ -303,7 +309,12 @@ public class MobAiOracle {
       var p = new JsonArray(); p.add(pos.getX()); p.add(pos.getY()); p.add(pos.getZ()); o.add("at", p); o.addProperty("data", data);
       sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
     }
-    public void broadcastEntityEvent(Entity e, byte b) {}
+    // A guardian's beam warning (event 21, VMC-043e), as its own row's.
+    public void broadcastEntityEvent(Entity e, byte b) {
+      if (!(e instanceof net.minecraft.world.entity.monster.Guardian)) return;
+      var o = new JsonObject(); o.addProperty("entity_event", (int)b);
+      sounds.computeIfAbsent(e, k -> new ArrayList<>()).add(o);
+    }
     public void broadcastDamageEvent(Entity e, DamageSource s) {}
     public <T extends ParticleOptions> int sendParticles(T o, double x, double y, double z, int n, double a, double b, double c, double s) { return 0; }
     void sound(Entity e, Holder<SoundEvent> s, float volume, float pitch) {
@@ -728,6 +739,10 @@ public class MobAiOracle {
         var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
         attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
       }
+      if (s.data.containsKey("home")) {
+        var h = (int[])s.data.get("home");
+        m.setHomeTo(new BlockPos(h[0], h[1], h[2]), h[3]);
+      }
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
       // A flock goal's first wait, drawn as it was made, set to its least (VMC-043e).
@@ -897,6 +912,15 @@ public class MobAiOracle {
       o.addProperty("age", q.getAge());
     }
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
+    if (m instanceof net.minecraft.world.entity.monster.Guardian g) {
+      o.addProperty("moving", g.isMoving());
+      o.addProperty("beam", (int)g.getEntityData().get((net.minecraft.network.syncher.EntityDataAccessor<Integer>)
+          field(net.minecraft.world.entity.monster.Guardian.class, "DATA_ID_ATTACK_TARGET").get(null)));
+      if (g.hasHome()) {
+        var h = new JsonArray(); var c = g.getHomePosition();
+        h.add(c.getX()); h.add(c.getY()); h.add(c.getZ()); h.add(g.getHomeRadius()); o.add("home", h);
+      }
+    }
     return o;
   }
 
@@ -1020,6 +1044,22 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(3.5, 61, .5), "survival", null)), List.of(new Hit(20, 0, 0, 1.0F)), 200));
     cases.add(run(level, "squid_land", floor(63, 12, stone), List.of(new Spawn("minecraft:squid", new Vec3(.5, 66, .5), 0, 85L)),
       List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 100));
+    // VMC-043e: guardians. One swims about, one beams a player in the
+    // pool, one still when hit pricks its attacker with thorns, one on land
+    // flops; an elder beams harder and sooner; one outside its home swims
+    // back.
+    cases.add(run(level, "guardian_swim", pool, List.of(new Spawn("minecraft:guardian", new Vec3(.5, 60, .5), 0, 91L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "guardian_beam", pool, List.of(new Spawn("minecraft:guardian", new Vec3(.5, 60, .5), 0, 92L)),
+      List.of(new Stand(new Vec3(6.5, 58, .5), "survival", null)), List.of(), 300));
+    cases.add(run(level, "guardian_thorns", pool, List.of(new Spawn("minecraft:guardian", new Vec3(.5, 60, .5), 0, 93L)),
+      List.of(new Stand(new Vec3(2.5, 60, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F), new Hit(70, 0, 0, 1.0F)), 140));
+    cases.add(run(level, "guardian_land", floor(63, 12, stone), List.of(new Spawn("minecraft:guardian", new Vec3(.5, 64, .5), 0, 94L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 120));
+    cases.add(run(level, "elder_guardian_beam", pool, List.of(new Spawn("minecraft:elder_guardian", new Vec3(.5, 60, .5), 0, 95L)),
+      List.of(new Stand(new Vec3(-6.5, 58, .5), "survival", null)), List.of(), 300));
+    cases.add(run(level, "elder_guardian_home", pool, List.of(new Spawn("minecraft:elder_guardian", new Vec3(6.5, 60, 6.5), 0, 96L,
+      Map.of("home", new int[] {-5, 59, -5, 4}))), List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -1226,7 +1266,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians).");
       return;
     }
     if (args[0].equals("paths")) {

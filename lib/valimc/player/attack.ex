@@ -172,7 +172,7 @@ defmodule Valimc.Player.Attack do
   defp strike(state, view, owner) do
     mainhand = Inventory.held(state.inventory, :main)
     ticker = state.attack.ticker
-    speed = attribute(mainhand, "minecraft:attack_speed")
+    speed = attack_speed(state, mainhand)
 
     if Melee.too_weak?(Weapons.minimum_charge(mainhand), ticker, speed, 5) do
       state
@@ -421,6 +421,30 @@ defmodule Valimc.Player.Attack do
     }
 
   # A player's attribute with the main hand's stock modifiers.
+  @fatigue Valimc.Data.EffectTypes.id("mining_fatigue")
+
+  # The held weapon's attack speed with Mining Fatigue's modifier (-0.1 a
+  # level, multiplied in last; `MobEffects.MINING_FATIGUE`).
+  defp attack_speed(state, mainhand) do
+    name = "minecraft:attack_speed"
+
+    modifiers =
+      for {^name, id, amount, op} <- Weapons.modifiers(mainhand, :mainhand),
+          do: {id, amount, op}
+
+    modifiers =
+      case Attributes.amplifier(state.player.living.effects, @fatigue) do
+        nil ->
+          modifiers
+
+        level ->
+          modifiers ++
+            [{"minecraft:effect.mining_fatigue", -0.10000000149011612 * (level + 1), 2}]
+      end
+
+    Attributes.value(name, Weapons.player_base(name), modifiers)
+  end
+
   defp attribute(mainhand, name) do
     modifiers =
       for {^name, id, amount, op} <- Weapons.modifiers(mainhand, :mainhand),

@@ -7,6 +7,8 @@ defmodule Valimc.AI.Goals.RandomStroll do
   fifteen blocks around), all but a thousandth of the time; a swim picks
   targets in water. `guard` is a test of the mob before anything is drawn
   (a schooling fish swims alone only when it follows no leader).
+  `trigger/1` makes its next update go without the chance (a hurt
+  guardian's).
   """
   use Valimc.AI.Goal
   alias Valimc.AI.RandomPos
@@ -23,6 +25,9 @@ defmodule Valimc.AI.Goals.RandomStroll do
       force: false,
       wanted: nil
     }
+
+  @doc "`RandomStrollGoal.trigger`."
+  def trigger(state), do: %{state | force: true}
 
   def can_use(state, self) do
     cond do

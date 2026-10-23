@@ -33,8 +33,10 @@ defmodule Valimc.AI.Kind do
   - Its own move control (`move_control/1`, after `custom_step`, before
     the look control: it sets `MobMotion`'s `set`, `impulse` and `travel`),
     and its air (`air/2`: from its air supply and whether it is in water,
-    `{air, drowning damage}`; a water animal's). `dying?/0`: a dying mob
-    still runs its own `tick` and `aiStep` hooks (a dead fish flops).
+    `{air, drowning damage}`; a water animal's), and how it values a
+    random walk's target (`walk_value/2`, `getWalkTargetValue`). `dying?/0`:
+    a dying mob still runs its own `tick` and `aiStep` hooks (a dead fish
+    flops).
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `ignores?/2` (a
     hit it takes nothing from), `sound/2` (its hurt or death sound, nil for
     its type's) and `hurt/2` (what a hurt leaves on its body).
@@ -82,6 +84,7 @@ defmodule Valimc.AI.Kind do
   @callback air(integer, boolean) :: {integer, float}
   @callback swim_sound() :: String.t()
   @callback dying?() :: boolean
+  @callback walk_value(Self.t(), tuple) :: float
 
   @optional_callbacks leashable?: 0,
                       navigation: 0,
@@ -114,5 +117,6 @@ defmodule Valimc.AI.Kind do
                       move_control: 1,
                       air: 2,
                       swim_sound: 0,
-                      dying?: 0
+                      dying?: 0,
+                      walk_value: 2
 end

@@ -166,7 +166,13 @@ defmodule Valimc.Player.Mining do
     block = mining.block
 
     {:ok, rate} =
-      MiningSpeed.rate(state.inventory, block, state.mining_water, state.player.motion.on_ground)
+      MiningSpeed.rate(
+        state.inventory,
+        block,
+        state.mining_water,
+        state.player.motion.on_ground,
+        state.player.living.effects
+      )
 
     {:ok, attempt, events} =
       if mining.attempt == nil,

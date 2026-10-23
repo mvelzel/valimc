@@ -28,7 +28,7 @@ defmodule Valimc.Living.Effects do
   @periodic Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @live Enum.map(
           ~w(fire_resistance resistance absorption water_breathing speed slowness nausea
-            jump_boost slow_falling levitation night_vision blindness darkness),
+            jump_boost slow_falling levitation night_vision blindness darkness mining_fatigue),
           &EffectTypes.id/1
         ) ++ @periodic
   @heal EffectTypes.id("instant_health")
@@ -60,7 +60,8 @@ defmodule Valimc.Living.Effects do
   The status effects the live game applies, by registry id; others are refused
   (login, commands, consumption). Besides those with server mechanics, this holds
   effects whose only role without mobs is to be stored, ticked and sent: night
-  vision, blindness and darkness are drawn by the client. Glowing and
+  vision, blindness and darkness are drawn by the client; Mining Fatigue
+  slows mining and attacks (VMC-043e). Glowing and
   invisibility need replicated entity flags; haste, strength and the like need
   their mechanics, so they stay out.
   """

@@ -24,8 +24,9 @@ Slices, in order:
 - [VMC-043e2](VMC-043e2.md) — squid, glow squid and fish: mobs tick one at
   a time, the kernel's water travels, fish move control, schooling, puffing,
   variants and sizes, flopping and air (Awaiting client).
-- VMC-043e3 — guardians and elder guardians: the guardian move control and
-  travel, the beam, thorns, Mining Fatigue.
+- [VMC-043e3](VMC-043e3.md) — guardians and elder guardians: the guardian
+  move control and travel, the beam, thorns, homes, Mining Fatigue
+  (Awaiting client).
 - VMC-043e4 — dolphins, turtles (eggs, beaches, home) and axolotls (brain,
   playing dead), with the smooth swimming controls.
 - VMC-043e5 — bats: resting, flying and waking.

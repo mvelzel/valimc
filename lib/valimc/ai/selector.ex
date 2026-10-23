@@ -145,6 +145,25 @@ defmodule Valimc.AI.Selector do
     end
   end
 
+  @doc """
+  The states of selector `which`'s goals of `module` changed by `fun` (a
+  hurt guardian's stroll told to go, `RandomStrollGoal.trigger`), in a
+  mob's `Self` or its mind.
+  """
+  def change(%Self{mind: mind} = self, which, module, fun),
+    do: %{self | mind: change(mind, which, module, fun)}
+
+  def change(%Valimc.AI.Mind{} = mind, which, module, fun) do
+    goals =
+      mind
+      |> Map.fetch!(which)
+      |> Tuple.to_list()
+      |> Enum.map(&if(&1.module == module, do: %{&1 | state: fun.(&1.state)}, else: &1))
+      |> List.to_tuple()
+
+    Map.put(mind, which, goals)
+  end
+
   @doc "The running goals of selector `which`, by module, in order."
   def running(%Self{} = self, which),
     do: for(%{running: true, module: module} <- Tuple.to_list(goals(self, which)), do: module)

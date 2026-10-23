@@ -419,6 +419,10 @@ defmodule Valimc.AI.World do
     end
   end
 
+  @doc "`getNearestEntity` over `candidates`: `{entity | nil, self}`."
+  def nearest(%Self{} = self, candidates, conditions, x, y, z),
+    do: nearest(self, candidates, conditions, {x, y, z})
+
   defp nearest(self, candidates, conditions, {x, y, z}) do
     {best, _, self} =
       Enum.reduce(candidates, {nil, -1.0, self}, fn candidate, {best, distance, self} ->

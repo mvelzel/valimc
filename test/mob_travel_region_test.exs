@@ -5,7 +5,7 @@ defmodule Valimc.MobTravelRegionTest do
   alias Valimc.TestScope
   alias Valimc.World.Region
 
-  setup do
+  setup ctx do
     nonce = System.unique_integer([:positive])
     key = {64_000 + rem(nonce, 333) * 3, 2300}
     base = Path.join(System.tmp_dir!(), "valimc-mob-travel-#{nonce}")
@@ -14,8 +14,8 @@ defmodule Valimc.MobTravelRegionTest do
       world_path: base,
       item_simulation: true,
       region_ticks: :manual,
-      # No goals: the tests move the mobs alone (VMC-041a).
-      mob_goals: false
+      # No goals: the tests move the mobs alone (VMC-041a), unless tagged.
+      mob_goals: Map.get(ctx, :goals, false)
     )
 
     File.mkdir_p!(base)
@@ -188,6 +188,37 @@ defmodule Valimc.MobTravelRegionTest do
     store = Valimc.TestRegion.section(ctx.owner).entities.store
     assert {:error, _} = Store.find(store, <<7::128>>)
     assert entry(ctx, <<8::128>>).body.data.life == 2398
+  end
+
+  @tag goals: true
+  test "a guardian beams a squid: magic, then its bite (VMC-043e)", ctx do
+    {x, z} = ctx.at
+    {bx, bz} = {floor(x), floor(z)}
+    water = Valimc.Data.Blocks.default_state("water")
+
+    for wx <- (bx - 6)..(bx + 6),
+        y <- 64..68,
+        wz <- (bz - 2)..(bz + 2),
+        do: Valimc.TestBlocks.set({wx, y, wz}, water)
+
+    for {type, uuid, dx} <- [
+          {"minecraft:guardian", <<13::128>>, -4.0},
+          {"minecraft:squid", <<14::128>>, 4.0}
+        ] do
+      {:ok, body} = Body.new(type)
+      :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x + dx, 65.0, z})])
+    end
+
+    bitten =
+      Enum.find_value(1..300, fn _ ->
+        step(ctx, 1)
+        health = entry(ctx, <<14::128>>).body.mob.living.health.value
+        if health < 10.0, do: health
+      end)
+
+    # Ten health less the beam's one and its attack's six, which the
+    # beam's hurt cooldown cuts to five.
+    assert bitten == 4.0
   end
 
   test "a shulker with nothing to hold teleports onto the floor (VMC-043e)", ctx do

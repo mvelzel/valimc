@@ -1191,6 +1191,17 @@ defmodule Valimc.World.RegionData do
           {step.id, target, extras}
         end
 
+      # Melee hits on mobs (a guardian's beam on a squid, VMC-043e).
+      mob_attacks =
+        for step <- steps, {:attack, {:mob, target}} <- step.effects, do: {step.id, target}
+
+      # Players an elder guardian curses (VMC-043e).
+      curses =
+        for step <- steps,
+            {:elder_curse, at} <- step.effects,
+            %{entity: e, body: body} <- [store.entries[step.id]],
+            do: {e, body.type, at}
+
       # Items a mob picked up (a piglin's gold, VMC-041a2) and drops it let go.
       pickups =
         for step <- steps, {:pickup, {:item, uuid}, n} <- step.effects, do: {step.id, uuid, n}
@@ -1260,12 +1271,13 @@ defmodule Valimc.World.RegionData do
             %{entity: e} <- [store.entries[step.id]],
             do: {e, effect}
 
-      # A pufferfish's stings (VMC-043e) on what it touches.
-      stings =
+      # Hurts mobs deal beyond their melee (VMC-043e): a pufferfish's
+      # stings, a guardian's beam and thorns.
+      hurts =
         for step <- steps,
-            {:sting, target, amount, poison} <- step.effects,
+            {:hurt, target, type, amount, actions} <- step.effects,
             %{entity: e, body: body} <- [store.entries[step.id]],
-            do: {e, body.type, target, amount, poison}
+            do: {e, body.type, target, type, amount, actions}
 
       # Mobs whose kind ends them (an endermite's lifetime, VMC-043e) leave.
       {discards, steps} = Enum.split_with(steps, &(:discard in &1.effects))
@@ -1290,7 +1302,9 @@ defmodule Valimc.World.RegionData do
       state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
       state = Enum.reduce(fired, state, &mob_spawns/2)
-      state = Enum.reduce(stings, state, &mob_sting/2)
+      state = Enum.reduce(hurts, state, &mob_hurt/2)
+      state = Enum.reduce(mob_attacks, state, &mob_attack_mob/2)
+      Enum.each(curses, &mob_curse(&1, world.players))
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
       state = if throws == [], do: state, else: mob_throws(state, throws)
@@ -1366,33 +1380,63 @@ defmodule Valimc.World.RegionData do
 
   # `Pufferfish.touch`: `amount` of mob attack damage and, when it takes,
   # Poison for `poison` ticks (a player's own touch, `playerTouch`, alike).
-  defp mob_sting({e, type, target, amount, poison}, state) do
+  # A mob's hurt of `type` on `target` with the effect actions after it (a
+  # pufferfish's Poison; `Player.Projectiles.splash/3`'s actions).
+  defp mob_hurt({e, type, target, damage_type, amount, actions}, state) do
     me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
 
     hit = %{
-      source: Valimc.Living.DamageSource.new(:mob_attack),
+      source: Valimc.Living.DamageSource.new(damage_type),
       amount: amount,
       attacker: me,
       direct: me,
       position: {e.x, e.y, e.z}
     }
 
-    effect = {:add, Valimc.Data.EffectTypes.id("poison"), [{poison, 0, false, true, true}]}
-
     case target do
       {:player, uuid} ->
         send(self(), {:player, uuid, {:hurt, hit}})
-        send(self(), {:player, uuid, {:splash, [effect], hit}})
+        if actions != [], do: send(self(), {:player, uuid, {:splash, actions, hit}})
         state
 
       {:mob, uuid} ->
         with {:ok, {_, sid, _}} <- Store.find(state.entities.store, uuid),
              {true, state} <- projectile_hurt(state, %{ref: {:mob, sid}}, hit) do
-          mob_effect(state, sid, nil, effect, hit)
+          Enum.reduce(actions, state, &mob_effect(&2, sid, nil, &1, hit))
         else
           {false, state} -> state
           _ -> state
         end
+    end
+  end
+
+  # Mob `id`'s melee hit (`doHurtTarget`) on mob `uuid`.
+  defp mob_attack_mob({id, uuid}, state) do
+    store = state.entities.store
+
+    with {:ok, {_, sid, _}} <- Store.find(store, uuid),
+         %{body: %Body{type: type}} <- store.entries[sid],
+         {:ok, hit} <- Valimc.Entity.Combat.mob_hit(store, id, type) do
+      elem(projectile_hurt(state, %{ref: {:mob, sid}}, hit), 1)
+    else
+      _ -> state
+    end
+  end
+
+  # `ElderGuardian.customServerAiStep`'s curse: Mining Fatigue III for five
+  # minutes on survival and adventure players within 50 blocks, each of
+  # whom checks what it already has (`MobEffectUtil.addEffectToPlayersAround`).
+  defp mob_curse({e, type, {x, y, z}}, players) do
+    me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
+    hit = %{source: nil, amount: 0.0, attacker: me, direct: me, position: {x, y, z}}
+
+    curse =
+      {:curse, Valimc.Data.EffectTypes.id("mining_fatigue"), {6000, 2, false, true, true}, 1200}
+
+    for %{uuid: uuid, mode: mode, x: px, y: py, z: pz} <- players,
+        mode in [:survival, :adventure],
+        (px - x) * (px - x) + (py - y) * (py - y) + (pz - z) * (pz - z) < 2500.0 do
+      send(self(), {:player, uuid, {:splash, [curse], hit}})
     end
   end
 

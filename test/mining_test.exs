@@ -24,6 +24,18 @@ defmodule Valimc.MiningTest do
     assert {:error, :invalid_mining_input} = Mining.advance(rate, -1)
   end
 
+  test "Mining Fatigue III (an elder guardian's) slows mining to 0.3 cubed (VMC-043e)" do
+    alias Valimc.Player.MiningSpeed
+    inventory = Valimc.Menus.Inventory.new()
+    stone = Blocks.default_state("stone")
+    fatigue = %{Valimc.Data.EffectTypes.id("mining_fatigue") => [{6000, 2, false, true, true}]}
+    plain = MiningSpeed.speed(inventory, stone, false, true)
+    slowed = MiningSpeed.speed(inventory, stone, false, true, fatigue)
+
+    assert slowed ==
+             Valimc.Data.Float32.round(plain * Valimc.Data.Float32.round(0.027000000000000003))
+  end
+
   defp plan(name, properties \\ %{}, tool \\ nil, harvest \\ true, around \\ %{}),
     do: Breaking.plan(Blocks.state(name, properties), {0, 64, 0}, tool, harvest, around)
 

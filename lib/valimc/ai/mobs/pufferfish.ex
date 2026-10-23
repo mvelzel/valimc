@@ -123,9 +123,11 @@ defmodule Valimc.AI.Mobs.Pufferfish do
 
   def scary?(_target), do: false
 
+  @poison Valimc.Data.EffectTypes.id("poison")
+
   @doc """
   `Pufferfish.aiStep` after its super: puffed, it stings the mobs it touches
-  (`{:sting, target, amount, poison ticks}`); players it touches are stung
+  (`{:hurt, target, :mob_attack, amount, [poison]}`); players it touches are stung
   by their own touch (`playerTouch`), which this effect stands for too.
   """
   @impl true
@@ -145,7 +147,8 @@ defmodule Valimc.AI.Mobs.Pufferfish do
         end)
 
     Enum.reduce(touched, self, fn target, self ->
-      Self.effect(self, {:sting, World.ref(target), 1.0 + puff, 60 * puff})
+      poison = {:add, @poison, [{60 * puff, 0, false, true, true}]}
+      Self.effect(self, {:hurt, World.ref(target), :mob_attack, 1.0 + puff, [poison]})
     end)
   end
 

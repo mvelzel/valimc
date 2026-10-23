@@ -1552,6 +1552,142 @@
       ],
       "targets": []
     },
+    "minecraft:guardian": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 180,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.guardian.ambient_land",
+      "ambient_sound_interval": 160,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          4,
+          "GuardianAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "MoveTowardsRestrictionGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "RandomStrollGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          9,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:elder_guardian": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 180,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.elder_guardian.ambient_land",
+      "ambient_sound_interval": 160,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          4,
+          "GuardianAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "MoveTowardsRestrictionGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "RandomStrollGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          9,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:cow": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2021,6 +2157,18 @@
     "minecraft:entity.puffer_fish.sting": 1351,
     "minecraft:entity.squid.squirt": 1599,
     "minecraft:entity.glow_squid.squirt": 738,
+    "minecraft:entity.guardian.ambient": 771,
+    "minecraft:entity.guardian.ambient_land": 772,
+    "minecraft:entity.guardian.hurt": 777,
+    "minecraft:entity.guardian.hurt_land": 778,
+    "minecraft:entity.guardian.death": 774,
+    "minecraft:entity.guardian.death_land": 775,
+    "minecraft:entity.elder_guardian.ambient": 577,
+    "minecraft:entity.elder_guardian.ambient_land": 578,
+    "minecraft:entity.elder_guardian.hurt": 583,
+    "minecraft:entity.elder_guardian.hurt_land": 584,
+    "minecraft:entity.elder_guardian.death": 580,
+    "minecraft:entity.elder_guardian.death_land": 581,
     "minecraft:entity.fish.swim": 642,
     "minecraft:entity.generic.swim": 708,
     "minecraft:entity.hostile.swim": 880,

@@ -62,8 +62,9 @@ defmodule Valimc.AI.Goals.NearestAttackableTarget do
   @moduledoc """
   `NearestAttackableTargetGoal`: by chance (one in five updates by default),
   the nearest attackable entity within the follow range, in sight, measured
-  from the mob's eye: a player (`kind: :player`) or a section mob whose type
-  `select` takes (`:selector` narrows either further).
+  from the mob's eye: a player (`kind: :player`), a section mob whose type
+  `select` takes, or either (`kind: :living`, a guardian's; its players
+  within the search box) (`:selector` narrows each further).
   """
   use Valimc.AI.Goal
   alias Valimc.AI.Goals.Target
@@ -111,6 +112,12 @@ defmodule Valimc.AI.Goals.NearestAttackableTarget do
       :mob ->
         box = World.inflate(Self.box(self), follow, follow, follow)
         World.nearest_mob(self, state.select, box, conditions, self.x, Self.eye_y(self), self.z)
+
+      :living ->
+        box = World.inflate(Self.box(self), follow, follow, follow)
+        players = for p <- self.world.players, World.intersects?(World.box(p), box), do: p
+        candidates = players ++ World.mobs_in(self, state.select, box)
+        World.nearest(self, candidates, conditions, self.x, Self.eye_y(self), self.z)
     end
   end
 

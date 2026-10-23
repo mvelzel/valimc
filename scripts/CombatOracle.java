@@ -50,7 +50,7 @@ public class CombatOracle {
       "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish", "minecraft:tropical_fish",
-      "minecraft:squid", "minecraft:glow_squid",
+      "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
       // VMC-043c: farm animals.
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",

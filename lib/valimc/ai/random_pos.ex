@@ -5,13 +5,14 @@ defmodule Valimc.AI.RandomPos do
   inside the build height, standing on a block that renders solid and with
   no path malus (land targets: moved up out of solid blocks and not in
   water), the best by the mob's walk target value. Draws come from the mob's
-  random in vanilla's order. A mob with a home (VMC-043c3: a lead's) leans
-  each candidate toward it and, near it, keeps to it (`GoalUtils.mobRestricted`,
-  `isWithinHome`).
+  random in vanilla's order. A mob with a home (VMC-043c3: a lead's;
+  VMC-043e: an elder guardian's) leans each candidate toward it and, near
+  it, keeps to it (`GoalUtils.mobRestricted`, `isWithinHome`).
 
   `walk_value/2` is `PathfinderMob.getWalkTargetValue`: an animal prefers
   grass (a mooshroom mycelium, 10) and else light, a monster darkness,
-  others nothing.
+  others nothing; a family may value blocks its own way (`walk_value/2`, a
+  guardian water).
   """
   alias Valimc.AI.{Facts, Mth, Self, World}
   alias Valimc.Data.Float32
@@ -276,7 +277,15 @@ defmodule Valimc.AI.RandomPos do
   @mycelium MapSet.new(Valimc.Data.Blocks.states("mycelium"))
 
   @doc "`getWalkTargetValue` at a block for the mob's family."
-  def walk_value(%Self{type: type, world: world}, {x, y, z} = pos) do
+  def walk_value(%Self{type: type} = self, pos) do
+    case Valimc.AI.Mobs.hook(type, :walk_value, [self, pos], nil) do
+      nil -> family_value(self, pos)
+      value -> value
+    end
+  end
+
+  @doc "`PathfinderMob`'s, `Animal`'s or `Monster`'s walk target value."
+  def family_value(%Self{type: type, world: world}, {x, y, z} = pos) do
     case family(type) do
       :animal ->
         if MapSet.member?(@grass, World.block(world, {x, y - 1, z})),

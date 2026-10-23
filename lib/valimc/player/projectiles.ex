@@ -537,6 +537,9 @@ defmodule Valimc.Player.Projectiles do
       {:heal, amount}, acc ->
         Vitals.apply_effect_action(acc, {:heal, amount})
 
+      {:curse, id, rung, limit}, acc ->
+        curse(acc, id, rung, limit)
+
       {:hurt, type, amount}, acc ->
         hit =
           %{template | source: DamageSource.new(type), amount: amount} |> Map.delete(:direction)
@@ -546,6 +549,27 @@ defmodule Valimc.Player.Projectiles do
   end
 
   def splash(state, _actions, _template), do: state
+
+  # An elder guardian's curse (`MobEffectUtil.addEffectToPlayersAround`):
+  # the effect unless the player has it as strong and for longer than
+  # `limit` ticks, and its ghost (game event 10).
+  defp curse(state, id, {_, amplifier, _, _, _} = rung, limit) do
+    case state.player.living.effects[id] do
+      [{ticks, current, _, _, _} | _]
+      when current >= amplifier and (ticks == -1 or ticks > limit - 1) ->
+        state
+
+      _ ->
+        state =
+          case Vitals.apply_effect(state, id, [rung]) do
+            {:ok, _, next} -> next
+            _ -> state
+          end
+
+        send_packets(state, [Packets.packet("game_event", <<10, 1.0::float-32>>)])
+        state
+    end
+  end
 
   @doc "The shooter's chime for an arrow that hit another player (game event 6)."
   def arrow_hit(state) do
