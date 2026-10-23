@@ -26,18 +26,25 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   @turtle_eggs Enum.to_list(Valimc.Data.Blocks.states("turtle_egg"))
 
   @doc "The family's types (`Valimc.AI.Mobs`)."
+  @behaviour Valimc.AI.Kind
+
+  @impl true
   def types, do: [@type_name]
 
   @doc "The goals a zombified piglin registers (a zombie's, with its own behaviour goals)."
+  @impl true
   def goals(_type), do: registered()
 
   @doc "A zombie's own data (`Zombie.data/1`): the baby flag and the rest."
+  @impl true
   def data(_type), do: Zombie.data("minecraft:zombie")
 
   @doc "A zombie's entity data values."
+  @impl true
   def values(body), do: Zombie.values(body)
 
   @doc "A baby's dimensions, or nil."
+  @impl true
   def dimensions(body), do: Zombie.dimensions(body)
 
   @doc """
@@ -47,6 +54,7 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   (`populateDefaultEquipmentSlots`), and no reinforcements
   (`randomizeReinforcementsChance`).
   """
+  @impl true
   def finalize(self, reason),
     do: Zombie.zombie(self, reason, populate: &golden/1, reinforcements: false)
 
@@ -98,6 +106,7 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   `setTarget`: a first target draws the delays to its first anger sound
   (0 to 20 ticks) and its first alert (80 to 120).
   """
+  @impl true
   def set_target(%Self{} = self, target) do
     self = ensure(self)
 
@@ -114,6 +123,7 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   end
 
   @doc "`getAmbientSound`: angry or not."
+  @impl true
   def ambient_sound(%Self{facts: facts} = self) do
     if Neutral.angry?(ensure(self)), do: @angry_sound, else: facts.ambient_sound
   end
@@ -123,6 +133,7 @@ defmodule Valimc.AI.Mobs.ZombifiedPiglin do
   growl, the anger kept up to date (`updatePersistentAnger`, staying angry
   while it has a target), and alerts while it has a target.
   """
+  @impl true
   def custom_step(%Self{} = self) do
     self = ensure(self)
     modified = attacking?(self.mob)

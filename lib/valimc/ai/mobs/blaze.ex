@@ -11,7 +11,15 @@ defmodule Valimc.AI.Mobs.Blaze do
   """
   alias Valimc.AI.{Goals, Self, World}
 
+  @behaviour Valimc.AI.Kind
+
   @type_name "minecraft:blaze"
+
+  @impl true
+  def types, do: [@type_name]
+
+  @impl true
+  def goals(_type), do: registered()
 
   @doc "The goals a blaze registers (`registerGoals`)."
   def registered do
@@ -33,8 +41,9 @@ defmodule Valimc.AI.Mobs.Blaze do
      ]}
   end
 
-  @doc "`getAmbientSound`."
-  def ambient_sound(%Self{facts: facts}), do: facts.ambient_sound
+  @doc "Its entity data: the charged flag (bit 0)."
+  @impl true
+  def values(%{mob: mob}), do: [{:blaze_flags, if(charged?(mob.ai), do: 1, else: 0), 0}]
 
   @doc "A fresh blaze's own fields."
   def own, do: %{offset: 0.5, next_change: 0, charged: false}
@@ -55,6 +64,7 @@ defmodule Valimc.AI.Mobs.Blaze do
   (`triangle(0.5, 6.891)`), and a lift toward a target whose eyes are higher
   than its own plus the offset.
   """
+  @impl true
   def custom_step(%Self{} = self) do
     own = own(self.mind)
     next = own.next_change - 1

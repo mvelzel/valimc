@@ -363,7 +363,7 @@ defmodule Valimc.Entity.Body do
         {:living_flags, 0, 0},
         {:health, living.health.value, 1.0},
         {:mob_flags, mob_flags(mob), 0}
-      ] ++ ageable(body) ++ family(body) ++ Valimc.AI.Mobs.values(body)
+      ] ++ ageable(body) ++ Valimc.AI.Mobs.values(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -381,12 +381,6 @@ defmodule Valimc.Entity.Body do
     do: [{:ageable_baby, age < 0, false}]
 
   defp ageable(_body), do: []
-
-  # A family's own values (VMC-043d): a blaze's charged flag.
-  defp family(%__MODULE__{type: "minecraft:blaze", mob: mob}),
-    do: [{:blaze_flags, if(Valimc.AI.Mobs.Blaze.charged?(mob.ai), do: 1, else: 0), 0}]
-
-  defp family(_body), do: []
 
   # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
   # (bit 2): a zombie raising its arms (VMC-041a).

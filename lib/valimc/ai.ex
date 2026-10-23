@@ -337,12 +337,8 @@ defmodule Valimc.AI do
   defp ambient_sound(%Self{mind: %{brain: %Valimc.AI.Brain{module: module}}} = self),
     do: make_sound(self, module.ambient_sound(self))
 
-  defp ambient_sound(%Self{facts: facts} = self) do
-    case Mobs.custom(self.type) do
-      nil -> make_sound(self, Mobs.hook(self.type, :ambient_sound, [self], facts.ambient_sound))
-      module -> make_sound(self, module.ambient_sound(self))
-    end
-  end
+  defp ambient_sound(%Self{facts: facts} = self),
+    do: make_sound(self, Mobs.hook(self.type, :ambient_sound, [self], facts.ambient_sound))
 
   @doc """
   `LivingEntity.makeSound`: sound `name` (nil plays none) at the mob's
@@ -393,11 +389,7 @@ defmodule Valimc.AI do
         %{module: module} -> self |> Valimc.AI.Brain.tick() |> module.update_activity()
       end
 
-    self =
-      case Mobs.custom(self.type) do
-        nil -> hook(self, :custom_step)
-        module -> module.custom_step(self)
-      end
+    self = hook(self, :custom_step)
 
     self =
       if animal?(self.type) and self.mind.age != 0,

@@ -18,16 +18,22 @@ defmodule Valimc.AI.Mobs.Piglin do
   @speed "minecraft:movement_speed"
   @baby_speed {"minecraft:baby", Float32.round(0.2), 1}
 
+  @behaviour Valimc.AI.Kind
+
+  @impl true
   def types, do: [@piglin]
 
   @doc "A brain mob registers no goals."
+  @impl true
   def goals(_type), do: {[], []}
 
   @doc "Its own data."
+  @impl true
   def data(_type),
     do: %{baby: false, immune: false, charging: false, dancing: false, cannot_hunt: false}
 
   @doc "Its entity data values: `[{field, value, default}]`."
+  @impl true
   def values(%{data: data}),
     do: [
       {:piglin_immune, data.immune, false},
@@ -37,6 +43,7 @@ defmodule Valimc.AI.Mobs.Piglin do
     ]
 
   @doc "A baby's dimensions, or nil."
+  @impl true
   def dimensions(%{data: %{baby: true}}), do: HostileFacts.baby(@piglin)
   def dimensions(_body), do: nil
 
@@ -45,6 +52,7 @@ defmodule Valimc.AI.Mobs.Piglin do
   def baby?(_body), do: false
 
   @doc "`Piglin.finalizeSpawn`."
+  @impl true
   def finalize(%Self{} = self, reason) do
     # A piglin picks up loot from the start (`AbstractPiglin`'s constructor).
     self = %{self | mob: %{self.mob | can_pick_up_loot: true}}

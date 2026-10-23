@@ -25,7 +25,8 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,
     Valimc.AI.Mobs.Shulker,
-    Valimc.AI.Mobs.Piglin
+    Valimc.AI.Mobs.Piglin,
+    Valimc.AI.Mobs.Blaze
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
   @exports for module <- @families,
@@ -53,8 +54,6 @@ defmodule Valimc.AI.Mobs do
      ], []}
   end
 
-  def registered("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze.registered()
-
   def registered(type) when is_map_key(@family, type), do: @family[type].goals(type)
 
   def registered(_type), do: nil
@@ -80,10 +79,7 @@ defmodule Valimc.AI.Mobs do
         do: type
   end
 
-  @types [
-    "minecraft:pig",
-    "minecraft:blaze" | Map.keys(@family)
-  ]
+  @types ["minecraft:pig" | Map.keys(@family)]
 
   @doc "The family module of `type`, or nil."
   def family(type), do: @family[type]
@@ -123,20 +119,6 @@ defmodule Valimc.AI.Mobs do
 
   defp exports?(nil, _name, _arity), do: false
   defp exports?(module, name, arity), do: MapSet.member?(@exports[module], {name, arity})
-
-  @doc """
-  The module of a type's own `customServerAiStep` (`custom_step/1`, after
-  its navigation) and ambient sound (`ambient_sound/1`), or nil: a family's
-  mob that does more than its goals.
-  """
-  def custom("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze
-  def custom("minecraft:zombified_piglin"), do: Valimc.AI.Mobs.ZombifiedPiglin
-
-  def custom(_type), do: nil
-
-  @doc "The module of a type's own `setTarget` (`set_target/2`), or nil."
-  def on_target("minecraft:zombified_piglin"), do: Valimc.AI.Mobs.ZombifiedPiglin
-  def on_target(_type), do: nil
 
   @doc "The brain module of a brain mob's type, or nil (VMC-041a2)."
   def brain("minecraft:piglin"), do: Valimc.AI.Brains.Piglin

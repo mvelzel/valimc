@@ -76,13 +76,14 @@ defmodule Valimc.AI.Self do
 
   @doc """
   `Mob.setTarget` (`asValidTarget` is the reader's, `World.target/2`),
-  through the type's own override when it has one (`Mobs.on_target/1`: a
-  zombified piglin draws its anger sound and alert delays).
+  through the type's own override when it has one (`Valimc.AI.Kind`'s
+  `set_target/2`: a zombified piglin draws its anger sound and alert
+  delays).
   """
   def set_target(%__MODULE__{type: type} = self, target) do
-    case Valimc.AI.Mobs.on_target(type) do
+    case Valimc.AI.Mobs.hook(type, :set_target, [self, target], nil) do
       nil -> put_target(self, target)
-      module -> module.set_target(self, target)
+      self -> self
     end
   end
 

@@ -23,7 +23,8 @@ defmodule Valimc.AI.Kind do
     look control), `after_ai/1` (`aiStep()` after `super.aiStep()`, after
     the move) and `after_tick/1` (`tick()` after `super.tick()`, after the
     body rotation); `ambient_sound/1` (the sound it plays when its timer
-    comes up, nil for none).
+    comes up, nil for none); `set_target/2` (`setTarget`, for a class
+    that overrides it: `Self.put_target/2` stores it).
   - Its look and body controls: `look_rotations/2` (the yaw and pitch to
     turn toward, nil for none, or `:default`), `clamps_head?/0` and
     `turns_body?/0`.
@@ -49,6 +50,7 @@ defmodule Valimc.AI.Kind do
   @callback after_ai(Self.t()) :: Self.t()
   @callback after_tick(Self.t()) :: Self.t()
   @callback ambient_sound(Self.t()) :: String.t() | nil
+  @callback set_target(Self.t(), term) :: Self.t()
   @callback look_rotations(Self.t(), map) :: :default | {float | nil, float | nil}
   @callback clamps_head?() :: boolean
   @callback turns_body?() :: boolean
@@ -70,6 +72,7 @@ defmodule Valimc.AI.Kind do
                       after_ai: 1,
                       after_tick: 1,
                       ambient_sound: 1,
+                      set_target: 2,
                       look_rotations: 2,
                       clamps_head?: 0,
                       turns_body?: 0,
