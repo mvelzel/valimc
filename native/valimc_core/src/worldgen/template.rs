@@ -1433,8 +1433,8 @@ impl Templates {
     }
 
     /// `placeEntities`: each entity inside the box, its position and yaw
-    /// turned with the template, recorded (type, position, yaw). Finalizing
-    /// mobs is not modelled.
+    /// turned with the template, recorded with its NBT, after the draws of
+    /// its `finalizeSpawn` when the settings finalize entities.
     fn place_entities(
         &self,
         region: &mut Region,
@@ -1483,14 +1483,28 @@ impl Templates {
                 Mirror::FrontBack => -wrap_degrees(yaw),
             };
             turned += mirrored - yaw;
+            // `finalizeSpawn` adds a baby zombie's chicken before the zombie.
+            let vehicle = if settings.finalize_entities {
+                super::structure::mobs::finalize_template(region, kind, &entity.nbt)
+            } else {
+                None
+            };
+            if let Some(vehicle) = vehicle {
+                region.add_entity(super::region::Entity {
+                    kind: vehicle,
+                    pos,
+                    yaw: turned,
+                    ..Default::default()
+                });
+            }
             region.add_entity(super::region::Entity {
                 kind: super::region::entity_kind(kind),
                 pos,
                 yaw: turned,
+                nbt: Some(entity.nbt.clone()),
+                persistent: entity.nbt.contains("PersistenceRequired:1b"),
+                rides: vehicle.is_some(),
             });
-            if settings.finalize_entities {
-                super::structure::mobs::finalize_template(region, kind, &entity.nbt)?;
-            }
         }
         Ok(())
     }

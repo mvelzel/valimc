@@ -353,11 +353,37 @@ pub(crate) struct FullBlockEntity {
     nbt: Option<String>,
 }
 
+/// An entity generation added (VMC-042b): its type, position, yaw (nil when
+/// vanilla's is random), what else generation gave it as SNBT, whether it is
+/// persistent and whether it rides the entity before it.
+#[derive(rustler::NifMap)]
+pub(crate) struct FullEntity {
+    kind: String,
+    position: (f64, f64, f64),
+    yaw: Option<f32>,
+    nbt: Option<String>,
+    persistent: bool,
+    rides: bool,
+}
+
+impl From<&valimc_core::worldgen::region::Entity> for FullEntity {
+    fn from(e: &valimc_core::worldgen::region::Entity) -> Self {
+        FullEntity {
+            kind: e.kind.to_string(),
+            position: (e.pos[0], e.pos[1], e.pos[2]),
+            yaw: (!e.yaw.is_nan()).then_some(e.yaw),
+            nbt: e.nbt.as_deref().map(str::to_string),
+            persistent: e.persistent,
+            rides: e.rides,
+        }
+    }
+}
+
 /// A decorated chunk made full (VMC-025d): its column image (protocol biome
 /// ids), first free Y above the highest motion-blocking non-leaf block per
 /// column (z * 16 + x), block entities, block ticks (position and the state
-/// there, kept only where the block still matches), fluid ticks and
-/// post-processing marks.
+/// there, kept only where the block still matches), fluid ticks,
+/// post-processing marks and entities.
 #[derive(rustler::NifMap)]
 struct FullChunk<'a> {
     x: i32,
@@ -368,6 +394,7 @@ struct FullChunk<'a> {
     block_ticks: Vec<((i32, i32, i32), u16)>,
     fluid_ticks: Vec<((i32, i32, i32), String)>,
     marks: Vec<(i32, i32, i32)>,
+    entities: Vec<FullEntity>,
 }
 
 /// A final chunk made full (VMC-077n), from its proto cell.
@@ -437,6 +464,7 @@ fn full_chunk<'a>(
                 .map(|(p, f)| (t(p), FLUID_NAMES[*f as usize].to_string()))
                 .collect(),
             marks: chunk.marks.iter().map(t).collect(),
+            entities: chunk.entities.iter().map(FullEntity::from).collect(),
         })
     }
 }
@@ -561,8 +589,12 @@ fn worldgen_place_plan<'a>(
 }
 
 /// A `/place` result: changed blocks, block entities to write, and the
-/// entities placement would have added.
-type PlacedResult = (Vec<((i32, i32, i32), u16)>, Vec<FullBlockEntity>, usize);
+/// entities placement added.
+type PlacedResult = (
+    Vec<((i32, i32, i32), u16)>,
+    Vec<FullBlockEntity>,
+    Vec<FullEntity>,
+);
 
 /// `/place` (VMC-053) over the plan's chunks (`x`, `z`, column image or nil
 /// for the flat `base` profile) with the level random `seed`; nil when the
@@ -642,6 +674,6 @@ fn place(
     Ok(Some((
         placed.blocks.into_iter().map(|(p, s)| (t(p), s)).collect(),
         block_entities,
-        placed.entities,
+        placed.entities.iter().map(FullEntity::from).collect(),
     )))
 }

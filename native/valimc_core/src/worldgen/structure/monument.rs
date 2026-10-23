@@ -604,9 +604,12 @@ fn spawn_elder(c: &mut Ctx, f: &Frame, x: i32, y: i32, z: i32) -> Result<(), Str
     c.region.add_entity(Entity {
         kind: "minecraft:elder_guardian",
         pos: [pos[0] as f64 + 0.5, pos[1] as f64, pos[2] as f64 + 0.5],
-        yaw: 0.0,
+        // `new ElderGuardian` requires persistence.
+        persistent: true,
+        ..Entity::default()
     });
-    super::mobs::finalize(c, "minecraft:elder_guardian")
+    super::mobs::finalize(c, "minecraft:elder_guardian");
+    Ok(())
 }
 
 fn wing(c: &mut Ctx, f: &Frame, p: &Palette, flipped: bool, xoff: i32) {

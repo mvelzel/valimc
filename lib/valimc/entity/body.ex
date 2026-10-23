@@ -8,7 +8,10 @@ defmodule Valimc.Entity.Body do
 
   Only modelled types (`modelled?/1`) are made: their entity data is known
   value by value, so what a client is sent is what vanilla sends. Mob
-  families (VMC-043b–e) and world effects (VMC-050a) add theirs.
+  families (VMC-043b–e) and world effects (VMC-050a) add theirs. Generation
+  makes a body of any type (`generated/3`, VMC-042b): one not modelled yet
+  is inert, its type's data at the client's defaults, and keeps what
+  generation gave it (`preserved`) for its family.
 
   `values/2` gives every modelled entity data field with its value and
   vanilla's default; a spawn sends those that differ (vanilla's
@@ -28,12 +31,17 @@ defmodule Valimc.Entity.Body do
             data: %{},
             mob: nil,
             # A name tag's text component (VMC-042a), as items keep theirs.
-            custom_name: nil
+            custom_name: nil,
+            # What generation gave it beyond type, position and yaw, as SNBT
+            # (VMC-042b: a template's entity NBT, a minecart's loot table, a
+            # frame's item), kept until its family reads it.
+            preserved: nil
 
   @tnt "minecraft:tnt"
   @falling "minecraft:falling_block"
   @chicken "minecraft:chicken"
   @cloud "minecraft:area_effect_cloud"
+  @frames ["minecraft:item_frame", "minecraft:glow_item_frame"]
   # An egg's chickens and an ender pearl's endermites (VMC-037o) are bodies
   # with their type's data; their families' behaviour is VMC-043d's and 043b's.
   @modelled MapSet.new(
@@ -69,6 +77,27 @@ defmodule Valimc.Entity.Body do
   end
 
   @doc """
+  A body of any entity type `type` that generation added (VMC-042b): as
+  `new/1` makes a modelled type's, else inert with no data of its own;
+  `preserved` (SNBT or nil) is kept with it, and `persistent` makes a mob's
+  `PersistenceRequired`.
+  """
+  def generated(type, preserved, persistent) do
+    if EntityTypes.fetch(type) == nil do
+      {:error, :unknown_type}
+    else
+      body = %__MODULE__{type: type, data: data(type), preserved: preserved}
+
+      body =
+        if kind(type) == :mob,
+          do: %{body | mob: %{Mob.new(type) | persistent: persistent}},
+          else: body
+
+      {:ok, body}
+    end
+  end
+
+  @doc """
   A primed TNT as `new PrimedTnt` makes it (VMC-050a): `fuse` ticks, a hop of
   0.2 up and 0.02 in a random direction.
   """
@@ -95,9 +124,13 @@ defmodule Valimc.Entity.Body do
 
   @doc """
   The type's spawn data (`getAddEntityPacket`): a falling block's state, a
-  projectile's owner, else 0.
+  frame's facing, a projectile's owner, else 0.
   """
   def spawn_data(%__MODULE__{type: @falling, data: %{block_state: state}}), do: state
+
+  # A hanging frame's facing (its 3D value) from its yaw, `get2DDataValue * 90`.
+  def spawn_data(%__MODULE__{type: type, yaw: yaw}) when type in @frames,
+    do: elem({3, 4, 2, 5}, Integer.mod(round(yaw / 90), 4))
 
   def spawn_data(%__MODULE__{type: type} = body),
     do: if(Projectile.projectile?(type), do: Projectile.spawn_data(body), else: 0)
@@ -141,6 +174,8 @@ defmodule Valimc.Entity.Body do
     record =
       if body.custom_name, do: Map.put(record, :custom_name, body.custom_name), else: record
 
+    record = if body.preserved, do: Map.put(record, :preserved, body.preserved), else: record
+
     if body.mob, do: Map.put(record, :mob, Mob.record(body.mob)), else: record
   end
 
@@ -155,7 +190,11 @@ defmodule Valimc.Entity.Body do
           data: data
         } = record
       ) do
-    with true <- modelled?(type) and Enum.all?([yaw, pitch, head, vx, vy, vz], &is_float/1),
+    preserved = Map.get(record, :preserved)
+
+    with true <- EntityTypes.fetch(type) != nil,
+         true <- Enum.all?([yaw, pitch, head, vx, vy, vz], &is_float/1),
+         true <- preserved == nil or is_binary(preserved),
          true <- is_boolean(on_ground) and is_boolean(no_gravity),
          true <- is_map(data) and Map.keys(data) == Map.keys(data(type)),
          {:ok, mob} <- restore_mob(type, Map.get(record, :mob)) do
@@ -170,7 +209,8 @@ defmodule Valimc.Entity.Body do
          no_gravity: no_gravity,
          data: data,
          mob: mob,
-         custom_name: Map.get(record, :custom_name)
+         custom_name: Map.get(record, :custom_name),
+         preserved: preserved
        }}
     else
       _ -> {:error, :invalid_body}

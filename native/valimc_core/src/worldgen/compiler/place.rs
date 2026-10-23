@@ -56,13 +56,13 @@ pub enum Plan {
 }
 
 /// What a placement changed: blocks, the block entities of changed or
-/// written positions (with what placement wrote into them), and how many
-/// entities it would have added (ValiMC has no mobs yet).
+/// written positions (with what placement wrote into them), and the entities
+/// it added.
 #[derive(Debug, Default)]
 pub struct Placed {
     pub blocks: Vec<([i32; 3], u16)>,
     pub block_entities: Vec<([i32; 3], u16, Option<BlockEntityData>)>,
-    pub entities: usize,
+    pub entities: Vec<super::super::region::Entity>,
 }
 
 /// The most chunks across a placement may span (a woodland mansion spans 6).
@@ -403,7 +403,7 @@ impl Worldgen {
                     out.block_entities.push((*p, state, data));
                 }
             }
-            out.entities += chunk.entities.len();
+            out.entities.extend(chunk.entities.iter().cloned());
         }
         Ok(Some(out))
     }

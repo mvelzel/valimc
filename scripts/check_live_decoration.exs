@@ -3,8 +3,8 @@
 # scheduler (VMC-077n) is asked for the same regions' chunks one region after
 # the other in a fresh decorated world of the case's seed, which numbers each
 # region's undecorated 10 × 10 Z outer and X inner as the oracle decorates it;
-# every block, post-processing mark, scheduled tick and block entity of each
-# final chunk must equal vanilla's, and each block entity's NBT as the region
+# every block, post-processing mark, scheduled tick, block entity and added
+# entity of each final chunk must equal vanilla's, and each block entity's NBT as the region
 # stores it (`Valimc.Worldgen.FullChunk`) must equal vanilla's full chunk save.
 # With a world (VMC-028c), every case's world takes its data packs and their
 # extracted worldgen facts.
@@ -56,6 +56,20 @@ names = fn id ->
 end
 
 block_names = fn id -> "minecraft:" <> Valimc.Data.Blocks.name(id) end
+
+# Entities in order, as `check_decoration.exs` compares them (VMC-042b).
+same_entities = fn ours, want ->
+  length(ours) == length(want) and
+    Enum.zip(ours, want)
+    |> Enum.all?(fn {o, w} ->
+      o == w or
+        case {String.split(o, ",", parts: 8), String.split(w, ",", parts: 8)} do
+          {[t, x, y, z, "NaN" | rest], [t, x, y, z, _ | rest]} -> true
+          _ -> false
+        end
+    end)
+end
+
 # Random: the fresh VMs of parallel stages repeat `System.unique_integer`, and
 # one run's cleanup would remove another's worlds.
 root =
@@ -207,6 +221,12 @@ root =
                {got.block_entity_data -- expected["block_entity_data"],
                 expected["block_entity_data"] -- got.block_entity_data}
              end},
+            # VMC-042b: the entities structures and features added, each a
+            # record the region keeps.
+            {:entities,
+             same_entities.(got.entities, expected["entities"] || []) and
+               length(FullChunk.entity_records([whole])) == length(got.entities),
+             fn -> {got.entities, expected["entities"]} end},
             {:block_entity_nbt, nbt == vanilla,
              fn ->
                differing = for {p, tag} <- vanilla, nbt[p] != tag, do: {p, nbt[p], tag}

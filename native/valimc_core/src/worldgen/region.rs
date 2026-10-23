@@ -53,14 +53,22 @@ pub struct ProtoChunk {
 }
 
 /// An entity a feature or structure added (VMC-026a: the End spikes'
-/// crystals; VMC-025f: structures' mobs). A NaN yaw is one vanilla leaves
-/// at random (a living entity's first yaw comes from `Math.random`, which
-/// end city shulkers keep).
-#[derive(Clone, Debug, PartialEq)]
+/// crystals; VMC-025f: structures' mobs; VMC-042b: kept with the chunk). A
+/// NaN yaw is one vanilla leaves at random (a living entity's first yaw
+/// comes from `Math.random`, which end city shulkers keep).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Entity {
     pub kind: &'static str,
     pub pos: [f64; 3],
     pub yaw: f32,
+    /// What else generation gave it, as SNBT: a template's entity NBT, a
+    /// minecart's loot table and seed, a frame's item and facing.
+    pub nbt: Option<Arc<str>>,
+    /// `setPersistenceRequired` (or the template's `PersistenceRequired`).
+    pub persistent: bool,
+    /// Whether it rides the entity added just before it (a chicken jockey,
+    /// a drowned on a zombie nautilus).
+    pub rides: bool,
 }
 
 /// A created block entity (VMC-025c): its type and what decoration writes

@@ -150,7 +150,7 @@ defmodule Valimc.Commands.Place do
 
           {:ok, {blocks, entities, mobs}} ->
             write!(source, blocks, entities)
-            if mobs > 0, do: Logger.info("/place left out #{mobs} entities (no mobs yet)")
+            add!(source, mobs)
             source
         end
     end
@@ -213,6 +213,21 @@ defmodule Valimc.Commands.Place do
   defp base do
     for y <- Grid.min_y()..Grid.max_y(),
         do: Valimc.World.Chunk.base(y)
+  end
+
+  # The entities placement added (VMC-042b), adopted by the groups owning
+  # their sections as a summoned body is.
+  defp add!(source, entities) do
+    Valimc.Worldgen.FullChunk.entity_records([%{entities: entities}])
+    |> Enum.group_by(&Grid.section(source.dimension, Grid.chunk_key(&1.x, &1.z)))
+    |> Enum.each(fn {section, records} ->
+      with {:ok, owner} <- Valimc.World.owner(section),
+           :ok <- Valimc.World.Region.drop_items(owner, records) do
+        :ok
+      else
+        _ -> Logger.warning("/place left out #{length(records)} entities in #{inspect(section)}")
+      end
+    end)
   end
 
   # One box edit over every region the placement touches, its block entity

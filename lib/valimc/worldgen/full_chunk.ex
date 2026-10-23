@@ -5,13 +5,15 @@ defmodule Valimc.Worldgen.FullChunk do
   (`saveWithFullMetadata`; a created one with what decoration wrote into it, a
   pending one as its block's new block entity, which `LevelChunk` promotes it
   to), block ticks at delay 0 where the block still matches, and, until fluids
-  exist (VMC-031), post-processing marks and fluid ticks.
+  exist (VMC-031), post-processing marks and fluid ticks. The entities
+  structures and features added become body records (VMC-042b).
 
   Block entities go through the import path (`Valimc.Storage.Anvil.BlockEntity`), so a
   generated dungeon chest is preserved with its loot table like an imported
   one.
   """
   require Logger
+  alias Valimc.Entity.{Body, Store}
   alias Valimc.Storage.Anvil.BlockEntity
   alias Valimc.World.BlockEntities
 
@@ -21,7 +23,13 @@ defmodule Valimc.Worldgen.FullChunk do
   """
   def parts(full, entities, ticks) do
     # Ticks gather per chunk, newest first, and join once.
-    initial = %{columns: %{}, post_processing: %{}, block_entities: entities, ticks: [ticks]}
+    initial = %{
+      columns: %{},
+      post_processing: %{},
+      block_entities: entities,
+      ticks: [ticks],
+      entities: %{}
+    }
 
     full
     |> Enum.reduce_while({:ok, initial}, fn chunk, {:ok, acc} ->
@@ -41,7 +49,8 @@ defmodule Valimc.Worldgen.FullChunk do
               | columns: Map.put(acc.columns, key, chunk.image),
                 post_processing: pending,
                 block_entities: entities,
-                ticks: [for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0}) | acc.ticks]
+                ticks: [for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0}) | acc.ticks],
+                entities: Map.put(acc.entities, key, entity_records([chunk]))
             }}}
 
         error ->
@@ -51,6 +60,22 @@ defmodule Valimc.Worldgen.FullChunk do
     |> case do
       {:ok, parts} -> {:ok, %{parts | ticks: parts.ticks |> Enum.reverse() |> Enum.concat()}}
       error -> error
+    end
+  end
+
+  @doc """
+  The body records of the entities generation added to `full` chunks (or
+  `/place` placed, VMC-042b), in order. A yaw vanilla leaves random
+  (`Math.random`, nil here) is drawn; a rider's vehicle is a body of its own
+  until vehicles exist.
+  """
+  def entity_records(full) do
+    for %{entities: entities} <- full,
+        %{kind: kind, position: position} = entity <- entities,
+        {:ok, body} <- [Body.generated(kind, entity.nbt, entity.persistent)] do
+      yaw = entity.yaw || :rand.uniform() * 360.0
+      body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
+      Store.body_record(body, :crypto.strong_rand_bytes(16), position)
     end
   end
 

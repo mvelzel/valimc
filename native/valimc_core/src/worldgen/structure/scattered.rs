@@ -380,7 +380,8 @@ fn place_swamp_hut(piece: &mut Piece, c: &mut Ctx) -> Result<(), String> {
         c.region.add_entity(Entity {
             kind,
             pos: [pos[0] as f64 + 0.5, pos[1] as f64, pos[2] as f64 + 0.5],
-            yaw: 0.0,
+            persistent: true,
+            ..Entity::default()
         });
         let random = &mut c.region.random;
         random.next_double();

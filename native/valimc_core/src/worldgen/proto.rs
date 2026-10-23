@@ -6,13 +6,14 @@
 //! so they cannot be recomputed from the blocks), post-processing marks,
 //! scheduled ticks, block entity positions and created block entities.
 //!
-//! Layout (big-endian), version 5: version, chunk x and z, the dimension's
+//! Layout (big-endian), version 6: version, chunk x and z, the dimension's
 //! bottom Y and height, the column image's length and the image (the
 //! dimension's sections of states, then of biome registry ids), 6 × 256
 //! heightmap heights above the bottom, then counted lists of marks, block
 //! ticks, fluid ticks, block entity positions, created block entities (with
 //! an end gateway's exit and a template's NBT as a four-byte-length string)
-//! and the entities features added. A position inside the chunk is one byte
+//! and the entities features added (with a flags byte, persistent and
+//! riding, and their NBT as such a string). A position inside the chunk is one byte
 //! `z << 4 | x` and a two-byte Y. Other versions are refused.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -23,7 +24,7 @@ use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 5;
+const VERSION: u8 = 6;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
@@ -98,13 +99,7 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
                 }
             }
         }
-        match &data.nbt {
-            None => out.extend(u32::MAX.to_be_bytes()),
-            Some(nbt) => {
-                out.extend((nbt.len() as u32).to_be_bytes());
-                out.extend(nbt.as_bytes());
-            }
-        }
+        long_string(&mut out, data.nbt.as_deref());
     }
     out.extend((chunk.entities.len() as u32).to_be_bytes());
     for entity in &chunk.entities {
@@ -113,8 +108,20 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
             out.extend(c.to_be_bytes());
         }
         out.extend(entity.yaw.to_be_bytes());
+        out.push(entity.persistent as u8 | (entity.rides as u8) << 1);
+        long_string(&mut out, entity.nbt.as_deref());
     }
     out
+}
+
+fn long_string(out: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        None => out.extend(u32::MAX.to_be_bytes()),
+        Some(s) => {
+            out.extend((s.len() as u32).to_be_bytes());
+            out.extend(s.as_bytes());
+        }
+    }
 }
 
 fn string(out: &mut Vec<u8>, value: Option<&str>) {
@@ -327,10 +334,15 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         let name = r.string()?.ok_or("an entity without a type")?;
         let kind = super::region::entity_kind(&name);
         let pos = [r.f64()?, r.f64()?, r.f64()?];
+        let yaw = r.f32()?;
+        let flags = r.u8()?;
         entities.push(Entity {
             kind,
             pos,
-            yaw: r.f32()?,
+            yaw,
+            nbt: r.long_string()?.map(Arc::from),
+            persistent: flags & 1 != 0,
+            rides: flags & 2 != 0,
         });
     }
     if !r.input.is_empty() {

@@ -394,20 +394,25 @@ fn ocean_ruin(
                     }
                 }
                 "drowned" => {
-                    // `finalizeSpawn` adds the zombie nautilus the drowned rides
-                    // before the drowned is added.
+                    // `finalizeSpawn` adds the chicken or zombie nautilus the
+                    // drowned rides before the drowned is added.
                     let at = [pos[0] as f64 + 0.5, pos[1] as f64, pos[2] as f64 + 0.5];
-                    if super::mobs::finalize_drowned(c, pos, frequent_drowned)? {
+                    let vehicle = super::mobs::finalize_drowned(c, pos, frequent_drowned);
+                    if let Some(kind) = vehicle {
+                        // A structure's zombie nautilus is persistent, a chicken not.
                         c.region.add_entity(Entity {
-                            kind: "minecraft:zombie_nautilus",
+                            kind,
                             pos: at,
-                            yaw: 0.0,
+                            persistent: kind == "minecraft:zombie_nautilus",
+                            ..Entity::default()
                         });
                     }
                     c.region.add_entity(Entity {
                         kind: "minecraft:drowned",
                         pos: at,
-                        yaw: 0.0,
+                        persistent: true,
+                        rides: vehicle.is_some(),
+                        ..Entity::default()
                     });
                     let state = if pos[1] > sea_level {
                         c.placer.air
@@ -537,6 +542,7 @@ fn end_city(
                         kind: "minecraft:shulker",
                         pos: [pos[0] as f64 + 0.5, pos[1] as f64, pos[2] as f64 + 0.5],
                         yaw: f32::NAN,
+                        ..Entity::default()
                     });
                 } else if marker.starts_with("Elytra") {
                     // An item frame on the block's south face as the piece is
@@ -551,6 +557,21 @@ fn end_city(
                             pos[2] as f64 + 0.5 - dz as f64 * 0.46875,
                         ],
                         yaw: (facing.data_2d() * 90) as f32,
+                        // `HangingEntity.addAdditionalSaveData`'s facing (its
+                        // 3D value) and the frame's elytra.
+                        nbt: Some(
+                            format!(
+                                "{{Facing:{}b,Item:{{count:1,id:\"minecraft:elytra\"}}}}",
+                                match facing {
+                                    Direction::North => 2,
+                                    Direction::South => 3,
+                                    Direction::West => 4,
+                                    Direction::East => 5,
+                                }
+                            )
+                            .into(),
+                        ),
+                        ..Entity::default()
                     });
                 }
             }
@@ -634,9 +655,10 @@ fn mansion(t: &mut TemplatePiece, bbox: &mut BoundingBox, c: &mut Ctx) -> Result
                 c.region.add_entity(Entity {
                     kind: entity_kind(kind),
                     pos: [pos[0] as f64 + 0.5, pos[1] as f64, pos[2] as f64 + 0.5],
-                    yaw: 0.0,
+                    persistent: true,
+                    ..Entity::default()
                 });
-                super::mobs::finalize(c, kind)?;
+                super::mobs::finalize(c, kind);
                 c.set(pos, c.placer.air, 2);
             }
             Ok(())

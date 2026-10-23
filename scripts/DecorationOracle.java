@@ -1127,12 +1127,24 @@ public class DecorationOracle {
     }
     @Override public boolean removeBlock(BlockPos pos, boolean movedByPiston) { return setBlock(pos, Blocks.AIR.defaultBlockState(), 3); }
     // `WorldGenRegion.addFreshEntity`: into the chunk at the entity's block position (the End
-    // spikes' crystals); recorded as type, position and yaw.
+    // spikes' crystals, structures' mobs); recorded as type, position, yaw, whether a mob is
+    // persistent, the type of what it rides (VMC-042b) and what generation decided of a chest
+    // minecart (its loot table and seed) or an item frame (its facing and item).
     @Override public boolean addFreshEntity(net.minecraft.world.entity.Entity entity) {
       var chunk = chunk(SectionPos.blockToSectionCoord(entity.getBlockX()), SectionPos.blockToSectionCoord(entity.getBlockZ()));
+      var types = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE;
+      boolean persistent = entity instanceof net.minecraft.world.entity.Mob mob && mob.isPersistenceRequired();
+      var vehicle = entity.getVehicle() == null ? "-" : types.getKey(entity.getVehicle().getType()).toString();
+      String data = "-";
+      if (entity instanceof net.minecraft.world.entity.vehicle.ContainerEntity container && container.getContainerLootTable() != null) {
+        data = "{LootTable:\"" + container.getContainerLootTable().identifier() + "\",LootTableSeed:" + container.getContainerLootTableSeed() + "L}";
+      } else if (entity instanceof net.minecraft.world.entity.decoration.ItemFrame frame) {
+        data = "{Facing:" + frame.getDirection().get3DDataValue() + "b,Item:{count:" + frame.getItem().getCount() + ",id:\""
+            + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(frame.getItem().getItem()) + "\"}}";
+      }
       ENTITIES.computeIfAbsent(chunk, c -> new ArrayList<>()).add(
-          net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()) + "," + entity.getX() + ","
-              + entity.getY() + "," + entity.getZ() + "," + entity.getYRot());
+          types.getKey(entity.getType()) + "," + entity.getX() + "," + entity.getY() + "," + entity.getZ() + "," + entity.getYRot()
+              + "," + persistent + "," + vehicle + "," + data);
       return true;
     }
     @Override public net.minecraft.world.level.border.WorldBorder getWorldBorder() { throw unsupported("getWorldBorder"); }

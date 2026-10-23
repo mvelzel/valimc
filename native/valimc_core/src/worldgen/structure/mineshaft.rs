@@ -796,9 +796,10 @@ fn minecart_chest(c: &mut Ctx, f: &Frame, x: i32, y: i32, z: i32) -> Result<bool
             pos[1] as f64 + 0.5,
             pos[2] as f64 + 0.5,
         ],
-        yaw: 0.0,
+        // `AbstractMinecartContainer`'s loot table and seed as it saves them.
+        nbt: Some(format!("{{LootTable:\"{MINESHAFT_LOOT}\",LootTableSeed:{seed}L}}").into()),
+        ..Entity::default()
     });
-    let _ = (seed, MINESHAFT_LOOT);
     Ok(true)
 }
 

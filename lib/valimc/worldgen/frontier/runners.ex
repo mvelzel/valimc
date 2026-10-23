@@ -72,7 +72,8 @@ defmodule Valimc.Worldgen.Frontier.Runners do
         block_entities: [],
         block_ticks: [],
         fluid_ticks: [],
-        marks: []
+        marks: [],
+        entities: []
       }
 
       {:ok, lit(full, sky)}

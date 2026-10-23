@@ -86,15 +86,18 @@ first_difference = fn ours, want, {cx, cz} ->
   end
 end
 
-# Entities in order; a yaw ValiMC leaves random (`NaN`: vanilla takes it from
-# `Math.random`, as end city shulkers keep it) matches any.
+# Entities in order (type, position, yaw, persistence, vehicle, data); a yaw
+# ValiMC leaves random (`NaN`: vanilla takes it from `Math.random`, as end city
+# shulkers keep it) matches any.
 same_entities = fn ours, want ->
   length(ours) == length(want) and
     Enum.zip(ours, want)
     |> Enum.all?(fn {o, w} ->
       o == w or
-        (String.ends_with?(o, ",NaN") and
-           String.replace_suffix(o, "NaN", "") == String.replace(w, ~r/[^,]*$/, ""))
+        case {String.split(o, ",", parts: 8), String.split(w, ",", parts: 8)} do
+          {[t, x, y, z, "NaN" | rest], [t, x, y, z, _ | rest]} -> true
+          _ -> false
+        end
     end)
 end
 

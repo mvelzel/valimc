@@ -173,6 +173,7 @@ fn place_spike(
             spike.z as f64 + 0.5,
         ],
         yaw,
+        ..Entity::default()
     });
     let crystal = [spike.x, spike.height + 1, spike.z];
     region.set(offset(crystal, [0, -1, 0]), known.bedrock, 3);

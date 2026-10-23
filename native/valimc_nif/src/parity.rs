@@ -408,11 +408,29 @@ fn decorated_chunk<'a>(
         entities: chunk
             .entities
             .iter()
-            .map(|e| {
-                // Shortest round-trip decimals, as Java's `toString` writes them.
+            .enumerate()
+            .map(|(i, e)| {
+                // Shortest round-trip decimals, as Java's `toString` writes them;
+                // the vehicle is the entity added before a rider, and the data
+                // compared is what generation decides of a chest minecart or an
+                // item frame (a template's NBT is copied).
+                let vehicle = match i.checked_sub(1) {
+                    Some(before) if e.rides => chunk.entities[before].kind,
+                    _ => "-",
+                };
+                let data = match e.kind {
+                    "minecraft:chest_minecart" | "minecraft:item_frame" => e.nbt.as_deref(),
+                    _ => None,
+                };
                 format!(
-                    "{},{:?},{:?},{:?},{:?}",
-                    e.kind, e.pos[0], e.pos[1], e.pos[2], e.yaw
+                    "{},{:?},{:?},{:?},{:?},{},{vehicle},{}",
+                    e.kind,
+                    e.pos[0],
+                    e.pos[1],
+                    e.pos[2],
+                    e.yaw,
+                    e.persistent,
+                    data.unwrap_or("-")
                 )
             })
             .collect(),

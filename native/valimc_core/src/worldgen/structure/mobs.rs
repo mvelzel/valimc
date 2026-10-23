@@ -1,9 +1,12 @@
 //! What spawning a structure's mobs draws from the level's random
-//! (VMC-025f): entities are recorded, not simulated, but their
-//! `finalizeSpawn` takes values from the region's random, which later
-//! placement in the same chunk shares. Counts follow vanilla at a normal
-//! difficulty at the world's start (special multiplier 0, as
-//! `WorldGenRegion.getCurrentDifficultyAt` gives then).
+//! (VMC-025f): entities are recorded with the chunk (VMC-042b), not
+//! simulated, but their `finalizeSpawn` takes values from the region's
+//! random, which later placement in the same chunk shares. Counts follow
+//! vanilla at a normal difficulty at the world's start (special multiplier
+//! 0, as `WorldGenRegion.getCurrentDifficultyAt` gives then).
+//!
+//! No entity fails generation: a type whose `finalizeSpawn` is not modelled
+//! here (only a data pack's template can name one) draws nothing.
 
 use super::super::random::Random;
 use super::super::region::Region;
@@ -26,10 +29,14 @@ fn mob_with(random: &mut Random, bonus: bool) {
     random.next_float();
 }
 
+/// The vehicle a mob's `finalizeSpawn` adds before the mob: a baby zombie's
+/// chicken, a drowned's zombie nautilus.
+pub type Vehicle = Option<&'static str>;
+
 /// `finalizeSpawn` of a template's entity (`StructureTemplate.placeEntities`
 /// with finalized entities, VMC-025f3) from its type and SNBT; entities that
 /// are not mobs draw nothing.
-pub fn finalize_template(region: &mut Region, kind: &str, snbt: &str) -> Result<(), String> {
+pub fn finalize_template(region: &mut Region, kind: &str, snbt: &str) -> Vehicle {
     let bonus = snbt.contains("\"minecraft:random_spawn_bonus\"");
     let random = &mut region.random;
     match kind {
@@ -106,23 +113,19 @@ pub fn finalize_template(region: &mut Region, kind: &str, snbt: &str) -> Result<
             }
             mob_with(random, bonus);
         }
-        "minecraft:zombie_villager" => zombie(random, bonus)?,
-        "minecraft:armor_stand" | "minecraft:cushion" => {}
-        other => return Err(format!("finalizing a template's {other} is not modelled")),
+        "minecraft:zombie_villager" => return zombie(random, bonus),
+        _ => {}
     }
-    Ok(())
+    None
 }
 
 /// `Zombie.finalizeSpawn` (a template's zombie villager): `Mob`, loot
 /// pickup, a baby (and a jockey's chances), door breaking, armour and weapon
 /// chances, the weapon's enchantment chance, Halloween heads.
-fn zombie(random: &mut Random, bonus: bool) -> Result<(), String> {
+fn zombie(random: &mut Random, bonus: bool) -> Vehicle {
     mob_with(random, bonus);
     random.next_float();
-    let baby = random.next_float() < 0.05;
-    if baby && random.next_float() >= 0.05 && random.next_float() < 0.05 {
-        return Err("a zombie chicken jockey is not modelled".into());
-    }
+    let (_, vehicle) = baby_jockey(random);
     random.next_float();
     // `Mob.populateDefaultEquipmentSlots` (no armour at the world's start),
     // then a sword, spear or shovel a hundredth of the time.
@@ -134,11 +137,26 @@ fn zombie(random: &mut Random, bonus: bool) -> Result<(), String> {
     if is_halloween() && random.next_float() < 0.25 {
         random.next_float();
     }
-    Ok(())
+    vehicle
+}
+
+/// A zombie's baby chance and, for a baby, its chicken jockey's: a nearby
+/// chicken to ride (a generating region lists no entities), else a new one
+/// a twentieth of the time, whose `finalizeSpawn` follows (as a cow's: its
+/// variant of the climate, its sound variant, then `Mob`'s).
+fn baby_jockey(random: &mut Random) -> (bool, Vehicle) {
+    let baby = random.next_float() < 0.05;
+    if !baby || random.next_float() < 0.05 || random.next_float() >= 0.05 {
+        return (baby, None);
+    }
+    random.next_int_bounded(1);
+    random.next_int_bounded(2);
+    mob(random);
+    (true, Some("minecraft:chicken"))
 }
 
 /// `finalizeSpawn` of a mob a structure spawns, by entity type.
-pub fn finalize(c: &mut Ctx, kind: &str) -> Result<(), String> {
+pub fn finalize(c: &mut Ctx, kind: &str) {
     let random = &mut c.region.random;
     match kind {
         "minecraft:witch" | "minecraft:evoker" | "minecraft:allay" | "minecraft:elder_guardian" => {
@@ -156,23 +174,20 @@ pub fn finalize(c: &mut Ctx, kind: &str) -> Result<(), String> {
             mob(random);
             random.next_float();
         }
-        other => return Err(format!("spawning {other} in a structure is not modelled")),
+        _ => {}
     }
-    Ok(())
 }
 
-/// `Drowned.finalizeSpawn` over `Zombie.finalizeSpawn`; whether the drowned
-/// rides a zombie nautilus (outside `frequent` biomes, an adult with a
-/// trident half the time), whose own `finalizeSpawn` follows.
-pub fn finalize_drowned(c: &mut Ctx, pos: [i32; 3], frequent: &BiomeSet) -> Result<bool, String> {
+/// `Drowned.finalizeSpawn` over `Zombie.finalizeSpawn`: the vehicle it
+/// rides, a chicken (a baby jockey) or a zombie nautilus (outside `frequent`
+/// biomes, an adult with a trident half the time), whose own `finalizeSpawn`
+/// follows.
+pub fn finalize_drowned(c: &mut Ctx, pos: [i32; 3], frequent: &BiomeSet) -> Vehicle {
     let random = &mut c.region.random;
     mob(random);
-    // Picking up loot, then a baby (a chicken jockey's two chances).
+    // Picking up loot, then a baby (and its chicken jockey).
     random.next_float();
-    let baby = random.next_float() < 0.05;
-    if baby && random.next_float() >= 0.05 && random.next_float() < 0.05 {
-        return Err("a drowned chicken jockey is not modelled".into());
-    }
+    let (baby, chicken) = baby_jockey(random);
     // Breaking doors, then the trident or fishing rod and its enchantment.
     random.next_float();
     let mut trident = false;
@@ -187,10 +202,10 @@ pub fn finalize_drowned(c: &mut Ctx, pos: [i32; 3], frequent: &BiomeSet) -> Resu
     // trident.
     random.next_float();
     if !(trident && random.next_float() < 0.5 && !baby) {
-        return Ok(false);
+        return chicken;
     }
     if frequent.contains(c.region.biome(pos)) {
-        return Ok(false);
+        return None;
     }
     // `ZombieNautilus.finalizeSpawn`: its variant (the one of the highest
     // priority that the biome allows), the attack cooldown memory
@@ -200,7 +215,7 @@ pub fn finalize_drowned(c: &mut Ctx, pos: [i32; 3], frequent: &BiomeSet) -> Resu
     random.next_int_bounded(1);
     random.next_int_bounded(1201);
     mob(random);
-    Ok(true)
+    Some("minecraft:zombie_nautilus")
 }
 
 /// `SpecialDates.isHalloween`: October 31 (by the system clock, in UTC).

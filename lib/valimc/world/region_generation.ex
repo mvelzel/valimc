@@ -321,11 +321,16 @@ defmodule Valimc.World.RegionGeneration do
     :ok =
       BlockSnapshot.publish_chunks(state.publication, state.blocks, chunks, state.revision)
 
-    # The creatures a chunk gets as it generates (VMC-042a), durable with it.
-    state =
+    # The entities structures and features added (VMC-042b) and the
+    # creatures a chunk gets as it generates (VMC-042a), durable with it.
+    placed = Enum.flat_map(chunks, &Map.get(parts.entities, &1, []))
+
+    creatures =
       if Valimc.World.Spawning.enabled?(state.key),
-        do: RegionData.spawned(state, Valimc.World.Spawning.generated(state, chunks), [], []),
-        else: state
+        do: Valimc.World.Spawning.generated(state, chunks),
+        else: []
+
+    state = RegionData.spawned(state, placed ++ creatures, [], [])
 
     Valimc.Data.Metrics.add(:worldgen_chunks, length(chunks))
 
