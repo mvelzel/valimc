@@ -104,6 +104,8 @@ defmodule Valimc.World.RegionData do
     # position, box}`.
     {:player_bodies, []},
     {:player_sensed, []},
+    # The level random mobs' brains draw on (VMC-041a2), the section's own.
+    {:ai_random, nil},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -1110,7 +1112,7 @@ defmodule Valimc.World.RegionData do
       view = Valimc.World.View.new(state.dimension)
       world = mob_world(state, view)
 
-      steps =
+      {steps, world} =
         Valimc.Entity.MobTicks.steps(
           view,
           Enum.sort(mobs),
@@ -1118,8 +1120,16 @@ defmodule Valimc.World.RegionData do
           Valimc.World.Clock.border_snapshot()
         )
 
+      state = %{state | ai_random: world.random}
+
       attacks =
         for step <- steps, {:attack, {:player, target}} <- step.effects, do: {step.id, target}
+
+      # Items a mob picked up (a piglin's gold, VMC-041a2) and drops it let go.
+      pickups =
+        for step <- steps, {:pickup, {:item, uuid}, n} <- step.effects, do: {step.id, uuid, n}
+
+      drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
 
       steps =
         Enum.reject(steps, fn step ->
@@ -1128,6 +1138,8 @@ defmodule Valimc.World.RegionData do
         end)
 
       state = route_bodies(state, steps)
+      state = Enum.reduce(pickups, state, &mob_pickup/2)
+      state = if drops == [], do: state, else: mob_drops(state, drops)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target} <- attacks,
@@ -1139,17 +1151,77 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # `Mob.pickUpItem`'s `take`: `count` of item `uuid` leaves it for mob `id`
+  # (the take animation goes to its viewers), the item gone when empty.
+  defp mob_pickup({id, uuid, count}, state) do
+    store = state.entities.store
+
+    with {:ok, {epoch, item, revision}} <- Store.find(store, uuid),
+         %{kind: :item, stack: stack} <- store.entries[item],
+         remainder = if(stack.count > count, do: %{stack | count: stack.count - count}),
+         {:ok, store} <- take(store, epoch, item, revision, remainder) do
+      state = publish_item_views(%{state | entities: %{state.entities | store: store}})
+      Valimc.World.publish(route_key(state), {:item_pickup, epoch, item, id, count})
+      state
+    else
+      _ -> state
+    end
+  end
+
+  # `spawnAtLocation`: stacks a mob lets go, where it stands.
+  defp mob_drops(state, drops) do
+    records =
+      for {{x, y, z}, stack} <- drops do
+        [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+
+        %{
+          uuid: :crypto.strong_rand_bytes(16),
+          x: x,
+          y: y,
+          z: z,
+          stack: stack,
+          motion: %Valimc.Entity.ItemMotionState{
+            velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
+            pickup_delay: 10
+          }
+        }
+      end
+
+    adopt_drops(state, records)
+  end
+
   # What mobs' AI reads (`Valimc.AI.World`): this group's players, the
-  # section's mobs (`AI.think/2` adds them), published blocks, game time.
+  # section's mobs (`AI.think/2` adds them) and items, published blocks,
+  # game time, the section's level random.
   defp mob_world(state, view) do
     {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
     {difficulty, _} = Valimc.World.Clock.difficulty()
+
+    items =
+      for {_, %{kind: :item, entity: e, stack: stack} = entry} <- state.entities.store.entries,
+          do: %{
+            kind: :item,
+            uuid: e.uuid,
+            x: e.x * 1.0,
+            y: e.y * 1.0,
+            z: e.z * 1.0,
+            width: 0.25,
+            height: 0.25,
+            eye: 0.2125000059604645,
+            item: stack.item_id,
+            count: stack.count,
+            components: stack.components,
+            pickup_delay: Map.get(entry, :motion, %{pickup_delay: 0}).pickup_delay,
+            alive: true
+          }
 
     %Valimc.AI.World{
       read: &Valimc.World.View.block(view, &1),
       find: &find_blocks(view, &1, &2),
       time: state.game_tick || 0,
       players: state.player_sensed,
+      items: items,
+      random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656)),
       difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
       min_y: min_y,
       max_y: min_y + height - 1

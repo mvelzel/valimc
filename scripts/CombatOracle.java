@@ -41,8 +41,9 @@ public class CombatOracle {
     return List.of(DataComponents.ATTRIBUTE_MODIFIERS, DataComponents.WEAPON, DataComponents.BLOCKS_ATTACKS,
         DataComponents.DAMAGE_TYPE, DataComponents.MINIMUM_ATTACK_CHARGE);
   }
-  // VMC-037o: an egg's chickens, an ender pearl's endermites; VMC-041a: pigs.
-  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite", "minecraft:pig");
+  // VMC-037o: an egg's chickens, an ender pearl's endermites; VMC-041a: pigs and piglins.
+  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite", "minecraft:pig",
+      "minecraft:piglin");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",

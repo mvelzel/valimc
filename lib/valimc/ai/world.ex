@@ -4,8 +4,9 @@ defmodule Valimc.AI.World do
   published snapshots, handed in once per section tick. `read` gives the
   state at a block (nil where it cannot be read: an unloaded chunk reads as
   nothing to stand on or see through), `time` the game time, `players` the
-  group's playing players and `mobs` the section's mobs as `sensed/1`
-  describes them, `light` the light-dependent magic value at a block
+  group's playing players, `mobs` the section's mobs and `items` its items
+  (`%{kind: :item, uuid, x, y, z, item, count, components, pickup_delay}`),
+  `random` the level's random (behaviours' run times), `light` the light-dependent magic value at a block
   (`getLightLevelDependentMagicValue`).
 
   Sensing is vanilla's: `TargetingConditions.test` (`test/4`), the nearest
@@ -29,6 +30,8 @@ defmodule Valimc.AI.World do
             players: [],
             mobs: [],
             by_type: %{},
+            items: [],
+            random: 0,
             difficulty: :normal,
             min_y: -64,
             max_y: 319,
@@ -77,6 +80,8 @@ defmodule Valimc.AI.World do
     do: Enum.find(players, &(&1.uuid == uuid))
 
   def entity(%__MODULE__{mobs: mobs}, {:mob, uuid}), do: Enum.find(mobs, &(&1.uuid == uuid))
+
+  def entity(%__MODULE__{items: items}, {:item, uuid}), do: Enum.find(items, &(&1.uuid == uuid))
   def entity(_world, nil), do: nil
 
   @doc "The reference a mind keeps of a sensed entity."
@@ -234,7 +239,8 @@ defmodule Valimc.AI.World do
     end
   end
 
-  defp line_of_sight?(%Self{} = self, target) do
+  @doc "`LivingEntity.hasLineOfSight` (uncached): eye to eye through collision shapes."
+  def line_of_sight?(%Self{} = self, target) do
     from = {self.x, Self.eye_y(self), self.z}
     to = {target.x, eye_y(target), target.z}
     {fx, fy, fz} = from

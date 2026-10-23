@@ -32,7 +32,8 @@ defmodule Valimc.AI.Mind do
             damage: nil,
             sight: %{},
             in_love: 0,
-            age: 0
+            age: 0,
+            brain: nil
 
   @doc "What a store saves of a mind: its random."
   def record(%__MODULE__{random: random}), do: %{random: random}

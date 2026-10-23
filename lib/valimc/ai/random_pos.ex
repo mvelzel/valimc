@@ -37,6 +37,18 @@ defmodule Valimc.AI.RandomPos do
     end)
   end
 
+  @doc "`DefaultRandomPos.getPosTowards(mob, h, v, towards, radians)`."
+  def default_towards(%Self{} = self, h, v, {tx, _, tz}, radians) do
+    {dx, dz} = {tx - self.x, tz - self.z}
+
+    best(self, fn self ->
+      case within(self, 0.0, h * 1.0, v, dx, dz, radians) do
+        {nil, self} -> {nil, self}
+        {direction, self} -> toward(self, h, direction, false)
+      end
+    end)
+  end
+
   @doc "`LandRandomPos.getPos(mob, h, v)`."
   def land(%Self{} = self, h, v) do
     best(self, fn self ->

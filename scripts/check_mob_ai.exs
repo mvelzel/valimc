@@ -1,9 +1,12 @@
-# Vanilla mobs ticking with their own goals (MobAiOracle cases) against the
-# owner's mob tick (VMC-041a): each scene's blocks as a supplied view, the
-# same players standing still, the same hits between ticks, and the mobs'
+# Vanilla mobs ticking with their own goals and brains (MobAiOracle cases)
+# against the owner's mob tick (VMC-041a): each scene's blocks as a supplied
+# view, the same players standing still, the same items lying, the same
+# hits between ticks, and the mobs' (and their brains' and the level's)
 # randoms seeded alike. Every tick, each mob's position, rotations (yaw,
 # head, body, pitch), random seed, running goals and target goals, target,
-# arms raised, path, hits on players and sounds must equal vanilla's.
+# arms raised, path, hits on players and sounds must equal vanilla's; a
+# brain's running behaviours, activity, off hand, admire time, the level
+# random and items taken too.
 alias Valimc.AI
 alias Valimc.Entity.{Body, Combat, MobTicks}
 alias Valimc.Living.DamageSource
@@ -12,7 +15,7 @@ alias Valimc.Living.DamageSource
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
-unless length(cases) >= 7, do: raise("Incomplete mob AI traces")
+unless length(cases) >= 9, do: raise("Incomplete mob AI traces")
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -89,6 +92,39 @@ goal_names = fn body, which ->
   for {%{running: true}, {_, name, _, _, _}} <- Enum.zip(entries, registered), do: name
 end
 
+# A brain as the oracle seeded it: its RunOnes' randoms and sensors' countdowns.
+brain = fn
+  nil, _, _ ->
+    nil
+
+  brain, gates, times ->
+    {behaviors, _} =
+      brain.behaviors
+      |> Tuple.to_list()
+      |> Enum.map_reduce(gates, fn
+        %{kind: Valimc.AI.Behavior.Gate} = b, [seed | rest] ->
+          {%{b | random: AI.Random.new(seed)}, rest}
+
+        b, gates ->
+          {b, gates}
+      end)
+
+    sensors = Enum.zip_with(brain.sensors, times, fn s, t -> %{s | time: t} end)
+    %{brain | behaviors: List.to_tuple(behaviors), sensors: sensors}
+end
+
+offhand = fn
+  nil -> nil
+  stack -> stack.item_id
+end
+
+admiring = fn mind ->
+  case mind.brain.memories do
+    %{admiring_item: {_, ttl}} -> ttl
+    _ -> -1
+  end
+end
+
 sound_name = fn
   id when is_integer(id) -> sound_names[id]
   name -> name
@@ -100,27 +136,59 @@ checked =
       {scene, kernel_view} = view.(c["blocks"])
       players = Enum.map(c["players"], player)
 
+      items =
+        for {item, n} <- Enum.with_index(c["items"]) do
+          {x, y, z} = vector.(item["position"])
+
+          %{
+            kind: :item,
+            uuid: <<n + 1::128>>,
+            x: x,
+            y: y,
+            z: z,
+            width: 0.25,
+            height: 0.25,
+            eye: Valimc.Data.Float32.round(0.2125),
+            item: Valimc.Protocol.ItemTypes.id(item["item"]),
+            count: item["count"],
+            components: %{},
+            pickup_delay: 0,
+            alive: true
+          }
+        end
+
       world = %AI.World{
         read: &Map.get(scene, &1, air),
         players: players,
+        items: items,
+        random: AI.Random.new(7),
         difficulty: :normal
       }
 
       entries =
-        for m <- c["mobs"] do
+        for {m, i} <- Enum.with_index(c["mobs"]) do
           yaw = float.(m["yaw"])
           {:ok, body} = Body.new(m["type"])
           {x, y, z} = vector.(m["position"])
           uuid = <<m["id"]::64, 0::64>>
           mind = AI.mind(m["type"], uuid, %{random: AI.Random.new(m["seed"])})
-          mind = %{mind | body_yaw: yaw}
+          # Seeded after it was made, as the oracle seeds it (a brain's sensor
+          # countdowns drew on the random before).
+          mind = %{
+            mind
+            | random: AI.Random.new(m["seed"]),
+              body_yaw: yaw,
+              brain: brain.(mind.brain, Enum.at(c["gates"], i), Enum.at(c["sensors"], i))
+          }
+
           body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind}}
           {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
         end
 
-      {_, count} =
-        Enum.reduce(Enum.with_index(c["ticks"]), {entries, count}, fn {row, tick},
-                                                                      {entries, count} ->
+      {_, _, count} =
+        Enum.reduce(Enum.with_index(c["ticks"]), {entries, world, count}, fn {row, tick},
+                                                                             {entries, world,
+                                                                              count} ->
           world = %{world | time: 1001 + tick}
 
           # Hits between ticks, each as a player's attack (VMC-037n's one path).
@@ -159,7 +227,7 @@ checked =
               end
             end)
 
-          steps = MobTicks.steps(kernel_view, entries, world, nil)
+          {steps, world} = MobTicks.steps(kernel_view, entries, world, nil)
 
           unless length(steps) == length(entries),
             do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
@@ -211,6 +279,8 @@ checked =
 
               want_swings = for s <- expected["sounds"], s["swing"] != nil, do: s["swing"]
               want_hits = for h <- expected["hits"], do: h["player"]
+              takes = for {:pickup, _, n} <- step.effects, do: n
+              want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
 
               got = %{
                 position: Enum.map(Tuple.to_list({x, y, z}), hex),
@@ -227,8 +297,25 @@ checked =
                 path: path,
                 sounds: sounds,
                 swings: swings,
-                hits: hits
+                hits: hits,
+                takes: takes,
+                level_seed: world.random,
+                ambient: mind.ambient,
+                no_action: mind.no_action
               }
+
+              got =
+                if mind.brain,
+                  do:
+                    Map.merge(got, %{
+                      behaviors: Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
+                      activity:
+                        Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
+                        |> then(&(&1 && Atom.to_string(&1))),
+                      offhand: offhand.(body.mob.equipment[:offhand]),
+                      admiring: admiring.(mind)
+                    }),
+                  else: got
 
               want = %{
                 position: expected["position"],
@@ -245,8 +332,24 @@ checked =
                 path: expected["path"],
                 sounds: want_sounds,
                 swings: want_swings,
-                hits: want_hits
+                hits: want_hits,
+                takes: want_takes,
+                level_seed: expected["level_seed"],
+                ambient: expected["ambient"],
+                no_action: expected["no_action"]
               }
+
+              want =
+                if mind.brain,
+                  do:
+                    Map.merge(want, %{
+                      behaviors: expected["behaviors"],
+                      activity: expected["activity"],
+                      offhand:
+                        expected["offhand"] && Valimc.Protocol.ItemTypes.id(expected["offhand"]),
+                      admiring: expected["admiring"]
+                    }),
+                  else: want
 
               differ = for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
 
@@ -260,12 +363,12 @@ checked =
               1
             end)
 
-          {entries, count + Enum.sum(checks)}
+          {entries, world, count + Enum.sum(checks)}
         end)
 
       count
   end
 
 IO.puts(
-  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, rotations, paths, randoms, hits, sounds)"
+  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes)"
 )

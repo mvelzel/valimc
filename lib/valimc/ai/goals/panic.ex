@@ -23,7 +23,7 @@ defmodule Valimc.AI.Goals.Panic do
   end
 
   # `getLastDamageSource` (40 ticks) of a panicking type.
-  defp panics?(%Self{mind: %{damage: {type, tick}}} = self),
+  defp panics?(%Self{mind: %{damage: {type, tick, _}}} = self),
     do: self.mind.tick - tick <= 40 and DamageTypes.tag?(type, :panic_causes)
 
   defp panics?(_self), do: false

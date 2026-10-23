@@ -18,7 +18,7 @@ depends only on its own rank and the ranks below it:
 | 1 | Data | Generated facts and their loader (`Data.Facts`, `Data.Version`), the block registry and fact table, entity, effect and potion types, NBT, UUIDs, Java floats, the world grid (`Data.Grid`), metrics |
 | 2 | Protocol, Text | Wire formats, packets, item stacks and their data components, the codec and the hosted session's outbox; text components, SNBT, the string reader and selector syntax |
 | 3 | Physics, Living, Blocks, Menus, Txn | The physics kernel (it reads the world through `Physics.Cells`), living entities' rules, block behaviours, cooking and mining, menus and inventories, transfer permits and receipts |
-| 4 | Entity, AI | The entity store, views, publication, trackers, handoffs and item physics; mob AI (goal selectors, sensing, navigation, the goal library) |
+| 4 | Entity, AI | The entity store, views, publication, trackers, handoffs and item physics; mob AI (goal selectors, brains, sensing, navigation, the goal library) |
 | 5 | World, Player, Admin, Storage, Worldgen | Groups and sections, chunk lifecycle, portals and the environment; players and their hosted sessions; admin lists and permissions; the log, checkpoints and Anvil; generation |
 | 6 | Session, Commands | The connection's view, streaming and replication; the command catalog, parser and builtins |
 | 7 | Net | The connection shell, login, authentication, the listener, the console and RCON |
@@ -244,9 +244,11 @@ was sent to.
   section's in one kernel call, and their living rules (`Entity.MobVitals`)
   follow the player's. Before that call the AI context (`Valimc.AI`,
   VMC-041a) runs each living mob's part of vanilla's tick in id order: its
-  goal and target selectors, navigation and look control, over what the
-  owner hands it (the group's players, the section's mobs, published
-  blocks); the kernel runs the move and jump controls it set. Each mob draws
+  goal and target selectors, navigation, a brain mob's brain (memories,
+  sensors, activities, behaviours) and look control, over what the owner
+  hands it (the group's players, the section's mobs and items, published
+  blocks, the section's level random); the kernel runs the move and jump
+  controls it set, and a looting mob picks items up after the move. Each mob draws
   from its own saved random, so it draws what vanilla's would; what it
   decides beyond itself (a melee hit, an alert) comes back as effects. Every hurt of a mob (melee, explosions, falling
   blocks, its own falls, fire and drowning, `/kill`) goes through one path,

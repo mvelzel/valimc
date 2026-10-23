@@ -74,6 +74,8 @@ defmodule Valimc.AI.Mobs do
      ], []}
   end
 
+  def registered("minecraft:piglin"), do: {[], []}
+
   def registered(_type), do: nil
 
   @after_compile __MODULE__
@@ -97,7 +99,11 @@ defmodule Valimc.AI.Mobs do
         do: type
   end
 
-  @types ["minecraft:zombie", "minecraft:pig"]
+  @types ["minecraft:zombie", "minecraft:pig", "minecraft:piglin"]
+
+  @doc "The brain module of a brain mob's type, or nil (VMC-041a2)."
+  def brain("minecraft:piglin"), do: Valimc.AI.Brains.Piglin
+  def brain(_type), do: nil
 
   @doc "Whether mobs of `type` have goals."
   def goals?(type), do: type in @types

@@ -4,11 +4,11 @@ defmodule Valimc.Entity.MobTicks do
   VMC-041a), then every mob of the section in one physics-kernel call
   (`Valimc.Physics.Kernel.mobs/4`: the move and jump controls, travel,
   collision, fluids, climbing, slowing blocks and pushing, by mobs and by
-  the players), then each mob's body rotation (`Valimc.AI.settle/3`) and
-  living rules (`Valimc.Entity.MobVitals`). The result is a store step per
-  mob: its position, its new body, its entity events and what its AI did
-  beyond it (`effects`); a mob the kernel could not tick (near a chunk it
-  cannot read) has none.
+  the players), then each mob's body rotation and looting
+  (`Valimc.AI.settle/4`) and living rules (`Valimc.Entity.MobVitals`). The
+  result is a store step per mob: its position, its new body, its entity
+  events and what its AI did beyond it (`effects`); a mob the kernel could
+  not tick (near a chunk it cannot read) has none.
   """
   alias Valimc.AI
   alias Valimc.Entity.{MobMotion, MobVitals}
@@ -17,22 +17,21 @@ defmodule Valimc.Entity.MobTicks do
   @doc """
   The steps of `mobs` (`[{id, entry}]`, in id order) over `view` and
   `border`, with the AI's `world` (`Valimc.AI.World`: its players push the
-  mobs they touch).
+  mobs they touch): `{steps, world}`, the world as the mobs left it.
   """
-  def steps(_view, [], _world, _border), do: []
+  def steps(_view, [], world, _border), do: {[], world}
 
   def steps(view, mobs, %AI.World{} = world, border) do
-    thought = AI.think(mobs, world)
+    {thought, world} = AI.think(mobs, world)
+    old = Map.new(mobs)
 
     {mobs, effects} =
       Enum.zip_with(mobs, thought, fn {id, entry}, {id, body, effects} ->
-        events = for {:sound, _, _, _, _, _} = e <- effects, do: e
-        swings = for :swing <- effects, do: {:swing, :main_hand}
-        {{id, %{entry | body: body}}, {id, events ++ swings, effects -- (events -- [:swing])}}
+        {{id, %{entry | body: body}}, {id, split(effects)}}
       end)
       |> Enum.unzip()
 
-    effects = Map.new(effects, fn {id, events, rest} -> {id, {events, rest}} end)
+    effects = Map.new(effects)
     # Mobs of a type without overrides share their travel attributes.
     {inputs, _} =
       Enum.map_reduce(mobs, %{}, fn {_, %{entity: e, body: body}}, cache ->
@@ -60,25 +59,52 @@ defmodule Valimc.Entity.MobTicks do
 
     {:ok, results} = Kernel.mobs(view, inputs, players, border)
 
-    for {{id, entry}, {:ok, ticked}} <- Enum.zip(mobs, results) do
-      {body, {x, _, z} = position} = MobMotion.apply(entry.body, ticked.mob, ticked.depths)
-      body = AI.settle(body, {x, z}, {entry.entity.x, entry.entity.z})
-      {body, events} = MobVitals.apply(body.type, body, ticked)
-      {made, rest} = effects[id]
+    {steps, world} =
+      Enum.zip(mobs, results)
+      |> Enum.flat_map_reduce(world, fn
+        {{id, entry}, {:ok, ticked}}, world ->
+          {body, position} = MobMotion.apply(entry.body, ticked.mob, ticked.depths)
+          {body, settled, world} = AI.settle({id, old[id]}, body, position, world)
+          {body, events} = MobVitals.apply(body.type, body, ticked)
+          {made, rest} = effects[id]
+          {later, more} = split(settled)
 
-      step = %{
-        id: id,
-        revision: entry.revision,
-        position: position,
-        body: body,
-        events: made ++ events,
-        effects: rest
-      }
+          step = %{
+            id: id,
+            revision: entry.revision,
+            position: position,
+            body: body,
+            events: made ++ events ++ later,
+            effects: rest ++ more
+          }
 
-      case body.mob.ai do
-        %AI.Mind{no_action: idle} -> Map.put(step, :idle, idle)
-        _ -> step
-      end
-    end
+          step =
+            case body.mob.ai do
+              %AI.Mind{no_action: idle} -> Map.put(step, :idle, idle)
+              _ -> step
+            end
+
+          {[step], world}
+
+        _, world ->
+          {[], world}
+      end)
+
+    {steps, world}
+  end
+
+  # Sounds and swings are the mob's entity events; the rest leaves it.
+  defp split(effects) do
+    {events, rest} =
+      Enum.split_with(effects, fn
+        {:sound, _, _, _, _, _} -> true
+        :swing -> true
+        _ -> false
+      end)
+
+    {Enum.map(events, fn
+       :swing -> {:swing, :main_hand}
+       e -> e
+     end), rest}
   end
 end

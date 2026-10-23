@@ -58,7 +58,11 @@ import net.minecraft.world.phys.*;
  */
 public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
-  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig");
+  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin");
+  // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
+  static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
+      "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
+      "minecraft:entity.piglin.celebrate");
 
   static class Server extends net.minecraft.server.dedicated.DedicatedServer {
     net.minecraft.util.debug.ServerDebugSubscribers subscribers;
@@ -76,6 +80,20 @@ public class MobAiOracle {
     public FluidState getFluidState(BlockPos p) { return level.getFluidState(p); }
   }
 
+  /** A section holding nothing a filtered scan (a piglin's repellents) looks for. */
+  static class EmptySection extends net.minecraft.world.level.chunk.LevelChunkSection {
+    private EmptySection() { super(null, null); }
+    public boolean maybeHas(Predicate<BlockState> predicate) { return false; }
+  }
+
+  /** The chunk a filtered block scan reads: its sections hold nothing it wants. */
+  static class ScanChunk extends net.minecraft.world.level.chunk.LevelChunk {
+    EmptySection section;
+    private ScanChunk() { super(null, null); }
+    public net.minecraft.world.level.chunk.LevelChunkSection getSection(int index) { return section; }
+    public int getSectionIndexFromSectionY(int sectionY) { return 0; }
+  }
+
   /** No chunks: a path's region reads none (the straight finder needs none). */
   static class NoChunks extends net.minecraft.server.level.ServerChunkCache {
     private NoChunks() { super(null, null, null, null, null, null, 0, 0, false, null); }
@@ -83,6 +101,11 @@ public class MobAiOracle {
     Probe level;
     // A swing (`ClientboundAnimatePacket`) is recorded as the entity's event.
     public void sendToTrackingPlayers(Entity e, net.minecraft.network.protocol.Packet<? super net.minecraft.network.protocol.game.ClientGamePacketListener> packet) {
+      if (packet instanceof net.minecraft.network.protocol.game.ClientboundTakeItemEntityPacket t) {
+        for (var m : level.entities) if (m.getId() == t.getPlayerId()) {
+          var o = new JsonObject(); o.addProperty("take", t.getAmount()); level.sounds.computeIfAbsent(m, k -> new ArrayList<>()).add(o);
+        }
+      }
       if (packet instanceof net.minecraft.network.protocol.game.ClientboundSwingAnimationPacket a) {
         var o = new JsonObject(); o.addProperty("swing", a.hand().name().toLowerCase() + ":" + a.animation().type().getSerializedName() + ":" + a.animation().duration());
         level.sounds.computeIfAbsent(e, k -> new ArrayList<>()).add(o);
@@ -123,6 +146,16 @@ public class MobAiOracle {
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     public List<ServerPlayer> players() { return (List)fighters; }
+    ScanChunk scan;
+    public net.minecraft.world.level.chunk.LevelChunk getChunk(int x, int z) {
+      if (scan == null) {
+        try {
+          scan = (ScanChunk)unsafe.allocateInstance(ScanChunk.class);
+          scan.section = (EmptySection)unsafe.allocateInstance(EmptySection.class);
+        } catch (Exception e) { throw new RuntimeException(e); }
+      }
+      return scan;
+    }
     public int getNextEntityId() { return ++ids; }
     public boolean isLoaded(BlockPos p) { return true; }
     public boolean isRainingAt(BlockPos p) { return false; }
@@ -171,12 +204,12 @@ public class MobAiOracle {
     public void playSeededSound(Entity e, Entity t, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) { sound(t, s, v, p); }
     public List<Entity> getEntities(Entity except, AABB box, Predicate<? super Entity> test) {
       var out = new ArrayList<Entity>();
-      for (var e : entities) if (e != except && e.getBoundingBox().intersects(box) && test.test(e)) out.add(e);
+      for (var e : entities) if (!e.isRemoved() && e != except && e.getBoundingBox().intersects(box) && test.test(e)) out.add(e);
       return out;
     }
     public <T extends Entity> List<T> getEntitiesOfClass(Class<T> type, AABB box, Predicate<? super T> test) {
       var out = new ArrayList<T>();
-      for (var e : entities) if (type.isInstance(e) && e.getBoundingBox().intersects(box) && test.test(type.cast(e))) out.add(type.cast(e));
+      for (var e : entities) if (!e.isRemoved() && type.isInstance(e) && e.getBoundingBox().intersects(box) && test.test(type.cast(e))) out.add(type.cast(e));
       return out;
     }
   }
@@ -247,6 +280,22 @@ public class MobAiOracle {
     Pig(Probe level) { super(EntityTypes.PIG, level); }
     protected PathNavigation createNavigation(net.minecraft.world.level.Level level) { return new Straight(this, level); }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
+  }
+
+  static class Piglin extends net.minecraft.world.entity.monster.piglin.Piglin {
+    Piglin(Probe level) { super(EntityTypes.PIGLIN, level); }
+    protected PathNavigation createNavigation(net.minecraft.world.level.Level level) { return new Straight(this, level); }
+    public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
+    // A piglin-safe level (the Nether's): it does not zombify.
+    public boolean isConverting() { return false; }
+  }
+
+  static net.minecraft.world.entity.Mob mob(String type, Probe level) {
+    return switch (type) {
+      case "minecraft:zombie" -> new Zombie(level);
+      case "minecraft:pig" -> new Pig(level);
+      default -> new Piglin(level);
+    };
   }
 
   static void setFinal(Class<?> c, String n, Object o, Object v) throws Exception {
@@ -357,7 +406,7 @@ public class MobAiOracle {
     var goalSelector = field(net.minecraft.world.entity.Mob.class, "goalSelector");
     var targetSelector = field(net.minecraft.world.entity.Mob.class, "targetSelector");
     for (var name : MOBS) {
-      net.minecraft.world.entity.Mob mob = name.equals("minecraft:zombie") ? new Zombie(level) : new Pig(level);
+      net.minecraft.world.entity.Mob mob = mob(name, level);
       var row = new JsonObject();
       row.addProperty("max_head_y_rot", mob.getMaxHeadYRot());
       row.addProperty("max_head_x_rot", mob.getMaxHeadXRot());
@@ -375,10 +424,12 @@ public class MobAiOracle {
     }
     out.add("mobs", mobs);
     var sounds = new JsonObject();
+    var names = new ArrayList<String>(SOUNDS);
     for (var m : mobs.entrySet()) {
       var s = m.getValue().getAsJsonObject().get("ambient_sound");
-      if (!s.isJsonNull()) sounds.addProperty(s.getAsString(), BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(s.getAsString()))));
+      if (!s.isJsonNull()) names.add(s.getAsString());
     }
+    for (var n : names) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
     out.add("sounds", sounds);
     // A main-hand swing of the default animation (an empty hand's), after
     // its entity id: `ClientboundSwingAnimationPacket`'s fields.
@@ -395,7 +446,11 @@ public class MobAiOracle {
 
   record Block(int x, int y, int z, BlockState state) {}
   record Spawn(String type, Vec3 position, float yaw, long seed) {}
-  record Stand(Vec3 position, String mode, String mainhand) {}
+  record Stand(Vec3 position, String mode, String mainhand, String head) {
+    Stand(Vec3 position, String mode, String mainhand) { this(position, mode, mainhand, null); }
+  }
+  /** An item lying still, its pickup delay over. */
+  record Drop(Vec3 position, String item, int count) {}
   /** At tick `tick`, player `player` hits mob `mob` for `amount` (a player attack). */
   record Hit(int tick, int player, int mob, float amount) {}
 
@@ -406,7 +461,26 @@ public class MobAiOracle {
   }
 
   static JsonObject run(Probe level, String name, List<Block> blocks, List<Spawn> spawns, List<Stand> stands, List<Hit> hits, int ticks) throws Exception {
+    return run(level, name, blocks, spawns, stands, hits, List.of(), ticks);
+  }
+
+  // The brain's behaviours as `priority:activity` while they run.
+  @SuppressWarnings("unchecked")
+  static JsonArray behaviors(net.minecraft.world.entity.ai.Brain<?> brain) throws Exception {
+    var out = new JsonArray();
+    var byPriority = (Map<Integer, Map<net.minecraft.world.entity.schedule.Activity, Set<net.minecraft.world.entity.ai.behavior.BehaviorControl<?>>>>)
+        field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(brain);
+    for (var e : byPriority.entrySet())
+      for (var a : e.getValue().entrySet())
+        for (var b : a.getValue())
+          if (b.getStatus() == net.minecraft.world.entity.ai.behavior.Behavior.Status.RUNNING) out.add(e.getKey() + ":" + a.getKey().getName());
+    return out;
+  }
+
+  static JsonObject run(Probe level, String name, List<Block> blocks, List<Spawn> spawns, List<Stand> stands, List<Hit> hits, List<Drop> drops, int ticks) throws Exception {
     level.blocks.clear(); level.entities.clear(); level.fighters.clear(); level.sounds.clear(); level.time = 1000L; level.ids = 0;
+    var levelRandom = net.minecraft.util.RandomSource.create(7L);
+    unsafe.putObject(level, unsafe.objectFieldOffset(net.minecraft.world.level.Level.class.getDeclaredField("random")), levelRandom);
     for (var b : blocks) level.blocks.put(new BlockPos(b.x, b.y, b.z), b.state);
     var fighters = new ArrayList<Fighter>();
     int n = 0;
@@ -414,13 +488,43 @@ public class MobAiOracle {
       var f = new Fighter(level, ++n, net.minecraft.world.level.GameType.byName(s.mode));
       f.snapTo(s.position.x, s.position.y, s.position.z, 0, 0);
       if (s.mainhand != null) f.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.mainhand))));
+      if (s.head != null) f.setItemSlot(EquipmentSlot.HEAD, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.head))));
       fighters.add(f); level.fighters.add(f); level.entities.add(f);
     }
     var mobs = new ArrayList<net.minecraft.world.entity.Mob>();
     var seedField = field(net.minecraft.world.level.levelgen.LegacyRandomSource.class, "seed");
+    var items = new ArrayList<net.minecraft.world.entity.item.ItemEntity>();
+    for (var d : drops) {
+      var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(d.item)), d.count);
+      var item = new net.minecraft.world.entity.item.ItemEntity(level, d.position.x, d.position.y, d.position.z, stack, 0, 0, 0);
+      item.setPickUpDelay(0);
+      items.add(item); level.entities.add(item);
+    }
+    var gates = new JsonArray(); var sensorTimes = new JsonArray();
+    var timeToTick = field(net.minecraft.world.entity.ai.sensing.Sensor.class, "timeToTick");
+    var sensorsField = field(net.minecraft.world.entity.ai.Brain.class, "sensors");
     for (var s : spawns) {
-      net.minecraft.world.entity.Mob m = s.type.equals("minecraft:zombie") ? new Zombie(level) : new Pig(level);
+      net.minecraft.world.entity.Mob m = mob(s.type, level);
       m.getRandom().setSeed(s.seed);
+      if (m instanceof Piglin) {
+        // The idle RunOnes' own randoms (`ShufflingList`), seeded from the mob's.
+        var byPriority = (Map<?, ?>)field(net.minecraft.world.entity.ai.Brain.class, "availableBehaviorsByPriority").get(m.getBrain());
+        var g = new JsonArray();
+        long k = 0;
+        for (int priority : new int[]{15, 16}) {
+          var gate = ((Set<?>)((Map<?, ?>)byPriority.get(priority)).values().iterator().next()).iterator().next();
+          var list = field(net.minecraft.world.entity.ai.behavior.GateBehavior.class, "behaviors").get(gate);
+          var random = (net.minecraft.util.RandomSource)field(net.minecraft.world.entity.ai.behavior.ShufflingList.class, "random").get(list);
+          random.setSeed(s.seed + 101 * ++k);
+          g.add(s.seed + 101 * k);
+        }
+        gates.add(g);
+        var times = new JsonArray();
+        for (var sensor : ((Map<?, ?>)sensorsField.get(m.getBrain())).values()) times.add(timeToTick.getLong(sensor));
+        sensorTimes.add(times);
+      } else {
+        gates.add(JsonNull.INSTANCE); sensorTimes.add(JsonNull.INSTANCE);
+      }
       m.setSilent(false);
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
@@ -463,6 +567,16 @@ public class MobAiOracle {
         r.addProperty("target", target == null ? null : target.getUUID().getLeastSignificantBits());
         r.addProperty("aggressive", m.isAggressive());
         r.addProperty("ambient", ambient.getInt(m));
+        r.addProperty("level_seed", ((java.util.concurrent.atomic.AtomicLong)seedField.get(levelRandom)).get());
+        if (m instanceof Piglin) {
+          var brain = m.getBrain();
+          r.add("behaviors", behaviors(brain));
+          r.addProperty("activity", brain.getActiveNonCoreActivity().map(a -> a.getName()).orElse(null));
+          var off = m.getOffhandItem();
+          r.addProperty("offhand", off.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(off.getItem()).toString());
+          r.addProperty("admiring", brain.hasMemoryValue(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM)
+              ? brain.getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM) : -1L);
+        }
         r.addProperty("no_action", noAction.getInt(m));
         var path = m.getNavigation().getPath();
         if (path == null || path.isDone()) r.add("path", JsonNull.INSTANCE);
@@ -505,6 +619,11 @@ public class MobAiOracle {
     var hs = new JsonArray();
     for (var h : hits) { var o = new JsonObject(); o.addProperty("tick", h.tick); o.addProperty("player", h.player); o.addProperty("mob", h.mob); o.addProperty("amount", Float.floatToRawIntBits(h.amount)); hs.add(o); }
     out.add("hurts", hs);
+    var ds = new JsonArray();
+    for (var d : drops) { var o = new JsonObject(); o.add("position", bits(d.position)); o.addProperty("item", d.item); o.addProperty("count", d.count); ds.add(o); }
+    out.add("items", ds);
+    out.add("gates", gates);
+    out.add("sensors", sensorTimes);
     out.add("ticks", trace);
     return out;
   }
@@ -547,6 +666,13 @@ public class MobAiOracle {
     // A player holding a carrot tempts it; it stops close by.
     cases.add(run(level, "pig_tempt", floor(63, 12, grass), List.of(new Spawn("minecraft:pig", new Vec3(.5, 64, .5), 0, 13L)),
       List.of(new Stand(new Vec3(6.5, 64, -3.5), "survival", "minecraft:carrot")), List.of(), 200));
+    // A piglin idles over stone; one walks to a gold ingot, picks it up and
+    // admires it. (A piglin's player sensor reads server players, which the
+    // probe cannot make.)
+    cases.add(run(level, "piglin_idle", floor(63, 12, stone), List.of(new Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 17L)),
+      List.of(), List.of(), List.of(), 400));
+    cases.add(run(level, "piglin_admire", floor(63, 12, stone), List.of(new Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 23L)),
+      List.of(), List.of(), List.of(new Drop(new Vec3(4.5, 64, 2.5), "minecraft:gold_ingot", 1)), 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -583,7 +709,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire).");
       return;
     }
     throw new IllegalArgumentException("usage: MobAiOracle facts|cases OUT.json");

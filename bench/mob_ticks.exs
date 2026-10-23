@@ -59,7 +59,7 @@ run = fn count ->
 
   tick = fn store ->
     mobs = Enum.sort(store.entries)
-    {kernel, steps} = :timer.tc(fn -> MobTicks.steps(view, mobs, world, nil) end)
+    {kernel, {steps, _}} = :timer.tc(fn -> MobTicks.steps(view, mobs, world, nil) end)
 
     {applied, {:ok, store, _}} =
       :timer.tc(fn ->

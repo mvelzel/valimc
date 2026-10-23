@@ -1,6 +1,6 @@
 # VMC-041a — Goals, targets, brains and sensors
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-015i](VMC-015i.md).
 
@@ -28,7 +28,7 @@ Slices:
 - [VMC-041a1](VMC-041a1.md) — goal selectors, sensing, navigation and the
   shared goal library; zombies and pigs (Awaiting client).
 - [VMC-041a2](VMC-041a2.md) — brains: memories, sensors, activities and
-  behaviours; a piglin admires gold (Planned).
+  behaviours; a piglin admires gold (Awaiting client).
 
 Acceptance:
 
