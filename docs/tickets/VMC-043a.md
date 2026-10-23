@@ -28,8 +28,8 @@ projectiles, end crystals and eyes of ender.
 
 Acceptance:
 
-- A summoned zombie and a summoned primed TNT (still inert) appear to the
-  real client with vanilla metadata.
+- A summoned zombie and a summoned primed TNT appear to the real client
+  with vanilla metadata (TNT's fuse is VMC-050a1's).
 - Both persist across a restart and hand off across a group line.
 - The entity facts match the oracle for every type.
 
@@ -93,14 +93,13 @@ zombie's attributes byte-equal vanilla's); `check_vanilla.py --changed`
 host load that passes alone.
 
 Client scenario (phase-end handoff): in a fresh world, `/summon zombie ~2 ~
-~` and `/summon tnt ~ ~ ~3`: an adult zombie facing south and a primed TNT
-block appear (the TNT does not flash or explode, the zombie does not move).
-In creative, `/tp @e[type=zombie] ~800 200 ~` then `/tp @s ~800 200 ~`:
-the zombie is there, hovering, in another group's section (it was handed
-over). Restart the server and rejoin: the zombie and, back at the start,
-the TNT are still there. `/kill
-@e[type=zombie]` shows the hurt flash, the zombie falls over and poofs after
-a second; `/kill @e[type=tnt]` removes the TNT at once.
+~`: an adult zombie facing south appears with vanilla metadata. With
+VMC-015i it falls and stands; it has no AI before VMC-041a. In creative,
+`/tp @e[type=zombie] ~800 ~ ~` then `/tp @s ~800 ~ ~`: the zombie is there,
+in another group's section (it was handed over). Restart the server and
+rejoin: the zombie is still there. `/kill @e[type=zombie]` shows the hurt
+flash, the zombie falls over and poofs after a second. Primed TNT is no
+longer inert since VMC-050a1 and is covered by that ticket's scenario.
 
 Next: VMC-015i moves bodies; VMC-037n adds damage, loot and XP; families
 add their types' data.
