@@ -48,3 +48,19 @@ All six slices are implemented and match vanilla's fixtures (`hostile_ai`,
 scenarios in its slice, batched in the roadmap's pending gates. What each
 leaves for later is in its own ticket (riding is VMC-046's; raids,
 reinforcements and door breaking are not modelled yet).
+
+## Handoff (October 2026)
+
+- Done and verified on main (last commit 50b792a3): all six slices
+  (043b1–043b6) with their oracle stages (`hostile_ai` 38 scenes / 10182
+  mob ticks, `hostile_spawns` 19440 spawns, `hostile_facts`, `loot`) and
+  the affected unit tests passing. Nothing in progress; no open branch.
+- Remaining: the batched client scenarios (each slice ticket's "Client
+  scenario"); the gaps each slice ticket lists (riding is VMC-046's;
+  raids, reinforcements, door breaking, explosions freeing silverfish,
+  trident enchantments and player tridents, mob effect expiry side
+  effects).
+- Gotchas: `check_mob_ai.exs`'s physics view keeps a scene's blocks, so
+  scenes that remove a block under a mob end at that tick; a tick's sounds
+  compare as a set; mob egg cracking draws from the AI world's level
+  random in `MobTicks` (the region's `crush_eggs` is the players' path).
