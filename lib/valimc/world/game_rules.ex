@@ -29,6 +29,8 @@ defmodule Valimc.World.GameRules do
     spawner_blocks_work: true,
     # VMC-044a4: wandering traders come.
     spawn_wandering_traders: true,
+    # VMC-043b6: phantoms come to players who do not rest.
+    spawn_phantoms: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
     lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),
     fire_spread_radius_around_player:

@@ -1380,6 +1380,7 @@ defmodule Valimc.World.Region do
           stores: for({_, r} <- resources, do: r.blocks.ref),
           absent: Enum.flat_map(resources, fn {_, r} -> MapSet.to_list(r.generation.absent) end),
           players: players,
+          rest: Host.rest_players(state),
           spawning: state.spawning,
           environment: Spawning.environment(state.dimension),
           dimension: state.dimension,

@@ -773,7 +773,9 @@ defmodule Valimc.AI do
     # A family's own move control (a fish's) runs before the look control.
     self = hook(self, :move_control)
 
-    self |> strafe() |> Look.tick()
+    # A family without a look control (a phantom's) keeps its rotations.
+    self = strafe(self)
+    if Mobs.hook(self.type, :looks?, [], true), do: Look.tick(self), else: self
   end
 
   # `getLightLevelDependentMagicValue` at the eyes: a blaze is always lit.

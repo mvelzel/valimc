@@ -51,7 +51,7 @@ public class HostileOracle {
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
   static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
-  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish", "minecraft:witch");
+  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish", "minecraft:witch", "minecraft:phantom");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -122,6 +122,15 @@ public class HostileOracle {
       if (drop) state.spawnAfterBreak(this, pos, ItemStack.EMPTY, true);
       setBlock(pos, fluid.createLegacyBlock(), 3, limit);
       return true;
+    }
+    // The motion-blocking heightmap over the scene (a phantom's anchor).
+    public BlockPos getHeightmapPos(net.minecraft.world.level.levelgen.Heightmap.Types type, BlockPos pos) {
+      int top = getMinY();
+      for (var e : blocks.entrySet()) {
+        var p = e.getKey();
+        if (p.getX() == pos.getX() && p.getZ() == pos.getZ() && type.isOpaque().test(e.getValue()) && p.getY() + 1 > top) top = p.getY() + 1;
+      }
+      return new BlockPos(pos.getX(), top, pos.getZ());
     }
     // A converted mob is discarded, which untracks it as a waypoint.
     net.minecraft.server.waypoints.ServerWaypointManager waypoints;
@@ -253,6 +262,7 @@ public class HostileOracle {
     endermen(level, cases, floor);
     silverfishAndSlimes(level, cases, floor);
     witches(level, cases, floor);
+    phantoms(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -399,6 +409,17 @@ public class HostileOracle {
   }
 
   static final int SILVERFISH_MERGE_TICKS = 101;
+
+  // VMC-043b6: phantoms circling and swooping at a player.
+  static void phantoms(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var noDrops = List.<MobAiOracle.Drop>of();
+    cases.add(run(level, "phantom_circle", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:phantom", new Vec3(.5, 80, .5), 0, 281L)),
+        List.of(), List.of(), noDrops, 200));
+    cases.add(run(level, "phantom_swoop", false, List.of(), MobAiOracle.floor(63, 24, Blocks.STONE.defaultBlockState()),
+        List.of(new MobAiOracle.Spawn("minecraft:phantom", new Vec3(.5, 84, .5), 0, 283L)),
+        List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 2.5), "survival", null)), List.of(), noDrops, 400));
+  }
 
   // VMC-043b6: witches throwing potions at a player and drinking theirs.
   static void witches(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {

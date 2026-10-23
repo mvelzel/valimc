@@ -53,7 +53,8 @@ defmodule Valimc.AI.Kind do
     moved it, `{body, effects}`: a zombie drowning); `harmless?/0` (its
     melee hits hurt nothing, a creeper's) and `climbs?/1` (it climbs what it
     bumped into, a spider's `onClimbable`); `mob_interact/2` (a player's
-    item used on it, `mobInteract`: lighting a creeper).
+    item used on it, `mobInteract`: lighting a creeper); `looks?/0` false: it
+    has no look control (a phantom's keeps its rotations).
   - Leads (VMC-043c3): `leashable?/0` (`canBeLeashed`; false where a family
     leaves it out, until its ticket models it).
   - Sized mobs (VMC-043d, cubes): `volume/1` (`getSoundVolume` of a body,
@@ -103,6 +104,7 @@ defmodule Valimc.AI.Kind do
   @callback mob_interact(struct, map) :: term
   @callback repelled(struct, map) :: struct
   @callback death_drops(struct) :: list
+  @callback looks?() :: boolean
   @callback leashable?() :: boolean
   @callback move_control(Self.t()) :: Self.t()
   @callback air(integer, boolean) :: {integer, float}
@@ -158,6 +160,7 @@ defmodule Valimc.AI.Kind do
                       mob_interact: 2,
                       repelled: 2,
                       death_drops: 1,
+                      looks?: 0,
                       move_control: 1,
                       air: 2,
                       swim_sound: 0,

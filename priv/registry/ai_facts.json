@@ -2173,6 +2173,44 @@
         ]
       ]
     },
+    "minecraft:phantom": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.phantom.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "PhantomAttackStrategyGoal",
+          []
+        ],
+        [
+          2,
+          "PhantomSweepAttackGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "PhantomCircleAroundAnchorGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "PhantomAttackPlayerTargetGoal",
+          []
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3543,6 +3581,7 @@
     "minecraft:entity.slime.death_small": 1550,
     "minecraft:entity.witch.drink": 1781,
     "minecraft:entity.witch.throw": 1783,
+    "minecraft:entity.phantom.swoop": 1264,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -3590,6 +3629,7 @@
     "minecraft:entity.enderman.ambient": 598,
     "minecraft:entity.silverfish.ambient": 1479,
     "minecraft:entity.witch.ambient": 1778,
+    "minecraft:entity.phantom.ambient": 1259,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

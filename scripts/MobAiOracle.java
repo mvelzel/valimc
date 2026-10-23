@@ -64,7 +64,7 @@ public class MobAiOracle {
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
-      "minecraft:silverfish", "minecraft:slime", "minecraft:witch",
+      "minecraft:silverfish", "minecraft:slime", "minecraft:witch", "minecraft:phantom",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
@@ -96,6 +96,8 @@ public class MobAiOracle {
       "minecraft:entity.slime.death", "minecraft:entity.slime.death_small",
       // A witch's drinks and throws.
       "minecraft:entity.witch.drink", "minecraft:entity.witch.throw",
+      // A phantom's swoop.
+      "minecraft:entity.phantom.swoop",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",

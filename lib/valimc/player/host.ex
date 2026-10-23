@@ -299,6 +299,18 @@ defmodule Valimc.Player.Host do
     end
   end
 
+  @doc """
+  The group's players as the phantom spawner reads them (VMC-043b6): `{x,
+  y, z, spectator, time_since_rest}` in the group's dimension.
+  """
+  def rest_players(state) do
+    for {_, %{session: %{player: player}}} <- state.players,
+        player.dimension == state.dimension do
+      {player.x * 1.0, player.y * 1.0, player.z * 1.0, player.game_mode.current == :spectator,
+       player.time_since_rest}
+    end
+  end
+
   ## Durability (the group's commit)
 
   @doc """

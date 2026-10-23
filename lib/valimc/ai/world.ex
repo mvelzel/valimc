@@ -145,6 +145,21 @@ defmodule Valimc.AI.World do
   def air?(world, position),
     do: (state = block(world, position)) != nil and BlockFacts.air?(state)
 
+  @doc """
+  `getHeightmapPos(MOTION_BLOCKING)`'s height of column `{x, z}`: above its
+  highest block that blocks motion or holds fluid (a phantom's anchor);
+  the bottom where none is read.
+  """
+  def motion_blocking(%__MODULE__{} = world, x, z) do
+    top =
+      Enum.find(world.max_y..world.min_y//-1, fn y ->
+        (state = block(world, {x, y, z})) != nil and
+          BlockFacts.heightmap?(state, :motion_blocking)
+      end)
+
+    if top, do: top + 1, else: world.min_y
+  end
+
   @doc "`BlockState.isSolid` (legacy solidity)."
   def solid?(world, position),
     do: (state = block(world, position)) != nil and BlockFacts.flag?(state, :solid)

@@ -453,7 +453,10 @@ checked =
   for c <- cases, reduce: 0 do
     count ->
       {scene, kernel_view} =
-        view.(c["blocks"], Enum.any?(c["mobs"], &(&1["type"] == "minecraft:ghast")))
+        view.(
+          c["blocks"],
+          Enum.any?(c["mobs"], &(&1["type"] in ~w(minecraft:ghast minecraft:phantom)))
+        )
 
       players = Enum.map(c["players"], player)
 
