@@ -46,7 +46,7 @@ public class HostileOracle {
   // VMC-043d: the Nether's mobs that spawn with gear or as babies.
   static final List<String> NETHER = List.of("minecraft:piglin");
   // Cubes' sizes (VMC-043d: `setSpawnSize`).
-  static final List<String> CUBES = List.of("minecraft:magma_cube", "minecraft:slime");
+  static final List<String> CUBES = List.of("minecraft:magma_cube", "minecraft:slime", "minecraft:hoglin");
   // VMC-043b3: the skeletons.
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
@@ -743,7 +743,7 @@ public class HostileOracle {
         case "spawns" -> {
           var out = spawns(level, lookup);
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
-          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins, skeletons, magma cubes).");
+          System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins, skeletons, magma cubes, hoglins).");
         }
         default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases OUT.json");
       }

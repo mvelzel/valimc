@@ -22,8 +22,9 @@ Acceptance:
 3. **043d3 — ghasts** (done): flying travel, wandering, large fireballs.
 4. **043d4a — bartering** (done): a piglin's admired gold ingot becomes
    the bartering table's items, thrown toward the player it sees.
-5. **043d4b — piglins and hoglins**: the piglin brain's fight, avoid and
-   celebrate activities, hostility rules, inventory; hoglins' brain.
+5. **043d4b — piglins and hoglins** (piglin melee and hoglins done;
+   crossbows next): the piglin brain's fight, avoid and celebrate
+   activities, hostility rules; hoglins' brain.
 6. **043d5 — magma cubes** (done; wither skeletons next, on VMC-043b3's
    skeletons): the shared cube (`AbstractCubeMob`) and magma cubes.
 7. **043d6 — striders**: walking on lava, shivering, warped fungus.
@@ -182,6 +183,30 @@ factory, so other families' oracles reuse it the same way.
   piglin's inventory, food and equipping what it picks up, creative
   breaking's anger, zombification outside the Nether.
 
+## 043d4c — hoglins
+
+- `Valimc.AI.Mobs.Hoglin` and its brain `Valimc.AI.Brains.Hoglin`
+  (`HoglinAi`): core, idle, fight and retreat activities in vanilla's
+  order; pacified by warped fungus and other repellents (and walking away
+  from them), attacking the nearest player it may attack, an adult
+  walking away from adult piglins, a baby following an adult; melee every
+  40 ticks (a baby's 15); retreat while piglins outnumber them. Hurt, it
+  retaliates with the adult hoglins it sees, a baby flees. Its hit
+  (`doHurtTarget`): event 4 and the attack sound, the brain's reaction,
+  then half its attack damage plus up to as much again and a throw
+  (`HoglinBase.throwTarget`, the player's `push`). A baby one time in five
+  (age, its attack damage), growing up.
+- Shared: `Behaviors.become_passive/2`, `look_sometimes/3`
+  (`SetEntityLookTargetSometimes`'s ticker), `baby_follow_adult/2`;
+  `Sensors.NearestAdult`, `Sensors.repellent/2`; `Fight.much_farther?/3`;
+  a brain's melee runs the family's `hit/2`; Kind `young?/1`.
+- Evidence: `nether_mobs` passes 7, 6980 ticks of 23 scenes (hoglin attack, repellent, baby hit,
+  idle among them); `loot` 45000 deaths; `hostile_spawns` 14040 spawns;
+  `mob_ai_connection_test` has a hoglin charge and hit a logged-in player.
+- Gaps: breeding with crimson fungus (`AnimalMakeLove` inert), zombifying
+  outside the Nether (the oracle's hoglin does not convert), piglins
+  hunting hoglins, leads.
+
 ## 043d5 — magma cubes
 
 - `Valimc.AI.Mobs.Cube` is vanilla's `AbstractCubeMob`, shared with slimes
@@ -219,5 +244,6 @@ above them, and a blaze killed by the player drops blaze rods; zombified
 piglins ignore the player until it hits one, then the group attacks; a
 piglin given a dropped gold ingot admires it and throws barter items (over
 several barters, ender pearls); piglins attack a player without gold armour;
-a ghast shoots fireballs that the player can hit back to kill it; a magma
+a ghast shoots fireballs that the player can hit back to kill it; a hoglin
+charges the player and throws it, and keeps away from warped fungus; a magma
 cube hops at the player, hurts it at a touch and splits when killed.

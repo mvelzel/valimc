@@ -40162,6 +40162,102 @@
       }
     ]
   },
+  "minecraft:entities/hoglin": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/hoglin",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:porkchop",
+            "modifier": [
+              {
+                "count": {
+                  "min": 2,
+                  "max": 4,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "condition": {
+                  "terms": [
+                    {
+                      "predicate": {
+                        "minecraft:flags": {
+                          "is_on_fire": true
+                        }
+                      },
+                      "entity": "this",
+                      "type": "minecraft:entity_properties"
+                    },
+                    {
+                      "predicate": {
+                        "minecraft:equipment": {
+                          "mainhand": {
+                            "predicates": {
+                              "minecraft:enchantments": [
+                                {
+                                  "enchantments": "#minecraft:smelts_loot"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "entity": "direct_attacker",
+                      "type": "minecraft:entity_properties"
+                    }
+                  ],
+                  "type": "minecraft:any_of"
+                },
+                "type": "minecraft:furnace_smelt"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:leather",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/husk": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/husk",

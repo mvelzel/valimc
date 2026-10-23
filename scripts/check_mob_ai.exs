@@ -224,7 +224,18 @@ setup = fn body, m ->
         %{body | mob: mob, data: data}
     end
 
-  if m["baby"] do
+  # A baby hoglin is an ageable mob's: its age, a baby's attack damage.
+  body =
+    if m["baby"] == true and m["type"] == "minecraft:hoglin" do
+      attributes =
+        Map.put(body.mob.attributes, "minecraft:attack_damage", %{base: 0.5, modifiers: []})
+
+      %{body | data: %{body.data | age: -24_000}, mob: %{body.mob | attributes: attributes}}
+    else
+      body
+    end
+
+  if m["baby"] == true and m["type"] != "minecraft:hoglin" do
     speed = %{base: nil, modifiers: [{"minecraft:baby", Valimc.Data.Float32.round(0.2), 1}]}
     attributes = Map.put(body.mob.attributes, "minecraft:movement_speed", speed)
     %{body | data: %{body.data | baby: true}, mob: %{body.mob | attributes: attributes}}
@@ -245,6 +256,9 @@ kind_data = fn
 
   %{type: "minecraft:endermite", data: data} ->
     %{"life" => data.life}
+
+  %{type: "minecraft:hoglin", data: data} ->
+    %{"age" => data.age}
 
   %{type: type, data: data, mob: mob} when type in ~w(minecraft:magma_cube minecraft:slime) ->
     %{

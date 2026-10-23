@@ -122,6 +122,44 @@ defmodule Valimc.AI.Behaviors do
     def stop(state, self), do: {state, Brain.erase(self, :look_target)}
   end
 
+  defmodule LookSometimes do
+    @moduledoc false
+    @behaviour Valimc.AI.Behavior
+
+    # `Ticker.tickDownAndCheck`: a fresh wait (none taken), else the
+    # countdown's end.
+    def try_start(b, self) do
+      if Brain.conditions?(self, b.conditions) do
+        {target, self} =
+          Sensors.visible_closest(self, fn e ->
+            b.predicate.(e) and World.distance_sq(self, e) <= b.max
+          end)
+
+        cond do
+          target == nil ->
+            {false, b, self}
+
+          b.ticks == 0 ->
+            {min, max} = b.interval
+            {n, self} = Behavior.level_int(self, max - min + 1)
+            {false, %{b | ticks: min + n - 1}, self}
+
+          b.ticks - 1 == 0 ->
+            self = Brain.set(self, :look_target, {:entity, World.ref(target), true})
+            {true, %{b | ticks: 0, running: true}, self}
+
+          true ->
+            {false, %{b | ticks: b.ticks - 1}, self}
+        end
+      else
+        {false, b, self}
+      end
+    end
+
+    def tick_or_stop(b, self), do: {%{b | running: false}, self}
+    def stop(b, self), do: {%{b | running: false}, self}
+  end
+
   @doc "`LookAtTargetSink(min, max)`."
   def look_sink(min, max), do: Behavior.timed(LookSink, [look_target: :present], {min, max})
 
@@ -362,6 +400,69 @@ defmodule Valimc.AI.Behaviors do
       one_shot
       | trigger: fn self -> if predicate.(self), do: trigger.(self), else: {false, self} end
     }
+
+  @doc """
+  `BecomePassiveIfMemoryPresent.create(memory, duration)` (VMC-043d): with
+  `memory` held and not yet pacified, pacified for `duration` ticks and no
+  longer attacking.
+  """
+  def become_passive(memory, duration) do
+    Behavior.one_shot(
+      [{:attack_target, :registered}, {:pacified, :absent}, {memory, :present}],
+      fn self ->
+        {true, self |> Brain.set(:pacified, true, duration) |> Brain.erase(:attack_target)}
+      end
+    )
+  end
+
+  @doc """
+  `SetEntityLookTargetSometimes.create(maxDist, interval)` (VMC-043d): with
+  an entity in sight within `distance` (`predicate` on it), a look at the
+  nearest once its ticker, counting down from a wait drawn from the
+  level's random within `{min, max}`, runs out.
+  """
+  def look_sometimes(predicate, distance, {min, max}),
+    do: %{
+      kind: __MODULE__.LookSometimes,
+      conditions: [look_target: :absent, nearest_visible_living_entities: :present],
+      predicate: predicate,
+      max: Float32.round(Float32.round(distance) * Float32.round(distance)),
+      interval: {min, max},
+      ticks: 0
+    }
+
+  @doc """
+  `BabyFollowAdult.create(followRange, speed)` (VMC-043d): a baby farther
+  than the range's least from the adult it sees, but within its most and
+  one, walks toward it (stopping a block short of the least) and looks at it.
+  """
+  def baby_follow_adult({min, max}, speed) do
+    Behavior.one_shot(
+      [nearest_visible_adult: :present, look_target: :registered, walk_target: :absent],
+      fn self ->
+        adult = World.entity(self.world, Brain.get(self, :nearest_visible_adult))
+        baby = Valimc.AI.Mobs.hook(self.type, :young?, [self], false)
+
+        if baby and adult != nil and World.distance_sq(self, adult) < (max + 1) * (max + 1) and
+             not (World.distance_sq(self, adult) < min * min) do
+          ref = World.ref(adult)
+
+          self =
+            self
+            |> Brain.set(:look_target, {:entity, ref, true})
+            |> Brain.set(:walk_target, %{
+              target: {:entity, ref, false},
+              speed: Float32.round(speed),
+              close: min - 1
+            })
+
+          {true, self}
+        else
+          {false, self}
+        end
+      end
+    )
+  end
 
   @doc "Whether a sensed entity is of `kind` (`:player`, or a mob type)."
   def is?(%{kind: :player}, :player), do: true

@@ -242,6 +242,14 @@ defmodule Valimc.AI.Behaviors.Fight do
     end)
   end
 
+  @doc "`BehaviorUtils.isOtherTargetMuchFurtherAwayThanCurrentAttackTarget`."
+  def much_farther?(self, other, by) do
+    case World.entity(self.world, Brain.get(self, :attack_target)) do
+      nil -> false
+      current -> World.distance_sq(self, other) > World.distance_sq(self, current) + by * by
+    end
+  end
+
   @doc """
   `CopyMemoryWithExpiry.create(predicate, source, target, {min, max})`: a
   copy of `source` into an empty `target` for a duration drawn from the

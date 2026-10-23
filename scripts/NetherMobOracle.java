@@ -104,6 +104,22 @@ public class NetherMobOracle {
     pool.addAll(MobAiOracle.box(-2, 64, -2, 2, 64, 2, Blocks.LAVA.defaultBlockState()));
     cases.add(MobAiOracle.run(level, "magma_cube_lava", pool, List.of(new MobAiOracle.Spawn("minecraft:magma_cube", new Vec3(.5, 64, .5), 0, 151L,
       Map.<String, Object>of("size", 1))), List.of(), List.of(), 200));
+    // A hoglin goes for a survival player, hits it every two seconds and throws it.
+    cases.add(MobAiOracle.run(level, "hoglin_attack", floor, List.of(new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(.5, 64, .5), 0, 157L)),
+      List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 4.5), "survival", null)), List.of(), 200));
+    // A warped fungus near it: pacified, it walks away from it and leaves the player be.
+    var fungus = new ArrayList<>(floor);
+    fungus.add(new MobAiOracle.Block(2, 64, 1, Blocks.WARPED_FUNGUS.defaultBlockState()));
+    fungus.add(new MobAiOracle.Block(2, 63, 1, Blocks.WARPED_NYLIUM.defaultBlockState()));
+    cases.add(MobAiOracle.run(level, "hoglin_repellent", fungus, List.of(new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(.5, 64, .5), 0, 163L)),
+      List.of(new MobAiOracle.Stand(new Vec3(-6.5, 64, 4.5), "survival", null)), List.of(), 200));
+    // A baby with an adult: both go for the player; hit, the baby flees it.
+    cases.add(MobAiOracle.run(level, "hoglin_baby_hit", floor, List.of(new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(-3.5, 64, 2.5), 0, 167L),
+      new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(.5, 64, .5), 0, 173L, Map.of("baby", true))),
+      List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, -4.5), "survival", null)), List.of(new MobAiOracle.Hit(20, 0, 1, 1.0F)), 200));
+    // Alone, it wanders and looks about.
+    cases.add(MobAiOracle.run(level, "hoglin_idle", floor, List.of(new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(.5, 64, .5), 90, 179L)),
+      List.of(), List.of(), 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -114,6 +130,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage; magma cube hop, attack, lava).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage; magma cube hop, attack, lava; hoglin attack, repellent, baby hit, idle).");
   }
 }

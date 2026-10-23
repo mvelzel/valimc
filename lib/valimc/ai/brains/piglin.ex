@@ -411,19 +411,11 @@ defmodule Valimc.AI.Brains.Piglin do
       not attackable_ignoring_sight?(self, attacker) ->
         self
 
-      much_farther?(self, attacker, 4.0) ->
+      Fight.much_farther?(self, attacker, 4.0) ->
         self
 
       true ->
         self |> set_anger(attacker) |> broadcast_anger(attacker)
-    end
-  end
-
-  # `BehaviorUtils.isOtherTargetMuchFurtherAwayThanCurrentAttackTarget`.
-  defp much_farther?(self, other, by) do
-    case World.entity(self.world, Brain.get(self, :attack_target)) do
-      nil -> false
-      current -> World.distance_sq(self, other) > World.distance_sq(self, current) + by * by
     end
   end
 
@@ -855,7 +847,7 @@ defmodule Valimc.AI.Brains.Piglin do
                     do: state
 
     def scan(self) do
-      self = Brain.set(self, :nearest_repellent, repellent(self))
+      self = Brain.set(self, :nearest_repellent, Sensors.repellent(self, @repellents))
       {visible, self} = Sensors.visible_all(self)
       found = Enum.reduce(visible, %{adults: [], hoglins: 0}, &sort(&1, &2, self))
       adults = Enum.reverse(found.adults)
@@ -925,25 +917,5 @@ defmodule Valimc.AI.Brains.Piglin do
          do: Map.put_new(found, :zombified, m)
 
     defp zombified(_m, found), do: found
-
-    # `findBlocksInBoxByManhattanDistance(pos, 8, 4)`: the first repellent in
-    # order of Manhattan depth, then x, then y, then z (positive before its mirror).
-    defp repellent(self) do
-      {x, y, z} = Valimc.AI.Self.block(self)
-      box = {x - 8, y - 4, z - 8, x + 8, y + 4, z + 8}
-
-      case World.find(self.world, box, @repellents) do
-        [] ->
-          nil
-
-        found ->
-          found
-          |> Enum.min_by(fn {{px, py, pz}, _} ->
-            {dx, dy, dz} = {px - x, py - y, pz - z}
-            {abs(dx) + abs(dy) + abs(dz), dx, dy, if(dz >= 0, do: 0, else: 1)}
-          end)
-          |> elem(0)
-      end
-    end
   end
 end

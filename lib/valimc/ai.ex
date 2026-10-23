@@ -126,9 +126,9 @@ defmodule Valimc.AI do
       # A family's own bounding box (a shulker's lid), else the usual one.
       box: Mobs.hook(type, :box, [body, position], nil),
       alive: Mob.alive?(mob),
-      # A baby by its family's flag (zombies, piglins); a hoglin hunters may
-      # hunt (VMC-043d).
-      baby: Map.get(body.data, :baby, false),
+      # A baby by its family's flag (zombies, piglins) or age (a hoglin); a
+      # hoglin hunters may hunt (VMC-043d).
+      baby: Mobs.hook(type, :young?, [body], Map.get(body.data, :baby, false)),
       huntable: not Map.get(body.data, :cannot_be_hunted, false),
       target: mind && mind.target,
       in_love: if(animal, do: body.data.in_love, else: 0),

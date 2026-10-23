@@ -138,6 +138,22 @@ defmodule Valimc.Player.Hurt do
             true -> sound(state, "minecraft:entity.player.hurt", 1.0, 1.0)
           end
 
+        # A push the attacker adds when its hit takes (a hoglin's throw,
+        # VMC-043d).
+        state =
+          case hit[:push] do
+            {px, py, pz} when result in [:hurt, :dead] ->
+              motion = state.player.motion
+              {vx, vy, vz} = motion.velocity
+              velocity = {vx + px, vy + py, vz + pz}
+              state = %{state | player: %{state.player | motion: %{motion | velocity: velocity}}}
+              Movement.send_velocity(state, velocity)
+              state
+
+            _ ->
+              state
+          end
+
         # What the attacker plays when its hit takes (a cube's attack
         # sound, VMC-043d).
         state =

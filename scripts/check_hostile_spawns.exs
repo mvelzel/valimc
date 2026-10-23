@@ -167,7 +167,7 @@ checked =
         drop_chances: Map.new(mob.drop_chances, fn {s, v} -> {Atom.to_string(s), v} end),
         left_handed: mob.left_handed,
         can_pick_up_loot: mob.can_pick_up_loot,
-        baby: Map.get(self.data, :baby, false),
+        baby: AI.Mobs.hook(type, :young?, [self], Map.get(self.data, :baby, false)),
         can_break_doors: Map.get(self.data, :can_break_doors),
         hunted_recently: self.mind.brain && AI.Brain.ttl(self, :hunted_recently),
         attributes: got_attributes,

@@ -13,6 +13,8 @@ defmodule Valimc.AI.Sensors do
   - `HurtBy` (`HurtBySensor`): the last damage within 40 ticks and who dealt it.
   - `Piglin` (`PiglinSpecificSensor`): the players it would attack (no gold
     armor) and those holding what it loves, adult piglins near and in sight.
+  - `NearestAdult` (`AdultSensor`, VMC-043d): the nearest adult of its own
+    type it sees.
 
   Visibility is `Sensor.isEntityTargetable`: non-combat targeting within
   the follow range, in sight.
@@ -114,6 +116,47 @@ defmodule Valimc.AI.Sensors do
         {visible, self} = targetable?(self, entity)
         memory = %{memory | seen: Map.put(seen, ref, visible)}
         {visible, Brain.set(self, :nearest_visible_living_entities, memory)}
+    end
+  end
+
+  @doc """
+  `findBlocksInBoxByManhattanDistance(pos, 8, 4)` for a block state in
+  `states`: the first in order of Manhattan depth, then x, then y, then z
+  (positive before its mirror), or nil (VMC-043d: repellents).
+  """
+  def repellent(self, states) do
+    {x, y, z} = Self.block(self)
+    box = {x - 8, y - 4, z - 8, x + 8, y + 4, z + 8}
+
+    case World.find(self.world, box, states) do
+      [] ->
+        nil
+
+      found ->
+        found
+        |> Enum.min_by(fn {{px, py, pz}, _} ->
+          {dx, dy, dz} = {px - x, py - y, pz - z}
+          {abs(dx) + abs(dy) + abs(dz), dx, dy, if(dz >= 0, do: 0, else: 1)}
+        end)
+        |> elem(0)
+    end
+  end
+
+  defmodule NearestAdult do
+    @moduledoc false
+    alias Valimc.AI.Sensors
+
+    def scan(self) do
+      if Brain.has?(self, :nearest_visible_living_entities) do
+        {adult, self} =
+          Sensors.visible_closest(self, fn e ->
+            Map.get(e, :type) == self.type and not Map.get(e, :baby, false)
+          end)
+
+        Brain.set(self, :nearest_visible_adult, World.ref(adult))
+      else
+        self
+      end
     end
   end
 

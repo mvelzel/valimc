@@ -60,7 +60,7 @@ public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
-      "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast", "minecraft:magma_cube",
+      "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast", "minecraft:magma_cube", "minecraft:hoglin",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
@@ -98,6 +98,9 @@ public class MobAiOracle {
       "minecraft:entity.witch.drink", "minecraft:entity.witch.throw",
       // A phantom's swoop.
       "minecraft:entity.phantom.swoop",
+      // A hoglin's activities and attack.
+      "minecraft:entity.hoglin.ambient", "minecraft:entity.hoglin.angry", "minecraft:entity.hoglin.retreat",
+      "minecraft:entity.hoglin.attack",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -579,6 +582,13 @@ public class MobAiOracle {
     public boolean isConverting() { return false; }
   }
 
+  static class NetherHoglin extends net.minecraft.world.entity.monster.hoglin.Hoglin {
+    NetherHoglin(Probe level) { super(EntityTypes.HOGLIN, level); }
+    public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
+    // The Nether's: it does not zombify (VMC-043d).
+    public boolean isConverting() { return false; }
+  }
+
   /**
    * A fresh mob of `type`: the subclasses above where the probe needs one
    * (no team, no conversions), otherwise the type's own (families add a
@@ -590,6 +600,7 @@ public class MobAiOracle {
       case "minecraft:pig" -> new Pig(level);
       case "minecraft:piglin" -> new Piglin(level);
       case "minecraft:villager" -> new VillageOracle.Villager(level);
+      case "minecraft:hoglin" -> new NetherHoglin(level);
       // Any other type as its own factory makes it (no `finalizeSpawn`).
       default -> (net.minecraft.world.entity.Mob)BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(type)).create(level, EntitySpawnReason.COMMAND);
     };
@@ -1086,6 +1097,7 @@ public class MobAiOracle {
       var control = c.getMoveControl();
       o.addProperty("jump_delay", field(control.getClass(), "jumpDelay").getInt(control));
     }
+    if (m instanceof net.minecraft.world.entity.monster.hoglin.Hoglin h) o.addProperty("age", h.getAge());
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
     if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
       o.addProperty("got_fish", d.gotFish()); o.addProperty("moistness", d.getMoistnessLevel());
@@ -1140,8 +1152,10 @@ public class MobAiOracle {
     var avoid = net.minecraft.world.entity.schedule.Activity.AVOID;
     var idle = net.minecraft.world.entity.schedule.Activity.IDLE;
     var celebrate = net.minecraft.world.entity.schedule.Activity.CELEBRATE;
-    // An axolotl's one RunOne: tempted or following an adult (idle, 2).
+    // An axolotl's one RunOne: tempted or following an adult (idle, 2); a
+    // hoglin's two (VMC-043d); a piglin's five, by priority.
     var slots = byPriority.size() < 10 ? List.of(Map.entry(2, idle))
+        : !((Map<?, ?>)byPriority.get(15)).containsKey(celebrate) ? List.of(Map.entry(11, avoid), Map.entry(17, idle))
         : List.of(Map.entry(11, avoid), Map.entry(12, avoid), Map.entry(15, idle), Map.entry(15, celebrate), Map.entry(16, idle));
     for (var slot : slots) {
       var gate = ((Set<?>)((Map<?, ?>)byPriority.get(slot.getKey())).get(slot.getValue())).iterator().next();
@@ -1151,9 +1165,10 @@ public class MobAiOracle {
     return out;
   }
 
-  // The mobs with a brain the oracle seeds and reports: piglins, axolotls.
+  // The mobs with a brain the oracle seeds and reports: piglins, axolotls, hoglins.
   static boolean brained(net.minecraft.world.entity.Mob m) {
-    return m instanceof Piglin || m instanceof net.minecraft.world.entity.animal.axolotl.Axolotl;
+    return m instanceof Piglin || m instanceof net.minecraft.world.entity.animal.axolotl.Axolotl
+        || m instanceof net.minecraft.world.entity.monster.hoglin.Hoglin;
   }
 
   static double speed(PathNavigation nav) throws Exception {

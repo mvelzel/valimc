@@ -1112,6 +1112,21 @@
         ]
       ]
     },
+    "minecraft:hoglin": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.hoglin.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [],
+      "targets": []
+    },
     "minecraft:husk": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3798,6 +3813,10 @@
     "minecraft:entity.witch.drink": 1781,
     "minecraft:entity.witch.throw": 1783,
     "minecraft:entity.phantom.swoop": 1264,
+    "minecraft:entity.hoglin.ambient": 829,
+    "minecraft:entity.hoglin.angry": 830,
+    "minecraft:entity.hoglin.retreat": 835,
+    "minecraft:entity.hoglin.attack": 831,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,

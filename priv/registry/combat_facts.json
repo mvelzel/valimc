@@ -1867,6 +1867,7 @@
     "minecraft:zombified_piglin": 5,
     "minecraft:ghast": 5,
     "minecraft:magma_cube": 0,
+    "minecraft:hoglin": 5,
     "minecraft:husk": 5,
     "minecraft:zombie_villager": 5,
     "minecraft:drowned": 5,
@@ -1955,6 +1956,12 @@
       "death_sound": "minecraft:entity.magma_cube.death_small",
       "sound_source": 5,
       "animal": false
+    },
+    "minecraft:hoglin": {
+      "hurt_sound": "minecraft:entity.hoglin.hurt",
+      "death_sound": "minecraft:entity.hoglin.death",
+      "sound_source": 5,
+      "animal": true
     },
     "minecraft:husk": {
       "hurt_sound": "minecraft:entity.husk.hurt",
@@ -2201,6 +2208,8 @@
     "minecraft:entity.ghast.death": 710,
     "minecraft:entity.magma_cube.hurt_small": 968,
     "minecraft:entity.magma_cube.death_small": 953,
+    "minecraft:entity.hoglin.hurt": 834,
+    "minecraft:entity.hoglin.death": 833,
     "minecraft:entity.husk.hurt": 884,
     "minecraft:entity.husk.death": 883,
     "minecraft:entity.zombie_villager.hurt": 1908,

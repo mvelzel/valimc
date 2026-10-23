@@ -6,7 +6,8 @@ defmodule Valimc.MobAiConnectionTest do
   fire with its fireballs; zombified piglins leave the player alone until it
   hits one, then all turn on it; a piglin leaves a player in a golden
   helmet alone until it hits it. A magma cube hurts the player it touches
-  and splits in halves when it dies.
+  and splits in halves when it dies. A hoglin charges the player, hits and
+  throws it.
   """
   use ExUnit.Case, async: false
   @moduletag :tcp
@@ -244,6 +245,17 @@ defmodule Valimc.MobAiConnectionTest do
       end,
       10_000
     )
+  end
+
+  test "a hoglin charges the player and hits it", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    uuid = <<19::128>>
+    owner = summon(ctx, "minecraft:hoglin", uuid, 5.0)
+
+    # Half its 6 and up to 5 more at normal difficulty, then a throw.
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 17.0 end, 30_000)
+    assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
   end
 
   test "a ghast charges and its fireball hurts the player", ctx do

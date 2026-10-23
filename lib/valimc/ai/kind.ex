@@ -66,7 +66,7 @@ defmodule Valimc.AI.Kind do
     and `jumpInLiquid` in lava, for the kernel), `loot_properties/1` (what
     its loot table reads of it), `experience/1` (its `xpReward`) and
     `split/2` (the bodies a dead one leaves as it is removed, with their
-    positions).
+    positions); `young?/1` (`isBaby` by its own data: a hoglin's age).
   - Its targets: `can_attack?/2` (`canAttack` beyond `Mob`'s, VMC-044a2).
   - Its drinks: `consume_sound/2` (`OverrideConsumeSound.getConsumeSound`
     of a stack, nil for the item's own; VMC-044a4).
@@ -134,6 +134,7 @@ defmodule Valimc.AI.Kind do
   @callback step_sound(Self.t()) :: Self.t()
   @callback swim_volume() :: float
   @callback stable_destination?(Self.t(), tuple) :: boolean
+  @callback young?(struct) :: boolean
 
   @optional_callbacks leashable?: 0,
                       volume: 1,
@@ -141,6 +142,7 @@ defmodule Valimc.AI.Kind do
                       loot_properties: 1,
                       experience: 1,
                       split: 2,
+                      young?: 1,
                       navigation: 0,
                       brain: 0,
                       finalize: 2,
