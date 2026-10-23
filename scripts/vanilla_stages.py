@@ -1044,6 +1044,14 @@ STAGES = [
         ('java', 'EntityOracle', 'verify', '@elixir-entities.json'),
     ]),
     # VMC-015i: whole vanilla zombie ticks over block scenes against the kernel's mob tick.
+    ('spawn_facts', [
+        ('regen', 'NaturalSpawnOracle', 'facts', '@spawn-facts.json'),
+        ('same', '@spawn-facts.json', 'priv/registry/spawn_facts.json'),
+    ]),
+    ('natural_spawning', [
+        ('java', 'NaturalSpawnOracle', 'fixtures', '@natural-spawning.json'),
+        ('check', 'check_natural_spawning.exs', '@natural-spawning.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

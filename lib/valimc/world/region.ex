@@ -39,6 +39,7 @@ defmodule Valimc.World.Region do
     GameTick,
     RegionData,
     RegionStorage,
+    Spawning,
     TickClock,
     TickPipeline
   }
@@ -461,6 +462,10 @@ defmodule Valimc.World.Region do
   def hurt_entity({pid, epoch}, uuid, hit),
     do: call(pid, {:hurt_entity, epoch, uuid, hit}, budget(pid, 1000))
 
+  @doc "A name tag's `name` (a text component) on the mob `uuid`: `:ok` (VMC-042a)."
+  def name_entity({pid, epoch}, uuid, name),
+    do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))
+
   @doc "`/kill` of the entities `uuids` of a section: `{:ok, killed}` (VMC-043a)."
   def kill_entities({pid, epoch}, uuids),
     do: call(pid, {:kill_entities, epoch, uuids}, budget(pid, 1000))
@@ -569,7 +574,9 @@ defmodule Valimc.World.Region do
       # Players this group hosts (`Valimc.Player.Host`): uuid => entry.
       players: %{},
       # Players that left, until their file holds their last frame: uuid => storage.
-      player_leaving: %{}
+      player_leaving: %{},
+      # Natural spawning's randoms (VMC-042a), nil where it is off.
+      spawning: if(Spawning.enabled?(anchor), do: Spawning.new())
     }
   end
 
@@ -1284,7 +1291,7 @@ defmodule Valimc.World.Region do
   ## Ticks and lifecycle
 
   defp run_tick(state, tick, now) do
-    state = track_players(state)
+    state = state |> track_players() |> spawn_mobs(tick)
 
     state.sections
     |> Map.keys()
@@ -1292,6 +1299,45 @@ defmodule Valimc.World.Region do
     |> Enum.reduce(state, fn key, acc ->
       acc |> put_resource(key, TickPipeline.run(enter(acc, key), tick, now)) |> deliver_rules(key)
     end)
+  end
+
+  # Natural spawning and despawning (VMC-042a) over the group's sections,
+  # before their entities tick, as vanilla's chunk source ticks before them.
+  defp spawn_mobs(%{spawning: nil} = state, _tick), do: state
+  defp spawn_mobs(state, _tick) when map_size(state.sections) == 0, do: state
+
+  defp spawn_mobs(state, tick) do
+    case Host.spawn_players(state) do
+      [] ->
+        state
+
+      players ->
+        resources = Map.new(state.sections, fn {key, s} -> {key, s.resource} end)
+
+        group = %{
+          sections: resources,
+          stores: for({_, r} <- resources, do: r.blocks.ref),
+          absent: Enum.flat_map(resources, fn {_, r} -> MapSet.to_list(r.generation.absent) end),
+          players: players,
+          spawning: state.spawning,
+          environment: Spawning.environment(state.dimension),
+          game_time: tick
+        }
+
+        {spawning, plan} = Spawning.plan(group)
+
+        Enum.reduce(plan, %{state | spawning: spawning}, fn {key, {records, discards, resets}},
+                                                            acc ->
+          if Map.has_key?(acc.sections, key),
+            do:
+              put_resource(
+                acc,
+                key,
+                RegionData.spawned(enter(acc, key), Enum.reverse(records), discards, resets)
+              ),
+            else: acc
+        end)
+    end
   end
 
   # Hosted players' trackers tick first; each section publishes the players

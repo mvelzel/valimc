@@ -105,7 +105,11 @@ defmodule Valimc.Entity.MobVitals do
   defp breathe(type, mob, events, ticked) do
     submerged = Air.submerged?(ticked.eye_water, ticked.eye_state)
     effects = mob.living.effects
-    breathes = tagged?(type, "minecraft:can_breathe_under_water")
+
+    breathes =
+      tagged?(type, "minecraft:can_breathe_under_water") or
+        Valimc.Data.SpawnFacts.water_breather?(type)
+
     oxygen = Mob.base(type, mob.attributes, "minecraft:oxygen_bonus")
     draw = if oxygen > 0 and submerged, do: :rand.uniform_real(), else: 0.0
     policy = if breathes, do: :hold, else: Air.policy(effects)

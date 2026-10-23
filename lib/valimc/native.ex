@@ -49,7 +49,11 @@ defmodule Valimc.Native do
     # A primed TNT or falling block scans as an item does (VMC-050a).
     physics_block_bodies: {120, :physics_block_bodies_dirty},
     # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
-    physics_projectiles: {120, :physics_projectiles_dirty}
+    physics_projectiles: {120, :physics_projectiles_dirty},
+    # Per simulated chunk and category: a start and up to three packs, with
+    # the despawn checks (`World.Spawning`, VMC-042a; nine sections' 4,032
+    # units took at most 0.7 ms, under 200 ns a unit).
+    natural_spawn: {500, :natural_spawn_dirty}
   }
 
   @doc """
@@ -213,6 +217,17 @@ defmodule Valimc.Native do
 
   def physics_player_rest(_view, _player, _border), do: :erlang.nif_error(:nif_not_loaded)
 
+  ## Natural spawning (VMC-042a)
+
+  def spawn_facts_install(_facts), do: :erlang.nif_error(:nif_not_loaded)
+  def natural_spawn(_region, _siblings, _absent, _request), do: :erlang.nif_error(:nif_not_loaded)
+
+  def natural_spawn_dirty(_region, _siblings, _absent, _request),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def spawn_generated(_region, _siblings, _absent, _environment, _chunks),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   ## Codec
 
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
@@ -284,6 +299,11 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   ## Parity and benchmarks (dev, test and bench builds)
+
+  def spawn_scene(_case, _biome, _types), do: :erlang.nif_error(:nif_not_loaded)
+
+  def spawn_despawn(_type, _difficulty, _distance, _persistent),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_player_parity(_op, _args), do: :erlang.nif_error(:nif_not_loaded)
 

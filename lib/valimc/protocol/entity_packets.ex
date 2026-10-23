@@ -225,7 +225,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :eye_item,
               :cloud_radius,
               :cloud_waiting,
-              :cloud_particle
+              :cloud_particle,
+              :custom_name
             ] do
     fact = EntityTypes.field(name)
 
@@ -239,6 +240,10 @@ defmodule Valimc.Protocol.EntityPackets do
         name when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :cloud_waiting] ->
           check(is_boolean(value), "invalid flag")
           Wire.bool(value)
+
+        # An optional text component (a name tag's, VMC-042a).
+        :custom_name ->
+          if value == nil, do: <<0>>, else: [<<1>>, Valimc.Text.Codec.encode(value)]
 
         name when name in [:item_stack, :thrown_item, :eye_item] ->
           stack_bytes(value)

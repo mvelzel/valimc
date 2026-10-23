@@ -18,6 +18,7 @@ defmodule Valimc.World.GameRules do
     mob_drops: true,
     # VMC-037o: fireballs' fire and craters, a pearl's endermites.
     mob_griefing: true,
+    spawn_mobs: true,
     spawn_monsters: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
     lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),

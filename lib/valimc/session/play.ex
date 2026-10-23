@@ -243,6 +243,9 @@ defmodule Valimc.Session.Play do
       "attack" ->
         Valimc.Player.Attack.attack(state, payload)
 
+      "interact" ->
+        Valimc.Player.Interact.interact(state, payload)
+
       "punch" ->
         Valimc.Player.Attack.punch(state)
 

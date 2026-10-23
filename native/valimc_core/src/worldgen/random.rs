@@ -109,6 +109,22 @@ impl Random {
         }
     }
 
+    /// A legacy random at its 48-bit state (as `legacy_state` gave it).
+    pub fn legacy_at(state: u64) -> Self {
+        Random {
+            state: State::Legacy(state & LCG_MASK),
+            gaussian: Gaussian::new(),
+        }
+    }
+
+    /// A legacy random's 48-bit state, `None` for the other kinds.
+    pub fn legacy_state(&self) -> Option<u64> {
+        match self.state {
+            State::Legacy(seed) => Some(seed),
+            _ => None,
+        }
+    }
+
     /// `new WorldgenRandom(new XoroshiroRandomSource(seed))`.
     pub fn worldgen(seed: i64) -> Self {
         let (lo, hi) = upgrade_seed(seed);

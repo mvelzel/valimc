@@ -1,0 +1,527 @@
+//! Natural spawning (VMC-042a) over the Region resource: `spawn_facts_install`
+//! parses the spawn facts once; `natural_spawn` (a normal NIF and its dirty
+//! twin) runs one tick's spawning for a group's sections, `spawn_generated`
+//! the creatures new chunks get. Both read the section's store and its
+//! group's others without changing them, and draw from the random states
+//! the caller passes in and gets back. `spawn_scene` (parity builds) replays
+//! an oracle scene.
+
+use crate::region::Region;
+use rustler::{NifMap, NifResult, ResourceArc};
+use std::collections::HashSet;
+use std::sync::{MutexGuard, OnceLock};
+use valimc_core::column::ColumnStore;
+use valimc_core::physics::Aabb;
+use valimc_core::spawning::facts::Facts;
+use valimc_core::spawning::level::{Level, Live};
+use valimc_core::spawning::rules::{Player, World};
+use valimc_core::spawning::spawner::{self, Counted, Despawn, Drawn, SpawnState, Spawned, Tick};
+use valimc_core::worldgen::random::Random;
+
+pub(crate) static SPAWN: OnceLock<Facts> = OnceLock::new();
+
+/// Install the spawn facts (`Valimc.Data.SpawnFacts.install!`); a second
+/// install keeps the first.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn spawn_facts_install(facts: rustler::Term) -> NifResult<(rustler::Atom, bool)> {
+    crate::reply((|| {
+        if SPAWN.get().is_some() {
+            return Ok(false);
+        }
+        let json = crate::worldgen::json_of(facts)?;
+        Ok(SPAWN.set(Facts::parse(&json)?).is_ok())
+    })())
+}
+
+/// A mob of the group: `{id, type, {x, y, z}, flags, idle, lived}`.
+type Mob = (u32, u16, (f64, f64, f64), u8, i32, i32);
+
+/// A chunk's generated creatures.
+type Generated = Vec<((i32, i32), Vec<Out>)>;
+
+/// The tick's environment as the group sends it.
+#[derive(NifMap)]
+pub(crate) struct Environment {
+    dimension: String,
+    zoom_seed: i64,
+    seed: i64,
+    sea_level: i32,
+    max_y: i32,
+    darken: i32,
+    thundering: bool,
+    difficulty: i32,
+    slime_chance: f64,
+    border: (f64, f64, f64, f64),
+}
+
+/// One tick's spawning and despawning: the group's players `{x, y, z,
+/// spectator, creative}`, its living entities' boxes, its mobs `{id, type,
+/// {x, y, z}, flags, idle, lived}` (flags: 1 persistent, 2 in a simulated
+/// chunk, so its despawn is checked), its simulated chunks, the world spawn
+/// here, whether monsters and persistent categories spawn, and the level
+/// random's and the mobs' random's states.
+#[derive(NifMap)]
+pub(crate) struct Request {
+    environment: Environment,
+    players: Vec<(f64, f64, f64, bool, bool)>,
+    bodies: Vec<(f64, f64, f64, f64, f64, f64)>,
+    mobs: Vec<Mob>,
+    chunks: Vec<(i32, i32)>,
+    respawn: Option<(i32, i32, i32)>,
+    enemies: bool,
+    persistent: bool,
+    random: u64,
+    finalize: u64,
+}
+
+type Out = (u16, f64, f64, f64, f32, bool);
+
+fn out(s: &Spawned) -> Out {
+    (s.kind, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.school)
+}
+
+fn world<'a>(
+    level: &'a dyn Level,
+    env: &Environment,
+    players: Vec<Player>,
+    bodies: Vec<Aabb>,
+) -> Result<World<'a>, String> {
+    let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+    let states = crate::facts::STATES
+        .get()
+        .ok_or("block facts not installed")?;
+    let physics = crate::facts::PHYSICS
+        .get()
+        .ok_or("physics facts not installed")?;
+    let dimension = *facts
+        .dimensions
+        .get(&env.dimension)
+        .ok_or_else(|| format!("no spawn facts for {}", env.dimension))?;
+    Ok(World {
+        level,
+        facts,
+        states,
+        table: &physics.shapes,
+        dimension,
+        sea_level: env.sea_level,
+        max_y: env.max_y,
+        darken: env.darken,
+        thundering: env.thundering,
+        difficulty: env.difficulty,
+        seed: env.seed,
+        slime_chance: env.slime_chance as f32,
+        border: [env.border.0, env.border.1, env.border.2, env.border.3],
+        players,
+        bodies: std::cell::RefCell::new(bodies),
+    })
+}
+
+fn lock<'r>(
+    region: &'r Region,
+    siblings: &'r [ResourceArc<Region>],
+) -> Result<Vec<MutexGuard<'r, ColumnStore>>, String> {
+    let mut regions: Vec<&Region> = vec![region];
+    for sibling in siblings {
+        if !regions.iter().any(|r| std::ptr::eq(*r, &**sibling)) {
+            regions.push(sibling);
+        }
+    }
+    regions
+        .iter()
+        .map(|r| r.store.lock().map_err(|_| "poisoned region".to_string()))
+        .collect()
+}
+
+/// The tick's spawns, the mobs it discards and those whose idle time
+/// restarts, and the two randoms' states after it.
+type Natural = (Vec<Out>, Vec<u32>, Vec<u32>, u64, u64);
+
+fn natural(
+    region: &Region,
+    siblings: &[ResourceArc<Region>],
+    absent: Vec<(i32, i32)>,
+    request: Request,
+) -> Result<Natural, String> {
+    let guards = lock(region, siblings)?;
+    let stores: Vec<&ColumnStore> = guards.iter().map(|g| &**g).collect();
+    let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
+    let flags = crate::facts::FLAGS
+        .get()
+        .ok_or("block facts not installed")?;
+    let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+    let live = Live::new(
+        &stores,
+        &absent,
+        flags,
+        request.environment.zoom_seed,
+        facts.plains,
+    );
+    let players = request
+        .players
+        .iter()
+        .map(|&(x, y, z, spectator, creative)| Player {
+            pos: [x, y, z],
+            spectator,
+            creative,
+        })
+        .collect();
+    let bodies = request
+        .bodies
+        .iter()
+        .map(|&(a, b, c, d, e, f)| Aabb::from_array([a, b, c, d, e, f]))
+        .collect();
+    let world = world(&live, &request.environment, players, bodies)?;
+    let block = |p: (f64, f64, f64)| [p.0.floor() as i32, p.1.floor() as i32, p.2.floor() as i32];
+    let mobs: Vec<Counted> = request
+        .mobs
+        .iter()
+        .filter(|m| m.3 & 1 == 0)
+        .map(|m| Counted {
+            kind: m.1,
+            block: block(m.2),
+        })
+        .filter(|m| live.holds((m.block[0] >> 4, m.block[2] >> 4)))
+        .collect();
+    let simulated: HashSet<(i32, i32)> = request
+        .chunks
+        .iter()
+        .copied()
+        .filter(|&c| live.holds(c))
+        .collect();
+    let ticking = |c: (i32, i32)| {
+        simulated.contains(&c)
+            && world.within_border((c.0 * 16) as f64, (c.1 * 16) as f64)
+            && world.within_border((c.0 * 16 + 15) as f64, (c.1 * 16 + 15) as f64)
+    };
+    let state = SpawnState::new(&world, spawner::spawnable_chunks(&world), &mobs);
+    let categories = spawner::categories(&world, &state, request.enemies, request.persistent);
+    let mut tick = Tick {
+        world: &world,
+        state,
+        random: Random::legacy_at(request.random),
+        spawned: Vec::new(),
+        ticking: &ticking,
+        respawn: request.respawn.map(|(x, y, z)| [x, y, z]),
+        caps: true,
+    };
+    // `collectSpawningChunks` then `Util.shuffle` with the level random.
+    let mut chunks: Vec<(i32, i32)> = request
+        .chunks
+        .iter()
+        .copied()
+        .filter(|&c| simulated.contains(&c) && !spawner::players_near(&world, c).is_empty())
+        .collect();
+    chunks.sort();
+    spawner::shuffle(&mut chunks, &mut tick.random);
+    let mut finalize = Random::legacy_at(request.finalize);
+    if !categories.is_empty() {
+        for chunk in chunks {
+            if ticking(chunk) {
+                tick.chunk(chunk, &categories, &mut Drawn(&mut finalize));
+            }
+        }
+    }
+    // `checkDespawn`, after the spawning as vanilla's entity tick.
+    let (mut discarded, mut reset) = (Vec::new(), Vec::new());
+    for &(id, kind, (x, y, z), flags, idle, lived) in &request.mobs {
+        let Some(kind) = facts.kind(kind) else {
+            continue;
+        };
+        if flags & 2 == 0 {
+            continue;
+        }
+        match spawner::despawn(
+            &world,
+            kind,
+            [x, y, z],
+            flags & 1 != 0,
+            idle,
+            lived,
+            &mut finalize,
+        ) {
+            Despawn::Discard => discarded.push(id),
+            Despawn::Reset if idle > 0 => reset.push(id),
+            _ => {}
+        }
+    }
+    let spawned = tick.spawned.iter().map(out).collect();
+    Ok((
+        spawned,
+        discarded,
+        reset,
+        tick.random.legacy_state().unwrap_or(0),
+        finalize.legacy_state().unwrap_or(0),
+    ))
+}
+
+#[rustler::nif]
+fn natural_spawn(
+    region: ResourceArc<Region>,
+    siblings: Vec<ResourceArc<Region>>,
+    absent: Vec<(i32, i32)>,
+    request: Request,
+) -> NifResult<(rustler::Atom, Natural)> {
+    crate::reply(natural(&region, &siblings, absent, request))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn natural_spawn_dirty(
+    region: ResourceArc<Region>,
+    siblings: Vec<ResourceArc<Region>>,
+    absent: Vec<(i32, i32)>,
+    request: Request,
+) -> NifResult<(rustler::Atom, Natural)> {
+    crate::reply(natural(&region, &siblings, absent, request))
+}
+
+/// The creatures generated chunks get (`spawnMobsForChunkGeneration`, each
+/// chunk's random decoration-seeded from the world seed): per chunk its
+/// spawns. Chunk generation reads a level with no entities and no sky
+/// darkening.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn spawn_generated(
+    region: ResourceArc<Region>,
+    siblings: Vec<ResourceArc<Region>>,
+    absent: Vec<(i32, i32)>,
+    environment: Environment,
+    chunks: Vec<(i32, i32)>,
+) -> NifResult<(rustler::Atom, Generated)> {
+    crate::reply((|| {
+        let guards = lock(&region, &siblings)?;
+        let stores: Vec<&ColumnStore> = guards.iter().map(|g| &**g).collect();
+        let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
+        let flags = crate::facts::FLAGS
+            .get()
+            .ok_or("block facts not installed")?;
+        let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+        let live = Live::new(&stores, &absent, flags, environment.zoom_seed, facts.plains);
+        let mut env = environment;
+        env.darken = 0;
+        let world = world(&live, &env, Vec::new(), Vec::new())?;
+        let mut rules = Random::legacy(0);
+        Ok(chunks
+            .into_iter()
+            .filter(|&c| live.holds(c))
+            .map(|c| {
+                let mut random = Random::legacy(0);
+                random.set_decoration_seed(world.seed, c.0 * 16, c.1 * 16);
+                (
+                    c,
+                    spawner::generate(&world, c, &mut random, &mut rules)
+                        .iter()
+                        .map(out)
+                        .collect(),
+                )
+            })
+            .collect())
+    })())
+}
+
+#[cfg(feature = "parity")]
+pub(crate) mod parity {
+    use super::*;
+
+    /// `checkDespawn` of a fresh mob of type `kind` at `distance` east of a
+    /// player at the origin (idle 100 ticks): `{discarded, idle after}`.
+    #[rustler::nif]
+    fn spawn_despawn(
+        kind: u16,
+        difficulty: i32,
+        distance: f64,
+        persistent: bool,
+    ) -> NifResult<(rustler::Atom, (bool, i32))> {
+        crate::reply((|| {
+            let flags = crate::facts::FLAGS
+                .get()
+                .ok_or("block facts not installed")?;
+            let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+            let scene = Scene::new(Vec::new(), Vec::new(), 15, facts.plains, flags);
+            let env = Environment {
+                dimension: "minecraft:overworld".into(),
+                zoom_seed: 0,
+                seed: 0,
+                sea_level: 63,
+                max_y: 319,
+                darken: 0,
+                thundering: false,
+                difficulty,
+                slime_chance: 0.0,
+                border: (-3e7, -3e7, 3e7, 3e7),
+            };
+            let player = Player {
+                pos: [0.5, 64.0, 0.5],
+                spectator: false,
+                creative: false,
+            };
+            let world = world(&scene, &env, vec![player], Vec::new())?;
+            let kind = facts.kind(kind).ok_or("unknown type")?;
+            let mut random = Random::legacy(0);
+            Ok(
+                match spawner::despawn(
+                    &world,
+                    kind,
+                    [0.5 + distance, 64.0, 0.5],
+                    persistent,
+                    100,
+                    0,
+                    &mut random,
+                ) {
+                    Despawn::Discard => (true, 100),
+                    Despawn::Reset => (false, 0),
+                    Despawn::Keep => (false, 100),
+                },
+            )
+        })())
+    }
+    use valimc_core::spawning::facts::Category;
+    use valimc_core::spawning::level::Scene;
+    use valimc_core::spawning::spawner::Recorded;
+    use valimc_core::worldgen::json::Json;
+
+    /// Per run its spawns and the level random's state after them.
+    type Runs = Vec<(Vec<Out>, u64)>;
+
+    fn ints(j: &Json) -> Result<Vec<i32>, String> {
+        j.as_array()?.iter().map(Json::as_i32).collect()
+    }
+
+    fn f64s(j: &Json) -> Result<Vec<f64>, String> {
+        j.as_array()?.iter().map(Json::as_f64).collect()
+    }
+
+    /// Replay one `NaturalSpawnOracle` case (tick or generation), given the
+    /// biome's registry id and each entity's type id (`types`, the scene's
+    /// entities in order): per run `{spawns, random after}`.
+    #[rustler::nif(schedule = "DirtyCpu")]
+    fn spawn_scene(
+        case: rustler::Term,
+        biome: u16,
+        types: Vec<u16>,
+    ) -> NifResult<(rustler::Atom, Runs)> {
+        crate::reply((|| {
+            let case = crate::worldgen::json_of(case)?;
+            let flags = crate::facts::FLAGS
+                .get()
+                .ok_or("block facts not installed")?;
+            let mut fills = Vec::new();
+            for f in case.field("fills")?.as_array()? {
+                let f = ints(f)?;
+                fills.push(([f[0], f[1], f[2]], [f[3], f[4], f[5]], f[6] as u16));
+            }
+            let mut lights = Vec::new();
+            for l in case.field("lights")?.as_array()? {
+                let l = ints(l)?;
+                lights.push(([l[0], l[1], l[2]], l[3]));
+            }
+            let sky = case.field("sky")?.as_i32()? as u8;
+            let scene = Scene::new(fills, lights, sky, biome, flags);
+            let players: Vec<Player> = case
+                .field("players")?
+                .as_array()?
+                .iter()
+                .map(|p| {
+                    let p = f64s(p)?;
+                    Ok(Player {
+                        pos: [p[0], p[1], p[2]],
+                        spectator: p[3] != 0.0,
+                        creative: false,
+                    })
+                })
+                .collect::<Result<_, String>>()?;
+            let facts = SPAWN.get().ok_or("spawn facts not installed")?;
+            let mut mobs = Vec::new();
+            let mut bodies = Vec::new();
+            for (e, &kind) in case.field("entities")?.as_array()?.iter().zip(&types) {
+                let e = e.as_array()?;
+                let (x, y, z) = (e[1].as_f64()?, e[2].as_f64()?, e[3].as_f64()?);
+                mobs.push(Counted {
+                    kind,
+                    block: [x.floor() as i32, y.floor() as i32, z.floor() as i32],
+                });
+                let t = facts.kind(kind).ok_or("unknown entity type")?;
+                bodies.push(World::body(t, x, y, z));
+            }
+            for p in &players {
+                bodies.push(Aabb::new(
+                    [p.pos[0] - 0.3, p.pos[1], p.pos[2] - 0.3],
+                    [p.pos[0] + 0.3, p.pos[1] + 1.8, p.pos[2] + 0.3],
+                ));
+            }
+            let spawn = ints(case.field("spawn")?)?;
+            let env = Environment {
+                dimension: case.field("dimension")?.as_str()?.to_string(),
+                zoom_seed: 0,
+                seed: case.field("seed")?.as_f64()? as i64,
+                sea_level: case.field("sea_level")?.as_i32()?,
+                max_y: 319,
+                darken: case.field("darken")?.as_i32()?,
+                thundering: case.field("thundering")?.as_bool()?,
+                difficulty: case.field("difficulty")?.as_i32()?,
+                slime_chance: case.field("slime_chance")?.as_f64()?,
+                border: (-29_999_984.0, -29_999_984.0, 29_999_984.0, 29_999_984.0),
+            };
+            let overworld = env.dimension == "minecraft:overworld";
+            let chunk = (
+                case.field("chunk_x")?.as_i32()?,
+                case.field("chunk_z")?.as_i32()?,
+            );
+            match case.field("kind")?.as_str()? {
+                "generation" => {
+                    let mut env = env;
+                    env.darken = 0;
+                    let world = world(&scene, &env, Vec::new(), Vec::new())?;
+                    let mut random = Random::legacy(0);
+                    random.set_decoration_seed(world.seed, chunk.0 * 16, chunk.1 * 16);
+                    let mut rules = Random::legacy(0);
+                    let spawned = spawner::generate(&world, chunk, &mut random, &mut rules);
+                    Ok(vec![(spawned.iter().map(out).collect(), 0)])
+                }
+                _ => {
+                    let categories: Vec<Category> = case
+                        .field("categories")?
+                        .as_array()?
+                        .iter()
+                        .map(|c| Category::of(c.as_str()?))
+                        .collect::<Result<_, String>>()?;
+                    let mut runs = Vec::new();
+                    for run in case.field("runs")?.as_array()? {
+                        let run = run.as_array()?;
+                        let start = run[0].as_f64()? as u64;
+                        let schools: Vec<bool> = run[2]
+                            .as_array()?
+                            .iter()
+                            .map(|s| s.as_array().and_then(|s| s[5].as_bool()))
+                            .collect::<Result<_, String>>()?;
+                        let world = world(&scene, &env, players.clone(), bodies.clone())?;
+                        let state = SpawnState::new(&world, 289, &mobs);
+                        let filtered = spawner::categories(
+                            &world,
+                            &state,
+                            env.difficulty != 0,
+                            case.field("persistent")?.as_bool()?,
+                        );
+                        if filtered != categories {
+                            return Err(format!("categories {filtered:?}, vanilla {categories:?}"));
+                        }
+                        let ticking = |_c: (i32, i32)| true;
+                        let mut tick = Tick {
+                            world: &world,
+                            state,
+                            random: Random::legacy_at(start),
+                            spawned: Vec::new(),
+                            ticking: &ticking,
+                            respawn: overworld.then_some([spawn[0], spawn[1], spawn[2]]),
+                            caps: false,
+                        };
+                        tick.chunk(chunk, &categories, &mut Recorded(schools));
+                        runs.push((
+                            tick.spawned.iter().map(out).collect(),
+                            tick.random.legacy_state().unwrap_or(0),
+                        ));
+                    }
+                    Ok(runs)
+                }
+            }
+        })())
+    }
+}

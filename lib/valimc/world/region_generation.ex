@@ -321,6 +321,12 @@ defmodule Valimc.World.RegionGeneration do
     :ok =
       BlockSnapshot.publish_chunks(state.publication, state.blocks, chunks, state.revision)
 
+    # The creatures a chunk gets as it generates (VMC-042a), durable with it.
+    state =
+      if Valimc.World.Spawning.enabled?(state.key),
+        do: RegionData.spawned(state, Valimc.World.Spawning.generated(state, chunks), [], []),
+        else: state
+
     Valimc.Data.Metrics.add(:worldgen_chunks, length(chunks))
 
     # Served chunks next to the new ones were lit with them unknown.

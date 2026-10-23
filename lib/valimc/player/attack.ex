@@ -85,9 +85,12 @@ defmodule Valimc.Player.Attack do
     end
   end
 
-  # The body of network id `id` in reach and owned by this group; items and
-  # orbs are invalid targets (vanilla disconnects for them).
-  defp target(state, id) do
+  @doc """
+  The body of network id `id` in reach and owned by this group:
+  `{:ok, view, owner}`, `:invalid` for an item or orb (vanilla disconnects an
+  attack on them), else `:none`.
+  """
+  def target(state, id) do
     %{x: x, z: z, dimension: dimension} = player = state.player
     {cx, cz} = Grid.chunk_key(x, z)
     chunks = for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}

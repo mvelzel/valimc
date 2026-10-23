@@ -8,5 +8,7 @@ ExUnit.after_suite(fn _ -> File.rm_rf(run_tmp) end)
 ExUnit.start(assert_receive_timeout: 15_000)
 Code.require_file("support/client.ex", __DIR__)
 :ok = Valimc.TestScope.start()
+# Groups spawn no mobs unless a test turns natural spawning on for its scope (VMC-042a).
+Application.put_env(:valimc, :natural_spawning, false)
 # Damage/movement fixtures assert exact health. Food tests explicitly enable recovery.
 :ok = Valimc.World.Clock.configure({:natural_regeneration, false})

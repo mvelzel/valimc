@@ -4,7 +4,7 @@ defmodule Valimc.Data.EntityTypes do
   table (`priv/registry/entity_facts.json`, `EntityOracle facts`, VMC-043a):
   registry id, category, size and eye height, default attributes (living
   types), fire immunity, loot table, spawn placement and heightmap, whether it
-  is saved, summonable and allowed in peaceful, and its tracking range, update
+  is saved, summonable, allowed in peaceful and spawned far from players, and its tracking range, update
   interval and whether its motion is tracked.
   """
   use Valimc.Data.Facts, "registry/entity_facts.json"
@@ -22,6 +22,7 @@ defmodule Valimc.Data.EntityTypes do
               summonable: type["summonable"],
               saved: type["saved"],
               peaceful: type["peaceful"],
+              spawn_far: type["spawn_far"],
               tracking_range: type["tracking_range"],
               update_interval: type["update_interval"],
               track_deltas: type["track_deltas"],
@@ -35,6 +36,11 @@ defmodule Valimc.Data.EntityTypes do
 
   def id("minecraft:" <> _ = name), do: Map.fetch!(@types, name).id
   def id(name) when is_binary(name), do: id("minecraft:" <> name)
+
+  @names Map.new(@types, fn {name, type} -> {type.id, name} end)
+
+  @doc "The type of registry id `id`."
+  def name(id) when is_integer(id), do: Map.fetch!(@names, id)
   def names, do: unquote(Macro.escape(MapSet.new(Map.keys(@facts["types"]))))
   def field(name) when is_atom(name), do: @facts["fields"][Atom.to_string(name)]
 

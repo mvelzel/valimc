@@ -30,6 +30,7 @@ defmodule Valimc.Application do
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
     Valimc.Data.BlockFacts.install!()
+    Valimc.World.Spawning.install!()
     Valimc.Worldgen.Generator.init!()
     Valimc.Net.LoginKeys.init!()
     Valimc.Commands.init!()

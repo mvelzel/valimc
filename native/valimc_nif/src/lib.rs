@@ -39,6 +39,7 @@ mod redstone_parity;
 mod region;
 mod rules;
 mod snapshot;
+mod spawn;
 mod sys;
 mod worldgen;
 

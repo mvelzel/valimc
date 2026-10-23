@@ -73,6 +73,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-029e](tickets/VMC-029e.md) | Doors, beds, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
 | [VMC-037o](tickets/VMC-037o.md) | Bows, crossbows, stuck arrows picked up, snowballs, eggs, an ender pearl, a splash potion and a punched fireball |
 | [VMC-047a](tickets/VMC-047a.md) | A button-operated iron door and a lever-lit lamp |
+| [VMC-042a](tickets/VMC-042a.md) | Generated animals at spawn; monsters at night 24+ blocks away; peaceful clears them; they despawn 128 blocks away unless name-tagged |
 
 ## Retrieve and update
 

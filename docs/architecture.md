@@ -252,8 +252,10 @@ was sent to.
   (`World.Projectiles` plans what each hit does), they hurt through the same
   path and travel between owners as mobs do; what reaches a player (a hit,
   an ender pearl's landing, a splash) goes to its session. Only modelled types are made: their entity data is known
-  field by field, and each type's facts (size, attributes, loot, spawning,
-  tracking) come from `Data.EntityTypes`. Network ids come from one `:atomics`
+  field by field (every living type of a spawning category is a plain mob,
+  its own data at vanilla's defaults, until its family models it), and each
+  type's facts (size, attributes, loot, spawning, tracking) come from
+  `Data.EntityTypes`. Network ids come from one `:atomics`
   counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
   across handoffs within a VM. Entities move between owners through one
   handoff (`Entity.Handoffs`): the source withdraws a cohort into one durable
@@ -262,6 +264,23 @@ was sent to.
   cross-region item merge is the donor handed over with its target, merged on
   arrival or returned. A furnace withdrawal spawns its XP orbs in the same
   commit, or hands them to the owner of their position.
+- **Natural spawning.** Each group runs vanilla's `NaturalSpawner` and
+  `Mob.checkDespawn` once a tick, before its sections' entities tick
+  (`World.Spawning`, VMC-042a): one call of the spawn kernel
+  (`valimc_core::spawning`, a normal NIF or its dirty twin by the chunks it
+  covers) reads the group's stores (blocks, light, heightmaps, biomes) and
+  returns the mobs that spawn in its simulated chunks, those that despawn and
+  those whose idle time restarts; the sections adopt and drop them in the
+  group's next commit. The caps count what the group holds: every mob that
+  is not persistent toward its category, a mob near a player toward that
+  player's local cap, and the global cap scales with the chunks near the
+  group's players. Groups keep their loaded chunks 24 chunks apart, so a
+  player's spawning chunks and nearby mobs are its own group's and no process
+  counts across groups. The group's level random and its mobs' random are its
+  own; a generated chunk's creatures come with its install, from the chunk's
+  decoration seed. The spawn facts (biome spawn lists and costs, the
+  dimensions' light rules and timelines, per-state block tests) are one
+  generated table (`Data.SpawnFacts`).
 - **Replication.** The owner keeps one tracker per entity (`Entity.Tracker`,
   vanilla's `ServerEntity`): each tick it encodes, once for every observer,
   the packets of what changed (relative moves, motion, metadata, absolute
@@ -451,6 +470,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a): their signals, reactions, ticks and the uses, entity contacts and detector updates that start them. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Natural spawning (VMC-042a) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test: one call over the group's stores, about 0.3 ms a tick for a player's nine sections; the caps, despawn bookkeeping and the records stay in Elixir |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more

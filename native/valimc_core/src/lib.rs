@@ -13,6 +13,7 @@ pub mod physics;
 pub mod rules;
 pub mod section;
 pub mod snapshot;
+pub mod spawning;
 pub mod wire;
 pub mod worldgen;
 

@@ -84,7 +84,7 @@ defmodule Valimc.Entity.Store do
             do: [{items.epoch, id, items.entries[id].revision} | expired],
             else: expired
 
-        {items, expired}
+        {idle(items, id, kind, ticks), expired}
 
       {id, %{kind: :orb} = entry}, {items, expired} ->
         # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
@@ -134,6 +134,35 @@ defmodule Valimc.Entity.Store do
 
         {items, expired}
     end)
+  end
+
+  # A mob's tick counters (VMC-042a): its idle time (`noActionTime`, which
+  # its AI step counts up) and the ticks it lived (`tickCount`). Neither is in
+  # its record, as vanilla saves neither; they leave the revision alone.
+  defp idle(items, id, :mob, ticks) do
+    entry = items.entries[id]
+
+    entry =
+      entry
+      |> Map.put(:idle, Map.get(entry, :idle, 0) + ticks)
+      |> Map.put(:lived, Map.get(entry, :lived, 0) + ticks)
+
+    %{items | entries: Map.put(items.entries, id, entry)}
+  end
+
+  defp idle(items, _id, _kind, _ticks), do: items
+
+  @doc "Restart the idle time of mobs `ids` (a player came within 32 blocks)."
+  def reset_idle(state, ids) do
+    entries =
+      Enum.reduce(ids, state.entries, fn id, entries ->
+        case entries do
+          %{^id => %{kind: :mob} = entry} -> Map.put(entries, id, Map.put(entry, :idle, 0))
+          _ -> entries
+        end
+      end)
+
+    %{state | entries: entries}
   end
 
   @doc "Every entity's persistent record, by uuid (network ids are the VM's, never stored)."

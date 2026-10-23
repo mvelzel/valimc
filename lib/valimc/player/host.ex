@@ -232,6 +232,18 @@ defmodule Valimc.Player.Host do
     end
   end
 
+  @doc """
+  The players natural spawning reads (VMC-042a): every player of the group's
+  dimension, alive or not, as `{x, y, z, spectator, creative}`.
+  """
+  def spawn_players(state) do
+    for {_, %{session: %{player: player}}} <- state.players,
+        player.dimension == state.dimension do
+      mode = player.game_mode.current
+      {player.x * 1.0, player.y * 1.0, player.z * 1.0, mode == :spectator, mode == :creative}
+    end
+  end
+
   ## Durability (the group's commit)
 
   @doc """

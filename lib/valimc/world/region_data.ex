@@ -1421,6 +1421,24 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # A name tag on a living body (VMC-042a): named and persistent.
+  def handle_call({:name_entity, epoch, uuid, name}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{kind: :mob, body: body} <- store.entries[id] || {:error, :missing_item},
+         true <- Valimc.Entity.Body.alive?(body) or {:error, :not_alive} do
+      {:reply, :ok,
+       put_entities(state, Store.change_body(store, id, Valimc.Entity.Body.name(body, name)))}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :not_living}, state}
+    end
+  end
+
   # A teleported entity (VMC-043a): it moves here, to a sibling section in
   # the same group commit, or to another group by the durable handoff.
   def handle_call({:move_entity, epoch, uuid, position, rotation}, _from, state) do
@@ -3336,6 +3354,48 @@ defmodule Valimc.World.RegionData do
       end)
 
     publish_item_views(%{state | entities: %{state.entities | store: items}})
+  end
+
+  @doc """
+  A tick's natural spawning in this section (VMC-042a, `World.Spawning`):
+  it adopts the records of the mobs that spawned (queued like drops while a
+  plan runs), discards the mobs that despawn, unless a plan or a write is
+  under way (they are checked again next tick), and restarts the idle time
+  of those a player came near.
+  """
+  def spawned(state, records, discards, resets) do
+    state =
+      cond do
+        records == [] ->
+          state
+
+        planning?(state) ->
+          %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}}
+
+        true ->
+          adopt_drops(state, records)
+      end
+
+    store = Store.reset_idle(state.entities.store, resets)
+
+    store =
+      if discards == [] or write_busy(state) != nil,
+        do: store,
+        else:
+          Enum.reduce(discards, store, fn id, store ->
+            with %{revision: revision} <- store.entries[id],
+                 {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
+              next
+            else
+              _ -> store
+            end
+          end)
+
+    if discards == [] do
+      %{state | entities: %{state.entities | store: store}}
+    else
+      publish_item_views(%{state | entities: %{state.entities | store: store}})
+    end
   end
 
   defp take(items, epoch, id, revision, nil), do: Store.remove(items, epoch, id, revision)

@@ -4,7 +4,8 @@ defmodule Valimc.Entity.Mob do
   and `Mob` hold it: its living state (`Valimc.Living`: health with its hurt
   and death timers, absorption, effects, fire, air, freezing), its equipment
   by slot, its attribute overrides over the type's defaults, and an AI slot
-  that VMC-041a fills (nil until then).
+  that VMC-041a fills (nil until then), and whether it is persistent (a
+  name tag's `setPersistenceRequired`, VMC-042a).
 
   Attributes are the type's generated defaults (`Valimc.Data.EntityTypes`)
   with `attributes` overriding a base value and adding modifiers, as
@@ -34,7 +35,9 @@ defmodule Valimc.Entity.Mob do
             player_memory: 0,
             hurt_by: nil,
             # What a death the owner has not dropped yet leaves (`Entity.Combat`).
-            death: nil
+            death: nil,
+            # `PersistenceRequired`: a named mob never despawns (VMC-042a).
+            persistent: false
 
   # `EquipmentSlot` ids, as the equipment packet numbers them.
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
@@ -57,6 +60,7 @@ defmodule Valimc.Entity.Mob do
       hurt_by_player: mob.hurt_by_player,
       player_memory: mob.player_memory
     }
+    |> then(&if(mob.persistent, do: Map.put(&1, :persistent, true), else: &1))
   end
 
   @doc "A mob of `type` from its record."
@@ -67,11 +71,13 @@ defmodule Valimc.Entity.Mob do
     motion = Map.get(record, :motion, %MobMotion{})
     memory = Map.get(record, :player_memory, 0)
     by = Map.get(record, :hurt_by_player)
+    persistent = Map.get(record, :persistent, false)
 
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
          true <- is_integer(memory) and memory in 0..@player_memory,
          true <- by == nil or (is_binary(by) and byte_size(by) == 16),
+         true <- is_boolean(persistent),
          {:ok, restored} <- Living.restore(living),
          {:ok, health} <- Health.restore(living.health, max_health(type, attributes)) do
       {:ok,
@@ -82,7 +88,8 @@ defmodule Valimc.Entity.Mob do
          ai: Map.get(record, :ai),
          motion: motion,
          hurt_by_player: if(memory > 0, do: by),
-         player_memory: memory
+         player_memory: memory,
+         persistent: persistent
        }}
     else
       _ -> {:error, :invalid_mob}

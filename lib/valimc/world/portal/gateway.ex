@@ -13,7 +13,7 @@ defmodule Valimc.World.Portal.Gateway do
     (bedrock excluded), or at the exit itself when it is exact.
   """
   alias Valimc.Data.Float32
-  alias Valimc.World.Portal.JavaRandom
+  alias Valimc.Data.JavaRandom
   alias Valimc.Data.BlockFacts
   alias Valimc.Data.Blocks, as: Registry
 

@@ -26,7 +26,9 @@ defmodule Valimc.Entity.Body do
             on_ground: false,
             no_gravity: false,
             data: %{},
-            mob: nil
+            mob: nil,
+            # A name tag's text component (VMC-042a), as items keep theirs.
+            custom_name: nil
 
   @tnt "minecraft:tnt"
   @falling "minecraft:falling_block"
@@ -38,9 +40,19 @@ defmodule Valimc.Entity.Body do
               ["minecraft:zombie", @chicken, "minecraft:endermite", @tnt, @falling, @cloud] ++
                 Projectile.types()
             )
+  @plain for name <- EntityTypes.names(),
+             EntityTypes.living?(name) and EntityTypes.fetch(name).category != :misc,
+             into: MapSet.new(),
+             do: name
 
-  @doc "Whether type `type` is modelled (it can be summoned and stored)."
-  def modelled?(type), do: MapSet.member?(@modelled, type)
+  @doc """
+  Whether type `type` is modelled (it can be summoned and stored): the types
+  above, and every living type of a spawning category as a plain mob (its
+  own entity data at vanilla's defaults, VMC-042a) until its family models
+  what `finalizeSpawn` gives it.
+  """
+  def modelled?(type), do: MapSet.member?(@modelled, type) or MapSet.member?(@plain, type)
+
   def modelled, do: @modelled
 
   @doc "The store kind of type `type`: `:mob` for a living type, else `:object`."
@@ -126,6 +138,9 @@ defmodule Valimc.Entity.Body do
       data: body.data
     }
 
+    record =
+      if body.custom_name, do: Map.put(record, :custom_name, body.custom_name), else: record
+
     if body.mob, do: Map.put(record, :mob, Mob.record(body.mob)), else: record
   end
 
@@ -154,7 +169,8 @@ defmodule Valimc.Entity.Body do
          on_ground: on_ground,
          no_gravity: no_gravity,
          data: data,
-         mob: mob
+         mob: mob,
+         custom_name: Map.get(record, :custom_name)
        }}
     else
       _ -> {:error, :invalid_body}
@@ -213,6 +229,13 @@ defmodule Valimc.Entity.Body do
     end
   end
 
+  @doc """
+  A name tag used on a living body (`NameTagItem.interactLivingEntity`): its
+  custom name, and persistence for a mob (`setPersistenceRequired`).
+  """
+  def name(%__MODULE__{mob: %Mob{} = mob} = body, name),
+    do: %{body | custom_name: name, mob: %{mob | persistent: true}}
+
   @doc "`Entity.push`: the body's velocity plus `impulse`."
   def push(%__MODULE__{velocity: {x, y, z}} = body, {dx, dy, dz}),
     do: %{body | velocity: {x + dx, y + dy, z + dz}}
@@ -239,6 +262,7 @@ defmodule Valimc.Entity.Body do
     common = [
       {:shared_flags, shared_flags(body), 0},
       {:air_supply, air(body), 300},
+      {:custom_name, body.custom_name, nil},
       {:no_gravity, body.no_gravity, false},
       {:pose, pose(body), :standing},
       {:frozen_ticks, frozen(body), 0}
