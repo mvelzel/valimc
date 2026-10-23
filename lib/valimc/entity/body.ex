@@ -48,6 +48,20 @@ defmodule Valimc.Entity.Body do
     end
   end
 
+  @doc """
+  A primed TNT as `new PrimedTnt` makes it (VMC-050a): `fuse` ticks, a hop of
+  0.2 up and 0.02 in a random direction.
+  """
+  def primed_tnt(fuse) when is_integer(fuse) and fuse > 0 do
+    {:ok, body} = new(@tnt)
+    angle = :rand.uniform() * Valimc.Data.Float32.round(:math.pi() * 2)
+
+    velocity =
+      {-:math.sin(angle) * 0.02, Valimc.Data.Float32.round(0.2), -:math.cos(angle) * 0.02}
+
+    %{body | velocity: velocity, data: %{body.data | fuse: fuse}}
+  end
+
   # A type's own data and its defaults (`PrimedTnt.defineSynchedData`).
   defp data(@tnt), do: %{fuse: 80, block_state: Blocks.default_state("tnt")}
   defp data(_type), do: %{}
@@ -134,6 +148,22 @@ defmodule Valimc.Entity.Body do
       :ignored -> :ignored
     end
   end
+
+  @doc """
+  A hit of `amount` from `source` (VMC-050a): `{body, events}`, a mob hurt
+  through `Mob.hurt/3` (its damage and death events); other bodies take no
+  damage.
+  """
+  def hurt(%__MODULE__{mob: nil} = body, _source, _amount), do: {body, []}
+
+  def hurt(%__MODULE__{mob: mob} = body, source, amount) do
+    {mob, events} = Mob.hurt(mob, source, amount)
+    {%{body | mob: mob}, events}
+  end
+
+  @doc "`Entity.push`: the body's velocity plus `impulse`."
+  def push(%__MODULE__{velocity: {x, y, z}} = body, {dx, dy, dz}),
+    do: %{body | velocity: {x + dx, y + dy, z + dz}}
 
   @doc "The packet of an event `kill/1` or `tick/1` returned, for entity `id`, encoded once."
   def event_packet(id, {:event, event}), do: binary(EntityPackets.entity_event(id, event))

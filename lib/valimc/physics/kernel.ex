@@ -307,6 +307,64 @@ defmodule Valimc.Physics.Kernel do
     Native.dispatch(:physics_mobs, cells, [native(view, region), mobs, players, bounds])
   end
 
+  @doc """
+  An explosion's reach (VMC-050a): the cells the rays of an explosion of
+  `radius` at `center` reach (`{position, state}`, air included, sorted),
+  drawing from a `LegacyRandomSource` seeded with `seed`, in a world of
+  `height` cells from `min_y`. `{:ok, {cells, unreadable}}`, `unreadable`
+  whether a ray stopped at a cell the view cannot read. Runs on a dirty
+  scheduler.
+  """
+  def explosion(view, {x, y, z} = center, radius, seed, min_y, height) do
+    reach = radius * 1.3 / 0.225 * 0.3 + 2.0
+    region = {x - reach, y - reach, z - reach, x + reach, y + reach, z + reach}
+
+    Native.physics_explosion(
+      native(view, region),
+      floats(center),
+      radius * 1.0,
+      seed,
+      min_y,
+      height
+    )
+  end
+
+  @doc "How much of each box sees `center` (`getSeenPercent`): `{:ok, [exposure]}`."
+  def exposure(_view, _center, []), do: {:ok, []}
+
+  def exposure(view, {x, y, z} = center, boxes) do
+    region = Enum.reduce(boxes, {x, y, z, x, y, z}, &union/2)
+    Native.physics_exposure(native(view, region), floats(center), boxes)
+  end
+
+  @doc """
+  One tick for each primed TNT or falling block `{position, velocity,
+  on_ground, no_gravity, kind}` (kind `:tnt` or `:falling_block`): `{:ok,
+  results}` in order, each `{:ok, position, velocity, on_ground, moved_y}`,
+  `{:unreadable, position}` or `:limit`.
+  """
+  def block_bodies(_view, [], _border), do: {:ok, []}
+
+  def block_bodies(view, bodies, border) do
+    region =
+      bodies
+      |> Enum.map(fn {{x, y, z}, velocity, _, _, _} ->
+        expand({x - 1.5, y - 2.0, z - 1.5, x + 1.5, y + 3.0, z + 1.5}, velocity)
+      end)
+      |> Enum.reduce(&union/2)
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    cells =
+      Enum.reduce(bodies, 0, fn {_, velocity, _, _, _}, sum -> sum + 8 * scan_cells(velocity) end)
+
+    Native.dispatch(:physics_block_bodies, cells, [native(view, region), bodies, bounds])
+  end
+
   # The cells one item tick scans, about: its movement's (0.25 blocks plus the
   # velocity, and the scan's halo) and its fluid and clearance scans.
   defp scan_cells({x, y, z}),

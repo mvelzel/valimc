@@ -6,9 +6,9 @@ defmodule Valimc.Data.BlockFacts do
   Columns: whole-state flags (air, sturdy and full faces, decoration's
   predicates, flammable, large collision), the collision shape or the context
   it needs, motion, fluid, fluid boundary, climbing, inside behaviour, hazard,
-  landing, mining, placement replaceability, heightmap predicates, sky-source
-  edge classes, light (emission, dampening and face occlusion classes) and
-  redstone signals (the Rust core's alone). The
+  landing, mining, explosion resistance, placement replaceability, heightmap
+  predicates, sky-source edge classes, light (emission, dampening and face
+  occlusion classes) and redstone signals (the Rust core's alone). The
   oracle's comment describes each. State ids are trusted: they come from the
   world or the registry, and an id outside the table raises. `install!/0`
   gives the Rust core the columns it reads.
@@ -152,6 +152,18 @@ defmodule Valimc.Data.BlockFacts do
 
              {hardness, m["requires_correct_tool"]}
            end)
+
+  @explosion_states states.("explosion")
+  @explosions palette.("explosion", fn
+                nil ->
+                  nil
+
+                resistance ->
+                  unless Float32.round(resistance) == resistance,
+                    do: raise("Noncanonical explosion resistance")
+
+                  resistance
+              end)
 
   @replaceability states.("replaceability")
   @heightmap_states states.("heightmap")
@@ -297,6 +309,12 @@ defmodule Valimc.Data.BlockFacts do
   @doc "`{hardness, requires correct tool}`."
   def mining(state), do: elem(@minings, :binary.at(@mining_states, state))
 
+  @doc """
+  The resistance an explosion's ray meets in the state (the larger of its
+  block's and its fluid's), or nil for air without fluid.
+  """
+  def explosion_resistance(state), do: elem(@explosions, :binary.at(@explosion_states, state))
+
   @doc "Placement on a click: 0 another rule, 1 never replaced, 2 replaced, 3 a slab."
   def replaceability(state), do: :binary.at(@replaceability, state)
 
@@ -381,6 +399,8 @@ defmodule Valimc.Data.BlockFacts do
           insides: native_insides(),
           hazard_states: @hazard_states,
           hazards: native_hazards(),
+          explosion_states: @explosion_states,
+          explosions: for(r <- Tuple.to_list(@explosions), do: if(r, do: r * 1.0, else: -1.0)),
           poses: Valimc.Data.PlayerPose.native_dimensions()
         })
     }

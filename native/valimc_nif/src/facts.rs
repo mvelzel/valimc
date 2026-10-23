@@ -57,6 +57,8 @@ struct Physics<'a> {
     insides: Vec<InsideT<'a>>,
     hazard_states: Binary<'a>,
     hazards: Vec<(u8, f64)>,
+    explosion_states: Binary<'a>,
+    explosions: Vec<f64>,
     poses: Vec<(f64, f64, f64)>,
 }
 
@@ -273,6 +275,19 @@ fn physics_facts(p: &Physics, flags: Vec<u64>, count: usize) -> Option<physics::
         boundaries,
     )?;
     facts.player = player;
+    // Explosion resistance per state (VMC-050a); a negative palette entry is none.
+    let explosion = p.explosion_states.as_slice();
+    if explosion.len() != count {
+        return None;
+    }
+    facts.explosion = explosion
+        .iter()
+        .map(|&i| {
+            p.explosions
+                .get(i as usize)
+                .map(|&r| if r < 0.0 { f32::NAN } else { r as f32 })
+        })
+        .collect::<Option<_>>()?;
     Some(facts)
 }
 

@@ -32,6 +32,7 @@ defmodule Valimc.Session.Messages do
     :block,
     :block_batch,
     :level_events,
+    :sound,
     :chest_lid,
     :item_pickup,
     :experience_pickup
@@ -291,6 +292,10 @@ defmodule Valimc.Session.Messages do
            {:noreply, Events.session(state, event)}
          end)
   end
+
+  # An explosion near the player (VMC-050a), from its group.
+  def info({:explosion, explosion, count}, state),
+    do: {:noreply, Valimc.Player.Explosions.hit(state, explosion, count)}
 
   def info(message, state) do
     Logger.warning("Connection ignored unexpected message: #{inspect(message, limit: 8)}")

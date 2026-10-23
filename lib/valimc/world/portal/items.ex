@@ -12,7 +12,11 @@ defmodule Valimc.World.Portal.Items do
     without an eye, and a completed frame opens the end portal
     (`Valimc.World.Portal.EndPortal`). In survival the eye is used up.
 
-  Campfires, candles and TNT, which flint and steel also lights, fire's spread
+  - TNT clicked with either primes (`TntBlock.useItemOn`, VMC-050a): the
+    block gives way to a primed TNT with an 80-tick fuse, in one box edit,
+    when the TNT game rule allows it.
+
+  Campfires and candles, which flint and steel also lights, fire's spread
   and burning out, and eyes thrown into the air are not handled yet.
 
   The use runs as the connection's placement job: a task reads the clicked
@@ -102,10 +106,14 @@ defmodule Valimc.World.Portal.Items do
     {min_y, _height} = Valimc.World.Dimension.bounds()
     position = Valimc.Blocks.Placement.adjacent(request)
     read = Access.reader()
+    clicked = read.(request.position)
 
     cond do
       System.monotonic_time(:millisecond) > command.expires ->
         {:refused, :expired}
+
+      clicked != nil and Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(clicked)) == "tnt" ->
+        prime(dimension, request.position, clicked, command)
 
       not World.Chunk.valid_y?(elem(position, 1)) ->
         {:refused, :outside_build_height}
@@ -140,6 +148,27 @@ defmodule Valimc.World.Portal.Items do
     end
   catch
     :exit, _ -> {:refused, :region_unavailable}
+  end
+
+  defp prime(dimension, {x, _, z} = position, state, command) do
+    if Valimc.World.GameRules.get(:tnt_explodes) do
+      part = %{
+        edits: %{position => Valimc.Data.Blocks.default_state("air")},
+        expected: %{position => state},
+        entities: [Valimc.World.Explosion.primed_record(position, 80)]
+      }
+
+      case Valimc.World.BoxEdit.commit(dimension, %{Grid.region_key(Grid.chunk_key(x, z)) => part}) do
+        :ok ->
+          Valimc.World.Sounds.play(position, "minecraft:entity.tnt.primed", :block)
+          {:ignited, %{item: command.item, portal: false}}
+
+        error ->
+          {:refused, error}
+      end
+    else
+      {:refused, :tnt_disabled}
+    end
   end
 
   # `Direction.fromYRot`: the horizontal direction a player with `yaw` faces.

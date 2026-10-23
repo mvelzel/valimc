@@ -82,7 +82,9 @@ import net.minecraft.world.phys.shapes.*;
  *   the inside collision shape when it is not the full block (`context` for powder snow).
  * - hazard: the immediate damage request kind and value (magma, lit campfires' damage, cactus,
  *   berry bush age). landing: the affine `fallOn` damage call without and with sneaking.
- * - mining: hardness and whether drops need the correct tool. replaceability: how placement
+ * - mining: hardness and whether drops need the correct tool. explosion: the resistance an
+ *   explosion's ray meets (`ExplosionDamageCalculator.getBlockExplosionResistance`: the larger of
+ *   the block's and its fluid's, null for air without fluid). replaceability: how placement
  *   treats a click on the state (0 another rule, 1 never replaced, 2 replaced, 3 a slab).
  * - heightmap: the six heightmap predicates (`heightmap_types`) as a bit mask.
  * - sky: vertical sky-source edge classes; bit (above, below) says `isEdgeOccluded`.
@@ -291,6 +293,7 @@ public class BlockFactsOracle {
     columns.add("hazard",hazard().json());
     columns.add("landing",landing(flags).json());
     columns.add("mining",mining().json());
+    columns.add("explosion",explosion().json());
     var replace=new Column(COUNT,false);for(int id=0;id<COUNT;id++)replace.set(id,replaceability(STATES[id]));columns.add("replaceability",replace.json());
     var heightmapTypes=new JsonArray();columns.add("heightmap",heightmap(heightmapTypes).json());
     columns.add("sky",sky());
@@ -568,6 +571,16 @@ public class BlockFactsOracle {
       var state=STATES[id];var f=new JsonObject();
       f.addProperty("hardness",(double)state.getDestroySpeed(EmptyBlockGetter.INSTANCE,BlockPos.ZERO));
       f.addProperty("requires_correct_tool",state.requiresCorrectToolForDrops());column.set(id,f);
+    }
+    return column;
+  }
+
+  static Column explosion(){
+    var column=new Column(COUNT,true);var calculator=new net.minecraft.world.level.ExplosionDamageCalculator();
+    for(int id=0;id<COUNT;id++){
+      var state=STATES[id];
+      var resistance=calculator.getBlockExplosionResistance(null,EmptyBlockGetter.INSTANCE,ORIGIN,state,state.getFluidState());
+      column.set(id,resistance.isPresent()?new JsonPrimitive((double)resistance.get()):JsonNull.INSTANCE);
     }
     return column;
   }

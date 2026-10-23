@@ -690,6 +690,18 @@ STAGES = [
         ('java', 'ChestPlacementOracle', '@chest-placement.json'),
         ('check', 'check_chest_placement.exs', '@chest-placement.json'),
     ]),
+    # VMC-050a: explosion craters, exposure and damage over supplied scenes.
+    ('explosion', [
+        ('regen', 'ExplosionOracle', 'packet', '@explosion-packet.json'),
+        ('same', '@explosion-packet.json', 'priv/protocol/explosion_packet.json'),
+        ('java', 'ExplosionOracle', '@explosion.json'),
+        ('check', 'check_explosion.exs', '@explosion.json'),
+    ]),
+    # VMC-050a: a primed TNT's motion through the physics kernel.
+    ('tnt_travel', [
+        ('java', 'TntTravelOracle', '@tnt-travel.json'),
+        ('check', 'check_tnt_travel.exs', '@tnt-travel.json'),
+    ]),
     ('container_drop', [
         ('java', 'ContainerDropOracle', '@container-drop.json'),
         ('check', 'check_container_drop.exs', '@container-drop.json'),

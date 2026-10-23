@@ -667,6 +667,38 @@ defmodule Valimc.Entity.Store do
   end
 
   @doc """
+  A body's own tick moved it (VMC-050a): entity `id` at `revision` is now at
+  `{x, y, z}` (in section `key`) with `body` (its motion and data), its
+  `events` stamped for its tracker. `{:ok, state, handle}` or an error.
+  """
+  def step_body(state, key, id, revision, {x, y, z}, %Body{} = body, events \\ []) do
+    with {:ok, %{kind: kind} = entry} when kind in @bodies <-
+           current(state, state.epoch, id, revision),
+         true <- valid_position?({x, y, z}) and Grid.region_key(Grid.chunk_key(x, z)) == key do
+      moved = {entry.entity.x, entry.entity.y, entry.entity.z} != {x, y, z}
+      entry = %{entry | entity: %{entry.entity | x: x, y: y, z: z}}
+
+      entry =
+        if moved, do: %{entry | physical_revision: entry.physical_revision + 1}, else: entry
+
+      state = put_entry(state, id, entry) |> put_body(id, body, events)
+      {:ok, state, {state.epoch, id, state.entries[id].revision}}
+    else
+      {:ok, _} -> {:error, :missing_item}
+      false -> {:error, :invalid_item_step}
+      error -> error
+    end
+  end
+
+  @doc "Entity `id`'s body changes to `body` with `events` (a hit, a push): the new state."
+  def change_body(state, id, %Body{} = body, events \\ []) do
+    case state.entries[id] do
+      %{kind: kind} when kind in @bodies -> put_body(state, id, body, events)
+      _ -> state
+    end
+  end
+
+  @doc """
   The persistent record of a new body at `{x, y, z}` with `uuid` (`/summon`),
   for `create_record/3`.
   """

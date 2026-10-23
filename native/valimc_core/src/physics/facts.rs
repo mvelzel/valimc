@@ -156,6 +156,9 @@ pub struct Facts {
     pub boundary_states: Vec<u8>,
     pub boundaries: Vec<Boundary>,
     pub player: PlayerFacts,
+    /// The resistance an explosion's ray meets per state (NaN: none, air
+    /// without fluid), VMC-050a.
+    pub explosion: Vec<f32>,
 }
 
 const NO_MOTION: Motion = Motion {
@@ -235,6 +238,7 @@ impl Facts {
             boundary_states,
             boundaries,
             player: PlayerFacts::default(),
+            explosion: Vec::new(),
         })
     }
 
@@ -257,6 +261,15 @@ impl Facts {
             .get(state as usize)
             .and_then(|&i| self.boundaries.get(i as usize))
             .unwrap_or(&NO_BOUNDARY)
+    }
+
+    /// The resistance an explosion's ray meets in `state`, or `None` (air
+    /// without fluid). A table without the column reads every state as none.
+    pub fn explosion_resistance(&self, state: u16) -> Option<f32> {
+        self.explosion
+            .get(state as usize)
+            .copied()
+            .filter(|r| !r.is_nan())
     }
 
     pub fn flags(&self, state: u16) -> u64 {

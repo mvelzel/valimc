@@ -4,13 +4,15 @@ defmodule Valimc.Living.DamageSource do
   generated `damage_type` registry and tags (`Valimc.Protocol.DamageTypes`),
   and the entities that caused it once combat exists. Rules ask its tags
   (`bypasses_armor`, `is_fire`, ...) rather than listing types; the food
-  exhaustion and death message keys come from the pinned facts.
+  exhaustion, difficulty scaling and death message keys come from the pinned
+  facts (`DamageMessageOracle`).
   """
   use Valimc.Data.Facts, "protocol/damage_messages.json"
   alias Valimc.Protocol.DamageTypes
-  @exhaustion Valimc.Living.Armor.exhaustion()
   @messages @facts["keys"]
-  unless map_size(@messages) == 18, do: raise("Wrong native death message keys")
+  @types @facts["types"]
+  unless map_size(@messages) == 19 and Map.keys(@types) == Map.keys(@messages),
+    do: raise("Wrong native death message keys")
 
   defstruct [:type, causing: nil, direct: nil]
 
@@ -38,7 +40,19 @@ defmodule Valimc.Living.DamageSource do
   def wears_armor?(source), do: not is?(source, :bypasses_armor)
 
   @doc "Food exhaustion a player takes from a hit of this type."
-  def exhaustion(source), do: Map.get(@exhaustion, Atom.to_string(type(source)), 0.0)
+  def exhaustion(source), do: get_in(@types, [Atom.to_string(type(source)), "exhaustion"]) || 0.0
+
+  @doc """
+  Whether a player's damage of this source scales with the difficulty
+  (`DamageSource.scalesWithDifficulty`): always, or when a living entity that
+  is not a player caused it (no source has a causing entity yet).
+  """
+  def scales_with_difficulty?(source) do
+    case get_in(@types, [Atom.to_string(type(source)), "scaling"]) do
+      "always" -> true
+      _ -> false
+    end
+  end
 
   @doc "Death message text naming `name`: environmental, or self magic naming the held item."
   def death_message(name, {:self_magic, held}) do

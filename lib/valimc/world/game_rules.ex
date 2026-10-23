@@ -12,6 +12,8 @@ defmodule Valimc.World.GameRules do
     players_nether_portal_default_delay: 80,
     players_nether_portal_creative_delay: 0,
     allow_entering_nether_using_portals: true,
+    tnt_explodes: true,
+    tnt_explosion_drop_decay: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
     lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),
     fire_spread_radius_around_player:

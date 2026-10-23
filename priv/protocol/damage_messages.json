@@ -20,6 +20,85 @@
     "generic": "death.attack.generic",
     "magic": "death.attack.magic",
     "wither": "death.attack.wither",
-    "generic_kill": "death.attack.genericKill"
+    "generic_kill": "death.attack.genericKill",
+    "explosion": "death.attack.explosion"
+  },
+  "types": {
+    "fall": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "stalagmite": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "freeze": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "drown": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "out_of_world": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "outside_border": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "starve": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "on_fire": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "in_fire": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "lava": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "hot_floor": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "campfire": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "cactus": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "sweet_berry_bush": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "generic": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "magic": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "wither": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "generic_kill": {
+      "exhaustion": 0.0,
+      "scaling": "when_caused_by_living_non_player"
+    },
+    "explosion": {
+      "exhaustion": 0.10000000149011612,
+      "scaling": "always"
+    }
   }
 }

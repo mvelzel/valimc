@@ -14,6 +14,9 @@ defmodule Valimc.World.BoxEdit do
   generated yet is unloaded (`argument.pos.unloaded`), as vanilla's
   `getLoadedBlockPos` refuses it.
 
+  A part may also carry `entities`, the records of entities its owner adopts
+  in the same frame (an explosion's drops and primed TNT, VMC-050a).
+
   The commits of several owners are separate durable frames: a crash between
   them can keep some (one frame per owner per tick and a shared log are
   VMC-077f's).
@@ -45,8 +48,8 @@ defmodule Valimc.World.BoxEdit do
   end
 
   @doc """
-  Commit `parts` (`region key => %{edits, expected, entries}`, entries and
-  expected optional) in `dimension`: `:ok`, `{:error, :unloaded}` or
+  Commit `parts` (`region key => %{edits, expected, entries, entities}`, all
+  but the edits optional) in `dimension`: `:ok`, `{:error, :unloaded}` or
   `{:error, reason}` with nothing changed.
   """
   def commit(dimension, parts) do
@@ -79,8 +82,9 @@ defmodule Valimc.World.BoxEdit do
     edits = part.edits
     expected = Map.get(part, :expected, %{})
     entries = Map.get(part, :entries, %{})
+    entities = Map.get(part, :entities, [])
 
-    case Region.prepare_box(owner, token, edits, expected, entries) do
+    case Region.prepare_box(owner, token, edits, expected, entries, entities) do
       :ok ->
         prepare(rest, token, [owner | prepared])
 

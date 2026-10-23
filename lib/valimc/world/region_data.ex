@@ -3,7 +3,10 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Data.Grid
 
   alias Valimc.World.{
+    BlockBodies,
     BlockEntities,
+    Clock,
+    Explosion,
     LootChests,
     ScheduledTicks,
     TickBehaviours,
@@ -92,6 +95,9 @@ defmodule Valimc.World.RegionData do
     {:player_frame, %{}},
     # The playing players of the group the orbs follow: `{feet, aim}`.
     {:player_targets, []},
+    # Explosions whose craters wait for the crater job (VMC-050a):
+    # `[{explosion, cells}]`, at most 64.
+    {:explosions, []},
     :random_tick_speed,
     # Durability: keyed change records on the shared log (VMC-077f).
     :storage
@@ -240,7 +246,11 @@ defmodule Valimc.World.RegionData do
       state = remember_item_counters(%{state | entities: %{state.entities | age_debt: 0}}, items)
 
       if expired == [] do
-        state |> start_item_cross_merging(now) |> move_mobs() |> move_items(now)
+        state
+        |> tick_block_bodies()
+        |> start_item_cross_merging(now)
+        |> move_mobs()
+        |> move_items(now)
       else
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
@@ -506,6 +516,127 @@ defmodule Valimc.World.RegionData do
       end
     else
       state
+    end
+  end
+
+  # Primed TNT (VMC-050a): its motion and fuse each tick, through the physics
+  # kernel like items, and its explosion once the fuse runs out. Bodies move
+  # while no write is in flight; a crater waiting for its job starts here.
+  defp tick_block_bodies(state) do
+    bodies =
+      for {id, %{kind: :object, body: %{type: type}, entity: %{x: x, z: z}} = entry} <-
+            state.entities.store.entries,
+          BlockBodies.ticks?(type),
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          do: {id, entry}
+
+    state =
+      if bodies == [] or write_busy(state) != nil,
+        do: state,
+        else: step_block_bodies(state, BlockBodies.tick(bodies, Clock.border_snapshot()))
+
+    start_craters(state)
+  end
+
+  defp step_block_bodies(state, steps) do
+    route = route_key(state)
+
+    {store, moves, explosions} =
+      Enum.reduce(steps, {state.entities.store, [], []}, fn
+        {:moved, id, revision, {x, _, z} = position, body}, {store, moves, explosions} ->
+          destination = Grid.section(state.dimension, Grid.chunk_key(x, z))
+          %{x: ox, y: oy, z: oz} = store.entries[id].entity
+          here = if destination == route, do: position, else: {ox, oy, oz}
+
+          case Store.step_body(store, state.key, id, revision, here, body) do
+            {:ok, next, {_, _, next_revision}} when destination != route ->
+              {next,
+               [{destination, %{id: id, revision: next_revision, position: position}} | moves],
+               explosions}
+
+            {:ok, next, _} ->
+              {next, moves, explosions}
+
+            _ ->
+              {store, moves, explosions}
+          end
+
+        {:explode, id, revision, position}, {store, moves, explosions} ->
+          case Store.remove(store, store.epoch, id, revision) do
+            {:ok, next} -> {next, moves, [Explosion.tnt(position) | explosions]}
+            _ -> {store, moves, explosions}
+          end
+      end)
+
+    state = put_entities(state, store)
+
+    # A body that crossed into a sibling section goes there in this commit;
+    # one bound for another group stays (groups keep loaded chunks apart).
+    state =
+      Enum.reduce(Enum.reverse(moves), state, fn {destination, step}, acc ->
+        if local_destination?(acc, destination),
+          do: move_to_sibling(acc, destination, [step]),
+          else: acc
+      end)
+
+    Enum.reduce(Enum.reverse(explosions), state, &explode(&2, &1))
+  end
+
+  # An explosion (VMC-050a, `Valimc.World.Explosion`): its reach as the rows
+  # stand, this section's entities hit now, its siblings' with this call and
+  # the group's players by their sessions, and its crater by the crater job.
+  defp explode(state, explosion) do
+    case Explosion.reach(explosion) do
+      {:ok, cells} ->
+        store = state.entities.store
+        hits = Explosion.hits(explosion, store.entries)
+        state = put_entities(state, Explosion.apply_hits(store, state.key, hits))
+
+        siblings =
+          for key <- Explosion.sections(explosion),
+              key != state.key and Map.has_key?(state.siblings, key),
+              do: {key, {:explosion, explosion}}
+
+        effects = siblings ++ [{:players, {:explosion, explosion, length(cells)}}]
+
+        %{state | sibling_effects: state.sibling_effects ++ effects}
+        |> queue_crater(explosion, cells)
+
+      error ->
+        require Logger
+        Logger.warning("Explosion at #{inspect(explosion.center)} failed: #{inspect(error)}")
+        state
+    end
+  end
+
+  # Craters wait for the one crater job; past 64 the newest two merge.
+  defp queue_crater(state, explosion, cells) do
+    pending = state.explosions ++ [{explosion, cells}]
+
+    pending =
+      if length(pending) > 64 do
+        {kept, [{_, a}, {last, b}]} = Enum.split(pending, -2)
+        kept ++ [{last, Map.to_list(Map.merge(Map.new(a), Map.new(b)))}]
+      else
+        pending
+      end
+
+    start_craters(%{state | explosions: pending})
+  end
+
+  defp start_craters(%{explosions: []} = state), do: state
+
+  defp start_craters(state) do
+    if Jobs.running?(state.jobs, :explosion) do
+      state
+    else
+      case start_job(state, :explosion, Explosion.work(state.dimension, state.explosions),
+             supervisor: Valimc.TransferWorkers,
+             deadline: 15_000
+           ) do
+        {:ok, state} -> %{state | explosions: []}
+        {:error, _} -> state
+      end
     end
   end
 
@@ -1253,7 +1384,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:prepare_box, epoch, token, edits, expected, entries}, _from, state) do
+  def handle_call({:prepare_box, epoch, token, edits, expected, entries}, from, state),
+    do: handle_call({:prepare_box, epoch, token, edits, expected, entries, []}, from, state)
+
+  def handle_call({:prepare_box, epoch, token, edits, expected, entries, records}, _from, state) do
     now = System.monotonic_time(:millisecond)
     positions = Enum.uniq(Map.keys(edits) ++ Map.keys(expected))
     entities = MapSet.new(Map.keys(entries))
@@ -1276,11 +1410,20 @@ defmodule Valimc.World.RegionData do
         Blocks.get_many(state.blocks, Map.keys(expected)) != expected ->
           {:error, :stale_revision}
 
+        not Enum.all?(records, &Store.valid_record?(state.key, &1)) ->
+          {:error, :invalid_item}
+
         true ->
           with {:ok, batch} <- BlockBatch.prepare(edits),
                {:ok, _proposal} <- block_proposal(state, batch, [], entities),
                {:ok, _, _} <- BlockEntities.put(state.block_entities, entries, planned) do
-            grant = %{batch: batch, entities: entities, cells: MapSet.new(Map.keys(edits))}
+            grant = %{
+              batch: batch,
+              entities: entities,
+              cells: MapSet.new(Map.keys(edits)),
+              records: records
+            }
+
             Permits.issue(state.permits, :box_edit, token, self(), [], grant, now)
           end
       end
@@ -1305,7 +1448,7 @@ defmodule Valimc.World.RegionData do
 
           case block_proposal(state, grant.batch, [], grant.entities) do
             {:ok, proposal} ->
-              next = publish_blocks(state, grant.batch, proposal)
+              next = state |> publish_blocks(grant.batch, proposal) |> adopt_box_records(grant)
 
               if entries == %{},
                 do: {:reply, {:ok, :applied}, next},
@@ -1941,6 +2084,13 @@ defmodule Valimc.World.RegionData do
     |> return_to(source, Enum.reverse(refused))
   end
 
+  # A sibling's explosion reaches this section's entities (VMC-050a).
+  def apply_sibling(state, {:explosion, explosion}) do
+    store = state.entities.store
+    hits = Explosion.hits(explosion, store.entries)
+    put_entities(state, Explosion.apply_hits(store, state.key, hits))
+  end
+
   def apply_sibling(state, {:merge, source, target, donor}) do
     case ItemMerges.absorb(state.entities.store, state.key, target, donor) do
       {:ok, store} -> put_entities(state, store)
@@ -2103,10 +2253,8 @@ defmodule Valimc.World.RegionData do
   end
 
   # Loot rules this tool-less break cannot evaluate yet drop nothing. Each stack
-  # pops like vanilla `Block.popResource` (javap of the pinned `Block` and
-  # `ItemEntity`): up to 0.25 off the block centre, lowered by half the item's
-  # 0.25 height, launched at (±0.1, 0.2, ±0.1) with a 10-tick pickup delay.
-  defp add_support_drops(items, key, {{x, y, z}, block}) do
+  # pops like vanilla `Block.popResource` (`Valimc.Entity.ItemDrop.pop/2`).
+  defp add_support_drops(items, key, {position, block}) do
     stacks =
       case Valimc.Blocks.MiningLoot.drops(block, nil, true) do
         {:ok, stacks} -> stacks
@@ -2114,19 +2262,7 @@ defmodule Valimc.World.RegionData do
       end
 
     Enum.reduce(stacks, items, fn stack, acc ->
-      [dx, dy, dz, vx, vz] = for _ <- 1..5, do: :rand.uniform_real()
-
-      record = %{
-        uuid: :crypto.strong_rand_bytes(16),
-        x: x + 0.5 + (dx * 0.5 - 0.25),
-        y: y + 0.5 + (dy * 0.5 - 0.25) - 0.125,
-        z: z + 0.5 + (dz * 0.5 - 0.25),
-        stack: stack,
-        motion: %Valimc.Entity.ItemMotionState{
-          velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
-          pickup_delay: 10
-        }
-      }
+      record = Valimc.Entity.ItemDrop.pop(position, stack)
 
       case Store.create_record(acc, key, record) do
         {:ok, next, _} -> next
@@ -2358,6 +2494,16 @@ defmodule Valimc.World.RegionData do
 
   # Players' drops become entities here; a record that cannot (it left the
   # section, a duplicate uuid) is logged and dropped, never retried.
+  # The entities a box edit part brings (an explosion's drops and primed
+  # TNT) join the store in the edit's frame, or wait for a running plan.
+  defp adopt_box_records(state, %{records: [_ | _] = records}) do
+    if planning?(state),
+      do: %{state | entities: %{state.entities | dropped: state.entities.dropped ++ records}},
+      else: adopt_drops(state, records)
+  end
+
+  defp adopt_box_records(state, _grant), do: state
+
   defp adopt_drops(state, records) do
     items =
       Enum.reduce(records, state.entities.store, fn record, items ->
@@ -3551,6 +3697,9 @@ defmodule Valimc.World.RegionData do
     {:noreply, retry_cooking(state, 1000)}
   end
 
+  # A crater job ended (VMC-050a): the next waiting craters start.
+  defp job_done(:explosion, _job, _result, state), do: {:noreply, start_craters(state)}
+
   defp job_done(:portal, job, {:ok, target}, state),
     do:
       {:noreply,
@@ -3655,6 +3804,12 @@ defmodule Valimc.World.RegionData do
   defp job_failed(:plan, pending, _reason, state) do
     reply_item(pending.from, Error.retry(:item_plan_failed))
     {:noreply, item_plan_failed(state, pending)}
+  end
+
+  defp job_failed(:explosion, _job, reason, state) do
+    require Logger
+    Logger.warning("Explosion craters failed: #{inspect(reason, limit: 12)}")
+    {:noreply, start_craters(state)}
   end
 
   defp job_failed(:portal, _job, reason, state) do

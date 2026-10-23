@@ -152,6 +152,18 @@ defmodule Valimc.Session.Events do
     state
   end
 
+  # A sound at a position (VMC-050a): to players within its range of it.
+  def view(
+        %{phase: :play, player: %{x: px, y: py, z: pz}} = state,
+        {:sound, {x, y, z}, range, packet}
+      ) do
+    if MapSet.member?(state.chunks, Grid.chunk_key(floor(x), floor(z))) and
+         (x - px) * (x - px) + (y - py) * (y - py) + (z - pz) * (z - pz) < range * range,
+       do: send_packets(state, [packet])
+
+    state
+  end
+
   # The tab list holds every online player, near or far; players themselves
   # come and go with the rows their groups publish (VMC-077i4).
   def view(%{phase: :play} = state, {:player_joined, player}) do

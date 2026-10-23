@@ -106,6 +106,14 @@ public class ArmorWearOracle {
       var keys=new ArrayList<TagKey<DamageType>>();for(var e:tagFacts.entrySet())for(var value:e.getValue().getAsJsonArray())if(value.getAsInt()==id)keys.add(TagKey.create(Registries.DAMAGE_TYPE,Identifier.parse(e.getKey())));
       bind.invoke(holder,keys);sources.put(type.identifier().getPath(),new DamageSource(holder));
     }
+    // VMC-050a: the stock items an explosion cannot hurt (`damage_resistant` with is_explosion).
+    DamageSource explosion;{
+      var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(DamageTypes.EXPLOSION);int id=-1;
+      for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(DamageTypes.EXPLOSION.identifier().toString()))id=i;
+      var keys=new ArrayList<TagKey<DamageType>>();for(var e:tagFacts.entrySet())for(var value:e.getValue().getAsJsonArray())if(value.getAsInt()==id)keys.add(TagKey.create(Registries.DAMAGE_TYPE,Identifier.parse(e.getKey())));
+      bind.invoke(holder,keys);explosion=new DamageSource(holder);
+    }
+    var explosionResistant=new JsonArray();
     var hurt=new JsonArray();var resistant=new JsonArray();var armorTag=new JsonArray();var armor=TagKey.create(Registries.ITEM,Identifier.parse("minecraft:enchantable/armor"));
     var rows=new JsonArray();
     for(var item:BuiltInRegistries.ITEM){
@@ -113,6 +121,7 @@ public class ArmorWearOracle {
       if(equippable!=null&&equippable.damageOnHurt())hurt.add(BuiltInRegistries.ITEM.getId(item));
       boolean immune=!stock.canBeHurtBy(sources.get("lava"));
       for(var source:sources.values())if((immune&&source.is(DamageTypeTags.IS_FIRE))==stock.canBeHurtBy(source))throw new AssertionError("Source-specific resistance needs separate facts");
+      if(!stock.canBeHurtBy(explosion))explosionResistant.add(BuiltInRegistries.ITEM.getId(item));
       if(immune)resistant.add(BuiltInRegistries.ITEM.getId(item));if(item.builtInRegistryHolder().is(armor))armorTag.add(BuiltInRegistries.ITEM.getId(item));
       if(item==Items.AIR)continue;
       for(var source:sources.entrySet())for(int slot=0;slot<4;slot++)for(String removed:List.of("","minecraft:equippable","minecraft:damage","minecraft:max_damage","minecraft:damage_resistant")){
@@ -142,7 +151,7 @@ public class ArmorWearOracle {
       var input=new JsonObject();input.addProperty("maximum",maximum);if(added)input.addProperty("initial_damage",damage);input.addProperty("unbreakable",unbreakable);
       observe(rows,p,sources.get("lava"),"lava",stack,0,amount,0f,input);
     }
-    var facts=new JsonObject();facts.add("damage_on_hurt",hurt);facts.add("fire_resistant",resistant);facts.add("armor_tag",armorTag);facts.add("unbreaking",probabilities);
+    var facts=new JsonObject();facts.add("damage_on_hurt",hurt);facts.add("fire_resistant",resistant);facts.add("explosion_resistant",explosionResistant);facts.add("armor_tag",armorTag);facts.add("unbreaking",probabilities);
     var events=new JsonObject();var event=LivingEntity.class.getDeclaredMethod("entityEventForEquipmentBreak",EquipmentSlot.class);event.setAccessible(true);
     for(int i=0;i<SLOTS.length;i++)events.addProperty(Integer.toString(MENU[i]),(byte)event.invoke(null,SLOTS[i]));facts.add("break_events",events);
     var exhaustion=new JsonObject();for(var source:sources.entrySet())exhaustion.addProperty(source.getKey(),(double)source.getValue().getFoodExhaustion());facts.add("exhaustion",exhaustion);

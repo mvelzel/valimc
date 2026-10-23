@@ -263,8 +263,13 @@ defmodule Valimc.World.Region do
   end
 
   @doc "Check and lock a box edit's part in this owner (`Valimc.World.BoxEdit`)."
-  def prepare_box({pid, epoch}, token, edits, expected, entries) when is_pid(pid) do
-    call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
+  def prepare_box({pid, epoch}, token, edits, expected, entries, entities \\ [])
+      when is_pid(pid) do
+    call(
+      pid,
+      {:prepare_box, epoch, token, edits, expected, entries, entities},
+      budget(pid, 2000)
+    )
   catch
     :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
@@ -799,18 +804,38 @@ defmodule Valimc.World.Region do
         state = put_resource(state, key, %{resource | sibling_effects: []})
 
         Enum.reduce(effects, state, fn {sibling, effect}, acc ->
-          if Map.has_key?(acc.sections, sibling) do
-            acc
-            |> put_resource(sibling, RegionData.apply_sibling(enter(acc, sibling), effect))
-            |> deliver_rules(sibling)
-          else
-            acc
+          cond do
+            sibling == :players ->
+              deliver_players(acc, effect)
+
+            Map.has_key?(acc.sections, sibling) ->
+              acc
+              |> put_resource(sibling, RegionData.apply_sibling(enter(acc, sibling), effect))
+              |> deliver_rules(sibling)
+
+            true ->
+              acc
           end
         end)
 
       _ ->
         state
     end
+  end
+
+  # A section's call that concerns the group's players (VMC-050a): an
+  # explosion goes to each hosted player of its dimension within 64 blocks,
+  # whose session takes its hit and packet (`Valimc.Player.Explosions`).
+  defp deliver_players(state, {:explosion, %{center: {cx, cy, cz}}, _} = message) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
+      dx = player.x - cx
+      dy = player.y - cy
+      dz = player.z - cz
+
+      if player.dimension == state.dimension and dx * dx + dy * dy + dz * dz < 4096.0,
+        do: Host.info(acc, uuid, message),
+        else: acc
+    end)
   end
 
   defp section_result({:reply, state, reply}, _from), do: {:reply, reply, commit_frames(state)}

@@ -4,8 +4,10 @@
 //! Players use it per move packet, region owners per tick for all bodies.
 
 pub mod aabb;
+pub mod block_body;
 pub mod border;
 pub mod collide;
+pub mod explosion;
 pub mod facts;
 pub mod fluid;
 pub mod item;

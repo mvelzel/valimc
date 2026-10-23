@@ -1,5 +1,9 @@
 defmodule Valimc.Entity.ItemDrop do
-  @moduledoc "Pure native launch from accepted pose and supplied random draws; no item ownership."
+  @moduledoc """
+  Pure native launches: a player's throw from an accepted pose and supplied
+  random draws (`launch/4`), and a block's popped loot (`pop/2`). No item
+  ownership.
+  """
   alias Valimc.Data.Float32
   import Bitwise
   @sin_scale 10_430.378350470453
@@ -56,4 +60,26 @@ defmodule Valimc.Entity.ItemDrop do
   defp sine(angle), do: trig(trunc(angle * @sin_scale))
   defp cosine(angle), do: trig(trunc(angle * @sin_scale + 16_384.0))
   defp trig(index), do: Float32.round(:math.sin((index &&& 65_535) / @sin_scale))
+
+  @doc """
+  The record of `stack` popped from cell `{x, y, z}` like vanilla
+  `Block.popResource`: up to 0.25 off the cell centre, lowered by half the
+  item's 0.25 height, launched at (±0.1, 0.2, ±0.1) with a 10-tick pickup
+  delay.
+  """
+  def pop({x, y, z}, stack) do
+    [dx, dy, dz, vx, vz] = for _ <- 1..5, do: :rand.uniform_real()
+
+    %{
+      uuid: :crypto.strong_rand_bytes(16),
+      x: x + 0.5 + (dx * 0.5 - 0.25),
+      y: y + 0.5 + (dy * 0.5 - 0.25) - 0.125,
+      z: z + 0.5 + (dz * 0.5 - 0.25),
+      stack: stack,
+      motion: %Valimc.Entity.ItemMotionState{
+        velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
+        pickup_delay: 10
+      }
+    }
+  end
 end

@@ -28,6 +28,7 @@ defmodule Valimc.Living.Armor do
   @ids for name <- ~w(armor armor_toughness burning_time), do: Attributes.fetch(name)["id"]
   @hurt MapSet.new(@facts["damage_on_hurt"])
   @fire_resistant MapSet.new(@facts["fire_resistant"])
+  @explosion_resistant MapSet.new(@facts["explosion_resistant"])
   @break_events Map.new(@facts["break_events"], fn {slot, event} ->
                   {Map.fetch!(%{"5" => :head, "6" => :chest, "7" => :legs, "8" => :feet}, slot),
                    event}
@@ -40,9 +41,6 @@ defmodule Valimc.Living.Armor do
   # Inventory slots of the equipment, and the slots of the default attribute facts.
   @armor_slots [head: 5, chest: 6, legs: 7, feet: 8]
   @fact_slots [head: 5, chest: 6, legs: 7, feet: 8, mainhand: 36, offhand: 45]
-
-  @doc "Food exhaustion by damage type name (`DamageType.exhaustion`), from the wear facts."
-  def exhaustion, do: @facts["exhaustion"]
 
   @doc "A player's equipment: its worn armor, selected hotbar slot and offhand."
   def equipment(%Inventory{slots: slots, selected: selected}) do
@@ -135,27 +133,30 @@ defmodule Valimc.Living.Armor do
       end)
 
   @doc """
-  Wear armor for an admitted environmental hit (at most four raw damage, one
-  point per piece): `{:ok, equipment, broken}` with broken `{slot, stack}` in
-  vanilla's feet-to-head order.
+  Wear armor for an admitted hit (`Inventory.hurtArmor`): each piece loses a
+  quarter of the raw damage, at least one point: `{:ok, equipment, broken}`
+  with broken `{slot, stack}` in vanilla's feet-to-head order.
   """
   def wear(equipment, source, amount, infinite, random \\ &next_float/0)
 
   def wear(equipment, source, amount, infinite, random)
-      when is_map(equipment) and is_number(amount) and amount >= 0 and amount <= 4 and
-             is_boolean(infinite) and is_function(random, 0) do
+      when is_map(equipment) and is_number(amount) and amount >= 0 and
+             amount <= 3.4028234663852886e38 and is_boolean(infinite) and
+             is_function(random, 0) do
     if DamageSource.known?(source) do
       amount = Float32.round(amount)
 
       if infinite or amount == 0 or not DamageSource.wears_armor?(source) do
         {:ok, equipment, []}
       else
+        cost = trunc(max(Float32.round(amount / 4.0), 1.0))
+
         {equipment, broken} =
           Enum.reduce([:feet, :legs, :chest, :head], {equipment, []}, fn slot,
                                                                          {equipment, broken} ->
             stack = equipment[slot]
 
-            case wear_piece(stack, source, random) do
+            case wear_piece(stack, source, cost, random) do
               {^stack, nil} -> {equipment, broken}
               {next, nil} -> {Map.put(equipment, slot, next), broken}
               {next, event} -> {Map.put(equipment, slot, next), [{slot, event} | broken]}
@@ -171,9 +172,9 @@ defmodule Valimc.Living.Armor do
 
   def wear(_, _, _, _, _), do: {:error, :invalid_armor_wear}
 
-  defp wear_piece(nil, _source, _random), do: {nil, nil}
+  defp wear_piece(nil, _source, _cost, _random), do: {nil, nil}
 
-  defp wear_piece(%ItemStack{} = stack, source, random) do
+  defp wear_piece(%ItemStack{} = stack, source, cost, random) do
     allowed =
       MapSet.member?(@hurt, stack.item_id) and
         not MapSet.member?(stack.removed, "minecraft:equippable") and
@@ -181,8 +182,17 @@ defmodule Valimc.Living.Armor do
                MapSet.member?(@fire_resistant, stack.item_id) and
                not MapSet.member?(stack.removed, "minecraft:damage_resistant"))
 
-    if allowed, do: Durability.hurt_and_break(stack, 1, false, random), else: {stack, nil}
+    if allowed, do: Durability.hurt_and_break(stack, cost, false, random), else: {stack, nil}
   end
+
+  @doc """
+  Whether an explosion cannot hurt `stack` as an item entity (its
+  `damage_resistant` component lists explosions: the nether star).
+  """
+  def resists_explosion?(%ItemStack{} = stack),
+    do:
+      MapSet.member?(@explosion_resistant, stack.item_id) and
+        not MapSet.member?(stack.removed, "minecraft:damage_resistant")
 
   defp next_float, do: (:rand.uniform(16_777_216) - 1) / 16_777_216
 end

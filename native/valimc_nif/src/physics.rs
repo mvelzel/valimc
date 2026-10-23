@@ -19,8 +19,10 @@ use crate::facts::PHYSICS;
 use crate::snapshot::Snapshot;
 use rustler::{Atom, Binary, Encoder, Env, NifResult, Term};
 use std::collections::HashMap;
+use valimc_core::physics::block_body;
 use valimc_core::physics::border::Border;
 use valimc_core::physics::collide;
+use valimc_core::physics::explosion;
 use valimc_core::physics::facts::Facts;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
 use valimc_core::physics::orb::{self, OrbBody};
@@ -584,6 +586,173 @@ fn mobs_step<'a>(
             ),
             Err(f) => crate::player::fault(env, *f),
         })
+        .collect();
+    Ok(ok(env, results))
+}
+
+/// An explosion's reach (VMC-050a, `ServerExplosion.calculateExplodedPositions`):
+/// `{:ok, {cells, unreadable}}` with the cells its rays reach (sorted, as
+/// `{{x, y, z}, state}`, air included) and
+/// whether a ray stopped at a cell the view cannot read. `seed` seeds the
+/// `LegacyRandomSource` its rays draw from; the world spans `min_y` and
+/// `height` cells. Always dirty: about 30,000 cell reads at radius 4.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_explosion<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    center: Vec3,
+    radius: f64,
+    seed: i64,
+    min_y: i32,
+    height: i32,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let c = v3(center);
+    // A ray reaches at most radius × 1.3 / 0.225 steps of 0.3 blocks.
+    let reach = radius * 1.3 / 0.225 * 0.3 + 2.0;
+    let region = Aabb::new(
+        [c[0] - reach, c[1] - reach, c[2] - reach],
+        [c[0] + reach, c[1] + reach, c[2] + reach],
+    );
+    let view = view(view_term, facts, &region)?;
+    let mut random = valimc_core::worldgen::random::Random::legacy(seed);
+    let found = explosion::exploded(
+        &view,
+        facts,
+        c,
+        radius as f32,
+        &mut random,
+        explosion::Height { min_y, height },
+    );
+    let cells: Vec<((i32, i32, i32), u16)> = found
+        .cells
+        .iter()
+        .map(|(p, s)| ((p[0], p[1], p[2]), *s))
+        .collect();
+    Ok(ok(env, (cells, found.unreadable)))
+}
+
+/// How much of each body sees an explosion's centre
+/// (`ServerExplosion.getSeenPercent`): `{:ok, [exposure]}` in body order.
+#[rustler::nif]
+fn physics_exposure<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    center: Vec3,
+    bodies: Vec<BoxT>,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let c = v3(center);
+    let boxes: Vec<Aabb> = bodies.into_iter().map(aabb).collect();
+    let mut all = boxes.clone();
+    all.push(Aabb::new(c, c));
+    let Some(region) = union(&all) else {
+        return Ok(ok(env, Vec::<f64>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let seen: Vec<f64> = boxes
+        .iter()
+        .map(|b| explosion::seen(&view, facts, c, b) as f64)
+        .collect();
+    Ok(ok(env, seen))
+}
+
+/// `{position, velocity, on_ground, no_gravity, kind}`, kind `:tnt` or
+/// `:falling_block`.
+type BlockBodyT<'a> = (Vec3, Vec3, bool, bool, Atom);
+
+mod kinds {
+    rustler::atoms! { tnt, falling_block }
+}
+
+/// One tick for each primed TNT or falling block (VMC-050a): `{:ok,
+/// results}` in input order, each `{:ok, position, velocity, on_ground,
+/// moved_y}`, `{:unreadable, pos}` or `:limit` (the body keeps its state).
+#[rustler::nif]
+fn physics_block_bodies<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    bodies: Vec<BlockBodyT<'a>>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    block_bodies_step(env, view_term, bodies, border)
+}
+
+/// `physics_block_bodies` for batches past the normal scheduler's budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_block_bodies_dirty<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    bodies: Vec<BlockBodyT<'a>>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    block_bodies_step(env, view_term, bodies, border)
+}
+
+fn block_bodies_step<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    bodies: Vec<BlockBodyT<'a>>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let mut inputs = Vec::with_capacity(bodies.len());
+    for (p, v, on_ground, no_gravity, kind) in bodies {
+        let kind = if kind == kinds::tnt() {
+            block_body::Kind::Tnt
+        } else if kind == kinds::falling_block() {
+            block_body::Kind::FallingBlock
+        } else {
+            return Err(rustler::Error::BadArg);
+        };
+        let body = block_body::BlockBody {
+            position: v3(p),
+            velocity: v3(v),
+            on_ground,
+            no_gravity,
+        };
+        inputs.push((body, kind));
+    }
+    let Some(region) = union(
+        &inputs
+            .iter()
+            .map(|(b, _)| {
+                let p = b.position;
+                Aabb::new(
+                    [p[0] - 1.5, p[1] - 2.0, p[2] - 1.5],
+                    [p[0] + 1.5, p[1] + 3.0, p[2] + 1.5],
+                )
+                .expand_towards(b.velocity)
+            })
+            .collect::<Vec<_>>(),
+    ) else {
+        return Ok(ok(env, Vec::<Term>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let border = border.map(|(min_x, min_z, max_x, max_z)| Border {
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+    });
+    let results: Vec<Term> = inputs
+        .iter()
+        .map(
+            |(b, kind)| match block_body::step(&view, facts, b, *kind, border.as_ref()) {
+                Ok(s) => (
+                    atoms::ok(),
+                    t3(s.body.position),
+                    t3(s.body.velocity),
+                    s.body.on_ground,
+                    s.moved_y,
+                )
+                    .encode(env),
+                Err(ItemFault::Limit) | Err(ItemFault::Inside) => atoms::limit().encode(env),
+                Err(ItemFault::Unreadable(p)) => {
+                    (atoms::unreadable(), (p[0], p[1], p[2])).encode(env)
+                }
+            },
+        )
         .collect();
     Ok(ok(env, results))
 }
