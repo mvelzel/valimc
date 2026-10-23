@@ -39023,6 +39023,43 @@
       }
     ]
   },
+  "minecraft:entities/blaze": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/blaze",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:blaze_rod",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "type": "minecraft:killed_by_player"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/chicken": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/chicken",

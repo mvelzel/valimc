@@ -92,6 +92,12 @@ pub struct Mob {
     pub alive: bool,
     /// `JumpControl.jump()` from the AI this tick (`FloatGoal`).
     pub jump: bool,
+    /// A falling mob's vertical motion is scaled by this before the dead
+    /// zone (a blaze's `aiStep`: 0.6; 1.0 for the rest).
+    pub fall_scale: f64,
+    /// The AI lifts the mob this tick, after the dead zone (a blaze's
+    /// `customServerAiStep` toward a target's eyes above it).
+    pub rise: bool,
 }
 
 /// One tick's result: the mob after it and what its living rules read.
@@ -380,7 +386,10 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     if lava {
         m.fall_distance *= 0.5;
     }
-    // aiStep.
+    // aiStep (a blaze slows its fall first).
+    if !m.on_ground && m.velocity[1] < 0.0 {
+        m.velocity[1] *= m.fall_scale;
+    }
     if m.no_jump_delay > 0 {
         m.no_jump_delay -= 1;
     }
@@ -392,6 +401,10 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     ];
     m.strafe *= 0.98;
     m.forward *= 0.98;
+    // `customServerAiStep`'s lift: `(0.3F - y) * 0.3F` more.
+    if m.rise {
+        m.velocity[1] += (0.3_f32 as f64 - m.velocity[1]) * 0.3_f32 as f64;
+    }
     // LivingEntity.baseTick's air reads the eye's fluid where the tick began.
     let eye = [start[0], start[1] + m.size.eye, start[2]];
     let (eye_water, _) = w.eyes(&body, eye)?;
@@ -859,6 +872,8 @@ impl Default for Mob {
             jump_boost: -1,
             alive: true,
             jump: false,
+            fall_scale: 1.0,
+            rise: false,
         }
     }
 }

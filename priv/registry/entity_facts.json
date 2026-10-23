@@ -82,6 +82,10 @@
       "index": 9,
       "serializer": 0
     },
+    "blaze_flags": {
+      "index": 16,
+      "serializer": 0
+    },
     "cloud_particle": {
       "index": 10,
       "serializer": 16
@@ -130,9 +134,17 @@
       "index": 7,
       "serializer": 1
     },
+    "ghast_charging": {
+      "index": 16,
+      "serializer": 8
+    },
     "health": {
       "index": 9,
       "serializer": 3
+    },
+    "hoglin_immune": {
+      "index": 18,
+      "serializer": 8
     },
     "item_stack": {
       "index": 8,
@@ -148,6 +160,22 @@
     },
     "no_gravity": {
       "index": 5,
+      "serializer": 8
+    },
+    "piglin_baby": {
+      "index": 17,
+      "serializer": 8
+    },
+    "piglin_charging_crossbow": {
+      "index": 18,
+      "serializer": 8
+    },
+    "piglin_dancing": {
+      "index": 19,
+      "serializer": 8
+    },
+    "piglin_immune": {
+      "index": 16,
       "serializer": 8
     },
     "pose": {
@@ -169,6 +197,14 @@
     "stinger_count": {
       "index": 13,
       "serializer": 1
+    },
+    "strider_boost_time": {
+      "index": 18,
+      "serializer": 1
+    },
+    "strider_suffocating": {
+      "index": 19,
+      "serializer": 8
     },
     "thrown_item": {
       "index": 8,

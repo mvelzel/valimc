@@ -24,6 +24,7 @@ defmodule Valimc.Entity.MobMotion do
             control: :wait,
             horizontal_collision: false,
             jump: false,
+            rise: false,
             water: 0.0,
             lava: 0.0
 
@@ -35,6 +36,7 @@ defmodule Valimc.Entity.MobMotion do
       is_float(m.fall_distance) and is_integer(m.no_jump_delay) and m.no_jump_delay in 0..10 and
         vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
+        is_boolean(Map.get(m, :rise)) and
         is_float(m.water) and is_float(m.lava)
 
   def valid?(_), do: false
@@ -104,9 +106,15 @@ defmodule Valimc.Entity.MobMotion do
       levitation: Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("levitation")),
       jump_boost: Attributes.jump_boost_level(effects),
       alive: alive,
-      jump: alive and motion.jump
+      jump: alive and motion.jump,
+      fall_scale: fall_scale(type),
+      rise: alive and motion.rise
     }
   end
+
+  # A blaze falls slowly (`Blaze.aiStep`).
+  defp fall_scale("minecraft:blaze"), do: 0.6
+  defp fall_scale(_type), do: 1.0
 
   @doc "The travel attributes the kernel reads of a mob of `type` with `overrides`."
   def travel(type, overrides),

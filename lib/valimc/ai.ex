@@ -189,8 +189,9 @@ defmodule Valimc.AI do
 
       self = self |> despawn_check() |> base_tick() |> ai_step()
 
-      mob = %{self.mob | ai: self.mind, motion: %{self.mob.motion | jump: self.mind.jump}}
-      mob = put_in(mob.ai.jump, false)
+      motion = %{self.mob.motion | jump: self.mind.jump, rise: self.mind.rise}
+      mob = %{self.mob | ai: self.mind, motion: motion}
+      mob = %{mob | ai: %{mob.ai | jump: false, rise: false}}
 
       {%{body | pitch: self.pitch, head_yaw: self.head, mob: mob}, Enum.reverse(self.effects),
        %{world | random: self.world.random}}
@@ -291,10 +292,9 @@ defmodule Valimc.AI do
   # then `serverAiStep`.
   defp ai_step(%Self{} = self) do
     self =
-      if EntityTypes.fetch(self.type).category == :monster and
-           World.light(self.world, {floor(self.x), floor(Self.eye_y(self)), floor(self.z)}) > 0.5,
-         do: Self.mind(self, &%{&1 | no_action: &1.no_action + 2}),
-         else: self
+      if EntityTypes.fetch(self.type).category == :monster and light(self) > 0.5,
+        do: Self.mind(self, &%{&1 | no_action: &1.no_action + 2}),
+        else: self
 
     self = Self.mind(self, &%{&1 | no_action: &1.no_action + 1, sight: %{}})
     # A deferred search's result arrives before the goals look (VMC-041b).
@@ -311,11 +311,17 @@ defmodule Valimc.AI do
     self = Navigation.tick(self)
 
     # `customServerAiStep`: a brain ticks, then its mob picks its activity;
-    # only an adult animal stays in love.
+    # a family's mob does its own part; only an adult animal stays in love.
     self =
       case self.mind.brain do
         nil -> self
         %{module: module} -> self |> Valimc.AI.Brain.tick() |> module.update_activity()
+      end
+
+    self =
+      case Mobs.custom(self.type) do
+        nil -> self
+        module -> module.custom_step(self)
       end
 
     self =
@@ -325,6 +331,12 @@ defmodule Valimc.AI do
 
     Look.tick(self)
   end
+
+  # `getLightLevelDependentMagicValue` at the eyes: a blaze is always lit.
+  defp light(%Self{type: "minecraft:blaze"}), do: 1.0
+
+  defp light(self),
+    do: World.light(self.world, {floor(self.x), floor(Self.eye_y(self)), floor(self.z)})
 
   defp animal?(type), do: type in ["minecraft:pig"]
 

@@ -7,16 +7,23 @@
 # random seed, running goals and target goals, target, arms raised, path,
 # hits on players and sounds must equal vanilla's; a brain's running
 # behaviours, activity, off hand, admire time, the level random and items
-# taken too.
+# taken too; level events and the entities a mob adds (fireballs) too.
+# An optional second argument is the least number of scenes (another
+# family's oracle, VMC-043d's NetherMobOracle, has fewer).
 alias Valimc.AI
 alias Valimc.Entity.{Body, Combat, MobTicks}
 alias Valimc.Living.DamageSource
 
-[path] = System.argv()
+{path, least} =
+  case System.argv() do
+    [path] -> {path, 9}
+    [path, least] -> {path, String.to_integer(least)}
+  end
+
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
-unless length(cases) >= 9, do: raise("Incomplete mob AI traces")
+unless length(cases) >= least, do: raise("Incomplete mob AI traces")
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -288,6 +295,30 @@ checked =
               takes = for {:pickup, _, n} <- step.effects, do: n
               want_takes = for s <- expected["sounds"], s["take"] != nil, do: s["take"]
 
+              level_events =
+                for {:level_event, {cx, cy, cz}, type, data} <- step.effects,
+                    do: [type, [cx, cy, cz], data]
+
+              want_events =
+                for s <- expected["sounds"],
+                    s["event"] != nil,
+                    do: [s["event"], s["at"], s["data"]]
+
+              adds =
+                for {:projectile, type, at, velocity, {yaw, pitch}} <- step.effects,
+                    do: [
+                      type,
+                      Enum.map(Tuple.to_list(at), hex),
+                      Enum.map(Tuple.to_list(velocity), hex),
+                      bits.(yaw),
+                      bits.(pitch)
+                    ]
+
+              want_adds =
+                for s <- expected["sounds"],
+                    s["add"] != nil,
+                    do: [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+
               got = %{
                 position: Enum.map(Tuple.to_list({x, y, z}), hex),
                 velocity: Enum.map(Tuple.to_list(body.velocity), hex),
@@ -305,6 +336,8 @@ checked =
                 swings: swings,
                 hits: hits,
                 takes: takes,
+                level_events: level_events,
+                adds: adds,
                 level_seed: world.random,
                 ambient: mind.ambient,
                 no_action: mind.no_action
@@ -340,6 +373,8 @@ checked =
                 swings: want_swings,
                 hits: want_hits,
                 takes: want_takes,
+                level_events: want_events,
+                adds: want_adds,
                 level_seed: expected["level_seed"],
                 ambient: expected["ambient"],
                 no_action: expected["no_action"]
@@ -376,5 +411,5 @@ checked =
   end
 
 IO.puts(
-  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes)"
+  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes, level events, added entities)"
 )

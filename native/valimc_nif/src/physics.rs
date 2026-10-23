@@ -474,6 +474,8 @@ struct MobT {
     jump_boost: i32,
     alive: bool,
     jump: bool,
+    fall_scale: f64,
+    rise: bool,
 }
 
 /// A mob's tick: the mob after it and what its living rules read.
@@ -542,6 +544,8 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         jump_boost: m.jump_boost,
         alive: m.alive,
         jump: m.jump,
+        fall_scale: m.fall_scale,
+        rise: m.rise,
     })
 }
 
@@ -583,6 +587,8 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         jump_boost: m.jump_boost,
         alive: m.alive,
         jump: m.jump,
+        fall_scale: m.fall_scale,
+        rise: m.rise,
     }
 }
 

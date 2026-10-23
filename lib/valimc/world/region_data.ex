@@ -1151,6 +1151,15 @@ defmodule Valimc.World.RegionData do
 
       drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
 
+      # Projectiles mobs fired (a blaze's fireballs, VMC-043d) and their level events.
+      shots =
+        for step <- steps, {:projectile, _, _, _, _} = shot <- step.effects, do: {step.id, shot}
+
+      level_events =
+        for step <- steps,
+            {:level_event, cell, type, data} <- step.effects,
+            do: {cell, type, data}
+
       # Mobs travel through portals (VMC-026d), standing in one too.
       {steps, state} = portal_contacts(state, steps)
 
@@ -1169,6 +1178,8 @@ defmodule Valimc.World.RegionData do
       state = route_bodies(state, steps)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
+      state = Enum.reduce(shots, state, &mob_projectile/2)
+      if level_events != [], do: publish_level_events(state, level_events)
       state = if tramples == [], do: state, else: elem(rule_run(state, %{actions: tramples}), 0)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
@@ -1178,6 +1189,28 @@ defmodule Valimc.World.RegionData do
       end
 
       state
+    end
+  end
+
+  # A projectile mob `id` fired (`addFreshEntity`): a body owned by the mob,
+  # moving and turned as its AI made it.
+  defp mob_projectile({id, {:projectile, type, at, velocity, {yaw, pitch}}}, state) do
+    store = state.entities.store
+
+    case store.entries[id] do
+      %{entity: e, body: %Body{type: shooter}} ->
+        owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: shooter}
+        body = Projectile.new(type, owner)
+        body = Projectile.impulse(%{body | velocity: velocity, yaw: yaw, pitch: pitch})
+        record = Store.body_record(body, :crypto.strong_rand_bytes(16), at)
+
+        case Store.create_record(store, state.key, record) do
+          {:ok, store, _} -> put_entities(state, store)
+          _ -> state
+        end
+
+      _ ->
+        state
     end
   end
 

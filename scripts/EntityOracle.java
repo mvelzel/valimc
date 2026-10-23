@@ -286,6 +286,16 @@ public class EntityOracle {
     fields.put("cloud_waiting", field(net.minecraft.world.entity.AreaEffectCloud.class, "DATA_WAITING"));
     fields.put("ageable_baby", field(net.minecraft.world.entity.AgeableMob.class, "DATA_BABY_ID"));
     fields.put("cloud_particle", field(net.minecraft.world.entity.AreaEffectCloud.class, "DATA_PARTICLE"));
+    // VMC-043d: the Nether's mobs.
+    fields.put("blaze_flags", field(net.minecraft.world.entity.monster.Blaze.class, "DATA_FLAGS_ID"));
+    fields.put("ghast_charging", field(net.minecraft.world.entity.monster.Ghast.class, "DATA_IS_CHARGING"));
+    fields.put("piglin_immune", field(net.minecraft.world.entity.monster.piglin.AbstractPiglin.class, "DATA_IMMUNE_TO_ZOMBIFICATION"));
+    fields.put("piglin_baby", field(net.minecraft.world.entity.monster.piglin.Piglin.class, "DATA_BABY_ID"));
+    fields.put("piglin_charging_crossbow", field(net.minecraft.world.entity.monster.piglin.Piglin.class, "DATA_IS_CHARGING_CROSSBOW"));
+    fields.put("piglin_dancing", field(net.minecraft.world.entity.monster.piglin.Piglin.class, "DATA_IS_DANCING"));
+    fields.put("hoglin_immune", field(net.minecraft.world.entity.monster.hoglin.Hoglin.class, "DATA_IMMUNE_TO_ZOMBIFICATION"));
+    fields.put("strider_boost_time", field(net.minecraft.world.entity.monster.Strider.class, "DATA_BOOST_TIME"));
+    fields.put("strider_suffocating", field(net.minecraft.world.entity.monster.Strider.class, "DATA_SUFFOCATING"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

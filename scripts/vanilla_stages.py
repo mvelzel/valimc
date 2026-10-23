@@ -1091,6 +1091,11 @@ STAGES = [
         ('java', 'MobAiOracle', 'cases', '@mob-ai.json'),
         ('check', 'check_mob_ai.exs', '@mob-ai.json'),
     ]),
+    # VMC-043d: the Nether's mobs with their goals and brains.
+    ('nether_mobs', [
+        ('java', 'NetherMobOracle', 'cases', '@nether-mobs.json'),
+        ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

@@ -3,9 +3,10 @@ defmodule Valimc.AI.Mind do
   A mob's AI state (`Mob.ai`), as vanilla's `Mob` keeps it between ticks:
   its random, tick count and idle time, the ambient sound timer, its goal
   and target selectors, its target and aggression, the look control's
-  wanted look, the body rotation control, its navigation, the jump the AI
-  asked for, who last hurt it and with what, and its love and age (for
-  breeding and following parents).
+  wanted look, the body rotation control, its navigation, the jump (and a
+  blaze's lift) the AI asked for, who last hurt it and with what, its love
+  and age (for breeding and following parents), and `own`: what its type
+  keeps beyond these (a family's fields, e.g. a blaze's height offset).
 
   Only the random is saved (`record/1`): vanilla saves no goal state, and a
   mob restored from its record starts with fresh selectors drawing on.
@@ -28,12 +29,14 @@ defmodule Valimc.AI.Mind do
             stable_time: 0,
             navigation: %Navigation{},
             jump: false,
+            rise: false,
             hurt_by: nil,
             damage: nil,
             sight: %{},
             in_love: 0,
             age: 0,
-            brain: nil
+            brain: nil,
+            own: nil
 
   @doc "What a store saves of a mind: its random."
   def record(%__MODULE__{random: random}), do: %{random: random}

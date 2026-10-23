@@ -2,7 +2,8 @@ defmodule Valimc.MobAiConnectionTest do
   @moduledoc """
   Mob AI live in a group (VMC-041a): a summoned zombie targets a survival
   player, walks to it and hits it; a pig follows a player holding a carrot,
-  and panics when the player hits it.
+  and panics when the player hits it. A blaze (VMC-043d) sets the player on
+  fire with its fireballs.
   """
   use ExUnit.Case, async: false
   @moduletag :tcp
@@ -114,5 +115,17 @@ defmodule Valimc.MobAiConnectionTest do
 
     {:ok, _} = Region.hurt_entity(owner, uuid, hit)
     Valimc.TestWait.until(fn -> running?(owner, uuid, Valimc.AI.Goals.Panic) end, 10_000)
+  end
+
+  test "a blaze's fireballs set the player on fire", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    uuid = <<13::128>>
+    owner = summon(ctx, "minecraft:blaze", uuid, 8.0)
+
+    # Charged for three seconds, then three small fireballs: 5 each, and fire.
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).fire_ticks > 0 end, 30_000)
+    assert TestPlayer.living(pid).health.value < 20.0
+    assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
   end
 end

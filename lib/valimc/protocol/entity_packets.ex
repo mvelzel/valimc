@@ -213,6 +213,7 @@ defmodule Valimc.Protocol.EntityPackets do
               :air_supply,
               :experience_value,
               :mob_flags,
+              :blaze_flags,
               :tnt_fuse,
               :tnt_block_state,
               :falling_block_start_pos,
@@ -234,7 +235,14 @@ defmodule Valimc.Protocol.EntityPackets do
     payload =
       case name do
         name
-        when name in [:shared_flags, :living_flags, :mob_flags, :arrow_flags, :arrow_pierce_level] ->
+        when name in [
+               :shared_flags,
+               :living_flags,
+               :mob_flags,
+               :blaze_flags,
+               :arrow_flags,
+               :arrow_pierce_level
+             ] ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 

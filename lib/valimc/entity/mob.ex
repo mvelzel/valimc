@@ -60,7 +60,7 @@ defmodule Valimc.Entity.Mob do
       attributes: mob.attributes,
       ai: ai_record(mob.ai),
       no_ai: mob.no_ai,
-      motion: %{mob.motion | jump: false},
+      motion: %{mob.motion | jump: false, rise: false},
       hurt_by_player: mob.hurt_by_player,
       player_memory: mob.player_memory
     }

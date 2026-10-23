@@ -5,7 +5,9 @@ defmodule Valimc.Entity.MobVitals do
   second at a time and air with drowning for a type that cannot breathe
   under water, then its move's landing damage (`Block.fallOn` and
   `calculateFallDamage`) and the fire, lava and water contacts of the move
-  in order (`Burning.plan/1`, `applyEffectsFromBlocks`). Each hurt goes
+  in order (`Burning.plan/1`, `applyEffectsFromBlocks`), and last water's
+  hurt to a type sensitive to it (a blaze, VMC-043d; rain is not read yet).
+  Each hurt goes
   through the one hurt path (`Valimc.Entity.Combat.hurt_mob/4`), so a mob
   dies, and drops, as any other death.
   Returns the body and its entity events.
@@ -15,6 +17,8 @@ defmodule Valimc.Entity.MobVitals do
   alias Valimc.Living.{Air, Attributes, Burning, FallDamage, Landing}
   alias Valimc.Protocol.Registries
 
+  @water_sensitive ["minecraft:blaze"]
+
   @doc "Apply kernel tick `ticked` (its landing, contacts and eye) to `body` of `type`."
   def apply(type, body, ticked) do
     facts = EntityTypes.fetch(type)
@@ -23,6 +27,7 @@ defmodule Valimc.Entity.MobVitals do
     {mob, events} = breathe(type, mob, events, ticked)
     {mob, events} = landing(type, mob, events, ticked.landing)
     {mob, events} = contacts(type, facts, mob, events, ticked.fire_contacts)
+    {mob, events} = wet(type, mob, events, ticked.water)
     {%{body | mob: mob}, events}
   end
 
@@ -122,6 +127,12 @@ defmodule Valimc.Entity.MobVitals do
     mob = %{mob | living: %{mob.living | air_supply: air}}
     if damage > 0, do: hurt(type, mob, events, :drown, damage), else: {mob, events}
   end
+
+  # `aiStep`'s `isSensitiveToWater() && isInWaterOrRain()`: drowning, 1.
+  defp wet(type, mob, events, true) when type in @water_sensitive,
+    do: if(Mob.alive?(mob), do: hurt(type, mob, events, :drown, 1.0), else: {mob, events})
+
+  defp wet(_type, mob, events, _water), do: {mob, events}
 
   defp hurt(type, mob, events, source, amount) do
     {mob, more} = Valimc.Entity.Combat.hurt_mob(type, mob, source, amount)

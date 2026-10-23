@@ -75,6 +75,7 @@ defmodule Valimc.AI.Mobs do
   end
 
   def registered("minecraft:piglin"), do: {[], []}
+  def registered("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze.registered()
 
   def registered(_type), do: nil
 
@@ -99,7 +100,14 @@ defmodule Valimc.AI.Mobs do
         do: type
   end
 
-  @types ["minecraft:zombie", "minecraft:pig", "minecraft:piglin"]
+  @types ["minecraft:zombie", "minecraft:pig", "minecraft:piglin", "minecraft:blaze"]
+
+  @doc """
+  The module of a type's own `customServerAiStep` (`custom_step/1`, after
+  its navigation), or nil: a family's mob that does more than its goals.
+  """
+  def custom("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze
+  def custom(_type), do: nil
 
   @doc "The brain module of a brain mob's type, or nil (VMC-041a2)."
   def brain("minecraft:piglin"), do: Valimc.AI.Brains.Piglin

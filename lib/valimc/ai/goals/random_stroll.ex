@@ -9,14 +9,13 @@ defmodule Valimc.AI.Goals.RandomStroll do
   use Valimc.AI.Goal
   alias Valimc.AI.RandomPos
 
-  @probability Valimc.Data.Float32.round(0.001)
-
   def new(speed, opts \\ []),
     do: %{
       speed: speed * 1.0,
       interval: Keyword.get(opts, :interval, 120),
       check_idle: Keyword.get(opts, :check_idle, true),
       water_avoiding: Keyword.get(opts, :water_avoiding, false),
+      probability: Valimc.Data.Float32.round(Keyword.get(opts, :probability, 0.001)),
       force: false,
       wanted: nil
     }
@@ -48,7 +47,7 @@ defmodule Valimc.AI.Goals.RandomStroll do
 
   defp position(%{water_avoiding: false}, self), do: RandomPos.default(self, 10, 7)
 
-  defp position(_state, self) do
+  defp position(state, self) do
     if Self.in_water?(self) do
       case RandomPos.land(self, 15, 7) do
         {nil, self} -> RandomPos.default(self, 10, 7)
@@ -56,7 +55,10 @@ defmodule Valimc.AI.Goals.RandomStroll do
       end
     else
       {f, self} = Self.float(self)
-      if f >= @probability, do: RandomPos.land(self, 10, 7), else: RandomPos.default(self, 10, 7)
+
+      if f >= state.probability,
+        do: RandomPos.land(self, 10, 7),
+        else: RandomPos.default(self, 10, 7)
     end
   end
 

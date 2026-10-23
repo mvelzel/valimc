@@ -114,8 +114,9 @@ weapon = fn
 end
 
 deaths = raw["entity_cases"]
-# 1500 deaths per modelled mob's table (zombie, chicken, endermite, pig).
-true = length(deaths) == 1500 * 4
+# 1500 deaths per modelled mob's table (LootOracle's ENTITY_TABLES).
+true = deaths != [] and rem(length(deaths), 1500) == 0
+tables = deaths |> Enum.map(& &1["table"]) |> Enum.uniq() |> Enum.map(&Path.basename/1)
 
 death_failures =
   Enum.reject(deaths, fn row ->
@@ -143,5 +144,5 @@ if death_failures != [] do
 end
 
 IO.puts(
-  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and #{length(deaths)} zombie, chicken, endermite and pig deaths equal vanilla (#{stacks} stacks)"
+  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and #{length(deaths)} deaths of #{Enum.join(tables, ", ")} equal vanilla (#{stacks} stacks)"
 )

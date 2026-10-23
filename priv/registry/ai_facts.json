@@ -859,6 +859,75 @@
       },
       "goals": [],
       "targets": []
+    },
+    "minecraft:blaze": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.blaze.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {
+        "lava": 8.0,
+        "water": -1.0,
+        "fire_in_neighbor": 0.0,
+        "fire": 0.0
+      },
+      "goals": [
+        [
+          4,
+          "BlazeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "MoveTowardsRestrictionGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
     }
   },
   "sounds": {
@@ -869,7 +938,8 @@
     "minecraft:entity.piglin.angry": 1286,
     "minecraft:entity.piglin.celebrate": 1287,
     "minecraft:entity.zombie.ambient": 1873,
-    "minecraft:entity.pig.ambient": 1272
+    "minecraft:entity.pig.ambient": 1272,
+    "minecraft:entity.blaze.ambient": 174
   },
   "swing_fields": "000106"
 }

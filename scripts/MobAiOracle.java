@@ -58,7 +58,9 @@ import net.minecraft.world.phys.*;
  */
 public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
-  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin");
+  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
+      // VMC-043d's Nether mobs (cases in NetherMobOracle).
+      "minecraft:blaze");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -140,6 +142,8 @@ public class MobAiOracle {
     Map<BlockPos, BlockState> blocks; List<Entity> entities; List<Player> fighters; GameRules rules; DamageSources sources; WorldBorder border;
     RegistryAccess access; long time; int ids; SceneChunk chunk;
     Map<Entity, List<JsonObject>> sounds;
+    // The mob ticking: what it adds to the level and its level events are its own.
+    Entity current;
     private Probe() { super(null,null,null,null,null,null,false,0L,List.of(),false); }
     public RegistryAccess registryAccess() { return access; }
     public BlockState getBlockState(BlockPos p) { return blocks.getOrDefault(p, Blocks.AIR.defaultBlockState()); }
@@ -205,6 +209,24 @@ public class MobAiOracle {
       return scoreboard;
     }
     public void gameEvent(Holder<GameEvent> e, Vec3 p, GameEvent.Context c) {}
+    // An entity a mob adds (a projectile, a thrown item) is recorded, not ticked.
+    public boolean addFreshEntity(Entity e) {
+      if (current == null) return false;
+      var o = new JsonObject(); o.addProperty("add", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
+      o.add("position", bits(e.position())); o.add("velocity", bits(e.getDeltaMovement()));
+      o.addProperty("yaw", Float.floatToRawIntBits(e.getYRot())); o.addProperty("pitch", Float.floatToRawIntBits(e.getXRot()));
+      if (e instanceof net.minecraft.world.entity.item.ItemEntity item) {
+        o.addProperty("item", BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString()); o.addProperty("count", item.getItem().getCount());
+      }
+      sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
+      return true;
+    }
+    public void levelEvent(Entity source, int type, BlockPos pos, int data) {
+      if (current == null) return;
+      var o = new JsonObject(); o.addProperty("event", type);
+      var p = new JsonArray(); p.add(pos.getX()); p.add(pos.getY()); p.add(pos.getZ()); o.add("at", p); o.addProperty("data", data);
+      sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
+    }
     public void broadcastEntityEvent(Entity e, byte b) {}
     public void broadcastDamageEvent(Entity e, DamageSource s) {}
     public <T extends ParticleOptions> int sendParticles(T o, double x, double y, double z, int n, double a, double b, double c, double s) { return 0; }
@@ -275,7 +297,9 @@ public class MobAiOracle {
     return switch (type) {
       case "minecraft:zombie" -> new Zombie(level);
       case "minecraft:pig" -> new Pig(level);
-      default -> new Piglin(level);
+      case "minecraft:piglin" -> new Piglin(level);
+      // Any other type as its own factory makes it (no `finalizeSpawn`).
+      default -> (net.minecraft.world.entity.Mob)BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(type)).create(level, EntitySpawnReason.COMMAND);
     };
   }
 
@@ -348,7 +372,7 @@ public class MobAiOracle {
     return out;
   }
 
-  static JsonObject facts(HolderLookup.Provider lookup, Probe level) throws Exception {
+  static JsonObject facts(Probe level) throws Exception {
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     var asin = new JsonArray(); var cos = new JsonArray();
@@ -536,11 +560,13 @@ public class MobAiOracle {
       for (var h : hits) if (h.tick == t)
         mobs.get(h.mob).hurtServer(level, level.damageSources().playerAttack(fighters.get(h.player)), h.amount);
       for (var m : mobs) {
+        level.current = m;
         m.checkDespawn();
         m.setOldPosAndRot();
         m.tickCount++;
         m.tick();
       }
+      level.current = null;
       // The players' own ticks come after the level's (their connections):
       // each pushes the mobs it touches.
       for (var f : fighters) push.invoke(f);
@@ -822,7 +848,8 @@ public class MobAiOracle {
     return out;
   }
 
-  public static void main(String[] args) throws Exception {
+  /** The probe level every case runs in, its registries and tags bound (also NetherMobOracle's). */
+  static Probe setup() throws Exception {
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
     var lookup = VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p -> p.apply());
@@ -844,9 +871,14 @@ public class MobAiOracle {
     var access = new RegistryAccess.ImmutableRegistryAccess(registries).freeze();
     var level = probe(lookup, access, null);
     level.sources = new DamageSources(access);
+    return level;
+  }
+
+  public static void main(String[] args) throws Exception {
+    var level = setup();
     var json = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
     if (args[0].equals("facts")) {
-      Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().serializeNulls().create().toJson(facts(lookup, level)) + "\n");
+      Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().serializeNulls().create().toJson(facts(level)) + "\n");
       System.out.println("PASS: mob AI facts written");
       return;
     }
