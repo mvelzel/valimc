@@ -249,6 +249,7 @@ defmodule Valimc.Entity.Animals.Cat.Tempt do
   def tick(state, self) do
     {tempt, self} = Tempt.tick(state.tempt, self)
     state = %{state | tempt: tempt}
+
     {picked, self} =
       if state.selected == nil do
         {n, self} = Self.int(self, adjusted(state, 600))

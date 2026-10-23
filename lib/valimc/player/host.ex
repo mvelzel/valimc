@@ -238,6 +238,11 @@ defmodule Valimc.Player.Host do
         armor_cover: Valimc.Data.Float32.round(length(armor) / 4),
         # What a lead it holds pulls with (VMC-043c3, `getKnownMovement`).
         movement: player.motion.known_movement,
+        # What a witch reads of its target (VMC-043b6): its motion, health
+        # and effects.
+        velocity: player.motion.velocity,
+        health: player.living.health.value,
+        effects: MapSet.new(Map.keys(effects)),
         equipment: %{
           mainhand: item.(36 + inventory.selected),
           offhand: item.(45),

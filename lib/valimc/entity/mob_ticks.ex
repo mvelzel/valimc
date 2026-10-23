@@ -129,6 +129,8 @@ defmodule Valimc.Entity.MobTicks do
         {body, position} =
           MobMotion.apply(entry.body, ticked.mob, ticked.depths, ticked.powder_snow)
 
+        body = put_in(body.mob.motion.eye_water, ticked.eye_water)
+
         {body, position, settled, world} =
           AI.settle({id, old[id]}, body, position, state.world, ticked.swim)
 

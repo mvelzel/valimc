@@ -51,7 +51,7 @@ public class HostileOracle {
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
   static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
-  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish");
+  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish", "minecraft:witch");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -172,6 +172,7 @@ public class HostileOracle {
         r.addProperty("swell", MobAiOracle.field(net.minecraft.world.entity.monster.Creeper.class, "swell").getInt(c));
       }
       if (m instanceof net.minecraft.world.entity.monster.spider.Spider s) r.addProperty("climbing", s.isClimbing());
+      if (m instanceof net.minecraft.world.entity.monster.Witch w) r.addProperty("drinking", w.isDrinkingPotion());
       if (m instanceof net.minecraft.world.entity.monster.Enderman e) {
         var carried = e.getCarriedBlock();
         if (carried == null) r.add("carried", JsonNull.INSTANCE); else r.addProperty("carried", net.minecraft.world.level.block.Block.getId(carried));
@@ -251,6 +252,7 @@ public class HostileOracle {
     creepersAndSpiders(level, cases, floor);
     endermen(level, cases, floor);
     silverfishAndSlimes(level, cases, floor);
+    witches(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -397,6 +399,20 @@ public class HostileOracle {
   }
 
   static final int SILVERFISH_MERGE_TICKS = 101;
+
+  // VMC-043b6: witches throwing potions at a player and drinking theirs.
+  static void witches(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var noDrops = List.<MobAiOracle.Drop>of();
+    // A player thirteen blocks away: it drinks swiftness, walks up and throws slowness, then poison.
+    cases.add(run(level, "witch_throws", false, List.of(), MobAiOracle.floor(63, 20, Blocks.STONE.defaultBlockState()),
+        List.of(new MobAiOracle.Spawn("minecraft:witch", new Vec3(.5, 64, .5), 0, 271L)),
+        List.of(new MobAiOracle.Stand(new Vec3(13.5, 64, .5), "survival", null)), List.of(), noDrops, 300));
+    // Burning, it drinks fire resistance; hit, it may drink healing.
+    cases.add(run(level, "witch_drinks", false, List.of(new Prep(0, Map.of(), false, false, 200)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:witch", new Vec3(.5, 64, .5), 0, 277L)),
+        List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, .5), "creative", null)),
+        List.of(new MobAiOracle.Hit(60, 0, 0, 4.0F)), noDrops, 200));
+  }
 
   static String bits(double d) { return MobAiOracle.bits(d); }
 

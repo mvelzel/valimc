@@ -27,6 +27,7 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Enderman,
     Valimc.AI.Mobs.Silverfish,
     Valimc.AI.Mobs.Slime,
+    Valimc.AI.Mobs.Witch,
     Valimc.AI.Mobs.Spider,
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,

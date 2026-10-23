@@ -397,6 +397,9 @@ extras = fn body, step ->
         %{"climbing" => climbing}
 
       # An enderman's block and flags (VMC-043b5).
+      %{drinking: drinking} ->
+        %{"drinking" => drinking}
+
       %{carried: carried, creepy: creepy, stared_at: stared} ->
         %{"carried" => carried, "creepy" => creepy, "stared_at" => stared}
 
@@ -791,6 +794,19 @@ checked =
                         bits.(0.0)
                       ]
 
+              # A witch's splash potion where it was thrown (VMC-043b6): its own
+              # random draws its spread, so its type, start and potion compare.
+              adds =
+                adds ++
+                  for {:throw_potion, %{from: from, stack: stack}} <- step.effects,
+                      do: [
+                        "minecraft:splash_potion",
+                        Enum.map(Tuple.to_list(from), hex),
+                        Valimc.Data.PotionTypes.name(
+                          stack.components["minecraft:potion_contents"].potion
+                        )
+                      ]
+
               # A converted mob is a new one where the old one was (VMC-043b).
               adds =
                 adds ++
@@ -807,6 +823,7 @@ checked =
                 for s <- expected["sounds"], s["add"] != nil do
                   cond do
                     s["add"] == "minecraft:arrow" -> [s["add"], s["position"]]
+                    s["potion"] -> [s["add"], s["position"], s["potion"]]
                     s["item"] -> [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
                     true -> [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
                   end

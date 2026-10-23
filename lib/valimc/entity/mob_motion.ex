@@ -48,7 +48,9 @@ defmodule Valimc.Entity.MobMotion do
             travel: nil,
             move_dist: 0.0,
             next_step: 1.0,
-            float: nil
+            float: nil,
+            # Its eyes in water after its last move (`isEyeInFluid(WATER)`).
+            eye_water: false
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)

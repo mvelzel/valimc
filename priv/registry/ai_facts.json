@@ -2066,6 +2066,113 @@
         ]
       ]
     },
+    "minecraft:witch": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.witch.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": true,
+      "malus": {},
+      "goals": [
+        [
+          4,
+          "LongDistancePatrolGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "ObtainRaidLeaderBannerGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "PathfindToRaidGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "RaiderMoveThroughVillageGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "RaiderCelebration",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "RangedAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          3,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestHealableRaiderTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableWitchTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3434,6 +3541,8 @@
     "minecraft:entity.slime.hurt_small": 1551,
     "minecraft:entity.slime.death": 1498,
     "minecraft:entity.slime.death_small": 1550,
+    "minecraft:entity.witch.drink": 1781,
+    "minecraft:entity.witch.throw": 1783,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -3480,6 +3589,7 @@
     "minecraft:entity.spider.ambient": 1582,
     "minecraft:entity.enderman.ambient": 598,
     "minecraft:entity.silverfish.ambient": 1479,
+    "minecraft:entity.witch.ambient": 1778,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

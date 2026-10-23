@@ -1265,8 +1265,12 @@ defmodule Valimc.World.RegionData do
       throws = for step <- steps, {:throw, _, _, _} = thrown <- step.effects, do: thrown
 
       # Projectiles mobs fired (a blaze's fireballs, VMC-043d) and their level events.
+      # Fireballs (VMC-043d) and a witch's splash potions (VMC-043b6).
       shots =
-        for step <- steps, {:projectile, _, _, _, _} = shot <- step.effects, do: {step.id, shot}
+        for step <- steps,
+            shot <- step.effects,
+            match?({:projectile, _, _, _, _}, shot) or match?({:throw_potion, _}, shot),
+            do: {step.id, shot}
 
       level_events =
         for step <- steps,
@@ -1444,6 +1448,28 @@ defmodule Valimc.World.RegionData do
         body = Projectile.new(type, owner)
         body = Projectile.impulse(%{body | velocity: velocity, yaw: yaw, pitch: pitch})
         record = Store.body_record(body, :crypto.strong_rand_bytes(16), at)
+
+        case Store.create_record(store, state.key, record) do
+          {:ok, store, _} -> put_entities(state, store)
+          _ -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  # A witch's splash potion (`spawnProjectileUsingShoot`): from its eyes,
+  # shot with its own spread.
+  defp mob_projectile({id, {:throw_potion, info}}, state) do
+    store = state.entities.store
+
+    case store.entries[id] do
+      %{entity: e, body: %Body{type: thrower}} ->
+        owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: thrower}
+        body = Projectile.new("minecraft:splash_potion", owner, info.stack)
+        body = Projectile.shoot(body, info.direction, info.velocity, info.uncertainty)
+        record = Store.body_record(body, :crypto.strong_rand_bytes(16), info.from)
 
         case Store.create_record(store, state.key, record) do
           {:ok, store, _} -> put_entities(state, store)

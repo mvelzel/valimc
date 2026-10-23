@@ -64,7 +64,7 @@ public class MobAiOracle {
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
-      "minecraft:silverfish", "minecraft:slime",
+      "minecraft:silverfish", "minecraft:slime", "minecraft:witch",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
@@ -94,6 +94,8 @@ public class MobAiOracle {
       "minecraft:entity.slime.jump", "minecraft:entity.slime.jump_small", "minecraft:entity.slime.squish",
       "minecraft:entity.slime.squish_small", "minecraft:entity.slime.hurt", "minecraft:entity.slime.hurt_small",
       "minecraft:entity.slime.death", "minecraft:entity.slime.death_small",
+      // A witch's drinks and throws.
+      "minecraft:entity.witch.drink", "minecraft:entity.witch.throw",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -366,6 +368,9 @@ public class MobAiOracle {
       var o = new JsonObject(); o.addProperty("add", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
       o.add("position", bits(e.position())); o.add("velocity", bits(e.getDeltaMovement()));
       o.addProperty("yaw", Float.floatToRawIntBits(e.getYRot())); o.addProperty("pitch", Float.floatToRawIntBits(e.getXRot()));
+      // A thrown potion's potion (a witch's, VMC-043b6).
+      if (e instanceof net.minecraft.world.entity.projectile.throwableitemprojectile.AbstractThrownPotion potion)
+        o.addProperty("potion", potion.getItem().get(net.minecraft.core.component.DataComponents.POTION_CONTENTS).potion().orElseThrow().getRegisteredName());
       if (e instanceof net.minecraft.world.entity.item.ItemEntity item) {
         o.addProperty("item", BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString()); o.addProperty("count", item.getItem().getCount());
       }

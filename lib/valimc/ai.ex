@@ -694,8 +694,25 @@ defmodule Valimc.AI do
 
   defp strafe(self), do: self
 
+  @instant_health Valimc.Data.EffectTypes.id("instant_health")
+
   defp tick_effects(%Self{mob: %{living: %{effects: effects} = living} = mob} = self)
        when map_size(effects) > 0 do
+    # Instant health (a witch's drink, VMC-043b6) heals as it ticks.
+    living =
+      case effects[@instant_health] do
+        [{duration, amplifier, _, _, _} | _] when duration >= 1 ->
+          {:ok, {:heal, amount}} = Valimc.Living.Effects.instant(@instant_health, amplifier)
+          {:ok, health} = Valimc.Living.Health.heal(living.health, amount)
+          %{living | health: health}
+
+        _ ->
+          living
+      end
+
+    mob = %{mob | living: living}
+    self = %{self | mob: mob}
+
     case Valimc.Living.Effects.tick(effects) do
       {:ok, effects, _} -> %{self | mob: %{mob | living: %{living | effects: effects}}}
       _ -> self

@@ -757,8 +757,11 @@ defmodule Valimc.AI.Brains.Villager do
     # `BehaviorUtils.targetIsValid`: a living villager it sees.
     defp valid(self) do
       case target(self) do
-        %{kind: :mob, type: "minecraft:villager", alive: true} = v -> Sensors.visible_contains?(self, v)
-        _ -> {false, self}
+        %{kind: :mob, type: "minecraft:villager", alive: true} = v ->
+          Sensors.visible_contains?(self, v)
+
+        _ ->
+          {false, self}
       end
     end
   end
@@ -798,7 +801,10 @@ defmodule Valimc.AI.Brains.Villager do
   def gossip(%Self{world: world} = self, other) do
     now = world.time
     mine = Brain.get(self, :last_gossip) || 0
-    theirs = (other.memories && match?(%{last_gossip: _}, other.memories) && elem(other.memories.last_gossip, 0)) || 0
+
+    theirs =
+      (other.memories && match?(%{last_gossip: _}, other.memories) &&
+         elem(other.memories.last_gossip, 0)) || 0
 
     if (now < mine or now >= mine + 1200) and (now < theirs or now >= theirs + 1200) do
       self
@@ -936,11 +942,20 @@ defmodule Valimc.AI.Brains.Villager do
     class = Blocks.class(state)
 
     cond do
-      MapSet.member?(@golem_refuse, block) -> false
-      class in ["StainedGlassPaneBlock", "StainedGlassBlock"] -> false
-      MapSet.member?(@leaves, block) -> false
+      MapSet.member?(@golem_refuse, block) ->
+        false
+
+      class in ["StainedGlassPaneBlock", "StainedGlassBlock"] ->
+        false
+
+      MapSet.member?(@leaves, block) ->
+        false
+
       true ->
-        above_ok = above != nil and (Valimc.Data.BlockFacts.air?(above) or Valimc.Data.BlockFacts.flag?(above, :liquid))
+        above_ok =
+          above != nil and
+            (Valimc.Data.BlockFacts.air?(above) or Valimc.Data.BlockFacts.flag?(above, :liquid))
+
         above_ok and (Valimc.Data.BlockFacts.flag?(state, :solid) or block == @powder_snow)
     end
   end
@@ -958,7 +973,8 @@ defmodule Valimc.AI.Brains.Villager do
 
   @no_spawn MapSet.new(@block_tags["minecraft:prevent_mob_spawning_inside"])
   @dangerous MapSet.new(
-               for name <- ~w(wither_rose sweet_berry_bush cactus powder_snow fire soul_fire lava magma_block),
+               for name <-
+                     ~w(wither_rose sweet_berry_bush cactus powder_snow fire soul_fire lava magma_block),
                    do: Blocks.block_id(Blocks.default_state(name))
              )
 
