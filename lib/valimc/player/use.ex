@@ -2,7 +2,7 @@ defmodule Valimc.Player.Use do
   @moduledoc "Transient player-owned use timer; only admitted owner ticks can advance it."
   alias Valimc.Protocol.ItemStack
   import Bitwise
-  defstruct [:hand, :item_id, :remaining, blocking: false]
+  defstruct [:hand, :item_id, :remaining, blocking: false, kind: nil, sounds: 0]
 
   # A shield's use duration (`ShieldItem`/`blocks_attacks` items: 72000 ticks).
   @blocking_ticks 72_000
@@ -11,8 +11,14 @@ defmodule Valimc.Player.Use do
   def blocking(%ItemStack{item_id: id}, hand) when hand in [:main, :off],
     do: %__MODULE__{hand: hand, item_id: id, remaining: @blocking_ticks, blocking: true}
 
-  @doc "Ticks a blocking use has lasted (`getUseDuration - useItemRemaining`)."
-  def elapsed(%__MODULE__{blocking: true, remaining: remaining}), do: @blocking_ticks - remaining
+  @doc "A drawn bow or charging crossbow (`kind` `:bow` or `:crossbow`, VMC-037o): 72000 ticks."
+  def drawing(%ItemStack{item_id: id}, hand, kind)
+      when hand in [:main, :off] and kind in [:bow, :crossbow],
+      do: %__MODULE__{hand: hand, item_id: id, remaining: @blocking_ticks, kind: kind}
+
+  @doc "Ticks a blocking or drawing use has lasted (`getUseDuration - useItemRemaining`)."
+  def elapsed(%__MODULE__{remaining: remaining} = use) when use.blocking or use.kind != nil,
+    do: @blocking_ticks - remaining
 
   def new(%ItemStack{item_id: id}, hand, %{consumable: %{"ticks" => ticks}})
       when hand in [:main, :off] and is_integer(ticks) and ticks in 0..2_147_483_647,

@@ -78,8 +78,11 @@ defmodule Valimc.Entity.Tracker do
     events = for {seq, packet} <- view.events, seq > tracker.event_seq, do: packet
     changes = Body.changes(id, tracker.body, view.body)
 
+    # A projectile's `needsSync` (VMC-037o): shot, stuck or turned back.
+    impulse = impulse(view.body) != impulse(tracker.body)
+
     {tracker, packets} =
-      if rem(tracker.tick, tracker.interval) == 0 or changes != [] do
+      if rem(tracker.tick, tracker.interval) == 0 or changes != [] or impulse do
         tracker = %{tracker | teleport_delay: tracker.teleport_delay + 1}
         entity = %{entity(view) | yaw: view.yaw, pitch: view.pitch}
 
@@ -99,6 +102,9 @@ defmodule Valimc.Entity.Tracker do
 
     {%{tracker | tick: tracker.tick + 1, event_seq: last_event(view)}, events ++ packets}
   end
+
+  defp impulse(%Body{data: %{impulse: n}}), do: n
+  defp impulse(_body), do: nil
 
   defp entity(view) do
     {x, y, z} = view.at

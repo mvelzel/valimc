@@ -70,6 +70,10 @@ defmodule Valimc.Player.ItemUse do
       Valimc.Player.Buckets.bucket?(stack) ->
         Valimc.Player.Buckets.use(state, hand)
 
+      # Throws, bows and crossbows (VMC-037o).
+      Valimc.Player.Projectiles.handles?(stack) ->
+        Valimc.Player.Projectiles.use(state, hand, stack)
+
       # A shield is raised for as long as the client holds use (VMC-037n).
       Valimc.Living.Weapons.blocks_attacks(stack) != nil ->
         state = %{state | active_use: Use.blocking(stack, hand)}
@@ -194,9 +198,14 @@ defmodule Valimc.Player.ItemUse do
     do: publish_item_use(%{state | active_use: nil}, Use.stop_flags(state.player.use_flags))
 
   def tick_item_use(%{life_stage: :alive, active_use: %Use{} = use} = state) do
-    case Use.tick(use, Inventory.held(state.inventory, use.hand)) do
+    state = if use.kind == :crossbow, do: Valimc.Player.Projectiles.charge(state), else: state
+    use = state.active_use
+
+    case use && Use.tick(use, Inventory.held(state.inventory, use.hand)) do
+      nil -> state
       {:using, next} -> %{state | active_use: next}
       {:finish, %Use{blocking: true}} -> stop_item_use(state)
+      {:finish, %Use{kind: kind}} when kind != nil -> stop_item_use(state)
       {:finish, next} -> complete_item_use(%{state | active_use: next}, true)
       {:cancel, _} -> stop_item_use(state)
     end

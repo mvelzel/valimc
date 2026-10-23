@@ -41,13 +41,22 @@ public class CombatOracle {
     return List.of(DataComponents.ATTRIBUTE_MODIFIERS, DataComponents.WEAPON, DataComponents.BLOCKS_ATTACKS,
         DataComponents.DAMAGE_TYPE, DataComponents.MINIMUM_ATTACK_CHARGE);
   }
-  static final List<String> MOBS = List.of("minecraft:zombie");
+  // VMC-037o: an egg's chickens, an ender pearl's endermites.
+  static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
       "minecraft:entity.player.attack.nodamage", "minecraft:item.shield.block", "minecraft:item.shield.break",
-      "minecraft:entity.item.break", "minecraft:entity.player.hurt", "minecraft:entity.player.death");
-  static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator");
+      "minecraft:entity.item.break", "minecraft:entity.player.hurt", "minecraft:entity.player.death",
+      // VMC-037o: bows, crossbows, thrown items, ender pearls and eyes, skeletons.
+      "minecraft:entity.arrow.shoot", "minecraft:entity.arrow.hit", "minecraft:entity.arrow.hit_player",
+      "minecraft:item.crossbow.shoot", "minecraft:item.crossbow.hit", "minecraft:item.crossbow.loading_start",
+      "minecraft:item.crossbow.loading_middle", "minecraft:item.crossbow.loading_end",
+      "minecraft:entity.snowball.throw", "minecraft:entity.egg.throw", "minecraft:entity.ender_pearl.throw",
+      "minecraft:entity.splash_potion.throw", "minecraft:entity.player.teleport",
+      "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot");
+  static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator",
+      "minecraft:dragon_breath");
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   static JsonElement encode(DataComponentType type, Object value, com.mojang.serialization.DynamicOps<JsonElement> ops) {
@@ -55,6 +64,11 @@ public class CombatOracle {
   }
 
   static JsonObject facts(HolderLookup.Provider lookup) throws Exception {
+    var levelRegistries = new ArrayList<Registry<?>>();
+    levelRegistries.add(registry(Registries.CHICKEN_VARIANT, lookup));
+    levelRegistries.add(registry(Registries.CHICKEN_SOUND_VARIANT, lookup));
+    BuiltInRegistries.REGISTRY.forEach(r -> levelRegistries.add(r));
+    Probe.access = new RegistryAccess.ImmutableRegistryAccess(levelRegistries).freeze();
     var ops = lookup.createSerializationContext(JsonOps.INSTANCE);
     var items = new JsonObject();
     BuiltInRegistries.ITEM.keySet().stream().sorted(Comparator.comparing(Identifier::toString)).forEach(id -> {
@@ -142,6 +156,9 @@ public class CombatOracle {
     int ids;
     @Override public int getNextEntityId() { return ++ids; }
     @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
+    // A chicken's variants (VMC-037o) come from the level's registries.
+    static RegistryAccess access;
+    @Override public RegistryAccess registryAccess() { return access; }
 
     static Mob mob(EntityType<?> type, sun.misc.Unsafe unsafe) throws Exception {
       var level = (Probe) unsafe.allocateInstance(Probe.class);

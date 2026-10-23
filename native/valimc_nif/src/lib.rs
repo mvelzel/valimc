@@ -33,6 +33,7 @@ mod physics_checks;
 mod player;
 #[cfg(feature = "parity")]
 mod player_parity;
+mod projectile;
 mod region;
 mod rules;
 mod snapshot;

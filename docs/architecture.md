@@ -243,7 +243,11 @@ was sent to.
   `Entity.Combat` (VMC-037n); a death leaves its loot and experience on the
   mob, and the owner drops them when it stores its entities. A player's
   attack runs in the group hosting the player; a mob's hit on a player goes
-  to the player's session (`Player.Hurt`). Only modelled types are made: their entity data is known
+  to the player's session (`Player.Hurt`). Projectiles (VMC-037o) are bodies
+  too: one kernel call per section moves them and finds their hits
+  (`World.Projectiles` plans what each hit does), they hurt through the same
+  path and travel between owners as mobs do; what reaches a player (a hit,
+  an ender pearl's landing, a splash) goes to its session. Only modelled types are made: their entity data is known
   field by field, and each type's facts (size, attributes, loot, spawning,
   tracking) come from `Data.EntityTypes`. Network ids come from one `:atomics`
   counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
@@ -442,7 +446,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Effects that leave the owner (drops, events) return to Elixir |
-| Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players. Effects on living state (burning, landing damage, air, rain) come back as observations |
+| Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item tick, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. Effects on living state (burning, landing damage, air, rain) come back as observations |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more

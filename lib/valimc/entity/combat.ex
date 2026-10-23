@@ -13,7 +13,8 @@ defmodule Valimc.Entity.Combat do
   A hit is `%{source, amount}` and optionally `attacker` and `direct` (the
   living entity that caused it and the entity that dealt it, `%{uuid,
   entity_id, player, type, mainhand}`), `position` (where knockback points
-  away from; none gives a random direction) and, for an attack,
+  away from; none gives a random direction), `direction` (a projectile's:
+  the knockback's `{xd, zd}`, which it is pushed against) and, for an attack,
   `extra_knockback`, `{power, {xd, zd}}` applied when the hit hurts
   (`causeExtraKnockback`).
   """
@@ -80,7 +81,12 @@ defmodule Valimc.Entity.Combat do
             body =
               if DamageSource.is?(source, :no_knockback),
                 do: body,
-                else: knock(body, Melee.default_knockback(), away(entity, hit[:position]))
+                else:
+                  knock(
+                    body,
+                    Melee.default_knockback(),
+                    hit[:direction] || away(entity, hit[:position])
+                  )
 
             {body, [event]}
           else
@@ -238,21 +244,28 @@ defmodule Valimc.Entity.Combat do
       loot_table: facts.loot_table,
       loot: %{
         on_fire: mob.living.fire_ticks > 0 and not facts.fire_immune,
-        baby: false,
+        baby: baby?(body),
         vehicle: nil,
         killed_by_player: player_kill,
         attacker: mainhand(hit[:attacker]),
         direct_attacker: mainhand(hit[:direct])
       },
-      experience: if(player_kill, do: experience(body), else: 0)
+      experience: if(player_kill and not baby?(body), do: experience(body), else: 0)
     }
   end
+
+  # `AgeableMob.isBaby`: a baby drops neither loot nor experience.
+  defp baby?(%Body{data: %{age: age}}), do: age < 0
+  defp baby?(_body), do: false
 
   defp mainhand(%{mainhand: stack}), do: stack
   defp mainhand(_), do: :none
 
   # `Mob.getBaseExperienceReward`: the type's reward and, for a mob that has
-  # one, one to three for each equipped hand or armor item.
+  # one, one to three for each equipped hand or armor item; an animal's
+  # (`Animal.getBaseExperienceReward`) one to three.
+  defp experience(%Body{type: "minecraft:chicken"}), do: :rand.uniform(3)
+
   defp experience(body) do
     case Weapons.experience(body.type) do
       0 ->

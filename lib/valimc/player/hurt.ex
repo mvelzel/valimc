@@ -111,7 +111,7 @@ defmodule Valimc.Player.Hurt do
         {result, state} =
           Vitals.apply_damage(state, selected, source, nil,
             cause: attacker && attacker.entity_id,
-            direct: attacker && attacker.entity_id,
+            direct: (hit[:direct] || attacker) && (hit[:direct] || attacker).entity_id,
             blocked: plan.blocked > 0.0,
             killer: hit[:killer]
           )
@@ -126,7 +126,7 @@ defmodule Valimc.Player.Hurt do
                knockback(
                  state,
                  Melee.default_knockback(),
-                 away(defender.position, hit[:position])
+                 hit[:direction] || away(defender.position, hit[:position])
                ),
              else: state
 
@@ -142,6 +142,17 @@ defmodule Valimc.Player.Hurt do
           case hit[:extra_knockback] do
             {power, direction} when power > 0 and result in [:hurt, :dead] ->
               knockback(state, power, direction)
+
+            _ ->
+              state
+          end
+
+        # A burning arrow or small fireball sets the player on fire (VMC-037o).
+        state =
+          case hit[:ignite] do
+            ticks when is_integer(ticks) and result == :hurt ->
+              living = state.player.living
+              put_in(state.player.living, %{living | fire_ticks: max(living.fire_ticks, ticks)})
 
             _ ->
               state

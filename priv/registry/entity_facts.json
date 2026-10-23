@@ -54,13 +54,45 @@
       "index": 17,
       "serializer": 3
     },
+    "ageable_baby": {
+      "index": 16,
+      "serializer": 8
+    },
     "air_supply": {
       "index": 1,
+      "serializer": 1
+    },
+    "arrow_color": {
+      "index": 11,
       "serializer": 1
     },
     "arrow_count": {
       "index": 12,
       "serializer": 1
+    },
+    "arrow_flags": {
+      "index": 8,
+      "serializer": 0
+    },
+    "arrow_in_ground": {
+      "index": 10,
+      "serializer": 8
+    },
+    "arrow_pierce_level": {
+      "index": 9,
+      "serializer": 0
+    },
+    "cloud_particle": {
+      "index": 10,
+      "serializer": 16
+    },
+    "cloud_radius": {
+      "index": 8,
+      "serializer": 3
+    },
+    "cloud_waiting": {
+      "index": 9,
+      "serializer": 8
     },
     "custom_name": {
       "index": 2,
@@ -82,9 +114,17 @@
       "index": 8,
       "serializer": 1
     },
+    "eye_item": {
+      "index": 8,
+      "serializer": 7
+    },
     "falling_block_start_pos": {
       "index": 8,
       "serializer": 10
+    },
+    "fireball_item": {
+      "index": 8,
+      "serializer": 7
     },
     "frozen_ticks": {
       "index": 7,
@@ -129,6 +169,10 @@
     "stinger_count": {
       "index": 13,
       "serializer": 1
+    },
+    "thrown_item": {
+      "index": 8,
+      "serializer": 7
     },
     "tnt_block_state": {
       "index": 9,

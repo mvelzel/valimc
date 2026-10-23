@@ -365,6 +365,51 @@ defmodule Valimc.Physics.Kernel do
     Native.dispatch(:physics_block_bodies, cells, [native(view, region), bodies, bounds])
   end
 
+  @doc """
+  One tick of each projectile (VMC-037o, `valimc_core::physics::projectile`):
+  `{state, kind, size, random, owner}` with `state` `{position, velocity,
+  {yaw, pitch}, age, {in_water, in_ground, left_owner}, last_state}`, `kind`
+  `{:arrow, gravity}`, `{:throwable, gravity}`, `{:hurting, acceleration}` or
+  `{:eye, target}`, `size` `{width, height}`, `random` three floats and
+  `owner` its owner's network id or nil; `targets` the entities they may hit,
+  `{id, position, box}`. `{:ok, results}` in order, each `{:ok, state, hit,
+  {water, lava}, loosened}`, `{:unreadable, position}` or `:limit`; `hit` is
+  nil, `{:block, location, face, cell, inside, border}`, `{:entity, id,
+  location}` or (an arrow's) `{:entities, [{id, location}]}`.
+  """
+  def projectiles(view, projectiles, targets, border, fast_lava \\ false)
+  def projectiles(_view, [], _targets, _border, _fast_lava), do: {:ok, []}
+
+  def projectiles(view, projectiles, targets, border, fast_lava) do
+    region =
+      projectiles
+      |> Enum.map(fn {{{x, y, z}, velocity, _, _, _, _}, _, {w, h}, _, _} ->
+        reach = max(w, h) + 3.0
+        expand({x - reach, y - reach, z - reach, x + reach, y + reach, z + reach}, velocity)
+      end)
+      |> Enum.reduce(&union/2)
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    # A ray and two fluid scans over the path, as an item tick's cells.
+    cells =
+      Enum.reduce(projectiles, 0, fn {{_, velocity, _, _, _, _}, _, _, _, _}, sum ->
+        sum + 2 * scan_cells(velocity)
+      end)
+
+    Native.dispatch(:physics_projectiles, cells, [
+      native(view, region),
+      projectiles,
+      targets,
+      bounds,
+      fast_lava
+    ])
+  end
+
   # The cells one item tick scans, about: its movement's (0.25 blocks plus the
   # velocity, and the scan's halo) and its fluid and clearance scans.
   defp scan_cells({x, y, z}),

@@ -41,6 +41,9 @@ defmodule Valimc.Protocol.CombatPackets do
     ])
   end
 
+  @doc "The network id of particle type `name`."
+  def particle_id(name), do: Map.fetch!(@particles, name)
+
   @doc "A modelled mob type's hurt and death sounds and sound source."
   def mob_sounds(type), do: Map.fetch!(@facts["mobs"], type)
 end

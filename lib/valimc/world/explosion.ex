@@ -22,8 +22,9 @@ defmodule Valimc.World.Explosion do
     again and planned from what stands there. Cells with a block entity
     are left standing (their contents need the container spill).
 
-  Fire (fireballs, beds) and entity sources (who lit the TNT) come with
-  their sources.
+  An explosion with `fire` (a ghast's fireball, VMC-037o) lights a third
+  of its air cells over a solid block (`createFire`). Entity sources (who
+  lit the TNT) come with their sources.
   """
   import Bitwise
   alias Valimc.Blocks.MiningLoot
@@ -34,7 +35,7 @@ defmodule Valimc.World.Explosion do
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{BoxEdit, Dimension, GameRules}
 
-  defstruct [:center, :radius, decay: true, interacts: true]
+  defstruct [:center, :radius, decay: true, interacts: true, fire: false]
 
   @tnt_offset Float32.round(0.98) * 0.0625
   @air Blocks.default_state("air")
@@ -309,8 +310,55 @@ defmodule Valimc.World.Explosion do
     end
   end
 
+  @doc """
+  `createFire` over a crater's `parts`: each reached cell left air lights,
+  one in three, over a block that renders solid (read where the reach did
+  not cover it), as `BaseFireBlock.getState` picks the fire.
+  """
+  def fire(parts, %__MODULE__{fire: false}, _cells, _read), do: parts
+
+  def fire(parts, %__MODULE__{}, cells, read) do
+    states = Map.new(cells)
+    edits = Enum.reduce(parts, %{}, fn {_, part}, acc -> Map.merge(acc, part.edits) end)
+    after_edit = fn p -> Map.get(edits, p) || Map.get(states, p) || read.(p) end
+
+    Enum.reduce(cells, parts, fn {{x, y, z} = position, state}, acc ->
+      below = after_edit.({x, y - 1, z})
+
+      if :rand.uniform(3) == 1 and BlockFacts.air?(Map.get(edits, position, state)) and
+           below != nil and BlockFacts.flag?(below, :solid_render) do
+        key = region(position)
+        part = Map.get(acc, key, %{edits: %{}, expected: %{}, entities: []})
+
+        Map.put(acc, key, %{
+          part
+          | edits: Map.put(part.edits, position, fire_state(below)),
+            expected: Map.put_new(part.expected, position, state)
+        })
+      else
+        acc
+      end
+    end)
+  end
+
+  @doc "`BaseFireBlock.getState` over a block that holds fire: soul fire on soul sand and soil."
+  def fire_state(below) do
+    if Blocks.name(Blocks.block_id(below)) in ["soul_sand", "soul_soil"],
+      do: Blocks.default_state("soul_fire"),
+      else: Blocks.default_state("fire")
+  end
+
   defp commit(dimension, explosion, cells, retries) do
-    case BoxEdit.commit(dimension, plan(explosion, cells)) do
+    read = fn position ->
+      case BoxEdit.read(dimension, position, position) do
+        {:ok, %{^position => state}} -> state
+        _ -> nil
+      end
+    end
+
+    parts = explosion |> plan(cells) |> fire(explosion, cells, read)
+
+    case BoxEdit.commit(dimension, parts) do
       :ok ->
         :ok
 

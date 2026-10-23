@@ -14,6 +14,8 @@ pub mod item;
 pub mod mob;
 pub mod orb;
 pub mod player;
+pub mod projectile;
+pub mod ray;
 pub mod response;
 pub mod shape;
 pub mod source;

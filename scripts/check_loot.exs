@@ -114,7 +114,8 @@ weapon = fn
 end
 
 deaths = raw["entity_cases"]
-true = length(deaths) == 1500
+# 1500 deaths per modelled mob's table (zombie, chicken, endermite).
+true = length(deaths) == 1500 * 3
 
 death_failures =
   Enum.reject(deaths, fn row ->
@@ -142,5 +143,5 @@ if death_failures != [] do
 end
 
 IO.puts(
-  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and 1500 zombie deaths equal vanilla (#{stacks} stacks)"
+  "PASS: 3160 container fills over 69 pack and 2 synthetic loot tables and 4500 zombie, chicken and endermite deaths equal vanilla (#{stacks} stacks)"
 )

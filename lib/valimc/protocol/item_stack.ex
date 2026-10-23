@@ -35,6 +35,8 @@ defmodule Valimc.Protocol.ItemStack do
     "minecraft:unbreakable" => :unit,
     "minecraft:creative_slot_lock" => :unit,
     "minecraft:intangible_projectile" => :nbt_unit,
+    # A loaded crossbow's projectiles (VMC-037o).
+    "minecraft:charged_projectiles" => :charged_projectiles,
     "minecraft:enchantment_glint_override" => :bool,
     "minecraft:item_model" => :identifier,
     "minecraft:tooltip_style" => :identifier,
@@ -339,7 +341,28 @@ defmodule Valimc.Protocol.ItemStack do
     {value, rest}
   end
 
+  defp read_component(:charged_projectiles, bytes) do
+    {count, rest} = Wire.take_varint(bytes)
+    check(count in 0..64, :invalid_component_value)
+    Enum.map_reduce(1..count//1, rest, fn _, acc -> take_template(acc) end)
+  end
+
   defp read_component(_, _), do: throw({:item_error, :invalid_component_value})
+
+  # `ItemStackTemplate.STREAM_CODEC`: the item, its count and its patch.
+  defp take_template(bytes) do
+    {id, rest} = Wire.take_varint(bytes)
+    check(ItemTypes.item(id) != nil, :unknown_item)
+    {count, rest} = Wire.take_varint(rest)
+    check(count in 1..99, :invalid_item_count)
+    {added, rest} = Wire.take_varint(rest)
+    {removed, rest} = Wire.take_varint(rest)
+    {components, unsupported, rest} = read_added(rest, added, :trusted, byte_size(rest), %{}, [])
+    check(unsupported == [], :unsupported_component)
+    {removed, rest} = read_removed(rest, removed, MapSet.new(), components)
+    {%__MODULE__{item_id: id, count: count, components: components, removed: removed}, rest}
+  end
+
   defp valid_component?({:varint, min, max}, value), do: is_integer(value) and value in min..max
   defp valid_component?(:unit, value), do: value == :unit
   defp valid_component?(:nbt_unit, value), do: value == :unit
@@ -361,6 +384,10 @@ defmodule Valimc.Protocol.ItemStack do
         Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end)
 
   defp valid_component?(:bool, value), do: is_boolean(value)
+
+  defp valid_component?(:charged_projectiles, value),
+    do: is_list(value) and length(value) <= 64 and Enum.all?(value, &match?(%__MODULE__{}, &1))
+
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
   defp valid_component?(:identifier, value),
@@ -390,6 +417,17 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
+
+  defp encode_component(:charged_projectiles, stacks) do
+    [
+      Wire.varint(length(stacks)),
+      Enum.map(stacks, fn stack ->
+        [count, id | patch] = encode(stack)
+        [id, count | patch]
+      end)
+    ]
+  end
+
   defp component_key(:nbt_compound, value), do: NBT.identity_key(value)
   defp component_key(:text, value), do: Codec.identity_key(value)
   defp component_key(:lore, value), do: Codec.lore_key(value)

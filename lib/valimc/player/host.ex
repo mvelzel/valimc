@@ -213,6 +213,25 @@ defmodule Valimc.Player.Host do
     end
   end
 
+  @doc """
+  The players projectiles hit (VMC-037o): every living, non-spectator player
+  in this group's dimension, as `%{uuid, id, position, box}`.
+  """
+  def bodies(state) do
+    for {_, %{session: %{player: player} = session}} <- state.players,
+        player.dimension == state.dimension and session.life_stage == :alive and
+          player.game_mode.current != :spectator,
+        {:ok, %{box: box}} <-
+          [Valimc.Data.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})] do
+      %{
+        uuid: player.uuid,
+        id: player.entity_id,
+        position: {player.x, player.y, player.z},
+        box: box
+      }
+    end
+  end
+
   ## Durability (the group's commit)
 
   @doc """

@@ -1858,12 +1858,24 @@
     "minecraft:waypoint_transmit_range": 6.0E7
   },
   "experience": {
-    "minecraft:zombie": 5
+    "minecraft:zombie": 5,
+    "minecraft:chicken": 0,
+    "minecraft:endermite": 3
   },
   "mobs": {
     "minecraft:zombie": {
       "hurt_sound": "minecraft:entity.zombie.hurt",
       "death_sound": "minecraft:entity.zombie.death",
+      "sound_source": 5
+    },
+    "minecraft:chicken": {
+      "hurt_sound": "minecraft:entity.chicken.hurt",
+      "death_sound": "minecraft:entity.chicken.death",
+      "sound_source": 6
+    },
+    "minecraft:endermite": {
+      "hurt_sound": "minecraft:entity.endermite.hurt",
+      "death_sound": "minecraft:entity.endermite.death",
       "sound_source": 5
     }
   },
@@ -1879,8 +1891,28 @@
     "minecraft:entity.item.break": 914,
     "minecraft:entity.player.hurt": 1316,
     "minecraft:entity.player.death": 1315,
+    "minecraft:entity.arrow.shoot": 87,
+    "minecraft:entity.arrow.hit": 85,
+    "minecraft:entity.arrow.hit_player": 86,
+    "minecraft:item.crossbow.shoot": 491,
+    "minecraft:item.crossbow.hit": 484,
+    "minecraft:item.crossbow.loading_start": 487,
+    "minecraft:item.crossbow.loading_middle": 486,
+    "minecraft:item.crossbow.loading_end": 485,
+    "minecraft:entity.snowball.throw": 1571,
+    "minecraft:entity.egg.throw": 576,
+    "minecraft:entity.ender_pearl.throw": 608,
+    "minecraft:entity.splash_potion.throw": 1587,
+    "minecraft:entity.player.teleport": 1326,
+    "minecraft:entity.ender_eye.launch": 597,
+    "minecraft:entity.ender_eye.death": 596,
+    "minecraft:entity.skeleton.shoot": 1495,
     "minecraft:entity.zombie.hurt": 1885,
-    "minecraft:entity.zombie.death": 1878
+    "minecraft:entity.zombie.death": 1878,
+    "minecraft:entity.chicken.hurt": 357,
+    "minecraft:entity.chicken.death": 358,
+    "minecraft:entity.endermite.hurt": 606,
+    "minecraft:entity.endermite.death": 605
   },
   "sound_sources": {
     "master": 0,
@@ -1897,7 +1929,8 @@
   },
   "particles": {
     "minecraft:sweep_attack": 77,
-    "minecraft:damage_indicator": 14
+    "minecraft:damage_indicator": 14,
+    "minecraft:dragon_breath": 15
   },
   "damage_types": {
     "minecraft:arrow": {

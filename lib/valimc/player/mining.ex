@@ -36,7 +36,7 @@ defmodule Valimc.Player.Mining do
 
     cond do
       action == ItemTypes.action_id("release_use_item") ->
-        ItemUse.stop_item_use(state)
+        Valimc.Player.Projectiles.release(state)
 
       state.player.game_mode.current == :spectator and
           action in [

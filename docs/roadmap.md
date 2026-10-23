@@ -73,6 +73,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-050a2](tickets/VMC-050a2.md) | Sand, gravel, powder and anvils fall and land; a long anvil fall (rerun after the October 23 crash fix) |
 | [VMC-037n](tickets/VMC-037n.md) | A zombie's hits on armor and a raised shield, once VMC-041a's melee goal attacks |
 | [VMC-029e](tickets/VMC-029e.md) | Doors, beds, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
+| [VMC-037o](tickets/VMC-037o.md) | Bows, crossbows, stuck arrows picked up, snowballs, eggs, an ender pearl, a splash potion and a punched fireball |
 
 ## Retrieve and update
 

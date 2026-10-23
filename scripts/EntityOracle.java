@@ -274,6 +274,18 @@ public class EntityOracle {
     fields.put("tnt_fuse", field(PrimedTnt.class, "DATA_FUSE_ID"));
     fields.put("tnt_block_state", field(PrimedTnt.class, "DATA_BLOCK_STATE_ID"));
     fields.put("falling_block_start_pos", field(net.minecraft.world.entity.item.FallingBlockEntity.class, "DATA_START_POS"));
+    // VMC-037o: arrows, thrown items, fireballs and eyes of ender, the dragon's breath cloud.
+    fields.put("arrow_flags", field(net.minecraft.world.entity.projectile.arrow.AbstractArrow.class, "ID_FLAGS"));
+    fields.put("arrow_pierce_level", field(net.minecraft.world.entity.projectile.arrow.AbstractArrow.class, "PIERCE_LEVEL"));
+    fields.put("arrow_in_ground", field(net.minecraft.world.entity.projectile.arrow.AbstractArrow.class, "IN_GROUND"));
+    fields.put("arrow_color", field(net.minecraft.world.entity.projectile.arrow.Arrow.class, "ID_EFFECT_COLOR"));
+    fields.put("thrown_item", field(net.minecraft.world.entity.projectile.throwableitemprojectile.ThrowableItemProjectile.class, "DATA_ITEM_STACK"));
+    fields.put("fireball_item", field(net.minecraft.world.entity.projectile.hurtingprojectile.Fireball.class, "DATA_ITEM_STACK"));
+    fields.put("eye_item", field(net.minecraft.world.entity.projectile.EyeOfEnder.class, "DATA_ITEM_STACK"));
+    fields.put("cloud_radius", field(net.minecraft.world.entity.AreaEffectCloud.class, "DATA_RADIUS"));
+    fields.put("cloud_waiting", field(net.minecraft.world.entity.AreaEffectCloud.class, "DATA_WAITING"));
+    fields.put("ageable_baby", field(net.minecraft.world.entity.AgeableMob.class, "DATA_BABY_ID"));
+    fields.put("cloud_particle", field(net.minecraft.world.entity.AreaEffectCloud.class, "DATA_PARTICLE"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

@@ -436,6 +436,20 @@ defmodule Valimc.World.Region do
   def take_item({pid, epoch}, actor, uuid, inventory),
     do: call(pid, {:take_item, epoch, actor, uuid, inventory}, budget(pid, 1000))
 
+  @doc """
+  A player's (`actor`) pickup of the stuck arrow `uuid` it touches (VMC-037o):
+  `{:ok, inventory}` with it added, or `{:error, reason}`.
+  """
+  def take_arrow({pid, epoch}, actor, uuid, inventory),
+    do: call(pid, {:take_arrow, epoch, actor, uuid, inventory}, budget(pid, 1000))
+
+  @doc """
+  `Projectile.deflect(AIM_DEFLECT)` of projectile `uuid` by a player's attack
+  (VMC-037o): it flies along `look`, owned by `owner`. `:ok` or `{:error, reason}`.
+  """
+  def deflect_projectile({pid, epoch}, uuid, look, owner),
+    do: call(pid, {:deflect_projectile, epoch, uuid, look, owner}, budget(pid, 1000))
+
   @doc "A player's XP pickup: one unit of the orb `uuid` of `value` it touches."
   def take_orb({pid, epoch}, actor, uuid, value),
     do: call(pid, {:take_orb, epoch, actor, uuid, value}, budget(pid, 1000))
@@ -1285,19 +1299,22 @@ defmodule Valimc.World.Region do
   defp track_players(state) do
     {state, published} = Host.track(state)
     targets = Host.targets(state)
+    bodies = Host.bodies(state)
 
     Enum.reduce(state.sections, state, fn {key, section}, acc ->
       resource = section.resource
 
       case Map.fetch(published, key) do
         {:ok, players} ->
-          put_resource(acc, key, RegionData.players(resource, players, targets))
+          put_resource(acc, key, RegionData.players(resource, players, targets, bodies))
 
-        :error when resource.player_views == %{} and resource.player_targets == targets ->
+        :error
+        when resource.player_views == %{} and resource.player_targets == targets and
+               resource.player_bodies == bodies ->
           acc
 
         :error ->
-          put_resource(acc, key, RegionData.players(resource, {%{}, %{}}, targets))
+          put_resource(acc, key, RegionData.players(resource, {%{}, %{}}, targets, bodies))
       end
     end)
   end

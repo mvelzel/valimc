@@ -30,6 +30,8 @@ defmodule Valimc.Player.Attack do
 
   @player EntityTypes.id("minecraft:player")
   @blindness Valimc.Data.EffectTypes.id("blindness")
+  # `#redirectable_projectile` (VMC-037o): an attack turns it back.
+  @redirectable ["minecraft:fireball", "minecraft:wind_charge", "minecraft:breeze_wind_charge"]
   # `EntityEvent` of a main-hand item breaking.
   @mainhand_break 47
 
@@ -65,6 +67,9 @@ defmodule Valimc.Player.Attack do
 
       true ->
         case target(state, id) do
+          {:ok, %{type: type} = view, owner} when type in @redirectable ->
+            deflect(state, view, owner)
+
           {:ok, view, owner} ->
             strike(state, view, owner)
 
@@ -127,6 +132,26 @@ defmodule Valimc.Player.Attack do
     case World.existing_owner(Grid.section(dimension, Grid.region_key(view.chunk), :section)) do
       {:ok, {pid, _} = owner} when pid == self() -> {:ok, owner}
       _ -> {:error, :not_local}
+    end
+  end
+
+  # `Player.deflectProjectile` (VMC-037o): the projectile flies along the
+  # player's look at its original speed, now the player's, and the attack
+  # strength starts over.
+  defp deflect(state, view, owner) do
+    player = state.player
+    me = %{uuid: player.uuid, id: player.entity_id, player: true}
+    look = Valimc.Player.Projectiles.look(player)
+
+    case Region.deflect_projectile(owner, view.uuid, look, me) do
+      :ok ->
+        sound(
+          %{state | attack: %{state.attack | ticker: 0}},
+          "minecraft:entity.player.attack.nodamage"
+        )
+
+      _ ->
+        state
     end
   end
 

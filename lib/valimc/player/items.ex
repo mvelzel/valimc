@@ -47,6 +47,18 @@ defmodule Valimc.Player.Items do
   @doc "Whether the player's section is its group's, so it can drop items there."
   def local?(state), do: match?({:ok, _}, owner(state))
 
+  @doc """
+  Put entity `records` (a shot projectile, VMC-037o; an endermite) in the
+  player's section: `:ok`, or `:error` when the section is not its group's.
+  """
+  def spawn(state, records) do
+    with {:ok, owner} <- owner(state), :ok <- Region.drop_items(owner, records) do
+      :ok
+    else
+      _ -> :error
+    end
+  end
+
   @doc "A creative player conjures `stack` and throws it, its inventory unchanged."
   def creative_drop(state, stack) do
     case drop(state, state.inventory, [stack]) do
@@ -172,7 +184,8 @@ defmodule Valimc.Player.Items do
     local(World.existing_owner(Grid.section(dimension, Grid.chunk_key(x, z))))
   end
 
-  defp owner_of(state, view),
+  @doc "The owner of `view`'s section when it is this group."
+  def owner_of(state, view),
     do:
       local(
         World.existing_owner(

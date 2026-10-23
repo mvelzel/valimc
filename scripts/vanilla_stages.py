@@ -1040,6 +1040,11 @@ STAGES = [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),
     ]),
+    # VMC-037o: arrows, thrown items, fireballs and eyes of ender through the projectile kernel.
+    ('projectiles', [
+        ('java', 'ProjectileOracle', '@projectiles.json'),
+        ('check', 'check_projectiles.exs', '@projectiles.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

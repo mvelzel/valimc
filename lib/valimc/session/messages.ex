@@ -152,6 +152,19 @@ defmodule Valimc.Session.Messages do
   def info({:hurt, hit}, %{phase: :play} = state),
     do: guard(state, fn -> {:noreply, elem(Valimc.Player.Hurt.hurt(state, hit), 1)} end)
 
+  # What the player's projectiles and others' bring back (VMC-037o).
+  def info({:ender_pearl, position}, %{phase: :play} = state),
+    do: guard(state, fn -> {:noreply, Valimc.Player.Projectiles.pearl(state, position)} end)
+
+  def info({:splash, actions, template}, %{phase: :play} = state),
+    do:
+      guard(state, fn ->
+        {:noreply, Valimc.Player.Projectiles.splash(state, actions, template)}
+      end)
+
+  def info(:arrow_hit_player, %{phase: :play} = state),
+    do: {:noreply, Valimc.Player.Projectiles.arrow_hit(state)}
+
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
   def info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
@@ -238,6 +251,7 @@ defmodule Valimc.Session.Messages do
 
       {touching, cache} = touching(state)
       state = Items.pickup(%{state | pickup_cache: cache}, touching)
+      state = Valimc.Player.Projectiles.pickup(state, touching)
       {:noreply, Items.collect_experience(state, touching)}
     end)
   end

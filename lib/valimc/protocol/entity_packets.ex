@@ -215,22 +215,47 @@ defmodule Valimc.Protocol.EntityPackets do
               :mob_flags,
               :tnt_fuse,
               :tnt_block_state,
-              :falling_block_start_pos
+              :falling_block_start_pos,
+              :ageable_baby,
+              :arrow_flags,
+              :arrow_pierce_level,
+              :arrow_in_ground,
+              :arrow_color,
+              :thrown_item,
+              :eye_item,
+              :cloud_radius,
+              :cloud_waiting,
+              :cloud_particle
             ] do
     fact = EntityTypes.field(name)
 
     payload =
       case name do
-        name when name in [:shared_flags, :living_flags, :mob_flags] ->
+        name
+        when name in [:shared_flags, :living_flags, :mob_flags, :arrow_flags, :arrow_pierce_level] ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 
-        :no_gravity ->
-          check(is_boolean(value), "invalid no-gravity flag")
+        name when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :cloud_waiting] ->
+          check(is_boolean(value), "invalid flag")
           Wire.bool(value)
 
-        :item_stack ->
+        name when name in [:item_stack, :thrown_item, :eye_item] ->
           stack_bytes(value)
+
+        :arrow_color ->
+          check(is_integer(value) and value in -2_147_483_648..2_147_483_647, "invalid color")
+          Wire.varint(value)
+
+        :cloud_radius ->
+          check(is_number(value) and value >= 0 and value <= 32, "invalid radius")
+          <<value::float-32>>
+
+        # A particle with a power (`PowerParticleOption`): its type and power.
+        :cloud_particle ->
+          {type, power} = value
+          check(is_integer(type) and type >= 0 and is_number(power), "invalid particle")
+          [Wire.varint(type), <<power::float-32>>]
 
         :pose ->
           check(match?({:ok, _}, Valimc.Data.PlayerPose.dimensions(value)), "invalid pose")

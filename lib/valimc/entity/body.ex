@@ -15,7 +15,7 @@ defmodule Valimc.Entity.Body do
   `getNonDefaultValues`), a tracker those that changed.
   """
   alias Valimc.Data.{Blocks, EntityTypes}
-  alias Valimc.Entity.Mob
+  alias Valimc.Entity.{Mob, Projectile}
   alias Valimc.Protocol.{EntityPackets, Packets}
 
   defstruct type: nil,
@@ -30,7 +30,14 @@ defmodule Valimc.Entity.Body do
 
   @tnt "minecraft:tnt"
   @falling "minecraft:falling_block"
-  @modelled MapSet.new(["minecraft:zombie", @tnt, @falling])
+  @chicken "minecraft:chicken"
+  @cloud "minecraft:area_effect_cloud"
+  # An egg's chickens and an ender pearl's endermites (VMC-037o) are bodies
+  # with their type's data; their families' behaviour is VMC-043d's and 043b's.
+  @modelled MapSet.new(
+              ["minecraft:zombie", @chicken, "minecraft:endermite", @tnt, @falling, @cloud] ++
+                Projectile.types()
+            )
 
   @doc "Whether type `type` is modelled (it can be summoned and stored)."
   def modelled?(type), do: MapSet.member?(@modelled, type)
@@ -74,9 +81,14 @@ defmodule Valimc.Entity.Body do
     %{body | data: %{body.data | block_state: state, start: start, hurts: anvil}}
   end
 
-  @doc "The type's spawn data (`getAddEntityPacket`): a falling block's state, else 0."
+  @doc """
+  The type's spawn data (`getAddEntityPacket`): a falling block's state, a
+  projectile's owner, else 0.
+  """
   def spawn_data(%__MODULE__{type: @falling, data: %{block_state: state}}), do: state
-  def spawn_data(_body), do: 0
+
+  def spawn_data(%__MODULE__{type: type} = body),
+    do: if(Projectile.projectile?(type), do: Projectile.spawn_data(body), else: 0)
 
   # A type's own data and its defaults (`PrimedTnt.defineSynchedData`,
   # `FallingBlockEntity`'s fields: its state, ticks fallen, fall distance,
@@ -95,7 +107,13 @@ defmodule Valimc.Entity.Body do
       cancel_drop: false
     }
 
-  defp data(_type), do: %{}
+  # `AgeableMob`'s age: negative while a baby (an egg's chicks are -24000).
+  defp data(@chicken), do: %{age: 0}
+  defp data(@cloud), do: Valimc.Entity.EffectCloud.data()
+
+  defp data(type) do
+    if Projectile.projectile?(type), do: Projectile.data(type), else: %{}
+  end
 
   @doc "The fields a record saves of `body` (position and uuid are the entry's)."
   def record(%__MODULE__{} = body) do
@@ -229,8 +247,10 @@ defmodule Valimc.Entity.Body do
     common ++ own(body)
   end
 
-  defp own(%__MODULE__{mob: %Mob{living: living}}),
-    do: [{:living_flags, 0, 0}, {:health, living.health.value, 1.0}, {:mob_flags, 0, 0}]
+  defp own(%__MODULE__{mob: %Mob{living: living}} = body),
+    do:
+      [{:living_flags, 0, 0}, {:health, living.health.value, 1.0}, {:mob_flags, 0, 0}] ++
+        ageable(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -241,12 +261,21 @@ defmodule Valimc.Entity.Body do
   defp own(%__MODULE__{type: @falling, data: data}),
     do: [{:falling_block_start_pos, data.start, {0, 0, 0}}]
 
-  defp own(_body), do: []
+  defp own(%__MODULE__{type: @cloud} = body), do: Valimc.Entity.EffectCloud.values(body)
+  defp own(%__MODULE__{} = body), do: Projectile.values(body)
+
+  defp ageable(%__MODULE__{type: @chicken, data: %{age: age}}),
+    do: [{:ageable_baby, age < 0, false}]
+
+  defp ageable(_body), do: []
 
   # Vanilla's on-fire flag (bit 0) for a burning body that is not fire immune.
   defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type})
        when ticks > 0,
        do: if(EntityTypes.fetch(type).fire_immune, do: 0, else: 1)
+
+  defp shared_flags(%__MODULE__{mob: nil, data: %{fire: _}} = body),
+    do: if(Projectile.burning?(body), do: 1, else: 0)
 
   defp shared_flags(_body), do: 0
 

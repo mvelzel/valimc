@@ -47,7 +47,9 @@ defmodule Valimc.Native do
     # move, fluid, footing and contact scans, as an item's (VMC-015i).
     physics_mobs: {120, :physics_mobs_dirty},
     # A primed TNT or falling block scans as an item does (VMC-050a).
-    physics_block_bodies: {120, :physics_block_bodies_dirty}
+    physics_block_bodies: {120, :physics_block_bodies_dirty},
+    # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
+    physics_projectiles: {120, :physics_projectiles_dirty}
   }
 
   @doc """
@@ -187,6 +189,12 @@ defmodule Valimc.Native do
 
   def physics_exposure(_view, _center, _bodies), do: :erlang.nif_error(:nif_not_loaded)
   def physics_block_bodies(_view, _bodies, _border), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_projectiles(_view, _projectiles, _targets, _border, _fast_lava),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_projectiles_dirty(_view, _projectiles, _targets, _border, _fast_lava),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_block_bodies_dirty(_view, _bodies, _border),
     do: :erlang.nif_error(:nif_not_loaded)

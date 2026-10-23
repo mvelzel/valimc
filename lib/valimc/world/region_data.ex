@@ -31,6 +31,8 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Worldgen.Generator
 
   alias Valimc.Entity.{Body, Publication, Store, ExperienceOrbs, Handoffs, Tracking, ItemMerges}
+  alias Valimc.Entity.{EffectCloud, Projectile}
+  alias Valimc.World.Projectiles
   alias Valimc.World.ContainerSpills
 
   alias Valimc.Data.Error
@@ -95,6 +97,9 @@ defmodule Valimc.World.RegionData do
     {:player_frame, %{}},
     # The playing players of the group the orbs follow: `{feet, aim}`.
     {:player_targets, []},
+    # The same players as projectiles hit them (VMC-037o): `%{uuid, id,
+    # position, box}`.
+    {:player_bodies, []},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -248,6 +253,7 @@ defmodule Valimc.World.RegionData do
       if expired == [] do
         state
         |> tick_block_bodies()
+        |> tick_projectiles()
         |> start_item_cross_merging(now)
         |> move_mobs()
         |> move_items(now)
@@ -671,6 +677,295 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # Projectiles and area effect clouds (VMC-037o, `World.Projectiles`): one
+  # kernel call moves the section's projectiles; each step's hit goes through
+  # the hurt path (this section's mobs at once, the group's players by their
+  # sessions) and its effects apply here; they travel as mobs do.
+  defp tick_projectiles(state) do
+    {projectiles, clouds} =
+      for {id, %{kind: :object, body: %Body{type: type}, entity: %{x: x, z: z}} = entry} <-
+            state.entities.store.entries,
+          Projectile.projectile?(type) or type == EffectCloud.type(),
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          reduce: {[], []} do
+        {p, c} ->
+          if type == EffectCloud.type(), do: {p, [{id, entry} | c]}, else: {[{id, entry} | p], c}
+      end
+
+    if (projectiles == [] and clouds == []) or write_busy(state) != nil do
+      state
+    else
+      targets = projectile_targets(state)
+      state = Enum.reduce(Enum.sort(clouds), state, &tick_cloud(&2, &1, targets))
+
+      steps =
+        Projectiles.step(
+          Enum.sort(projectiles),
+          targets,
+          Clock.border_snapshot(),
+          state.dimension == :the_nether
+        )
+
+      context = %{mob_griefing: Valimc.World.GameRules.get(:mob_griefing)}
+      by_id = Map.new(targets, &{&1.id, &1})
+
+      {state, moves} =
+        Enum.reduce(steps, {state, []}, fn {id, entry, result}, {acc, moves} ->
+          run_projectile(acc, id, entry, Projectiles.plan(entry, result, by_id, context), moves)
+        end)
+
+      route_bodies(state, Enum.reverse(moves))
+    end
+  end
+
+  # What projectiles may hit: this section's living mobs and the group's
+  # players, `%{id, ref, uuid, type, position, box}`.
+  defp projectile_targets(state) do
+    mobs =
+      for {sid, %{kind: :mob, body: %Body{type: type} = body, entity: e}} <-
+            state.entities.store.entries,
+          Body.alive?(body) do
+        %{width: w, height: h} = Valimc.Data.EntityTypes.fetch(type)
+        {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
+
+        %{
+          id: e.entity_id,
+          ref: {:mob, sid},
+          uuid: e.uuid,
+          type: type,
+          position: {x, y, z},
+          box: {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
+        }
+      end
+
+    players =
+      for p <- state.player_bodies,
+          do: Map.merge(p, %{ref: {:player, p.uuid}, type: "minecraft:player"})
+
+    mobs ++ players
+  end
+
+  defp run_projectile(state, id, entry, {:keep, body, position, effects}, moves) do
+    state = Enum.reduce(effects, state, &projectile_effect(&2, entry, &1))
+    {state, [%{id: id, revision: entry.revision, position: position, body: body} | moves]}
+  end
+
+  defp run_projectile(state, id, entry, {:remove, effects}, moves) do
+    state = Enum.reduce(effects, state, &projectile_effect(&2, entry, &1))
+
+    case Store.remove(state.entities.store, state.entities.store.epoch, id, entry.revision) do
+      {:ok, store} -> {put_entities(state, store), moves}
+      _ -> {state, moves}
+    end
+  end
+
+  defp run_projectile(state, id, entry, {:hurt, target, hit, next}, moves) do
+    {hurt, state} = projectile_hurt(state, target, hit)
+    run_projectile(state, id, entry, next.(hurt), moves)
+  end
+
+  # A projectile's hit through the one hurt path: a mob of this section at
+  # once (and set on fire when the hit says so), a player by its session,
+  # whose hit is taken to land.
+  defp projectile_hurt(state, %{ref: {:mob, sid}}, hit) do
+    store = state.entities.store
+
+    case Valimc.Entity.Combat.hurt(store, sid, hit) do
+      {:ok, store, %{hurt: true}} ->
+        store =
+          case {hit[:ignite], store.entries[sid]} do
+            {ticks, %{body: %Body{mob: mob} = body}} when is_integer(ticks) ->
+              living = %{mob.living | fire_ticks: max(mob.living.fire_ticks, ticks)}
+              Store.change_body(store, sid, %{body | mob: %{mob | living: living}})
+
+            _ ->
+              store
+          end
+
+        {true, put_entities(state, store)}
+
+      {:ok, store, _} ->
+        {false, put_entities(state, store)}
+
+      _ ->
+        {false, state}
+    end
+  end
+
+  defp projectile_hurt(state, %{ref: {:player, uuid}}, hit) do
+    send(self(), {:player, uuid, {:hurt, hit}})
+    {true, state}
+  end
+
+  defp projectile_effect(state, _entry, {:sound, name, source, position, volume, pitch}) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    packet = Valimc.Protocol.CombatPackets.sound(name, source, position, volume, pitch, seed)
+    Valimc.World.publish(route_key(state), {:sound, position, 16.0 * max(volume, 1.0), packet})
+    state
+  end
+
+  # An entity event before the projectile goes (a snowball's or egg's break).
+  defp projectile_effect(state, entry, {:event, event, position}) do
+    packet = Valimc.Protocol.EntityPackets.entity_event(entry.entity.entity_id, event)
+    Valimc.World.publish(route_key(state), {:sound, position, 64.0, binary_packet(packet)})
+    state
+  end
+
+  defp projectile_effect(state, _entry, {:level_event, cell, type, data}) do
+    Valimc.World.publish(route_key(state), {:level_events, [{cell, type, data}]})
+    state
+  end
+
+  defp projectile_effect(state, _entry, {kind, record}) when kind in [:spawn, :cloud],
+    do: commit_landings(state, %{}, [record])
+
+  defp projectile_effect(state, _entry, {:explode, explosion}), do: explode(state, explosion)
+
+  # `SmallFireball.onHitBlock`: fire in the cell before the face it hit, if empty.
+  defp projectile_effect(state, _entry, {:fire, {x, y, z} = cell}) do
+    with state_id when is_integer(state_id) <- read_block(state, cell),
+         true <- Valimc.Data.BlockFacts.air?(state_id),
+         below when is_integer(below) <- read_block(state, {x, y - 1, z}) do
+      commit_landings(state, %{cell => Explosion.fire_state(below)}, [])
+    else
+      _ -> state
+    end
+  end
+
+  defp projectile_effect(state, _entry, {:player, uuid, message}) do
+    send(self(), {:player, uuid, message})
+    state
+  end
+
+  defp projectile_effect(state, entry, {:splash, body, location}) do
+    living = projectile_targets(state)
+    {hits, events} = Projectiles.splash(body, location, living, body.data.age)
+
+    me = %{
+      uuid: entry.entity.uuid,
+      entity_id: entry.entity.entity_id,
+      player: false,
+      type: body.type,
+      mainhand: nil
+    }
+
+    template = Projectiles.projectile_hit(body, me, location, :indirect_magic, 0.0)
+
+    state =
+      Enum.reduce(hits, state, fn
+        {%{ref: {:player, uuid}}, actions}, acc ->
+          send(self(), {:player, uuid, {:splash, actions, template}})
+          acc
+
+        {%{ref: {:mob, sid}} = target, actions}, acc ->
+          Enum.reduce(actions, acc, &mob_effect(&2, sid, target, &1, template))
+      end)
+
+    Enum.reduce(events, state, &projectile_effect(&2, entry, &1))
+  end
+
+  # An effect a potion or cloud gives mob `sid`.
+  defp mob_effect(state, _sid, target, {:hurt, type, amount}, template) do
+    hit = %{template | source: Valimc.Living.DamageSource.new(type), amount: amount}
+    elem(projectile_hurt(state, target, Map.delete(hit, :direction)), 1)
+  end
+
+  defp mob_effect(state, sid, _target, {:heal, amount}, _template) do
+    update_mob(state, sid, fn mob ->
+      {:ok, health} = Valimc.Living.Health.heal(mob.living.health, amount)
+      %{mob | living: %{mob.living | health: health}}
+    end)
+  end
+
+  defp mob_effect(state, sid, _target, {:add, id, rung}, _template) do
+    update_mob(state, sid, fn mob ->
+      case Valimc.Living.Effects.add(mob.living.effects, id, rung) do
+        {:ok, effects, _} -> %{mob | living: %{mob.living | effects: effects}}
+        _ -> mob
+      end
+    end)
+  end
+
+  defp update_mob(state, sid, fun) do
+    store = state.entities.store
+
+    case store.entries[sid] do
+      %{body: %Body{mob: mob} = body} when mob != nil ->
+        put_entities(state, Store.change_body(store, sid, %{body | mob: fun.(mob)}))
+
+      _ ->
+        state
+    end
+  end
+
+  # One tick of an area effect cloud over the section's living targets.
+  defp tick_cloud(state, {id, %{entity: e, body: body, revision: revision}}, targets) do
+    position = {e.x, e.y, e.z}
+    store = state.entities.store
+
+    case EffectCloud.tick(body, position, targets) do
+      :remove ->
+        case Store.remove(store, store.epoch, id, revision) do
+          {:ok, store} -> put_entities(state, store)
+          _ -> state
+        end
+
+      {:keep, next, effects} ->
+        state =
+          case Store.step_body(store, state.key, id, revision, position, next) do
+            {:ok, store, _} -> put_entities(state, store)
+            _ -> state
+          end
+
+        me = %{
+          uuid: e.uuid,
+          entity_id: e.entity_id,
+          player: false,
+          type: body.type,
+          mainhand: nil
+        }
+
+        owner = body.data.owner
+
+        attacker =
+          if owner,
+            do: %{
+              uuid: owner.uuid,
+              entity_id: owner.id,
+              player: owner.player,
+              type: nil,
+              mainhand: nil
+            },
+            else: me
+
+        template = %{
+          source: Valimc.Living.DamageSource.new(:indirect_magic),
+          amount: 0.0,
+          attacker: attacker,
+          direct: me,
+          position: position
+        }
+
+        Enum.reduce(effects, state, fn
+          {:hurt, %{ref: {:player, uuid}}, amount}, acc ->
+            send(self(), {:player, uuid, {:hurt, %{template | amount: amount}}})
+            acc
+
+          {:hurt, %{ref: {:mob, sid}} = target, amount}, acc ->
+            mob_effect(acc, sid, target, {:hurt, :indirect_magic, amount}, template)
+
+          {:heal, %{ref: {:player, uuid}}, amount}, acc ->
+            send(self(), {:player, uuid, {:splash, [{:heal, amount}], template}})
+            acc
+
+          {:heal, %{ref: {:mob, sid}} = target, amount}, acc ->
+            mob_effect(acc, sid, target, {:heal, amount}, template)
+        end)
+    end
+  end
+
+  defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
+
   # An anvil landing on living entities (VMC-050a2): this section's mobs in
   # its box, and the group's players by their sessions.
   defp falling_hit(state, {box, amount}) do
@@ -1030,6 +1325,47 @@ defmodule Valimc.World.RegionData do
       {:error, _} = error -> {:reply, error, state}
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       _ -> {:reply, {:error, :pickup_not_available}, state}
+    end
+  end
+
+  # `AbstractArrow.playerTouch` (VMC-037o): a stuck arrow whose shake is
+  # over goes to the player that touches it as its pickup rule allows, with
+  # the pickup animation.
+  def handle_call({:take_arrow, epoch, actor, uuid, inventory}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {epoch, id, revision}} <- Store.find(store, uuid),
+         %{body: %Body{type: "minecraft:arrow", data: %{in_ground: true, shake: 0}} = body} <-
+           store.entries[id],
+         {:ok, inventory} <- Valimc.Player.Projectiles.try_pickup(body, inventory),
+         {:ok, store} <- Store.remove(store, epoch, id, revision) do
+      state = put_entities(state, store)
+      Valimc.World.publish(route_key(state), {:item_pickup, epoch, id, actor.entity_id, 1})
+      {:reply, {:ok, inventory}, state}
+    else
+      {:error, _} = error -> {:reply, error, state}
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      _ -> {:reply, {:error, :pickup_not_available}, state}
+    end
+  end
+
+  # A player's attack turns a fireball back (`ProjectileDeflection.AIM_DEFLECT`
+  # by attack, VMC-037o): along the player's look, its acceleration reset.
+  def handle_call({:deflect_projectile, epoch, uuid, look, owner}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{body: %Body{data: %{acceleration: _} = data} = body} <- store.entries[id] do
+      body = %{body | velocity: look, data: %{data | owner: owner, acceleration: 0.1}}
+      store = Store.change_body(store, id, Projectile.impulse(body))
+      {:reply, :ok, put_entities(state, store)}
+    else
+      {:error, _} = error -> {:reply, error, state}
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      _ -> {:reply, {:error, :not_deflectable}, state}
     end
   end
 
@@ -2209,6 +2545,9 @@ defmodule Valimc.World.RegionData do
     |> return_to(source, Enum.reverse(refused))
   end
 
+  # A sibling's projectile hits a body here (VMC-037o).
+  def apply_sibling(state, {:hurt, uuid, hit}), do: elem(hurt_entity(state, uuid, hit), 1)
+
   # A sibling's explosion reaches this section's entities (VMC-050a).
   def apply_sibling(state, {:explosion, explosion}) do
     store = state.entities.store
@@ -2254,6 +2593,67 @@ defmodule Valimc.World.RegionData do
          {:ok, hit} <- Valimc.Entity.Combat.mob_hit(store, id, "minecraft:player") do
       send(self(), {:player, target, {:hurt, hit}})
       :ok
+    end
+  end
+
+  @doc """
+  Mob `uuid`'s arrow at `target` (`AbstractSkeleton.performRangedAttack`,
+  VMC-037o), for VMC-043b's ranged goal: an arrow from its eyes (`power`
+  from the bow's draw, `BowItem.getPowerForTime`) aimed at a third of the
+  target's height (`{x, y, z, height}`) and raised for the distance, shot at
+  1.6 with the difficulty's spread, damage `2 × power` plus a little for the
+  difficulty, and the skeleton's shot sound. `{:ok, state}` or `{:error,
+  reason}`.
+  """
+  def mob_shoot(state, uuid, {tx, ty, tz, height}, power \\ 1.0) do
+    store = state.entities.store
+
+    with {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{kind: :mob, body: %Body{type: type} = body, entity: e} <- store.entries[id],
+         true <- Body.alive?(body) do
+      difficulty = elem(Clock.difficulty(), 0).level
+      eye = Valimc.Data.EntityTypes.fetch(type).eye_height
+
+      {x, y, z} =
+        {e.x * 1.0, Valimc.Data.Float32.round(e.y + eye) - 0.10000000149011612, e.z * 1.0}
+
+      owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: type}
+      arrow = Projectile.new("minecraft:arrow", owner, Valimc.Protocol.ItemStack.new("arrow"))
+
+      # `setBaseDamageFromMob`: `power * 2 + triangle(difficulty * 0.11, 0.57425)`.
+      damage =
+        Valimc.Data.Float32.round(power * 2.0) + difficulty * 0.11 +
+          0.57425 * (:rand.uniform() - :rand.uniform())
+
+      arrow = %{arrow | data: %{arrow.data | damage: damage}}
+      {xd, zd} = {tx - e.x, tz - e.z}
+      distance = :math.sqrt(xd * xd + zd * zd)
+      yd = ty + height / 3.0 - y + distance * Valimc.Data.Float32.round(0.2)
+      arrow = Projectile.shoot(arrow, {xd, yd, zd}, 1.6, 14 - difficulty * 4)
+      record = Store.body_record(arrow, :crypto.strong_rand_bytes(16), {x, y, z})
+
+      case Store.create_record(store, state.key, record) do
+        {:ok, store, _} ->
+          pitch =
+            Valimc.Data.Float32.round(
+              1.0 / Valimc.Data.Float32.round(:rand.uniform() * 0.4 + 0.8)
+            )
+
+          state = put_entities(state, store)
+
+          {:ok,
+           projectile_effect(
+             state,
+             nil,
+             {:sound, "minecraft:entity.skeleton.shoot", "hostile", {e.x, e.y, e.z}, 1.0, pitch}
+           )}
+
+        error ->
+          error
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :no_shooter}
     end
   end
 
@@ -2646,9 +3046,16 @@ defmodule Valimc.World.RegionData do
   (`Valimc.Player.Host.track/1`): published with the entities' rows and
   frame.
   """
-  def players(state, {views, frame}, targets \\ []) do
+  def players(state, {views, frame}, targets \\ [], bodies \\ []) do
     frame = Map.merge(state.player_frame, frame, fn _, earlier, later -> earlier ++ later end)
-    %{state | player_views: views, player_frame: frame, player_targets: targets}
+
+    %{
+      state
+      | player_views: views,
+        player_frame: frame,
+        player_targets: targets,
+        player_bodies: bodies
+    }
   end
 
   defp publish_item_views(state) do
