@@ -1,9 +1,10 @@
 defmodule Valimc.AI.Self do
   @moduledoc """
   One mob as its AI sees and changes it during its tick: its identity and
-  type, position, rotations and ground flag, its `Entity.Mob` (living state,
-  equipment, attributes, travel state), its mind, its type's AI facts and
-  what the owner lets it read (`Valimc.AI.World`). Goals take and return
+  type, position, rotations, motion and ground flag, its `Entity.Mob`
+  (living state, equipment, attributes, travel state), its type's own
+  entity data (`Valimc.AI.Kind`), its mind, its type's AI facts and what
+  the owner lets it read (`Valimc.AI.World`). Goals take and return
   it; what leaves the mob (attacks, sounds, swings, alerts) collects in
   `effects`, newest first.
   """
@@ -21,6 +22,7 @@ defmodule Valimc.AI.Self do
     :pitch,
     :head,
     :on_ground,
+    :velocity,
     :mob,
     :mind,
     :facts,

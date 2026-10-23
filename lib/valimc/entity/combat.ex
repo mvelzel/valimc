@@ -47,6 +47,13 @@ defmodule Valimc.Entity.Combat do
              })}
         end
 
+      # A shulker's bullet is broken by any hit (`ShulkerBullet.hurtServer`).
+      %{kind: :object, body: %Body{type: "minecraft:shulker_bullet"}, revision: revision} ->
+        case Store.remove(store, store.epoch, id, revision) do
+          {:ok, store} -> {:ok, store, %{hurt: true}}
+          _ -> {:ok, store, %{hurt: false}}
+        end
+
       %{} ->
         {:ok, store, %{hurt: false}}
 
@@ -63,13 +70,18 @@ defmodule Valimc.Entity.Combat do
   def hurt_body(%Body{mob: nil}, _entity, _hit), do: :ignored
 
   def hurt_body(%Body{mob: mob} = body, entity, hit) do
-    case Mob.hurt(mob, body.type, hit) do
+    hook = &Valimc.AI.Mobs.hook(body.type, &1, &2, &3)
+
+    case if(hook.(:ignores?, [body, hit], false),
+           do: :ignored,
+           else: Mob.hurt(mob, body.type, hit)
+         ) do
       :ignored ->
         :ignored
 
       {:ok, mob, outcome} ->
         source = hit.source
-        sounds = CombatPackets.mob_sounds(body.type)
+        sounds = sounds(body)
         mob = %{mob | ai: Valimc.AI.hurt(mob.ai, anger(hit, source), DamageSource.type(source))}
         body = %{body | mob: mob}
 
@@ -118,6 +130,8 @@ defmodule Valimc.Entity.Combat do
           end
 
         body = if outcome.died, do: died(body, hit), else: body
+        # What its kind does after a hurt (`Valimc.AI.Kind.hurt/2`).
+        body = hook.(:hurt, [body, hit], body)
         {body, events, outcome}
     end
   end
@@ -253,8 +267,24 @@ defmodule Valimc.Entity.Combat do
   defp sound_event(sounds, key, pitch) do
     if sounds[key] do
       <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
-      {:sound, sounds[key], sounds["sound_source"], 1.0, pitch, seed}
+      {:sound, sounds[key], sounds["sound_source"], sounds["volume"], pitch, seed}
     end
+  end
+
+  # The type's hurt and death sounds at its volume (`getSoundVolume`), as
+  # its kind changes them (a closed shulker's muffled hurt).
+  defp sounds(body) do
+    sounds = CombatPackets.mob_sounds(body.type) || %{}
+    volume = (Valimc.AI.Facts.mob(body.type) || %{volume: 1.0}).volume
+
+    override = fn sounds, key ->
+      case Valimc.AI.Mobs.hook(body.type, :sound, [body, key], nil) do
+        nil -> sounds
+        name -> Map.put(sounds, key, Valimc.AI.Facts.sound_id(name))
+      end
+    end
+
+    sounds |> Map.put("volume", volume) |> override.("hurt_sound") |> override.("death_sound")
   end
 
   defp entity_id(nil), do: nil

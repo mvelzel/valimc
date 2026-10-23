@@ -1210,8 +1210,191 @@
           ]
         ]
       ]
+    },
+    "minecraft:endermite": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.endermite.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "ClimbOnTopOfPowderSnowGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:shulker": {
+      "max_head_y_rot": 180,
+      "max_head_x_rot": 180,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.shulker.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          4,
+          "ShulkerAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "ShulkerPeekGoal",
+          []
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "ShulkerNearestAttackGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "ShulkerDefenseAttackGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
     }
   },
+  "shulker_look": [
+    [
+      0,
+      0,
+      1065353216,
+      1065353216,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      -1082130432,
+      1065353216,
+      0,
+      0
+    ],
+    [
+      0,
+      -1082130432,
+      0,
+      1065353216,
+      0,
+      -2147483648
+    ],
+    [
+      0,
+      -1082130432,
+      0,
+      -1082130432,
+      -2147483648,
+      -2147483648
+    ],
+    [
+      0,
+      -1082130432,
+      0,
+      0,
+      0,
+      -1082130432
+    ],
+    [
+      0,
+      -1082130432,
+      0,
+      0,
+      0,
+      1065353216
+    ]
+  ],
   "sounds": {
     "minecraft:entity.piglin.ambient": 1285,
     "minecraft:entity.piglin.admiring_item": 1284,
@@ -1220,12 +1403,22 @@
     "minecraft:entity.piglin.angry": 1286,
     "minecraft:entity.piglin.celebrate": 1287,
     "minecraft:entity.zombified_piglin.angry": 1900,
+    "minecraft:entity.shulker.open": 1476,
+    "minecraft:entity.shulker.close": 1472,
+    "minecraft:entity.shulker.shoot": 1477,
+    "minecraft:entity.shulker.teleport": 1478,
+    "minecraft:entity.shulker.hurt": 1474,
+    "minecraft:entity.shulker.hurt_closed": 1475,
+    "minecraft:entity.shulker_bullet.hit": 1470,
+    "minecraft:entity.shulker_bullet.hurt": 1471,
     "minecraft:entity.zombie.ambient": 1873,
     "minecraft:entity.pig.ambient": 1272,
     "minecraft:entity.blaze.ambient": 174,
     "minecraft:entity.zombified_piglin.ambient": 1899,
     "minecraft:entity.husk.ambient": 881,
-    "minecraft:entity.zombie_villager.ambient": 1904
+    "minecraft:entity.zombie_villager.ambient": 1904,
+    "minecraft:entity.endermite.ambient": 604,
+    "minecraft:entity.shulker.ambient": 1467
   },
   "swing_fields": "000106"
 }

@@ -27,8 +27,9 @@ defmodule Valimc.Entity.MobTicks do
     old = Map.new(mobs)
 
     {mobs, effects} =
-      Enum.zip_with(mobs, thought, fn {id, entry}, {id, body, effects} ->
-        {{id, %{entry | body: body}}, {id, split(effects)}}
+      Enum.zip_with(mobs, thought, fn {id, entry}, {id, body, {x, y, z}, effects} ->
+        entity = %{entry.entity | x: x, y: y, z: z}
+        {{id, %{entry | body: body, entity: entity}}, {id, split(effects)}}
       end)
       |> Enum.unzip()
 
@@ -64,8 +65,12 @@ defmodule Valimc.Entity.MobTicks do
       Enum.zip(mobs, results)
       |> Enum.flat_map_reduce(world, fn
         {{id, entry}, {:ok, ticked}}, world ->
-          {body, position} = MobMotion.apply(entry.body, ticked.mob, ticked.depths)
-          {body, settled, world} = AI.settle({id, old[id]}, body, position, world)
+          {body, position} =
+            MobMotion.apply(entry.body, ticked.mob, ticked.depths, ticked.powder_snow)
+
+          {body, position, settled, world} =
+            AI.settle({id, old[id]}, body, position, world)
+
           {body, events} = MobVitals.apply(body.type, body, ticked)
           {made, rest} = effects[id]
           {later, more} = split(settled)
@@ -112,6 +117,7 @@ defmodule Valimc.Entity.MobTicks do
     {events, rest} =
       Enum.split_with(effects, fn
         {:sound, _, _, _, _, _} -> true
+        {:sound_at, _, _, _, _, _} -> true
         :swing -> true
         {:swing, _} -> true
         _ -> false

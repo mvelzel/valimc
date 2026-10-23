@@ -39379,6 +39379,31 @@
       }
     ]
   },
+  "minecraft:entities/shulker": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/shulker",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:shulker_shell",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "unenchanted_chance": 0.5,
+          "enchanted_chance": {
+            "base": 0.5625,
+            "per_level_above_first": 0.0625,
+            "type": "minecraft:linear"
+          },
+          "enchantment": "minecraft:looting",
+          "type": "minecraft:random_chance_with_enchanted_bonus"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/zombie": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/zombie",

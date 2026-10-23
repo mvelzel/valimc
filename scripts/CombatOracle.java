@@ -47,7 +47,9 @@ public class CombatOracle {
       // VMC-043b: the overworld hostiles.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:drowned", "minecraft:skeleton", "minecraft:stray",
       "minecraft:bogged", "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
-      "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish");
+      "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish",
+      // VMC-043e: the End's mobs.
+      "minecraft:shulker");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",

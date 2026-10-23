@@ -27,17 +27,21 @@ defmodule Valimc.World.Projectiles do
   source, position, volume, pitch}`, `{:event, id, event, position}` (an
   entity event shown before the projectile goes), `{:level_event, cell,
   type, data}`, `{:spawn, record}`, `{:explode, explosion}`, `{:fire, cell}`,
-  `{:player, uuid, message}`, `{:splash, body, location}` and `{:cloud,
-  record}`.
+  `{:player, uuid, message}`, `{:splash, body, location}`, `{:cloud,
+  record}` and `{:effects, target, actions, hit}` (a shulker bullet's
+  Levitation on what it hurt).
   """
   alias Valimc.Data.{EntityTypes, Float32, Grid}
-  alias Valimc.Entity.{Body, Projectile, Store}
+  alias Valimc.Entity.{Body, Projectile, ShulkerBullet, Store}
   alias Valimc.Living.DamageSource
   alias Valimc.Physics.Kernel
   alias Valimc.Protocol.ItemStack
 
   @arrow "minecraft:arrow"
   @eye "minecraft:eye_of_ender"
+  @bullet "minecraft:shulker_bullet"
+  # A bullet's Levitation: ten seconds (`MobEffectInstance(LEVITATION, 200)`).
+  @levitation {:add, Valimc.Data.EffectTypes.id("levitation"), [{200, 0, false, true, true}]}
   # `AbstractArrow.tickDespawn` and `SHAKE_TIME`.
   @despawn 1200
   @shake 7
@@ -49,6 +53,16 @@ defmodule Valimc.World.Projectiles do
   def step([], _targets, _border, _fast_lava), do: []
 
   def step(bodies, targets, border, fast_lava) do
+    # A shulker's bullet steers toward its target, if it still finds it.
+    bodies =
+      Enum.map(bodies, fn
+        {id, %{body: %Body{type: @bullet} = body} = entry} ->
+          {id, %{entry | body: ShulkerBullet.prepare(body, bullet_target(body, targets))}}
+
+        other ->
+          other
+      end)
+
     inputs =
       Enum.map(bodies, fn {_, %{entity: e, body: body}} ->
         Projectile.input(body, {e.x * 1.0, e.y * 1.0, e.z * 1.0}, {float(), float(), float()})
@@ -66,12 +80,19 @@ defmodule Valimc.World.Projectiles do
     for {{id, entry}, result} <- Enum.zip(bodies, results), do: {id, entry, result}
   end
 
+  @doc "The target of shulker bullet `body` among `targets` (by uuid), or nil."
+  def bullet_target(%Body{data: %{target: {_, uuid}}}, targets),
+    do: Enum.find(targets, &(Map.get(&1, :uuid) == uuid))
+
+  def bullet_target(_body, _targets), do: nil
+
   # A Java `nextFloat`: 24 uniform bits.
   defp float, do: (:rand.uniform(16_777_216) - 1) / 16_777_216
 
   @doc """
   The plan of one step. `targets` maps a target's network id to `%{ref,
-  position, type, uuid}`; `context` holds `mob_griefing` and `difficulty`.
+  position, type, uuid}`; `context` holds `mob_griefing`, `difficulty`,
+  the target list (`targets`) and a block reader (`read`).
   """
   def plan(%{entity: e, body: body}, result, targets, context) do
     old = {e.x, e.y, e.z}
@@ -158,6 +179,43 @@ defmodule Valimc.World.Projectiles do
 
       {:block, at, _, _, _, _} ->
         thrown(body, old, at, context)
+    end
+  end
+
+  ## Shulker bullets
+
+  # Peaceful takes it (`checkDespawn`); what it hits takes 4 and floats up,
+  # a block stops it with a sound; otherwise it turns where it must.
+  defp planned(%Body{type: @bullet} = body, _old, position, hit, _, targets, context) do
+    cond do
+      context[:difficulty] == :peaceful ->
+        {:remove, []}
+
+      true ->
+        case hit do
+          nil ->
+            target = bullet_target(body, context[:targets] || [])
+            {:keep, ShulkerBullet.turn(body, position, target, context.read), position, []}
+
+          {:entity, id, at} ->
+            case targets[id] do
+              nil ->
+                {:remove, []}
+
+              target ->
+                hit = projectile_hit(body, context.me, at, :mob_projectile, 4.0)
+
+                {:hurt, target, hit,
+                 fn
+                   true -> {:remove, [{:effects, target, [@levitation], hit}]}
+                   false -> {:remove, []}
+                 end}
+            end
+
+          {:block, _, _, _, _, _} ->
+            {:remove,
+             [{:sound, "minecraft:entity.shulker_bullet.hit", "hostile", position, 1.0, 1.0}]}
+        end
     end
   end
 

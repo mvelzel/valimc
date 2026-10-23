@@ -313,6 +313,25 @@ public class EntityOracle {
     fields.put("hoglin_immune", field(net.minecraft.world.entity.monster.hoglin.Hoglin.class, "DATA_IMMUNE_TO_ZOMBIFICATION"));
     fields.put("strider_boost_time", field(net.minecraft.world.entity.monster.Strider.class, "DATA_BOOST_TIME"));
     fields.put("strider_suffocating", field(net.minecraft.world.entity.monster.Strider.class, "DATA_SUFFOCATING"));
+    // VMC-043e: water, ambient and End mobs.
+    fields.put("shulker_attach_face", field(net.minecraft.world.entity.monster.Shulker.class, "DATA_ATTACH_FACE_ID"));
+    fields.put("shulker_peek", field(net.minecraft.world.entity.monster.Shulker.class, "DATA_PEEK_ID"));
+    fields.put("shulker_color", field(net.minecraft.world.entity.monster.Shulker.class, "DATA_COLOR_ID"));
+    fields.put("fish_from_bucket", field(net.minecraft.world.entity.animal.fish.AbstractFish.class, "FROM_BUCKET"));
+    fields.put("puff_state", field(net.minecraft.world.entity.animal.fish.Pufferfish.class, "PUFF_STATE"));
+    fields.put("tropical_fish_variant", field(net.minecraft.world.entity.animal.fish.TropicalFish.class, "DATA_ID_TYPE_VARIANT"));
+    fields.put("salmon_type", field(net.minecraft.world.entity.animal.fish.Salmon.class, "DATA_TYPE"));
+    fields.put("glow_squid_dark_ticks", field(net.minecraft.world.entity.animal.squid.GlowSquid.class, "DATA_DARK_TICKS_REMAINING"));
+    fields.put("dolphin_got_fish", field(net.minecraft.world.entity.animal.dolphin.Dolphin.class, "GOT_FISH"));
+    fields.put("dolphin_moistness", field(net.minecraft.world.entity.animal.dolphin.Dolphin.class, "MOISTNESS_LEVEL"));
+    fields.put("turtle_has_egg", field(net.minecraft.world.entity.animal.turtle.Turtle.class, "HAS_EGG"));
+    fields.put("turtle_laying_egg", field(net.minecraft.world.entity.animal.turtle.Turtle.class, "LAYING_EGG"));
+    fields.put("axolotl_variant", field(net.minecraft.world.entity.animal.axolotl.Axolotl.class, "DATA_VARIANT"));
+    fields.put("axolotl_playing_dead", field(net.minecraft.world.entity.animal.axolotl.Axolotl.class, "DATA_PLAYING_DEAD"));
+    fields.put("axolotl_from_bucket", field(net.minecraft.world.entity.animal.axolotl.Axolotl.class, "FROM_BUCKET"));
+    fields.put("guardian_moving", field(net.minecraft.world.entity.monster.Guardian.class, "DATA_ID_MOVING"));
+    fields.put("guardian_attack_target", field(net.minecraft.world.entity.monster.Guardian.class, "DATA_ID_ATTACK_TARGET"));
+    fields.put("bat_flags", field(net.minecraft.world.entity.ambient.Bat.class, "DATA_ID_FLAGS"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

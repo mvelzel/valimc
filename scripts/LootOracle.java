@@ -71,7 +71,9 @@ public class LootOracle {
       "minecraft:entities/endermite", "minecraft:entities/pig", "minecraft:entities/blaze",
       "minecraft:entities/zombified_piglin",
       // VMC-043b: the zombie family.
-      "minecraft:entities/husk", "minecraft:entities/zombie_villager");
+      "minecraft:entities/husk", "minecraft:entities/zombie_villager",
+      // VMC-043e: the End's mobs.
+      "minecraft:entities/shulker");
   // VMC-043d: what a piglin gives for a gold ingot.
   static final String BARTERING = "minecraft:gameplay/piglin_bartering";
 

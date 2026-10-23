@@ -1108,6 +1108,11 @@ STAGES = [
         ('java', 'HostileOracle', 'spawns', '@hostile-spawns.json'),
         ('check', 'check_hostile_spawns.exs', '@hostile-spawns.json'),
     ]),
+    # VMC-043e: shulker bullets made, steered and turned as vanilla's.
+    ('shulker_bullets', [
+        ('java', 'ShulkerBulletOracle', '@shulker-bullets.json'),
+        ('check', 'check_shulker_bullets.exs', '@shulker-bullets.json'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

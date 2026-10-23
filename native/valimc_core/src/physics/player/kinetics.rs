@@ -587,7 +587,9 @@ impl Player {
             return Err(Fault::Limit("kinetic_velocity_limit"));
         }
         let recorded = self.record_path(position, actual, step.requested);
-        let Slowing { multiplier, last } = contacts::slowing(
+        let Slowing {
+            multiplier, last, ..
+        } = contacts::slowing(
             w.source,
             w.facts,
             catalog,

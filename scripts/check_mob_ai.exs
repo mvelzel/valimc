@@ -54,9 +54,12 @@ sound_names =
 # A scene as a supplied view: its blocks, and air around them.
 view = fn blocks ->
   scene = Map.new(blocks, fn [x, y, z, s] -> {{x, y, z}, s} end)
+  {xs, zs} = {Enum.map(blocks, &Enum.at(&1, 0)), Enum.map(blocks, &Enum.at(&1, 2))}
+  {x0, x1} = {min(-16, Enum.min(xs) - 4), max(16, Enum.max(xs) + 4)}
+  {z0, z1} = {min(-16, Enum.min(zs) - 4), max(16, Enum.max(zs) + 4)}
 
   packed =
-    for x <- -16..16, y <- 56..80, z <- -16..16, into: <<>> do
+    for x <- x0..x1, y <- 56..80, z <- z0..z1, into: <<>> do
       <<x::signed-32, y::signed-32, z::signed-32, Map.get(scene, {x, y, z}, air)::16>>
     end
 
@@ -136,6 +139,8 @@ end
 
 # An entity a mob added, as the oracle records it: a projectile with its
 # rotation, a thrown item with its stack.
+zero = Enum.map([0.0, 0.0, 0.0], hex)
+
 added = fn
   {:projectile, type, at, velocity, {yaw, pitch}} ->
     [
@@ -155,6 +160,13 @@ added = fn
       stack.count
     ]
 
+  # A shulker's bullet (at its box's centre, still) or offspring (VMC-043e).
+  {:shoot_bullet, at, _, _} ->
+    ["minecraft:shulker_bullet", Enum.map(Tuple.to_list(at), hex), zero, 0, 0]
+
+  {:spawn_mob, type, at, _} ->
+    [type, Enum.map(Tuple.to_list(at), hex), zero, 0, 0]
+
   _ ->
     nil
 end
@@ -162,6 +174,30 @@ end
 sound_name = fn
   id when is_integer(id) -> sound_names[id]
   name -> name
+end
+
+# The sounds a mob made: at itself, or where it was (a shulker's teleport).
+sound_of = fn
+  {:sound, name, _, volume, pitch, _} -> [{name, volume, pitch}]
+  {:sound_at, name, _, _, volume, pitch} -> [{name, volume, pitch}]
+  _ -> []
+end
+
+# What a family's mob keeps of its own (VMC-043e), as the oracle reports it.
+kind_data = fn
+  %{type: "minecraft:shulker", data: data, mob: mob} ->
+    %{
+      "attach_face" => data.attach_face,
+      "peek" => data.peek,
+      "peek_amount" => bits.(data.peek_amount),
+      "armor" => hex.(Valimc.Entity.Mob.value("minecraft:shulker", mob, "minecraft:armor"))
+    }
+
+  %{type: "minecraft:endermite", data: data} ->
+    %{"life" => data.life}
+
+  _ ->
+    %{}
 end
 
 checked =
@@ -273,6 +309,13 @@ checked =
               end
             end)
 
+          # The bodies' timers (the hurt cooldown) run as the owner's ageing does.
+          entries =
+            Enum.map(entries, fn {id, entry} ->
+              {body, _, _} = Body.tick(entry.body)
+              {id, %{entry | body: body}}
+            end)
+
           {steps, world} = MobTicks.steps(kernel_view, entries, world, nil)
 
           unless length(steps) == length(entries),
@@ -311,8 +354,8 @@ checked =
                 for {:attack, {:player, <<_::64, n::64>>}} <- step.effects, do: n
 
               sounds =
-                for {:sound, name, _, volume, pitch, _} <-
-                      Map.get(hurt_events, id, []) ++ step.events,
+                for event <- Map.get(hurt_events, id, []) ++ step.events,
+                    {name, volume, pitch} <- sound_of.(event),
                     do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
               swings = for {:swing, hand} <- step.events, do: "#{hand}:whack:6"
@@ -371,7 +414,9 @@ checked =
                 adds: adds,
                 level_seed: world.random,
                 ambient: mind.ambient,
-                no_action: mind.no_action
+                no_action: mind.no_action,
+                health: bits.(body.mob.living.health.value),
+                data: kind_data.(body)
               }
 
               got =
@@ -414,8 +459,13 @@ checked =
                 adds: want_adds,
                 level_seed: expected["level_seed"],
                 ambient: expected["ambient"],
-                no_action: expected["no_action"]
+                no_action: expected["no_action"],
+                health: expected["health"],
+                data: expected["data"]
               }
+
+              # Health and a family's own data, where the oracle reports them.
+              want = Map.reject(want, fn {k, v} -> k in [:health, :data] and v == nil end)
 
               want =
                 if mind.brain,

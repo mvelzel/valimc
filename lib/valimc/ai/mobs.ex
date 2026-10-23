@@ -15,10 +15,17 @@ defmodule Valimc.AI.Mobs do
   alias Valimc.AI.Goals
   alias Valimc.Protocol.{Data, ItemTypes}
 
-  # The family modules (VMC-043b–e): each names its `types/0` and gives its
-  # goals (`goals/1`) and, where it has them, `finalize/2` (`Valimc.AI.Spawn`),
-  # its own data (`data/1`, `values/1`) and dimensions (`dimensions/1`).
-  @families [Valimc.AI.Mobs.Zombie, Valimc.AI.Mobs.ZombifiedPiglin]
+  # The family modules (VMC-043b–e, `Valimc.AI.Kind`): each names its
+  # `types/0` and gives its goals (`goals/1`) and, where it has them,
+  # `finalize/2` (`Valimc.AI.Spawn`), its own data (`data/1`, `values/1`),
+  # dimensions (`dimensions/1`) and the parts of vanilla's tick its class
+  # overrides (`hook/4`).
+  @families [
+    Valimc.AI.Mobs.Zombie,
+    Valimc.AI.Mobs.ZombifiedPiglin,
+    Valimc.AI.Mobs.Endermite,
+    Valimc.AI.Mobs.Shulker
+  ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
   @exports for module <- @families,
                into: %{},
@@ -106,6 +113,15 @@ defmodule Valimc.AI.Mobs do
     if exports?(module, :dimensions, 1), do: module.dimensions(body)
   end
 
+  @doc """
+  `name` of the family module of `type` called with `args` where the module
+  defines it (`Valimc.AI.Kind`'s optional callbacks), else `default`.
+  """
+  def hook(type, name, args, default) do
+    module = @family[type]
+    if exports?(module, name, length(args)), do: apply(module, name, args), else: default
+  end
+
   defp exports?(nil, _name, _arity), do: false
   defp exports?(module, name, arity), do: MapSet.member?(@exports[module], {name, arity})
 
@@ -116,6 +132,7 @@ defmodule Valimc.AI.Mobs do
   """
   def custom("minecraft:blaze"), do: Valimc.AI.Mobs.Blaze
   def custom("minecraft:zombified_piglin"), do: Valimc.AI.Mobs.ZombifiedPiglin
+
   def custom(_type), do: nil
 
   @doc "The module of a type's own `setTarget` (`set_target/2`), or nil."
@@ -124,7 +141,7 @@ defmodule Valimc.AI.Mobs do
 
   @doc "The brain module of a brain mob's type, or nil (VMC-041a2)."
   def brain("minecraft:piglin"), do: Valimc.AI.Brains.Piglin
-  def brain(_type), do: nil
+  def brain(type), do: hook(type, :brain, [], nil)
 
   @doc """
   The navigation a mob of `type` makes (`createNavigation`): its kind and
@@ -132,7 +149,7 @@ defmodule Valimc.AI.Mobs do
   (`AbstractPiglin.applyOpenDoorsAbility`).
   """
   def navigation("minecraft:piglin"), do: {:ground, can_open_doors: true}
-  def navigation(_type), do: {:ground, []}
+  def navigation(type), do: hook(type, :navigation, [], {:ground, []})
 
   @doc "Whether mobs of `type` have goals."
   def goals?(type), do: type in @types

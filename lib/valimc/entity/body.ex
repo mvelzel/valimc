@@ -331,6 +331,12 @@ defmodule Valimc.Entity.Body do
   def event_packet(_id, {:sound, name, source, volume, pitch, seed}, %{x: x, y: y, z: z}),
     do: binary(Valimc.Protocol.CombatPackets.sound(name, source, {x, y, z}, volume, pitch, seed))
 
+  # A sound where the mob was (a shulker's teleport, VMC-043e).
+  def event_packet(_id, {:sound_at, name, source, position, volume, pitch}, _) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    binary(Valimc.Protocol.CombatPackets.sound(name, source, position, volume, pitch, seed))
+  end
+
   def event_packet(id, {:damage, source, cause, direct, position}, _),
     do: binary(Packets.damage_event(id, source, cause, direct, position))
 

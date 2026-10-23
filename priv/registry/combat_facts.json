@@ -1878,7 +1878,8 @@
     "minecraft:witch": 5,
     "minecraft:slime": 0,
     "minecraft:phantom": 5,
-    "minecraft:silverfish": 5
+    "minecraft:silverfish": 5,
+    "minecraft:shulker": 5
   },
   "mobs": {
     "minecraft:zombie": {
@@ -2006,6 +2007,12 @@
       "death_sound": "minecraft:entity.silverfish.death",
       "sound_source": 5,
       "animal": false
+    },
+    "minecraft:shulker": {
+      "hurt_sound": "minecraft:entity.shulker.hurt_closed",
+      "death_sound": "minecraft:entity.shulker.death",
+      "sound_source": 5,
+      "animal": false
     }
   },
   "sounds": {
@@ -2075,7 +2082,9 @@
     "minecraft:entity.phantom.hurt": 1263,
     "minecraft:entity.phantom.death": 1261,
     "minecraft:entity.silverfish.hurt": 1481,
-    "minecraft:entity.silverfish.death": 1480
+    "minecraft:entity.silverfish.death": 1480,
+    "minecraft:entity.shulker.hurt_closed": 1475,
+    "minecraft:entity.shulker.death": 1473
   },
   "sound_sources": {
     "master": 0,

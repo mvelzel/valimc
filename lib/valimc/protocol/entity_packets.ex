@@ -200,6 +200,27 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("remove_entities", [Wire.varint(length(ids)), Enum.map(ids, &Wire.varint/1)])
   end
 
+  # The water, ambient and End mobs' own fields (VMC-043e) by serializer.
+  @mob_bytes [:shulker_peek, :shulker_color, :bat_flags]
+  @mob_flags [
+    :fish_from_bucket,
+    :dolphin_got_fish,
+    :turtle_has_egg,
+    :turtle_laying_egg,
+    :axolotl_playing_dead,
+    :axolotl_from_bucket,
+    :guardian_moving
+  ]
+  @mob_ints [
+    :puff_state,
+    :tropical_fish_variant,
+    :salmon_type,
+    :glow_squid_dark_ticks,
+    :dolphin_moistness,
+    :axolotl_variant,
+    :guardian_attack_target
+  ]
+
   defp metadata_value({name, value})
        when name in [
               :shared_flags,
@@ -229,7 +250,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :cloud_waiting,
               :cloud_particle,
               :custom_name
-            ] do
+            ] or name in @mob_bytes or name in @mob_flags or name in @mob_ints or
+              name == :shulker_attach_face do
     fact = EntityTypes.field(name)
 
     payload =
@@ -242,11 +264,13 @@ defmodule Valimc.Protocol.EntityPackets do
                :blaze_flags,
                :arrow_flags,
                :arrow_pierce_level
-             ] ->
+             ] or name in @mob_bytes ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 
-        name when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :cloud_waiting] ->
+        name
+        when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :cloud_waiting] or
+               name in @mob_flags ->
           check(is_boolean(value), "invalid flag")
           Wire.bool(value)
 
@@ -256,6 +280,15 @@ defmodule Valimc.Protocol.EntityPackets do
 
         name when name in [:item_stack, :thrown_item, :eye_item] ->
           stack_bytes(value)
+
+        name when name in @mob_ints ->
+          check(is_integer(value) and value in -2_147_483_648..2_147_483_647, "invalid int")
+          Wire.varint(value)
+
+        # A `Direction` by its 3D value (down, up, north, south, west, east).
+        :shulker_attach_face ->
+          check(is_integer(value) and value in 0..5, "invalid direction")
+          Wire.varint(value)
 
         :arrow_color ->
           check(is_integer(value) and value in -2_147_483_648..2_147_483_647, "invalid color")

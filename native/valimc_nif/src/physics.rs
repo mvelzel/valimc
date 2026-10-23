@@ -476,6 +476,11 @@ struct MobT {
     jump: bool,
     fall_scale: f64,
     rise: bool,
+    powder_snow_walkable: bool,
+    was_powder_snow: bool,
+    fixed: bool,
+    pushable: bool,
+    pushes: bool,
 }
 
 /// A mob's tick: the mob after it and what its living rules read.
@@ -490,6 +495,7 @@ struct TickedT {
     landing_pos: Option<(i32, i32, i32)>,
     fire_contacts: crate::player::FiresT,
     climbing: bool,
+    powder_snow: bool,
     /// The water and lava heights the move left.
     depths: (f64, f64),
 }
@@ -546,6 +552,11 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         jump: m.jump,
         fall_scale: m.fall_scale,
         rise: m.rise,
+        powder_snow_walkable: m.powder_snow_walkable,
+        was_powder_snow: m.was_powder_snow,
+        fixed: m.fixed,
+        pushable: m.pushable,
+        pushes: m.pushes,
     })
 }
 
@@ -589,6 +600,11 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         jump: m.jump,
         fall_scale: m.fall_scale,
         rise: m.rise,
+        powder_snow_walkable: m.powder_snow_walkable,
+        was_powder_snow: m.was_powder_snow,
+        fixed: m.fixed,
+        pushable: m.pushable,
+        pushes: m.pushes,
     }
 }
 
@@ -667,6 +683,7 @@ fn mobs_step<'a>(
                     landing_pos: t.landing_pos.map(|p| (p[0], p[1], p[2])),
                     fire_contacts: crate::player::fires(&t.touched),
                     climbing: t.climbing,
+                    powder_snow: t.powder_snow,
                     depths: (t.depths.water, t.depths.lava),
                 },
             ),

@@ -170,4 +170,77 @@ defmodule Valimc.MobTravelRegionTest do
       end
     end)
   end
+
+  test "an endermite that lived its 2400 ticks leaves its owner; a persistent one stays (VMC-043e)",
+       ctx do
+    {x, z} = ctx.at
+
+    for {uuid, persistent, dx} <- [{<<7::128>>, false, 0.0}, {<<8::128>>, true, 2.0}] do
+      {:ok, body} = Body.new("minecraft:endermite")
+      body = %{body | data: %{life: 2398}, mob: %{body.mob | persistent: persistent}}
+      :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x + dx, 64.0, z})])
+    end
+
+    step(ctx, 1)
+    assert entry(ctx, <<7::128>>).body.data.life == 2399
+    step(ctx, 1)
+    store = Valimc.TestRegion.section(ctx.owner).entities.store
+    assert {:error, _} = Store.find(store, <<7::128>>)
+    assert entry(ctx, <<8::128>>).body.data.life == 2398
+  end
+
+  test "a shulker with nothing to hold teleports onto the floor (VMC-043e)", ctx do
+    {x, z} = ctx.at
+    {:ok, body} = Body.new("minecraft:shulker")
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(body, <<9::128>>, {x, 70.0, z})])
+
+    landed =
+      Enum.find_value(1..60, fn _ ->
+        step(ctx, 1)
+        %{entity: e, body: body} = entry(ctx, <<9::128>>)
+        if e.y == 64.0, do: {e, body}
+      end)
+
+    assert {e, body} = landed
+    assert body.data.attach_face == 0
+    assert abs(e.x - x) <= 8.5 and abs(e.z - z) <= 8.5
+  end
+
+  test "a shulker's bullet hits a zombie for 4 and lifts it (VMC-043e)", ctx do
+    {x, z} = ctx.at
+    {:ok, zombie} = Body.new("minecraft:zombie")
+    zombie = put_in(zombie.mob.no_ai, true)
+
+    :ok =
+      Region.drop_items(ctx.owner, [Store.body_record(zombie, <<10::128>>, {x + 3.0, 64.0, z})])
+
+    step(ctx, 1)
+    target = entry(ctx, <<10::128>>)
+
+    seen = %{
+      ref: {:mob, <<10::128>>},
+      uuid: <<10::128>>,
+      position: {target.entity.x, target.entity.y, target.entity.z},
+      box: {x + 2.7, 64.0, z - 0.3, x + 3.3, 65.95, z + 0.3}
+    }
+
+    owner = %{uuid: <<11::128>>, id: 999_999, player: false, type: "minecraft:shulker"}
+    air = fn _ -> Valimc.Data.Blocks.default_state("air") end
+
+    bullet =
+      Valimc.Entity.ShulkerBullet.new(owner, {x, 64.5, z}, seen, 1, <<12::128>>, air)
+
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(bullet, <<12::128>>, {x, 64.5, z})])
+
+    hit =
+      Enum.find_value(1..200, fn _ ->
+        step(ctx, 1)
+        %{body: body} = entry(ctx, <<10::128>>)
+        if body.mob.living.health.value < 20.0, do: body
+      end)
+
+    # 4, less a zombie's armor of 2.
+    assert hit.mob.living.health.value == Valimc.Data.Float32.round(20.0 - 3.936)
+    assert hit.mob.living.effects[Valimc.Data.EffectTypes.id("levitation")]
+  end
 end

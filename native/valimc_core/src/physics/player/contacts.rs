@@ -71,10 +71,12 @@ pub struct Slowed {
 }
 
 /// What a body's slowing contacts set: the last block's multiplier, which
-/// also resets the fall distance.
+/// also resets the fall distance, and whether it was inside powder snow
+/// (`setIsInPowderSnow`).
 pub struct Slowing {
     pub multiplier: Option<[f64; 3]>,
     pub last: Option<Slowed>,
+    pub powder_snow: bool,
 }
 
 /// Facts about the body that a contact sample needs.
@@ -101,6 +103,7 @@ pub fn slowing(
         return Ok(Slowing {
             multiplier: None,
             last: None,
+            powder_snow: false,
         });
     }
     pose::geometry(catalog, b.pose, b.feet)?;
@@ -108,6 +111,7 @@ pub fn slowing(
     let mut ctx = *ctx;
     let mut seen: HashSet<[i32; 3]> = HashSet::new();
     let mut last: Option<Slowed> = None;
+    let mut powder_snow = false;
     paths::visit(catalog, paths, b.pose, &mut |v: &Visit| {
         if seen.contains(&v.position) {
             return Ok(());
@@ -129,6 +133,7 @@ pub fn slowing(
         );
         if hit {
             seen.insert(v.position);
+            powder_snow |= kind == Stuck::PowderSnow;
         }
         if let Some(m) = multiplier {
             last = Some(Slowed {
@@ -143,6 +148,7 @@ pub fn slowing(
     Ok(Slowing {
         multiplier: last.map(|l| l.multiplier),
         last,
+        powder_snow,
     })
 }
 

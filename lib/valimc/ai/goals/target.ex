@@ -75,8 +75,13 @@ defmodule Valimc.AI.Goals.NearestAttackableTarget do
         select: select,
         selector: Keyword.get(opts, :selector),
         interval: Mth.reduced(Keyword.get(opts, :interval, 10)),
+        peaceful: Keyword.get(opts, :peaceful, true),
         found: nil
       })
+
+  # Without `peaceful` (a shulker's) it looks for nothing on peaceful.
+  def can_use(%{peaceful: false} = state, %Self{world: %{difficulty: :peaceful}} = self),
+    do: {false, state, self}
 
   def can_use(state, self) do
     {go, self} =
@@ -132,6 +137,7 @@ defmodule Valimc.AI.Goals.HurtByTarget do
       Map.merge(Target.fields(true), %{
         alert: Keyword.get(opts, :alert, false),
         alert_types: Keyword.get(opts, :alert_types, []),
+        ignore: Keyword.get(opts, :ignore, []),
         timestamp: 0
       })
 
@@ -146,13 +152,22 @@ defmodule Valimc.AI.Goals.HurtByTarget do
             {false, state, self}
 
           attacker ->
-            conditions = World.conditions(true, sight: false, invisible: false)
-            {ok, self} = Target.can_attack?(self, attacker, conditions)
-            {ok, state, self}
+            ignored(state, self, attacker)
         end
 
       _ ->
         {false, state, self}
+    end
+  end
+
+  # Hurt by a mob of a type it ignores (`toIgnoreDamage`), it does not turn.
+  defp ignored(state, self, attacker) do
+    if attacker.kind == :mob and attacker.type in state.ignore do
+      {false, state, self}
+    else
+      conditions = World.conditions(true, sight: false, invisible: false)
+      {ok, self} = Target.can_attack?(self, attacker, conditions)
+      {ok, state, self}
     end
   end
 

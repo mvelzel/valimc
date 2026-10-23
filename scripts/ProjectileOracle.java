@@ -103,6 +103,11 @@ public class ProjectileOracle {
       for (var e : entities) if (e != except && e.getBoundingBox().intersects(box) && test.test(e)) out.add(e);
       return out;
     }
+    // An entity gone from the scene is found nowhere (a shulker bullet's lost target).
+    public Entity getEntityInAnyDimension(UUID uuid) {
+      for (var e : entities) if (!e.isRemoved() && e.getUUID().equals(uuid)) return e;
+      return null;
+    }
   }
 
   // A zombie standing still to be hit.

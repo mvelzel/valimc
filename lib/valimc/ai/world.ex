@@ -206,7 +206,9 @@ defmodule Valimc.AI.World do
   @doc "An entity's eye height in world Y."
   def eye_y(target), do: target.y + target.eye
 
-  @doc "An entity's bounding box."
+  @doc "An entity's bounding box (a mob kind's own, if it has one)."
+  def box(%{box: {_, _, _, _, _, _} = box}), do: box
+
   def box(target) do
     half = target.width / 2.0
 

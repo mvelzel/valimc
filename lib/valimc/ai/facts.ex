@@ -71,6 +71,21 @@ defmodule Valimc.AI.Facts do
            }}
         end)
 
+  @shulker_look @facts["shulker_look"]
+                |> Enum.map(fn row ->
+                  Enum.map(row, fn bits ->
+                    <<v::float-32>> = <<bits::signed-32>>
+                    v * 1.0
+                  end)
+                end)
+                |> List.to_tuple()
+
+  @doc """
+  A shulker's look axes on face `face` (3D order): forward and right as
+  `[fx, fy, fz, rx, ry, rz]` (VMC-043e, `ShulkerLookControl`).
+  """
+  def shulker_look(face), do: elem(@shulker_look, face)
+
   @doc "The AI facts of mob type `type`, or nil for a type without AI facts."
   def mob(type), do: @mobs[type]
 

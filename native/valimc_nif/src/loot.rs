@@ -379,7 +379,15 @@ fn loot_enchant(
     reply(
         registry
             .loot
-            .enchant_by_cost(&item, &enchantments, min, span, special as f32, &tag, &mut random)
+            .enchant_by_cost(
+                &item,
+                &enchantments,
+                min,
+                span,
+                special as f32,
+                &tag,
+                &mut random,
+            )
             .map(|list| (list, random.legacy_state().unwrap_or(0))),
     )
 }

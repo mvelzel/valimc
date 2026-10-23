@@ -73,6 +73,7 @@ defmodule Valimc.AI do
   def sensed({id, %{entity: e, body: %Body{type: type, mob: mob} = body}}) do
     {width, height, eye} = Body.dimensions(body)
     mind = match_mind(mob.ai)
+    position = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
 
     %{
       kind: :mob,
@@ -87,6 +88,8 @@ defmodule Valimc.AI do
       eye: eye,
       width: width,
       height: height,
+      # A family's own bounding box (a shulker's lid), else the usual one.
+      box: Mobs.hook(type, :box, [body, position], nil),
       alive: Mob.alive?(mob),
       target: mind && mind.target,
       in_love: (mind && mind.in_love) || 0,
@@ -102,9 +105,9 @@ defmodule Valimc.AI do
 
   @doc """
   The AI part of one tick of the section's mobs (`[{id, entry}]` in id
-  order) over `world`: `{[{id, body, effects}], world}` with each mob's new
-  body (rotations, travel control, mind) and the effects it made, oldest
-  first, and the world as they left it (its level random drawn on). Mobs
+  order) over `world`: `{[{id, body, position, effects}], world}` with each
+  mob's new body (rotations, travel control, mind), where it is before the
+  move (a family may teleport it) and the effects it made, oldest first, and the world as they left it (its level random drawn on). Mobs
   whose type has no AI, and dying mobs, keep their body and make none. An
   alert sets the other mob's target at once, as vanilla does: a mob later
   in order thinks with it, one earlier keeps it for its next tick.
@@ -120,7 +123,7 @@ defmodule Valimc.AI do
       |> Enum.with_index()
       |> Enum.map_reduce({%{}, world}, fn {{id, entry}, index}, {alerts, world} ->
         entry = alert(entry, alerts[entry.entity.uuid], world)
-        {body, effects, world} = think_one(id, entry, world)
+        {body, position, effects, world} = think_one(id, entry, world)
 
         alerts =
           for {:alert, uuid, target} <- effects, reduce: alerts do
@@ -130,17 +133,17 @@ defmodule Valimc.AI do
                 else: Map.put(acc, {:late, uuid}, target)
           end
 
-        {{id, body, effects}, {alerts, world}}
+        {{id, body, position, effects}, {alerts, world}}
       end)
 
     results =
-      for {{id, body, effects}, {_, entry}} <- Enum.zip(results, mobs) do
+      for {{id, body, position, effects}, {_, entry}} <- Enum.zip(results, mobs) do
         case late[{:late, entry.entity.uuid}] do
           nil ->
-            {id, body, effects}
+            {id, body, position, effects}
 
           target ->
-            {id, alerted(body, entry.entity.uuid, target, world), effects}
+            {id, alerted(body, entry.entity.uuid, target, world), position, effects}
         end
       end
 
@@ -176,7 +179,7 @@ defmodule Valimc.AI do
     %Body{type: type, mob: mob} = body
 
     if not thinking?(%Body{type: type, mob: mob}) or not Mob.alive?(mob) do
-      {body, made, world}
+      {body, {e.x, e.y, e.z}, made, world}
     else
       {width, height, eye} = Body.dimensions(body)
 
@@ -191,6 +194,7 @@ defmodule Valimc.AI do
         pitch: body.pitch,
         head: body.head_yaw,
         on_ground: body.on_ground,
+        velocity: body.velocity,
         mob: mob,
         mind: mob.ai,
         facts: Facts.mob(type),
@@ -201,14 +205,29 @@ defmodule Valimc.AI do
         world: world
       }
 
-      self = self |> despawn_check() |> base_tick() |> ai_step()
+      # A family's `tick` before its super, and its `aiStep` before its
+      # super (`Valimc.AI.Kind`).
+      self =
+        self
+        |> despawn_check()
+        |> hook(:tick_start)
+        |> base_tick()
+        |> hook(:before_ai)
+        |> ai_step()
 
       motion = %{self.mob.motion | jump: self.mind.jump, rise: self.mind.rise}
       mob = %{self.mob | ai: self.mind, motion: motion}
       mob = %{mob | ai: %{mob.ai | jump: false, rise: false}}
 
-      {%{body | pitch: self.pitch, head_yaw: self.head, mob: mob, data: self.data},
-       made ++ Enum.reverse(self.effects),
+      {%{
+         body
+         | yaw: self.yaw,
+           pitch: self.pitch,
+           head_yaw: self.head,
+           velocity: self.velocity,
+           mob: mob,
+           data: self.data
+       }, {self.x, self.y, self.z}, made ++ Enum.reverse(self.effects),
        %{world | random: self.world.random, loot_seeds: self.world.loot_seeds}}
     end
   end
@@ -320,7 +339,7 @@ defmodule Valimc.AI do
 
   defp ambient_sound(%Self{facts: facts} = self) do
     case Mobs.custom(self.type) do
-      nil -> make_sound(self, facts.ambient_sound)
+      nil -> make_sound(self, Mobs.hook(self.type, :ambient_sound, [self], facts.ambient_sound))
       module -> make_sound(self, module.ambient_sound(self))
     end
   end
@@ -376,7 +395,7 @@ defmodule Valimc.AI do
 
     self =
       case Mobs.custom(self.type) do
-        nil -> self
+        nil -> hook(self, :custom_step)
         module -> module.custom_step(self)
       end
 
@@ -396,11 +415,16 @@ defmodule Valimc.AI do
 
   defp animal?(type), do: type in ["minecraft:pig"]
 
+  # A family's override of part of vanilla's tick (`Valimc.AI.Kind`).
+  defp hook(%Self{type: type} = self, name), do: Mobs.hook(type, name, [self], self)
+
   @doc """
   After the kernel moved the mob of `entry` (`{id, entry}`, its entity at
   the old position) to `position`: the body rotation control, an animal's
   ageing and love (`AgeableMob.aiStep`, `Animal.aiStep`) and a brain mob's
-  looting (`Mob.aiStep`). `{body, effects, world}`.
+  looting (`Mob.aiStep`), with its family's hooks around the body control
+  (`Valimc.AI.Kind`). `{body, position, effects, world}`: a family may
+  teleport it.
   """
   def settle(
         {id, %{entity: e}},
@@ -422,6 +446,7 @@ defmodule Valimc.AI do
         pitch: body.pitch,
         head: body.head_yaw,
         on_ground: body.on_ground,
+        velocity: body.velocity,
         mob: mob,
         mind: mind,
         facts: Facts.mob(body.type),
@@ -432,7 +457,9 @@ defmodule Valimc.AI do
         world: world
       }
 
-      self = Look.body(self, {e.x, e.z})
+      # A family's `aiStep` after its super, the body control, its `tick`
+      # after its super (`Valimc.AI.Kind`).
+      self = self |> hook(:after_ai) |> Look.body({e.x, e.z}) |> hook(:after_tick)
 
       # Growing up or toward breeding again, and love running out (its heart
       # particles' draws are VMC-043c's, with breeding).
@@ -453,14 +480,20 @@ defmodule Valimc.AI do
           %{module: module} -> module.pick_up(self)
         end
 
-      {%{body | head_yaw: self.head, mob: %{self.mob | ai: self.mind}, data: self.data},
-       Enum.reverse(self.effects), self.world}
+      {%{
+         body
+         | yaw: self.yaw,
+           head_yaw: self.head,
+           velocity: self.velocity,
+           mob: %{self.mob | ai: self.mind},
+           data: self.data
+       }, {self.x, self.y, self.z}, Enum.reverse(self.effects), self.world}
     else
-      {body, [], world}
+      {body, {x, y, z}, [], world}
     end
   end
 
-  def settle(_mob, body, _position, world), do: {body, [], world}
+  def settle(_mob, body, position, world), do: {body, position, [], world}
 
   defp sign(n) when n > 0, do: 1
   defp sign(n) when n < 0, do: -1

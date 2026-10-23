@@ -36,6 +36,12 @@ pub enum Kind {
     Hurting { acceleration: f64 },
     /// `EyeOfEnder`: drifts toward `target` (`signalTo`'s), if any.
     Eye { target: Option<[f64; 3]> },
+    /// `ShulkerBullet`: steers toward `home` (its target deltas) or falls by
+    /// `gravity`.
+    Bullet {
+        home: Option<[f64; 3]>,
+        gravity: f64,
+    },
 }
 
 /// A projectile's state between ticks.
@@ -315,27 +321,7 @@ fn hurting(
     );
     let body = bbox(p.position, input.size);
     let hit = move_hit(source, facts, &p, &body, targets, tick, border)?;
-    // `rotateTowardsMovement(0.2)`.
-    let v = p.velocity;
-    if length_sqr(v) != 0.0 {
-        let yaw = (atan2(v[2], v[0]) * RADIANS_TO_DEGREES) as f32 + 90.0;
-        let pitch_to = pitch((atan2(horizontal(v), v[1]) * RADIANS_TO_DEGREES) as f32 - 90.0);
-        let (mut pitch0, mut yaw0) = (p.pitch, p.yaw);
-        while pitch_to - pitch0 < -180.0 {
-            pitch0 -= 360.0;
-        }
-        while pitch_to - pitch0 >= 180.0 {
-            pitch0 += 360.0;
-        }
-        while yaw - yaw0 < -180.0 {
-            yaw0 -= 360.0;
-        }
-        while yaw - yaw0 >= 180.0 {
-            yaw0 += 360.0;
-        }
-        p.pitch = pitch(pitch0 + 0.2 * (pitch_to - pitch0));
-        p.yaw = yaw0 + 0.2 * (yaw - yaw0);
-    }
+    rotate_towards_movement(&mut p, 0.2);
     p.position = location(&hit, add(p.position, p.velocity));
     finish(source, facts, p, input, hit, targets, true, fast_lava)
 }
@@ -511,6 +497,66 @@ fn arrow(
     Ok(stepped)
 }
 
+/// `ProjectileUtil.rotateTowardsMovement(speed)`: from the rotation the tick
+/// started with toward the motion, by `speed`.
+fn rotate_towards_movement(p: &mut Projectile, speed: f32) {
+    let v = p.velocity;
+    if length_sqr(v) != 0.0 {
+        let yaw = (atan2(v[2], v[0]) * RADIANS_TO_DEGREES) as f32 + 90.0;
+        let pitch_to = pitch((atan2(horizontal(v), v[1]) * RADIANS_TO_DEGREES) as f32 - 90.0);
+        let (mut pitch0, mut yaw0) = (p.pitch, p.yaw);
+        while pitch_to - pitch0 < -180.0 {
+            pitch0 -= 360.0;
+        }
+        while pitch_to - pitch0 >= 180.0 {
+            pitch0 += 360.0;
+        }
+        while yaw - yaw0 < -180.0 {
+            yaw0 -= 360.0;
+        }
+        while yaw - yaw0 >= 180.0 {
+            yaw0 += 360.0;
+        }
+        p.pitch = pitch(pitch0 + speed * (pitch_to - pitch0));
+        p.yaw = yaw0 + speed * (yaw - yaw0);
+    }
+}
+
+/// `ShulkerBullet.tick`: toward `home` (the deltas its owner scaled this
+/// tick), else falling by `gravity`; it passes through blocks
+/// (`noPhysics`), stops at what its motion meets first, and turns half way
+/// to its motion.
+#[allow(clippy::too_many_arguments)]
+fn bullet(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    input: &Input,
+    home: Option<[f64; 3]>,
+    gravity: f64,
+    targets: &[Target],
+    border: Option<&Border>,
+    fast_lava: bool,
+) -> Result<Stepped, ItemFault> {
+    let mut p = input.projectile;
+    let tick = p.age + 1;
+    match home {
+        Some(d) => {
+            let v = p.velocity;
+            p.velocity = [
+                v[0] + (d[0] - v[0]) * 0.2,
+                v[1] + (d[1] - v[1]) * 0.2,
+                v[2] + (d[2] - v[2]) * 0.2,
+            ];
+        }
+        None => p.velocity[1] -= gravity,
+    }
+    let body = bbox(p.position, input.size);
+    let hit = move_hit(source, facts, &p, &body, targets, tick, border)?;
+    p.position = add(p.position, p.velocity);
+    rotate_towards_movement(&mut p, 0.5);
+    finish(source, facts, p, input, hit, targets, true, fast_lava)
+}
+
 fn eye(
     source: &dyn BlockSource,
     facts: &Facts,
@@ -584,6 +630,9 @@ pub fn step(
             fast_lava,
         ),
         Kind::Eye { target } => eye(source, facts, input, target, fast_lava),
+        Kind::Bullet { home, gravity } => bullet(
+            source, facts, input, home, gravity, targets, border, fast_lava,
+        ),
     }?;
     if !super::item::position_ok(stepped.projectile.position) {
         return Err(ItemFault::Limit);

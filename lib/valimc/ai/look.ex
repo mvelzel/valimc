@@ -10,14 +10,14 @@ defmodule Valimc.AI.Look do
   turned past 15 degrees, and after ten still ticks turns toward the head
   over ten more.
   """
-  alias Valimc.AI.{Mth, Navigation, Self}
+  alias Valimc.AI.{Mobs, Mth, Navigation, Self}
   alias Valimc.Data.Float32
 
   # Float constants as Java widens them.
   @still Float32.round(2.5000003e-7)
   @near Float32.round(1.0e-5)
 
-  @doc "`LookControl.tick`."
+  @doc "`LookControl.tick` (a mob kind may measure its look its own way)."
   def tick(%Self{mind: mind} = self) do
     # `resetXRotOnTick`.
     self = %{self | pitch: 0.0}
@@ -26,24 +26,20 @@ defmodule Valimc.AI.Look do
       case mind.look do
         %{cooldown: cooldown} = look when cooldown > 0 ->
           self = %{self | mind: %{mind | look: %{look | cooldown: cooldown - 1}}}
-          {dx, dy, dz} = {look.x - self.x, look.y - Self.eye_y(self), look.z - self.z}
+          {yaw, pitch} = rotations(self, look)
 
           self =
-            if abs(dz) > @near or abs(dx) > @near,
-              do: %{self | head: Mth.rotate_towards(self.head, Mth.yaw(dx, dz), look.y_max)},
-              else: self
+            if yaw, do: %{self | head: Mth.rotate_towards(self.head, yaw, look.y_max)}, else: self
 
-          sd = :math.sqrt(dx * dx + dz * dz)
-
-          if abs(dy) > @near or abs(sd) > @near,
-            do: %{self | pitch: Mth.rotate_towards(self.pitch, Mth.pitch(dy, sd), look.x_max)},
+          if pitch,
+            do: %{self | pitch: Mth.rotate_towards(self.pitch, pitch, look.x_max)},
             else: self
 
         _ ->
           %{self | head: Mth.rotate_towards(self.head, mind.body_yaw, 10.0)}
       end
 
-    if Navigation.done?(self.mind.navigation),
+    if Navigation.done?(self.mind.navigation) or not Mobs.hook(self.type, :clamps_head?, [], true),
       do: self,
       else: %{
         self
@@ -51,11 +47,32 @@ defmodule Valimc.AI.Look do
       }
   end
 
+  # `getYRotD` and `getXRotD`: nil where the look is too close to measure.
+  defp rotations(self, look) do
+    case Mobs.hook(self.type, :look_rotations, [self, look], :default) do
+      :default ->
+        {dx, dy, dz} = {look.x - self.x, look.y - Self.eye_y(self), look.z - self.z}
+        yaw = if abs(dz) > @near or abs(dx) > @near, do: Mth.yaw(dx, dz)
+        sd = :math.sqrt(dx * dx + dz * dz)
+        pitch = if abs(dy) > @near or abs(sd) > @near, do: Mth.pitch(dy, sd)
+        {yaw, pitch}
+
+      rotations ->
+        rotations
+    end
+  end
+
   @doc """
   `BodyRotationControl.clientTick` after the move from `{xo, zo}`: the body's
   yaw, and the head pulled within reach of it.
   """
   def body(%Self{mind: mind} = self, {xo, zo}) do
+    if Mobs.hook(self.type, :turns_body?, [], true),
+      do: turn_body(self, mind, {xo, zo}),
+      else: self
+  end
+
+  defp turn_body(self, mind, {xo, zo}) do
     {dx, dz} = {self.x - xo, self.z - zo}
     limit = self.facts.max_head_y_rot
 

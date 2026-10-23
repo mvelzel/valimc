@@ -22,7 +22,7 @@ use valimc_core::physics::projectile::{self, Hit, Input, Kind, Projectile, Targe
 use valimc_core::physics::Aabb;
 
 mod kinds {
-    rustler::atoms! { arrow, throwable, hurting, eye, block, entity, entities, nil }
+    rustler::atoms! { arrow, throwable, hurting, eye, bullet, block, entity, entities, nil }
 }
 
 type StateT = (Vec3, Vec3, (f32, f32), u32, (bool, bool, bool), i32);
@@ -52,6 +52,12 @@ fn kind(tag: Atom, arg: Term) -> NifResult<Kind> {
         let target: Option<Vec3> = arg.decode()?;
         Kind::Eye {
             target: target.map(v3),
+        }
+    } else if tag == kinds::bullet() {
+        let (home, gravity): (Option<Vec3>, f64) = arg.decode()?;
+        Kind::Bullet {
+            home: home.map(v3),
+            gravity,
         }
     } else {
         return Err(rustler::Error::BadArg);

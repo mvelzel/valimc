@@ -23,7 +23,8 @@ defmodule Valimc.Entity.Projectile do
   @eye "minecraft:eye_of_ender"
   @thrown ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion)
   @fireballs ~w(minecraft:small_fireball minecraft:fireball minecraft:dragon_fireball)
-  @types [@arrow, @eye | @thrown ++ @fireballs]
+  @bullet "minecraft:shulker_bullet"
+  @types [@arrow, @eye, @bullet | @thrown ++ @fireballs]
 
   @items %{
     @arrow => "arrow",
@@ -71,6 +72,7 @@ defmodule Valimc.Entity.Projectile do
     }
 
   defp own_data(@eye), do: %{item: item(@eye), target: nil, life: 0, survive: true}
+  defp own_data(@bullet), do: Valimc.Entity.ShulkerBullet.data()
   defp own_data("minecraft:fireball"), do: %{acceleration: 0.1, power: 1}
   defp own_data(type) when type in @fireballs, do: %{acceleration: 0.1}
   defp own_data(type) when type in @thrown, do: %{item: item(type)}
@@ -198,6 +200,7 @@ defmodule Valimc.Entity.Projectile do
   defp kind(%Body{type: "minecraft:splash_potion"} = body), do: {:throwable, gravity(body, 0.05)}
   defp kind(%Body{type: type} = body) when type in @thrown, do: {:throwable, gravity(body, 0.03)}
   defp kind(%Body{type: @eye, data: data}), do: {:eye, data.target}
+  defp kind(%Body{type: @bullet} = body), do: Valimc.Entity.ShulkerBullet.kind(body)
   defp kind(%Body{data: data}), do: {:hurting, data.acceleration}
 
   defp gravity(%Body{no_gravity: true}, _), do: 0.0

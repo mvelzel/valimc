@@ -98,6 +98,16 @@ pub struct Mob {
     /// The AI lifts the mob this tick, after the dead zone (a blaze's
     /// `customServerAiStep` toward a target's eyes above it).
     pub rise: bool,
+    /// It walks on powder snow (`canEntityWalkOnPowderSnow`).
+    pub powder_snow_walkable: bool,
+    /// Its last move ended in powder snow (`wasInPowderSnow`).
+    pub was_powder_snow: bool,
+    /// It never moves and has no motion (a shulker's `getDeltaMovement`).
+    pub fixed: bool,
+    /// Others push it (`isPushable`; a shulker's `push(Entity)` does nothing).
+    pub pushable: bool,
+    /// It pushes what it touches (`pushEntities`; a bat's does nothing).
+    pub pushes: bool,
 }
 
 /// One tick's result: the mob after it and what its living rules read.
@@ -114,6 +124,8 @@ pub struct Ticked {
     pub landing_pos: Option<[i32; 3]>,
     pub touched: Touched,
     pub climbing: bool,
+    /// Inside powder snow after the move (`isInPowderSnow`).
+    pub powder_snow: bool,
     /// The fluid heights the move left (`checkFallDamage`'s sample), which
     /// the AI reads the next tick.
     pub depths: Depths,
@@ -322,7 +334,7 @@ impl Mob {
             entity_present: true,
             fall_distance: fall,
             falling_block: false,
-            powder_snow_walkable: false,
+            powder_snow_walkable: self.powder_snow_walkable,
         }
     }
 
@@ -371,6 +383,9 @@ fn currents(w: &World, body: &Aabb, velocity: [f64; 3]) -> Result<(Depths, [f64;
 
 /// One tick of `mob` (its pushes from others are applied by `tick_all`).
 pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
+    if mob.fixed {
+        return fixed(w, mob);
+    }
     let mut m = mob.clone();
     let start = m.position;
     let body = m.body(start)?;
@@ -533,7 +548,9 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         };
         rules::fluid_finish(v, escape, free)
     } else {
-        let finished = rules::climb_finish(m.velocity, climbing, m.horizontal_collision, jumping)?;
+        // A powder snow walker climbs out of the snow it was in.
+        let climbs = climbing || m.was_powder_snow && m.powder_snow_walkable;
+        let finished = rules::climb_finish(m.velocity, climbs, m.horizontal_collision, jumping)?;
         rules::air_step(
             finished,
             &Air {
@@ -563,7 +580,11 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         spectator: false,
         weaving: false,
     };
-    let Slowing { multiplier, last } = contacts::slowing(
+    let Slowing {
+        multiplier,
+        last,
+        powder_snow,
+    } = contacts::slowing(
         w.source,
         w.facts,
         &catalog,
@@ -602,7 +623,37 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         landing_pos: moved.landing.map(|_| moved.material.legacy.0),
         touched,
         climbing,
+        powder_snow,
         depths: moved.depths,
+    })
+}
+
+/// A mob that never moves: its fluid state for the living rules, nothing
+/// else.
+fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
+    let mut m = mob.clone();
+    m.velocity = [0.0; 3];
+    let body = m.body(m.position)?;
+    let (depths, _) = currents(w, &body, m.velocity)?;
+    let eye = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
+    let (eye_water, _) = w.eyes(&body, eye)?;
+    let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
+    m.forward = 0.0;
+    m.strafe = 0.0;
+    m.jump = false;
+    m.control = Control::Wait;
+    Ok(Ticked {
+        mob: m,
+        water: depths.water > 0.0,
+        lava: depths.lava > 0.0,
+        eye_water,
+        eye_state,
+        landing: None,
+        landing_pos: None,
+        touched: Touched::default(),
+        climbing: false,
+        powder_snow: false,
+        depths,
     })
 }
 
@@ -787,7 +838,7 @@ pub fn tick_all(
             }
         }
         out.push(result);
-        if !current[i].alive {
+        if !current[i].alive || !current[i].pushes {
             continue;
         }
         let Ok(own) = current[i].body(current[i].position) else {
@@ -799,13 +850,13 @@ pub fn tick_all(
             .filter_map(|k| grid.get(&k))
             .flatten()
             .copied()
-            .filter(|&j| j != i && current[j].alive)
+            .filter(|&j| j != i && current[j].alive && current[j].pushable)
             .collect();
         near.sort_unstable();
         // A player it touches pushes it away (`player.push(self)`); players
         // come first in the level's entities, as they joined first.
         for (feet, player) in players {
-            if own.intersects(player) {
+            if current[i].pushable && own.intersects(player) {
                 if let Some(p) = push(*feet, current[i].position) {
                     current[i].velocity = add(current[i].velocity, p);
                 }
@@ -827,7 +878,7 @@ pub fn tick_all(
     }
     // Players push the mobs they touch (their own `pushEntities`).
     for (feet, player) in players {
-        for m in current.iter_mut().filter(|m| m.alive) {
+        for m in current.iter_mut().filter(|m| m.alive && m.pushable) {
             let Ok(b) = m.body(m.position) else { continue };
             if b.intersects(player) {
                 if let Some(p) = push(*feet, m.position) {
@@ -836,10 +887,11 @@ pub fn tick_all(
             }
         }
     }
-    // The pushes land in each mob's velocity for its next tick.
+    // The pushes land in each mob's velocity for its next tick; a fixed
+    // mob has none.
     for (result, mob) in out.iter_mut().zip(current) {
         if let Ok(t) = result {
-            t.mob.velocity = mob.velocity;
+            t.mob.velocity = if mob.fixed { [0.0; 3] } else { mob.velocity };
         }
     }
     out
@@ -875,6 +927,11 @@ impl Default for Mob {
             jump: false,
             fall_scale: 1.0,
             rise: false,
+            powder_snow_walkable: false,
+            was_powder_snow: false,
+            fixed: false,
+            pushable: true,
+            pushes: true,
         }
     }
 }

@@ -9,8 +9,8 @@ defmodule Valimc.Entity.MobMotion do
   `control` is `:wait`, `{:move_to, {x, y, z}, speed}` or `{:jumping,
   speed}`: what the AI (VMC-041a) sets each tick, as navigation sets
   `MoveControl.setWantedPosition`; `jump` is its `JumpControl.jump()` for the
-  tick. `water` and `lava` are the fluid heights the last move left, which
-  the AI reads.
+  tick. `water` and `lava` are the fluid heights the last move left, and
+  `powder_snow` whether it ended inside powder snow, which the AI reads.
   """
   alias Valimc.Living.Attributes
 
@@ -25,7 +25,8 @@ defmodule Valimc.Entity.MobMotion do
             jump: false,
             rise: false,
             water: 0.0,
-            lava: 0.0
+            lava: 0.0,
+            powder_snow: false
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -36,7 +37,7 @@ defmodule Valimc.Entity.MobMotion do
         vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
         is_boolean(Map.get(m, :rise)) and
-        is_float(m.water) and is_float(m.lava)
+        is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow)
 
   def valid?(_), do: false
 
@@ -105,9 +106,31 @@ defmodule Valimc.Entity.MobMotion do
       alive: alive,
       jump: alive and motion.jump,
       fall_scale: fall_scale(type),
-      rise: alive and motion.rise
+      rise: alive and motion.rise,
+      powder_snow_walkable: powder_snow_walkable?(type, mob),
+      was_powder_snow: motion.powder_snow
     }
+    |> Map.merge(kind_motion(type))
   end
+
+  @walkable MapSet.new(
+              Valimc.Protocol.Data.tags()["minecraft:entity_type"][
+                "minecraft:powder_snow_walkable_mobs"
+              ]
+            )
+  @leather_boots Valimc.Protocol.ItemTypes.id("minecraft:leather_boots")
+
+  # `PowderSnowBlock.canEntityWalkOnPowderSnow`.
+  defp powder_snow_walkable?(type, mob),
+    do:
+      MapSet.member?(@walkable, Valimc.Data.EntityTypes.id(type)) or
+        match?(%{feet: %{item_id: @leather_boots}}, mob.equipment)
+
+  @default_kind %{fixed: false, pushable: true, pushes: true}
+
+  # How a family's mob moves and pushes (`Valimc.AI.Kind.motion/0`).
+  defp kind_motion(type),
+    do: Map.merge(@default_kind, Map.new(Valimc.AI.Mobs.hook(type, :motion, [], [])))
 
   # A blaze falls slowly (`Blaze.aiStep`).
   defp fall_scale("minecraft:blaze"), do: 0.6
@@ -130,9 +153,10 @@ defmodule Valimc.Entity.MobMotion do
 
   @doc """
   The body and position after a kernel tick's mob map `m`, with the fluid
-  heights `{water, lava}` its move left: `{body, position}`.
+  heights `{water, lava}` its move left and whether it ended in powder
+  snow: `{body, position}`.
   """
-  def apply(body, m, {water, lava} \\ {0.0, 0.0}) do
+  def apply(body, m, {water, lava} \\ {0.0, 0.0}, powder_snow \\ false) do
     {op, target, speed} = m.control
 
     control =
@@ -152,7 +176,8 @@ defmodule Valimc.Entity.MobMotion do
       control: control,
       horizontal_collision: m.horizontal_collision,
       water: water,
-      lava: lava
+      lava: lava,
+      powder_snow: powder_snow
     }
 
     body = %{

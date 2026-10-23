@@ -2,15 +2,17 @@ defmodule Valimc.AI.Goals.LookAtPlayer do
   @moduledoc """
   `LookAtPlayerGoal` for players: by chance (2% an update), the nearest
   player within its look distance (no line of sight needed beyond vanilla's
-  non-combat test), looked at for 40 to 79 ticks while in range.
+  non-combat test), looked at for 40 to 79 ticks while in range; with
+  `only_horizontal` (a shulker) at its own eye height.
   """
   use Valimc.AI.Goal
   alias Valimc.Data.Float32
 
-  def new(distance, probability \\ 0.02),
+  def new(distance, probability \\ 0.02, opts \\ []),
     do: %{
       distance: Float32.round(distance),
       probability: Float32.round(probability),
+      only_horizontal: Keyword.get(opts, :only_horizontal, false),
       look_at: nil,
       time: 0
     }
@@ -52,8 +54,8 @@ defmodule Valimc.AI.Goals.LookAtPlayer do
   def tick(state, self) do
     case World.entity(self.world, state.look_at) do
       %{alive: true} = target ->
-        {%{state | time: state.time - 1},
-         Self.look_at(self, {target.x, World.eye_y(target), target.z})}
+        y = if state.only_horizontal, do: Self.eye_y(self), else: World.eye_y(target)
+        {%{state | time: state.time - 1}, Self.look_at(self, {target.x, y, target.z})}
 
       _ ->
         {state, self}

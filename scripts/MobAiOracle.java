@@ -62,13 +62,19 @@ public class MobAiOracle {
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
       "minecraft:blaze", "minecraft:zombified_piglin",
       // VMC-043b: the zombie family.
-      "minecraft:husk", "minecraft:zombie_villager");
+      "minecraft:husk", "minecraft:zombie_villager",
+      // VMC-043e: the End's mobs.
+      "minecraft:endermite", "minecraft:shulker");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
       "minecraft:entity.piglin.celebrate",
       // A zombified piglin's anger (VMC-043d).
-      "minecraft:entity.zombified_piglin.angry");
+      "minecraft:entity.zombified_piglin.angry",
+      // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
+      "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
+      "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
+      "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt");
 
   static class Server extends net.minecraft.server.dedicated.DedicatedServer {
     net.minecraft.util.debug.ServerDebugSubscribers subscribers;
@@ -523,6 +529,19 @@ public class MobAiOracle {
       mobs.add(name, row);
     }
     out.add("mobs", mobs);
+    // A shulker's look control by attach face (3D order): the forward and
+    // right axes its yaw is measured in (`ShulkerLookControl.getYRotD`).
+    var shulker = new JsonArray();
+    for (var face : Direction.values()) {
+      var opposite = face.getOpposite();
+      var forward = opposite.getRotation().transform(new org.joml.Vector3f(Direction.SOUTH.getUnitVec3f()));
+      var up = opposite.getUnitVec3i();
+      var right = new org.joml.Vector3f(up.getX(), up.getY(), up.getZ()); right.cross(forward);
+      var row = new JsonArray();
+      for (float f : new float[]{forward.x, forward.y, forward.z, right.x, right.y, right.z}) row.add(Float.floatToRawIntBits(f));
+      shulker.add(row);
+    }
+    out.add("shulker_look", shulker);
     var sounds = new JsonObject();
     var names = new ArrayList<String>(SOUNDS);
     for (var m : mobs.entrySet()) {
@@ -545,7 +564,9 @@ public class MobAiOracle {
   // ---- cases ----
 
   record Block(int x, int y, int z, BlockState state) {}
-  record Spawn(String type, Vec3 position, float yaw, long seed) {}
+  record Spawn(String type, Vec3 position, float yaw, long seed, Map<String, Object> data) {
+    Spawn(String type, Vec3 position, float yaw, long seed) { this(type, position, yaw, seed, Map.of()); }
+  }
   record Stand(Vec3 position, String mode, String mainhand, String head) {
     Stand(Vec3 position, String mode, String mainhand) { this(position, mode, mainhand, null); }
   }
@@ -628,6 +649,10 @@ public class MobAiOracle {
         gates.add(JsonNull.INSTANCE); sensorTimes.add(JsonNull.INSTANCE);
       }
       m.setSilent(false);
+      if (m instanceof net.minecraft.world.entity.monster.Shulker sh && s.data.containsKey("attach_face")) {
+        var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
+        attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
+      }
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
       mobs.add(m); level.entities.add(m);
@@ -642,8 +667,10 @@ public class MobAiOracle {
     var trace = new JsonArray();
     for (int t = 0; t < ticks; t++) {
       level.time++;
-      for (var h : hits) if (h.tick == t)
+      for (var h : hits) if (h.tick == t) {
+        level.current = mobs.get(h.mob);
         mobs.get(h.mob).hurtServer(level, level.damageSources().playerAttack(fighters.get(h.player)), h.amount);
+      }
       for (var m : mobs) {
         level.current = m;
         m.checkDespawn();
@@ -697,6 +724,8 @@ public class MobAiOracle {
               ? brain.getTimeUntilExpiry(net.minecraft.world.entity.ai.memory.MemoryModuleType.ADMIRING_ITEM) : -1L);
         }
         r.addProperty("no_action", noAction.getInt(m));
+        r.add("data", data(m));
+        r.addProperty("health", Float.floatToRawIntBits(m.getHealth()));
         var path = m.getNavigation().getPath();
         if (path == null || path.isDone()) r.add("path", JsonNull.INSTANCE);
         else {
@@ -747,6 +776,20 @@ public class MobAiOracle {
     return out;
   }
 
+  /** What a family's mob keeps of its own (VMC-043e), by type. */
+  static JsonObject data(net.minecraft.world.entity.Mob m) throws Exception {
+    var o = new JsonObject();
+    if (m instanceof net.minecraft.world.entity.monster.Shulker sh) {
+      o.addProperty("attach_face", sh.getAttachFace().get3DDataValue());
+      o.addProperty("peek", (int)(byte)sh.getEntityData().get((net.minecraft.network.syncher.EntityDataAccessor<Byte>)
+          field(net.minecraft.world.entity.monster.Shulker.class, "DATA_PEEK_ID").get(null)));
+      o.addProperty("peek_amount", Float.floatToRawIntBits(field(net.minecraft.world.entity.monster.Shulker.class, "currentPeekAmount").getFloat(sh)));
+      o.addProperty("armor", bits(sh.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)));
+    }
+    if (m instanceof net.minecraft.world.entity.monster.Endermite e) o.addProperty("life", field(net.minecraft.world.entity.monster.Endermite.class, "life").getInt(e));
+    return o;
+  }
+
   static double speed(PathNavigation nav) throws Exception {
     return field(PathNavigation.class, "speedModifier").getDouble(nav);
   }
@@ -792,6 +835,33 @@ public class MobAiOracle {
       List.of(), List.of(), List.of(), 400));
     cases.add(run(level, "piglin_admire", floor(63, 12, stone), List.of(new Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 23L)),
       List.of(), List.of(), List.of(new Drop(new Vec3(4.5, 64, 2.5), "minecraft:gold_ingot", 1)), 300));
+    // VMC-043e: an endermite chases and bites a player; hit, one alerts the
+    // other; one in a powder snow pit climbs out and walks on the snow.
+    cases.add(run(level, "endermite_chase", floor(63, 12, stone), List.of(new Spawn("minecraft:endermite", new Vec3(.5, 64, .5), 0, 31L)),
+      List.of(new Stand(new Vec3(5.5, 64, 3.5), "survival", null)), List.of(), 200));
+    cases.add(run(level, "endermite_alert", floor(63, 20, stone), List.of(new Spawn("minecraft:endermite", new Vec3(.5, 64, .5), 0, 37L),
+      new Spawn("minecraft:endermite", new Vec3(-2.5, 64, 3.5), 90, 38L)),
+      List.of(new Stand(new Vec3(3.5, 64, -18.5), "survival", null)), List.of(new Hit(5, 0, 0, 1.0F)), 160));
+    var snow = Blocks.POWDER_SNOW.defaultBlockState();
+    var pit = scene(floor(61, 12, stone), box(-12, 62, -12, 12, 63, 12, snow));
+    cases.add(run(level, "endermite_powder_snow", pit, List.of(new Spawn("minecraft:endermite", new Vec3(.5, 62, .5), 0, 43L)),
+      List.of(), List.of(), 300));
+    // VMC-043e: a shulker on the floor peeks and looks at a creative
+    // player; one opens and shoots at a survival player; one on a wall;
+    // one with nothing to hold teleports; one hurt below half may teleport.
+    cases.add(run(level, "shulker_peek", floor(63, 12, stone), List.of(new Spawn("minecraft:shulker", new Vec3(.5, 64, .5), 0, 51L)),
+      List.of(new Stand(new Vec3(4.5, 64, 2.5), "creative", null)), List.of(), 600));
+    cases.add(run(level, "shulker_attack", floor(63, 12, stone), List.of(new Spawn("minecraft:shulker", new Vec3(.5, 64, .5), 0, 53L)),
+      List.of(new Stand(new Vec3(6.5, 64, 3.5), "survival", null)), List.of(), 300));
+    var wallScene = scene(floor(63, 12, stone), box(-3, 64, -1, 3, 67, -1, stone));
+    cases.add(run(level, "shulker_wall", wallScene, List.of(new Spawn("minecraft:shulker", new Vec3(.5, 65, .5), 0, 57L, Map.of("attach_face", 2))),
+      List.of(new Stand(new Vec3(4.5, 64, 5.5), "survival", null)), List.of(), 300));
+    cases.add(run(level, "shulker_float", floor(63, 12, stone), List.of(new Spawn("minecraft:shulker", new Vec3(.5, 70, .5), 0, 59L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 100));
+    var beats = new ArrayList<Hit>();
+    for (int t = 5; t < 160; t += 15) beats.add(new Hit(t, 0, 0, 2.5F));
+    cases.add(run(level, "shulker_hurt", floor(63, 12, stone), List.of(new Spawn("minecraft:shulker", new Vec3(.5, 64, .5), 0, 61L)),
+      List.of(new Stand(new Vec3(2.5, 64, .5), "survival", null)), beats, 220));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -943,6 +1013,9 @@ public class MobAiOracle {
         new BlockPos(-10, 64, 3), 0, "amphibious", null, 1L));
     cases.add(search(level, "shallow_swimmer", scene(shore, box(-4, 40, -4, 4, 62, 4, water)), "minecraft:axolotl", new Vec3(.5, 45, .5), false,
         new BlockPos(3, 60, 3), 0, "amphibious_shallow", new net.minecraft.world.level.pathfinder.AmphibiousNodeEvaluator(true), 1L));
+    // A small mob's search cut short by its follow range (VMC-043e).
+    cases.add(search(level, "endermite_partial", box(-20, 63, -20, 20, 63, 20, stone), "minecraft:endermite",
+        new Vec3(1.1821640938787066, 64, -10.099789919208286), true, new BlockPos(3, 64, -19), 0, "walk", null, 1L));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -989,7 +1062,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt).");
       return;
     }
     if (args[0].equals("paths")) {

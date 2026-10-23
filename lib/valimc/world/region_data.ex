@@ -736,7 +736,15 @@ defmodule Valimc.World.RegionData do
           state.dimension == :the_nether
         )
 
-      context = %{mob_griefing: Valimc.World.GameRules.get(:mob_griefing)}
+      {difficulty, _} = Clock.difficulty()
+
+      context = %{
+        mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
+        difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
+        targets: targets,
+        read: &read_block(state, &1)
+      }
+
       by_id = Map.new(targets, &{&1.id, &1})
 
       {state, moves} =
@@ -866,6 +874,15 @@ defmodule Valimc.World.RegionData do
     send(self(), {:player, uuid, message})
     state
   end
+
+  # Effects a projectile's hit gives what it hurt (a shulker bullet's).
+  defp projectile_effect(state, _entry, {:effects, %{ref: {:player, uuid}}, actions, hit}) do
+    send(self(), {:player, uuid, {:splash, actions, hit}})
+    state
+  end
+
+  defp projectile_effect(state, _entry, {:effects, %{ref: {:mob, sid}} = target, actions, hit}),
+    do: Enum.reduce(actions, state, &mob_effect(&2, sid, target, &1, hit))
 
   defp projectile_effect(state, entry, {:splash, body, location}) do
     living = projectile_targets(state)
@@ -1178,6 +1195,18 @@ defmodule Valimc.World.RegionData do
           do: for(step <- steps, {:trample, cell} <- step.effects, do: {:trample, cell}),
           else: []
 
+      # What mobs bring into the level (VMC-043e: a shulker's bullets and
+      # offspring).
+      fired =
+        for step <- steps,
+            effect <- step.effects,
+            is_tuple(effect) and elem(effect, 0) in [:shoot_bullet, :spawn_mob],
+            %{entity: e} <- [store.entries[step.id]],
+            do: {e, effect}
+
+      # Mobs whose kind ends them (an endermite's lifetime, VMC-043e) leave.
+      {discards, steps} = Enum.split_with(steps, &(:discard in &1.effects))
+
       steps =
         Enum.reject(steps, fn step ->
           %{entity: e, body: body} = store.entries[step.id]
@@ -1185,6 +1214,8 @@ defmodule Valimc.World.RegionData do
         end)
 
       state = route_bodies(state, steps)
+      state = if discards == [], do: state, else: discard_mobs(state, discards)
+      state = Enum.reduce(fired, state, &mob_spawns/2)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
       state = if throws == [], do: state, else: mob_throws(state, throws)
@@ -1224,6 +1255,47 @@ defmodule Valimc.World.RegionData do
       _ ->
         state
     end
+  end
+
+  # A shulker's bullet at its box's centre, aimed at its target if this
+  # group still sees it.
+  defp mob_spawns({e, {:shoot_bullet, center, {_, target_uuid}, axis}}, state) do
+    targets = projectile_targets(state)
+    target = Enum.find(targets, &(&1.uuid == target_uuid))
+    owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: "minecraft:shulker"}
+    uuid = :crypto.strong_rand_bytes(16)
+
+    body =
+      Valimc.Entity.ShulkerBullet.new(owner, center, target, axis, uuid, &read_block(state, &1))
+
+    create_body(state, Store.body_record(body, uuid, center))
+  end
+
+  defp mob_spawns({_e, {:spawn_mob, type, position, data}}, state) do
+    {:ok, body} = Body.new(type)
+    body = %{body | data: Map.merge(body.data, data)}
+    create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+  end
+
+  defp create_body(state, record) do
+    case Store.create_record(state.entities.store, state.key, record) do
+      {:ok, store, _} -> put_entities(state, store)
+      _ -> state
+    end
+  end
+
+  defp discard_mobs(state, steps) do
+    store =
+      Enum.reduce(steps, state.entities.store, fn %{id: id}, store ->
+        with %{revision: revision} <- store.entries[id],
+             {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
+          next
+        else
+          _ -> store
+        end
+      end)
+
+    publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
 
   # `Mob.pickUpItem`'s `take`: `count` of item `uuid` leaves it for mob `id`
