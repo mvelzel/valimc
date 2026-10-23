@@ -130,7 +130,23 @@ death_failures =
         vehicle: row["vehicle"],
         killed_by_player: row["killed_by_player"],
         attacker: hand,
-        direct_attacker: hand
+        direct_attacker: if(row["by_fireball"], do: :none, else: hand),
+        # The killing damage (VMC-043d): a player's attack or its large fireball.
+        source:
+          if(row["by_fireball"],
+            do: %{
+              tags: Valimc.Protocol.DamageTypes.tags_of(:fireball),
+              direct: "minecraft:fireball",
+              source: "minecraft:player",
+              is_direct: false
+            },
+            else: %{
+              tags: Valimc.Protocol.DamageTypes.tags_of(:player_attack),
+              direct: "minecraft:player",
+              source: "minecraft:player",
+              is_direct: true
+            }
+          )
       })
 
     CheckLoot.same?(Enum.map(drops, &CheckLoot.plain(ItemData.tag(&1))), row["drops"])

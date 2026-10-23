@@ -69,7 +69,7 @@ public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
   static final List<String> ENTITY_TABLES = List.of("minecraft:entities/zombie", "minecraft:entities/chicken",
       "minecraft:entities/endermite", "minecraft:entities/pig", "minecraft:entities/blaze",
-      "minecraft:entities/zombified_piglin",
+      "minecraft:entities/zombified_piglin", "minecraft:entities/ghast",
       // VMC-043b: the overworld hostiles.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager", "minecraft:entities/skeleton",
       "minecraft:entities/stray", "minecraft:entities/bogged",
@@ -693,6 +693,7 @@ public class LootOracle {
     position.setAccessible(true);
     var enchantments = lookup.lookupOrThrow(Registries.ENCHANTMENT);
     var damage = lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK);
+    var fireballDamage = lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(net.minecraft.world.damagesource.DamageTypes.FIREBALL);
     var vehicles = Arrays.asList(null, "minecraft:zombie_horse", "minecraft:chicken");
     var rows = new JsonArray();
     for (var id : ENTITY_TABLES) {
@@ -723,13 +724,23 @@ public class LootOracle {
         type.set(attacker, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:player")));
         position.set(attacker, at);
         attacker.weapon = weapon;
+        // One death in four (by the seed) is the attacker's large fireball
+        // (VMC-043d: `damage_source_properties`, a ghast's music disc).
+        boolean byFireball = (seed & 3) == 0;
+        net.minecraft.world.entity.Entity direct = attacker;
         var source = new net.minecraft.world.damagesource.DamageSource(damage, attacker);
+        if (byFireball) {
+          direct = (net.minecraft.world.entity.Entity) unsafe.allocateInstance(net.minecraft.world.entity.projectile.hurtingprojectile.LargeFireball.class);
+          type.set(direct, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:fireball")));
+          position.set(direct, at);
+          source = new net.minecraft.world.damagesource.DamageSource(fireballDamage, direct, attacker);
+        }
         var builder = new LootParams.Builder(level)
             .withParameter(LootContextParams.THIS_ENTITY, victim)
             .withParameter(LootContextParams.ORIGIN, at)
             .withParameter(LootContextParams.DAMAGE_SOURCE, source)
             .withOptionalParameter(LootContextParams.ATTACKING_ENTITY, attacker)
-            .withOptionalParameter(LootContextParams.DIRECT_ATTACKING_ENTITY, attacker);
+            .withOptionalParameter(LootContextParams.DIRECT_ATTACKING_ENTITY, direct);
         if (player) builder = builder.withParameter(LootContextParams.LAST_DAMAGE_PLAYER, attacker).withLuck(0.0F);
         var drops = new JsonArray();
         table.getRandomItems(builder.create(LootContextParamSets.ENTITY), seed).forEach(stack -> { if (!stack.isEmpty()) drops.add(item(stack, ops)); });
@@ -740,6 +751,7 @@ public class LootOracle {
         row.addProperty("baby", victim.baby);
         if (vehicleName != null) row.addProperty("vehicle", vehicleName);
         row.addProperty("killed_by_player", player);
+        row.addProperty("by_fireball", byFireball);
         row.add("weapon", weapon.isEmpty() ? JsonNull.INSTANCE : item(weapon, ops));
         var origin = new JsonArray();
         origin.add(at.x);

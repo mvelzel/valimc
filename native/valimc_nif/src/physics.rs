@@ -452,7 +452,7 @@ fn items_step<'a>(
 // ---- mobs (VMC-015i) ----
 
 mod mob_atoms {
-    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid, strafe }
+    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid, strafe, flying }
 }
 
 /// A mob as its owner keeps it (`Valimc.Entity.MobMotion`): position, yaw
@@ -500,6 +500,17 @@ struct MobT {
     emits: bool,
     move_dist: f64,
     next_step: f64,
+    /// A ghast's move control: `%{wanted, duration, random, speed}`, or nil.
+    float: Option<FloatT>,
+}
+
+/// A ghast's move control (`valimc_core::physics::mob::Float`).
+#[derive(rustler::NifMap)]
+struct FloatT {
+    wanted: Option<Vec3>,
+    duration: i32,
+    random: i64,
+    speed: f64,
 }
 
 /// A rabbit's hopping controls (`valimc_core::physics::mob::Hop`).
@@ -571,6 +582,8 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         Travel::Guardian { sink }
     } else if kind == mob_atoms::squid() {
         Travel::Squid
+    } else if kind == mob_atoms::flying() {
+        Travel::Flying
     } else {
         return Err(rustler::Error::BadArg);
     };
@@ -634,6 +647,12 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         emits: m.emits,
         move_dist: m.move_dist as f32,
         next_step: m.next_step as f32,
+        float: m.float.as_ref().map(|f| valimc_core::physics::mob::Float {
+            wanted: f.wanted.map(v3),
+            duration: f.duration,
+            random: f.random as u64,
+            speed: f.speed,
+        }),
     })
 }
 
@@ -668,6 +687,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         Travel::Fish { sink } => (mob_atoms::fish(), sink),
         Travel::Guardian { sink } => (mob_atoms::guardian(), sink),
         Travel::Squid => (mob_atoms::squid(), false),
+        Travel::Flying => (mob_atoms::flying(), false),
     };
     MobT {
         position: t3(m.position),
@@ -724,6 +744,12 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         emits: m.emits,
         move_dist: m.move_dist as f64,
         next_step: m.next_step as f64,
+        float: m.float.map(|f| FloatT {
+            wanted: f.wanted.map(t3),
+            duration: f.duration,
+            random: f.random as i64,
+            speed: f.speed,
+        }),
     }
 }
 

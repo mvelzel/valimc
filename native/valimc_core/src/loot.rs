@@ -225,6 +225,15 @@ enum Condition {
         per_level: f32,
     },
     Entity(EntityTarget, EntityPredicate),
+    /// `damage_source_properties` (VMC-043d): the killing damage's type tags
+    /// (each expected in or out), its direct and source entities' types, and
+    /// whether the two are one.
+    DamageSource {
+        tags: Vec<(String, bool)>,
+        direct: Option<Vec<String>>,
+        source: Option<Vec<String>>,
+        is_direct: Option<bool>,
+    },
 }
 
 /// Blocks and property values (`match_block`, a location's block).
@@ -355,6 +364,19 @@ pub struct Death {
     /// The entity's own properties its predicates read (VMC-043c):
     /// `("minecraft:sheep/color", "white")`, `("sheep/sheared", "false")`.
     pub properties: Vec<(String, String)>,
+    /// The damage that killed it (VMC-043d), as `damage_source_properties`
+    /// reads it, or none.
+    pub source: Option<DamageInfo>,
+}
+
+/// A killing damage: the tags of its type, its direct and source entities'
+/// types (none without one) and whether the direct entity is the source.
+#[derive(Debug, Clone, Default)]
+pub struct DamageInfo {
+    pub tags: Vec<String>,
+    pub direct: Option<String>,
+    pub source: Option<String>,
+    pub is_direct: bool,
 }
 
 impl Death {
@@ -982,6 +1004,33 @@ impl Loot {
                 };
                 Condition::Entity(target, predicate)
             }
+            "minecraft:damage_source_properties" => {
+                let mut tags = Vec::new();
+                let (mut direct, mut source, mut is_direct) = (None, None, None);
+                for (key, value) in json.field("predicate")?.entries()? {
+                    match key.as_str() {
+                        "tags" => {
+                            for t in value.as_array()? {
+                                let id = t.field("id")?.as_str()?;
+                                let id = id.strip_prefix('#').unwrap_or(id).to_string();
+                                tags.push((id, t.field("expected")?.as_bool()?));
+                            }
+                        }
+                        "direct_entity" => direct = Some(Self::entity_types(value)?),
+                        "source_entity" => source = Some(Self::entity_types(value)?),
+                        "is_direct" => is_direct = Some(value.as_bool()?),
+                        other => {
+                            return Err(format!("damage source predicate {other} is not implemented"))
+                        }
+                    }
+                }
+                Condition::DamageSource {
+                    tags,
+                    direct,
+                    source,
+                    is_direct,
+                }
+            }
             other => return Err(format!("loot condition {other} is not implemented")),
         })
     }
@@ -1055,6 +1104,20 @@ impl Loot {
             }
         }
         Ok(predicate)
+    }
+
+    /// An entity predicate that names only a type (a damage source's entities).
+    fn entity_types(json: &Json) -> Result<Vec<String>, String> {
+        let mut types = None;
+        for (key, value) in json.entries()? {
+            match (key.as_str(), value) {
+                ("minecraft:entity_type", Json::String(t)) if !t.starts_with('#') => {
+                    types = Some(vec![t.clone()])
+                }
+                (other, _) => return Err(format!("damage source entity {other} is not implemented")),
+            }
+        }
+        types.ok_or_else(|| "damage source entity without a type".to_string())
     }
 
     fn entity_predicate(&self, json: &Json) -> Result<EntityPredicate, String> {
@@ -1396,6 +1459,25 @@ impl Condition {
                 };
                 ctx.random.next_float() < chance
             }
+            Condition::DamageSource {
+                tags,
+                direct,
+                source,
+                is_direct,
+            } => match ctx.death.as_ref().and_then(|d| d.source.as_ref()) {
+                None => false,
+                Some(info) => {
+                    let named = |want: &Option<Vec<String>>, got: &Option<String>| match want {
+                        None => true,
+                        Some(types) => got.as_ref().is_some_and(|g| types.contains(g)),
+                    };
+                    tags.iter()
+                        .all(|(tag, expected)| info.tags.contains(tag) == *expected)
+                        && named(direct, &info.direct)
+                        && named(source, &info.source)
+                        && is_direct.is_none_or(|d| d == info.is_direct)
+                }
+            },
             Condition::Entity(target, predicate) => match (&ctx.death, &ctx.block) {
                 (Some(d), _) => predicate.matches(*target, d),
                 // A block's breaker is `this`; only its presence is known.

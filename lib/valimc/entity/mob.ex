@@ -214,7 +214,9 @@ defmodule Valimc.Entity.Mob do
   it took its last health. `:ignored` when it takes nothing.
   """
   def hurt(%__MODULE__{} = mob, type, %{source: source, amount: amount} = hit) do
-    if not alive?(mob) or immune?(type, source) do
+    # A hit its class makes it vulnerable to (a ghast's reflected fireball,
+    # VMC-043d) passes its immunities.
+    if not alive?(mob) or (not Map.get(hit, :bypass_immunity, false) and immune?(type, source)) do
       :ignored
     else
       damage = max(0.0, Float32.round(amount))

@@ -17,6 +17,7 @@ use super::player::pose::{self, Dimensions};
 use super::player::rules::{self, Air, FluidMotion, EPSILON, SIN_SCALE};
 use super::player::{Fault, World};
 use super::response::{self, Response};
+use super::sweep;
 use super::table::Context;
 use std::collections::HashMap;
 
@@ -60,6 +61,9 @@ pub enum Control {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Travel {
     Ground,
+    /// `travelFlying` (a ghast's, VMC-043d): input at 0.02, no gravity, drag
+    /// 0.91F in air, 0.8F in water, 0.5 in lava, and no fall.
+    Flying,
     /// `AbstractFish.travelInWater`: input at 0.01, drag 0.9, sinking
     /// 0.005 a tick when `sink` (it has no target).
     Fish {
@@ -159,6 +163,112 @@ pub struct Mob {
     /// The distance walked (`moveDist`) and where the next step falls.
     pub move_dist: f32,
     pub next_step: f32,
+    /// A ghast's move control (`GhastMoveControl`), or none.
+    pub float: Option<Float>,
+}
+
+/// A ghast's move control (`Ghast.GhastMoveControl`, not careful): every two
+/// to six ticks a push toward where it wants to be, if nothing stands in the
+/// way, else it stops wanting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Float {
+    /// Where it wants to be (`MOVE_TO`), or none (`WAIT`).
+    pub wanted: Option<[f64; 3]>,
+    /// `floatDuration`.
+    pub duration: i32,
+    /// The mob's random (a Java LCG's 48-bit seed), which the control draws on.
+    pub random: u64,
+    /// The push: `FLYING_SPEED * 5 / 3`.
+    pub speed: f64,
+}
+
+/// `next(bits)` of a Java LCG seed.
+fn java_next(seed: &mut u64, bits: u32) -> i32 {
+    *seed = seed.wrapping_mul(0x5DEECE66D).wrapping_add(0xB) & ((1u64 << 48) - 1);
+    ((*seed as i64) >> (48 - bits)) as i32
+}
+
+/// `nextInt(bound)` of a Java LCG seed.
+fn java_int(seed: &mut u64, bound: i32) -> i32 {
+    if bound & (bound - 1) == 0 {
+        return ((bound as i64 * java_next(seed, 31) as i64) >> 31) as i32;
+    }
+    loop {
+        let bits = java_next(seed, 31);
+        let value = bits % bound;
+        if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
+            return value;
+        }
+    }
+}
+
+/// `Vec3.normalize`.
+fn normalize(v: [f64; 3]) -> [f64; 3] {
+    let d = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if d < 1.0e-5_f32 as f64 {
+        [0.0; 3]
+    } else {
+        [v[0] / d, v[1] / d, v[2] / d]
+    }
+}
+
+/// `GhastMoveControl.tick`: while it wants a place, every `floatDuration`
+/// ticks a push of `speed` toward it, or giving up where the way is blocked.
+fn float_control(w: &World, m: &mut Mob) -> Result<(), Fault> {
+    let Some(mut f) = m.float else {
+        return Ok(());
+    };
+    if let Some(wanted) = f.wanted {
+        let before = f.duration;
+        f.duration -= 1;
+        if before <= 0 {
+            f.duration += java_int(&mut f.random, 5) + 2;
+            let travel = sub(wanted, m.position);
+            if can_reach(w, m, travel)? {
+                let n = normalize(travel);
+                m.velocity = add(m.velocity, [n[0] * f.speed, n[1] * f.speed, n[2] * f.speed]);
+            } else {
+                f.wanted = None;
+            }
+        }
+    }
+    m.float = Some(f);
+    Ok(())
+}
+
+/// `GhastMoveControl.canReach`: no block the box would pass on its way
+/// (`forEachBlockIntersectedBetween`) collides with it moving there, those it
+/// already touches aside.
+fn can_reach(w: &World, m: &Mob, travel: [f64; 3]) -> Result<bool, Fault> {
+    let start = m.position;
+    let body = m.body(start)?;
+    let destination = body.moved(travel);
+    let Some(walk) = sweep::sweep(start, add(start, travel), &destination, usize::MAX) else {
+        return Ok(false);
+    };
+    for (cell, _) in walk.visits {
+        if body.intersects(&Aabb::block(cell[0], cell[1], cell[2])) {
+            continue;
+        }
+        // A cell it cannot read (unloaded) is in the way.
+        let Ok(state) = w.state(cell) else {
+            return Ok(false);
+        };
+        let picked = w.facts.shapes.shape(state, cell, &Context::default());
+        if picked.shape.is_empty() {
+            continue;
+        }
+        let at = [
+            cell[0] as f64 + picked.offset[0],
+            cell[1] as f64 + picked.offset[1],
+            cell[2] as f64 + picked.offset[2],
+        ];
+        let boxes: Vec<Aabb> = picked.shape.cells().iter().map(|b| b.moved(at)).collect();
+        if sweep::collided_along(&body, travel, &boxes) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// A rabbit's move and jump controls (`RabbitMoveControl`,
@@ -588,7 +698,13 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     // `JumpControl.tick`: the move control's jump or the AI's. The head is
     // the look control's (the AI's), before this tick. A rabbit's starts a
     // hop, which keeps it jumping.
-    let asked = control(&mut m, block, water || lava) || m.jump;
+    // A ghast's own move control replaces it (VMC-043d).
+    let asked = if m.float.is_some() {
+        float_control(w, &mut m)?;
+        m.jump
+    } else {
+        control(&mut m, block, water || lava) || m.jump
+    };
     let jumping = match m.hop.as_mut() {
         Some(hop) => {
             if asked {
@@ -690,11 +806,15 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     } else {
         friction_speed(m.speed, friction, m.on_ground)
     };
+    // `travelFlying` (a ghast's, VMC-043d): input at 0.02 in water, lava and
+    // air alike.
+    let flying = m.travel == Travel::Flying;
+    let speed = if flying { 0.02 } else { speed };
     if !squid {
         m.velocity = add(m.velocity, input_vector(input, speed, m.yaw));
     }
     let mut fall = m.fall_distance;
-    if !in_fluid && !squid {
+    if !in_fluid && !squid && !flying {
         let (v, reset) = rules::climb_prepare(m.velocity, climbing_before, false, false)?;
         m.velocity = v;
         if reset {
@@ -702,7 +822,12 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         }
     }
     let was_on_ground = m.on_ground;
-    let moved = mob_move(w, &mut m, &body, fall, water, depths)?;
+    let mut moved = mob_move(w, &mut m, &body, fall, water, depths)?;
+    // A flier never falls (a ghast's `checkFallDamage` does nothing).
+    if flying {
+        m.fall_distance = 0.0;
+        moved.landing = None;
+    }
     let after_body = m.body(m.position)?;
     let climbing = contacts::climb(
         w.source,
@@ -726,6 +851,16 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         } else {
             v
         }
+    } else if flying {
+        // `travelFlying`'s drag: water's 0.8F, lava's 0.5, air's 0.91F.
+        let drag = if water {
+            0.8_f32 as f64
+        } else if lava {
+            0.5
+        } else {
+            0.91_f32 as f64
+        };
+        [m.velocity[0] * drag, m.velocity[1] * drag, m.velocity[2] * drag]
     } else if in_fluid {
         let (v, escape) = rules::fluid_motion(
             m.velocity,
@@ -1251,6 +1386,7 @@ impl Default for Mob {
             emits: true,
             move_dist: 0.0,
             next_step: 1.0,
+            float: None,
         }
     }
 }

@@ -55,13 +55,16 @@ sound_names =
       do: {id, n}
 
 # A scene as a supplied view: its blocks, and air around them.
-view = fn blocks ->
+view = fn blocks, flier ->
   scene = Map.new(blocks, fn [x, y, z, s] -> {{x, y, z}, s} end)
   {xs, zs} = {Enum.map(blocks, &Enum.at(&1, 0)), Enum.map(blocks, &Enum.at(&1, 2))}
   {x0, x1} = {min(-16, Enum.min(xs) - 4), max(16, Enum.max(xs) + 4)}
   {z0, z1} = {min(-16, Enum.min(zs) - 4), max(16, Enum.max(zs) + 4)}
   ys = Enum.map(blocks, &Enum.at(&1, 1))
   {y0, y1} = {min(56, Enum.min(ys) - 4), max(80, Enum.max(ys) + 8)}
+  # Wide enough for a flier's drift (a ghast's, VMC-043d).
+  {x0, x1, z0, z1} = if flier, do: {x0 - 24, x1 + 24, z0 - 24, z1 + 24}, else: {x0, x1, z0, z1}
+  {y0, y1} = if flier, do: {min(y0, 40), max(y1, 104)}, else: {y0, y1}
 
   packed =
     for x <- x0..x1, y <- y0..y1, z <- z0..z1, into: <<>> do
@@ -388,7 +391,9 @@ end
 checked =
   for c <- cases, reduce: 0 do
     count ->
-      {scene, kernel_view} = view.(c["blocks"])
+      {scene, kernel_view} =
+        view.(c["blocks"], Enum.any?(c["mobs"], &(&1["type"] == "minecraft:ghast")))
+
       players = Enum.map(c["players"], player)
 
       items =

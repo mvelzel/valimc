@@ -20,4 +20,10 @@ defmodule Valimc.Protocol.DamageTypes do
 
   @doc "Whether damage type `type` has tag `tag` (an unknown tag raises)."
   def tag?(type, tag), do: MapSet.member?(Map.fetch!(@tags, tag), id(type))
+
+  @doc "The tags of damage type `type`, namespaced (loot's `damage_source_properties`)."
+  def tags_of(type) do
+    id = id(type)
+    for {tag, ids} <- @tags, MapSet.member?(ids, id), do: "minecraft:#{tag}"
+  end
 end

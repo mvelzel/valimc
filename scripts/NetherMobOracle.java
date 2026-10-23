@@ -73,6 +73,24 @@ public class NetherMobOracle {
     fire.add(new MobAiOracle.Block(3, 63, 1, Blocks.SOUL_SAND.defaultBlockState()));
     cases.add(MobAiOracle.run(level, "piglin_repellent", fire, List.of(new MobAiOracle.Spawn("minecraft:piglin", new Vec3(.5, 64, .5), 0, 113L, sword)),
       List.of(), List.of(), 160));
+    // A ghast alone drifts to random places and faces where it drifts.
+    cases.add(MobAiOracle.run(level, "ghast_float", floor, List.of(new MobAiOracle.Spawn("minecraft:ghast", new Vec3(.5, 70, .5), 0, 127L)),
+      List.of(), List.of(), 300));
+    // A player on a pillar at its height: it turns to it, charges and shoots,
+    // then rests.
+    var pillar = new ArrayList<>(floor);
+    pillar.addAll(MobAiOracle.box(9, 64, 9, 10, 69, 10, stone));
+    cases.add(MobAiOracle.run(level, "ghast_attack", pillar, List.of(new MobAiOracle.Spawn("minecraft:ghast", new Vec3(-6.5, 70, -4.5), 0, 131L)),
+      List.of(new MobAiOracle.Stand(new Vec3(9.5, 70, 9.5), "survival", null)), List.of(), 200));
+    // Walled in: a place behind a wall stops its drift.
+    var cage = new ArrayList<>(floor);
+    cage.addAll(MobAiOracle.box(-4, 64, -4, 4, 64, 4, stone));
+    for (int y = 65; y < 76; y++) {
+      cage.addAll(MobAiOracle.box(-4, y, -4, 4, y, -4, stone)); cage.addAll(MobAiOracle.box(-4, y, 4, 4, y, 4, stone));
+      cage.addAll(MobAiOracle.box(-4, y, -3, -4, y, 3, stone)); cage.addAll(MobAiOracle.box(4, y, -3, 4, y, 3, stone));
+    }
+    cases.add(MobAiOracle.run(level, "ghast_cage", cage, List.of(new MobAiOracle.Spawn("minecraft:ghast", new Vec3(.5, 67, .5), 0, 137L)),
+      List.of(), List.of(), 200));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -83,6 +101,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage).");
   }
 }

@@ -200,4 +200,14 @@ defmodule Valimc.MobAiConnectionTest do
 
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
   end
+
+  test "a ghast charges and its fireball hurts the player", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    owner = summon(ctx, "minecraft:ghast", <<17::128>>, 10.0)
+
+    # A second's charge, then a large fireball: its hit and blast.
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
+    assert entry(owner, <<17::128>>).body.mob.ai.target == {:player, ctx.uuid}
+  end
 end

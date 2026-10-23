@@ -1009,6 +1009,45 @@
         ]
       ]
     },
+    "minecraft:ghast": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.ghast.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 5.0,
+      "malus": {},
+      "goals": [
+        [
+          5,
+          "RandomFloatAroundGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          7,
+          "GhastLookGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          7,
+          "GhastShootFireballGoal",
+          []
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:husk": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2458,6 +2497,7 @@
     "minecraft:entity.pig.ambient": 1272,
     "minecraft:entity.blaze.ambient": 174,
     "minecraft:entity.zombified_piglin.ambient": 1899,
+    "minecraft:entity.ghast.ambient": 709,
     "minecraft:entity.husk.ambient": 881,
     "minecraft:entity.zombie_villager.ambient": 1904,
     "minecraft:entity.skeleton.ambient": 1483,

@@ -39619,6 +39619,103 @@
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/endermite"
   },
+  "minecraft:entities/ghast": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/ghast",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:ghast_tear",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:gunpowder",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:music_disc_tears",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "terms": [
+            {
+              "predicate": {
+                "tags": [
+                  {
+                    "id": "#minecraft:is_projectile",
+                    "expected": true
+                  }
+                ],
+                "direct_entity": {
+                  "minecraft:entity_type": "minecraft:fireball"
+                }
+              },
+              "type": "minecraft:damage_source_properties"
+            },
+            {
+              "type": "minecraft:killed_by_player"
+            }
+          ],
+          "type": "minecraft:all_of"
+        },
+        "modifier": {
+          "count": 1,
+          "type": "minecraft:set_count"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/glow_squid": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/glow_squid",

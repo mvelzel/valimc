@@ -19,7 +19,7 @@ Acceptance:
 1. **043d1 — blazes** (done): goals, attack, flight and loot below.
 2. **043d2 — zombified piglins** (done): NeutralMob anger, group alerts,
    spawn gear.
-3. **043d3 — ghasts**: flying travel, wandering, large fireballs.
+3. **043d3 — ghasts** (done): flying travel, wandering, large fireballs.
 4. **043d4a — bartering** (done): a piglin's admired gold ingot becomes
    the bartering table's items, thrown toward the player it sees.
 5. **043d4b — piglins and hoglins**: the piglin brain's fight, avoid and
@@ -81,6 +81,33 @@ factory, so other families' oracles reuse it the same way.
   results equal vanilla's.
 - Gaps: anger is not saved with the mob; universal anger does not yet reach
   the mob's kind around it.
+
+## 043d3 — ghasts
+
+- Kernel (`physics::mob`): `flying` (`travelFlying`: input at 0.02, no
+  gravity, drag 0.91F in air, 0.8F in water, 0.5 in lava, no fall) and
+  `float`, vanilla's `GhastMoveControl`: every 2 to 6 ticks (drawn from the
+  mob's random, which the kernel takes and returns) a push of
+  `flying_speed × 5/3` toward the wanted place, unless a block on the way
+  (`forEachBlockIntersectedBetween`, `collidedAlongVector`) collides, which
+  ends the want; an unreadable cell is in the way. The sweep's visit cap
+  grew to 32768 for a ghast's box.
+- `Valimc.AI.Mobs.Ghast`: `RandomFloatAroundGoal` (a place within 16 blocks
+  on each axis), `GhastLookGoal` (facing its drift, motion's dead zone
+  applied, or its target), `GhastShootFireballGoal` (events 1015 and 1016,
+  a large fireball four blocks along its view, which follows its head),
+  targets within four blocks up or down; its charging flag is entity data.
+  A large fireball a player sent back kills it (`Kind.taken/2`, a hit that
+  passes its fire immunity); another ghast's only burns, which it ignores.
+- Loot: `damage_source_properties` in the native loot engine (the killing
+  damage's type tags, direct and source entity types, `is_direct`), passed
+  from the killing hit (`Combat`); `LootOracle` kills one death in four
+  with the attacker's large fireball: the ghast's music disc drops as
+  vanilla's. 21000 deaths and 3000 barters equal vanilla.
+- Evidence: `nether_mobs` passes 4980 ticks of 16 scenes (a ghast floating,
+  shooting twice at a player on a pillar, walled in);
+  `mob_ai_connection_test` has a ghast's fireball hurt a logged-in player;
+  `nether_mobs_test` the reflected fireball.
 
 ## 043d4a — bartering
 
@@ -160,4 +187,5 @@ fortress, blazes from a spawner shoot volleys at the player, rise to a player
 above them, and a blaze killed by the player drops blaze rods; zombified
 piglins ignore the player until it hits one, then the group attacks; a
 piglin given a dropped gold ingot admires it and throws barter items (over
-several barters, ender pearls).
+several barters, ender pearls); piglins attack a player without gold armour;
+a ghast shoots fireballs that the player can hit back to kill it.

@@ -60,7 +60,7 @@ public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
-      "minecraft:blaze", "minecraft:zombified_piglin",
+      "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       // VMC-043e: the End's mobs, fish and squid.

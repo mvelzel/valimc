@@ -22,6 +22,9 @@ defmodule Valimc.Entity.MobMotion do
   `travel` (`{:fish | :guardian, sink}`; its type's travel otherwise); its
   `control` then keeps the operation and wanted position its move control
   reads.
+  A ghast's `float` (VMC-043d) keeps its move control's wanted place (nil:
+  it waits) and float timer (`GhastMoveControl`, in the kernel, which draws
+  on its mind's random).
   """
   alias Valimc.Living.Attributes
 
@@ -44,7 +47,8 @@ defmodule Valimc.Entity.MobMotion do
             impulse: {0.0, 0.0, 0.0},
             travel: nil,
             move_dist: 0.0,
-            next_step: 1.0
+            next_step: 1.0,
+            float: nil
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -56,7 +60,8 @@ defmodule Valimc.Entity.MobMotion do
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
         is_boolean(Map.get(m, :rise)) and
         is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow) and hop?(m.hop) and
-        is_boolean(m.vertical_collision) and is_float(m.move_dist) and is_float(m.next_step)
+        is_boolean(m.vertical_collision) and is_float(m.move_dist) and is_float(m.next_step) and
+        float?(Map.get(m, :float, :missing))
 
   def valid?(_), do: false
 
@@ -68,6 +73,13 @@ defmodule Valimc.Entity.MobMotion do
         is_float(next)
 
   defp hop?(_), do: false
+
+  defp float?(nil), do: true
+
+  defp float?(%{wanted: wanted, duration: duration}),
+    do: (wanted == nil or vector?(wanted)) and is_integer(duration)
+
+  defp float?(_), do: false
 
   @doc "A rabbit's controls before its first move (`hop`)."
   def hop, do: %{jumping: false, wanted: {0.0, 0.0, 0.0}, speed: 0.0, next_speed: 0.0}
@@ -162,7 +174,8 @@ defmodule Valimc.Entity.MobMotion do
       impulse: if(alive, do: motion.impulse, else: {0.0, 0.0, 0.0}),
       vertical_collision: motion.vertical_collision,
       move_dist: motion.move_dist,
-      next_step: motion.next_step
+      next_step: motion.next_step,
+      float: float(type, motion.float, mob)
     }
     |> Map.merge(kind_motion(type, motion))
     # A `NoAI` mob does not travel (`isEffectiveAi`).
@@ -190,6 +203,15 @@ defmodule Valimc.Entity.MobMotion do
     travel: {:ground, false},
     emission: :all
   }
+
+  # A ghast's move control, drawing on its mind's random (VMC-043d).
+  defp float(_type, nil, _mob), do: nil
+
+  defp float(type, float, mob) do
+    speed = Valimc.Entity.Mob.value(type, mob, "minecraft:flying_speed") * 5.0 / 3.0
+    random = if match?(%Valimc.AI.Mind{}, mob.ai), do: mob.ai.random, else: 0
+    %{wanted: float.wanted, duration: float.duration, random: random, speed: speed}
+  end
 
   # How a family's mob moves and pushes (`Valimc.AI.Kind.motion/0`), and the
   # travel its AI chose this tick; the kernel counts its steps unless its
@@ -276,8 +298,19 @@ defmodule Valimc.Entity.MobMotion do
       hop: m.hop && Map.drop(m.hop, [:path_up, :baby]),
       vertical_collision: m.vertical_collision,
       move_dist: m.move_dist,
-      next_step: m.next_step
+      next_step: m.next_step,
+      float: m.float && Map.take(m.float, [:wanted, :duration])
     }
+
+    # The float control drew on the mind's random.
+    mob =
+      case {m.float, body.mob.ai} do
+        {%{random: random}, %Valimc.AI.Mind{} = mind} ->
+          %{body.mob | ai: %{mind | random: random}}
+
+        _ ->
+          body.mob
+      end
 
     body = %{
       body
@@ -285,7 +318,7 @@ defmodule Valimc.Entity.MobMotion do
         head_yaw: m.head_yaw,
         velocity: m.velocity,
         on_ground: m.on_ground,
-        mob: %{body.mob | motion: motion}
+        mob: %{mob | motion: motion}
     }
 
     {body, m.position}

@@ -147,7 +147,8 @@ defmodule Valimc.Blocks.Loot do
     death =
       {Map.get(death, :on_fire, false), Map.get(death, :baby, false), Map.get(death, :vehicle),
        Map.get(death, :killed_by_player, false), mainhand(Map.get(death, :attacker, :none)),
-       mainhand(Map.get(death, :direct_attacker, :none)), Map.get(death, :properties, [])}
+       mainhand(Map.get(death, :direct_attacker, :none)),
+       {Map.get(death, :properties, []), source(Map.get(death, :source))}}
 
     with {:ok, tags} <-
            call(fn ->
@@ -162,6 +163,12 @@ defmodule Valimc.Blocks.Loot do
            end),
          do: stacks(tags)
   end
+
+  # The killing damage (VMC-043d): its type's tags, its entities' types.
+  defp source(nil), do: nil
+
+  defp source(%{tags: tags, direct: direct, source: source, is_direct: is_direct}),
+    do: {tags, direct, source, is_direct}
 
   @doc """
   A broken block's drops (`BlockBehaviour.getDrops`, VMC-029e): `{:ok,

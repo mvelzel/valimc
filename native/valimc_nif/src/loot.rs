@@ -405,7 +405,12 @@ type DeathTerm = (
     bool,
     Option<Vec<(String, i32)>>,
     Option<Vec<(String, i32)>>,
-    Vec<(String, String)>,
+    // The victim's properties, and the killing damage (VMC-043d): its type's
+    // tags, its direct and source entities' types, whether they are one; or nil.
+    (
+        Vec<(String, String)>,
+        Option<(Vec<String>, Option<String>, Option<String>, bool)>,
+    ),
 );
 
 #[rustler::nif]
@@ -419,7 +424,8 @@ fn loot_entity<'a>(
     death: DeathTerm,
 ) -> NifResult<(Atom, Vec<Term<'a>>)> {
     known(&registry, &table)?;
-    let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker, properties) = death;
+    let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker, (properties, source)) =
+        death;
     let mut world = LootAnswers {
         biome: None,
         structure: None,
@@ -441,6 +447,14 @@ fn loot_entity<'a>(
                     attacker,
                     direct_attacker,
                     properties,
+                    source: source.map(|(tags, direct, source, is_direct)| {
+                        valimc_core::loot::DamageInfo {
+                            tags,
+                            direct,
+                            source,
+                            is_direct,
+                        }
+                    }),
                 },
                 &mut world,
             )

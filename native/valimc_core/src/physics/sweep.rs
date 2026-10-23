@@ -8,8 +8,9 @@ use super::aabb::Aabb;
 
 const TINY_SQUARE: f64 = 9.999999439624929e-11;
 const EPSILON: f64 = 9.999999747378752e-6;
-/// Visits and crossings a walk may take before it is cut short.
-const MAX_ATTEMPTS: usize = 4096;
+/// Visits and crossings a walk may take before it is cut short (a ghast's
+/// 4-block box crossing 60 blocks stays within them, VMC-043d).
+const MAX_ATTEMPTS: usize = 32768;
 const MAX_CROSSINGS: usize = 256;
 
 /// A visited cell and the crossing step it was found at.

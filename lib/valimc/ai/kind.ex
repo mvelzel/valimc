@@ -38,7 +38,8 @@ defmodule Valimc.AI.Kind do
     a dying mob still runs its own `tick` and `aiStep` hooks (a dead fish
     flops); `falls?/0` false: it never takes fall damage nor lands on blocks
     (a bat). `ambient_sound/1` may answer `{name, self}` when it draws.
-  - Its hurts, through `Valimc.Entity.Combat`'s one path: `ignores?/2` (a
+  - Its hurts, through `Valimc.Entity.Combat`'s one path: `taken/2` (a hit
+    as its class takes it, VMC-043d: a ghast's reflected fireball), `ignores?/2` (a
     hit it takes nothing from), `sound/2` (its hurt or death sound, nil for
     its type's) and `hurt/2` (what a hurt leaves on its body).
   - Its fights and gear (VMC-043b): `hit/2` (what its `doHurtTarget` adds
@@ -72,6 +73,7 @@ defmodule Valimc.AI.Kind do
   @callback clamps_head?() :: boolean
   @callback turns_body?() :: boolean
   @callback ignores?(struct, map) :: boolean
+  @callback taken(struct, map) :: map
   @callback sound(struct, String.t()) :: String.t() | nil
   @callback hurt(struct, map) :: struct
   @callback hit(Self.t(), map) :: Self.t()
@@ -108,6 +110,7 @@ defmodule Valimc.AI.Kind do
                       clamps_head?: 0,
                       turns_body?: 0,
                       ignores?: 2,
+                      taken: 2,
                       sound: 2,
                       hurt: 2,
                       hit: 2,

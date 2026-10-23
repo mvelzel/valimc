@@ -76,6 +76,8 @@ defmodule Valimc.Entity.Combat do
 
   def hurt_body(%Body{mob: mob} = body, entity, hit) do
     hook = &Valimc.AI.Mobs.hook(body.type, &1, &2, &3)
+    # A family's own take on the hit (a ghast's reflected fireball, VMC-043d).
+    hit = hook.(:taken, [body, hit], hit)
 
     case if(hook.(:ignores?, [body, hit], false),
            do: :ignored,
@@ -428,9 +430,24 @@ defmodule Valimc.Entity.Combat do
         killed_by_player: player_kill,
         attacker: mainhand(hit[:attacker]),
         direct_attacker: mainhand(hit[:direct]),
-        properties: Valimc.Entity.Animal.properties(body)
+        properties: Valimc.Entity.Animal.properties(body),
+        source: source_info(hit)
       },
       experience: if(player_kill and not baby?(body), do: experience(body), else: 0)
+    }
+  end
+
+  # The killing damage as loot reads it (`damage_source_properties`): its
+  # type's tags and its direct and source entities' types.
+  defp source_info(hit) do
+    direct = hit[:direct]
+    attacker = hit[:attacker]
+
+    %{
+      tags: Valimc.Protocol.DamageTypes.tags_of(DamageSource.type(hit.source)),
+      direct: direct && direct.type,
+      source: attacker && attacker.type,
+      is_direct: direct != nil and attacker != nil and direct.uuid == attacker.uuid
     }
   end
 
