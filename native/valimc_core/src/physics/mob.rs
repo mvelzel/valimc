@@ -104,6 +104,8 @@ pub struct Ticked {
     pub eye_state: u16,
     /// The landing block and fall distance (`Block.fallOn`), if it landed.
     pub landing: Option<(u16, f64)>,
+    /// The landing block's cell (farmland's trampling, VMC-039a).
+    pub landing_pos: Option<[i32; 3]>,
     pub touched: Touched,
     pub climbing: bool,
     /// The fluid heights the move left (`checkFallDamage`'s sample), which
@@ -584,6 +586,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         eye_water,
         eye_state,
         landing: moved.landing,
+        landing_pos: moved.landing.map(|_| moved.material.legacy.0),
         touched,
         climbing,
         depths: moved.depths,

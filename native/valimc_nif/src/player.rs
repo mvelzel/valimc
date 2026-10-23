@@ -223,6 +223,7 @@ struct MovedT {
     packet: KineticsT,
     tick: KineticsT,
     landing: Option<(u16, f64)>,
+    landing_pos: Option<(i32, i32, i32)>,
     motion: MotionT,
     ticked: MotionT,
 }
@@ -244,6 +245,7 @@ fn moved_t(m: &Moved) -> MovedT {
         packet: kinetics(&m.packet),
         tick: kinetics(&m.tick),
         landing: m.landing,
+        landing_pos: m.landing_pos.map(|p| (p[0], p[1], p[2])),
         motion: motion_t(&m.motion),
         ticked: motion_t(&m.ticked),
     }

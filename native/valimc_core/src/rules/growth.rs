@@ -348,6 +348,20 @@ impl<W: World> Engine<'_, W> {
         result.max(USED)
     }
 
+    /// An entity tramples the farmland at `pos` (`FarmlandBlock.fallOn`
+    /// once it decided to): it turns to dirt (`turnToBaseBlock`; pushing the
+    /// entities on it up is the caller's). 1 when it did.
+    pub fn trample(&mut self, pos: [i32; 3]) -> i32 {
+        let Some(growth) = self.rules.growth.as_ref() else {
+            return 0;
+        };
+        let (farmland, dirt) = (growth.farmland, growth.dirt);
+        if !self.world.owns(pos) || self.rules.table.block_of(self.world.get(pos)) != farmland {
+            return 0;
+        }
+        i32::from(self.set_block(pos, dirt, ALL, UPDATE_LIMIT))
+    }
+
     /// The scheduled tick of farmland or a dirt path: one that cannot
     /// survive turns to dirt (`turnToBaseBlock`; the entities on it are not
     /// pushed up). Whether `state` is one.

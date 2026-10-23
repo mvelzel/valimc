@@ -135,6 +135,8 @@ pub struct Moved {
     /// The legacy landing block and the distance landed on it, when the move
     /// lands outside water.
     pub landing: Option<(u16, f64)>,
+    /// The landing block's cell (farmland's trampling, VMC-039a).
+    pub landing_pos: Option<[i32; 3]>,
     /// The motion after the packet, and after the tick as well.
     pub motion: Motion,
     pub ticked: Motion,
@@ -190,7 +192,9 @@ pub fn validate(
     let powder_snow = contacts::powder_snow(w.source, w.facts, &after.geometry.body)?;
     let (eye_water, eye_state) = p.eye(w, &after.geometry)?;
     let packet = p.packet(w, target, actual, flags, &body)?;
-    let landing = landing(w, p, target, flags, &body)?;
+    let landed = landing(w, p, target, flags, &body)?;
+    let landing = landed.map(|(_, state, distance)| (state, distance));
+    let landing_pos = landed.map(|(pos, _, _)| pos);
     let accepted = p.motion.accept(requested, flags, p.flying);
     let motion = kinetics::apply(
         &Motion {
@@ -220,6 +224,7 @@ pub fn validate(
         packet,
         tick,
         landing,
+        landing_pos,
         motion,
         ticked,
     })
@@ -233,7 +238,7 @@ fn landing(
     target: [f64; 3],
     flags: u8,
     body: &Aabb,
-) -> Result<Option<(u16, f64)>, Fault> {
+) -> Result<Option<([i32; 3], u16, f64)>, Fault> {
     let fall = p.motion.fall_distance;
     if flags & 1 == 0 || p.flying || !(fall > 0.0 || target[1] < p.position[1]) {
         return Ok(None);
@@ -246,7 +251,7 @@ fn landing(
         return Ok(None);
     }
     let m = w.material(&moved, target, &p.context(fall, target[1]))?;
-    Ok(landed.map(|distance| (m.legacy.1, distance)))
+    Ok(landed.map(|distance| (m.legacy.0, m.legacy.1, distance)))
 }
 
 /// Travel and jump exhaustion for a move.

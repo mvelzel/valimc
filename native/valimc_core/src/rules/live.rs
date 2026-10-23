@@ -31,7 +31,8 @@ pub struct Outcome {
     /// evaporated), a pickup's item index + 1 (0: none), a post-processing
     /// mark's 1 (done) or 0 (it read past the owner: keep it), a use's 1
     /// (used) or 0 (passed on), a random tick's or bone meal's `growth`
-    /// result; 0 for the others.
+    /// result, a transform's entry index + 1 (0: none applied), a trample's
+    /// 1 (trampled) or 0; 0 for the others.
     pub results: Vec<i32>,
     /// The redstone torches' recent toggles after the run.
     pub toggles: Vec<([i32; 3], i64)>,
@@ -63,6 +64,15 @@ pub enum Action {
     },
     /// Bone meal used on the block at `pos` (VMC-039a).
     BoneMeal { pos: [i32; 3] },
+    /// A tool's block transformer `tool` used on `pos` from face `face`
+    /// (VMC-039a).
+    Transform {
+        pos: [i32; 3],
+        tool: usize,
+        face: usize,
+    },
+    /// An entity trampling the farmland at `pos` (VMC-039a).
+    Trample { pos: [i32; 3] },
     /// A player's use of the block at `pos` (`useWithoutItem`, VMC-047a),
     /// facing horizontal direction `facing`, allowed to build or not.
     Use {
@@ -320,6 +330,8 @@ pub fn run(
                 0
             }
             Action::BoneMeal { pos } => engine.bone_meal(pos),
+            Action::Transform { pos, tool, face } => engine.transform(pos, tool, face),
+            Action::Trample { pos } => engine.trample(pos),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)
             }

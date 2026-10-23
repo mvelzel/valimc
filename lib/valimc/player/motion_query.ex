@@ -40,6 +40,7 @@ defmodule Valimc.Player.MotionQuery do
          exhaustion: r.exhaustion,
          kinetics: %{packet: r.packet, tick: Map.put(tick, :rain, rain)},
          landing: landing,
+         landed: landed(r),
          motion: struct!(Motion, r.motion),
          ticked: struct!(Motion, r.ticked),
          sources: View.owners(view)
@@ -56,6 +57,12 @@ defmodule Valimc.Player.MotionQuery do
       {:ok, %{tick | fire_contacts: %{operations: immediate ++ operations, active: fires.active}}}
     end
   end
+
+  # The landing block, distance and cell (farmland's trampling, VMC-039a).
+  defp landed(%{landing: {state, distance}, landing_pos: cell}) when cell != nil,
+    do: {state, distance, cell}
+
+  defp landed(_), do: nil
 
   defp landing(nil, _player), do: {:ok, nil}
 

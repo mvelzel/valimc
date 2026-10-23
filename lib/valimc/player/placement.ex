@@ -23,6 +23,7 @@ defmodule Valimc.Player.Placement do
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
 
+  import Bitwise, only: [<<<: 2]
   import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
 
   @placement %CollisionContext{kind: :entity, placement: true}
@@ -87,6 +88,25 @@ defmodule Valimc.Player.Placement do
           mode: state.player.game_mode.current,
           body: body(state, request),
           expires: System.monotonic_time(:millisecond) + 250
+        }
+
+      # Hoes, shovels and axes transform blocks (VMC-039a), unless the main
+      # hand's use gives way to a shield's (`playerHasBlockingItemUseIntent`).
+      tool = Valimc.Blocks.Transformers.tool(stack) ->
+        %{
+          kind: :transform,
+          tool: tool,
+          request: request,
+          stack: stack,
+          slot: slot,
+          mode: state.player.game_mode.current,
+          body:
+            unless(
+              request.hand == :main and
+                Valimc.Living.Weapons.blocks_attacks(Inventory.held(state.inventory, :off)) !=
+                  nil and not Valimc.Player.Input.pressed?(state.player.input, :shift),
+              do: body(state, request)
+            )
         }
 
       # Bone meal grows what takes it (VMC-039a).
@@ -258,6 +278,70 @@ defmodule Valimc.Player.Placement do
         else: CreativeInventory.resync_inventory(state)
 
     acknowledge(state, request)
+  end
+
+  # `BlockTransformer.transformBlock` on the clicked block, in its owner:
+  # the entry's sound to the others near it and its particles, and the
+  # tool's wear in survival.
+  defp run(state, %{kind: :transform, request: request} = command) do
+    applied =
+      with %{} <- command.body,
+           {:ok, owner} <- owner(request.position),
+           {:ok, index} when index > 0 <-
+             Region.bucket(owner, {:transform, request.position, command.tool, request.face}) do
+        Valimc.Blocks.Transformers.entry(command.tool, index - 1)
+      else
+        _ -> nil
+      end
+
+    state =
+      case applied do
+        nil ->
+          CreativeInventory.resync_inventory(state)
+
+        entry ->
+          transformed(state, request.position, entry)
+          if command.mode == :survival, do: wear(state, command, entry), else: state
+      end
+
+    acknowledge(state, request)
+  end
+
+  defp transformed(state, {x, y, z} = position, entry) do
+    key = Grid.section(state.player.dimension, Grid.chunk_key(x, z))
+    at = {x + 0.5, y + 0.5, z + 0.5}
+    packet = Valimc.World.Sounds.packet(entry.sound, :block, at, :rand.uniform(1 <<< 62))
+    World.publish(key, {:sound, at, 16.0, packet, state.connection})
+
+    if entry.particle != 0,
+      do: World.publish(key, {:level_events, [{position, entry.particle, 0}], state.connection})
+  end
+
+  # A tool wears by the entry's damage (`hurtAndBreak`); a stackable item is
+  # used up instead, when the entry consumes it.
+  defp wear(state, command, entry) do
+    inventory = state.inventory
+    stack = Inventory.get(inventory, command.slot)
+
+    if stack != command.stack do
+      CreativeInventory.resync_inventory(state)
+    else
+      {next, broken} =
+        if Valimc.Protocol.ItemStack.max_stack_size(stack) > 1,
+          do: {used(stack, not entry.consume), nil},
+          else: Valimc.Living.Durability.hurt_and_break(stack, entry.damage, false)
+
+      {:ok, inventory} = Inventory.creative(inventory, command.slot, next)
+      state = %{state | inventory: inventory} |> CreativeInventory.resync_inventory()
+
+      if broken do
+        packet = Packets.item_break(state.player.entity_id, command.request.hand)
+        send_packets(state, [packet])
+        Valimc.Player.Movement.broadcast_player_packet(state, packet)
+      end
+
+      Valimc.Player.ItemUse.publish_equipment(state)
+    end
   end
 
   @doc "The portal item's use ended (`Valimc.World.Portal.Items`): it wears and is acknowledged."

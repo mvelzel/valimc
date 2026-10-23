@@ -53,7 +53,16 @@ import net.minecraft.world.ticks.TickPriority;
  *   propagule) on a small plot with flowers and obstacles about it, with `RandomSource.create(seed)`
  *   as the random: whether it grew, and the cell writes in order.
  *
- * Usage: GrowthOracle (facts|scenes|trees) OUT [COUNT [SEED]]
+ * - `transformers OUT`: the tools' block transformers (`BlockTransformer.transformBlock`: hoes
+ *   till, shovels flatten, axes strip, scrape and unwax): per item with a default
+ *   `block_transformer` its transformer; per transformer its entries in order, each with its
+ *   disallowed faces, sound, particle (level event, 0 none), loot table, drop strategy,
+ *   neighbour-shape update, transform type, consumption and item damage, and per clicked state
+ *   the state its provider gives with air (the `air` tag) above and with anything else above
+ *   (-1 none). The providers are checked to read nothing but the cell and the one above it and
+ *   no random.
+ *
+ * Usage: GrowthOracle (facts|scenes|trees|transformers) OUT [COUNT [SEED]]
  */
 public class GrowthOracle {
   static final int FLOOR_Y=60,MIN_X=120,MAX_X=136,MIN_Z=-8,MAX_Z=8;
@@ -169,6 +178,7 @@ public class GrowthOracle {
     switch(args[0]){
       case "facts"->facts(args[1]);
       case "scenes"->scenes(args[1],args.length>2?Integer.parseInt(args[2]):120,args.length>3?Long.parseLong(args[3]):39_001L);
+      case "transformers"->transformers(args[1]);
       case "trees"->trees(args[1],args.length>2?Integer.parseInt(args[2]):600,args.length>3?Long.parseLong(args[3]):39_002L);
       default->throw new IllegalArgumentException(args[0]);
     }
@@ -429,6 +439,61 @@ public class GrowthOracle {
     if(grown<count/3||failed<10||mega<count/5||flowered<count/5)
       throw new AssertionError("trees miss a case: grown "+grown+", failed "+failed+", mega "+mega+", flowers "+flowered);
     System.out.println("PASS: "+count+" trees; "+grown+" grown, "+failed+" failed, "+mega+" with a 2 x 2, "+flowered+" by flowers");
+  }
+
+  static void transformers(String out)throws Exception{
+    var probe=probe(0);var origin=new BlockPos(0,64,0);
+    var registry=probe.access.lookupOrThrow(net.minecraft.core.registries.Registries.BLOCK_TRANSFORMER);
+    var items=new TreeMap<String,String>();
+    for(var item:BuiltInRegistries.ITEM){
+      var holder=item.components().get(net.minecraft.core.component.DataComponents.BLOCK_TRANSFORMER);
+      if(holder!=null)items.put(BuiltInRegistries.ITEM.getKey(item).getPath(),holder.unwrapKey().orElseThrow().identifier().getPath());
+    }
+    var transformers=new JsonObject();int rows=0;
+    var keys=new ArrayList<>(registry.listElements().toList());
+    keys.sort(Comparator.comparing(h->h.key().identifier().toString()));
+    BlockState[] open={Blocks.AIR.defaultBlockState(),Blocks.CAVE_AIR.defaultBlockState()};
+    BlockState[] closed={Blocks.STONE.defaultBlockState(),Blocks.WATER.defaultBlockState(),Blocks.OAK_LEAVES.defaultBlockState()};
+    for(var holder:keys){
+      var entries=new JsonArray();
+      for(var data:holder.value().transforms()){
+        var json=new JsonObject();
+        var faces=new JsonArray();data.disallowedFaces().forEach(f->faces.add(f.getSerializedName()));json.add("disallowed_faces",faces);
+        json.addProperty("sound",data.sound().value().location().toString());
+        json.addProperty("particle",(int)field(data.particle(),net.minecraft.core.component.BlockTransformer.TransformParticle.class,"levelEvent"));
+        json.addProperty("loot",data.loot().map(k->k.identifier().toString()).orElse(null));
+        json.addProperty("drop",data.dropStrategy().getSerializedName());
+        json.addProperty("update_from_neighbors",data.updateFromNeighbors());
+        json.addProperty("type",data.transformType().getSerializedName());
+        json.addProperty("consume",data.consumeOnUse());
+        json.addProperty("damage",data.itemDamagePerUse());
+        var results=new JsonArray();
+        var provider=data.blockStateProvider().value();
+        for(int id=0;id<Block.BLOCK_STATE_REGISTRY.size();id++){
+          var state=Block.stateById(id);
+          int[] got=new int[2];
+          for(int a=0;a<2;a++){
+            var tops=a==0?open:closed;Integer seen=null;
+            for(var top:tops)for(boolean walls:new boolean[]{false,true})for(long seed:new long[]{1,2}){
+              probe.cells=new HashMap<>();probe.cells.put(origin,state);probe.cells.put(origin.above(),top);
+              if(walls)for(var d:Direction.values())if(d!=Direction.UP)probe.cells.put(origin.relative(d),Blocks.STONE.defaultBlockState());
+              var result=provider.getOptionalState(probe,RandomSource.create(seed),origin);
+              int value=result==null?-1:Block.getId(result);
+              if(seen!=null&&seen!=value)throw new AssertionError("a block transformer reads more than the cell and the one above: "+holder.key()+" "+state);
+              seen=value;
+            }
+            got[a]=seen;
+          }
+          if(got[0]!=-1||got[1]!=-1){var row=new JsonArray();row.add(id);row.add(got[0]);row.add(got[1]);results.add(row);rows++;}
+        }
+        json.add("results",results);entries.add(json);
+      }
+      transformers.add(holder.key().identifier().getPath(),entries);
+    }
+    var result=FluidOracle.stamped(Block.BLOCK_STATE_REGISTRY.size());
+    var i=new JsonObject();items.forEach(i::addProperty);result.add("items",i);result.add("transformers",transformers);
+    Files.writeString(Path.of(out),new GsonBuilder().create().toJson(result)+"\n");
+    System.out.println("PASS: "+keys.size()+" block transformers on "+items.size()+" items, "+rows+" transforming states");
   }
 
   static JsonArray action(String kind){var a=new JsonArray();a.add(kind);return a;}

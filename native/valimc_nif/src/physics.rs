@@ -425,6 +425,7 @@ struct TickedT {
     eye_water: bool,
     eye_state: u16,
     landing: Option<(u16, f64)>,
+    landing_pos: Option<(i32, i32, i32)>,
     fire_contacts: crate::player::FiresT,
     climbing: bool,
     /// The water and lava heights the move left.
@@ -597,6 +598,7 @@ fn mobs_step<'a>(
                     eye_water: t.eye_water,
                     eye_state: t.eye_state,
                     landing: t.landing,
+                    landing_pos: t.landing_pos.map(|p| (p[0], p[1], p[2])),
                     fire_contacts: crate::player::fires(&t.touched),
                     climbing: t.climbing,
                     depths: (t.depths.water, t.depths.lava),

@@ -7,8 +7,9 @@ defmodule Valimc.Entity.MobTicks do
   the players), then each mob's body rotation and looting
   (`Valimc.AI.settle/4`) and living rules (`Valimc.Entity.MobVitals`). The
   result is a store step per mob: its position, its new body, its entity
-  events and what its AI did beyond it (`effects`); a mob the kernel could
-  not tick (near a chunk it cannot read) has none.
+  events and what its AI did beyond it (`effects`, with farmland it
+  trampled, VMC-039a); a mob the kernel could not tick (near a chunk it
+  cannot read) has none.
   """
   alias Valimc.AI
   alias Valimc.Entity.{MobMotion, MobVitals}
@@ -75,7 +76,7 @@ defmodule Valimc.Entity.MobTicks do
             position: position,
             body: body,
             events: made ++ events ++ later,
-            effects: rest ++ more
+            effects: rest ++ more ++ trample(body, ticked)
           }
 
           step =
@@ -92,6 +93,19 @@ defmodule Valimc.Entity.MobTicks do
 
     {steps, world}
   end
+
+  # Farmland the mob landed on gives way (VMC-039a, `FarmlandBlock.fallOn`);
+  # the owner applies it while mob griefing is on.
+  defp trample(body, %{landing: {state, distance}, landing_pos: cell}) when cell != nil do
+    facts = Valimc.Data.EntityTypes.fetch(body.type)
+    roll = (:rand.uniform(16_777_216) - 1) / 16_777_216
+
+    if Valimc.Blocks.Farmland.tramples?(state, distance, {facts.width, facts.height}, roll),
+      do: [{:trample, cell}],
+      else: []
+  end
+
+  defp trample(_body, _ticked), do: []
 
   # Sounds and swings are the mob's entity events; the rest leaves it.
   defp split(effects) do

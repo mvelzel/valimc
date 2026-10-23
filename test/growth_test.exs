@@ -98,4 +98,50 @@ defmodule Valimc.GrowthTest do
     assert String.to_integer(value(blocks(owner, [wheat])[wheat], "age")) in 2..5
     assert {:ok, 0} = Region.bucket(owner, {:bone_meal, {x + 3, y - 2, z}})
   end
+
+  test "tools transform blocks; farmland trampled turns to dirt", %{
+    owner: owner,
+    origin: {x, y, z}
+  } do
+    [axe, hoe, shovel] = for name <- ~w(axe hoe shovel), do: tool(name)
+    log = Blocks.state("oak_log", %{"axis" => "x"})
+    {grass, covered, path, trodden} = {{x + 5, y, z}, {x + 6, y, z}, {x + 7, y, z}, {x + 8, y, z}}
+
+    edits = %{
+      {x + 5, y + 1, z + 2} => log,
+      {x + 6, y + 1, z} => Blocks.default_state("stone"),
+      trodden => Blocks.default_state("farmland")
+    }
+
+    {:ok, observed} = Region.observe_blocks(owner, Map.keys(edits))
+    {:ok, _} = Region.set_blocks(owner, observed.fence, edits)
+
+    # A hoe tills grass with air above, never from below; a shovel flattens.
+    assert {:ok, 0} = Region.bucket(owner, {:transform, grass, hoe, 0})
+    assert {:ok, 1} = Region.bucket(owner, {:transform, grass, hoe, 1})
+    assert {:ok, 0} = Region.bucket(owner, {:transform, covered, hoe, 1})
+    assert {:ok, 1} = Region.bucket(owner, {:transform, path, shovel, 2})
+    assert {:ok, 1} = Region.bucket(owner, {:transform, {x + 5, y + 1, z + 2}, axe, 4})
+    assert {:ok, 1} = Region.bucket(owner, {:trample, trodden})
+
+    after_use = blocks(owner, [grass, covered, path, {x + 5, y + 1, z + 2}, trodden])
+    assert name(after_use[grass]) == "farmland"
+    assert name(after_use[covered]) == "grass_block"
+    assert name(after_use[path]) == "dirt_path"
+    assert name(after_use[{x + 5, y + 1, z + 2}]) == "stripped_oak_log"
+    assert value(after_use[{x + 5, y + 1, z + 2}], "axis") == "x"
+    assert name(after_use[trodden]) == "dirt"
+  end
+
+  test "a landing tramples farmland by its distance and the body's size" do
+    farmland = Blocks.default_state("farmland")
+    refute Valimc.Blocks.Farmland.tramples?(farmland, 1.0, {0.6, 1.8}, 0.6)
+    assert Valimc.Blocks.Farmland.tramples?(farmland, 1.5, {0.6, 1.8}, 0.6)
+    refute Valimc.Blocks.Farmland.tramples?(farmland, 3.0, {0.4, 0.7}, 0.1)
+    refute Valimc.Blocks.Farmland.tramples?(Blocks.default_state("dirt"), 3.0, {0.6, 1.8}, 0.1)
+  end
+
+  defp tool(name) do
+    Valimc.Blocks.Transformers.tool(%{item_id: Valimc.Protocol.Data.item("iron_" <> name)})
+  end
 end

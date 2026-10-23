@@ -19,6 +19,7 @@ pub mod power;
 pub mod redstone;
 pub mod shapes;
 pub mod support;
+pub mod transform;
 pub mod updater;
 mod wire;
 
@@ -99,6 +100,8 @@ pub struct Rules {
     pub power: Option<power::PowerFacts>,
     /// Live play's growing plants (`priv/physics/growth.json`), when given.
     pub growth: Option<growth::Growth>,
+    /// Live play's tool transformers (`priv/physics/block_transformers.json`).
+    pub transformers: Option<transform::Transformers>,
     vine_block: u16,
     speleothems: BlockSet,
     /// Blocks that hold leaves at distance 0 (`prevents_nearby_leaf_decay`).
@@ -133,6 +136,7 @@ impl Rules {
             fluids: None,
             power: None,
             growth: None,
+            transformers: None,
             placement: None,
         })
     }
@@ -171,10 +175,15 @@ impl Rules {
             .get("growth")
             .map(|g| growth::Growth::new(&table, g))
             .transpose()?;
+        let transformers = json
+            .get("transformers")
+            .map(|t| transform::Transformers::parse(t, &table))
+            .transpose()?;
         let mut rules = Rules::new(table, support, shapes, live)?;
         rules.fluids = fluids;
         rules.power = power;
         rules.growth = growth;
+        rules.transformers = transformers;
         rules.placement = json.get("placement").map(Placement::parse).transpose()?;
         Ok(rules)
     }

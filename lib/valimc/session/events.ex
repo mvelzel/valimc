@@ -140,6 +140,11 @@ defmodule Valimc.Session.Events do
     state
   end
 
+  # Level events a player caused, but to its own client, which played them
+  # (`levelEvent(player, …)`, VMC-039a).
+  def view(state, {:level_events, _, except}) when except == state.connection, do: state
+  def view(state, {:level_events, events, _except}), do: view(state, {:level_events, events})
+
   # Vanilla broadcasts level events to players within 64 blocks of the block corner.
   def view(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
     packets =

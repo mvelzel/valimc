@@ -210,6 +210,7 @@ defmodule Valimc.Player.Movement do
       )
       |> monitor_pose_sources(result.sources)
       |> Valimc.Player.Vitals.apply_landing(result.landing)
+      |> Valimc.Player.Trampling.land(Map.get(result, :landed))
 
     if next.life_stage == :alive, do: %{next | pose_checked: pose_signature(next)}, else: next
   end

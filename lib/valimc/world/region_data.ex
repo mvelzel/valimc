@@ -1140,6 +1140,12 @@ defmodule Valimc.World.RegionData do
       # Mobs travel through portals (VMC-026d), standing in one too.
       {steps, state} = portal_contacts(state, steps)
 
+      # Farmland mobs trampled (VMC-039a), while mob griefing is on.
+      tramples =
+        if Valimc.World.GameRules.get(:mob_griefing),
+          do: for(step <- steps, {:trample, cell} <- step.effects, do: {:trample, cell}),
+          else: []
+
       steps =
         Enum.reject(steps, fn step ->
           %{entity: e, body: body} = store.entries[step.id]
@@ -1149,6 +1155,7 @@ defmodule Valimc.World.RegionData do
       state = route_bodies(state, steps)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
+      state = if tramples == [], do: state, else: elem(rule_run(state, %{actions: tramples}), 0)
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target} <- attacks,

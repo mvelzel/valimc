@@ -678,10 +678,13 @@ STAGES = [
         ('check', 'check_redstone.exs', '@redstone-scenes.json', '@day.json'),
     ]),
     # VMC-039a: crops, stems, sugar cane, cactus, farmland and saplings' stages by random ticks
-    # and bone meal on the block-update engine; the tree growers and saplings' trees.
+    # and bone meal on the block-update engine; the tree growers and saplings' trees; the tools'
+    # block transformers (tilling).
     ('growth', [
         ('regen', 'GrowthOracle', 'facts', '@growth.json'),
         ('same', '@growth.json', 'priv/physics/growth.json'),
+        ('regen', 'GrowthOracle', 'transformers', '@block-transformers.json'),
+        ('same', '@block-transformers.json', 'priv/physics/block_transformers.json'),
         ('java', 'GrowthOracle', 'scenes', '@growth-scenes.json'),
         ('check', 'check_growth.exs', '@growth-scenes.json'),
         ('java', 'GrowthOracle', 'trees', '@growth-trees.json'),

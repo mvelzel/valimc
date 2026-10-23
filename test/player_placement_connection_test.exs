@@ -361,4 +361,30 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestBlocks.get(c.target) == 0
     assert Valimc.TestConn.state(pid).inventory.slots == before
   end
+
+  test "a survival hoe tills grass and wears; bone meal grows the crop and is used up", c do
+    seed(c, :survival, %{36 => ItemStack.new("iron_hoe"), 37 => ItemStack.new("bone_meal", 3)})
+    {x, _, z} = c.target
+    grass = {x, 63, z}
+    {client, pid} = login(c)
+    wait(fn -> Valimc.Player.Input.loaded?(Valimc.TestConn.state(pid).player.input) end)
+
+    send_place(client, grass)
+    client = ack(client)
+    farmland = Valimc.Data.Blocks.default_state("farmland")
+    assert Valimc.TestBlocks.get(grass) == farmland
+    hoe = Valimc.TestConn.state(pid).inventory.slots[36]
+    assert hoe.item_id == Valimc.Protocol.Data.item("iron_hoe")
+    assert hoe.components["minecraft:damage"] == 1
+
+    :ok = Valimc.TestBlocks.set({x, 64, z}, Valimc.Data.Blocks.default_state("wheat"))
+    Client.send_packet(client, :play, "set_carried_item", <<1::16>>)
+    wait(fn -> Valimc.TestConn.state(pid).inventory.selected == 1 end)
+    send_place(client, {x, 64, z}, 1, 0.5, 0, 2)
+    _client = ack(client, 2)
+    wheat = Valimc.TestBlocks.get({x, 64, z})
+    assert {"age", age} = List.keyfind(Valimc.Data.Blocks.properties(wheat), "age", 0)
+    assert String.to_integer(age) in 2..5
+    assert Valimc.TestConn.state(pid).inventory.slots[37] == ItemStack.new("bone_meal", 2)
+  end
 end

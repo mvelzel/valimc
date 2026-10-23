@@ -172,4 +172,27 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert living(pid).health.value == 20.0 and
              state(pid).player.motion.fall_distance == 8.0
   end
+
+  test "a fall onto farmland tramples it to dirt and lifts the player onto it", ctx do
+    {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [{x, 63, z}])
+
+    {:ok, _} =
+      Valimc.World.Region.set_blocks(owner, observed.fence, %{
+        {x, 63, z} => Valimc.Data.Blocks.default_state("farmland")
+      })
+
+    seed(ctx, y: 72.0)
+    {client, pid} = login(ctx)
+    # Falling to just above it, then the landing (which lifts the player).
+    move(client, pid, 66.0, 0)
+    wait(fn -> state(pid).player.y == 66.0 end)
+    move(client, pid, 63.9375, 1)
+
+    wait(fn ->
+      Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(Valimc.TestBlocks.get({x, 63, z}))) ==
+        "dirt" and state(pid).player.y == 64.0
+    end)
+  end
 end

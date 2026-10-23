@@ -85,6 +85,15 @@ defmodule Valimc.MobTravelRegionTest do
     assert e.body.mob.motion.fall_distance == 0.0
   end
 
+  test "a zombie falling onto farmland tramples it to dirt (VMC-039a)", ctx do
+    {x, z} = ctx.at
+    cell = {floor(x), 63, floor(z)}
+    Valimc.TestBlocks.set(cell, Valimc.Data.Blocks.default_state("farmland"))
+    summon(ctx, <<1::128>>, {x, 70.0, z})
+    step(ctx, 30)
+    assert Valimc.TestBlocks.get(cell) == Valimc.Data.Blocks.default_state("dirt")
+  end
+
   test "two overlapping zombies push each other apart", ctx do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x, 64.0, z})
