@@ -51,7 +51,7 @@ pub enum Placement {
 
 impl Placement {
     /// What the generator grows for `generated` at `pos` (VMC-039a,
-    /// VMC-039b): the placement and the cell it is placed at.
+    /// VMC-039b, VMC-039c): the placement and the cell it is placed at.
     pub fn grown(generated: Generated, pos: [i32; 3]) -> (Placement, [i32; 3]) {
         match generated {
             Generated::Tree(grower) => (Placement::Sapling(grower.clone()), pos),
@@ -61,6 +61,7 @@ impl Placement {
                 Placement::Feature(id.to_string()),
                 [pos[0], pos[1] + 1, pos[2]],
             ),
+            Generated::At(id) => (Placement::Feature(id.to_string()), pos),
         }
     }
 }

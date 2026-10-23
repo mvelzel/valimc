@@ -582,10 +582,13 @@ impl NeighborSpread {
     }
 }
 
-/// `HugeFungusFeature` as world generation places it (not planted): a stem,
-/// a hat with decor blocks and, under nether wart hats, weeping vines.
+/// `HugeFungusFeature`: a stem, a hat with decor blocks and, under nether
+/// wart hats, weeping vines. A planted one (bone meal on a fungus,
+/// VMC-039c) is never huge, ignores the generator's depth and destroys what
+/// it grows through over a block (the destroyed blocks drop nothing here).
 #[derive(Debug)]
 pub struct HugeFungus {
+    planted: bool,
     valid_base: u16,
     stem: u16,
     hat: u16,
@@ -597,10 +600,8 @@ pub struct HugeFungus {
 
 impl HugeFungus {
     pub fn parse(json: &Json, table: &BlockTable) -> Result<HugeFungus, String> {
-        if json.get("planted").is_some_and(|p| p.as_bool() == Ok(true)) {
-            return Err("planted huge fungi grow from saplings, not decoration".into());
-        }
         Ok(HugeFungus {
+            planted: json.get("planted").is_some_and(|p| p.as_bool() == Ok(true)),
             valid_base: table.block_of(table.state(json.field("valid_base_block")?)?),
             stem: table.state(json.field("stem_state")?)?,
             hat: table.state(json.field("hat_state")?)?,
@@ -640,10 +641,10 @@ impl HugeFungus {
             height *= 2;
         }
         // The generator's depth (`getGenDepth`).
-        if origin[1] + height + 1 >= d.context().height {
+        if !self.planted && origin[1] + height + 1 >= d.context().height {
             return Ok(false);
         }
-        let huge = random.next_float() < 0.06;
+        let huge = !self.planted && random.next_float() < 0.06;
         region.set(origin, region.air, 260);
         self.place_stem(d, region, random, origin, height, huge);
         self.place_hat(d, region, random, origin, height, huge)?;
@@ -668,7 +669,10 @@ impl HugeFungus {
                     if !self.is_replaceable(d, region, pos, true) {
                         continue;
                     }
-                    if !corner || random.next_float() < 0.1 {
+                    if self.planted {
+                        self.destroy_over_block(d, region, pos);
+                        region.set(pos, self.stem, 3);
+                    } else if !corner || random.next_float() < 0.1 {
                         region.set(pos, self.stem, 3);
                     }
                 }
@@ -712,6 +716,9 @@ impl HugeFungus {
                     if !self.is_replaceable(d, region, pos, false) {
                         continue;
                     }
+                    if self.planted {
+                        self.destroy_over_block(d, region, pos);
+                    }
                     let vine = |p: f32| if vines { p } else { 0.0 };
                     if bottom {
                         if !inside {
@@ -728,6 +735,16 @@ impl HugeFungus {
             }
         }
         Ok(())
+    }
+
+    /// A planted fungus's `destroyBlock` of a cell over a block: what was
+    /// there gives way to its fluid.
+    fn destroy_over_block(&self, d: &Decoration, region: &mut Region, pos: [i32; 3]) {
+        let table = d.table.as_ref();
+        let here = region.get(pos);
+        if !region.is_air_at(offset(pos, [0, -1, 0])) && !table.is_air(here) {
+            region.set(pos, table.remains[here as usize], 3);
+        }
     }
 
     fn place_hat_block(

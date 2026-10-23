@@ -322,8 +322,7 @@ defmodule Valimc.Player.Placement do
   # A tool wears by the entry's damage (`hurtAndBreak`); a stackable item is
   # used up instead, when the entry consumes it.
   defp wear(state, command, entry) do
-    inventory = state.inventory
-    stack = Inventory.get(inventory, command.slot)
+    stack = Inventory.get(state.inventory, command.slot)
 
     if stack != command.stack do
       CreativeInventory.resync_inventory(state)
@@ -333,17 +332,36 @@ defmodule Valimc.Player.Placement do
           do: {used(stack, not entry.consume), nil},
           else: Valimc.Living.Durability.hurt_and_break(stack, entry.damage, false)
 
-      {:ok, inventory} = Inventory.creative(inventory, command.slot, next)
-      state = %{state | inventory: inventory} |> CreativeInventory.resync_inventory()
-
-      if broken do
-        packet = Packets.item_break(state.player.entity_id, command.request.hand)
-        send_packets(state, [packet])
-        Valimc.Player.Movement.broadcast_player_packet(state, packet)
-      end
-
-      Valimc.Player.ItemUse.publish_equipment(state)
+      worn(state, command.slot, command.request.hand, next, broken)
     end
+  end
+
+  @doc """
+  The item held in `hand` wears by `cost` (`hurtAndBreak`; VMC-039c: shears
+  on a beehive or pumpkin), unless the player has infinite materials.
+  """
+  def wear_held(state, hand, cost) do
+    slot = if hand == :off, do: 45, else: 36 + state.inventory.selected
+    stack = Inventory.get(state.inventory, slot)
+    infinite = state.inventory.infinite_materials
+
+    case Valimc.Living.Durability.hurt_and_break(stack, cost, infinite) do
+      {^stack, nil} -> state
+      {next, broken} -> worn(state, slot, hand, next, broken)
+    end
+  end
+
+  defp worn(state, slot, hand, next, broken) do
+    {:ok, inventory} = Inventory.creative(state.inventory, slot, next)
+    state = %{state | inventory: inventory} |> CreativeInventory.resync_inventory()
+
+    if broken do
+      packet = Packets.item_break(state.player.entity_id, hand)
+      send_packets(state, [packet])
+      Valimc.Player.Movement.broadcast_player_packet(state, packet)
+    end
+
+    Valimc.Player.ItemUse.publish_equipment(state)
   end
 
   @doc "The portal item's use ended (`Valimc.World.Portal.Items`): it wears and is acknowledged."

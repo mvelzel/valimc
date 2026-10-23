@@ -41,7 +41,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 | Combat | Living damage, a projectile kernel, orb motion | 037n → 037o → 034n4c → 026d |
 | World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
 | Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
-| Blocks | Block rules, placement, mining | 029e → 039a → 039b → 032b |
+| Blocks | Block rules, placement, mining | 029e → 039a → 039b → 039c → 032b |
 | Fluids | A fluid module, fluid ticks | 031a → 031b |
 | Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
 | Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
@@ -57,7 +57,8 @@ Phases:
 5. **Last:** 045a, then the gate.
 
 When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
-043c, 042b, 048a, 043d, 039a, 039b, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
+043c, 042b, 048a, 043d, 039a, 039b, 039c, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
+
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused
@@ -69,6 +70,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
+| [VMC-039c](tickets/VMC-039c.md) | Bone meal grows bamboo, glow lichen, a big dripleaf and a huge fungus, turns netherrack to nylium; shears carve a pumpkin and empty a hive |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes |
 | [VMC-043b1](tickets/VMC-043b1.md), [043b3](tickets/VMC-043b3.md) | Skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |

@@ -1,5 +1,6 @@
 # Blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms,
-# structure pieces' palettes), for `ShapeOracle`: their states join the analyzed set
+# structure pieces' palettes) and blocks only play grows (bamboo saplings, VMC-039c), for
+# `ShapeOracle`: their states join the analyzed set
 # when their class overrides `updateShape`. Kept here instead of scanned from
 # `native/` so worldgen edits do not invalidate the cached extraction; `check_vanilla.py
 # --audit` fails when the worldgen code names a block this list lacks.
@@ -7,6 +8,7 @@ acacia_fence
 air
 andesite
 bamboo
+bamboo_sapling
 barrier
 bedrock
 bee_nest

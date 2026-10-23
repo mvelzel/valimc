@@ -27,6 +27,38 @@ fn with(table: &BlockTable, state: u16, property: &str, value: &str) -> u16 {
     table.with(state, property, value).unwrap_or(state)
 }
 
+/// The face properties of a multiface block, in `STEP` order.
+const FACES: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
+
+/// `MultifaceBlock.hasFace`.
+fn has_face(table: &BlockTable, state: u16, face: usize) -> bool {
+    table.value(state, FACES[face]) == Some("true")
+}
+
+/// A big dripleaf or its stem (`block`'s default state) facing `facing`,
+/// waterlogged when the cell held a water source.
+fn dripleaf(table: &BlockTable, block: u16, facing: &str, wet: bool) -> u16 {
+    let state = with(table, block, "facing", facing);
+    with(
+        table,
+        state,
+        "waterlogged",
+        if wet { "true" } else { "false" },
+    )
+}
+
+impl super::growth::Growth {
+    /// `BambooSaplingBlock.growBamboo`'s stalk: bamboo with small leaves.
+    fn bamboo_shoot(&self, table: &BlockTable) -> u16 {
+        with(
+            table,
+            table.default_state_of(self.bamboo),
+            "leaves",
+            "small",
+        )
+    }
+}
+
 fn is_water(table: &BlockTable, state: u16) -> bool {
     let fluid = table.fluid(state);
     fluid == FLUID_WATER || fluid == FLUID_FLOWING_WATER
@@ -143,7 +175,104 @@ impl<W: World> Engine<'_, W> {
                 }
                 Plan::set(target, grown, ALL)
             }
+            Kind::BambooSapling | Kind::Bamboo => {
+                let sapling = kind == Kind::BambooSapling;
+                if !sapling && int(table, state, "stage") != 0 {
+                    return Plan::default();
+                }
+                if self.world.next_int(3) != 0
+                    || !table.is_air(self.world.get(above))
+                    || self.raw_brightness(above, 0) < 9
+                {
+                    return Plan::default();
+                }
+                if sapling {
+                    return Plan::set(above, growth.bamboo_shoot(table), ALL);
+                }
+                let height = self.bamboo_below(pos) + 1;
+                let mut plan = Plan::default();
+                if height < 16 {
+                    self.grow_bamboo(&mut plan, pos, state, height);
+                }
+                plan
+            }
             _ => Plan::default(),
+        }
+    }
+
+    /// `getHeightBelowUpToMax`: the bamboo under `pos`, at most 16.
+    fn bamboo_below(&mut self, pos: [i32; 3]) -> i32 {
+        self.bamboo_run(pos, -1)
+    }
+
+    /// The bamboo in a row from `pos` toward `step` (not counting `pos`), at
+    /// most 16 (`getHeightAboveUpToMax`, `getHeightBelowUpToMax`).
+    fn bamboo_run(&mut self, pos: [i32; 3], step: i32) -> i32 {
+        let rules = self.rules;
+        let bamboo = rules.growth.as_ref().expect("growth facts").bamboo;
+        let mut height = 0;
+        while height < 16
+            && rules
+                .table
+                .block_of(self.world.get(offset(pos, 0, step * (height + 1), 0)))
+                == bamboo
+        {
+            height += 1;
+        }
+        height
+    }
+
+    /// `BambooStalkBlock.growBamboo` from the top stalk `pos` (`state`) of a
+    /// stalk `height` tall: its leaves move up, and the new stalk above it.
+    /// A thicker stalk's shape update thickens the stalk below it (`updateShape`
+    /// cycles its age), which the plan's reads see.
+    fn grow_bamboo(&mut self, plan: &mut Plan, pos: [i32; 3], state: u16, height: i32) {
+        let rules = self.rules;
+        let table = rules.table.as_ref();
+        let bamboo = rules.growth.as_ref().expect("growth facts").bamboo;
+        let below_pos = offset(pos, 0, -1, 0);
+        let two_below_pos = offset(pos, 0, -2, 0);
+        let below = plan.get(&mut self.world, below_pos);
+        let two_below = plan.get(&mut self.world, two_below_pos);
+        let is_bamboo = |s: u16| table.block_of(s) == bamboo;
+        let mut leaves = "none";
+        if height >= 1 {
+            if !is_bamboo(below) || table.value(below, "leaves") == Some("none") {
+                leaves = "small";
+            } else {
+                leaves = "large";
+                if is_bamboo(two_below) {
+                    plan.writes
+                        .push((below_pos, with(table, below, "leaves", "small"), ALL));
+                    plan.writes.push((
+                        two_below_pos,
+                        with(table, two_below, "leaves", "none"),
+                        ALL,
+                    ));
+                }
+            }
+        }
+        let age = i32::from(int(table, state, "age") == 1 || is_bamboo(two_below));
+        let stage = if (height < 11 || self.world.next_float() >= 0.25) && height != 15 {
+            0
+        } else {
+            1
+        };
+        let grown = table.default_state_of(bamboo);
+        let grown = with_int(table, with(table, grown, "leaves", leaves), "age", age);
+        let above = offset(pos, 0, 1, 0);
+        plan.writes
+            .push((above, with_int(table, grown, "stage", stage), ALL));
+        // `updateShape` from above: each thinner stalk below thickens.
+        let mut cell = pos;
+        loop {
+            let here = plan.get(&mut self.world, cell);
+            if !is_bamboo(here) || int(table, here, "age") >= age {
+                break;
+            }
+            plan.writes
+                .push((cell, with_int(table, here, "age", age), ALL));
+            cell = offset(cell, 0, -1, 0);
         }
     }
 
@@ -345,8 +474,338 @@ impl<W: World> Engine<'_, W> {
                     Plan::default()
                 })
             }
+            Kind::Fungus(index) => {
+                let base = growth.fungi[index].1;
+                if table.block_of(self.world.get(below)) != base || !inside(above[1]) {
+                    return None;
+                }
+                Some(if self.world.next_float() < 0.4 {
+                    Plan::grow()
+                } else {
+                    Plan::default()
+                })
+            }
+            Kind::BambooSapling => (table.is_air(self.world.get(above)) && inside(above[1]))
+                .then(|| Plan::set(above, growth.bamboo_shoot(table), ALL)),
+            Kind::Bamboo => self.bamboo_bone_meal(pos),
+            Kind::Lichen => self.spread_lichen(pos, state),
+            Kind::SmallDripleaf => {
+                let (pos, lower) = if table.value(state, "half") == Some("lower") {
+                    (pos, state)
+                } else {
+                    let lower = self.world.get(below);
+                    if table.block_of(lower) != growth.small_dripleaf
+                        || table.value(lower, "half") != Some("lower")
+                    {
+                        // Vanilla's recursion fails on anything else.
+                        return Some(Plan::default());
+                    }
+                    (below, lower)
+                };
+                Some(self.grow_small_dripleaf(pos, lower))
+            }
+            Kind::BigDripleaf => {
+                if !self.dripleaf_grows_into(above) {
+                    return None;
+                }
+                let facing = table.value(state, "facing").unwrap_or("north");
+                let wet = table.fluid(state) == FLUID_WATER;
+                let leaf_wet = table.fluid(self.world.get(above)) == FLUID_WATER;
+                Some(Plan {
+                    writes: vec![
+                        (pos, dripleaf(table, growth.dripleaf_stem, facing, wet), ALL),
+                        (
+                            above,
+                            dripleaf(table, growth.big_dripleaf, facing, leaf_wet),
+                            ALL,
+                        ),
+                    ],
+                    ..Plan::default()
+                })
+            }
+            Kind::DripleafStem => {
+                // `BlockUtil.getTopConnectedBlock`: the leaf over the stem.
+                let mut head = pos;
+                let mut head_state;
+                loop {
+                    head = offset(head, 0, 1, 0);
+                    head_state = self.world.get(head);
+                    if table.block_of(head_state) != table.block_of(growth.dripleaf_stem) {
+                        break;
+                    }
+                }
+                let top = offset(head, 0, 1, 0);
+                if table.block_of(head_state) != table.block_of(growth.big_dripleaf)
+                    || !self.dripleaf_grows_into(top)
+                {
+                    return None;
+                }
+                // The clicked stem's facing.
+                let facing = table.value(state, "facing").unwrap_or("north");
+                let wet = table.fluid(head_state) == FLUID_WATER;
+                let top_wet = table.fluid(self.world.get(top)) == FLUID_WATER;
+                Some(Plan {
+                    writes: vec![
+                        (
+                            head,
+                            dripleaf(table, growth.dripleaf_stem, facing, wet),
+                            ALL,
+                        ),
+                        (
+                            top,
+                            dripleaf(table, growth.big_dripleaf, facing, top_wet),
+                            ALL,
+                        ),
+                    ],
+                    ..Plan::default()
+                })
+            }
+            Kind::Netherrack => {
+                if !growth.skylight[self.world.get(above) as usize] {
+                    return None;
+                }
+                // `findBlocksIn` the 3 × 3 × 3 about it (the `nylium` tag);
+                // the order only decides when the scan stops.
+                let (mut crimson, mut warped) = (false, false);
+                for dz in -1..=1 {
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let block = table.block_of(self.world.get(offset(pos, dx, dy, dz)));
+                            if growth.nylium.contains(block) {
+                                warped |= block == table.block_of(growth.warped_nylium);
+                                crimson |= block == table.block_of(growth.crimson_nylium);
+                            }
+                        }
+                    }
+                }
+                if !crimson && !warped {
+                    return None;
+                }
+                let grown = match (crimson, warped) {
+                    (true, true) => {
+                        if self.world.next_int(2) == 1 {
+                            growth.warped_nylium
+                        } else {
+                            growth.crimson_nylium
+                        }
+                    }
+                    (false, true) => growth.warped_nylium,
+                    _ => growth.crimson_nylium,
+                };
+                Some(Plan::set(pos, grown, ALL))
+            }
+            Kind::HangingMoss => {
+                // `getTip`: the last moss below it, and the cell under that.
+                let block = table.block_of(state);
+                let mut cell = below;
+                while table.block_of(self.world.get(cell)) == block {
+                    cell = offset(cell, 0, -1, 0);
+                }
+                (table.is_air(self.world.get(cell)) && inside(cell[1]))
+                    .then(|| Plan::set(cell, with(table, state, "tip", "true"), ALL))
+            }
+            Kind::MossCarpet => {
+                if table.value(state, "bottom") != Some("true") {
+                    return None;
+                }
+                let carpet = crate::worldgen::multiface::MossyCarpet::new(table).ok()?;
+                let topper = carpet.grown(&mut |p| self.world.get(p), pos)?;
+                Some(Plan::set(above, topper, ALL))
+            }
             _ => None,
         }
+    }
+
+    /// `BambooStalkBlock` bone meal at `pos`: one or two stalks more on the
+    /// top of its stalk, while it is shorter than 16 and still growing.
+    fn bamboo_bone_meal(&mut self, pos: [i32; 3]) -> Option<Plan> {
+        let table = self.rules.table.as_ref();
+        let height_above = self.bamboo_run(pos, 1);
+        let height_below = self.bamboo_below(pos);
+        let total = height_above + height_below + 1;
+        let top = offset(pos, 0, height_above, 0);
+        let growth_pos = offset(top, 0, 1, 0);
+        if total >= 16
+            || int(table, self.world.get(top), "stage") == 1
+            || !inside(growth_pos[1])
+            || !table.is_air(self.world.get(growth_pos))
+        {
+            return None;
+        }
+        let mut plan = Plan::default();
+        let count = 1 + self.world.next_int(2);
+        for grown in 0..count {
+            let top = offset(pos, 0, height_above + grown, 0);
+            let top_state = plan.get(&mut self.world, top);
+            let growth_pos = offset(top, 0, 1, 0);
+            if total + grown >= 16
+                || int(table, top_state, "stage") == 1
+                || !table.is_air(plan.get(&mut self.world, growth_pos))
+                || !inside(growth_pos[1])
+            {
+                break;
+            }
+            self.grow_bamboo(&mut plan, top, top_state, total + grown);
+        }
+        Some(plan)
+    }
+
+    /// `BigDripleafBlock.canGrowInto`: inside the build height, air, water or
+    /// a small dripleaf.
+    fn dripleaf_grows_into(&mut self, pos: [i32; 3]) -> bool {
+        let rules = self.rules;
+        let table = rules.table.as_ref();
+        let growth = rules.growth.as_ref().expect("growth facts");
+        let state = self.world.get(pos);
+        inside(pos[1])
+            && (table.is_air(state)
+                || table.block_of(state) == growth.water
+                || table.block_of(state) == growth.small_dripleaf)
+    }
+
+    /// `SmallDripleafBlock.performBonemeal` on its lower half `pos`: the upper
+    /// half gives way to its fluid, and a big dripleaf two to five tall grows
+    /// in its place (`BigDripleafBlock.placeWithRandomHeight`).
+    fn grow_small_dripleaf(&mut self, pos: [i32; 3], lower: u16) -> Plan {
+        let rules = self.rules;
+        let table = rules.table.as_ref();
+        let growth = rules.growth.as_ref().expect("growth facts");
+        let above = offset(pos, 0, 1, 0);
+        let upper = self.world.get(above);
+        // `UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE`.
+        let mut plan = Plan::set(above, table.remains[upper as usize], CLIENTS | 16);
+        let facing = table.value(lower, "facing").unwrap_or("north");
+        let desired = self.world.next_int(4) + 2;
+        let mut height = 0;
+        while height < desired {
+            let cell = offset(pos, 0, height, 0);
+            let state = plan.get(&mut self.world, cell);
+            let fits = inside(cell[1])
+                && (table.is_air(state)
+                    || table.block_of(state) == growth.water
+                    || table.block_of(state) == growth.small_dripleaf);
+            if !fits {
+                break;
+            }
+            height += 1;
+        }
+        for dy in 0..height {
+            let cell = offset(pos, 0, dy, 0);
+            let wet = table.fluid(plan.get(&mut self.world, cell)) == FLUID_WATER;
+            let block = if dy + 1 < height {
+                growth.dripleaf_stem
+            } else {
+                growth.big_dripleaf
+            };
+            plan.writes
+                .push((cell, dripleaf(table, block, facing, wet), ALL));
+        }
+        plan
+    }
+
+    /// `MultifaceSpreader.spreadFromRandomFaceTowardRandomDirection` of the
+    /// glow lichen at `pos`: `None` when it can spread nowhere
+    /// (`isValidBonemealTarget`).
+    fn spread_lichen(&mut self, pos: [i32; 3], state: u16) -> Option<Plan> {
+        let valid = (0..6).any(|face| {
+            (0..6).any(|spread| self.lichen_spread(pos, state, face ^ 1, spread).is_some())
+        });
+        if !valid {
+            return None;
+        }
+        let table = self.rules.table.as_ref();
+        let faces = self.shuffled_directions();
+        for face in faces {
+            if !has_face(table, state, face) {
+                continue;
+            }
+            // Each face shuffles the spread directions anew, lazily.
+            for spread in self.shuffled_directions() {
+                let Some((cell, to)) = self.lichen_spread(pos, state, face, spread) else {
+                    continue;
+                };
+                // `placeBlock`: `getStateForPlacement` on what is there now.
+                let old = self.world.get(cell);
+                if let Some(placed) = self.lichen_placement(old, cell, to) {
+                    return Some(Plan::set(cell, placed, CLIENTS));
+                }
+            }
+        }
+        Some(Plan::default())
+    }
+
+    /// `Direction.allShuffled`.
+    fn shuffled_directions(&mut self) -> [usize; 6] {
+        let mut order = [0, 1, 2, 3, 4, 5];
+        for i in (2..=6).rev() {
+            let swap = self.world.next_int(i as i32) as usize;
+            order.swap(i - 1, swap);
+        }
+        order
+    }
+
+    /// `getSpreadFromFaceTowardDirection` with `canSpreadInto`: where the
+    /// lichen's face `from` spreads toward `spread`, as a cell and the face
+    /// it gains there.
+    fn lichen_spread(
+        &mut self,
+        pos: [i32; 3],
+        state: u16,
+        from: usize,
+        spread: usize,
+    ) -> Option<([i32; 3], usize)> {
+        let rules = self.rules;
+        let table = rules.table.as_ref();
+        let water = rules.growth.as_ref().expect("growth facts").water;
+        if spread / 2 == from / 2 || !has_face(table, state, from) || has_face(table, state, spread)
+        {
+            return None;
+        }
+        let beside = super::at(pos, spread);
+        // Same position, same plane, wrapped around.
+        for (cell, face) in [
+            (pos, spread),
+            (beside, from),
+            (super::at(beside, from), spread ^ 1),
+        ] {
+            let existing = self.world.get(cell);
+            let replaceable = table.is_air(existing)
+                || table.block_of(existing) == table.block_of(state)
+                || (table.block_of(existing) == water && table.fluid(existing) == FLUID_WATER);
+            if replaceable && self.lichen_valid(existing, cell, face, table.block_of(state)) {
+                return Some((cell, face));
+            }
+        }
+        None
+    }
+
+    /// `MultifaceBlock.isValidStateForPlacement`: the face is new and its
+    /// neighbour holds it.
+    fn lichen_valid(&mut self, old: u16, cell: [i32; 3], face: usize, lichen: u16) -> bool {
+        let table = self.rules.table.as_ref();
+        if table.block_of(old) == lichen && has_face(table, old, face) {
+            return false;
+        }
+        let neighbour = self.world.get(super::at(cell, face));
+        crate::worldgen::multiface::attaches(table, neighbour, face)
+    }
+
+    /// `MultifaceBlock.getStateForPlacement(old, level, cell, face)`.
+    fn lichen_placement(&mut self, old: u16, cell: [i32; 3], face: usize) -> Option<u16> {
+        let rules = self.rules;
+        let table = rules.table.as_ref();
+        let lichen = table.block("glow_lichen").ok()?;
+        if !self.lichen_valid(old, cell, face, lichen) {
+            return None;
+        }
+        let base = if table.block_of(old) == lichen {
+            old
+        } else if table.fluid(old) == FLUID_WATER {
+            with(table, table.default_state_of(lichen), "waterlogged", "true")
+        } else {
+            table.default_state_of(lichen)
+        };
+        Some(with(table, base, FACES[face], "true"))
     }
 
     /// `GrowingPlantHeadBlock.performBonemeal` at the head `pos`, when its
@@ -578,6 +1037,33 @@ impl<W: World> Engine<'_, W> {
             _ => return 0,
         };
         self.set_block(pos, picked, CLIENTS, super::updater::UPDATE_LIMIT);
+        1
+    }
+
+    /// Shears used on the block at `pos` (VMC-039c): a full beehive or bee
+    /// nest empties (`resetHoneyLevel`), a pumpkin is carved facing `facing`
+    /// (`STEP` index; `PumpkinBlock.useItemOn`). 1 when it did (the loot,
+    /// sound and the shears' wear are the caller's), else 0.
+    pub fn shear(&mut self, pos: [i32; 3], facing: usize) -> i32 {
+        let table = self.rules.table.as_ref();
+        if !self.world.owns(pos) || facing > 5 {
+            return 0;
+        }
+        let state = self.world.get(pos);
+        let name = table.names[table.block_of(state) as usize].as_str();
+        let (sheared, flags) = match name {
+            "minecraft:beehive" | "minecraft:bee_nest" if int(table, state, "honey_level") >= 5 => {
+                (with_int(table, state, "honey_level", 0), ALL)
+            }
+            "minecraft:pumpkin" => {
+                let Ok(carved) = table.default_state("carved_pumpkin") else {
+                    return 0;
+                };
+                (with(table, carved, "facing", FACES[facing]), ALL | 8)
+            }
+            _ => return 0,
+        };
+        self.set_block(pos, sheared, flags, super::updater::UPDATE_LIMIT);
         1
     }
 

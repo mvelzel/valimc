@@ -1,13 +1,15 @@
 defmodule Valimc.World.Growth do
   @moduledoc """
-  Plants that grow in a group (VMC-039a, VMC-039b): crops, pumpkin and
-  melon stems, sugar cane, cactus, farmland, saplings and mangrove
-  propagules, grass blocks, mycelium and nylium, torchflowers, pitcher crops,
-  nether wart, cocoa, sweet berries, kelp and the vines.
+  Plants that grow in a group (VMC-039a, VMC-039b, VMC-039c): crops,
+  pumpkin and melon stems, sugar cane, cactus, farmland, saplings and
+  mangrove propagules, grass blocks, mycelium and nylium, torchflowers,
+  pitcher crops, nether wart, cocoa, sweet berries, kelp, the vines and
+  bamboo.
 
   Their random ticks and bone meal run in the block rules
   (`valimc_core::rules::growth` and `plants`); what those hand the generator
-  (trees, what bone meal places on a grass block, nylium, moss or a mushroom)
+  (trees, what bone meal places on a grass block, nylium, moss, a mushroom
+  or a fungus)
   grows here in a task. This module also says which states the native
   sampler hands the rules (the randomly ticking states of those blocks, from
   `priv/physics/random_ticking.json`) and what a farmland's tick reads beyond
@@ -24,7 +26,8 @@ defmodule Valimc.World.Growth do
   @blocks MapSet.new(
             ~w(wheat carrots potatoes beetroots pumpkin_stem melon_stem sugar_cane cactus farmland
                grass_block mycelium crimson_nylium warped_nylium torchflower_crop pitcher_crop
-               nether_wart cocoa sweet_berry_bush kelp weeping_vines twisting_vines cave_vines) ++
+               nether_wart cocoa sweet_berry_bush kelp weeping_vines twisting_vines cave_vines
+               bamboo_sapling bamboo) ++
               Map.keys(@growth_facts["saplings"])
           )
 
@@ -96,7 +99,8 @@ defmodule Valimc.World.Growth do
   @doc """
   Grow what the generator grows at `position` in `dimension`
   (synchronously): a sapling's or azalea's tree, or what bone meal places on
-  a grass block, nylium, moss or a mushroom (VMC-039b), with the generator's
+  a grass block, nylium, moss, a mushroom (VMC-039b) or a fungus (its huge
+  fungus, VMC-039c), with the generator's
   own random; `:ok`, or `{:error, reason}` with nothing changed.
   """
   def generate(dimension, {x, _, z} = position) do

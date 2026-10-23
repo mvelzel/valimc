@@ -214,8 +214,10 @@ public class SupportOracle {
     if(warm==null){
       // Worldgen rules read the block's own cell too, so a rule may need two cells right at
       // once (tall seagrass: a sturdy floor and water in place): common states seed the search.
+      // A live rule may need two neighbours at once too (a big dripleaf stem: stem or soil below
+      // and stem or leaf above, VMC-039c): the block itself seeds it beside air.
       reps.add(WORLDGEN?List.of(AIR,Blocks.STONE.defaultBlockState(),Blocks.WATER.defaultBlockState(),Blocks.LAVA.defaultBlockState(),
-          Blocks.GRASS_BLOCK.defaultBlockState(),Blocks.DIRT.defaultBlockState(),Blocks.SAND.defaultBlockState()):List.of(AIR));
+          Blocks.GRASS_BLOCK.defaultBlockState(),Blocks.DIRT.defaultBlockState(),Blocks.SAND.defaultBlockState()):s.isAir()?List.of(AIR):List.of(AIR,s));
       classes.add(null);return;
     }
     var first=new ArrayList<BlockState>();

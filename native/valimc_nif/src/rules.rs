@@ -173,6 +173,10 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                     }
                 }
                 17 => Action::Moving { pos },
+                18 => Action::Shear {
+                    pos,
+                    facing: r[13] as usize,
+                },
                 _ => return Err(atoms::invalid_positions()),
             })
         })

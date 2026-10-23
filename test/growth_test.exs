@@ -205,6 +205,49 @@ defmodule Valimc.GrowthTest do
     assert {roots, 1} in items
   end
 
+  test "shears carve a pumpkin; a fungus grows its huge fungus",
+       %{owner: owner, origin: {x, y, z}} do
+    {pumpkin, fungus} = {{x + 14, y + 1, z + 2}, {x + 14, y + 1, z + 8}}
+
+    edits = %{
+      pumpkin => Blocks.default_state("pumpkin"),
+      {x + 14, y, z + 8} => Blocks.default_state("crimson_nylium"),
+      fungus => Blocks.default_state("crimson_fungus")
+    }
+
+    {:ok, observed} = Region.observe_blocks(owner, Map.keys(edits))
+    {:ok, _} = Region.set_blocks(owner, observed.fence, edits)
+    shears = Valimc.Protocol.Data.item("shears")
+
+    # Clicked on its west side with shears, the pumpkin is carved facing
+    # west; a carved one passes.
+    assert :pass = Region.menu(owner, self(), pumpkin, grant(pumpkin, nil, 4))
+    assert :sheared = Region.menu(owner, self(), pumpkin, grant(pumpkin, shears, 4))
+    assert :pass = Region.menu(owner, self(), pumpkin, grant(pumpkin, shears, 4))
+
+    after_use = blocks(owner, [pumpkin])
+    assert name(after_use[pumpkin]) == "carved_pumpkin"
+    assert value(after_use[pumpkin], "facing") == "west"
+
+    items =
+      for %{stack: stack} <-
+            Valimc.Entity.Store.records(Valimc.TestRegion.section(owner).entities.store),
+          do: {stack.item_id, stack.count}
+
+    assert items == [{Valimc.Protocol.Data.item("pumpkin_seeds"), 4}]
+
+    # Bone meal succeeds on a fungus two times in five; then the generator
+    # grows the planted huge fungus from its cell.
+    Valimc.TestWait.until(fn ->
+      {:ok, result} = Region.bucket(owner, {:bone_meal, fungus, 1, false})
+      result == 2
+    end)
+
+    dimension = Valimc.TestRegion.section(owner).dimension
+    assert :ok = Valimc.World.Growth.generate(dimension, fungus)
+    assert name(blocks(owner, [fungus])[fungus]) == "crimson_stem"
+  end
+
   test "a landing tramples farmland by its distance and the body's size" do
     farmland = Blocks.default_state("farmland")
     refute Valimc.Blocks.Farmland.tramples?(farmland, 1.0, {0.6, 1.8}, 0.6)
@@ -213,7 +256,7 @@ defmodule Valimc.GrowthTest do
     refute Valimc.Blocks.Farmland.tramples?(Blocks.default_state("dirt"), 3.0, {0.6, 1.8}, 0.1)
   end
 
-  defp grant({x, y, z}, item) do
+  defp grant({x, y, z}, item, face \\ 1) do
     %{
       kind: :open,
       mode: :survival,
@@ -223,6 +266,8 @@ defmodule Valimc.GrowthTest do
       main: item != nil,
       off: false,
       main_item: item,
+      item: item,
+      face: face,
       expires: Valimc.TestRegion.grant_expires(200)
     }
   end

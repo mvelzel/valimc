@@ -95,6 +95,9 @@ pub enum Action {
     Trample { pos: [i32; 3] },
     /// Berries picked at `pos` (VMC-039b).
     Harvest { pos: [i32; 3] },
+    /// Shears used on `pos` by a player facing `facing` (`STEP` index) from
+    /// the click (VMC-039c).
+    Shear { pos: [i32; 3], facing: usize },
     /// A player's use of the block at `pos` (`useWithoutItem`, VMC-047a),
     /// facing horizontal direction `facing`, allowed to build or not.
     Use {
@@ -490,6 +493,7 @@ pub fn run(
                 to,
                 event,
             } => engine.mob_edit(pos, from, to, event),
+            Action::Shear { pos, facing } => engine.shear(pos, facing),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)
             }

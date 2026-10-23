@@ -81,13 +81,11 @@ Reference: pinned 26.3 `SpreadingSnowyBlock`, `SnowyBlock`, `GrassBlock`,
 `CoralPlantBlock`, `CoralFanBlock`, `CoralWallFanBlock` (decompiled
 privately).
 
-Not modelled: bone meal on netherrack, fungi, bamboo, glow lichen,
-dripleaves, hanging moss and pale moss carpets (bone meal passes on them,
-or reaches water beside them); a corals biome is the clicked water's for
-every cell vanilla tries; a grass block's draws before the generator are
-the task's, not the level's; the sweet berry bush's damage and game
-events; shearing a beehive and carving a pumpkin (their tables are in the
-facts).
+Not modelled: a corals biome is the clicked water's for every cell vanilla
+tries; a grass block's draws before the generator are the task's, not the
+level's; the sweet berry bush's game events. Bone meal on netherrack,
+fungi, bamboo, glow lichen, dripleaves, hanging moss and pale moss carpets,
+and shears on hives and pumpkins, are [VMC-039c](VMC-039c.md)'s.
 
 Checks: stage `growth`: GrowthOracle `facts` (11 tree growers, 10
 saplings, 2 azaleas; grass dies under 7,123 runs of states, nylium 574; 43

@@ -2074,7 +2074,8 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:menu, epoch, viewer, position, grant}, _from, state)
       when is_pid(viewer) do
-    with :pass <- harvest_use(state, epoch, viewer, position, grant),
+    with :pass <- shear_use(state, epoch, viewer, position, grant),
+         :pass <- harvest_use(state, epoch, viewer, position, grant),
          :pass <- redstone_use(state, epoch, viewer, position, grant),
          :pass <- fence_use(state, epoch, position, grant) do
       {decision, state} = menu_request(state, epoch, viewer, position, grant)
@@ -2083,6 +2084,7 @@ defmodule Valimc.World.RegionData do
       {:used, state} -> {:reply, :used, state}
       # `SUCCESS_SERVER`: the server swings the player's arm.
       {:swing, state} -> {:reply, :swing, state}
+      {:sheared, state} -> {:reply, :sheared, state}
     end
   end
 
@@ -5540,6 +5542,37 @@ defmodule Valimc.World.RegionData do
       sound = Valimc.World.Sounds.packet(harvest.sound, :block, at, seed, harvest.pitch)
       Valimc.World.publish(route_key(state), {:sound, at, 16.0, sound})
       {:used, pop_items(state, stacks, &Valimc.Entity.ItemDrop.pop(position, &1))}
+    else
+      _ -> :pass
+    end
+  end
+
+  # Shears on a full beehive or a pumpkin (VMC-039c, `Valimc.Blocks.Shearing`):
+  # the block's interaction loot, then the rules empty or carve it, then its
+  # sound for everyone (a hive's at the player); the player wears the shears.
+  defp shear_use(state, epoch, viewer, position, grant) do
+    with true <- use_granted?(state, epoch, position, grant),
+         block = Blocks.get(state.blocks, position),
+         {:ok, shear} <-
+           Valimc.Blocks.Shearing.of(block, grant[:item], grant[:face], grant[:yaw]),
+         {:ok, stacks} <-
+           Valimc.Blocks.Loot.block_drops(shear.table, :rand.uniform(1 <<< 62), position, %{
+             state: block,
+             entity: true
+           }),
+         {state, %{results: [1]}} <-
+           rule_run(state, %{actions: [{:shear, position, shear.facing}], actor: viewer}) do
+      {x, y, z} = position
+      at = if shear.carved, do: {x + 0.5, y + 0.5, z + 0.5}, else: grant[:feet] || {x, y, z}
+      sound = Valimc.World.Sounds.packet(shear.sound, :block, at, :rand.uniform(1 <<< 62))
+      Valimc.World.publish(route_key(state), {:sound, at, 16.0, sound})
+
+      pop =
+        if shear.carved,
+          do: &Valimc.Entity.ItemDrop.carved(position, shear.facing, &1),
+          else: &Valimc.Entity.ItemDrop.pop(position, &1)
+
+      {:sheared, pop_items(state, stacks, pop)}
     else
       _ -> :pass
     end

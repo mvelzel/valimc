@@ -39,10 +39,20 @@ defmodule Valimc.Player.Menus do
 
     with {:ok, owner} <- World.existing_owner(section),
          decision when not is_tuple(decision) or elem(decision, 0) != :error <-
-           Region.menu(owner, state.connection, position, grant(state, :open, request.hand)) do
+           Region.menu(
+             owner,
+             state.connection,
+             position,
+             Map.put(grant(state, :open, request.hand), :face, request.face)
+           ) do
       case decision do
         :open ->
           open_table_menu(state, position, owner, request.sequence)
+
+        :sheared ->
+          state
+          |> Valimc.Player.Placement.wear_held(request.hand, 1)
+          |> acknowledge_table_use(request)
 
         :pass ->
           Valimc.Player.Placement.execute_placement(state, request)
@@ -92,7 +102,13 @@ defmodule Valimc.Player.Menus do
         case Inventory.held(state.inventory, :main) do
           %{item_id: id} -> id
           nil -> nil
-        end
+        end,
+      item:
+        case Inventory.held(state.inventory, hand) do
+          %{item_id: id} -> id
+          nil -> nil
+        end,
+      feet: {state.player.x, state.player.y, state.player.z}
     }
 
     case state.table_menu do

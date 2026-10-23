@@ -21,6 +21,7 @@ import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.grower.TreeGrower;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BambooLeaves;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.gamerules.GameRules;
@@ -34,16 +35,17 @@ import net.minecraft.world.ticks.ScheduledTick;
 import net.minecraft.world.ticks.TickPriority;
 
 /**
- * Plants that grow and the tools that till (VMC-039a, VMC-039b), from pinned 26.3. Five modes:
+ * Plants that grow and the tools that till (VMC-039a, VMC-039b, VMC-039c), from pinned 26.3. Five modes:
  *
  * - `facts OUT`: the tree growers (`TreeGrower.GROWERS`: per grower its weighted tree, mega
  *   tree and flower tree features and `getMinimumHeight`), each `SaplingBlock`'s grower and the
  *   azaleas', and the states a grass block or mycelium (`SpreadingSnowyBlock.canStayAlive`) and
  *   nylium (`canBeNylium`) die under, as runs of state ids; per biome its bone meal features, per
  *   mushroom its huge mushroom and the height it needs, per feature placer (moss) and nylium the
- *   feature it places above itself.
- * - `scenes OUT [SCENES [SEED]]`: farms, cane and cactus beds, saplings, meadows, sea beds and
- *   Nether plants and vines over a probe level whose block ticks are vanilla's own `LevelTicks`;
+ *   feature it places above itself, per Nether fungus its planted huge fungus and the block it
+ *   grows on, and the states sky light passes down through (`propagatesSkylightDown`).
+ * - `scenes OUT [SCENES [SEED]]`: farms, cane and cactus beds, saplings, meadows, sea beds, Nether
+ *   plants and vines, bamboo groves and lush, pale and crimson floors over a probe level whose block ticks are vanilla's own `LevelTicks`;
  *   one sky light for every cell (no block light), one `skyDarken`, rain or not and a biome
  *   (warm ocean, which grows corals from bone meal, or plains) per scene. Each game tick applies
  *   its actions in order (`/setblock`-style `setBlock(UPDATE_ALL)`; a random tick as
@@ -54,7 +56,7 @@ import net.minecraft.world.ticks.TickPriority;
  *   apart). Per tick the cell writes in order, the level events and each random tick's and bone
  *   meal's result (0 nothing, 1 bone meal used, 2 the generator grows, 3 used and an item
  *   dropped). Bone meal on grass blocks, nylium, moss and mushrooms reaches the generator too
- *   (result 2); what it places is checked apart, and a grass block's draws before it are not the
+ *   (result 2), as do fungi; what it places is checked apart, and a grass block's draws before it are not the
  *   level's. Fluid ticks are scheduled but never run.
  *
  * - `trees OUT [CASES [SEED]]`: `TreeGrower.growTree` of a sapling (or a 2 x 2 of them, a
@@ -62,7 +64,8 @@ import net.minecraft.world.ticks.TickPriority;
  *   as the random: whether it grew, and the cell writes in order.
  *
  * - `features OUT [CASES [SEED]]`: what bone meal places through the generator: a grass block's
- *   grass and flowers in a biome, nylium's and moss's features, a mushroom's huge mushroom, each on
+ *   grass and flowers in a biome, nylium's and moss's features, a mushroom's huge mushroom, a
+ *   fungus's planted huge fungus, each on
  *   a bumpy plot with covers, with `RandomSource.create(seed)` as the random; the cell writes.
  *
  * - `transformers OUT`: the tools' block transformers (`BlockTransformer.transformBlock`: hoes
@@ -284,6 +287,16 @@ public class GrowthOracle {
       for(var f:h.value().getGenerationSettings().getBoneMealFeatures())list.add(features.getKey(f).toString());
       if(!list.isEmpty())flowers.put(h.key().identifier().toString(),list);
     });
+    // The states sky light passes down through (`propagatesSkylightDown`: netherrack takes nylium
+    // under them, VMC-039c), as runs.
+    var skylight=new JsonArray();int open=-1;
+    for(int id=0;id<=Block.BLOCK_STATE_REGISTRY.size();id++){
+      boolean passes=id<Block.BLOCK_STATE_REGISTRY.size()&&Block.stateById(id).propagatesSkylightDown();
+      if(passes&&open<0)open=id;
+      if(!passes&&open>=0){var run=new JsonArray();run.add(open);run.add(id-1);skylight.add(run);open=-1;}
+    }
+    // Per Nether fungus its planted huge fungus and the block it grows on.
+    var fungi=new JsonObject();
     var mushrooms=new JsonObject();var placers=new JsonObject();
     for(var block:BuiltInRegistries.BLOCK){
       var name=BuiltInRegistries.BLOCK.getKey(block).getPath();
@@ -297,6 +310,12 @@ public class GrowthOracle {
         placers.addProperty(name,((net.minecraft.resources.ResourceKey<?>)field(block,BonemealableFeaturePlacerBlock.class,"feature")).identifier().toString());
       else if(block instanceof NyliumBlock)
         placers.addProperty(name,net.minecraft.data.worldgen.features.NetherFeatures.NYLIUM_BONEMEAL.identifier().toString());
+      else if(block instanceof NetherFungusBlock){
+        var json=new JsonObject();
+        json.addProperty("feature",((net.minecraft.resources.ResourceKey<?>)field(block,NetherFungusBlock.class,"feature")).identifier().toString());
+        json.addProperty("base",BuiltInRegistries.BLOCK.getKey((Block)field(block,NetherFungusBlock.class,"requiredBlock")).getPath());
+        fungi.add(name,json);
+      }
     }
     var result=FluidOracle.stamped(Block.BLOCK_STATE_REGISTRY.size());
     var g=new JsonObject();growers.forEach(g::add);result.add("growers",g);
@@ -304,9 +323,11 @@ public class GrowthOracle {
     result.add("azaleas",azaleas);result.add("smothers",smothers);
     var f=new JsonObject();flowers.forEach(f::add);result.add("bone_meal_features",f);
     result.add("mushrooms",mushrooms);result.add("feature_placers",placers);
+    result.add("fungi",fungi);result.add("skylight",skylight);
     Files.writeString(Path.of(out),new GsonBuilder().create().toJson(result)+"\n");
     System.out.println("PASS: "+growers.size()+" tree growers, "+saplings.size()+" saplings, "+azaleas.size()+" azaleas, "
-      +flowers.size()+" biomes with bone meal features, "+mushrooms.size()+" mushrooms, "+placers.size()+" feature placers");
+      +flowers.size()+" biomes with bone meal features, "+mushrooms.size()+" mushrooms, "+placers.size()+" feature placers, "
+      +fungi.size()+" fungi, "+skylight.size()+" runs of states sky light passes down");
   }
 
 
@@ -315,7 +336,7 @@ public class GrowthOracle {
     return state.setValue(property,values.get(random.nextInt(values.size())));
   }
 
-  /** What bone meal may be tried on: the plants VMC-039a and VMC-039b grow and blocks they do not. */
+  /** What bone meal may be tried on: the plants VMC-039a, VMC-039b and VMC-039c grow and blocks they do not. */
   static boolean boneMealTarget(BlockState state){
     var b=state.getBlock();
     return b instanceof CropBlock||b instanceof StemBlock||b instanceof SaplingBlock||b instanceof AzaleaBlock||b instanceof CocoaBlock
@@ -323,14 +344,17 @@ public class GrowthOracle {
       ||b instanceof FlowerBedBlock||b instanceof SeagrassBlock||b instanceof GrowingPlantHeadBlock||b instanceof GrowingPlantBodyBlock
       ||b instanceof BushBlock||b instanceof FireflyBushBlock||b instanceof ShortDryGrassBlock||b instanceof TallDryGrassBlock
       ||b instanceof SeaPickleBlock||b instanceof MangroveLeavesBlock||b instanceof RootedDirtBlock||b instanceof NetherWartBlock
-      ||generated(state)
+      ||b instanceof BambooSaplingBlock||b instanceof BambooStalkBlock||b instanceof GlowLichenBlock||b instanceof SmallDripleafBlock
+      ||b instanceof BigDripleafBlock||b instanceof BigDripleafStemBlock||b instanceof NetherrackBlock||b instanceof HangingMossBlock
+      ||b instanceof MossyCarpetBlock||generated(state)
       ||state.is(Blocks.SUGAR_CANE)||state.is(Blocks.CACTUS)||state.is(Blocks.FARMLAND)||state.is(Blocks.ATTACHED_PUMPKIN_STEM);
   }
 
-  /** Bone meal that places features (grass blocks, nylium, moss, mushrooms): the generator's. */
+  /** Bone meal that places features (grass blocks, nylium, moss, mushrooms, fungi): the generator's. */
   static boolean generated(BlockState state){
     var b=state.getBlock();
-    return state.is(Blocks.GRASS_BLOCK)||b instanceof NyliumBlock||b instanceof BonemealableFeaturePlacerBlock||b instanceof MushroomBlock;
+    return state.is(Blocks.GRASS_BLOCK)||b instanceof NyliumBlock||b instanceof BonemealableFeaturePlacerBlock||b instanceof MushroomBlock
+      ||b instanceof NetherFungusBlock;
   }
 
   /**
@@ -398,10 +422,11 @@ public class GrowthOracle {
         probe.fluidTicks.addContainer(new net.minecraft.world.level.ChunkPos(cx,cz),new LevelChunkTicks<>());
       }
       probe.cells=new HashMap<>();
-      // One plot kind per 4 x 4 plot: a farm, a cane and cactus bed, saplings, a meadow, a sea bed, or
-      // Nether plants, vines and what hangs from a ceiling.
+      // One plot kind per 4 x 4 plot: a farm, a cane and cactus bed, saplings, a meadow, a sea bed,
+      // Nether plants, vines and what hangs from a ceiling, a bamboo grove, or a lush, pale and
+      // crimson floor.
       for(int px=MIN_X;px<MAX_X;px+=4)for(int pz=MIN_Z;pz<MAX_Z;pz+=4){
-        int plot=random.nextInt(6);
+        int plot=random.nextInt(8);
         for(int x=px;x<px+4;x++)for(int z=pz;z<pz+4;z++){
           var floor=new BlockPos(x,FLOOR_Y,z);var above=floor.above();
           probe.cells.put(floor.below(),Blocks.STONE.defaultBlockState());
@@ -479,6 +504,65 @@ public class GrowthOracle {
             else if(top<35)probe.cells.put(above,Blocks.SEAGRASS.defaultBlockState());
             else if(top<42)half(probe,above,Blocks.TALL_SEAGRASS.defaultBlockState());
             else if(top<50)probe.cells.put(above,Blocks.SEA_PICKLE.defaultBlockState().setValue(SeaPickleBlock.PICKLES,1+random.nextInt(4)));
+          }else if(plot==6){
+            // A bamboo grove: saplings and stalks up to 15 tall (VMC-039c).
+            probe.cells.put(floor,(roll<40?Blocks.PODZOL:roll<70?Blocks.DIRT:roll<85?Blocks.SAND:Blocks.GRAVEL).defaultBlockState());
+            int top=random.nextInt(100);
+            if(top<25)probe.cells.put(above,Blocks.BAMBOO_SAPLING.defaultBlockState());
+            else if(top<80){
+              int height=1+random.nextInt(random.nextInt(3)==0?15:6);int age=random.nextInt(2);
+              for(int h=0;h<height;h++){
+                var leaves=h==height-1?(random.nextBoolean()?BambooLeaves.LARGE:BambooLeaves.SMALL):h==height-2&&random.nextBoolean()?BambooLeaves.SMALL:BambooLeaves.NONE;
+                int stage=h==height-1&&random.nextInt(5)==0?1:0;
+                probe.cells.put(above.above(h),Blocks.BAMBOO.defaultBlockState().setValue(BambooStalkBlock.AGE,age)
+                  .setValue(BambooStalkBlock.LEAVES,leaves).setValue(BambooStalkBlock.STAGE,stage));
+              }
+            }else if(top<85)probe.cells.put(above,Blocks.STONE.defaultBlockState());
+          }else if(plot==7){
+            // Lush, pale and crimson floors (VMC-039c): dripleaves, glow lichen, hanging moss and moss
+            // carpets, fungi, netherrack beside nylium.
+            var ceiling=floor.above(5);
+            int top=random.nextInt(100);
+            var facing=Direction.Plane.HORIZONTAL.getRandomDirection(RandomSource.create(random.nextLong()));
+            probe.cells.put(floor,(random.nextBoolean()?Blocks.CLAY:Blocks.MOSS_BLOCK).defaultBlockState());
+            if(top<12){
+              var leaf=Blocks.SMALL_DRIPLEAF.defaultBlockState().setValue(SmallDripleafBlock.FACING,facing)
+                .setValue(BlockStateProperties.WATERLOGGED,random.nextInt(3)==0);
+              half(probe,above,leaf);
+            }else if(top<22){
+              int stems=random.nextInt(3);
+              for(int h=0;h<stems;h++)probe.cells.put(above.above(h),Blocks.BIG_DRIPLEAF_STEM.defaultBlockState().setValue(BigDripleafStemBlock.FACING,facing));
+              probe.cells.put(above.above(stems),Blocks.BIG_DRIPLEAF.defaultBlockState().setValue(BigDripleafBlock.FACING,facing));
+            }else if(top<34){
+              // Lichen on the floor, a wall or the ceiling.
+              int where=random.nextInt(3);
+              if(where==0)probe.cells.put(above,Blocks.GLOW_LICHEN.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.DOWN),true));
+              else if(where==1){
+                probe.cells.put(above,Blocks.STONE.defaultBlockState());probe.cells.put(above.above(),Blocks.STONE.defaultBlockState());
+                var side=above.above().relative(facing);
+                if(!probe.cells.containsKey(side))probe.cells.put(side,Blocks.GLOW_LICHEN.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(facing.getOpposite()),true));
+              }else{
+                probe.cells.put(ceiling,Blocks.STONE.defaultBlockState());
+                probe.cells.put(ceiling.below(),Blocks.GLOW_LICHEN.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.UP),true));
+              }
+            }else if(top<46){
+              // Pale hanging moss under pale oak leaves or stone, its tip at the bottom.
+              probe.cells.put(ceiling,(random.nextBoolean()?Blocks.PALE_OAK_LEAVES.defaultBlockState().setValue(LeavesBlock.PERSISTENT,true):Blocks.STONE.defaultBlockState()));
+              int length=1+random.nextInt(3);
+              for(int h=1;h<=length;h++)probe.cells.put(ceiling.below(h),Blocks.PALE_HANGING_MOSS.defaultBlockState().setValue(HangingMossBlock.TIP,h==length));
+            }else if(top<56){
+              probe.cells.put(floor,(random.nextBoolean()?Blocks.STONE:Blocks.PALE_MOSS_BLOCK).defaultBlockState());
+              probe.cells.put(above,Blocks.PALE_MOSS_CARPET.defaultBlockState());
+            }else if(top<70){
+              boolean crimson=random.nextBoolean();
+              probe.cells.put(floor,(crimson?Blocks.CRIMSON_NYLIUM:Blocks.WARPED_NYLIUM).defaultBlockState());
+              // Now and then on the other nylium, where it does not grow.
+              if(random.nextInt(4)>0)probe.cells.put(above,(crimson?Blocks.CRIMSON_FUNGUS:Blocks.WARPED_FUNGUS).defaultBlockState());
+              else probe.cells.put(above,(crimson?Blocks.WARPED_FUNGUS:Blocks.CRIMSON_FUNGUS).defaultBlockState());
+            }else if(top<85){
+              probe.cells.put(floor,Blocks.NETHERRACK.defaultBlockState());
+              if(random.nextInt(4)==0)probe.cells.put(above,(random.nextBoolean()?Blocks.STONE:Blocks.GLASS).defaultBlockState());
+            }else probe.cells.put(floor,(random.nextBoolean()?Blocks.CRIMSON_NYLIUM:Blocks.WARPED_NYLIUM).defaultBlockState());
           }else{
             // Nether plants, cocoa, and vines, roots and leaves under a ceiling.
             var ceiling=floor.above(5);
@@ -589,7 +673,9 @@ public class GrowthOracle {
       {"write kelp",20},{"write weeping_vines",5},{"write twisting_vines",5},{"write cave_vines",5},{"write cave_vines_plant",3},
       {"write tall_grass",5},{"write large_fern",3},{"write pink_petals",3},{"write wildflowers",3},{"write tall_seagrass",5},
       {"write seagrass",30},{"write coral",3},{"write sea_pickle",3},{"write bush",3},{"write short_dry_grass",3},{"write tall_dry_grass",3},
-      {"write hanging_roots",3},{"write mangrove_propagule",3}};
+      {"write hanging_roots",3},{"write mangrove_propagule",3},{"write bamboo",40},{"write glow_lichen",10},{"write big_dripleaf",10},
+      {"write big_dripleaf_stem",10},{"write crimson_nylium",5},{"write warped_nylium",5},{"write pale_hanging_moss",5},
+      {"write pale_moss_carpet",5}};
     var missing=new ArrayList<String>();
     for(var w:wanted)if(count.getOrDefault((String)w[0],0)<(int)w[1])missing.add(w[0]+" "+count.getOrDefault((String)w[0],0));
     if(!missing.isEmpty())throw new AssertionError("scenes miss a behaviour: "+missing+"; "+count);
@@ -677,9 +763,11 @@ public class GrowthOracle {
       }
       var biome="minecraft:"+BIOMES[random.nextInt(BIOMES.length)];
       probe.biome=biomes.getOrThrow(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.BIOME,net.minecraft.resources.Identifier.parse(biome)));
-      String kind=new String[]{"grass","grass","grass","mushroom","moss","nylium"}[random.nextInt(6)];
+      String kind=new String[]{"grass","grass","grass","mushroom","moss","nylium","fungus"}[random.nextInt(7)];
+      boolean crimson=random.nextBoolean();
       Block ground=switch(kind){case "mushroom"->new Block[]{Blocks.DIRT,Blocks.MYCELIUM,Blocks.PODZOL}[random.nextInt(3)];
-        case "moss"->Blocks.STONE;case "nylium"->Blocks.NETHERRACK;default->Blocks.GRASS_BLOCK;};
+        case "moss"->Blocks.STONE;case "nylium"->Blocks.NETHERRACK;case "fungus"->crimson?Blocks.CRIMSON_NYLIUM:Blocks.WARPED_NYLIUM;
+        default->Blocks.GRASS_BLOCK;};
       // Near a chunk corner, so what grows crosses chunk lines.
       var pos=new BlockPos(120+random.nextInt(16),FLOOR_Y,-8+random.nextInt(16));
       for(int x=-8;x<=8;x++)for(int z=-8;z<=8;z++){
@@ -689,25 +777,28 @@ public class GrowthOracle {
         var at=roll<75?ground:roll<85?Blocks.DIRT:roll<92?Blocks.STONE:kind.equals("nylium")?Blocks.WARPED_NYLIUM:Blocks.GRASS_BLOCK;
         probe.cells.put(floor,at.defaultBlockState());
         int top=random.nextInt(100);
-        if(top<12)probe.cells.put(floor.above(),Blocks.SHORT_GRASS.defaultBlockState());
+        if(top<12)probe.cells.put(floor.above(),(kind.equals("fungus")?(crimson?Blocks.CRIMSON_ROOTS:Blocks.NETHER_SPROUTS):Blocks.SHORT_GRASS).defaultBlockState());
         else if(top<16)probe.cells.put(floor.above(),Blocks.STONE.defaultBlockState());
         else if(top<18)probe.cells.put(floor.above(),Blocks.POPPY.defaultBlockState());
       }
       var self=switch(kind){case "mushroom"->(random.nextBoolean()?Blocks.BROWN_MUSHROOM:Blocks.RED_MUSHROOM).defaultBlockState();
+        case "fungus"->(crimson?Blocks.CRIMSON_FUNGUS:Blocks.WARPED_FUNGUS).defaultBlockState();
         // Pale moss's carpets settle their sides by shape updates (as above): moss only.
         case "moss"->Blocks.MOSS_BLOCK.defaultBlockState();
         case "nylium"->(random.nextBoolean()?Blocks.CRIMSON_NYLIUM:Blocks.WARPED_NYLIUM).defaultBlockState();
         default->Blocks.GRASS_BLOCK.defaultBlockState();};
-      if(kind.equals("mushroom")){pos=pos.above();probe.cells.put(pos.below(),ground.defaultBlockState());}
+      boolean plant=kind.equals("mushroom")||kind.equals("fungus");
+      if(plant){pos=pos.above();probe.cells.put(pos.below(),ground.defaultBlockState());}
       probe.cells.put(pos,self);
-      if(!kind.equals("mushroom"))probe.cells.remove(pos.above());
-      // A cover over the mushroom now and then.
-      if(kind.equals("mushroom")&&random.nextInt(3)==0)probe.cells.put(pos.above(2+random.nextInt(6)),Blocks.STONE.defaultBlockState());
+      if(!plant)probe.cells.remove(pos.above());
+      // A cover over the mushroom or fungus now and then.
+      if(plant&&random.nextInt(3)==0)probe.cells.put(pos.above(2+random.nextInt(6)),Blocks.STONE.defaultBlockState());
       // Only covers that stand: vanilla's shape updates take the rest as features write beside them,
       // which ValiMC's owner runs once the placement commits, not the generator.
       for(var p:new ArrayList<>(probe.cells.keySet())){
         var state=probe.cells.get(p);
-        if((state.is(Blocks.SHORT_GRASS)||state.is(Blocks.POPPY))&&!state.canSurvive(probe,p))probe.cells.remove(p);
+        if((state.is(Blocks.SHORT_GRASS)||state.is(Blocks.POPPY)||state.is(Blocks.CRIMSON_ROOTS)||state.is(Blocks.NETHER_SPROUTS))
+          &&!state.canSurvive(probe,p))probe.cells.remove(p);
       }
       var cells=new JsonArray();
       var sorted=new ArrayList<>(probe.cells.keySet());sorted.sort(Comparator.naturalOrder());
@@ -724,7 +815,7 @@ public class GrowthOracle {
     }
     var result=new JsonObject();result.add("cases",cases);
     Files.writeString(Path.of(out),new Gson().toJson(result)+"\n");
-    if(changed<count*3/4||kinds.getOrDefault("mushroom",0)<10||kinds.getOrDefault("mushroom failed",0)<5)
+    if(changed<count*3/4||kinds.getOrDefault("mushroom",0)<10||kinds.getOrDefault("mushroom failed",0)<5||kinds.getOrDefault("fungus",0)<20)
       throw new AssertionError("bone meal features miss a case: "+kinds+", "+changed+" changed");
     System.out.println("PASS: "+count+" bone meal features; "+kinds+", "+changed+" changed");
   }

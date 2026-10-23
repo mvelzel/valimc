@@ -157,8 +157,35 @@ impl<'t> MossyCarpet<'t> {
 
     /// `createTopperWithSideChance` with the region's random.
     fn topper(&self, region: &mut Region, pos: [i32; 3]) -> Option<u16> {
+        let mut sides = Vec::new();
+        self.topper_with(&mut |p| region.get(p), pos, &mut || {
+            sides.push(());
+            true
+        });
+        let drawn: Vec<bool> = (0..sides.len())
+            .map(|_| region.random.next_bool())
+            .collect();
+        let mut drawn = drawn.into_iter();
+        self.topper_with(&mut |p| region.get(p), pos, &mut || {
+            drawn.next().unwrap_or(true)
+        })
+    }
+
+    /// Bone meal on a base carpet (`performBonemeal`, VMC-039c): the topper
+    /// with every side it can have, when it changes the cell above.
+    pub fn grown(&self, read: &mut dyn FnMut([i32; 3]) -> u16, pos: [i32; 3]) -> Option<u16> {
+        self.topper_with(read, pos, &mut || true)
+    }
+
+    /// `createTopperWithSideChance` with `side` its side survival test.
+    fn topper_with(
+        &self,
+        read: &mut dyn FnMut([i32; 3]) -> u16,
+        pos: [i32; 3],
+        side: &mut dyn FnMut() -> bool,
+    ) -> Option<u16> {
         let above = offset(pos, [0, 1, 0]);
-        let previous = region.get(above);
+        let previous = read(above);
         let carpet_above = self.is_carpet(previous);
         if (carpet_above && self.base(previous))
             || (!carpet_above && !self.table.flag(previous, REPLACEABLE))
@@ -166,9 +193,9 @@ impl<'t> MossyCarpet<'t> {
             return None;
         }
         let no_base = self.with(self.default, "bottom", "false");
-        let mut state = self.updated(&mut |p| region.get(p), no_base, above, true);
+        let mut state = self.updated(read, no_base, above, true);
         for (_, face) in CARPET_SIDES {
-            if self.side(state, face) != "none" && !region.random.next_bool() {
+            if self.side(state, face) != "none" && !side() {
                 state = self.with(state, face, "none");
             }
         }

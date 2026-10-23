@@ -161,6 +161,21 @@ pub(super) enum Kind {
     SeaPickle,
     MangroveLeaves,
     RootedDirt,
+    /// A bamboo sapling and a bamboo stalk (`BambooSaplingBlock`,
+    /// `BambooStalkBlock`, VMC-039c).
+    BambooSapling,
+    Bamboo,
+    /// Glow lichen (`GlowLichenBlock`'s `MultifaceSpreader`).
+    Lichen,
+    SmallDripleaf,
+    BigDripleaf,
+    DripleafStem,
+    /// A Nether fungus and its huge fungus, an index into `fungi`.
+    Fungus(usize),
+    Netherrack,
+    HangingMoss,
+    /// A pale moss carpet (`MossyCarpetBlock`).
+    MossCarpet,
 }
 
 /// A growing plant (`GrowingPlantHeadBlock`): its head and body blocks,
@@ -196,6 +211,9 @@ pub struct Growth {
     pub bone_meal_features: Arc<HashMap<String, Vec<String>>>,
     /// Per mushroom its huge mushroom feature and the height it needs.
     pub(super) mushrooms: Vec<(String, i32)>,
+    /// Per Nether fungus its planted huge fungus feature and the block it
+    /// grows on.
+    pub(super) fungi: Vec<(String, u16)>,
     /// Per feature placer and nylium (by block) the feature it places.
     pub(super) placers: Vec<String>,
     placer_of: HashMap<u16, usize>,
@@ -227,6 +245,16 @@ pub struct Growth {
     /// iteration order (bone meal in warm water draws from them).
     pub(super) wall_corals: Vec<u16>,
     pub(super) underwater: Vec<u16>,
+    /// Per state: whether sky light passes down through it
+    /// (`propagatesSkylightDown`: netherrack turns to nylium under one).
+    pub(super) skylight: Vec<bool>,
+    pub(super) nylium: BlockSet,
+    pub(super) crimson_nylium: u16,
+    pub(super) warped_nylium: u16,
+    pub(super) bamboo: u16,
+    pub(super) big_dripleaf: u16,
+    pub(super) dripleaf_stem: u16,
+    pub(super) small_dripleaf: u16,
 }
 
 /// A state's integer property (0 without it), and the state with it set.
@@ -403,6 +431,15 @@ impl Growth {
             ("sea_pickle", Kind::SeaPickle),
             ("mangrove_leaves", Kind::MangroveLeaves),
             ("rooted_dirt", Kind::RootedDirt),
+            ("bamboo_sapling", Kind::BambooSapling),
+            ("bamboo", Kind::Bamboo),
+            ("glow_lichen", Kind::Lichen),
+            ("small_dripleaf", Kind::SmallDripleaf),
+            ("big_dripleaf", Kind::BigDripleaf),
+            ("big_dripleaf_stem", Kind::DripleafStem),
+            ("netherrack", Kind::Netherrack),
+            ("pale_hanging_moss", Kind::HangingMoss),
+            ("pale_moss_carpet", Kind::MossCarpet),
         ] {
             kinds.insert(table.block(name)?, kind);
         }
@@ -412,6 +449,14 @@ impl Growth {
             mushrooms.push((
                 mushroom.field("feature")?.as_str()?.to_string(),
                 mushroom.field("height")?.as_i32()?,
+            ));
+        }
+        let mut fungi = Vec::new();
+        for (name, fungus) in facts.field("fungi")?.entries()? {
+            kinds.insert(table.block(name)?, Kind::Fungus(fungi.len()));
+            fungi.push((
+                fungus.field("feature")?.as_str()?.to_string(),
+                table.block(fungus.field("base")?.as_str()?)?,
             ));
         }
         let (mut placers, mut placer_of) = (Vec::new(), HashMap::new());
@@ -442,17 +487,18 @@ impl Growth {
             };
             kinds.insert(block, kind);
         }
-        let smothers = |key: &str| -> Result<Vec<bool>, String> {
+        let runs = |runs: &Json| -> Result<Vec<bool>, String> {
             let mut set = vec![false; table.block_of.len()];
-            for run in facts.field("smothers")?.field(key)?.as_array()? {
+            for run in runs.as_array()? {
                 let run = run.as_array()?;
                 for state in run[0].as_i32()?..=run[1].as_i32()? {
                     *set.get_mut(state as usize)
-                        .ok_or("smothering state out of range")? = true;
+                        .ok_or("growth fact state out of range")? = true;
                 }
             }
             Ok(set)
         };
+        let smothers = |key: &str| runs(facts.field("smothers")?.field(key)?);
         let ordered = |tag: &str| -> Result<Vec<u16>, String> {
             Ok(table
                 .tag_blocks(tag)?
@@ -499,6 +545,7 @@ impl Growth {
             dirt_path: table.block("dirt_path")?,
             bone_meal_features: Arc::new(bone_meal_features),
             mushrooms,
+            fungi,
             placers,
             placer_of,
             grass_block: table.block("grass_block")?,
@@ -522,6 +569,14 @@ impl Growth {
             sea_pickle: table.default_state("sea_pickle")?,
             wall_corals: ordered("minecraft:wall_corals")?,
             underwater: ordered("minecraft:underwater_bonemeals")?,
+            skylight: runs(facts.field("skylight")?)?,
+            nylium: table.tag("minecraft:nylium")?.clone(),
+            crimson_nylium: table.default_state("crimson_nylium")?,
+            warped_nylium: table.default_state("warped_nylium")?,
+            bamboo: table.block("bamboo")?,
+            big_dripleaf: table.default_state("big_dripleaf")?,
+            dripleaf_stem: table.default_state("big_dripleaf_stem")?,
+            small_dripleaf: table.block("small_dripleaf")?,
             plants,
         })
     }
@@ -542,6 +597,7 @@ impl Growth {
                 Generated::Grass(self.bone_meal_features.clone())
             }
             Kind::Mushroom(index) => Generated::Mushroom(&self.mushrooms[index].0),
+            Kind::Fungus(index) => Generated::At(&self.fungi[index].0),
             Kind::Nylium | Kind::Placer(_) => {
                 Generated::Above(&self.placers[*self.placer_of.get(&block)?])
             }
@@ -558,7 +614,7 @@ impl Growth {
     }
 }
 
-/// What the generator grows (VMC-039a, VMC-039b).
+/// What the generator grows (VMC-039a, VMC-039b, VMC-039c).
 pub enum Generated<'a> {
     /// A sapling's or azalea's tree, by its grower.
     Tree(&'a Grower),
@@ -569,6 +625,9 @@ pub enum Generated<'a> {
     Mushroom(&'a str),
     /// A feature placed on the cell above (moss, nylium).
     Above(&'a str),
+    /// A feature placed at the cell itself (a fungus's huge fungus,
+    /// `NetherFungusBlock.performBonemeal`, VMC-039c).
+    At(&'a str),
 }
 
 /// What a growth decision (made from reads and draws alone) does: the

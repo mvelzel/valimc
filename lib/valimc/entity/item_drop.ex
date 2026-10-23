@@ -115,4 +115,27 @@ defmodule Valimc.Entity.ItemDrop do
       }
     }
   end
+
+  @doc """
+  The record of `stack` a carved pumpkin at cell `{x, y, z}` drops toward
+  horizontal direction `facing` (2..5; `PumpkinBlock.useItemOn`, VMC-039c):
+  0.65 out of its centre, 0.1 above its floor, moving out at 0.05 (and up
+  0.05), with no pickup delay.
+  """
+  def carved({x, y, z}, facing, stack) do
+    {sx, sz} = elem({{0, 0}, {0, 0}, {0, -1}, {0, 1}, {-1, 0}, {1, 0}}, facing)
+    [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+
+    %{
+      uuid: :crypto.strong_rand_bytes(16),
+      x: x + 0.5 + sx * 0.65,
+      y: y + 0.1,
+      z: z + 0.5 + sz * 0.65,
+      stack: stack,
+      motion: %Valimc.Entity.ItemMotionState{
+        velocity: {0.05 * sx + vx * 0.02, 0.05, 0.05 * sz + vz * 0.02},
+        pickup_delay: 0
+      }
+    }
+  end
 end
