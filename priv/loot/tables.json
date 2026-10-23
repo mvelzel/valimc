@@ -39731,6 +39731,40 @@
       }
     ]
   },
+  "minecraft:entities/enderman": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/enderman",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:ender_pearl",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/endermite": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/endermite"

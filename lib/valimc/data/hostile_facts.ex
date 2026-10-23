@@ -35,6 +35,7 @@ defmodule Valimc.Data.HostileFacts do
               end)
   @equip_sounds Map.new(@facts["equippable"], fn {item, [_, _, sound]} -> {item, sound} end)
   @sounds @facts["sounds"]
+  @water_sensitive MapSet.new(@facts["water_sensitive"])
   @operations %{"add_value" => 0, "add_multiplied_base" => 1, "add_multiplied_total" => 2}
   @effect_modifiers Map.new(@facts["effect_modifiers"], fn {effect, rows} ->
                       {effect,
@@ -90,6 +91,9 @@ defmodule Valimc.Data.HostileFacts do
 
   @doc "A hostile's sound's id (nil for one these facts do not hold)."
   def sound_id(name), do: @sounds[name]
+
+  @doc "`isSensitiveToWater`: whether water and rain hurt mobs of `type`."
+  def water_sensitive?(type), do: MapSet.member?(@water_sensitive, type)
 
   @doc """
   The attribute modifiers effect `name` gives at `amplifier`

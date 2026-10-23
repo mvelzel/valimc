@@ -198,7 +198,7 @@ defmodule Valimc.AI.Behaviors.Fight do
               self =
                 self
                 |> Brain.set(:look_target, {:entity, ref, true})
-                |> Self.effect(:swing)
+                |> Self.swing()
                 |> Self.effect({:attack, ref})
                 |> Brain.set(:attack_cooling_down, true, cooldown)
 

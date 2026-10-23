@@ -796,6 +796,12 @@
     "minecraft:item.firecharge.use": 630,
     "minecraft:item.flintandsteel.use": 646
   },
+  "water_sensitive": [
+    "minecraft:blaze",
+    "minecraft:enderman",
+    "minecraft:snow_golem",
+    "minecraft:strider"
+  ],
   "monsters_burn": {
     "period": 24000,
     "keyframes": [

@@ -254,9 +254,13 @@ defmodule Valimc.World.BlockRules do
   defp pack_action({:harvest, position}),
     do: <<15, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
-  defp pack_action({:edit, position, from, to, event}) do
+  defp pack_action({:edit, position, from, to, event}),
+    do: pack_action({:edit, position, from, to, event, []})
+
+  defp pack_action({:edit, position, from, to, event, options}) do
     {to, event} = {to || 0xFFFF, event || -1}
-    <<16, pos(position)::binary, 0, 0, from::16, to::16, event::32-signed, 0::32>>
+    flags = if(:updates in options, do: 1, else: 0) + if(:survives in options, do: 2, else: 0)
+    <<16, pos(position)::binary, 0, 0, from::16, to::16, event::32-signed, flags, 0::24>>
   end
 
   defp pack_action({:shear, position, facing}),

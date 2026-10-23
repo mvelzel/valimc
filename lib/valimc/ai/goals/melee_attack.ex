@@ -142,7 +142,7 @@ defmodule Valimc.AI.Goals.MeleeAttack do
     if state.cooldown <= 0 and within_reach?(self, target) do
       case World.sees?(self, target) do
         {true, self} ->
-          self = Self.effect(self, :swing)
+          self = Self.swing(self)
 
           # What the type's `doHurtTarget` does (VMC-043b: a zombie's fire, a
           # creeper's nothing at all).

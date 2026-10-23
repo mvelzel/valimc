@@ -17,8 +17,6 @@ defmodule Valimc.Entity.MobVitals do
   alias Valimc.Living.{Air, Attributes, Burning, FallDamage, Landing}
   alias Valimc.Protocol.Registries
 
-  @water_sensitive ["minecraft:blaze"]
-
   @doc """
   `baseTick`'s burning, before the mob thinks (VMC-043b: its hurt sound and
   idle reset come before its goals, as vanilla's): a second's damage while
@@ -165,8 +163,11 @@ defmodule Valimc.Entity.MobVitals do
   end
 
   # `aiStep`'s `isSensitiveToWater() && isInWaterOrRain()`: drowning, 1.
-  defp wet(%{type: type} = kind, mob, events, true) when type in @water_sensitive,
-    do: if(Mob.alive?(mob), do: hurt(kind, mob, events, :drown, 1.0), else: {mob, events})
+  defp wet(%{type: type} = kind, mob, events, true) do
+    if Valimc.Data.HostileFacts.water_sensitive?(type) and Mob.alive?(mob),
+      do: hurt(kind, mob, events, :drown, 1.0),
+      else: {mob, events}
+  end
 
   defp wet(_kind, mob, events, _water), do: {mob, events}
 

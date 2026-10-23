@@ -185,6 +185,49 @@ defmodule Valimc.AI.Self do
   @doc "`isUsingItem`."
   def using?(%__MODULE__{mob: mob}), do: mob.using != nil
 
+  @haste Valimc.Data.EffectTypes.id("haste")
+  @conduit Valimc.Data.EffectTypes.id("conduit_power")
+  @fatigue Valimc.Data.EffectTypes.id("mining_fatigue")
+
+  @doc """
+  `LivingEntity.swing`: an arm swing (a `{:swing, hand}` effect) unless one
+  is in its first half (`SwingState.startIfAble`); six ticks long, shorter
+  with Haste or Conduit Power and longer with Mining Fatigue.
+  """
+  def swing(%__MODULE__{mind: mind} = self, hand \\ :main_hand) do
+    case mind.swing do
+      {duration, ticks} when ticks <= div(duration, 2) and ticks > 0 ->
+        self
+
+      _ ->
+        self
+        |> mind(&%{&1 | swing: {swing_duration(self.mob), 0}})
+        |> effect({:swing, hand})
+    end
+  end
+
+  defp swing_duration(%{living: %{effects: effects}}) do
+    amplifier = fn id ->
+      case effects[id] do
+        [{_, amplifier, _, _, _} | _] -> amplifier
+        _ -> nil
+      end
+    end
+
+    case {amplifier.(@haste), amplifier.(@conduit), amplifier.(@fatigue)} do
+      {nil, nil, nil} -> 6
+      {nil, nil, fatigue} -> 6 + (1 + fatigue) * 2
+      {haste, conduit, _} -> 6 - (1 + max(haste || 0, conduit || 0))
+    end
+  end
+
+  defp swing_duration(_mob), do: 6
+
+  @doc "`SwingState.tick` (each base tick): a swing past its length ends."
+  def swing_tick({duration, ticks}) when ticks > duration, do: nil
+  def swing_tick({duration, ticks}), do: {duration, ticks + 1}
+  def swing_tick(nil), do: nil
+
   @doc "`JumpControl.jump`."
   def jump(self), do: mind(self, &%{&1 | jump: true})
 

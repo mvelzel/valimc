@@ -1325,6 +1325,15 @@ defmodule Valimc.World.RegionData do
             edit != nil,
             do: edit
 
+      # The blocks endermen put down (VMC-043b5): set only where they
+      # survive; one that does not goes back to its enderman.
+      placed =
+        for step <- steps,
+            {:place_carried, cell, carried} <- step.effects,
+            from = Valimc.World.View.block(view, cell),
+            from != nil,
+            do: {step.id, carried, {:edit, cell, from, carried, nil, [:updates, :survives]}}
+
       steps =
         Enum.reject(steps, fn step ->
           %{entity: e, body: body} = store.entries[step.id]
@@ -1364,6 +1373,8 @@ defmodule Valimc.World.RegionData do
         if tramples ++ eaten == [],
           do: state,
           else: elem(rule_run(state, %{actions: tramples ++ eaten}), 0)
+
+      state = if placed == [], do: state, else: carried_placed(state, placed)
 
       state =
         cond do
@@ -1755,7 +1766,42 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # An enderman takes a block (`removeBlock`): its fluid, neighbours updated.
+  defp mob_edit(view, {:take_block, cell, taken}) do
+    case Valimc.World.View.block(view, cell) do
+      ^taken -> {:edit, cell, taken, Valimc.Data.BlockFacts.fluid_remains(taken), nil, [:updates]}
+      _ -> nil
+    end
+  end
+
   defp mob_edit(_view, _effect), do: nil
+
+  # Endermen's blocks put down in one run; each that was not set returns to
+  # its enderman, still in this section and carrying nothing.
+  defp carried_placed(state, placed) do
+    {state, outcome} = rule_run(state, %{actions: Enum.map(placed, &elem(&1, 2))})
+    results = if outcome, do: outcome.results, else: Enum.map(placed, fn _ -> 0 end)
+
+    Enum.zip(placed, results)
+    |> Enum.reduce(state, fn
+      {{id, carried, _}, 0}, state ->
+        store = state.entities.store
+
+        case store.entries[id] do
+          %{kind: :mob, body: %Body{data: %{carried: nil} = data} = body} ->
+            put_entities(
+              state,
+              Store.change_body(store, id, %{body | data: %{data | carried: carried}})
+            )
+
+          _ ->
+            state
+        end
+
+      _, state ->
+        state
+    end)
+  end
 
   # `Mob.pickUpItem`'s `take`: `count` of item `uuid` leaves it for mob `id`
   # (the take animation goes to its viewers), the item gone when empty.

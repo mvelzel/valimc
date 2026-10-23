@@ -27,6 +27,11 @@ defmodule Valimc.AI.Mind do
             aggressive: false,
             look: nil,
             body_yaw: 0.0,
+            # Where a teleport this tick left it (`{x, z}`, VMC-043b5): its
+            # body turns from there (`teleportTo` resets its old position).
+            snapped: nil,
+            # Its arm's swing (`LivingEntity.SwingState`): `{duration, ticks}`.
+            swing: nil,
             stable_head: 0.0,
             stable_time: 0,
             navigation: %Navigation{},

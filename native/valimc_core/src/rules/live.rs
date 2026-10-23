@@ -129,12 +129,17 @@ pub enum Action {
     /// (VMC-043c): it becomes `to` (`Level.setBlock(.., 2)`, a grazed
     /// grass block's dirt, a raided carrot's younger stage), or with no
     /// `to` it is destroyed without drops (`destroyBlock(pos, false)`);
-    /// `event` is the block-break event's data shown first, if any.
+    /// `event` is the block-break event's data shown first, if any. With
+    /// `updates` the change updates its neighbours (`setBlockAndUpdate`, an
+    /// enderman's), and with `survives` only a state that survives there is
+    /// set (an enderman putting down its block, VMC-043b5).
     Edit {
         pos: [i32; 3],
         from: u16,
         to: Option<u16>,
         event: Option<i32>,
+        updates: bool,
+        survives: bool,
     },
     /// The moving piston's block entity at `pos` ticks (VMC-048b).
     Moving { pos: [i32; 3] },
@@ -492,7 +497,9 @@ pub fn run(
                 from,
                 to,
                 event,
-            } => engine.mob_edit(pos, from, to, event),
+                updates,
+                survives,
+            } => engine.mob_edit(pos, from, to, event, updates, survives),
             Action::Shear { pos, facing } => engine.shear(pos, facing),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)

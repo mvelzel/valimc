@@ -73,7 +73,7 @@ public class LootOracle {
       // VMC-043b: the overworld hostiles.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager", "minecraft:entities/skeleton",
       "minecraft:entities/stray", "minecraft:entities/bogged", "minecraft:entities/creeper", "minecraft:entities/spider",
-      "minecraft:entities/cave_spider",
+      "minecraft:entities/cave_spider", "minecraft:entities/enderman",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:entities/shulker", "minecraft:entities/cod", "minecraft:entities/salmon", "minecraft:entities/pufferfish",
       "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",

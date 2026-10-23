@@ -85,8 +85,8 @@ player = fn p ->
     x: x,
     y: y,
     z: z,
-    yaw: 0.0,
-    pitch: 0.0,
+    yaw: if(p["yaw"], do: float.(p["yaw"]), else: 0.0),
+    pitch: if(p["pitch"], do: float.(p["pitch"]), else: 0.0),
     eye: Valimc.Data.Float32.round(1.62),
     width: Valimc.Data.Float32.round(0.6),
     height: Valimc.Data.Float32.round(1.8),
@@ -339,8 +339,15 @@ prepare = fn
     # A lit or charged creeper (VMC-043b4).
     body =
       Enum.reduce(p["flags"] || [], body, fn
-        "ignited", b -> %{b | data: %{b.data | ignited: true}}
-        "powered", b -> %{b | data: %{b.data | powered: true}}
+        "ignited", b ->
+          %{b | data: %{b.data | ignited: true}}
+
+        "powered", b ->
+          %{b | data: %{b.data | powered: true}}
+
+        # An enderman carrying a block.
+        "carry=" <> name, b ->
+          %{b | data: %{b.data | carried: Valimc.Data.Blocks.default_state(name)}}
       end)
 
     if p["baby"] do
@@ -377,10 +384,19 @@ extras = fn body, step ->
   |> Map.merge(
     case body.data do
       # A creeper's fuse (VMC-043b4).
-      %{swell_dir: dir, swell: swell} -> %{"swell_dir" => dir, "swell" => swell}
+      %{swell_dir: dir, swell: swell} ->
+        %{"swell_dir" => dir, "swell" => swell}
+
       # A spider's climbing.
-      %{climbing: climbing} -> %{"climbing" => climbing}
-      _ -> %{}
+      %{climbing: climbing} ->
+        %{"climbing" => climbing}
+
+      # An enderman's block and flags (VMC-043b5).
+      %{carried: carried, creepy: creepy, stared_at: stared} ->
+        %{"carried" => carried, "creepy" => creepy, "stared_at" => stared}
+
+      _ ->
+        %{}
     end
   )
 end
@@ -454,8 +470,12 @@ checked =
           }
         end
 
+      # Blocks the mobs took or put down (an enderman's, VMC-043b5) read as
+      # changed from then on; the kernel's view stays the scene's.
+      for {{:mob_ai_edit, _} = key, _} <- Process.get(), do: Process.delete(key)
+
       world = %AI.World{
-        read: &Map.get(scene, &1, air),
+        read: fn cell -> Process.get({:mob_ai_edit, cell}) || Map.get(scene, cell, air) end,
         # Block searches (a piglin's repellents) over the scene's blocks.
         find: fn {x0, y0, z0, x1, y1, z1}, states ->
           for {{x, y, z} = position, state} <- scene,
@@ -596,6 +616,19 @@ checked =
           unless length(steps) == length(entries),
             do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
 
+          for step <- steps, effect <- step.effects do
+            case effect do
+              {:take_block, cell, taken} ->
+                Process.put({:mob_ai_edit, cell}, Valimc.Data.BlockFacts.fluid_remains(taken))
+
+              {:place_carried, cell, carried} ->
+                Process.put({:mob_ai_edit, cell}, carried)
+
+              _ ->
+                :ok
+            end
+          end
+
           entries =
             Enum.zip_with(entries, steps, fn {id, entry}, step ->
               {x, y, z} = step.position
@@ -684,6 +717,26 @@ checked =
                     s["event"] != nil,
                     do: [s["event"], s["at"], s["data"]]
 
+              # The blocks an enderman took or put down (VMC-043b5).
+              blocks =
+                for effect <- step.effects,
+                    edit =
+                      (case effect do
+                         {:take_block, {bx, by, bz}, taken} ->
+                           [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(taken)]
+
+                         {:place_carried, {bx, by, bz}, carried} ->
+                           [[bx, by, bz], carried]
+
+                         _ ->
+                           nil
+                       end),
+                    edit != nil,
+                    do: edit
+
+              want_blocks =
+                for s <- expected["sounds"], s["block"] != nil, do: [s["block"], s["state"]]
+
               # A creeper's explosion where it stood (VMC-043b4).
               want_blasts =
                 for s <- expected["sounds"], s["explode"] != nil, do: [s["explode"], s["at"]]
@@ -746,6 +799,7 @@ checked =
                 takes: takes,
                 level_events: level_events,
                 blasts: blasts,
+                blocks: blocks,
                 adds: adds,
                 level_seed: world.random,
                 ambient: mind.ambient,
@@ -793,6 +847,7 @@ checked =
                 takes: want_takes,
                 level_events: want_events,
                 blasts: want_blasts,
+                blocks: want_blocks,
                 adds: want_adds,
                 level_seed: expected["level_seed"],
                 ambient: expected["ambient"],

@@ -24,6 +24,7 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Zombie,
     Valimc.AI.Mobs.Skeleton,
     Valimc.AI.Mobs.Creeper,
+    Valimc.AI.Mobs.Enderman,
     Valimc.AI.Mobs.Spider,
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,

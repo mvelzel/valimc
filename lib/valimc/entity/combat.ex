@@ -36,7 +36,7 @@ defmodule Valimc.Entity.Combat do
 
         case hurt_body(body, entity, hit) do
           :ignored ->
-            stirred = stir(body, hit)
+            stirred = body |> stir(hit) |> repelled(hit)
 
             store =
               if stirred == body, do: store, else: Store.change_body(store, id, stirred, [])
@@ -160,8 +160,12 @@ defmodule Valimc.Entity.Combat do
            amount: amount
          }) do
       :ignored ->
-        {stir(%Body{type: type, mob: mob, data: data}, %{source: DamageSource.new(source)}).mob,
-         [], false}
+        hit = %{source: DamageSource.new(source)}
+
+        {%Body{type: type, mob: mob, data: data}
+         |> stir(hit)
+         |> repelled(hit)
+         |> Map.fetch!(:mob), [], false}
 
       {body, events, _} ->
         {body.mob, events, true}
@@ -176,6 +180,11 @@ defmodule Valimc.Entity.Combat do
   end
 
   defp stir(body, _hit), do: body
+
+  # What its family does after turning a hurt away (`Valimc.AI.Kind.repelled/2`:
+  # an enderman teleports from a projectile).
+  defp repelled(%Body{type: type} = body, hit),
+    do: Valimc.AI.Mobs.hook(type, :repelled, [body, hit], body)
 
   @doc """
   `LivingEntity.knockback(power, xd, zd)` on mob `id` (an attack's extra
@@ -331,6 +340,8 @@ defmodule Valimc.Entity.Combat do
   """
   def died(%Body{mob: %Mob{}} = body, hit) do
     {body, equipment} = equipment_drops(body, hit)
+    # Its family's own (`Valimc.AI.Kind.death_drops/1`: an enderman's block).
+    equipment = equipment ++ Valimc.AI.Mobs.hook(body.type, :death_drops, [body], [])
     put_in(body.mob.death, Map.put(death(body, hit), :equipment, equipment))
   end
 
@@ -443,8 +454,9 @@ defmodule Valimc.Entity.Combat do
   end
 
   # The killing damage as loot reads it (`damage_source_properties`): its
-  # type's tags and its direct and source entities' types.
-  defp source_info(hit) do
+  # type's tags and its direct and source entities' types (none for a death
+  # without a hit: `/kill`).
+  defp source_info(%{source: _} = hit) do
     direct = hit[:direct]
     attacker = hit[:attacker]
 
@@ -455,6 +467,8 @@ defmodule Valimc.Entity.Combat do
       is_direct: direct != nil and attacker != nil and direct.uuid == attacker.uuid
     }
   end
+
+  defp source_info(_hit), do: nil
 
   # `AgeableMob.isBaby`: a baby drops neither loot nor experience.
   defp baby?(%Body{data: %{age: age}}), do: age < 0

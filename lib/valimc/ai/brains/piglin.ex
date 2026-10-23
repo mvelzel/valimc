@@ -669,7 +669,7 @@ defmodule Valimc.AI.Brains.Piglin do
     if items == [] do
       self
     else
-      self = Self.effect(self, {:swing, :off_hand})
+      self = Self.swing(self, :off_hand)
 
       Enum.reduce(items, self, fn item, acc ->
         Self.effect(acc, throw_item(self, item, target))

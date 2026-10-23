@@ -1849,6 +1849,103 @@
         ]
       ]
     },
+    "minecraft:enderman": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.enderman.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": true,
+      "malus": {
+        "water": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "EndermanFreezeWhenLookedAt",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          10,
+          "EndermanLeaveBlockGoal",
+          []
+        ],
+        [
+          11,
+          "EndermanTakeBlockGoal",
+          []
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "EndermanLookForPlayerGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          4,
+          "ResetUniversalAngerTargetGoal",
+          []
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2813,6 +2910,8 @@
     "minecraft:entity.magma_cube.hurt_small": 968,
     "minecraft:entity.magma_cube.death": 966,
     "minecraft:entity.magma_cube.death_small": 953,
+    "minecraft:entity.enderman.scream": 601,
+    "minecraft:entity.enderman.teleport": 603,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -2857,6 +2956,7 @@
     "minecraft:entity.stray.ambient": 1609,
     "minecraft:entity.bogged.ambient": 181,
     "minecraft:entity.spider.ambient": 1582,
+    "minecraft:entity.enderman.ambient": 598,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

@@ -51,6 +51,7 @@ public class HostileOracle {
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
   static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
+  static final List<String> OTHERS = List.of("minecraft:enderman");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -100,6 +101,17 @@ public class HostileOracle {
       o.addProperty("fire", fire); o.addProperty("interaction", interaction.name().toLowerCase());
       sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
     }
+    // A block a mob takes or puts down (an enderman's, VMC-043b5) changes the
+    // scene and is recorded as the mob's.
+    public boolean setBlock(BlockPos pos, net.minecraft.world.level.block.state.BlockState state, int flags, int recursion) {
+      if (state.isAir()) blocks.remove(pos.immutable()); else blocks.put(pos.immutable(), state);
+      if (current != null) {
+        var o = new JsonObject(); var at = new JsonArray(); at.add(pos.getX()); at.add(pos.getY()); at.add(pos.getZ());
+        o.add("block", at); o.addProperty("state", net.minecraft.world.level.block.Block.getId(state));
+        sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
+      }
+      return true;
+    }
     // A converted mob is discarded, which untracks it as a waypoint.
     net.minecraft.server.waypoints.ServerWaypointManager waypoints;
     public net.minecraft.server.waypoints.ServerWaypointManager getWaypointManager() {
@@ -112,6 +124,9 @@ public class HostileOracle {
         if (p.baby) m.setBaby(true);
         if (p.loot) m.setCanPickUpLoot(true);
         if (p.fire > 0) m.setRemainingFireTicks(p.fire);
+        // VMC-043b5: an enderman carrying a block.
+        for (var flag : p.flags) if (flag.startsWith("carry=") && m instanceof net.minecraft.world.entity.monster.Enderman e)
+          e.setCarriedBlock(BuiltInRegistries.BLOCK.getValue(Identifier.parse("minecraft:" + flag.substring(6))).defaultBlockState());
         // VMC-043b4: a lit or charged creeper.
         if (m instanceof net.minecraft.world.entity.monster.Creeper c) {
           if (p.flags.contains("ignited")) c.ignite();
@@ -146,6 +161,11 @@ public class HostileOracle {
         r.addProperty("swell", MobAiOracle.field(net.minecraft.world.entity.monster.Creeper.class, "swell").getInt(c));
       }
       if (m instanceof net.minecraft.world.entity.monster.spider.Spider s) r.addProperty("climbing", s.isClimbing());
+      if (m instanceof net.minecraft.world.entity.monster.Enderman e) {
+        var carried = e.getCarriedBlock();
+        if (carried == null) r.add("carried", JsonNull.INSTANCE); else r.addProperty("carried", net.minecraft.world.level.block.Block.getId(carried));
+        r.addProperty("creepy", e.isCreepy()); r.addProperty("stared_at", e.hasBeenStaredAt());
+      }
     }
     void scene(JsonObject out) {
       out.addProperty("day", day);
@@ -218,6 +238,7 @@ public class HostileOracle {
         List.of(), none, noDrops, 901));
     skeletons(level, cases, floor);
     creepersAndSpiders(level, cases, floor);
+    endermen(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -291,6 +312,46 @@ public class HostileOracle {
         List.of(new MobAiOracle.Spawn("minecraft:spider", new Vec3(.5, 64, .5), 0, 191L)),
         List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 2.5), "survival", null)), none, noDrops, 200));
   }
+
+  // VMC-043b5: endermen staring back, picking up and putting down blocks, and leaving the sun.
+  static void endermen(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var none = List.<MobAiOracle.Hit>of();
+    var noDrops = List.<MobAiOracle.Drop>of();
+    // A player stares at an enderman eight blocks away; one with a carved
+    // pumpkin does not anger it; one staring from three blocks makes it
+    // teleport (on a floor wide enough for some of its tries to land).
+    var enderEye = new Vec3(.5, 64 + 2.55F, .5);
+    var wide = MobAiOracle.floor(63, 32, Blocks.STONE.defaultBlockState());
+    for (var scene : List.of("enderman_stare", "enderman_pumpkin", "enderman_stare_close")) {
+      boolean pumpkin = scene.equals("enderman_pumpkin"), close = scene.equals("enderman_stare_close");
+      var at = new Vec3(close ? 3.5 : 8.5, 64, .5);
+      var eye = at.add(0, 1.62F, 0);
+      var d = enderEye.subtract(eye);
+      float yaw = (float)(Math.atan2(d.z, d.x) * 180.0 / Math.PI) - 90.0F;
+      float pitch = (float)(-(Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)) * 180.0 / Math.PI));
+      cases.add(run(level, scene, false, List.of(), close ? wide : floor,
+          List.of(new MobAiOracle.Spawn("minecraft:enderman", new Vec3(.5, 64, .5), 90, 211L)),
+          List.of(new MobAiOracle.Stand(at, "survival", null, pumpkin ? "minecraft:carved_pumpkin" : null, yaw, pitch)),
+          none, noDrops, 200));
+    }
+    // Flowers on grass around an enderman: it picks one up.
+    var grass = Blocks.GRASS_BLOCK.defaultBlockState();
+    var meadow = new ArrayList<>(MobAiOracle.floor(63, 12, grass));
+    for (int x = -2; x <= 2; x += 2) for (int z = -2; z <= 2; z += 2)
+      if (x != 0 || z != 0) meadow.add(new MobAiOracle.Block(x, 64, z, Blocks.POPPY.defaultBlockState()));
+    cases.add(run(level, "enderman_take", false, List.of(), meadow,
+        List.of(new MobAiOracle.Spawn("minecraft:enderman", new Vec3(.5, 64, .5), 0, 223L)),
+        List.of(), none, noDrops, 200));
+    // One carrying a block puts it down.
+    cases.add(run(level, "enderman_place", false, List.of(new Prep(0, Map.of(), false, false, 0, Set.of("carry=grass_block"))), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:enderman", new Vec3(.5, 64, .5), 0, 251L)),
+        List.of(), none, noDrops, 160));
+    // By day under the open sky, after half a minute it teleports away.
+    cases.add(run(level, "enderman_day", true, List.of(), wide,
+        List.of(new MobAiOracle.Spawn("minecraft:enderman", new Vec3(.5, 64, .5), 0, 229L)),
+        List.of(), none, noDrops, 660));
+  }
+
 
   static String bits(double d) { return MobAiOracle.bits(d); }
 
@@ -377,6 +438,17 @@ public class HostileOracle {
     var sounds = new JsonObject();
     for (var n : soundNames) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
     out.add("sounds", sounds);
+    // The types water and rain hurt (`isSensitiveToWater`).
+    var sensitive = new TreeSet<String>();
+    for (var type : BuiltInRegistries.ENTITY_TYPE) {
+      try {
+        if (type.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND)
+            instanceof net.minecraft.world.entity.LivingEntity living && living.isSensitiveToWater())
+          sensitive.add(BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
+      } catch (Throwable ignored) {}
+    }
+    var sensitiveList = new JsonArray(); sensitive.forEach(sensitiveList::add);
+    out.add("water_sensitive", sensitiveList);
     // When monsters burn (`EnvironmentAttributes.MONSTERS_BURN`): the overworld
     // day timeline's track (its keyframes over the day's period; the
     // dimension's own value is false).
@@ -543,7 +615,7 @@ public class HostileOracle {
     var biomes = List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "minecraft:swamp");
     var cases = new JsonArray();
     var picker = new Random(43L);
-    for (var type : java.util.stream.Stream.of(FAMILY, NETHER, SKELETONS, CREEPERS_SPIDERS, CUBES).flatMap(List::stream).toList())
+    for (var type : java.util.stream.Stream.of(FAMILY, NETHER, SKELETONS, CREEPERS_SPIDERS, CUBES, OTHERS).flatMap(List::stream).toList())
       for (var s : settings)
         for (int i = 0; i < 120; i++) {
           var reason = i % 10 == 9 ? EntitySpawnReason.SPAWNER

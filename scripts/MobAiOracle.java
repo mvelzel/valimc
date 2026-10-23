@@ -63,7 +63,7 @@ public class MobAiOracle {
       "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast", "minecraft:magma_cube",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
-      "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider",
+      "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
@@ -79,6 +79,8 @@ public class MobAiOracle {
       "minecraft:entity.magma_cube.squish", "minecraft:entity.magma_cube.squish_small", "minecraft:entity.slime.attack",
       "minecraft:entity.magma_cube.hurt", "minecraft:entity.magma_cube.hurt_small", "minecraft:entity.magma_cube.death",
       "minecraft:entity.magma_cube.death_small",
+      // A creepy enderman's scream and its teleports (VMC-043b5).
+      "minecraft:entity.enderman.scream", "minecraft:entity.enderman.teleport",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -656,8 +658,10 @@ public class MobAiOracle {
   record Spawn(String type, Vec3 position, float yaw, long seed, Map<String, Object> data) {
     Spawn(String type, Vec3 position, float yaw, long seed) { this(type, position, yaw, seed, Map.of()); }
   }
-  record Stand(Vec3 position, String mode, String mainhand, String head) {
+  /** A player standing still, facing `yaw` and `pitch` (VMC-043b5: staring at an enderman). */
+  record Stand(Vec3 position, String mode, String mainhand, String head, float yaw, float pitch) {
     Stand(Vec3 position, String mode, String mainhand) { this(position, mode, mainhand, null); }
+    Stand(Vec3 position, String mode, String mainhand, String head) { this(position, mode, mainhand, head, 0, 0); }
   }
   /** An item lying still, its pickup delay over. */
   record Drop(Vec3 position, String item, int count) {}
@@ -697,7 +701,9 @@ public class MobAiOracle {
     int n = 0;
     for (var s : stands) {
       var f = new Fighter(level, ++n, net.minecraft.world.level.GameType.byName(s.mode));
-      f.snapTo(s.position.x, s.position.y, s.position.z, 0, 0);
+      f.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, s.pitch);
+      // A player looks where its head faces (`getViewYRot`).
+      f.setYHeadRot(s.yaw); f.yHeadRotO = s.yaw;
       if (s.mainhand != null) f.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.mainhand))));
       if (s.head != null) f.setItemSlot(EquipmentSlot.HEAD, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(s.head))));
       var server = serverFighter(f);
@@ -876,7 +882,9 @@ public class MobAiOracle {
     int i = 0;
     for (var s : stands) {
       var o = new JsonObject(); o.addProperty("uuid", ++i); o.addProperty("id", fighters.get(i - 1).getId()); o.add("position", bits(s.position)); o.addProperty("mode", s.mode);
-      o.addProperty("mainhand", s.mainhand); o.addProperty("head", s.head); ps.add(o);
+      o.addProperty("mainhand", s.mainhand); o.addProperty("head", s.head);
+      if (s.yaw != 0 || s.pitch != 0) { o.addProperty("yaw", Float.floatToRawIntBits(s.yaw)); o.addProperty("pitch", Float.floatToRawIntBits(s.pitch)); }
+      ps.add(o);
     }
     out.add("players", ps);
     var hs = new JsonArray();
