@@ -11,6 +11,7 @@
 alias Valimc.AI
 alias Valimc.AI.Brains.Villager
 alias Valimc.Entity.{Body, Combat, MobTicks}
+invisibility = Valimc.Data.EffectTypes.id("invisibility")
 
 [path] = System.argv()
 Valimc.Data.BlockFacts.install!()
@@ -153,7 +154,12 @@ checked =
           random: AI.Random.new(7),
           difficulty: :normal,
           time: time,
-          day: time
+          day: time,
+          # A scene that follows the sky (a trader's, VMC-044a4): bright while
+          # the overworld's sky darkens by less than 4.
+          bright:
+            c["real_sky"] == true and
+              Valimc.World.Spawning.darken("minecraft:overworld", time, 0.0, 0.0) < 4
         }
       end
 
@@ -227,6 +233,37 @@ checked =
               else: mind
 
           mob = %{body.mob | ai: mind, no_ai: m["no_ai"]}
+
+          # A wandering trader's setup (VMC-044a4): its wander target and
+          # home, despawn delay, and invisibility.
+          {body, mob} =
+            case m["trader"] do
+              nil ->
+                {body, mob}
+
+              t ->
+                wander = t["wander"] && List.to_tuple(t["wander"])
+
+                data = %{
+                  body.data
+                  | despawn_delay: t["despawn"],
+                    wander_target: wander,
+                    invisible: t["invisible"]
+                }
+
+                effects =
+                  if t["invisible"],
+                    do: %{invisibility => [{3600, 0, false, true, true}]},
+                    else: %{}
+
+                mob = %{
+                  mob
+                  | home: wander && {wander, 16},
+                    living: %{mob.living | effects: effects}
+                }
+
+                {%{body | data: data}, mob}
+            end
 
           # Scenery takes no knockback (the oracle's too).
           mob =
@@ -533,6 +570,50 @@ checked =
                        sleeping: expected["sleeping"],
                        hostile: expected["hostile"]
                      })}
+                  else
+                    {got, want}
+                  end
+
+                # A wandering trader's hand, drink, invisibility, despawn
+                # delay and wander target (VMC-044a4).
+                {got, want} =
+                  if body.type == "minecraft:wandering_trader" do
+                    stack = body.mob.equipment[:mainhand]
+
+                    using =
+                      case body.mob.using do
+                        {_, used} ->
+                          Valimc.Living.FoodItems.properties(stack).consumable["ticks"] - used
+
+                        nil ->
+                          0
+                      end
+
+                    duration =
+                      case body.mob.living.effects[invisibility] do
+                        [{ticks, _, _, _, _} | _] -> ticks
+                        nil -> -1
+                      end
+
+                    {Map.merge(got, %{
+                       mainhand:
+                         if(stack,
+                           do: Valimc.Protocol.ItemTypes.item(stack.item_id)["name"],
+                           else: "minecraft:air"
+                         ),
+                       using: using,
+                       invisibility: duration,
+                       invisible: body.data.invisible,
+                       despawn: body.data.despawn_delay,
+                       wander: body.data.wander_target && Tuple.to_list(body.data.wander_target)
+                     }),
+                     Map.merge(
+                       want,
+                       Map.new(
+                         ~w(mainhand using invisibility invisible despawn wander),
+                         &{String.to_atom(&1), expected[&1]}
+                       )
+                     )}
                   else
                     {got, want}
                   end

@@ -5,7 +5,8 @@ defmodule Valimc.NaturalSpawningTest do
   at vanilla's distances and in peaceful; a name tag makes a mob persistent.
   A spawner block spawns near a player, a swamp hut's piece its witches
   (VMC-042b). A village's cat spawner brings a cat near five claimed homes,
-  not four (VMC-044a3).
+  not four (VMC-044a3); the trader spawner brings a wandering trader to wander
+  by its player (VMC-044a4).
   The oracle stage `natural_spawning` holds the rules' fixtures.
   """
   use ExUnit.Case, async: true
@@ -337,6 +338,33 @@ defmodule Valimc.NaturalSpawningTest do
 
     assert cats.(Enum.take(homes, 4)) == 0
     assert cats.(homes) > 0
+  end
+
+  test "the trader spawner brings a wandering trader to wander by its player", %{
+    owners: [{key, owner} | _]
+  } do
+    {x, y, z} = centre(key, 64, 64)
+    player = [{x, y, z, false, false}]
+    day = %{@night | darken: 0}
+
+    # Thirty tries with the spawner's delay up and its chance sure; one in
+    # ten draws through.
+    Enum.reduce(1..30, Spawning.new(), fn t, spawning ->
+      traders = %{tick: 1, delay: 1200, chance: 100, random: Valimc.Data.JavaRandom.new(t)}
+      elem(tick(owner, player, day, %{spawning | traders: traders}, t), 0)
+    end)
+
+    store = Valimc.TestRegion.section(owner).entities.store
+
+    traders =
+      for {_, %{body: %{type: "minecraft:wandering_trader"} = body, entity: e}} <- store.entries,
+          do: {body, e}
+
+    assert [{body, e} | _] = traders
+    reference = {floor(x), floor(y), floor(z)}
+    assert body.data.despawn_delay == 48_000 and body.data.wander_target == reference
+    assert body.mob.home == {reference, 16}
+    assert abs(e.x - x) <= 48.5 and abs(e.z - z) <= 48.5 and e.y == 64.0
   end
 
   test "a tick's environment reads the published clock, weather and settings" do

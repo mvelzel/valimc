@@ -88,10 +88,18 @@ defmodule Valimc.World.Spawning do
 
   @doc """
   A group's spawning state: its level random, its mobs' random, its
-  spawner blocks' countdowns (`position => {nbt, config, delay}`) and its
-  cat spawner's (`Valimc.World.CatSpawner`).
+  spawner blocks' countdowns (`position => {nbt, config, delay}`), its cat
+  spawner's (`Valimc.World.CatSpawner`) and its trader spawner's
+  (`Valimc.World.TraderSpawner`).
   """
-  def new, do: %{random: JavaRandom.create(), mobs: JavaRandom.create(), spawners: %{}, cats: 0}
+  def new,
+    do: %{
+      random: JavaRandom.create(),
+      mobs: JavaRandom.create(),
+      spawners: %{},
+      cats: 0,
+      traders: Valimc.World.TraderSpawner.new()
+    }
 
   ## The sky
 
@@ -337,7 +345,17 @@ defmodule Valimc.World.Spawning do
         end)
       end)
 
-    spawning = Map.put(group.spawning, :cats, cats)
+    # Wandering traders (`WanderingTraderSpawner`, VMC-044a4).
+    {traders, random, made} = Valimc.World.TraderSpawner.tick(group, random)
+
+    by_section =
+      Enum.reduce(made, by_section, fn {key, record}, acc ->
+        Map.update(acc, key, {[record], [], [], []}, fn {r, d, s, e} ->
+          {[record | r], d, s, e}
+        end)
+      end)
+
+    spawning = group.spawning |> Map.put(:cats, cats) |> Map.put(:traders, traders)
     {%{spawning | random: random, mobs: finalize, spawners: cached}, by_section}
   end
 

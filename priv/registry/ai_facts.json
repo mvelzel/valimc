@@ -3091,6 +3091,146 @@
           ]
         ]
       ]
+    },
+    "minecraft:wandering_trader": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.wandering_trader.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [
+        [
+          0,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          0,
+          "UseItemGoal",
+          []
+        ],
+        [
+          0,
+          "UseItemGoal",
+          []
+        ],
+        [
+          1,
+          "TradeWithPlayerGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "LookAtTradingPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          2,
+          "WanderToPositionGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "MoveTowardsRestrictionGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          8,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          9,
+          "InteractGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          10,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
     }
   },
   "shulker_look": [
@@ -3150,6 +3290,11 @@
     "minecraft:entity.piglin.retreat": 1291,
     "minecraft:entity.piglin.angry": 1286,
     "minecraft:entity.piglin.celebrate": 1287,
+    "minecraft:entity.generic.drink": 701,
+    "minecraft:entity.wandering_trader.drink_potion": 1733,
+    "minecraft:entity.wandering_trader.drink_milk": 1732,
+    "minecraft:entity.wandering_trader.disappeared": 1731,
+    "minecraft:entity.wandering_trader.reappeared": 1736,
     "minecraft:entity.zombified_piglin.angry": 1900,
     "minecraft:entity.magma_cube.jump": 969,
     "minecraft:entity.magma_cube.squish": 970,
@@ -3218,7 +3363,8 @@
     "minecraft:entity.chicken.ambient": 356,
     "minecraft:entity.rabbit.ambient": 1353,
     "minecraft:entity.villager.ambient": 1699,
-    "minecraft:entity.cat.stray_ambient": 289
+    "minecraft:entity.cat.stray_ambient": 289,
+    "minecraft:entity.wandering_trader.ambient": 1729
   },
   "swing_fields": "000106"
 }

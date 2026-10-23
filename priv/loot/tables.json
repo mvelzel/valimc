@@ -41659,6 +41659,10 @@
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/villager"
   },
+  "minecraft:entities/wandering_trader": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/wandering_trader"
+  },
   "minecraft:entities/zombie": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/zombie",

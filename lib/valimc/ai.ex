@@ -614,6 +614,11 @@ defmodule Valimc.AI do
           self
       end
 
+    # `LivingEntity.baseTick` ends with `tickEffects` (VMC-044a4): the
+    # mob's effects run down (their periodic actions on mobs are not
+    # modelled yet), before `Mob.baseTick`'s ambient sound.
+    self = tick_effects(self)
+
     {n, self} = Self.int(self, 1000)
     ambient = self.mind.ambient
     self = Self.mind(self, &%{&1 | ambient: ambient + 1})
@@ -678,14 +683,30 @@ defmodule Valimc.AI do
 
   defp strafe(self), do: self
 
+  defp tick_effects(%Self{mob: %{living: %{effects: effects} = living} = mob} = self)
+       when map_size(effects) > 0 do
+    case Valimc.Living.Effects.tick(effects) do
+      {:ok, effects, _} -> %{self | mob: %{mob | living: %{living | effects: effects}}}
+      _ -> self
+    end
+  end
+
+  defp tick_effects(self), do: self
+
   # `updatingUsingItem` (VMC-043b): an item still in its hand counts another
-  # tick of use; one that left it stops.
+  # tick of use; one that left it stops. A drink (VMC-044a4) plays its sound
+  # now and then and is drunk when its use is up (`updateUsingItem`).
   defp using_item(%Self{mob: %{using: {hand, ticks}} = mob} = self) do
     slot = if hand == :off_hand, do: :offhand, else: :mainhand
 
-    if mob.equipment[slot],
-      do: %{self | mob: %{mob | using: {hand, ticks + 1}}},
-      else: Self.stop_using(self)
+    case mob.equipment[slot] do
+      nil ->
+        Self.stop_using(self)
+
+      stack ->
+        self = %{self | mob: %{mob | using: {hand, ticks + 1}}}
+        Valimc.AI.Consume.tick(self, slot, stack, ticks)
+    end
   end
 
   defp using_item(self), do: self

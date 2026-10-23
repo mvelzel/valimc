@@ -57,7 +57,8 @@ defmodule Valimc.Entity.Body do
                 @cloud,
                 @knot,
                 @villager,
-                "minecraft:iron_golem"
+                "minecraft:iron_golem",
+                "minecraft:wandering_trader"
               ] ++
                 Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
             )
@@ -457,16 +458,18 @@ defmodule Valimc.Entity.Body do
     end
   end
 
-  # Vanilla's on-fire flag (bit 0) for a burning body that is not fire immune.
-  defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type})
-       when ticks > 0,
-       do: if(EntityTypes.fetch(type).fire_immune, do: 0, else: 1)
+  # Vanilla's on-fire flag (bit 0) for a burning body that is not fire
+  # immune, sprinting (bit 3: a cat, VMC-044a3) and invisible (bit 5: a
+  # wandering trader, VMC-044a4).
+  defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type} = body) do
+    fire = if ticks > 0 and not EntityTypes.fetch(type).fire_immune, do: 1, else: 0
+    sprinting = if Map.get(body.data, :sprinting) == true, do: 8, else: 0
+    invisible = if Map.get(body.data, :invisible) == true, do: 32, else: 0
+    fire + sprinting + invisible
+  end
 
   defp shared_flags(%__MODULE__{mob: nil, data: %{fire: _}} = body),
     do: if(Projectile.burning?(body), do: 1, else: 0)
-
-  # A sprinting mob's flag (bit 3, `setSprinting`: a cat, VMC-044a3).
-  defp shared_flags(%__MODULE__{mob: %Mob{}, data: %{sprinting: true}}), do: 8
 
   defp shared_flags(_body), do: 0
 

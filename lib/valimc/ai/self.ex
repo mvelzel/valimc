@@ -57,6 +57,17 @@ defmodule Valimc.AI.Self do
   end
 
   @doc """
+  `Entity.playSound(sound, volume, pitch)`: `name` (a sound's name or
+  protocol id) from the mob, in its type's sound source.
+  """
+  def sound(%__MODULE__{} = self, name, volume, pitch) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    id = if is_integer(name), do: name, else: Valimc.AI.Facts.sound_id(name)
+    source = Valimc.Protocol.CombatPackets.mob_sounds(self.type)["sound_source"]
+    effect(self, {:sound, id, source, volume * 1.0, pitch, seed})
+  end
+
+  @doc """
   `Entity.spawnSprintParticle`: over a block that renders, the particle's
   place draws twice (the server sends no particle).
   """

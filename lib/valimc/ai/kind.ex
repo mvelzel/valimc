@@ -63,6 +63,8 @@ defmodule Valimc.AI.Kind do
     `split/2` (the bodies a dead one leaves as it is removed, with their
     positions).
   - Its targets: `can_attack?/2` (`canAttack` beyond `Mob`'s, VMC-044a2).
+  - Its drinks: `consume_sound/2` (`OverrideConsumeSound.getConsumeSound`
+    of a stack, nil for the item's own; VMC-044a4).
   """
   alias Valimc.AI.Self
 
@@ -115,6 +117,7 @@ defmodule Valimc.AI.Kind do
   @callback split(struct, tuple) :: [{struct, tuple}]
   @callback hurt_events(struct, float) :: list
   @callback can_attack?(Self.t(), map) :: boolean
+  @callback consume_sound(Self.t(), struct) :: String.t() | nil
 
   @optional_callbacks leashable?: 0,
                       volume: 1,
@@ -162,5 +165,6 @@ defmodule Valimc.AI.Kind do
                       walk_value: 2,
                       falls?: 0,
                       hurt_events: 2,
-                      can_attack?: 2
+                      can_attack?: 2,
+                      consume_sound: 2
 end

@@ -72,12 +72,16 @@ public class MobAiOracle {
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems (cases in VillageOracle).
       "minecraft:villager", "minecraft:iron_golem",
-      // VMC-044a3: cats (cases in AnimalOracle).
-      "minecraft:cat");
+      // VMC-044a3: cats (cases in AnimalOracle); VMC-044a4: wandering traders.
+      "minecraft:cat", "minecraft:wandering_trader");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
       "minecraft:entity.piglin.celebrate",
+      // VMC-044a4: a mob's drinks and a wandering trader's.
+      "minecraft:entity.generic.drink", "minecraft:entity.wandering_trader.drink_potion",
+      "minecraft:entity.wandering_trader.drink_milk", "minecraft:entity.wandering_trader.disappeared",
+      "minecraft:entity.wandering_trader.reappeared",
       // A zombified piglin's anger; a magma cube's hops, landings and touch (VMC-043d).
       "minecraft:entity.zombified_piglin.angry", "minecraft:entity.magma_cube.jump",
       "minecraft:entity.magma_cube.squish", "minecraft:entity.magma_cube.squish_small", "minecraft:entity.slime.attack",
@@ -295,8 +299,11 @@ public class MobAiOracle {
     public boolean hasChunk(int x, int z) { return poi != null; }
     public float getLightLevelDependentMagicValue(BlockPos p) { return 0.0F; }
     public int getRawBrightness(BlockPos p, int darkening) { return 0; }
-    // Night, and no village (a village scene's POIs give one: VMC-044a).
-    public boolean isBrightOutside() { return false; }
+    // Night, and no village (a village scene's POIs give one: VMC-044a), unless
+    // a scene follows the sky (`realSky`, its darkening updated each tick: a
+    // wandering trader's drinks, VMC-044a4).
+    boolean realSky;
+    public boolean isBrightOutside() { return realSky && super.isBrightOutside(); }
     net.minecraft.world.entity.ai.village.poi.PoiManager poi;
     net.minecraft.util.debug.LevelDebugSynchronizers debug;
     public net.minecraft.world.entity.ai.village.poi.PoiManager getPoiManager() { return poi; }

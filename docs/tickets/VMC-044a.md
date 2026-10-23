@@ -1,6 +1,6 @@
 # VMC-044a — Villagers and golems without trades
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-042b](VMC-042b.md).
 
@@ -29,3 +29,8 @@ Acceptance:
 - A generated village lives through a day and night as the oracle's fixtures
   do.
 - Zombies attack villagers, and golems defend them.
+
+All four slices are implemented and match their oracle scenes; each waits on
+the client. Their client scenarios make one handoff: a fresh world's plains
+village through a day and a night, with a zombie and a golem summoned among
+its villagers, its cats and a summoned wandering trader.

@@ -295,6 +295,10 @@ public class VillageOracle {
     Spawn(String type, Vec3 position, float yaw, long seed, boolean noAi, int age, String profession) { this(type, position, yaw, seed, noAi, age, profession, -1L); }
   }
 
+  /** A wandering trader's setup (VMC-044a4): its wander target and home, despawn delay, and invisibility. */
+  record Trader(BlockPos wander, int despawn, boolean invisible) {}
+  static final Map<Long, Trader> TRADERS = new HashMap<>();
+
   static JsonArray pos(BlockPos p) { var a = new JsonArray(); a.add(p.getX()); a.add(p.getY()); a.add(p.getZ()); return a; }
 
   static JsonElement global(Optional<net.minecraft.core.GlobalPos> g) { return g.isEmpty() ? JsonNull.INSTANCE : pos(g.get().pos()); }
@@ -343,6 +347,15 @@ public class VillageOracle {
         for (var sensor : ((Map<?, ?>)sensorsField.get(m.getBrain())).values()) times.add(timeToTick.getLong(sensor));
         sensorTimes.add(times); orders.add(order(m));
       } else { gates.add(JsonNull.INSTANCE); sensorTimes.add(JsonNull.INSTANCE); orders.add(JsonNull.INSTANCE); }
+      if (m instanceof net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader wt && TRADERS.containsKey(s.seed)) {
+        var tr = TRADERS.get(s.seed);
+        wt.setDespawnDelay(tr.despawn);
+        if (tr.wander != null) { wt.setWanderTarget(tr.wander); wt.setHomeTo(tr.wander, 16); }
+        if (tr.invisible) {
+          wt.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.INVISIBILITY, 3600));
+          wt.updateDataBeforeSync();
+        }
+      }
       m.setSilent(false);
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
@@ -359,6 +372,7 @@ public class VillageOracle {
     for (int t = 0; t < ticks; t++) {
       level.time++;
       level.env.invalidateTickCache();
+      if (level.realSky) level.updateSkyBrightness();
       for (var m : mobs) {
         m.checkDespawn();
         m.setOldPosAndRot();
@@ -367,6 +381,9 @@ public class VillageOracle {
         m.tick();
         level.current = null;
       }
+      // The tracker syncs each entity's data after the tick (`updateDataBeforeSync`:
+      // a trader's invisibility).
+      for (var m : mobs) m.updateDataBeforeSync();
       // What a mob summoned (a golem) ticks from the next tick, its random seeded alike.
       var spawned = new JsonArray();
       for (var e : level.added)
@@ -415,6 +432,15 @@ public class VillageOracle {
           if (System.getenv("VILLAGE_GATES") != null) r.add("gate_orders", gateOrders(v));
         }
         r.addProperty("health", Float.floatToRawIntBits(m.getHealth()));
+        if (m instanceof net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader wt) {
+          r.addProperty("mainhand", BuiltInRegistries.ITEM.getKey(wt.getMainHandItem().getItem()).toString());
+          r.addProperty("using", wt.getUseItemRemainingTicks());
+          var inv = wt.getEffect(net.minecraft.world.effect.MobEffects.INVISIBILITY);
+          r.addProperty("invisibility", inv == null ? -1 : inv.getDuration());
+          r.addProperty("invisible", wt.isInvisible()); r.addProperty("despawn", wt.getDespawnDelay());
+          var target = (BlockPos)MobAiOracle.field(wt.getClass(), "wanderTarget").get(wt);
+          r.add("wander", target == null ? JsonNull.INSTANCE : pos(target));
+        }
         if (!(m instanceof Villager)) {
           r.addProperty("goals", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)MobAiOracle.field(net.minecraft.world.entity.Mob.class, "goalSelector").get(m)));
           r.addProperty("targets", MobAiOracle.running((net.minecraft.world.entity.ai.goal.GoalSelector)MobAiOracle.field(net.minecraft.world.entity.Mob.class, "targetSelector").get(m)));
@@ -464,9 +490,16 @@ public class VillageOracle {
       var o = new JsonObject(); o.addProperty("type", s.type); o.add("position", MobAiOracle.bits(s.position)); o.addProperty("yaw", Float.floatToRawIntBits(s.yaw));
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(i).getId()); o.addProperty("no_ai", s.noAi); o.addProperty("age", s.age);
       o.addProperty("profession", s.profession); o.addProperty("slept", s.slept);
+      if (s.type.equals("minecraft:wandering_trader") && TRADERS.containsKey(s.seed)) {
+        var tr = TRADERS.get(s.seed); var to = new JsonObject();
+        to.add("wander", tr.wander == null ? JsonNull.INSTANCE : pos(tr.wander));
+        to.addProperty("despawn", tr.despawn); to.addProperty("invisible", tr.invisible);
+        o.add("trader", to);
+      }
       ms.add(o);
     }
     out.add("mobs", ms);
+    out.addProperty("real_sky", level.realSky);
     out.add("gates", gates); out.add("sensors", sensorTimes); out.add("orders", orders);
     out.add("ticks", trace);
     return out;
@@ -493,6 +526,8 @@ public class VillageOracle {
   static JsonObject cases(MobAiOracle.Probe level, HolderLookup.Provider lookup) throws Exception {
     // The overworld's timelines on a clock that reads the level's time.
     var dim = lookup.lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(ResourceKey.create(Registries.DIMENSION_TYPE, Identifier.parse("minecraft:overworld")));
+    // `isDarkOutside` reads the level's dimension type (a trader's drinks).
+    unsafe().putObject(level, unsafe().objectFieldOffset(net.minecraft.world.level.Level.class.getDeclaredField("dimensionTypeRegistration")), dim);
     net.minecraft.world.clock.ClockManager clocks = clock -> new net.minecraft.world.clock.ClockInstance() {
       public long totalTicks() { return level.time; }
       public float partialTick() { return 0; }
@@ -535,6 +570,22 @@ public class VillageOracle {
             new Spawn("minecraft:villager", new Vec3(-2.5, 64, -2.5), 0, 83L, true, 0, null, 800L),
             new Spawn("minecraft:villager", new Vec3(-2.5, 64, 3.5), 0, 89L, true, 0, null, 800L),
             new Spawn("minecraft:zombie", new Vec3(4.5, 64, .5), 90, 97L, true, 0, null)), 1050L, 160));
+    // A wandering trader (VMC-044a4) walks to its wander target; at dusk one
+    // drinks a potion of invisibility, at dawn an invisible one milk; one
+    // flees a zombie; one counts its despawn delay down.
+    level.realSky = true;
+    TRADERS.put(101L, new Trader(new BlockPos(11, 64, 3), 48000, false));
+    cases.add(run(level, "trader_wander", floor(63, 12, stone), List.of(new Spawn("minecraft:wandering_trader", start, 0, 101L)), 1000L, 400));
+    TRADERS.put(103L, new Trader(null, 48000, false));
+    cases.add(run(level, "trader_dusk", floor(63, 12, stone), List.of(new Spawn("minecraft:wandering_trader", start, 0, 103L)), 13200L, 120));
+    TRADERS.put(107L, new Trader(null, 48000, true));
+    cases.add(run(level, "trader_dawn", floor(63, 12, stone), List.of(new Spawn("minecraft:wandering_trader", start, 0, 107L)), 1000L, 120));
+    TRADERS.put(109L, new Trader(null, 48000, false));
+    cases.add(run(level, "trader_flee", floor(63, 12, stone), List.of(new Spawn("minecraft:wandering_trader", start, 0, 109L),
+        new Spawn("minecraft:zombie", new Vec3(4.5, 64, .5), 90, 113L, true, 0, null)), 1000L, 200));
+    TRADERS.put(127L, new Trader(null, 30, false));
+    cases.add(run(level, "trader_despawn", floor(63, 12, stone), List.of(new Spawn("minecraft:wandering_trader", start, 0, 127L)), 1000L, 29));
+    level.realSky = false;
     // A zombie close by makes it panic and flee.
     cases.add(run(level, "villager_panic", floor(63, 12, stone),
         List.of(new Spawn("minecraft:villager", start, 0, 53L), new Spawn("minecraft:zombie", new Vec3(5.5, 64, .5), 90, 59L, true, 0, null)), 1000L, 300));
