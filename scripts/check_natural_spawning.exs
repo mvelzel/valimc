@@ -1,7 +1,8 @@
 # Vanilla's natural spawner (NaturalSpawnOracle) against the spawn kernel
 # (VMC-042a): every scene's spawn ticks from the same level random give the
 # same mobs, positions, yaws and packs and leave the random where vanilla's
-# is; chunk generation spawns the same creatures; fresh mobs despawn at
+# is; spawner blocks spawn as vanilla's (VMC-042b); chunk generation spawns the
+# same creatures; fresh mobs despawn at
 # vanilla's distances; the sky darkens as vanilla's over a day in each
 # weather.
 alias Valimc.Data.EntityTypes
@@ -69,6 +70,39 @@ show = fn {id, x, y, z, yaw, school} -> {name.(id), x, y, z, yaw, school} end
       end
   end
 
+# VMC-042b: spawner blocks tick as vanilla's: the same spawns, the same
+# delay after every tick, the random left where vanilla's is.
+{spawner_ticks, spawner_spawns} =
+  for %{"kind" => "spawner"} = c <- cases, reduce: {0, 0} do
+    {ticks, spawns} ->
+      biome = Data.registry_id("minecraft:worldgen/biome", c["biome"])
+      {:ok, runs} = Valimc.Native.spawn_spawner_scene(c, biome, EntityTypes.id(c["type"]))
+
+      Enum.zip(c["runs"], runs)
+      |> Enum.with_index()
+      |> Enum.reduce({ticks, spawns}, fn {{[start, after_, want], {got, random}}, i}, {t, s} ->
+        want = for [delay, list] <- want, do: {delay, Enum.map(list, &expect.(Enum.take(&1, 6)))}
+
+        case Enum.find_index(Enum.zip(got, want), fn {a, b} -> a != b end) do
+          nil when random == after_ ->
+            :ok
+
+          tick ->
+            {ours, theirs} = if tick, do: Enum.at(Enum.zip(got, want), tick), else: {nil, nil}
+
+            raise(
+              "#{c["name"]} run #{i} (random #{start}) tick #{inspect(tick)}: #{inspect(ours)}, " <>
+                "vanilla #{inspect(theirs)}; random #{random}, vanilla #{after_}"
+            )
+        end
+
+        {t + length(want), s + Enum.sum(for {_, list} <- want, do: length(list))}
+      end)
+  end
+
+unless spawner_ticks >= 20_000 and spawner_spawns >= 300,
+  do: raise("Incomplete spawner fixtures: #{spawner_ticks} ticks, #{spawner_spawns} spawns")
+
 unless ticks >= 20_000 and spawns >= 10_000 and generated >= 100,
   do:
     raise(
@@ -109,6 +143,7 @@ for %{"rain" => rain, "thunder" => thunder, "darken" => darken} <- rows do
 end
 
 IO.puts(
-  "PASS: #{ticks} spawn ticks (#{spawns} mobs) and #{generated} generated creatures equal vanilla's; " <>
+  "PASS: #{ticks} spawn ticks (#{spawns} mobs), #{spawner_ticks} spawner ticks " <>
+    "(#{spawner_spawns} mobs) and #{generated} generated creatures equal vanilla's; " <>
     "#{length(despawns)} despawn checks and #{length(rows) * 24_000} sky darkenings match."
 )

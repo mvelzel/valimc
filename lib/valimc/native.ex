@@ -302,6 +302,7 @@ defmodule Valimc.Native do
   ## Parity and benchmarks (dev, test and bench builds)
 
   def spawn_scene(_case, _biome, _types), do: :erlang.nif_error(:nif_not_loaded)
+  def spawn_spawner_scene(_case, _biome, _type), do: :erlang.nif_error(:nif_not_loaded)
 
   def spawn_despawn(_type, _difficulty, _distance, _persistent),
     do: :erlang.nif_error(:nif_not_loaded)

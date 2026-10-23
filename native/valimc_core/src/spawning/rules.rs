@@ -228,12 +228,13 @@ impl World<'_> {
         [p[0], p[1] - 1, p[2]]
     }
 
-    fn mob_rule(&self, kind: &TypeFacts, p: [i32; 3]) -> bool {
-        self.facts.valid_spawn(self.state(Self::below(p)), kind)
+    /// `Mob.checkMobSpawnRules`: a spawner's mob passes.
+    fn mob_rule(&self, kind: &TypeFacts, p: [i32; 3], spawner: bool) -> bool {
+        spawner || self.facts.valid_spawn(self.state(Self::below(p)), kind)
     }
 
-    fn monster(&self, kind: &TypeFacts, p: [i32; 3], random: &mut Random) -> bool {
-        self.dark(p, random) && self.mob_rule(kind, p)
+    fn monster(&self, kind: &TypeFacts, p: [i32; 3], random: &mut Random, spawner: bool) -> bool {
+        self.dark(p, random) && self.mob_rule(kind, p, spawner)
     }
 
     fn animal(&self, p: [i32; 3]) -> bool {
@@ -254,6 +255,18 @@ impl World<'_> {
     /// `SpawnPlacements.checkSpawnRules` at a natural spawn or a chunk's
     /// generation.
     pub fn spawn_rules(&self, kind: &TypeFacts, p: [i32; 3], random: &mut Random) -> bool {
+        self.rules(kind, p, random, false)
+    }
+
+    /// `SpawnPlacements.checkSpawnRules` for a spawner block's mob (VMC-042b,
+    /// `EntitySpawnReason.SPAWNER`): `checkMobSpawnRules` passes, surface
+    /// monsters need no sky, silverfish no distance from players; a
+    /// monster's darkness stays (only trial spawners ignore light).
+    pub fn spawner_rules(&self, kind: &TypeFacts, p: [i32; 3], random: &mut Random) -> bool {
+        self.rules(kind, p, random, true)
+    }
+
+    fn rules(&self, kind: &TypeFacts, p: [i32; 3], random: &mut Random, spawner: bool) -> bool {
         if !kind.peaceful && self.peaceful() {
             return false;
         }
@@ -261,9 +274,11 @@ impl World<'_> {
         let named = self.facts.named;
         match kind.rule {
             Rule::None | Rule::Always => true,
-            Rule::Mob => self.mob_rule(kind, p),
-            Rule::Monster => self.monster(kind, p, random),
-            Rule::SurfaceMonster => self.monster(kind, p, random) && self.can_see_sky(p),
+            Rule::Mob => self.mob_rule(kind, p, spawner),
+            Rule::Monster => self.monster(kind, p, random, spawner),
+            Rule::SurfaceMonster => {
+                self.monster(kind, p, random, spawner) && (spawner || self.can_see_sky(p))
+            }
             Rule::Animal => self.animal(p),
             Rule::TagBright(bit) => self.has(Self::below(p), bit) && self.bright(p),
             Rule::Axolotl => self.has(Self::below(p), bits::AXOLOTLS),
@@ -274,7 +289,7 @@ impl World<'_> {
                     && !random.next_bool()
                     && self.raw(p, self.darken) <= random.next_int_bounded(4)
                     && self.has(Self::below(p), bits::BATS)
-                    && self.mob_rule(kind, p)
+                    && self.mob_rule(kind, p, spawner)
             }
             Rule::SurfaceWater => self.surface_water(p, 13, 0),
             Rule::Nautilus => self.surface_water(p, 25, 5),
@@ -301,7 +316,9 @@ impl World<'_> {
                     && self.water(Self::below(p))
             }
             Rule::Ghast => {
-                !self.peaceful() && random.next_int_bounded(20) == 0 && self.mob_rule(kind, p)
+                !self.peaceful()
+                    && random.next_int_bounded(20) == 0
+                    && self.mob_rule(kind, p, spawner)
             }
             Rule::GlowSquid => {
                 p[1] <= self.sea_level - 33 && self.raw(p, 0) == 0 && self.has(p, named.water)
@@ -312,7 +329,7 @@ impl World<'_> {
             Rule::ZombifiedPiglin => {
                 !self.peaceful() && !self.has(Self::below(p), named.nether_wart_block)
             }
-            Rule::Patrolling => self.block(p) <= 8 && self.mob_rule(kind, p),
+            Rule::Patrolling => self.block(p) <= 8 && self.mob_rule(kind, p, spawner),
             Rule::PolarBear => {
                 if biome.polar_alternate {
                     self.bright(p) && self.has(Self::below(p), bits::POLAR_ALTERNATE)
@@ -320,13 +337,15 @@ impl World<'_> {
                     self.animal(p)
                 }
             }
+            Rule::Slime if spawner => !self.peaceful(),
             Rule::Slime => self.slime(kind, p, random, biome.surface_slimes),
             Rule::Stray => {
                 let mut sky = [p[0], p[1] + 1, p[2]];
                 while self.has(sky, named.powder_snow) {
                     sky[1] += 1;
                 }
-                self.monster(kind, p, random) && self.can_see_sky([sky[0], sky[1] - 1, sky[2]])
+                self.monster(kind, p, random, spawner)
+                    && (spawner || self.can_see_sky([sky[0], sky[1] - 1, sky[2]]))
             }
             Rule::Strider => {
                 let mut at = [p[0], p[1] + 1, p[2]];
@@ -338,9 +357,10 @@ impl World<'_> {
             Rule::Turtle => {
                 p[1] < self.sea_level + 4 && self.has(Self::below(p), bits::SAND) && self.bright(p)
             }
+            Rule::NoPlayerNear if spawner => true,
             Rule::NoPlayerNear => {
                 let (x, y, z) = (p[0] as f64 + 0.5, p[1] as f64 + 0.5, p[2] as f64 + 0.5);
-                self.mob_rule(kind, p)
+                self.mob_rule(kind, p, spawner)
                     && !self.players.iter().any(|pl| {
                         !pl.spectator && !pl.creative && distance_sqr(pl.pos, [x, y, z]) < 25.0
                     })
@@ -360,12 +380,12 @@ impl World<'_> {
             && random.next_float() < self.slime_chance
             && self.raw(p, self.darken) <= random.next_int_bounded(8)
         {
-            return self.mob_rule(kind, p);
+            return self.mob_rule(kind, p, false);
         }
         let (cx, cz) = (p[0] >> 4, p[2] >> 4);
         let chunk = slime_chunk(cx, cz, self.seed);
         if random.next_int_bounded(10) == 0 && chunk && p[1] < 40 {
-            return self.mob_rule(kind, p);
+            return self.mob_rule(kind, p, false);
         }
         false
     }

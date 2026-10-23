@@ -79,6 +79,9 @@ import net.minecraft.world.phys.*;
  * scene is seeded; `finalizeSpawn` draws from a random of its own (vanilla
  * shares the level's), so the spawner's draws compare alone. Structure spawn
  * overrides are not exercised (no structure starts at runtime yet).
+ *
+ * The fixtures also tick spawner blocks (VMC-042b, `BaseSpawner.serverTick`) in dungeon,
+ * fortress, mineshaft and stronghold scenes.
  */
 public class NaturalSpawnOracle {
   static sun.misc.Unsafe unsafe;
@@ -463,7 +466,9 @@ public class NaturalSpawnOracle {
     public DamageSources damageSources() { return sources; }
     // A new mob blocks later spawns with its type's own box: what
     // finalizeSpawn changes (a slime's size) is the families' part.
+    Runnable afterSpawn;
     public boolean addFreshEntity(Entity e) {
+      afterSpawn.run();
       spawned.add(e);
       e.setBoundingBox(e.getType().getDimensions().makeBoundingBox(e.position()));
       if (!generation) entities.add(e);
@@ -475,6 +480,20 @@ public class NaturalSpawnOracle {
     public void broadcastEntityEvent(Entity e, byte b) {}
     public <T extends ParticleOptions> int sendParticles(T o, double x, double y, double z, int n, double a, double b, double c, double s) { return 0; }
     public void playSeededSound(Entity e, double x, double y, double z, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) {}
+    // A spawner block's tick (VMC-042b): its type's mobs around it, players in
+    // range (all alive), and its events, counted.
+    int levelEvents;
+    public <T extends Entity> List<T> getEntities(net.minecraft.world.level.entity.EntityTypeTest<Entity, T> type, AABB box, Predicate<? super T> test) {
+      var out = new ArrayList<T>();
+      for (var e : entities) { T t = type.tryCast(e); if (t != null && t.getBoundingBox().intersects(box) && test.test(t)) out.add(t); }
+      return out;
+    }
+    public boolean hasNearbyAlivePlayer(double x, double y, double z, double range) {
+      for (var p : players) if (!p.isSpectator() && p.distanceToSqr(x, y, z) < range * range) return true;
+      return false;
+    }
+    public void levelEvent(Entity source, int type, BlockPos pos, int data) { levelEvents++; }
+    public boolean tryAddFreshEntityWithPassengers(Entity e) { addFreshEntityWithPassengers(e); return true; }
     public List<Entity> getEntities(Entity except, AABB box, Predicate<? super Entity> test) {
       var out = new ArrayList<Entity>();
       if (generation) return out;
@@ -492,6 +511,7 @@ public class NaturalSpawnOracle {
     var level = (Probe) unsafe.allocateInstance(Probe.class);
     level.scene = scene;
     level.entities = new ArrayList<>(); level.spawned = new ArrayList<>(); level.players = new ArrayList<>();
+    level.afterSpawn = () -> {};
     level.rules = new GameRules(FeatureFlagSet.of());
     level.sources = (DamageSources) unsafe.allocateInstance(DamageSources.class);
     level.border = new WorldBorder();
@@ -607,6 +627,70 @@ public class NaturalSpawnOracle {
     return o;
   }
 
+  /**
+   * A spawner block of `type` at `(x, y, z)` (VMC-042b): `BaseSpawner.serverTick` for `ticks`
+   * ticks from its generated state (`BaseSpawner.load` of the compound decoration saves), per
+   * seed. The level's random is the spawner's and its mobs' `finalizeSpawn`'s, as vanilla's;
+   * each spawn records the random's state after it (its family's draws done), from which the
+   * kernel goes on. Per tick: its spawns and the delay after. Its mobs leave every `CLEAR` ticks.
+   */
+  static final int CLEAR = 250;
+
+  static JsonObject spawner(Scene scene, int x, int y, int z, EntityType<?> type, int ticks, int seeds) throws Exception {
+    scene.fill(x, y, z, x, y, z, Blocks.SPAWNER);
+    var nbt = new net.minecraft.nbt.CompoundTag();
+    var entity = new net.minecraft.nbt.CompoundTag(); entity.putString("id", id(type));
+    var data = new net.minecraft.nbt.CompoundTag(); data.put("entity", entity);
+    nbt.put("SpawnData", data);
+    nbt.putShort("Delay", (short) 20); nbt.putShort("MinSpawnDelay", (short) 200); nbt.putShort("MaxSpawnDelay", (short) 800);
+    nbt.putShort("SpawnCount", (short) 4); nbt.putShort("MaxNearbyEntities", (short) 6);
+    nbt.putShort("RequiredPlayerRange", (short) 16); nbt.putShort("SpawnRange", (short) 4);
+    nbt.put("SpawnPotentials", new net.minecraft.nbt.ListTag());
+    var runs = new JsonArray();
+    int total = 0;
+    var pos = new BlockPos(x, y, z);
+    for (int seed = 1; seed <= seeds; seed++) {
+      var level = probe(scene);
+      var random = new LegacyRandomSource(seed * 104729L + scene.name.hashCode());
+      setFinal(Level.class, "random", level, random);
+      level.finalizeRandom = random;
+      long start = seedOf(random);
+      var spawner = new BaseSpawner() { public void broadcastEvent(Level l, BlockPos p, int id) {} };
+      try (var reporter = new net.minecraft.util.ProblemReporter.ScopedCollector(() -> "spawner", com.mojang.logging.LogUtils.getLogger())) {
+        spawner.load(level, pos, net.minecraft.world.level.storage.TagValueInput.create(reporter, registries, nbt));
+      }
+      var delay = field(BaseSpawner.class, "spawnDelay");
+      var perTick = new JsonArray();
+      for (int t = 0; t < ticks; t++) {
+        int before = level.spawned.size();
+        var states = new ArrayList<Long>();
+        level.afterSpawn = () -> { try { states.add(seedOf(random)); } catch (Exception e) { throw new RuntimeException(e); } };
+        spawner.serverTick(level, pos);
+        var spawns = new JsonArray();
+        // A baby zombie's chicken (its family's finalizeSpawn) is left out.
+        for (int i = before; i < level.spawned.size(); i++) {
+          if (level.spawned.get(i).getType() != type) continue;
+          var r = record(level.spawned.get(i)); r.add(states.get(i - before)); spawns.add(r);
+        }
+        if (level.levelEvents != spawns.size()) throw new IllegalStateException("spawner events " + level.levelEvents + " for " + spawns.size() + " spawns");
+        level.levelEvents = 0;
+        total += spawns.size();
+        var row = new JsonArray(); row.add(delay.getInt(spawner)); row.add(spawns);
+        perTick.add(row);
+        // Its mobs leave every CLEAR ticks (killed), so it spawns again.
+        if ((t + 1) % CLEAR == 0) level.entities.clear();
+      }
+      var run = new JsonArray(); run.add(start); run.add(seedOf(random)); run.add(perTick);
+      runs.add(run);
+    }
+    var o = scene.json();
+    o.addProperty("kind", "spawner"); o.addProperty("type", id(type));
+    var at = new JsonArray(); at.add(x); at.add(y); at.add(z); o.add("spawner", at);
+    o.addProperty("clear", CLEAR); o.add("runs", runs);
+    System.err.println(scene.name + ": " + total + " spawner spawns in " + seeds + " x " + ticks + " ticks");
+    return o;
+  }
+
   /** `checkDespawn` of a fresh mob of each type at distances from one player. */
   static JsonObject despawn() throws Exception {
     var cases = new JsonArray();
@@ -664,6 +748,13 @@ public class NaturalSpawnOracle {
     }
     var o = new JsonObject(); o.addProperty("kind", "sky"); o.add("rows", rows);
     return o;
+  }
+
+  /** A dungeon room in stone: cobblestone walls and floor, 7 × 4 × 7 of air around (8, 20, 8). */
+  static Scene dungeon(String name) {
+    return new Scene(name, "minecraft:overworld", "minecraft:plains").ground(63, Blocks.GRASS_BLOCK, Blocks.STONE)
+        .fill(-64, -10, -64, 79, 55, 79, Blocks.STONE).fill(4, 19, 4, 12, 24, 12, Blocks.MOSSY_COBBLESTONE)
+        .fill(5, 20, 5, 11, 23, 11, Blocks.AIR);
   }
 
   static Scene plains(String name, int darken) {
@@ -792,6 +883,30 @@ public class NaturalSpawnOracle {
     var crimson = new Scene("generated_crimson_forest", "minecraft:the_nether", "minecraft:crimson_forest").ground(31, Blocks.CRIMSON_NYLIUM, Blocks.NETHERRACK)
         .fill(-64, 100, -64, 79, 127, 79, Blocks.NETHERRACK).fill(-64, 32, -64, 79, 33, 79, Blocks.LAVA);
     for (int c = 0; c < 160; c++) cases.add(generation(crimson, c % 20 - 10, c / 20 - 4));
+
+    // Spawner blocks (VMC-042b): a dungeon's zombies, skeletons and spiders in
+    // the dark, lit (no zombies), at peace (none) and with the player out of
+    // range; a fortress's blazes (any light); a mineshaft corridor's cave
+    // spiders; a stronghold's silverfish.
+    for (var type : List.of(EntityTypes.ZOMBIE, EntityTypes.SKELETON, EntityTypes.SPIDER)) {
+      cases.add(spawner(dungeon("dungeon_" + id(type).substring(10)).player(5.5, 20, 5.5), 8, 20, 8, type, 4000, 3));
+    }
+    cases.add(spawner(dungeon("dungeon_lit").light(8, 21, 6, 14).player(5.5, 20, 5.5), 8, 20, 8, EntityTypes.ZOMBIE, 400, 2));
+    var peace = dungeon("dungeon_peaceful").player(5.5, 20, 5.5); peace.difficulty = 0;
+    cases.add(spawner(peace, 8, 20, 8, EntityTypes.ZOMBIE, 200, 1));
+    cases.add(spawner(dungeon("dungeon_far").player(8.5, 20, 24.5), 8, 20, 8, EntityTypes.ZOMBIE, 200, 1));
+    var fortress = new Scene("fortress_blaze", "minecraft:the_nether", "minecraft:nether_wastes").ground(47, Blocks.NETHER_BRICKS, Blocks.NETHERRACK)
+        .fill(-64, 56, -64, 79, 127, 79, Blocks.NETHERRACK).fill(0, 48, 0, 16, 49, 16, Blocks.NETHER_BRICK_FENCE).fill(1, 48, 1, 15, 49, 15, Blocks.AIR)
+        .fill(10, 48, 10, 11, 48, 11, Blocks.LAVA).player(3.5, 48, 3.5);
+    cases.add(spawner(fortress, 8, 48, 8, EntityTypes.BLAZE, 4000, 3));
+    var corridor = new Scene("mineshaft_cave_spider", "minecraft:overworld", "minecraft:plains").ground(63, Blocks.GRASS_BLOCK, Blocks.STONE)
+        .fill(-64, -10, -64, 79, 55, 79, Blocks.STONE).fill(7, 20, -10, 9, 22, 26, Blocks.AIR).fill(7, 22, 4, 9, 22, 12, Blocks.COBWEB)
+        .player(8.5, 20, -4.5);
+    cases.add(spawner(corridor, 8, 20, 8, EntityTypes.CAVE_SPIDER, 4000, 3));
+    var stronghold = new Scene("stronghold_silverfish", "minecraft:overworld", "minecraft:plains").ground(63, Blocks.GRASS_BLOCK, Blocks.STONE)
+        .fill(-64, -10, -64, 79, 55, 79, Blocks.STONE_BRICKS).fill(2, 20, 2, 14, 26, 14, Blocks.AIR).fill(6, 20, 6, 10, 22, 10, Blocks.END_PORTAL_FRAME)
+        .fill(7, 23, 7, 9, 23, 9, Blocks.AIR).light(3, 21, 3, 14).player(4.5, 20, 4.5);
+    cases.add(spawner(stronghold, 8, 23, 3, EntityTypes.SILVERFISH, 4000, 3));
 
     cases.add(despawn());
     cases.add(sky());

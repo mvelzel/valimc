@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::sync::{MutexGuard, OnceLock};
 use valimc_core::column::ColumnStore;
 use valimc_core::physics::Aabb;
+use valimc_core::spawning::block_spawner;
 use valimc_core::spawning::facts::Facts;
 use valimc_core::spawning::level::{Level, Live};
 use valimc_core::spawning::rules::{Player, World};
@@ -72,7 +73,47 @@ pub(crate) struct Request {
     persistent: bool,
     random: u64,
     finalize: u64,
+    /// The spawner blocks near the group's players, when spawner blocks
+    /// work (VMC-042b).
+    spawners: Vec<SpawnerBlock>,
 }
+
+/// A spawner block (`BaseSpawner`): its position and countdown, the type
+/// it spawns (nil when empty) and its saved configuration.
+#[derive(NifMap)]
+pub(crate) struct SpawnerBlock {
+    position: (i32, i32, i32),
+    delay: i32,
+    kind: Option<u16>,
+    min_delay: i32,
+    max_delay: i32,
+    count: i32,
+    max_nearby: i32,
+    player_range: i32,
+    spawn_range: i32,
+}
+
+impl SpawnerBlock {
+    fn spawner(&self) -> block_spawner::Spawner {
+        let (x, y, z) = self.position;
+        block_spawner::Spawner {
+            pos: [x, y, z],
+            delay: self.delay,
+            config: block_spawner::Config {
+                kind: self.kind,
+                min_delay: self.min_delay,
+                max_delay: self.max_delay,
+                count: self.count,
+                max_nearby: self.max_nearby,
+                player_range: self.player_range,
+                spawn_range: self.spawn_range,
+            },
+        }
+    }
+}
+
+/// A spawner's tick: its position, its countdown after it and its spawns.
+type SpawnerOut = ((i32, i32, i32), i32, Vec<Out>);
 
 type Out = (u16, f64, f64, f64, f32, bool);
 
@@ -133,8 +174,8 @@ fn lock<'r>(
 }
 
 /// The tick's spawns, the mobs it discards and those whose idle time
-/// restarts, and the two randoms' states after it.
-type Natural = (Vec<Out>, Vec<u32>, Vec<u32>, u64, u64);
+/// restarts, the two randoms' states after it and its spawners' ticks.
+type Natural = (Vec<Out>, Vec<u32>, Vec<u32>, u64, u64, Vec<SpawnerOut>);
 
 fn natural(
     region: &Region,
@@ -244,13 +285,43 @@ fn natural(
             _ => {}
         }
     }
-    let spawned = tick.spawned.iter().map(out).collect();
+    // Spawner blocks tick after the entities (`tickBlockEntities`): they
+    // count the mobs left and the tick's natural spawns.
+    let mut random = tick.random;
+    let spawned: Vec<Out> = tick.spawned.iter().map(out).collect();
+    let mut mobs: block_spawner::Mobs = request
+        .mobs
+        .iter()
+        .filter(|m| !discarded.contains(&m.0))
+        .map(|m| (m.1, m.2))
+        .chain(
+            tick.spawned
+                .iter()
+                .map(|s| (s.kind, (s.pos[0], s.pos[1], s.pos[2]))),
+        )
+        .filter_map(|(kind, (x, y, z))| Some((kind, World::body(facts.kind(kind)?, x, y, z))))
+        .collect();
+    let spawners = request
+        .spawners
+        .iter()
+        .map(|block| {
+            let mut spawner = block.spawner();
+            let ticked =
+                block_spawner::tick(&world, &mut spawner, &mut mobs, &mut random, &mut |_, _| {});
+            (
+                block.position,
+                spawner.delay,
+                ticked.spawned.iter().map(out).collect(),
+            )
+        })
+        .collect();
     Ok((
         spawned,
         discarded,
         reset,
-        tick.random.legacy_state().unwrap_or(0),
+        random.legacy_state().unwrap_or(0),
         finalize.legacy_state().unwrap_or(0),
+        spawners,
     ))
 }
 
@@ -389,6 +460,135 @@ pub(crate) mod parity {
         j.as_array()?.iter().map(Json::as_f64).collect()
     }
 
+    /// Per run, per tick a spawner's delay after it and its spawns, and the
+    /// level random's state after the run.
+    type SpawnerRuns = Vec<(Vec<(i32, Vec<Out>)>, u64)>;
+
+    /// Replay one `NaturalSpawnOracle` spawner case (VMC-042b): the spawner
+    /// block's ticks from its generated state over the scene, each spawn's
+    /// `finalizeSpawn` leaving the random where vanilla's recorded it.
+    #[rustler::nif(schedule = "DirtyCpu")]
+    fn spawn_spawner_scene(
+        case: rustler::Term,
+        biome: u16,
+        kind: u16,
+    ) -> NifResult<(rustler::Atom, SpawnerRuns)> {
+        crate::reply((|| {
+            let case = crate::worldgen::json_of(case)?;
+            let flags = crate::facts::FLAGS
+                .get()
+                .ok_or("block facts not installed")?;
+            let (scene, players, env) = scene_of(&case, biome, flags)?;
+            let at = ints(case.field("spawner")?)?;
+            let mut runs = Vec::new();
+            for run in case.field("runs")?.as_array()? {
+                let run = run.as_array()?;
+                let mut random = Random::legacy_at(run[0].as_f64()? as u64);
+                let world = world(&scene, &env, players.clone(), player_boxes(&players))?;
+                let mut spawner = block_spawner::Spawner {
+                    pos: [at[0], at[1], at[2]],
+                    delay: 20,
+                    config: block_spawner::Config {
+                        kind: Some(kind),
+                        min_delay: 200,
+                        max_delay: 800,
+                        count: 4,
+                        max_nearby: 6,
+                        player_range: 16,
+                        spawn_range: 4,
+                    },
+                };
+                let clear = case.field("clear")?.as_i32()? as usize;
+                let mut mobs = Vec::new();
+                let mut ticks = Vec::new();
+                for (t, tick) in run[2].as_array()?.iter().enumerate() {
+                    let states: Vec<u64> = tick.as_array()?[1]
+                        .as_array()?
+                        .iter()
+                        .map(|s| Ok(s.as_array()?[6].as_f64()? as u64))
+                        .collect::<Result<_, String>>()?;
+                    let ticked = block_spawner::tick(
+                        &world,
+                        &mut spawner,
+                        &mut mobs,
+                        &mut random,
+                        &mut |r, i| {
+                            if let Some(&state) = states.get(i) {
+                                *r = Random::legacy_at(state);
+                            }
+                        },
+                    );
+                    ticks.push((spawner.delay, ticked.spawned.iter().map(out).collect()));
+                    // The scene's mobs leave (killed) every `clear` ticks.
+                    if (t + 1) % clear == 0 {
+                        mobs.clear();
+                        *world.bodies.borrow_mut() = player_boxes(&players);
+                    }
+                }
+                runs.push((ticks, random.legacy_state().unwrap_or(0)));
+            }
+            Ok(runs)
+        })())
+    }
+
+    fn player_boxes(players: &[Player]) -> Vec<Aabb> {
+        players
+            .iter()
+            .map(|p| {
+                Aabb::new(
+                    [p.pos[0] - 0.3, p.pos[1], p.pos[2] - 0.3],
+                    [p.pos[0] + 0.3, p.pos[1] + 1.8, p.pos[2] + 0.3],
+                )
+            })
+            .collect()
+    }
+
+    /// A case's scene, players and environment.
+    fn scene_of(
+        case: &Json,
+        biome: u16,
+        flags: &'static valimc_core::flags::BlockFlags,
+    ) -> Result<(Scene<'static>, Vec<Player>, Environment), String> {
+        let mut fills = Vec::new();
+        for f in case.field("fills")?.as_array()? {
+            let f = ints(f)?;
+            fills.push(([f[0], f[1], f[2]], [f[3], f[4], f[5]], f[6] as u16));
+        }
+        let mut lights = Vec::new();
+        for l in case.field("lights")?.as_array()? {
+            let l = ints(l)?;
+            lights.push(([l[0], l[1], l[2]], l[3]));
+        }
+        let sky = case.field("sky")?.as_i32()? as u8;
+        let scene = Scene::new(fills, lights, sky, biome, flags);
+        let players: Vec<Player> = case
+            .field("players")?
+            .as_array()?
+            .iter()
+            .map(|p| {
+                let p = f64s(p)?;
+                Ok(Player {
+                    pos: [p[0], p[1], p[2]],
+                    spectator: p[3] != 0.0,
+                    creative: false,
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        let env = Environment {
+            dimension: case.field("dimension")?.as_str()?.to_string(),
+            zoom_seed: 0,
+            seed: case.field("seed")?.as_f64()? as i64,
+            sea_level: case.field("sea_level")?.as_i32()?,
+            max_y: 319,
+            darken: case.field("darken")?.as_i32()?,
+            thundering: case.field("thundering")?.as_bool()?,
+            difficulty: case.field("difficulty")?.as_i32()?,
+            slime_chance: case.field("slime_chance")?.as_f64()?,
+            border: (-29_999_984.0, -29_999_984.0, 29_999_984.0, 29_999_984.0),
+        };
+        Ok((scene, players, env))
+    }
+
     /// Replay one `NaturalSpawnOracle` case (tick or generation), given the
     /// biome's registry id and each entity's type id (`types`, the scene's
     /// entities in order): per run `{spawns, random after}`.
@@ -403,31 +603,7 @@ pub(crate) mod parity {
             let flags = crate::facts::FLAGS
                 .get()
                 .ok_or("block facts not installed")?;
-            let mut fills = Vec::new();
-            for f in case.field("fills")?.as_array()? {
-                let f = ints(f)?;
-                fills.push(([f[0], f[1], f[2]], [f[3], f[4], f[5]], f[6] as u16));
-            }
-            let mut lights = Vec::new();
-            for l in case.field("lights")?.as_array()? {
-                let l = ints(l)?;
-                lights.push(([l[0], l[1], l[2]], l[3]));
-            }
-            let sky = case.field("sky")?.as_i32()? as u8;
-            let scene = Scene::new(fills, lights, sky, biome, flags);
-            let players: Vec<Player> = case
-                .field("players")?
-                .as_array()?
-                .iter()
-                .map(|p| {
-                    let p = f64s(p)?;
-                    Ok(Player {
-                        pos: [p[0], p[1], p[2]],
-                        spectator: p[3] != 0.0,
-                        creative: false,
-                    })
-                })
-                .collect::<Result<_, String>>()?;
+            let (scene, players, env) = scene_of(&case, biome, flags)?;
             let facts = SPAWN.get().ok_or("spawn facts not installed")?;
             let mut mobs = Vec::new();
             let mut bodies = Vec::new();
@@ -441,25 +617,8 @@ pub(crate) mod parity {
                 let t = facts.kind(kind).ok_or("unknown entity type")?;
                 bodies.push(World::body(t, x, y, z));
             }
-            for p in &players {
-                bodies.push(Aabb::new(
-                    [p.pos[0] - 0.3, p.pos[1], p.pos[2] - 0.3],
-                    [p.pos[0] + 0.3, p.pos[1] + 1.8, p.pos[2] + 0.3],
-                ));
-            }
+            bodies.extend(player_boxes(&players));
             let spawn = ints(case.field("spawn")?)?;
-            let env = Environment {
-                dimension: case.field("dimension")?.as_str()?.to_string(),
-                zoom_seed: 0,
-                seed: case.field("seed")?.as_f64()? as i64,
-                sea_level: case.field("sea_level")?.as_i32()?,
-                max_y: 319,
-                darken: case.field("darken")?.as_i32()?,
-                thundering: case.field("thundering")?.as_bool()?,
-                difficulty: case.field("difficulty")?.as_i32()?,
-                slime_chance: case.field("slime_chance")?.as_f64()?,
-                border: (-29_999_984.0, -29_999_984.0, 29_999_984.0, 29_999_984.0),
-            };
             let overworld = env.dimension == "minecraft:overworld";
             let chunk = (
                 case.field("chunk_x")?.as_i32()?,

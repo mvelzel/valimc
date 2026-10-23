@@ -3474,6 +3474,10 @@ defmodule Valimc.World.RegionData do
     publish_item_views(%{state | entities: %{state.entities | store: items}})
   end
 
+  @doc "Publish level events (`{cell, type, data}`) to the section's viewers (VMC-042b: spawner blocks)."
+  def publish_level_events(state, events),
+    do: Valimc.World.publish(route_key(state), {:level_events, events})
+
   @doc """
   A tick's natural spawning in this section (VMC-042a, `World.Spawning`):
   it adopts the records of the mobs that spawned (queued like drops while a

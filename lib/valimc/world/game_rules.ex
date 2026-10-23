@@ -20,6 +20,8 @@ defmodule Valimc.World.GameRules do
     mob_griefing: true,
     spawn_mobs: true,
     spawn_monsters: true,
+    # VMC-042b: spawner blocks tick.
+    spawner_blocks_work: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
     lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),
     fire_spread_radius_around_player:

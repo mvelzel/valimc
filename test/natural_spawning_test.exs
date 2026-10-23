@@ -3,6 +3,7 @@ defmodule Valimc.NaturalSpawningTest do
   Natural spawning in a group (VMC-042a): the caps hold for one player, for
   two players in one group and for players in separate groups; mobs despawn
   at vanilla's distances and in peaceful; a name tag makes a mob persistent.
+  A spawner block spawns near a player (VMC-042b).
   The oracle stage `natural_spawning` holds the rules' fixtures.
   """
   use ExUnit.Case, async: true
@@ -99,7 +100,7 @@ defmodule Valimc.NaturalSpawningTest do
     {spawning, plan} = Spawning.plan(group(owners, players, env, spawning, tick))
     by_key = Map.new(owners, &{Valimc.TestRegion.section(&1).key, &1})
 
-    for {key, {records, discards, resets}} <- plan do
+    for {key, {records, discards, resets, _events}} <- plan do
       Valimc.TestRegion.replace_section(
         by_key[key],
         &RegionData.spawned(&1, records, discards, resets)
@@ -222,6 +223,63 @@ defmodule Valimc.NaturalSpawningTest do
     # Observers see the name (entity data field 2).
     [{_, metadata} | _] = Body.pairing(1, entry.body)
     assert :binary.match(metadata, "Wilbur") != :nomatch
+  end
+
+  test "a spawner block spawns its blazes around it while a player is near, up to six", %{
+    owners: [{key, owner} | _]
+  } do
+    {x, y, z} = centre(key, 64, 64)
+    {sx, sz} = {trunc(x) + 3, trunc(z)}
+    spawner = {sx, 64, sz}
+    state = Valimc.Data.Blocks.default_state("spawner")
+
+    Valimc.TestRegion.replace_section(owner, fn resource ->
+      :ok = Valimc.World.Blocks.put(resource.blocks, %{spawner => state})
+
+      {:ok, entries} =
+        Valimc.Worldgen.FullChunk.block_entities(
+          [
+            %{
+              position: spawner,
+              state: state,
+              kind: "minecraft:mob_spawner",
+              loot_table: nil,
+              loot_seed: 0,
+              spawner_entity: "minecraft:blaze",
+              bees: [],
+              exit: nil,
+              nbt: nil
+            }
+          ],
+          %{}
+        )
+
+      {:ok, entities} = Valimc.World.BlockEntities.add(resource.block_entities, entries)
+      %{resource | block_entities: entities}
+    end)
+
+    # A night: a blaze needs the darkness a monster's walk target asks for.
+    env = @night
+    player = [{x, y, z, false, false}]
+
+    spawning =
+      Enum.reduce(1..399, Spawning.new(), fn t, spawning ->
+        elem(tick(owner, player, env, spawning, t), 0)
+      end)
+
+    blazes = for {"minecraft:blaze", at} <- mobs(owner), do: at
+    assert length(blazes) in 1..6
+
+    assert Enum.all?(blazes, fn {bx, by, bz} ->
+             abs(bx - sx - 0.5) <= 4 and abs(bz - sz - 0.5) <= 4 and by in [63.0, 64.0, 65.0]
+           end)
+
+    # The countdown restarted after the spawns, and stops with no player in range.
+    {_nbt, _config, delay} = spawning.spawners[spawner]
+    assert delay in 0..800
+    far = [{x - 40, y, z, false, false}]
+    {spawning, _} = tick(owner, far, env, spawning, 399)
+    assert elem(spawning.spawners[spawner], 2) == delay
   end
 
   test "a tick's environment reads the published clock, weather and settings" do

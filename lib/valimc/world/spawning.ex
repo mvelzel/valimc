@@ -20,7 +20,16 @@ defmodule Valimc.World.Spawning do
 
   The sky darkening (`darken/4`) follows vanilla's environment attributes:
   the dimension's sky light level, the day timeline and the weather.
+
+  Spawner blocks (VMC-042b) tick in the same kernel call, after the
+  natural spawns and despawns: each spawner block entity in a simulated
+  chunk with a player in range counts down and spawns its type. Its
+  countdown is the group's (`spawners`, by position), starting from the
+  `Delay` its block entity saved; a restart or another group starts it
+  there again. Its spawn potentials, a spawn data's own position and
+  entity data are not modelled: it spawns the type its spawn data names.
   """
+  alias Valimc.Blocks.BlockEntityTypes
   alias Valimc.Data.{Float32, Grid, JavaRandom, SpawnFacts}
   alias Valimc.Entity.{Body, Store}
   alias Valimc.Native
@@ -52,8 +61,11 @@ defmodule Valimc.World.Spawning do
       else: Valimc.config(:natural_spawning, scope)
   end
 
-  @doc "A group's spawning state: its level random and its mobs' random."
-  def new, do: %{random: JavaRandom.create(), mobs: JavaRandom.create()}
+  @doc """
+  A group's spawning state: its level random, its mobs' random and its
+  spawner blocks' countdowns (`position => {nbt, config, delay}`).
+  """
+  def new, do: %{random: JavaRandom.create(), mobs: JavaRandom.create(), spawners: %{}}
 
   ## The sky
 
@@ -165,7 +177,8 @@ defmodule Valimc.World.Spawning do
   `sections` (`%{key => resource}`), its `stores` (the first section's region
   handle and the others'), `absent` chunks, `players` (`{x, y, z, spectator,
   creative}`), its `spawning` state and the tick's `environment`. Returns
-  `{spawning, %{key => {records, discards, resets}}}`.
+  `{spawning, %{key => {records, discards, resets, events}}}`, the events
+  the level events of the section's spawner blocks.
   """
   def plan(%{players: []} = group), do: {group.spawning, %{}}
 
@@ -211,6 +224,7 @@ defmodule Valimc.World.Spawning do
         for {x, y, z, _, _} <- group.players, do: {x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3}
 
     rules = GameRules.get(:spawn_mobs)
+    {cached, spawners} = spawner_blocks(group)
 
     request = %{
       environment: env,
@@ -222,28 +236,30 @@ defmodule Valimc.World.Spawning do
       enemies: env.difficulty != 0 and GameRules.get(:spawn_monsters),
       persistent: rem(group.game_time, 400) == 0,
       random: group.spawning.random,
-      finalize: group.spawning.mobs
+      finalize: group.spawning.mobs,
+      spawners: spawners
     }
 
     [region | siblings] = group.stores
-    units = max(1, length(request.chunks)) * 7
+    units = max(1, length(request.chunks)) * 7 + length(spawners) * 2
 
-    {:ok, {spawned, discarded, reset, random, finalize}} =
+    {:ok, {spawned, discarded, reset, random, finalize, ticked}} =
       Native.dispatch(:natural_spawn, units, [region, siblings, group.absent, request])
 
-    by_section =
-      Enum.reduce(spawned, %{}, fn {kind, x, y, z, yaw, _school}, acc ->
-        case Body.new(Valimc.Data.EntityTypes.name(kind)) do
-          {:ok, body} ->
-            body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
-            record = Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
-            key = Grid.region_key(Grid.chunk_key(x, z))
-            Map.update(acc, key, {[record], [], []}, fn {r, d, s} -> {[record | r], d, s} end)
+    from_spawners = for {_, _, list} <- ticked, spawn <- list, do: spawn
+    by_section = Enum.reduce(spawned ++ from_spawners, %{}, &add_spawn/2)
 
-          {:error, _} ->
-            acc
-        end
-      end)
+    # Each spawn of a spawner block is a level event (2004) at the block.
+    by_section =
+      for {{x, _, z} = position, _, list} <- ticked, _ <- list, reduce: by_section do
+        acc ->
+          key = Grid.region_key(Grid.chunk_key(x, z))
+          event = {position, 2004, 0}
+
+          Map.update(acc, key, {[], [], [], [event]}, fn {r, d, s, e} ->
+            {r, d, s, [event | e]}
+          end)
+      end
 
     by_section =
       Enum.reduce(group.sections, by_section, fn {key, resource}, acc ->
@@ -254,10 +270,109 @@ defmodule Valimc.World.Spawning do
         if discards == [] and resets == [],
           do: acc,
           else:
-            Map.update(acc, key, {[], discards, resets}, fn {r, _, _} -> {r, discards, resets} end)
+            Map.update(acc, key, {[], discards, resets, []}, fn {r, _, _, e} ->
+              {r, discards, resets, e}
+            end)
       end)
 
-    {%{group.spawning | random: random, mobs: finalize}, by_section}
+    cached =
+      Enum.reduce(ticked, cached, fn {position, delay, _}, acc ->
+        Map.update!(acc, position, fn {nbt, config, _} -> {nbt, config, delay} end)
+      end)
+
+    {%{group.spawning | random: random, mobs: finalize, spawners: cached}, by_section}
+  end
+
+  defp add_spawn({kind, x, y, z, yaw, _school}, acc) do
+    case Body.new(Valimc.Data.EntityTypes.name(kind)) do
+      {:ok, body} ->
+        body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
+        record = Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
+        key = Grid.region_key(Grid.chunk_key(x, z))
+
+        Map.update(acc, key, {[record], [], [], []}, fn {r, d, s, e} ->
+          {[record | r], d, s, e}
+        end)
+
+      {:error, _} ->
+        acc
+    end
+  end
+
+  ## Spawner blocks
+
+  @spawner Valimc.Blocks.BlockEntityTypes.type_named("minecraft:mob_spawner")
+
+  # The group's spawner block entities in simulated chunks, by position with
+  # their parsed configuration and countdown (kept while their compound is
+  # the same), and the request's spawners: those whose block is still a
+  # spawner with a player that is not a spectator in range, when spawner
+  # blocks work.
+  defp spawner_blocks(group) do
+    previous = Map.get(group.spawning, :spawners, %{})
+
+    {cached, requested} =
+      for {_key, resource} <- group.sections,
+          {{x, _, z} = position, %{type: @spawner, nbt: nbt}} <- resource.block_entities.entries,
+          MapSet.member?(resource.tickets.simulated, Grid.chunk_key(x, z)),
+          {_, config, delay} = entry <- [spawner_entry(previous[position], nbt)],
+          reduce: {%{}, []} do
+        {cached, requested} ->
+          cached = Map.put(cached, position, entry)
+
+          if near?(group.players, position, config.player_range) and
+               BlockEntityTypes.type_id(Valimc.World.Blocks.get(resource.blocks, position)) ==
+                 @spawner,
+             do: {cached, [Map.merge(config, %{position: position, delay: delay}) | requested]},
+             else: {cached, requested}
+      end
+
+    if GameRules.get(:spawner_blocks_work),
+      do: {cached, Enum.sort_by(requested, & &1.position)},
+      else: {cached, []}
+  end
+
+  defp spawner_entry({nbt, _, _} = entry, nbt), do: entry
+
+  defp spawner_entry(_previous, nbt) do
+    case Valimc.Data.NBT.read(nbt) do
+      {:ok, {:compound, fields}} ->
+        short = fn name, default ->
+          case fields[name] do
+            {type, v} when type in [:short, :int] -> v
+            _ -> default
+          end
+        end
+
+        config = %{
+          kind: spawner_kind(fields["SpawnData"]),
+          min_delay: short.("MinSpawnDelay", 200),
+          max_delay: short.("MaxSpawnDelay", 800),
+          count: short.("SpawnCount", 4),
+          max_nearby: short.("MaxNearbyEntities", 6),
+          player_range: short.("RequiredPlayerRange", 16),
+          spawn_range: short.("SpawnRange", 4)
+        }
+
+        {nbt, config, short.("Delay", 20)}
+
+      _ ->
+        nil
+    end
+  end
+
+  # The type a spawn data's entity names, if ValiMC knows it.
+  defp spawner_kind({:compound, %{"entity" => {:compound, %{"id" => {:string, id}}}}}) do
+    if Valimc.Data.EntityTypes.fetch(id), do: Valimc.Data.EntityTypes.id(id)
+  end
+
+  defp spawner_kind(_data), do: nil
+
+  defp near?(players, {x, y, z}, range) do
+    Enum.any?(players, fn {px, py, pz, spectator, _} ->
+      not spectator and
+        (px - x - 0.5) ** 2 + (py - y - 0.5) ** 2 + (pz - z - 0.5) ** 2 < range * range
+    end)
   end
 
   @doc """

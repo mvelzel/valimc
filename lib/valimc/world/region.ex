@@ -1326,16 +1326,18 @@ defmodule Valimc.World.Region do
 
         {spawning, plan} = Spawning.plan(group)
 
-        Enum.reduce(plan, %{state | spawning: spawning}, fn {key, {records, discards, resets}},
+        Enum.reduce(plan, %{state | spawning: spawning}, fn {key,
+                                                             {records, discards, resets, events}},
                                                             acc ->
-          if Map.has_key?(acc.sections, key),
-            do:
-              put_resource(
-                acc,
-                key,
-                RegionData.spawned(enter(acc, key), Enum.reverse(records), discards, resets)
-              ),
-            else: acc
+          if Map.has_key?(acc.sections, key) do
+            resource =
+              RegionData.spawned(enter(acc, key), Enum.reverse(records), discards, resets)
+
+            if events != [], do: RegionData.publish_level_events(resource, Enum.reverse(events))
+            put_resource(acc, key, resource)
+          else
+            acc
+          end
         end)
     end
   end
