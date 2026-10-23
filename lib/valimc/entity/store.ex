@@ -20,7 +20,9 @@ defmodule Valimc.Entity.Store do
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
   # the receipts of incoming handoffs by source.
   @ledger %{sequence: 0, outgoing: nil, incoming: %{}}
-  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger
+  # `deaths`: bodies whose mob died with drops its owner has not dropped yet
+  # (`take_deaths/1`, VMC-037n).
+  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger, deaths: []
   @max_steps 32
   @bodies [:mob, :object]
   # The entity events a view keeps for its tracker (each tick sends the new ones).
@@ -693,9 +695,43 @@ defmodule Valimc.Entity.Store do
   @doc "Entity `id`'s body changes to `body` with `events` (a hit, a push): the new state."
   def change_body(state, id, %Body{} = body, events \\ []) do
     case state.entries[id] do
-      %{kind: kind} when kind in @bodies -> put_body(state, id, body, events)
-      _ -> state
+      %{kind: kind} when kind in @bodies ->
+        state = put_body(state, id, body, events)
+
+        case body do
+          %Body{mob: %{death: death}} when death != nil -> %{state | deaths: [id | state.deaths]}
+          _ -> state
+        end
+
+      _ ->
+        state
     end
+  end
+
+  @doc """
+  The deaths bodies left since the last call, oldest first, each
+  `{death, position}` (`Entity.Combat`'s death and where the body died), and
+  the store with them taken.
+  """
+  def take_deaths(%__MODULE__{deaths: []} = state), do: {state, []}
+
+  def take_deaths(state) do
+    {state, deaths} =
+      state.deaths
+      |> Enum.reverse()
+      |> Enum.uniq()
+      |> Enum.reduce({state, []}, fn id, {acc, deaths} ->
+        case acc.entries[id] do
+          %{body: %Body{mob: %{death: death} = mob} = body, entity: entity} when death != nil ->
+            acc = put_body(acc, id, %{body | mob: %{mob | death: nil}}, [])
+            {acc, [{death, {entity.x, entity.y, entity.z}} | deaths]}
+
+          _ ->
+            {acc, deaths}
+        end
+      end)
+
+    {%{state | deaths: []}, Enum.reverse(deaths)}
   end
 
   @doc """
@@ -714,9 +750,15 @@ defmodule Valimc.Entity.Store do
     case state.entries[id] do
       %{kind: kind, body: body, revision: revision} when kind in @bodies ->
         case Body.kill(body) do
-          :remove -> remove(state, state.epoch, id, revision)
-          :ignored -> {:ok, state}
-          {:dying, body, events} -> {:ok, put_body(state, id, body, events)}
+          :remove ->
+            remove(state, state.epoch, id, revision)
+
+          :ignored ->
+            {:ok, state}
+
+          # It dies as any death does: its owner drops what it leaves.
+          {:dying, body, events} ->
+            {:ok, change_body(state, id, Valimc.Entity.Combat.died(body, %{}), events)}
         end
 
       %{revision: revision} ->
@@ -734,7 +776,7 @@ defmodule Valimc.Entity.Store do
 
     stamped =
       Enum.with_index(events, fn event, index ->
-        {seq + index + 1, Body.event_packet(id, event)}
+        {seq + index + 1, Body.event_packet(id, event, entry.entity)}
       end)
 
     entry = %{

@@ -95,7 +95,12 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def damage_event(entity_id, source \\ :fall) do
+  @doc """
+  `ClientboundDamageEventPacket`: entity `entity_id` took damage of type
+  `source`, caused by entity `cause` directly through entity `direct` (network
+  ids or nil), from an explicit source `position` (nil for entity sources).
+  """
+  def damage_event(entity_id, source \\ :fall, cause \\ nil, direct \\ nil, position \\ nil) do
     life_entity_id!(entity_id)
 
     unless DamageTypes.known?(source), do: raise(ArgumentError, "invalid damage source")
@@ -103,7 +108,12 @@ defmodule Valimc.Protocol.Packets do
     packet("damage_event", [
       Wire.varint(entity_id),
       Wire.varint(DamageTypes.id(source)),
-      <<0, 0, 0>>
+      Wire.varint(if(cause, do: cause + 1, else: 0)),
+      Wire.varint(if(direct, do: direct + 1, else: 0)),
+      case position do
+        nil -> <<0>>
+        {x, y, z} -> <<1, x::float-64, y::float-64, z::float-64>>
+      end
     ])
   end
 

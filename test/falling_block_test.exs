@@ -61,7 +61,7 @@ defmodule Valimc.FallingBlockTest do
     refute Enum.any?(entries(owner), &match?(%{body: %Body{type: "minecraft:falling_block"}}, &1))
   end
 
-  test "an anvil that falls six blocks onto a zombie deals it 10", %{owner: owner} do
+  test "an anvil that falls six blocks onto a zombie deals it 10 before armor", %{owner: owner} do
     assert run("fill #{@x - 4} #{@y - 1} #{@z - 4} #{@x + 4} #{@y - 1} #{@z + 4} stone") =~
              "Successfully filled"
 
@@ -73,8 +73,10 @@ defmodule Valimc.FallingBlockTest do
     end
 
     Valimc.TestWait.until(fn -> zombie.().body.mob.living.health.value < 20.0 end)
-    # Two per block fallen past the first: six blocks, 10.
-    assert zombie.().body.mob.living.health.value == 10.0
+    # Two per block fallen past the first: six blocks, 10, through the
+    # zombie's natural armor of 2 (anvils do not bypass armor, VMC-037n).
+    {:ok, dealt} = Valimc.Living.Damage.armor_absorb(10.0, 2.0, 0.0)
+    assert zombie.().body.mob.living.health.value == Valimc.Data.Float32.round(20.0 - dealt)
     assert Valimc.Data.Blocks.class(at(@x, @y, @z)) == "AnvilBlock"
   end
 

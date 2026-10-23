@@ -12,9 +12,6 @@ defmodule Valimc.World.Portal.Motion do
   `:delta_z` and `:rotate_delta`.
   """
   alias Valimc.Data.Float32
-  import Bitwise
-
-  @radians 10_430.378350470453
 
   # `Relative.DELTA` and `Relative.ROTATION`.
   @delta [:delta_x, :delta_y, :delta_z, :rotate_delta]
@@ -85,11 +82,6 @@ defmodule Valimc.World.Portal.Motion do
     {x * cos + z * sin, y, z * cos - x * sin}
   end
 
-  @doc "`Mth.sin`: vanilla's 65,536-entry float sine table."
-  def sin(value), do: table(trunc(value * @radians))
-
-  @doc "`Mth.cos`."
-  def cos(value), do: table(trunc(value * @radians + 16_384.0))
-
-  defp table(index), do: Float32.round(:math.sin(band(index, 65_535) / @radians))
+  defdelegate sin(value), to: Valimc.Data.Mth
+  defdelegate cos(value), to: Valimc.Data.Mth
 end

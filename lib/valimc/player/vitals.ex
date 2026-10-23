@@ -192,7 +192,13 @@ defmodule Valimc.Player.Vitals do
     end
   end
 
-  def apply_damage(state, selected, source, effects \\ nil) do
+  @doc """
+  Apply a selected hit of `source` (`Health.hurt_window/3`). Options for a
+  hit an entity dealt (VMC-037n): `:cause` and `:direct` (network ids in the
+  damage event), `:blocked` (a shield took part of it: no damage event) and
+  `:killer` (the killer's display name, for the death message).
+  """
+  def apply_damage(state, selected, source, effects \\ nil, opts \\ []) do
     result =
       if state.life_stage != :alive,
         do: :ignored,
@@ -244,8 +250,15 @@ defmodule Valimc.Player.Vitals do
 
         PlayerList.update(state.connection, state.player)
 
-        if selected.notify do
-          packet = Packets.damage_event(state.player.entity_id, source)
+        if selected.notify and not Keyword.get(opts, :blocked, false) do
+          packet =
+            Packets.damage_event(
+              state.player.entity_id,
+              DamageSource.type(source),
+              opts[:cause],
+              opts[:direct]
+            )
+
           send_packets(state, [packet])
           Valimc.Player.Movement.broadcast_player_packet(state, packet)
         end
@@ -256,7 +269,12 @@ defmodule Valimc.Player.Vitals do
         ])
 
         state = Valimc.Player.Movement.publish_absorption(state)
-        state = if health.value <= 0, do: death_notice(state, true, source), else: state
+
+        state =
+          if health.value <= 0,
+            do: death_notice(state, true, source, opts[:killer]),
+            else: state
+
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
     end
   end
@@ -274,12 +292,13 @@ defmodule Valimc.Player.Vitals do
     }
   end
 
-  def death_notice(state, announce, source \\ :fall) do
+  def death_notice(state, announce, source \\ :fall, killer \\ nil) do
     message =
-      DamageSource.death_message(
-        state.player.name,
-        if(announce, do: source, else: :generic)
-      )
+      cond do
+        not announce -> DamageSource.death_message(state.player.name, :generic)
+        killer -> DamageSource.killer_message(state.player.name, source, killer)
+        true -> DamageSource.death_message(state.player.name, source)
+      end
 
     send_packets(state, [
       Valimc.Player.Packets.player_pose(state.player),

@@ -104,6 +104,8 @@ defmodule Valimc.Net.Connection do
        # The player's durability (`Valimc.Player.Storage`), from login on.
        storage: nil,
        active_use: nil,
+       # Attack strength (`Valimc.Player.Attack`, VMC-037n).
+       attack: %Valimc.Player.Attack{},
        mining: nil,
        mining_water: false,
        table_menu: nil,

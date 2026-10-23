@@ -1050,6 +1050,18 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # A hit on a body of this section (VMC-037n), as `hurt_entity/3`.
+  def handle_call({:hurt_entity, epoch, uuid, hit}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state) do
+      {reply, state} = hurt_entity(state, uuid, hit)
+      {:reply, reply, state}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
   # A teleported entity (VMC-043a): it moves here, to a sibling section in
   # the same group commit, or to another group by the durable handoff.
   def handle_call({:move_entity, epoch, uuid, position, rotation}, _from, state) do
@@ -2208,10 +2220,91 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  @doc """
+  The one hurt path for a body of this section (VMC-037n): melee, explosions
+  and projectiles hit through `Entity.Combat.hurt/3` (see it for `hit`). A
+  death drops at once what `LivingEntity.dropAllDeathLoot` drops: its loot
+  table's items (unless `mob_drops` is off) and a player kill's experience.
+  `{{:ok, outcome}, state}` (`outcome` without the death) or `{error, state}`.
+  """
+  def hurt_entity(state, uuid, hit) do
+    store = state.entities.store
+
+    with {:ok, {_, id, _}} <- Store.find(store, uuid),
+         {:ok, store, outcome} <- Valimc.Entity.Combat.hurt(store, id, hit) do
+      {{:ok, outcome}, put_entities(state, store)}
+    else
+      {:error, _} = error -> {error, state}
+    end
+  end
+
+  @doc """
+  Mob `uuid`'s melee attack on player `target` (`Mob.doHurtTarget`,
+  VMC-037n), for VMC-041a's melee goal: the hit goes to the player's session
+  in this group, which runs its hurt (`Player.Hurt`). `:ok` or `{:error,
+  reason}`.
+  """
+  def mob_attack(state, uuid, target) do
+    store = state.entities.store
+
+    with {:ok, {_, id, _}} <- Store.find(store, uuid),
+         {:ok, hit} <- Valimc.Entity.Combat.mob_hit(store, id, "minecraft:player") do
+      send(self(), {:player, target, {:hurt, hit}})
+      :ok
+    end
+  end
+
+  # `dropFromLootTable` (the owner's random stands in for the world's random
+  # sequence of the table) and `ExperienceOrb.award`, where the mob died.
+  defp drop_death(store, key, {death, {x, y, z} = position}) do
+    drops = Valimc.World.GameRules.get(:mob_drops)
+    death = Map.put(death, :position, position)
+
+    stacks =
+      with true <- drops and death.loot_table != nil and not death.loot.baby,
+           <<seed::signed-64>> = :crypto.strong_rand_bytes(8),
+           {:ok, stacks} <-
+             Valimc.Blocks.Loot.entity_drops(death.loot_table, seed, death.position, death.loot) do
+        stacks
+      else
+        _ -> []
+      end
+
+    items =
+      for stack <- stacks do
+        [vx, vz] = for _ <- 1..2, do: :rand.uniform_real()
+
+        %{
+          uuid: :crypto.strong_rand_bytes(16),
+          x: x,
+          y: y,
+          z: z,
+          stack: stack,
+          motion: %Valimc.Entity.ItemMotionState{
+            velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
+            pickup_delay: 10
+          }
+        }
+      end
+
+    orbs = if drops, do: ExperienceOrbs.drop(death.position, death.experience), else: []
+
+    Enum.reduce(items ++ orbs, store, fn record, acc ->
+      case Store.create_record(acc, key, record) do
+        {:ok, next, _} -> next
+        {:error, _} -> acc
+      end
+    end)
+  end
+
   defp put_entities(state, store) when store == state.entities.store, do: state
 
-  defp put_entities(state, store),
-    do: publish_item_views(%{state | entities: %{state.entities | store: store}})
+  # Every hurt path's deaths drop here, as `LivingEntity.die` drops them.
+  defp put_entities(state, store) do
+    {store, deaths} = Store.take_deaths(store)
+    store = Enum.reduce(deaths, store, &drop_death(&2, state.key, &1))
+    publish_item_views(%{state | entities: %{state.entities | store: store}})
+  end
 
   defp return_to(state, _source, []), do: state
 

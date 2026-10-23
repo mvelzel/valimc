@@ -219,8 +219,14 @@ defmodule Valimc.EntityBodiesTest do
       assert run.("tp @e[type=tnt,distance=..3] ~ ~ ~2") =~ "Teleported Primed TNT"
       assert run.("kill @e[type=zombie,distance=..3]") =~ "Killed Zombie"
       assert run.("kill @e[type=!player,distance=..5]") =~ "Killed Primed TNT"
-      # The zombie is dying, not yet gone; the TNT is gone.
-      assert [%{kind: :mob, body: body}] = Map.values(store(ctx.owner).entries)
+      # The zombie is dying, not yet gone (its loot dropped); the TNT is gone.
+      assert [%{kind: :mob, body: body}] =
+               for(
+                 %{kind: kind} = e <- Map.values(store(ctx.owner).entries),
+                 kind != :item,
+                 do: e
+               )
+
       refute Body.alive?(body)
     end
   end

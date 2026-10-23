@@ -2,7 +2,17 @@ defmodule Valimc.Player.Use do
   @moduledoc "Transient player-owned use timer; only admitted owner ticks can advance it."
   alias Valimc.Protocol.ItemStack
   import Bitwise
-  defstruct [:hand, :item_id, :remaining]
+  defstruct [:hand, :item_id, :remaining, blocking: false]
+
+  # A shield's use duration (`ShieldItem`/`blocks_attacks` items: 72000 ticks).
+  @blocking_ticks 72_000
+
+  @doc "A raised shield (an item with `blocks_attacks`, VMC-037n)."
+  def blocking(%ItemStack{item_id: id}, hand) when hand in [:main, :off],
+    do: %__MODULE__{hand: hand, item_id: id, remaining: @blocking_ticks, blocking: true}
+
+  @doc "Ticks a blocking use has lasted (`getUseDuration - useItemRemaining`)."
+  def elapsed(%__MODULE__{blocking: true, remaining: remaining}), do: @blocking_ticks - remaining
 
   def new(%ItemStack{item_id: id}, hand, %{consumable: %{"ticks" => ticks}})
       when hand in [:main, :off] and is_integer(ticks) and ticks in 0..2_147_483_647,

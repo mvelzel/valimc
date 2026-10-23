@@ -18,8 +18,9 @@ defmodule Valimc.Living.Damage do
   Resolve a selected hit (`Health.hurt_window/3`) of `source` on `living`
   (health, absorption and effects) wearing `equipment`. Options: `:effects`
   for the defenses (default the living's), `:invulnerable`, `:immune` (a
-  caller's own immunity, such as a player's flight against falls) and
-  `:infinite` (no armor wear). Returns `:ignored`, `:immune` or `{:ok, %{living,
+  caller's own immunity, such as a player's flight against falls),
+  `:infinite` (no armor wear) and `:armor` (`%{armor, toughness}`, the
+  wearer's attribute values; by default the equipment's stock armor). Returns `:ignored`, `:immune` or `{:ok, %{living,
   equipment, broken, exhaustion}}`; `exhaustion` is the food a player spends,
   or nil when no damage got through absorption.
   """
@@ -63,7 +64,9 @@ defmodule Valimc.Living.Damage do
             else: {:ok, equipment, []}
 
         effects = Keyword.get(opts, :effects, living.effects)
-        {:ok, damage} = protect(equipment, source, selected.damage, effects)
+
+        {:ok, damage} =
+          protect(equipment, source, selected.damage, effects, Keyword.get(opts, :armor))
 
         {:ok, absorbed} =
           Health.spend_absorption(Map.get(living, :absorption, 0.0), damage)
@@ -85,14 +88,14 @@ defmodule Valimc.Living.Damage do
   the source bypasses armor, then (`getDamageAfterMagicAbsorb`) Resistance and
   enchantment protection unless bypassed. Wear belongs to the caller.
   """
-  def protect(equipment, source, amount, effects \\ %{})
+  def protect(equipment, source, amount, effects \\ %{}, armor \\ nil)
 
-  def protect(equipment, source, amount, effects)
+  def protect(equipment, source, amount, effects, armor)
       when is_map(equipment) and is_number(amount) and amount >= 0 and amount <= @float_max do
     if DamageSource.known?(source) do
       armored =
         if DamageSource.wears_armor?(source) do
-          attributes = Armor.attributes(equipment)
+          attributes = armor || Armor.attributes(equipment)
           {:ok, damage} = armor_absorb(amount, attributes.armor, attributes.toughness)
           damage
         else
@@ -116,7 +119,7 @@ defmodule Valimc.Living.Damage do
     end
   end
 
-  def protect(_, _, _, _), do: {:error, :invalid_damage_protection}
+  def protect(_, _, _, _, _), do: {:error, :invalid_damage_protection}
 
   @doc "Enchantment protection points of the equipment against `source`."
   def protection(equipment, source),

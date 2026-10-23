@@ -31,6 +31,33 @@ defmodule Valimc.Living.Attributes do
   def fetch(name), do: Map.fetch!(@facts, "minecraft:" <> name)
   def max_absorption, do: @max_absorption["max"]
 
+  @doc """
+  An attribute's value (`AttributeInstance.calculateValue`): `base` plus the
+  additions, plus the base-multiplied additions of that sum, times each total
+  multiplier, clamped to the attribute's range. `name` is namespaced;
+  `modifiers` are `{id, amount, operation}`.
+  """
+  def value("minecraft:" <> name, base, modifiers) do
+    fact = fetch(name)
+
+    added =
+      Enum.reduce(modifiers, base, fn {_, amount, op}, acc ->
+        if op == 0, do: acc + amount, else: acc
+      end)
+
+    result =
+      Enum.reduce(modifiers, added, fn {_, amount, op}, acc ->
+        if op == 1, do: acc + added * amount, else: acc
+      end)
+
+    result =
+      Enum.reduce(modifiers, result, fn {_, amount, op}, acc ->
+        if op == 2, do: acc * (1.0 + amount), else: acc
+      end)
+
+    min(fact["max"], max(fact["min"], result))
+  end
+
   @doc "The active amplifier of effect `id`, or nil."
   def amplifier(effects, id) do
     case effects[id] do

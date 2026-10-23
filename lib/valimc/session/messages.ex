@@ -148,6 +148,10 @@ defmodule Valimc.Session.Messages do
 
   def info(:save_player_now, state), do: {:noreply, state}
 
+  # An entity's melee hit on this player (VMC-037n, `Player.Hurt`).
+  def info({:hurt, hit}, %{phase: :play} = state),
+    do: guard(state, fn -> {:noreply, elem(Valimc.Player.Hurt.hurt(state, hit), 1)} end)
+
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
   def info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
@@ -190,6 +194,7 @@ defmodule Valimc.Session.Messages do
            |> Vitals.apply_void_damage()
            |> Vitals.apply_border_damage()
            |> ItemUse.tick_item_use()
+           |> Valimc.Player.Attack.tick()
            |> Vitals.tick_food()
            |> Vitals.reset_effect_fall()
            |> Mining.tick_mining()

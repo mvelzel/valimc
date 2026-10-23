@@ -181,24 +181,37 @@ defmodule Valimc.Entity.Body do
   end
 
   @doc """
-  A hit of `amount` from `source` (VMC-050a): `{body, events}`, a mob hurt
-  through `Mob.hurt/3` (its damage and death events); other bodies take no
-  damage.
+  A hit of `amount` from damage type `source` with no attacker (explosions
+  and falling blocks, VMC-050a): `{body, events}` through the one hurt path
+  (`Entity.Combat.hurt_body/3`); other bodies take no damage.
   """
-  def hurt(%__MODULE__{mob: nil} = body, _source, _amount), do: {body, []}
-
-  def hurt(%__MODULE__{mob: mob} = body, source, amount) do
-    {mob, events} = Mob.hurt(mob, source, amount)
-    {%{body | mob: mob}, events}
+  def hurt(%__MODULE__{} = body, source, amount) do
+    case Valimc.Entity.Combat.hurt_body(body, nil, %{
+           source: Valimc.Living.DamageSource.new(source),
+           amount: amount
+         }) do
+      :ignored -> {body, []}
+      {body, events, _} -> {body, events}
+    end
   end
 
   @doc "`Entity.push`: the body's velocity plus `impulse`."
   def push(%__MODULE__{velocity: {x, y, z}} = body, {dx, dy, dz}),
     do: %{body | velocity: {x + dx, y + dy, z + dz}}
 
-  @doc "The packet of an event `kill/1` or `tick/1` returned, for entity `id`, encoded once."
-  def event_packet(id, {:event, event}), do: binary(EntityPackets.entity_event(id, event))
-  def event_packet(id, {:damage, source}), do: binary(Packets.damage_event(id, source))
+  @doc """
+  The packet of an event a body's change returned, for entity `id` at
+  `entity`'s position (a sound's), encoded once.
+  """
+  def event_packet(id, event, entity \\ nil)
+  def event_packet(id, {:event, event}, _), do: binary(EntityPackets.entity_event(id, event))
+  def event_packet(id, {:damage, source}, _), do: binary(Packets.damage_event(id, source))
+
+  def event_packet(_id, {:sound, name, source, volume, pitch, seed}, %{x: x, y: y, z: z}),
+    do: binary(Valimc.Protocol.CombatPackets.sound(name, source, {x, y, z}, volume, pitch, seed))
+
+  def event_packet(id, {:damage, source, cause, direct, position}, _),
+    do: binary(Packets.damage_event(id, source, cause, direct, position))
 
   @doc """
   Every modelled entity data field of `body`: `[{field, value, default}]`,

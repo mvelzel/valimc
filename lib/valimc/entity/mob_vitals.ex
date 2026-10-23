@@ -5,7 +5,8 @@ defmodule Valimc.Entity.MobVitals do
   `calculateFallDamage`), the fire, lava and water contacts of its move in
   order (`Burning.plan/1`), burning down a second at a time, and air with
   drowning for a type that cannot breathe under water. Each hurt goes
-  through `Valimc.Entity.Mob.hurt/3`, so a mob dies as `/kill` kills it.
+  through the one hurt path (`Valimc.Entity.Combat.hurt_mob/4`), so a mob
+  dies, and drops, as any other death.
   Returns the body and its entity events.
   """
   alias Valimc.Data.EntityTypes
@@ -19,7 +20,7 @@ defmodule Valimc.Entity.MobVitals do
     {mob, events} = {body.mob, []}
     {mob, events} = landing(type, mob, events, ticked.landing)
     {mob, events} = contacts(type, facts, mob, events, ticked.fire_contacts)
-    {mob, events} = burn(facts, mob, events, ticked.lava)
+    {mob, events} = burn(type, facts, mob, events, ticked.lava)
     {mob, events} = breathe(type, mob, events, ticked)
     {%{body | mob: mob}, events}
   end
@@ -41,7 +42,7 @@ defmodule Valimc.Entity.MobVitals do
           attribute_multiplier: Mob.base(type, mob.attributes, "minecraft:fall_damage_multiplier")
         })
 
-      if amount > 0, do: hurt(mob, events, call.source, amount * 1.0), else: {mob, events}
+      if amount > 0, do: hurt(type, mob, events, call.source, amount * 1.0), else: {mob, events}
     end
   end
 
@@ -71,12 +72,12 @@ defmodule Valimc.Entity.MobVitals do
     {put_fire(mob, ignition.ticks), events}
   end
 
-  defp contact(_type, facts, mob, events, :lava_hurt) do
-    if facts.fire_immune, do: {mob, events}, else: hurt(mob, events, :lava, 4.0)
+  defp contact(type, facts, mob, events, :lava_hurt) do
+    if facts.fire_immune, do: {mob, events}, else: hurt(type, mob, events, :lava, 4.0)
   end
 
-  defp contact(_type, _facts, mob, events, {:damage, source, amount}),
-    do: hurt(mob, events, source, amount * 1.0)
+  defp contact(type, _facts, mob, events, {:damage, source, amount}),
+    do: hurt(type, mob, events, source, amount * 1.0)
 
   defp contact(_type, _facts, mob, events, :extinguish) do
     {:ok, ticks} = Burning.clear(mob.living.fire_ticks)
@@ -91,10 +92,13 @@ defmodule Valimc.Entity.MobVitals do
   defp contact(_type, _facts, mob, events, _operation), do: {mob, events}
 
   # `Entity.baseTick`'s burning: a second's damage (not in lava), counting down.
-  defp burn(facts, mob, events, lava) do
+  defp burn(type, facts, mob, events, lava) do
     {:ok, burned} = Burning.tick(mob.living.fire_ticks, facts.fire_immune, lava)
     mob = put_fire(mob, burned.ticks)
-    if burned.damage > 0, do: hurt(mob, events, :on_fire, burned.damage), else: {mob, events}
+
+    if burned.damage > 0,
+      do: hurt(type, mob, events, :on_fire, burned.damage),
+      else: {mob, events}
   end
 
   # `LivingEntity.baseTick`'s air: a type that breathes under water keeps it.
@@ -107,11 +111,11 @@ defmodule Valimc.Entity.MobVitals do
     policy = if breathes, do: :hold, else: Air.policy(effects)
     {air, damage} = Air.tick(mob.living.air_supply, submerged, false, oxygen, draw, policy)
     mob = %{mob | living: %{mob.living | air_supply: air}}
-    if damage > 0, do: hurt(mob, events, :drown, damage), else: {mob, events}
+    if damage > 0, do: hurt(type, mob, events, :drown, damage), else: {mob, events}
   end
 
-  defp hurt(mob, events, source, amount) do
-    {mob, more} = Mob.hurt(mob, source, amount)
+  defp hurt(type, mob, events, source, amount) do
+    {mob, more} = Valimc.Entity.Combat.hurt_mob(type, mob, source, amount)
     {mob, events ++ more}
   end
 

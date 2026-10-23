@@ -163,6 +163,146 @@ defmodule Valimc.Protocol.EnchantmentEffects do
     end)
   end
 
+  # Attack effects (VMC-037n): `minecraft:damage` and `minecraft:knockback`
+  # additions, each optionally for a target (`this`) or direct attacker in an
+  # entity type tag.
+  entity_requirement = fn
+    nil ->
+      nil
+
+    %{
+      "type" => "minecraft:entity_properties",
+      "entity" => entity,
+      "predicate" => %{"minecraft:entity_type" => "#minecraft:" <> tag} = p
+    }
+    when map_size(p) == 1 and entity in ["this", "direct_attacker"] ->
+      {String.to_atom(entity), tag}
+
+    other ->
+      raise "Unsupported attack effect requirement #{inspect(other)}"
+  end
+
+  @attack @facts["enchantments"]
+          |> Enum.flat_map(fn {name, definition} ->
+            effects =
+              for {kind, key} <- [damage: "minecraft:damage", knockback: "minecraft:knockback"],
+                  into: %{} do
+                {kind,
+                 Enum.map(Map.get(definition["effects"], key, []), fn
+                   %{"effect" => %{"type" => "minecraft:add", "value" => value}} = entry ->
+                     {linear.(value), entity_requirement.(entry["requirements"])}
+
+                   other ->
+                     raise "Unsupported attack effect #{inspect(other)}"
+                 end)}
+              end
+
+            if effects.damage == [] and effects.knockback == [], do: [], else: [{name, effects}]
+          end)
+          |> Map.new()
+
+  # `LevelBasedValue` amounts of attribute effects.
+  amount = fn
+    %{"type" => "minecraft:fraction", "numerator" => n, "denominator" => d} ->
+      {:fraction, linear.(n), linear.(d)}
+
+    %{"type" => "minecraft:linear"} = value ->
+      {:linear, linear.(value)}
+
+    %{"type" => "minecraft:levels_squared", "added" => added} ->
+      {:squared, added}
+
+    other ->
+      raise "Unsupported attribute effect amount #{inspect(other)}"
+  end
+
+  @attributes @facts["enchantments"]
+              |> Enum.flat_map(fn {name, definition} ->
+                for e <- Map.get(definition["effects"], "minecraft:attributes", []) do
+                  {name,
+                   {e["attribute"], e["id"], amount.(e["amount"]),
+                    Map.fetch!(
+                      %{
+                        "add_value" => 0,
+                        "add_multiplied_base" => 1,
+                        "add_multiplied_total" => 2
+                      },
+                      e["operation"]
+                    )}}
+                end
+              end)
+              |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+  @entity_tags Map.new(Valimc.Protocol.Data.tags()["minecraft:entity_type"], fn {"minecraft:" <>
+                                                                                   tag, ids} ->
+                 {tag, MapSet.new(ids)}
+               end)
+
+  @doc """
+  An attack's damage after the weapon's enchantments (vanilla
+  `EnchantmentHelper.modifyDamage`): `enchantments` are the weapon's levels by
+  name, `target` and `direct` the entity type ids of the target and the
+  source's direct entity. Float32.
+  """
+  def damage(enchantments, target, direct, amount),
+    do: attack(:damage, enchantments, target, direct, amount)
+
+  @doc "An attack's knockback after the weapon's enchantments (`modifyKnockback`)."
+  def knockback(enchantments, target, direct, amount),
+    do: attack(:knockback, enchantments, target, direct, amount)
+
+  defp attack(kind, enchantments, target, direct, amount) do
+    for {name, level} <- enchantments,
+        %{^kind => effects} <- [Map.get(@attack, name)],
+        {{base, per}, requirement} <- effects,
+        entity_matches?(requirement, target, direct),
+        reduce: Float32.round(amount),
+        do: (total ->
+               Float32.round(total + Float32.round(base + Float32.round(per * (level - 1)))))
+  end
+
+  defp entity_matches?(nil, _target, _direct), do: true
+
+  defp entity_matches?({entity, tag}, target, direct),
+    do:
+      MapSet.member?(
+        Map.fetch!(@entity_tags, tag),
+        if(entity == :this, do: target, else: direct)
+      )
+
+  @doc """
+  The attribute modifiers enchantments on equipment add (`minecraft:attributes`
+  effects, in their slots), as `{attribute, id, amount, operation}`.
+  """
+  def attribute_modifiers(equipment) do
+    for {slot, enchantments} <- equipment,
+        {name, level} <- enchantments,
+        level > 0,
+        %{slots: slots} <- [slot_definition(name)],
+        slot in slots,
+        {attribute, id, value, operation} <- Map.get(@attributes, name, []),
+        do: {attribute, id, level_value(value, level), operation}
+  end
+
+  defp level_value({:linear, {base, per}}, level), do: Float32.round(base + per * (level - 1))
+
+  defp level_value({:fraction, {nb, np}, {db, dp}}, level),
+    do: Float32.round(Float32.round(nb + np * (level - 1)) / Float32.round(db + dp * (level - 1)))
+
+  defp level_value({:squared, added}, level), do: Float32.round(level * level + added)
+
+  @slot_groups Map.new(@facts["enchantments"], fn {name, definition} ->
+                 {name,
+                  %{
+                    slots:
+                      definition["slots"]
+                      |> Enum.flat_map(&Map.fetch!(@groups, String.to_atom(&1)))
+                      |> Enum.uniq()
+                  }}
+               end)
+
+  defp slot_definition(name), do: Map.get(@slot_groups, name)
+
   @doc "Vanilla `EnchantmentHelper.getDamageProtection`: the protection points against `source`."
   def protection(equipment, source) do
     for {slot, enchantments} <- equipment,

@@ -341,6 +341,15 @@ STAGES = [
         ('regen', 'CombatOracle', 'facts', '@combat-facts.json'),
         ('same', '@combat-facts.json', 'priv/registry/combat_facts.json'),
     ]),
+    ('combat_packets', [
+        ('java', 'CombatOracle', 'packets', '@combat-packets.json'),
+        ('check', 'check_combat_packets.exs', '@combat-packets.json'),
+    ]),
+    # VMC-037n: Player.attack on zombies and Zombie.doHurtTarget on players.
+    ('combat', [
+        ('java', 'CombatOracle', 'cases', '@combat-cases.json'),
+        ('check', 'check_combat.exs', '@combat-cases.json'),
+    ]),
     ('enchantments', [
         ('regen', 'EnchantmentMetadata', '@enchantments.json'),
         ('same', '@enchantments.json', 'priv/registry/enchantments.json'),

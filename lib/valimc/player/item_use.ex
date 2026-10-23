@@ -59,10 +59,17 @@ defmodule Valimc.Player.ItemUse do
     stack = Inventory.held(state.inventory, hand)
     props = if stack, do: FoodItems.properties(stack)
 
-    if Valimc.Player.Buckets.bucket?(stack) do
-      Valimc.Player.Buckets.use(state, hand)
-    else
-      begin_food_use(state, hand, stack, props)
+    cond do
+      Valimc.Player.Buckets.bucket?(stack) ->
+        Valimc.Player.Buckets.use(state, hand)
+
+      # A shield is raised for as long as the client holds use (VMC-037n).
+      Valimc.Living.Weapons.blocks_attacks(stack) != nil ->
+        state = %{state | active_use: Use.blocking(stack, hand)}
+        publish_item_use(state, Use.start_flags(state.player.use_flags, hand))
+
+      true ->
+        begin_food_use(state, hand, stack, props)
     end
   end
 
@@ -182,6 +189,7 @@ defmodule Valimc.Player.ItemUse do
   def tick_item_use(%{life_stage: :alive, active_use: %Use{} = use} = state) do
     case Use.tick(use, Inventory.held(state.inventory, use.hand)) do
       {:using, next} -> %{state | active_use: next}
+      {:finish, %Use{blocking: true}} -> stop_item_use(state)
       {:finish, next} -> complete_item_use(%{state | active_use: next}, true)
       {:cancel, _} -> stop_item_use(state)
     end

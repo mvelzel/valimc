@@ -240,6 +240,12 @@ defmodule Valimc.Session.Play do
       "use_item" ->
         ItemUse.use_item(state, payload)
 
+      "attack" ->
+        Valimc.Player.Attack.attack(state, payload)
+
+      "punch" ->
+        Valimc.Player.Attack.punch(state)
+
       "chat" ->
         {message, _metadata} = Wire.take_string(payload, 256)
         legal!(state, message)

@@ -8,6 +8,7 @@ defmodule Valimc.Data.EntityTypes do
   interval and whether its motion is tracked.
   """
   use Valimc.Data.Facts, "registry/entity_facts.json"
+  use Valimc.Data.Facts, file: "protocol/tags.json", as: :tags
 
   @types Map.new(@facts["types"], fn {name, type} ->
            {name,
@@ -40,6 +41,13 @@ defmodule Valimc.Data.EntityTypes do
   @doc "The facts of type `name` (with or without namespace), or nil."
   def fetch("minecraft:" <> _ = name), do: Map.get(@types, name)
   def fetch(name) when is_binary(name), do: fetch("minecraft:" <> name)
+
+  @entity_tags Map.new(@tags["minecraft:entity_type"], fn {"minecraft:" <> tag, ids} ->
+                 {tag, MapSet.new(ids)}
+               end)
+
+  @doc "Whether type `name` is in entity type tag `tag` (without namespace)."
+  def tag?(name, tag), do: MapSet.member?(Map.fetch!(@entity_tags, tag), id(name))
 
   @doc "Whether type `name` is living (it has default attributes)."
   def living?(name), do: match?(%{attributes: %{}}, fetch(name))

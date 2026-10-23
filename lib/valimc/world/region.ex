@@ -435,6 +435,13 @@ defmodule Valimc.World.Region do
   def take_orb({pid, epoch}, actor, uuid, value),
     do: call(pid, {:take_orb, epoch, actor, uuid, value}, budget(pid, 1000))
 
+  @doc """
+  A hit on body `uuid` of a section (VMC-037n): `{:ok, outcome}` (see
+  `RegionData.hurt_entity/3`) or `{:error, reason}`.
+  """
+  def hurt_entity({pid, epoch}, uuid, hit),
+    do: call(pid, {:hurt_entity, epoch, uuid, hit}, budget(pid, 1000))
+
   @doc "`/kill` of the entities `uuids` of a section: `{:ok, killed}` (VMC-043a)."
   def kill_entities({pid, epoch}, uuids),
     do: call(pid, {:kill_entities, epoch, uuids}, budget(pid, 1000))

@@ -14,6 +14,12 @@ defmodule Valimc.Living.DamageSource do
   unless map_size(@messages) == 21 and Map.keys(@types) == Map.keys(@messages),
     do: raise("Wrong native death message keys")
 
+  use Valimc.Data.Facts, file: "registry/combat_facts.json", as: :combat
+  # Every damage type's death message id and difficulty scaling (VMC-037n).
+  @combat_types Map.new(@combat["damage_types"], fn {"minecraft:" <> type, row} ->
+                  {String.to_atom(type), {row["message_id"], String.to_atom(row["scaling"])}}
+                end)
+
   defstruct [:type, causing: nil, direct: nil]
 
   @doc "A source of damage type `type` (an atom such as `:in_fire`); an unknown type raises."
@@ -44,14 +50,30 @@ defmodule Valimc.Living.DamageSource do
 
   @doc """
   Whether a player's damage of this source scales with the difficulty
-  (`DamageSource.scalesWithDifficulty`): always, or when a living entity that
-  is not a player caused it (no source has a causing entity yet).
+  (`DamageSource.scalesWithDifficulty`): always, or when a living entity
+  that is not a player caused it (`living_non_player`).
   """
-  def scales_with_difficulty?(source) do
-    case get_in(@types, [Atom.to_string(type(source)), "scaling"]) do
-      "always" -> true
-      _ -> false
+  def scales_with_difficulty?(source, living_non_player \\ false) do
+    # No pinned damage type has vanilla's third scaling, `never`.
+    case elem(Map.fetch!(@combat_types, type(source)), 1) do
+      :always -> true
+      :when_caused_by_living_non_player -> living_non_player
     end
+  end
+
+  @doc """
+  `getLocalizedDeathMessage` of a hit an entity caused: `death.attack.<id>`
+  naming the victim `name` and the killer's display name `killer` (a text
+  tag).
+  """
+  def killer_message(name, source, killer) when is_binary(name) do
+    {id, _} = Map.fetch!(@combat_types, type(source))
+
+    {:compound,
+     %{
+       "translate" => {:string, "death.attack." <> id},
+       "with" => Valimc.Data.NBT.list([{:string, name}, killer])
+     }}
   end
 
   @doc "Death message text naming `name`: environmental, or self magic naming the held item."

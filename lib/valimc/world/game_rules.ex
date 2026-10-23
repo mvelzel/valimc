@@ -15,6 +15,7 @@ defmodule Valimc.World.GameRules do
     tnt_explodes: true,
     entity_drops: true,
     tnt_explosion_drop_decay: true,
+    mob_drops: true,
     water_source_conversion: Valimc.Blocks.Fluids.game_rule("water_source_conversion"),
     lava_source_conversion: Valimc.Blocks.Fluids.game_rule("lava_source_conversion"),
     fire_spread_radius_around_player:
