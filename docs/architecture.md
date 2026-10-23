@@ -289,7 +289,11 @@ was sent to.
   (`physics/outlines.json`, `Valimc.Physics.Clip`). Placement is one decision
   diagram over every block item (VMC-029d): the click's inputs and the cells
   around the target decide what `BlockItem.useOn` writes; Elixir picks the
-  target and the inputs, the owner's Rust rules read the cells. Block
+  target and the inputs, the owner's Rust rules read the cells. Every loot
+  table (containers, mobs, every block's) runs through one native evaluator
+  over the loot facts (`priv/loot`, `Valimc.Blocks.Loot`); a survival break
+  is a plan of writes, drops and experience (`Valimc.Blocks.Breaking`,
+  VMC-029e) its owner commits in one call. Block
   behaviours are `Valimc.Blocks.Behaviour` callbacks chosen by the generated
   class (VMC-068).
 - **Connection.** `Valimc.Net.Connection` is a thin GenServer shell. `Net.*`

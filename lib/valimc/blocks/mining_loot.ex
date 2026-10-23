@@ -1,99 +1,87 @@
 defmodule Valimc.Blocks.MiningLoot do
-  @moduledoc "Native-verified stock block loot; unsupported rule families stay explicit."
-  alias Valimc.Blocks.Mining
-  alias Valimc.Blocks.MiningTools
-  alias Valimc.Blocks.RandomMiningLoot
-  alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
-  use Valimc.Data.Facts, "physics/mining_loot.json"
-  @count Data.block_state_count()
-  unless @facts["state_count"] == @count and @facts["block_count"] == MiningTools.block_count(),
-    do: raise("Wrong mining loot catalog version")
+  @moduledoc """
+  What breaking a block drops (VMC-029e): the items of its loot table
+  (`priv/loot/blocks.json` names each block's, `LootOracle facts`) through
+  the native evaluator (`Valimc.Blocks.Loot.block_drops/5`), and the
+  experience a harvest pops (`spawnAfterBreak`).
 
-  @profiles Enum.map(@facts["profiles"], fn
-              nil ->
-                nil
+  Vanilla draws a block table's items from the world's random sequence for
+  the table, which is shared mutable state across groups; a fresh seed per
+  break gives the same distribution. A block entity ValiMC places carries its
+  item's defaults, so a decorated pot's sherds are four bricks.
+  """
+  alias Valimc.Blocks.Loot
+  alias Valimc.Data.Blocks
+  alias Valimc.Protocol.ItemStack
+  use Valimc.Data.Facts, "loot/blocks.json"
 
-              [ordinary, silk] ->
-                for ids <- [ordinary, silk] do
-                  unless is_list(ids) and length(ids) <= 256 and
-                           Enum.all?(
-                             ids,
-                             fn
-                               [id, count] ->
-                                 is_integer(id) and id > 0 and ItemTypes.item(id) != nil and
-                                   count in 1..64
+  @tables List.to_tuple(@facts["tables"])
+  unless tuple_size(@tables) == Blocks.block_count(), do: raise("Wrong block loot facts")
 
-                               _ ->
-                                 false
-                             end
-                           ),
-                         do: raise("Invalid deterministic loot profile")
+  @experience Map.new(@facts["experience"], fn {"minecraft:" <> name, row} ->
+                terms = for [low, high] <- row["terms"], do: {low, high}
 
-                  Enum.map(ids, fn [id, count] -> %ItemStack{item_id: id, count: count} end)
-                end
-                |> List.to_tuple()
-            end)
-            |> List.to_tuple()
-  @blocks List.to_tuple(@facts["block_profiles"])
-  unless elem(@profiles, 0) == nil and tuple_size(@blocks) == MiningTools.block_count() and
-           Enum.all?(
-             Tuple.to_list(@blocks),
-             &(is_integer(&1) and &1 >= 0 and &1 < tuple_size(@profiles))
-           ) and
-           Enum.count(Tuple.to_list(@blocks), &(&1 != 0)) == @facts["supported_blocks"],
-         do: raise("Incomplete deterministic loot indexes")
+                {Blocks.id(name) || raise("Unknown block #{name}"),
+                 {terms, row["silk_touch_cancels"]}}
+              end)
 
-  @states Map.new(@facts["state_profiles"], fn [state, profile] ->
-            unless is_integer(state) and state in 0..(@count - 1) and
-                     is_integer(profile) and profile in 1..(tuple_size(@profiles) - 1),
-                   do: raise("Invalid state loot override")
+  @pot Blocks.id("decorated_pot")
+  @sherds [{"minecraft:sherds", List.duplicate("minecraft:brick", 4)}]
 
-            {state, profile}
-          end)
-  unless map_size(@states) == length(@facts["state_profiles"]),
-    do: raise("Duplicate state loot overrides")
+  @doc "The loot table of `state`'s block, or nil."
+  def table(state), do: elem(@tables, Blocks.block_id(state))
 
-  @ordinary MapSet.new(@facts["ordinary_mining"])
-  @pillars MapSet.new(@facts["pillar_mining"])
-  @simple MapSet.union(@ordinary, @pillars)
-  unless MapSet.size(@ordinary) == 179 and length(@facts["ordinary_mining"]) == 179 and
-           MapSet.size(@pillars) == 180 and length(@facts["pillar_mining"]) == 180 and
-           MapSet.disjoint?(@ordinary, @pillars) and
-           Enum.all?(@simple, fn state ->
-             is_integer(state) and state in 0..(@count - 1) and Mining.hardness(state) >= 0 and
-               elem(@blocks, MiningTools.block_id(state)) != 0
-           end),
-         do: raise("Invalid ordinary mining admission")
+  @doc """
+  The drops of `state` broken at `position`: `{:ok, stacks}`, or an
+  evaluation error (which the `block_loot` stage rules out for every state;
+  callers drop nothing then). Options:
+  `:tool` (the stack it was broken with, before wear; nil for an empty hand
+  and for blocks the world breaks), `:entity` (whether an entity broke it: a
+  player, an explosion's source), `:radius` (an explosion's), `:above` and
+  `:below` (the states there) and `:seed`.
+  """
+  def drops(state, position, opts \\ []) do
+    case table(state) do
+      nil ->
+        {:ok, []}
 
-  @doc "Finite, deterministic cubes/pillars with native-verified base destruction callbacks."
-  def ordinary_mining?(state), do: MapSet.member?(@simple, state)
-
-  @doc "Use the original tool before wear, including a tool that breaks on this operation."
-  def drops(state, tool, harvest)
-      when is_integer(state) and state >= 0 and state < @count and
-             is_boolean(harvest) do
-    if harvest do
-      with :default <- Valimc.Blocks.harvest_drops(state) do
-        case elem(
-               @profiles,
-               Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))
-             ) do
-          nil -> RandomMiningLoot.drops(state, tool, true)
-          profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
-        end
-      end
-    else
-      {:ok, []}
+      table ->
+        Loot.block_drops(table, Keyword.get_lazy(opts, :seed, &seed/0), position, %{
+          state: state,
+          tool: Keyword.get(opts, :tool),
+          entity: Keyword.get(opts, :entity, false),
+          radius: Keyword.get(opts, :radius),
+          above: Keyword.get(opts, :above),
+          below: Keyword.get(opts, :below),
+          dynamic: if(Blocks.block_id(state) == @pot, do: @sherds, else: [])
+        })
     end
   end
 
-  def drops(_, _, _), do: {:error, :invalid_mining_loot}
-  defp silk?(nil), do: false
+  @doc """
+  The experience a harvest of `state` with `tool` pops (`spawnAfterBreak`):
+  the sum of its draws, none when Silk Touch cancels it.
+  """
+  def experience(state, tool) do
+    case Map.get(@experience, Blocks.block_id(state)) do
+      nil ->
+        0
 
-  defp silk?(%ItemStack{components: components}),
-    do:
-      components
-      |> Map.get("minecraft:enchantments", %{})
-      |> Map.get("minecraft:silk_touch", 0)
-      |> Kernel.>(0)
+      {terms, cancels} ->
+        if cancels and enchanted?(tool, "minecraft:silk_touch"),
+          do: 0,
+          else: Enum.sum(for {low, high} <- terms, do: low + :rand.uniform(high - low + 1) - 1)
+    end
+  end
+
+  @doc "Whether `tool` holds `enchantment` (applied, not stored)."
+  def enchanted?(nil, _enchantment), do: false
+
+  def enchanted?(%ItemStack{components: components}, enchantment),
+    do: Map.get(Map.get(components, "minecraft:enchantments", %{}), enchantment, 0) > 0
+
+  defp seed do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    seed
+  end
 end

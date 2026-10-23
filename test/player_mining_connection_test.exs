@@ -225,6 +225,35 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert drops(ctx) == [ItemStack.new("cobblestone")]
   end
 
+  test "a door's lower half breaks the door whole with one drop; an ore drops experience too",
+       ctx do
+    door = fn half -> Valimc.Data.Blocks.state("oak_door", %{"half" => half}) end
+    seed(ctx, %{36 => instant("diamond_axe"), 37 => instant("diamond_pickaxe")}, door.("lower"))
+    {x, y, z} = ctx.target
+    :ok = Valimc.TestBlocks.set({x, y + 1, z}, door.("upper"))
+    {client, pid} = login(ctx)
+    action(client, "start_destroy_block", ctx.target, 1)
+
+    tick_until(pid, fn ->
+      finished(pid) and Valimc.TestBlocks.get(ctx.target) == 0 and
+        Valimc.TestBlocks.get({x, y + 1, z}) == 0
+    end)
+
+    assert drops(ctx) == [ItemStack.new("oak_door")]
+
+    ore = {x, y + 1, z}
+    :ok = Valimc.TestBlocks.set(ore, Data.block("diamond_ore"))
+    Client.send_packet(client, :play, "set_carried_item", <<1::16>>)
+    tick_until(pid, fn -> state(pid).inventory.selected == 1 end)
+    action(client, "start_destroy_block", ore, 2)
+    tick_until(pid, fn -> finished(pid) and Valimc.TestBlocks.get(ore) == 0 end)
+    {:ok, {owner, _}} = Valimc.TestWorld.item_owner(ctx.key)
+    :ok = Valimc.World.Region.flush(owner)
+    records = Valimc.TestDisk.read(ctx.base, ctx.key, :items).records
+    assert ItemStack.new("diamond") in Enum.map(records, &Map.get(&1, :stack))
+    assert Enum.any?(records, &(Map.get(&1, :kind) == :orb))
+  end
+
   test "filled chest mining consumes only tool wear while its owner releases exact stored patches",
        ctx do
     alias Valimc.World.Containers

@@ -1,12 +1,14 @@
-//! Vanilla's loot tables for containers (VMC-072a), from the generated loot
-//! facts (`LootOracle`, `priv/loot`): pools with rolls and bonus rolls,
-//! weighted entries (items, empty entries, nested tables), conditions,
-//! number providers and the item functions container tables use, evaluated
-//! in vanilla's order of random draws; `LootTable.fill` with its shuffled
-//! slots and split stacks, and `getRandomItems` for brushable blocks.
+//! Vanilla's loot tables (VMC-072a), from the generated loot facts
+//! (`LootOracle`, `priv/loot`): pools with rolls and bonus rolls, weighted
+//! entries (items, empty entries, nested tables), conditions, number
+//! providers and the item functions the tables use, evaluated in vanilla's
+//! order of random draws; `LootTable.fill` with its shuffled slots and split
+//! stacks, `getRandomItems` for brushable blocks, a mob's death drops
+//! (VMC-037n) and a broken block's drops (VMC-029e).
 //!
 //! What a table reads from the world goes through `LootWorld`: the biome at
-//! a position, the nearest map structure and new map ids.
+//! a position, the nearest map structure and new map ids; a block's
+//! neighbours come with its break.
 
 use std::collections::{HashMap, HashSet};
 
@@ -31,6 +33,8 @@ pub struct Stack {
     pub map_id: Option<i32>,
     /// Map decorations: key, type, x, z, rotation.
     pub map_decorations: Vec<(String, String, f64, f64, f32)>,
+    /// `block_state` properties (`copy_state`).
+    pub block_state: Vec<(String, String)>,
 }
 
 impl Stack {
@@ -49,6 +53,7 @@ impl Stack {
             custom_name: None,
             map_id: None,
             map_decorations: Vec::new(),
+            block_state: Vec::new(),
         }
     }
 
@@ -180,6 +185,7 @@ struct HolderSet {
 enum IntProvider {
     Constant(i32),
     Uniform(Box<IntProvider>, Box<IntProvider>),
+    Binomial(Box<IntProvider>, Box<FloatProvider>),
 }
 
 #[derive(Debug)]
@@ -196,7 +202,18 @@ enum Condition {
     AnyOf(Vec<Condition>),
     Location {
         biomes: Option<HolderSet>,
+        block: Option<BlockPredicate>,
         offset: [i32; 3],
+    },
+    /// `survives_explosion`: `1 / radius` when an explosion breaks the block.
+    SurvivesExplosion,
+    /// `match_block`: the broken block, with these property values.
+    MatchBlock(BlockPredicate),
+    MatchTool(ItemPredicate),
+    /// `table_bonus`: the tool's level of the enchantment picks the chance.
+    TableBonus {
+        enchantment: String,
+        chances: Vec<f32>,
     },
     KilledByPlayer,
     /// `random_chance_with_enchanted_bonus`: the attacker's level of the
@@ -208,6 +225,97 @@ enum Condition {
         per_level: f32,
     },
     Entity(EntityTarget, EntityPredicate),
+}
+
+/// Blocks and property values (`match_block`, a location's block).
+#[derive(Debug)]
+struct BlockPredicate {
+    blocks: Option<Vec<String>>,
+    properties: Vec<(String, String)>,
+}
+
+impl BlockPredicate {
+    fn matches(&self, block: &str, properties: &[(String, String)]) -> bool {
+        self.blocks
+            .as_ref()
+            .is_none_or(|b| b.iter().any(|b| b == block))
+            && self
+                .properties
+                .iter()
+                .all(|(k, v)| properties.iter().any(|(pk, pv)| pk == k && pv == v))
+    }
+}
+
+/// One enchantment test: any of these enchantments (or any at all) with a
+/// level within the bounds.
+type EnchantmentTest = (Option<Vec<String>>, Option<i32>, Option<i32>);
+
+/// An item predicate on the tool: its item, and enchantment tests.
+#[derive(Debug)]
+struct ItemPredicate {
+    items: Option<Vec<String>>,
+    enchantments: Vec<EnchantmentTest>,
+}
+
+impl ItemPredicate {
+    fn matches(&self, item: &str, enchantments: &[(String, i32)]) -> bool {
+        let within = |level: i32, min: &Option<i32>, max: &Option<i32>| {
+            min.is_none_or(|m| level >= m) && max.is_none_or(|m| level <= m)
+        };
+        self.items
+            .as_ref()
+            .is_none_or(|items| items.iter().any(|i| i == item))
+            && self.enchantments.iter().all(|(ids, min, max)| match ids {
+                Some(ids) => ids.iter().any(|id| {
+                    enchantments
+                        .iter()
+                        .any(|(e, l)| e == id && *l > 0 && within(*l, min, max))
+                }),
+                None if min.is_some() || max.is_some() => {
+                    enchantments.iter().any(|(_, l)| within(*l, min, max))
+                }
+                None => !enchantments.is_empty(),
+            })
+    }
+}
+
+/// A block next to a broken one: its offset, block and properties.
+pub type Neighbour = ([i32; 3], String, Vec<(String, String)>);
+
+/// A block broken (`LootContextParamSets.BLOCK`): its block and properties,
+/// the tool (`minecraft:air` for an empty hand) with its enchantments,
+/// whether an entity broke it, an explosion's radius, whether it has a block
+/// entity, the neighbours a location check reads (offset, block,
+/// properties) and the dynamic drops by name (a cracked pot's sherds). The
+/// block entities ValiMC places carry their item's defaults, which a
+/// `copy_components` copy would leave out of the patch, so it copies none.
+#[derive(Debug, Clone, Default)]
+pub struct BlockBreak {
+    pub block: String,
+    pub properties: Vec<(String, String)>,
+    pub tool: String,
+    pub tool_enchantments: Vec<(String, i32)>,
+    pub entity: bool,
+    pub explosion_radius: Option<f32>,
+    pub neighbours: Vec<Neighbour>,
+    pub dynamic: Vec<(String, Vec<String>)>,
+}
+
+impl BlockBreak {
+    fn tool_level(&self, enchantment: &str) -> i32 {
+        self.tool_enchantments
+            .iter()
+            .find(|(e, _)| e == enchantment)
+            .map_or(0, |(_, l)| *l)
+    }
+}
+
+/// `ApplyBonusCount`'s formulas.
+#[derive(Debug)]
+enum BonusFormula {
+    OreDrops,
+    Uniform(i32),
+    Binomial(i32, f32),
 }
 
 /// The entity an `entity_properties` condition asks about.
@@ -256,6 +364,13 @@ impl Death {
 }
 
 impl EntityPredicate {
+    fn is_empty(&self) -> bool {
+        self.on_fire.is_none()
+            && self.baby.is_none()
+            && self.vehicle.is_none()
+            && self.mainhand_enchantments.is_none()
+    }
+
     fn matches(&self, target: EntityTarget, death: &Death) -> bool {
         let mainhand = match target {
             EntityTarget::This => None,
@@ -327,6 +442,15 @@ enum Function {
         limit: i32,
     },
     FurnaceSmelt(bool),
+    ApplyBonus {
+        enchantment: String,
+        formula: BonusFormula,
+    },
+    ExplosionDecay,
+    LimitCount(Option<IntProvider>, Option<IntProvider>),
+    /// `copy_components` from the block entity, which carries none in ValiMC.
+    CopyComponents,
+    CopyState(Vec<String>),
 }
 
 /// An item predicate: items, and components that must be present.
@@ -340,9 +464,9 @@ struct ItemFilter {
 enum EntryKind {
     Item(String),
     Empty,
-    /// The context's dynamic drops (a container's or pot's contents), which
-    /// a container fill never has: picked by weight, adding nothing.
-    Dynamic,
+    /// The context's dynamic drops (a container's contents, a cracked pot's
+    /// sherds) by name, which only a block's break has.
+    Dynamic(String),
     Tables {
         tables: Vec<String>,
         expand: bool,
@@ -409,6 +533,9 @@ pub struct Loot {
     tags: HashMap<String, HashMap<String, Vec<String>>>,
     /// Furnace (smelting) results by input item, for `furnace_smelt`.
     smelting: HashMap<String, String>,
+    /// The named predicates (`minecraft:tool/can_silk_touch`...) conditions
+    /// refer to.
+    predicates: HashMap<String, Json>,
 }
 
 /// Where produced items go (vanilla's item consumers).
@@ -421,6 +548,7 @@ struct Ctx<'w> {
     world: &'w mut dyn LootWorld,
     visited: Vec<String>,
     death: Option<Death>,
+    block: Option<BlockBreak>,
 }
 
 /// `Mth.floor` of a float.
@@ -509,6 +637,11 @@ impl Loot {
             });
         }
         loot.instantaneous = names(registries.field("instantaneous_effects")?)?;
+        if let Some(predicates) = registries.get("predicates") {
+            for (id, predicate) in predicates.entries()? {
+                loot.predicates.insert(id.clone(), predicate.clone());
+            }
+        }
         if let Some(smelting) = registries.get("smelting") {
             for (input, result) in smelting.entries()? {
                 loot.smelting
@@ -640,7 +773,7 @@ impl Loot {
         let kind = match json.field("type")?.as_str()? {
             "minecraft:item" => EntryKind::Item(json.field("name")?.as_str()?.to_string()),
             "minecraft:empty" => EntryKind::Empty,
-            "minecraft:dynamic" => EntryKind::Dynamic,
+            "minecraft:dynamic" => EntryKind::Dynamic(json.field("name")?.as_str()?.to_string()),
             "minecraft:tag" => EntryKind::Tag {
                 items: self
                     .holder_set("minecraft:item", json.field("items")?)?
@@ -701,6 +834,10 @@ impl Loot {
                 Box::new(Self::int_provider(json.field("min")?)?),
                 Box::new(Self::int_provider(json.field("max")?)?),
             ),
+            "minecraft:binomial" => IntProvider::Binomial(
+                Box::new(Self::int_provider(json.field("n")?)?),
+                Box::new(Self::float_provider(json.field("p")?)?),
+            ),
             other => return Err(format!("int provider {other} is not implemented")),
         })
     }
@@ -720,6 +857,13 @@ impl Loot {
     }
 
     fn condition(&self, json: &Json) -> Result<Condition, String> {
+        if let Json::String(id) = json {
+            let predicate = self
+                .predicates
+                .get(id)
+                .ok_or_else(|| format!("unknown predicate {id}"))?;
+            return self.condition(predicate);
+        }
         if let Json::Array(items) = json {
             return Ok(Condition::AllOf(
                 items
@@ -751,12 +895,14 @@ impl Loot {
             ),
             "minecraft:location_check" => {
                 let mut biomes = None;
+                let mut block = None;
                 if let Some(predicate) = json.get("predicate") {
                     for (key, value) in predicate.entries()? {
                         match key.as_str() {
                             "biomes" => {
                                 biomes = Some(self.holder_set("minecraft:worldgen/biome", value)?)
                             }
+                            "block" => block = Some(Self::block_predicate(value)?),
                             other => {
                                 return Err(format!(
                                     "location predicate {other} is not implemented"
@@ -768,9 +914,28 @@ impl Loot {
                 let o = |k: &str| json.get(k).map_or(Ok(0), Json::as_i32);
                 Condition::Location {
                     biomes,
+                    block,
                     offset: [o("offsetX")?, o("offsetY")?, o("offsetZ")?],
                 }
             }
+            "minecraft:survives_explosion" => Condition::SurvivesExplosion,
+            "minecraft:match_block" => Condition::MatchBlock(Self::block_predicate(json)?),
+            "minecraft:match_tool" => Condition::MatchTool(match json.get("predicate") {
+                Some(p) => self.item_predicate(p)?,
+                None => ItemPredicate {
+                    items: None,
+                    enchantments: Vec::new(),
+                },
+            }),
+            "minecraft:table_bonus" => Condition::TableBonus {
+                enchantment: json.field("enchantment")?.as_str()?.to_string(),
+                chances: json
+                    .field("chances")?
+                    .as_array()?
+                    .iter()
+                    .map(|c| Ok(c.as_f64()? as f32))
+                    .collect::<Result<_, String>>()?,
+            },
             "minecraft:killed_by_player" => Condition::KilledByPlayer,
             "minecraft:random_chance_with_enchanted_bonus" => {
                 let (base, per_level) = match json.field("enchanted_chance")? {
@@ -803,6 +968,77 @@ impl Loot {
             }
             other => return Err(format!("loot condition {other} is not implemented")),
         })
+    }
+
+    /// A block predicate: `blocks` (identifiers) and `state` (exact values).
+    fn block_predicate(json: &Json) -> Result<BlockPredicate, String> {
+        let blocks = match json.get("blocks") {
+            None => None,
+            Some(Json::String(s)) if !s.starts_with('#') => Some(vec![s.clone()]),
+            Some(Json::Array(items)) => Some(
+                items
+                    .iter()
+                    .map(|i| i.as_str().map(str::to_string))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Some(other) => return Err(format!("block predicate blocks {other:?}")),
+        };
+        let mut properties = Vec::new();
+        if let Some(state) = json.get("state") {
+            for (k, v) in state.entries()? {
+                match v {
+                    Json::String(v) => properties.push((k.clone(), v.clone())),
+                    other => return Err(format!("block state predicate {other:?}")),
+                }
+            }
+        }
+        for key in json.entries()?.iter().map(|(k, _)| k.as_str()) {
+            if !matches!(key, "type" | "blocks" | "state") {
+                return Err(format!("block predicate {key} is not implemented"));
+            }
+        }
+        Ok(BlockPredicate { blocks, properties })
+    }
+
+    /// An item predicate: `items` and the `minecraft:enchantments` component
+    /// predicate.
+    fn item_predicate(&self, json: &Json) -> Result<ItemPredicate, String> {
+        let mut predicate = ItemPredicate {
+            items: None,
+            enchantments: Vec::new(),
+        };
+        for (key, value) in json.entries()? {
+            match key.as_str() {
+                "items" => {
+                    predicate.items = Some(self.holder_set("minecraft:item", value)?.members)
+                }
+                "predicates" => {
+                    for (component, list) in value.entries()? {
+                        if component != "minecraft:enchantments" {
+                            return Err(format!("item predicate {component} is not implemented"));
+                        }
+                        for e in list.as_array()? {
+                            let ids = e
+                                .get("enchantments")
+                                .map(|ids| self.holder_set("minecraft:enchantment", ids))
+                                .transpose()?
+                                .map(|s| s.members);
+                            let (min, max) = match e.get("levels") {
+                                None => (None, None),
+                                Some(Json::Number(n)) => (Some(*n as i32), Some(*n as i32)),
+                                Some(range) => (
+                                    range.get("min").map(Json::as_i32).transpose()?,
+                                    range.get("max").map(Json::as_i32).transpose()?,
+                                ),
+                            };
+                            predicate.enchantments.push((ids, min, max));
+                        }
+                    }
+                }
+                other => return Err(format!("item predicate {other} is not implemented")),
+            }
+        }
+        Ok(predicate)
     }
 
     fn entity_predicate(&self, json: &Json) -> Result<EntityPredicate, String> {
@@ -986,6 +1222,44 @@ impl Loot {
                 json.get("use_input_count")
                     .map_or(Ok(true), Json::as_bool)?,
             ),
+            "minecraft:apply_bonus" => Function::ApplyBonus {
+                enchantment: json.field("enchantment")?.as_str()?.to_string(),
+                formula: match json.field("formula")?.as_str()? {
+                    "minecraft:ore_drops" => BonusFormula::OreDrops,
+                    "minecraft:uniform_bonus_count" => BonusFormula::Uniform(
+                        json.field("parameters")?
+                            .field("bonusMultiplier")?
+                            .as_i32()?,
+                    ),
+                    "minecraft:binomial_with_bonus_count" => {
+                        let p = json.field("parameters")?;
+                        BonusFormula::Binomial(
+                            p.field("extra")?.as_i32()?,
+                            p.field("probability")?.as_f64()? as f32,
+                        )
+                    }
+                    other => return Err(format!("bonus formula {other} is not implemented")),
+                },
+            },
+            "minecraft:explosion_decay" => Function::ExplosionDecay,
+            "minecraft:limit_count" => {
+                let limit = json.field("limit")?;
+                let bound = |k: &str| limit.get(k).map(Self::int_provider).transpose();
+                Function::LimitCount(bound("min")?, bound("max")?)
+            }
+            "minecraft:copy_components" => {
+                if json.field("source")?.as_str()? != "block_entity" {
+                    return Err("copy_components from an entity is not implemented".into());
+                }
+                Function::CopyComponents
+            }
+            "minecraft:copy_state" => Function::CopyState(
+                json.field("properties")?
+                    .as_array()?
+                    .iter()
+                    .map(|p| p.as_str().map(str::to_string))
+                    .collect::<Result<_, _>>()?,
+            ),
             other => return Err(format!("loot function {other} is not implemented")),
         };
         Ok(match json.get("condition") {
@@ -1036,6 +1310,10 @@ impl IntProvider {
                 let (lo, hi) = (min.get(ctx), max.get(ctx));
                 next_int(&mut ctx.random, lo, hi)
             }
+            IntProvider::Binomial(n, p) => {
+                let (n, p) = (n.get(ctx), p.get(ctx));
+                (0..n).filter(|_| ctx.random.next_float() < p).count() as i32
+            }
         }
     }
 }
@@ -1084,23 +1362,59 @@ impl Condition {
                 };
                 ctx.random.next_float() < chance
             }
-            Condition::Entity(target, predicate) => ctx
-                .death
-                .as_ref()
-                .is_some_and(|d| predicate.matches(*target, d)),
-            Condition::Location { biomes, offset } => {
+            Condition::Entity(target, predicate) => match (&ctx.death, &ctx.block) {
+                (Some(d), _) => predicate.matches(*target, d),
+                // A block's breaker is `this`; only its presence is known.
+                (None, Some(b)) => {
+                    matches!(target, EntityTarget::This) && b.entity && predicate.is_empty()
+                }
+                _ => false,
+            },
+            Condition::Location {
+                biomes,
+                block,
+                offset,
+            } => {
                 let pos = [
                     (ctx.origin[0] + offset[0] as f64).floor() as i32,
                     (ctx.origin[1] + offset[1] as f64).floor() as i32,
                     (ctx.origin[2] + offset[2] as f64).floor() as i32,
                 ];
-                match biomes {
-                    None => true,
-                    Some(set) => ctx
-                        .world
+                biomes.as_ref().is_none_or(|set| {
+                    ctx.world
                         .biome(pos)
-                        .is_some_and(|b| set.members.contains(&b)),
+                        .is_some_and(|b| set.members.contains(&b))
+                }) && block.as_ref().is_none_or(|predicate| {
+                    // A break knows the blocks around it; absent ones are air.
+                    ctx.block.as_ref().is_some_and(|b| {
+                        match b.neighbours.iter().find(|(o, ..)| o == offset) {
+                            Some((_, block, properties)) => predicate.matches(block, properties),
+                            None => predicate.matches("minecraft:air", &[]),
+                        }
+                    })
+                })
+            }
+            Condition::SurvivesExplosion => {
+                match ctx.block.as_ref().and_then(|b| b.explosion_radius) {
+                    Some(radius) => ctx.random.next_float() <= 1.0 / radius,
+                    None => true,
                 }
+            }
+            Condition::MatchBlock(predicate) => ctx
+                .block
+                .as_ref()
+                .is_some_and(|b| predicate.matches(&b.block, &b.properties)),
+            Condition::MatchTool(predicate) => ctx
+                .block
+                .as_ref()
+                .is_some_and(|b| predicate.matches(&b.tool, &b.tool_enchantments)),
+            Condition::TableBonus {
+                enchantment,
+                chances,
+            } => {
+                let level = ctx.block.as_ref().map_or(0, |b| b.tool_level(enchantment));
+                let chance = chances[(level.max(0) as usize).min(chances.len() - 1)];
+                ctx.random.next_float() < chance
             }
         }
     }
@@ -1283,6 +1597,62 @@ impl Loot {
                 }
             }
             Function::Discard => Stack::empty(),
+            Function::ApplyBonus {
+                enchantment,
+                formula,
+            } => {
+                let Some(level) = ctx.block.as_ref().map(|b| b.tool_level(enchantment)) else {
+                    return Ok(stack);
+                };
+                let random = &mut ctx.random;
+                stack.count = match *formula {
+                    BonusFormula::OreDrops if level > 0 => {
+                        let bonus = (random.next_int_bounded(level + 2) - 1).max(0);
+                        stack.count * (bonus + 1)
+                    }
+                    BonusFormula::OreDrops => stack.count,
+                    BonusFormula::Uniform(multiplier) => {
+                        stack.count + random.next_int_bounded(multiplier * level + 1)
+                    }
+                    BonusFormula::Binomial(extra, p) => {
+                        stack.count
+                            + (0..level + extra)
+                                .filter(|_| random.next_float() < p)
+                                .count() as i32
+                    }
+                };
+                stack
+            }
+            Function::ExplosionDecay => {
+                if let Some(radius) = ctx.block.as_ref().and_then(|b| b.explosion_radius) {
+                    let p = 1.0 / radius;
+                    stack.count = (0..stack.count)
+                        .filter(|_| ctx.random.next_float() <= p)
+                        .count() as i32;
+                }
+                stack
+            }
+            Function::LimitCount(min, max) => {
+                if let Some(min) = min {
+                    stack.count = stack.count.max(min.get(ctx));
+                }
+                if let Some(max) = max {
+                    stack.count = stack.count.min(max.get(ctx));
+                }
+                stack
+            }
+            Function::CopyComponents => stack,
+            Function::CopyState(names) => {
+                if let Some(b) = &ctx.block {
+                    for name in names {
+                        if let Some((_, value)) = b.properties.iter().find(|(k, _)| k == name) {
+                            stack.block_state.retain(|(k, _)| k != name);
+                            stack.block_state.push((name.clone(), value.clone()));
+                        }
+                    }
+                }
+                stack
+            }
             Function::ExplorationMap {
                 destination,
                 decoration,
@@ -1572,7 +1942,19 @@ impl Loot {
             Leaf::Table(table) => self.raw_items(table, ctx, &mut decorated),
             Leaf::Entry(entry) => match &entry.kind {
                 EntryKind::Item(item) => decorated(Stack::new(item), ctx),
-                EntryKind::Empty | EntryKind::Dynamic => Ok(()),
+                EntryKind::Empty => Ok(()),
+                EntryKind::Dynamic(name) => {
+                    let items = ctx.block.as_ref().and_then(|b| {
+                        b.dynamic
+                            .iter()
+                            .find(|(n, _)| n == name)
+                            .map(|(_, i)| i.clone())
+                    });
+                    for item in items.unwrap_or_default() {
+                        decorated(Stack::new(&item), ctx)?;
+                    }
+                    Ok(())
+                }
                 EntryKind::Tables { tables, .. } => {
                     for t in tables {
                         self.raw_items(t, ctx, &mut decorated)?;
@@ -1631,6 +2013,7 @@ impl Loot {
             world,
             visited: Vec::new(),
             death: None,
+            block: None,
         };
         let mut items = self.random_items(id, &mut ctx)?;
         let random = &mut ctx.random;
@@ -1663,6 +2046,7 @@ impl Loot {
             world,
             visited: Vec::new(),
             death: None,
+            block: None,
         };
         self.random_items(id, &mut ctx)
     }
@@ -1685,8 +2069,34 @@ impl Loot {
             world,
             visited: Vec::new(),
             death: Some(death),
+            block: None,
         };
         // `spawnAtLocation` drops nothing for an empty stack.
+        let mut items = self.random_items(id, &mut ctx)?;
+        items.retain(|s| !s.is_empty());
+        Ok(items)
+    }
+
+    /// A broken block's drops (`BlockBehaviour.getDrops`): `getRandomItems`
+    /// with `random` and the break, without the empty stacks
+    /// (`Block.popResource` pops none).
+    pub fn block_items(
+        &self,
+        id: &str,
+        random: Random,
+        origin: [f64; 3],
+        block: BlockBreak,
+        world: &mut dyn LootWorld,
+    ) -> Result<Vec<Stack>, String> {
+        let mut ctx = Ctx {
+            random,
+            luck: 0.0,
+            origin,
+            world,
+            visited: Vec::new(),
+            death: None,
+            block: Some(block),
+        };
         let mut items = self.random_items(id, &mut ctx)?;
         items.retain(|s| !s.is_empty());
         Ok(items)

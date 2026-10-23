@@ -414,9 +414,13 @@ defmodule Valimc.World.Region do
     do:
       call(pid, {:container_click, epoch, viewer, ref, position, actor, click}, budget(pid, 1000))
 
-  @doc "A survival break of the block `expected` at `position`, with its drops `records`."
-  def mine_block({pid, epoch}, position, expected, records),
-    do: call(pid, {:mine_block, epoch, position, expected, records}, budget(pid, 1000))
+  @doc """
+  A survival break of the block at `position` (VMC-029e): `writes` maps each
+  cell it changes to `{expected, new}` (the broken cell first among them),
+  and `records` are its drops and experience orbs.
+  """
+  def mine_block({pid, epoch}, position, writes, records) when is_map_key(writes, position),
+    do: call(pid, {:mine_block, epoch, position, writes, records}, budget(pid, 1000))
 
   @doc """
   A player's drop (VMC-077i3): the section adopts the entity `records`, after

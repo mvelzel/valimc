@@ -9,9 +9,6 @@ defmodule Valimc.Blocks.Behaviour do
   @doc "The block-entity kind ValiMC owns for this state, or nil."
   @callback block_entity(state) :: atom() | nil
 
-  @doc "Harvested drops that replace the loot table, or `:default`."
-  @callback harvest_drops(state) :: {:ok, [Valimc.Protocol.ItemStack.t()]} | :default
-
   @doc "The state left behind when this state's block is removed."
   @callback after_removal(state) :: state
 
@@ -46,13 +43,9 @@ defmodule Valimc.Blocks.Behaviour do
       def block_entity(_state), do: nil
 
       @impl true
-      def harvest_drops(_state), do: :default
-
-      @impl true
       def after_removal(state), do: Valimc.Data.BlockFacts.fluid_remains(state)
 
       defoverridable block_entity: 1,
-                     harvest_drops: 1,
                      after_removal: 1
     end
   end

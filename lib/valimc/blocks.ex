@@ -96,6 +96,5 @@ defmodule Valimc.Blocks do
 
   def block_entity(_), do: nil
 
-  def harvest_drops(state), do: behaviour(state).harvest_drops(state)
   def after_removal(state), do: behaviour(state).after_removal(state)
 end

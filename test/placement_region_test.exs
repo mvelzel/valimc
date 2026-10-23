@@ -71,7 +71,15 @@ defmodule Valimc.PlacementRegionTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
     {:ok, {pid, _} = owner} = Valimc.TestWorld.item_owner(ctx.key)
     assert Valimc.TestRegion.section(owner).containers == containers
-    assert :ok = Region.mine_block(owner, ctx.position, @chest, [])
+
+    assert :ok =
+             Region.mine_block(
+               owner,
+               ctx.position,
+               %{ctx.position => {@chest, Valimc.Blocks.after_removal(@chest)}},
+               []
+             )
+
     assert Valimc.TestBlocks.get(ctx.position) == Valimc.Data.BlockFacts.fluid_remains(@chest)
     assert :ok = Region.flush(pid)
 

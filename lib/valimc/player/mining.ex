@@ -3,11 +3,12 @@ defmodule Valimc.Player.Mining do
   Block breaking (VMC-069, VMC-077i3): reach, creative breaks and survival
   mining. The block's owner is the player's own group: a survival attempt
   reads the block it mines from it, rereads it when blocks change, and on
-  completion breaks it with its drops in one plain call
+  completion breaks it as `Valimc.Blocks.Breaking` plans (VMC-029e: every
+  block, its drops and experience) in one plain call
   (`Region.mine_block/4`), wearing the tool in the same callback.
   """
   alias Valimc.Data.Grid
-  alias Valimc.Protocol.{Data, ItemTypes, Packets, Wire}
+  alias Valimc.Protocol.{ItemTypes, Packets, Wire}
   alias Valimc.Player.{CreativeInventory, Items, ItemUse, Movement}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{Input, MiningSpeed, MiningAttempt}
@@ -15,9 +16,6 @@ defmodule Valimc.Player.Mining do
   alias Valimc.World.Region
 
   import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
-
-  @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
-  @slab_blocks Data.tags()["minecraft:block"]["minecraft:slabs"] |> MapSet.new()
 
   def reachable?(state, {x, y, z}) do
     p = state.player
@@ -92,7 +90,8 @@ defmodule Valimc.Player.Mining do
 
         with true <- mining_allowed?(state, position),
              {:ok, owner, block} <- observe(state, position),
-             true <- supported?(block) do
+             # Vanilla starts no attempt on air.
+             false <- Valimc.Data.BlockFacts.flag?(block, :air) do
           mining = %{
             position: position,
             owner: owner,
@@ -120,13 +119,6 @@ defmodule Valimc.Player.Mining do
       true ->
         state
     end
-  end
-
-  defp supported?(block) do
-    block in @basic_mining or Valimc.Blocks.block_entity(block) != nil or
-      Valimc.Blocks.MiningLoot.ordinary_mining?(block) or
-      Valimc.Blocks.RandomMiningLoot.supported?(block) or
-      MapSet.member?(@slab_blocks, Valimc.Blocks.MiningTools.block_id(block))
   end
 
   def mining_allowed?(state, position) do
@@ -203,6 +195,24 @@ defmodule Valimc.Player.Mining do
     if attempt.phase == :ready, do: commit_mining(state), else: state
   end
 
+  # What a break reads around the block: the blocks above and below (from
+  # the same owner, which holds whole columns) and whether water evaporates.
+  defp around(owner, {x, y, z}, dimension) do
+    cells = for dy <- [1, -1], World.Chunk.valid_y?(y + dy), do: {x, y + dy, z}
+
+    blocks =
+      case Region.observe_blocks(owner, cells) do
+        {:ok, observed} -> observed.blocks
+        _ -> %{}
+      end
+
+    %{
+      above: blocks[{x, y + 1, z}],
+      below: blocks[{x, y - 1, z}],
+      evaporates: Valimc.Blocks.Fluids.evaporates?(Valimc.World.Dimension.facts(dimension).type)
+    }
+  end
+
   # The block at `position` from its owner, the player's own group.
   defp observe(state, {x, _, z} = position) do
     with {:ok, owner} <-
@@ -239,24 +249,31 @@ defmodule Valimc.Player.Mining do
     state
   end
 
-  # The attempt completed: the block breaks with its drops and the tool wears.
+  # The attempt completed: the block breaks as planned with its drops and
+  # experience, and the tool wears.
   defp commit_mining(state) do
     %{position: {x, y, z} = position, block: block, owner: owner} = state.mining
     before = Inventory.held(state.inventory, :main)
+    around = around(owner, position, state.player.dimension)
 
-    {:ok, drops} =
-      Valimc.Blocks.MiningLoot.drops(block, before, MiningSpeed.harvest?(state.inventory, block))
+    plan =
+      Valimc.Blocks.Breaking.plan(
+        block,
+        position,
+        before,
+        MiningSpeed.harvest?(state.inventory, block),
+        around
+      )
 
     {after_tool, _broken} = Valimc.Living.Durability.mine(before, block, false)
 
     records =
-      Enum.map(drops, fn stack ->
-        %{uuid: :crypto.strong_rand_bytes(16), x: x + 0.5, y: y + 0.5, z: z + 0.5, stack: stack}
-      end)
+      Enum.map(plan.drops, &Valimc.Entity.ItemDrop.pop(position, &1)) ++
+        Valimc.Entity.ExperienceOrbs.drop({x + 0.5, y + 0.5, z + 0.5}, plan.experience)
 
     state = %{state | mining: nil}
 
-    case Region.mine_block(owner, position, block, records) do
+    case Region.mine_block(owner, position, plan.writes, records) do
       :ok ->
         slot = 36 + state.inventory.selected
 
@@ -268,7 +285,14 @@ defmodule Valimc.Player.Mining do
         inventory =
           %{state.inventory | slots: slots} |> Inventory.cancel_drag() |> Inventory.advance()
 
-        CreativeInventory.resync_inventory(%{state | inventory: inventory})
+        # A harvest (`Block.playerDestroy`) costs food.
+        food =
+          if plan.harvest,
+            do: Valimc.Player.Food.exhaust(state.player.food, 0.005),
+            else: state.player.food
+
+        state = %{state | inventory: inventory, player: %{state.player | food: food}}
+        CreativeInventory.resync_inventory(state)
 
       {:error, _} ->
         correct_mining(state, position)

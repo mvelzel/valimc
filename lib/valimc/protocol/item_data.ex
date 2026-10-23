@@ -235,6 +235,9 @@ defmodule Valimc.Protocol.ItemData do
   defp from_tag("minecraft:suspicious_stew_effects", list), do: LootComponents.stew_from_tag(list)
   defp from_tag("minecraft:instrument", {:string, name}), do: qualified(name)
 
+  defp from_tag("minecraft:block_state", {:compound, fields}),
+    do: Map.new(fields, fn {name, {:string, value}} -> {name, value} end)
+
   defp from_tag("minecraft:map_decorations", decorations),
     do: LootComponents.decorations_from_tag(decorations)
 
@@ -409,6 +412,9 @@ defmodule Valimc.Protocol.ItemData do
     do: LootComponents.stew_tag(effects)
 
   defp component("minecraft:instrument", name), do: {:string, name}
+
+  defp component("minecraft:block_state", properties),
+    do: {:compound, Map.new(properties, fn {name, value} -> {name, {:string, value}} end)}
 
   defp component("minecraft:map_decorations", decorations),
     do: LootComponents.decorations_tag(decorations)

@@ -248,6 +248,19 @@ fn loot_stack<'a>(env: Env<'a>, stack: &valimc_core::loot::Stack) -> Term<'a> {
             .collect();
         components.push(("minecraft:map_decorations", nbt_compound(env, entries)));
     }
+    if !stack.block_state.is_empty() {
+        components.push((
+            "minecraft:block_state",
+            nbt_compound(
+                env,
+                stack
+                    .block_state
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), nbt_string(env, v)))
+                    .collect(),
+            ),
+        ));
+    }
     let mut fields = vec![
         ("id", nbt_string(env, &stack.item)),
         ("count", nbt_int(env, stack.count)),
@@ -390,6 +403,65 @@ fn loot_entity<'a>(
                     killed_by_player,
                     attacker,
                     direct_attacker,
+                },
+                &mut world,
+            )
+            .map(|items| items.iter().map(|s| loot_stack(env, s)).collect()),
+    )
+}
+
+/// A broken block's drops (`BlockBehaviour.getDrops`, VMC-029e): `block` is
+/// `{name, properties, {tool, tool_enchantments}, entity, explosion_radius,
+/// neighbours, dynamic}` with `properties` as `[{name, value}]`, the tool's
+/// item (`minecraft:air` for an empty hand) and its `[{id, level}]` enchantments,
+/// whether an entity broke it, an explosion's radius or nil, and the blocks a
+/// location check may read as `[{{dx, dy, dz}, name, properties}]`, and the
+/// dynamic drops as `[{name, [item]}]`. The item tags of the drops.
+type BreakTerm = (
+    String,
+    Vec<(String, String)>,
+    (String, Vec<(String, i32)>),
+    bool,
+    Option<f64>,
+    Vec<((i32, i32, i32), String, Vec<(String, String)>)>,
+    Vec<(String, Vec<String>)>,
+);
+
+#[rustler::nif]
+fn loot_block<'a>(
+    env: Env<'a>,
+    registry: ResourceArc<LootRegistry>,
+    table: String,
+    seed: i64,
+    origin: (f64, f64, f64),
+    block: BreakTerm,
+) -> NifResult<(Atom, Vec<Term<'a>>)> {
+    known(&registry, &table)?;
+    let (name, properties, (tool, tool_enchantments), entity, radius, neighbours, dynamic) = block;
+    let mut world = LootAnswers {
+        biome: None,
+        structure: None,
+        next_map: 0,
+    };
+    reply(
+        registry
+            .loot
+            .block_items(
+                &table,
+                loot_random(seed),
+                [origin.0, origin.1, origin.2],
+                valimc_core::loot::BlockBreak {
+                    block: name,
+                    properties,
+                    tool,
+                    tool_enchantments,
+                    entity,
+                    explosion_radius: radius.map(|r| r as f32),
+                    neighbours: neighbours
+                        .into_iter()
+                        .map(|((x, y, z), b, p)| ([x, y, z], b, p))
+                        .collect(),
+                    dynamic,
                 },
                 &mut world,
             )

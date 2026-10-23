@@ -38,12 +38,19 @@ defmodule Valimc.MiningRegionTest do
   test "a break removes the block and adopts its drops in one call; a second finds it gone",
        ctx do
     stone = Data.block("stone")
-    assert :ok = Region.mine_block(ctx.owner, ctx.position, stone, [ctx.record])
+
+    assert :ok =
+             Region.mine_block(ctx.owner, ctx.position, %{ctx.position => {stone, 0}}, [
+               ctx.record
+             ])
+
     assert Valimc.TestBlocks.get(ctx.position) == 0
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
 
     assert {:error, :stale_block} =
-             Region.mine_block(ctx.owner, ctx.position, stone, [ctx.record])
+             Region.mine_block(ctx.owner, ctx.position, %{ctx.position => {stone, 0}}, [
+               ctx.record
+             ])
 
     assert map_size(Valimc.TestWorld.item_snapshot(ctx.key)) == 1
   end
@@ -52,12 +59,23 @@ defmodule Valimc.MiningRegionTest do
     assert :ok = Valimc.TestBlocks.set(ctx.position, Data.block("dirt"))
 
     assert {:error, :stale_block} =
-             Region.mine_block(ctx.owner, ctx.position, Data.block("stone"), [])
+             Region.mine_block(
+               ctx.owner,
+               ctx.position,
+               %{ctx.position => {Data.block("stone"), 0}},
+               []
+             )
 
-    assert {:error, :wrong_region} = Region.mine_block(ctx.owner, {0, 63, 0}, 0, [])
+    assert {:error, :wrong_region} =
+             Region.mine_block(ctx.owner, {0, 63, 0}, %{{0, 63, 0} => {0, 0}}, [])
 
     assert {:error, {:retry, :stale_owner}} =
-             Region.mine_block({ctx.pid, make_ref()}, ctx.position, Data.block("dirt"), [])
+             Region.mine_block(
+               {ctx.pid, make_ref()},
+               ctx.position,
+               %{ctx.position => {Data.block("dirt"), 0}},
+               []
+             )
 
     assert Valimc.TestBlocks.get(ctx.position) == Data.block("dirt")
     assert Valimc.TestWorld.item_snapshot(ctx.key) == %{}

@@ -76,7 +76,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
 | [VMC-050a1](tickets/VMC-050a1.md), [050a2](tickets/VMC-050a2.md) | TNT lit by flint and steel explodes (crater, drops, chained TNT, a player hurt and pushed); sand, gravel, powder and anvils fall and land |
 | [VMC-037n](tickets/VMC-037n.md) | A summoned zombie killed with a sword (cooldown, crits, knockback, drops, XP); a zombie's hits on armor and a raised shield |
-| [VMC-029d](tickets/VMC-029d.md) | Doors, beds, attached and oriented blocks, stacked candles and a lily pad placed and kept over a reconnect |
+| [VMC-029d](tickets/VMC-029d.md), [029e](tickets/VMC-029e.md) | Doors, beds, attached and oriented blocks, candles and a lily pad placed and kept over a reconnect; they, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
 
 ## Retrieve and update
 

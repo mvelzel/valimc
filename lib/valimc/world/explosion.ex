@@ -227,7 +227,8 @@ defmodule Valimc.World.Explosion do
               else: {records, stacks}
 
           true ->
-            {records, Enum.reduce(drops(explosion, state), stacks, &collect(&2, &1, position))}
+            {records,
+             Enum.reduce(drops(explosion, state, position), stacks, &collect(&2, &1, position))}
         end
       end)
 
@@ -255,23 +256,15 @@ defmodule Valimc.World.Explosion do
 
   defp region({x, _, z}), do: Grid.region_key(Grid.chunk_key(x, z))
 
-  # The block's tool-less loot, each item surviving `1 / radius` with decay.
-  defp drops(explosion, state) do
-    stacks =
-      case MiningLoot.drops(state, nil, true) do
-        {:ok, stacks} -> stacks
-        {:error, _} -> []
-      end
-
-    if explosion.decay do
-      chance = 1.0 / explosion.radius
-
-      for stack <- stacks,
-          count = Enum.count(1..stack.count, fn _ -> :rand.uniform() <= chance end),
-          count > 0,
-          do: %{stack | count: count}
-    else
-      stacks
+  # The block's tool-less loot with its source as breaker; with decay the
+  # table's `survives_explosion` and `explosion_decay` read the radius.
+  defp drops(explosion, state, position) do
+    case MiningLoot.drops(state, position,
+           entity: true,
+           radius: if(explosion.decay, do: explosion.radius)
+         ) do
+      {:ok, stacks} -> stacks
+      {:error, _} -> []
     end
   end
 

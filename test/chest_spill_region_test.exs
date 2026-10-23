@@ -83,7 +83,14 @@ defmodule Valimc.ChestSpillRegionTest do
 
   test "a survival break spills the chest's stacks with its own drop in one call; it survives a restart",
        c do
-    assert :ok = Region.mine_block(c.owner, c.position, c.chest, [c.self_loot])
+    assert :ok =
+             Region.mine_block(
+               c.owner,
+               c.position,
+               %{c.position => {c.chest, Valimc.Blocks.after_removal(c.chest)}},
+               [c.self_loot]
+             )
+
     assert :ok = Region.flush(c.pid)
     saved = audit(c, true)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, c.pid)

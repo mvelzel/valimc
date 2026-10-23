@@ -30,14 +30,18 @@ import net.minecraft.world.phys.Vec3;
  * Vanilla's container loot tables (VMC-072a), from the vanilla data pack as a server loads them
  * (static registries' tags first, then the world registries, then the reloadable ones).
  *
- * Usage: LootOracle facts TABLES.json REGISTRIES.json — the loot tables containers name (chests,
+ * Usage: LootOracle facts TABLES.json REGISTRIES.json BLOCKS.json — the loot tables containers name (chests,
  * barrels, dispensers, archaeology, decorated pots) and every table they nest, each as vanilla's
  * codec encodes it; and what evaluating them reads: per enchantment in registry order its weight,
  * levels, costs, supported and primary items and exclusive set (resolved), per item its stack
  * size, damage, damageability and enchantability, the instantaneous mob effects, and the
  * enchantment, instrument, biome, structure and item tags.
  *
- * The facts also hold the modelled mobs' entity tables (VMC-037n, `ENTITY_TABLES`).
+ * The facts also hold the modelled mobs' entity tables (VMC-037n, `ENTITY_TABLES`), every block's
+ * table and the named predicates conditions refer to (VMC-029e). BLOCKS.json (the third facts
+ * file) names each block's table in registry order and the experience a block drops when a player
+ * harvests it (`spawnAfterBreak`): a sum of uniform draws, and whether Silk Touch cancels it, each
+ * checked against vanilla's own drops.
  *
  * Usage: LootOracle cases OUT.json — per container table, many seeds, luck values and loot origin
  * biomes: the container vanilla's `LootTable.fill` makes (`unpackLootTable` with the stored seed;
@@ -49,6 +53,14 @@ import net.minecraft.world.phys.Vec3;
  * the drops `dropFromLootTable` makes (`getRandomItems` with the seed) for a victim on fire or
  * not, a baby or not, riding nothing, a zombie horse or a chicken, killed by a player or not,
  * by an attacker holding nothing or a sword with Looting or Fire Aspect.
+ *
+ * Usage: LootOracle blocks OUT.json — per block state with a loot table (every context for each
+ * block's default state, one random context for its other states): the drops `getDrops` makes
+ * (`BlockBehaviour.getDrops` with the block's random sequence seeded) for a tool (empty, tools
+ * with and without Fortune and Silk Touch, shears, enchantments stored instead of applied),
+ * broken by an entity or not, by an explosion of some radius or not, with the blocks above and
+ * below it (location checks) and, where the block has one, its block entity as placing the
+ * block's plain item makes it.
  */
 public class LootOracle {
   static final List<String> CONTAINER_DIRS = List.of("chests/", "barrels/", "dispensers/", "archaeology/", "pots/");
@@ -78,8 +90,11 @@ public class LootOracle {
 
   static class ProbeServer extends DedicatedServer {
     ReloadableServerRegistries.Holder registries;
+    ProbeLevel level;
     private ProbeServer() { super(null, null, null, null, Optional.empty(), null, null, null, null, null); }
     @Override public ReloadableServerRegistries.Holder reloadableRegistries() { return registries; }
+    // A block table's random sequence is the case's random.
+    @Override public RandomSource getRandomSequence(Identifier id) { return level.random; }
   }
 
   static class ProbeLevel extends ServerLevel {
@@ -90,6 +105,26 @@ public class LootOracle {
     int nextMap;
     final Map<MapId, MapItemSavedData> maps = new HashMap<>();
     net.minecraft.world.item.crafting.RecipeManager recipes;
+    // Block cases: the blocks around the broken one (air elsewhere), the random, and the
+    // experience orbs a break pops.
+    Map<BlockPos, net.minecraft.world.level.block.state.BlockState> blocks = Map.of();
+    RandomSource random;
+    List<Integer> orbs;
+    net.minecraft.world.level.gamerules.GameRules rules;
+    @Override public net.minecraft.world.level.block.state.BlockState getBlockState(BlockPos pos) {
+      return blocks.getOrDefault(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+    }
+    @Override public RandomSource getRandom() { return random; }
+    @Override public net.minecraft.world.level.gamerules.GameRules getGameRules() { return rules; }
+    @Override public int getNextEntityId() { return 1; }
+    @Override public boolean noCollision(net.minecraft.world.phys.AABB box) { return true; }
+    @Override public <T extends net.minecraft.world.entity.Entity> List<T> getEntities(
+        net.minecraft.world.level.entity.EntityTypeTest<net.minecraft.world.entity.Entity, T> type,
+        net.minecraft.world.phys.AABB box, java.util.function.Predicate<? super T> test) { return List.of(); }
+    @Override public boolean addFreshEntity(net.minecraft.world.entity.Entity entity) {
+      orbs.add(((net.minecraft.world.entity.ExperienceOrb) entity).getValue());
+      return true;
+    }
     @Override public net.minecraft.world.item.crafting.RecipeManager recipeAccess() { return recipes; }
     private ProbeLevel() { super(null, null, null, null, null, null, false, 0L, List.of(), false); }
     @Override public MinecraftServer getServer() { return server; }
@@ -140,15 +175,22 @@ public class LootOracle {
           .freeze();
       var ops = lookup.createSerializationContext(JsonOps.INSTANCE);
       var tables = lookup.lookupOrThrow(Registries.LOOT_TABLE);
-      if (args[0].equals("facts")) {
-        facts(args, tables, lookup, ops);
-        return;
-      }
       var server = (ProbeServer) unsafe.allocateInstance(ProbeServer.class);
       server.registries = new ReloadableServerRegistries.Holder(lookup);
       var level = (ProbeLevel) unsafe.allocateInstance(ProbeLevel.class);
       level.server = server;
+      server.level = level;
       level.access = access;
+      level.blocks = Map.of();
+      level.rules = new net.minecraft.world.level.gamerules.GameRules(FeatureFlags.DEFAULT_FLAGS);
+      if (args[0].equals("facts")) {
+        facts(args, tables, lookup, ops, level);
+        return;
+      }
+      if (args[0].equals("blocks")) {
+        blockCases(Path.of(args[1]), tables, lookup, ops, level, unsafe);
+        return;
+      }
       var maps = ProbeLevel.class.getDeclaredField("maps");
       maps.setAccessible(true);
       maps.set(level, new HashMap<MapId, MapItemSavedData>());
@@ -165,12 +207,22 @@ public class LootOracle {
   }
 
   static void facts(String[] args, HolderLookup.RegistryLookup<LootTable> tables, HolderLookup.Provider lookup,
-      com.mojang.serialization.DynamicOps<JsonElement> ops) throws Exception {
-    // The container tables and, transitively, the tables they name.
+      com.mojang.serialization.DynamicOps<JsonElement> ops, ProbeLevel level) throws Exception {
+    // The container, entity and block tables and, transitively, the tables they name.
     var out = new TreeMap<String, JsonElement>();
     var queue = new ArrayDeque<String>();
     containerTables(tables).forEach(k -> queue.add(k.identifier().toString()));
     queue.addAll(ENTITY_TABLES);
+    var blockTables = new JsonArray();
+    for (var block : BuiltInRegistries.BLOCK) {
+      var key = block.getLootTable();
+      if (key.isPresent()) {
+        queue.add(key.get().identifier().toString());
+        blockTables.add(key.get().identifier().toString());
+      } else {
+        blockTables.add(JsonNull.INSTANCE);
+      }
+    }
     while (!queue.isEmpty()) {
       var id = queue.poll();
       if (out.containsKey(id)) continue;
@@ -236,9 +288,187 @@ public class LootOracle {
       tags.add(key.identifier().toString(), group);
     }
     registries.add("tags", tags);
+    // The named predicates (`minecraft:tool/can_silk_touch`...) conditions refer to.
+    var predicates = new JsonObject();
+    lookup.lookupOrThrow(Registries.PREDICATE).listElements()
+        .sorted(Comparator.comparing(h -> h.key().identifier().toString()))
+        .forEach(h -> predicates.add(h.key().identifier().toString(),
+            net.minecraft.world.level.storage.loot.predicates.LootItemCondition.DIRECT_CODEC.encodeStart(ops, h.value()).getOrThrow()));
+    registries.add("predicates", predicates);
     Files.writeString(Path.of(args[2]), new GsonBuilder().create().toJson(registries) + "\n");
+    var blocks = new JsonObject();
+    blocks.add("tables", blockTables);
+    blocks.add("experience", experience(lookup, level));
+    Files.writeString(Path.of(args[3]), new GsonBuilder().create().toJson(blocks) + "\n");
     System.out.println("PASS: " + out.size() + " loot tables (" + containerTables(tables).size() + " named by containers), "
         + enchantments.size() + " enchantments, " + itemRows.size() + " items");
+  }
+
+  /**
+   * Per block whose harvest pops experience, the draws summed (`[min, max]` each, drawn as
+   * `nextInt(max - min + 1) + min`, a constant when they are equal) and whether Silk Touch cancels it (`processBlockExperience`).
+   * Each is checked against `spawnAfterBreak` over many seeds, with and without Silk Touch.
+   */
+  static JsonObject experience(HolderLookup.Provider lookup, ProbeLevel level) throws Exception {
+    var silk = enchantedStack(Items.DIAMOND_PICKAXE, lookup.lookupOrThrow(Registries.ENCHANTMENT), Enchantments.SILK_TOUCH, 1, false);
+    var spawn = net.minecraft.world.level.block.state.BlockBehaviour.class.getDeclaredMethod("spawnAfterBreak",
+        net.minecraft.world.level.block.state.BlockState.class, ServerLevel.class, BlockPos.class, ItemStack.class, boolean.class);
+    spawn.setAccessible(true);
+    var xpRange = net.minecraft.world.level.block.DropExperienceBlock.class.getDeclaredField("xpRange");
+    xpRange.setAccessible(true);
+    var catalystRange = net.minecraft.world.level.block.SculkCatalystBlock.class.getDeclaredField("xpRange");
+    catalystRange.setAccessible(true);
+    var out = new JsonObject();
+    for (var block : BuiltInRegistries.BLOCK) {
+      List<int[]> terms;
+      boolean silkCancels = true;
+      net.minecraft.util.valueproviders.IntProvider range = null;
+      if (block instanceof net.minecraft.world.level.block.DropExperienceBlock) range = (net.minecraft.util.valueproviders.IntProvider) xpRange.get(block);
+      else if (block instanceof net.minecraft.world.level.block.SculkCatalystBlock) range = (net.minecraft.util.valueproviders.IntProvider) catalystRange.get(block);
+      if (range != null) terms = List.<int[]>of(new int[] {range.minInclusive(), range.maxInclusive()});
+      else if (block instanceof net.minecraft.world.level.block.RedStoneOreBlock) terms = List.<int[]>of(new int[] {1, 5});
+      else if (block instanceof net.minecraft.world.level.block.SculkSensorBlock || block instanceof net.minecraft.world.level.block.SculkShriekerBlock) terms = List.<int[]>of(new int[] {5, 5});
+      else if (block instanceof net.minecraft.world.level.block.SpawnerBlock) {
+        terms = List.of(new int[] {15, 15}, new int[] {0, 14}, new int[] {0, 14});
+        silkCancels = false;
+      } else continue;
+      if (range != null && !(range instanceof net.minecraft.util.valueproviders.ConstantInt
+          || range instanceof net.minecraft.util.valueproviders.UniformInt && range.minInclusive() < range.maxInclusive()))
+        throw new AssertionError("Experience provider " + range + " of " + block);
+      if (terms.stream().allMatch(t -> t[1] == 0)) continue;
+      // Vanilla's amounts equal the terms drawn from the same random (a constant draws nothing).
+      for (int i = 0; i < 400; i++) {
+        var tool = i % 4 == 3 ? silk : new ItemStack(Items.DIAMOND_PICKAXE);
+        level.random = RandomSource.create(i);
+        level.orbs = new ArrayList<>();
+        spawn.invoke(block, block.defaultBlockState(), level, BlockPos.ZERO, tool, true);
+        var replay = RandomSource.create(i);
+        int expected = 0;
+        // A constant term draws nothing.
+        for (var term : terms) expected += term[0] == term[1] ? term[0] : replay.nextInt(term[1] - term[0] + 1) + term[0];
+        if (tool == silk && silkCancels) expected = 0;
+        int actual = level.orbs.stream().mapToInt(Integer::intValue).sum();
+        if (actual != expected) throw new AssertionError("Experience of " + block + ": " + actual + " != " + expected);
+      }
+      var row = new JsonObject();
+      var list = new JsonArray();
+      for (var term : terms) {
+        var pair = new JsonArray();
+        pair.add(term[0]);
+        pair.add(term[1]);
+        list.add(pair);
+      }
+      row.add("terms", list);
+      row.addProperty("silk_touch_cancels", silkCancels);
+      out.add(BuiltInRegistries.BLOCK.getKey(block).toString(), row);
+    }
+    return out;
+  }
+
+  static ItemStack enchantedStack(Item item, HolderLookup.RegistryLookup<Enchantment> enchantments,
+      ResourceKey<Enchantment> enchantment, int level, boolean stored) {
+    var stack = new ItemStack(item);
+    var mutable = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
+    mutable.set(enchantments.getOrThrow(enchantment), level);
+    stack.set(stored ? DataComponents.STORED_ENCHANTMENTS : DataComponents.ENCHANTMENTS, mutable.toImmutable());
+    return stack;
+  }
+
+  /** A break's tool and breaker: the CONTEXTS variants block cases use. */
+  record Context(ItemStack tool, boolean entity, Float radius) {}
+
+  static final int CONTEXTS = 16;
+
+  static Context context(int variant, HolderLookup.RegistryLookup<Enchantment> e, Random random) {
+    int fortune = 1 + random.nextInt(3);
+    return switch (variant) {
+      case 0 -> new Context(ItemStack.EMPTY, true, null);
+      case 1 -> new Context(new ItemStack(Items.DIAMOND_PICKAXE), true, null);
+      case 2 -> new Context(enchantedStack(Items.DIAMOND_PICKAXE, e, Enchantments.SILK_TOUCH, 1, false), true, null);
+      case 3 -> new Context(enchantedStack(Items.IRON_PICKAXE, e, Enchantments.FORTUNE, fortune, false), true, null);
+      case 4 -> {
+        var stack = enchantedStack(Items.NETHERITE_PICKAXE, e, Enchantments.FORTUNE, 3, false);
+        stack.enchant(e.getOrThrow(Enchantments.SILK_TOUCH), 1);
+        yield new Context(stack, true, null);
+      }
+      case 5 -> new Context(new ItemStack(Items.SHEARS), true, null);
+      case 6 -> new Context(enchantedStack(Items.DIAMOND_AXE, e, Enchantments.FORTUNE, fortune, false), true, null);
+      case 7 -> new Context(enchantedStack(Items.DIAMOND_HOE, e, Enchantments.FORTUNE, 3, false), true, null);
+      case 8 -> new Context(new ItemStack(Items.DIAMOND_SWORD), true, null);
+      case 9 -> new Context(enchantedStack(Items.DIAMOND_SHOVEL, e, Enchantments.SILK_TOUCH, 1, false), true, null);
+      case 10 -> new Context(enchantedStack(Items.DIAMOND_PICKAXE, e, Enchantments.SILK_TOUCH, 1, true), true, null);
+      case 11 -> new Context(enchantedStack(Items.ENCHANTED_BOOK, e, Enchantments.FORTUNE, 3, true), true, null);
+      case 12 -> new Context(ItemStack.EMPTY, false, null);
+      case 13 -> new Context(ItemStack.EMPTY, random.nextBoolean(), 1.0F + random.nextFloat() * 7.0F);
+      case 14 -> new Context(enchantedStack(Items.GOLDEN_PICKAXE, e, Enchantments.FORTUNE, 255, false), true, null);
+      default -> new Context(enchantedStack(Items.SHEARS, e, Enchantments.SILK_TOUCH, 1, false), true, null);
+    };
+  }
+
+  static void blockCases(Path out, HolderLookup.RegistryLookup<LootTable> tables, HolderLookup.Provider lookup,
+      com.mojang.serialization.DynamicOps<JsonElement> ops, ProbeLevel level, sun.misc.Unsafe unsafe) throws Exception {
+    var enchantments = lookup.lookupOrThrow(Registries.ENCHANTMENT);
+    var type = net.minecraft.world.entity.Entity.class.getDeclaredField("type");
+    type.setAccessible(true);
+    var random = new Random(20261023L);
+    var rows = new JsonArray();
+    int drops = 0;
+    for (var block : BuiltInRegistries.BLOCK) {
+      var key = block.getLootTable();
+      if (key.isEmpty()) continue;
+      var states = block.getStateDefinition().getPossibleStates();
+      for (var state : states) {
+        boolean all = state == block.defaultBlockState();
+        for (int k = 0; k < (all ? CONTEXTS : 1); k++) {
+          var context = context(all ? k : random.nextInt(CONTEXTS), enchantments, random);
+          long seed = random.nextLong();
+          var pos = new BlockPos(random.nextInt(2001) - 1000, random.nextInt(320) - 63, random.nextInt(2001) - 1000);
+          // Above and below: air, or a state of the same block (the other half of a tall plant).
+          var above = random.nextInt(3) == 0 ? net.minecraft.world.level.block.Blocks.AIR.defaultBlockState() : states.get(random.nextInt(states.size()));
+          var below = random.nextInt(3) == 0 ? net.minecraft.world.level.block.Blocks.AIR.defaultBlockState() : states.get(random.nextInt(states.size()));
+          level.blocks = Map.of(pos, state, pos.above(), above, pos.below(), below);
+          level.random = RandomSource.create(seed);
+          // A block entity as placing the block's plain item makes it (`applyComponentsFromItemStack`).
+          var blockEntity = block instanceof net.minecraft.world.level.block.EntityBlock entityBlock ? entityBlock.newBlockEntity(pos, state) : null;
+          if (blockEntity != null && block.asItem() != Items.AIR) blockEntity.applyComponentsFromItemStack(new ItemStack(block.asItem()));
+          var params = new LootParams.Builder(level)
+              .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(pos))
+              .withParameter(LootContextParams.TOOL, context.tool())
+              .withOptionalParameter(LootContextParams.BLOCK_ENTITY, blockEntity);
+          if (context.entity()) {
+            var breaker = (Attacker) unsafe.allocateInstance(Attacker.class);
+            type.set(breaker, BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse("minecraft:player")));
+            breaker.weapon = context.tool();
+            params = params.withParameter(LootContextParams.THIS_ENTITY, breaker);
+          }
+          if (context.radius() != null) params = params.withParameter(LootContextParams.EXPLOSION_RADIUS, context.radius());
+          var list = new JsonArray();
+          for (var stack : state.getDrops(params)) {
+            if (stack.isEmpty()) continue;
+            list.add(item(stack, ops));
+            drops++;
+          }
+          var row = new JsonObject();
+          row.addProperty("table", key.get().identifier().toString());
+          row.addProperty("seed", Long.toString(seed));
+          row.addProperty("state", net.minecraft.world.level.block.Block.getId(state));
+          var origin = new JsonArray();
+          origin.add(pos.getX());
+          origin.add(pos.getY());
+          origin.add(pos.getZ());
+          row.add("origin", origin);
+          row.add("tool", context.tool().isEmpty() ? JsonNull.INSTANCE : item(context.tool(), ops));
+          row.addProperty("entity", context.entity());
+          if (context.radius() != null) row.addProperty("radius", context.radius());
+          row.addProperty("above", net.minecraft.world.level.block.Block.getId(above));
+          row.addProperty("below", net.minecraft.world.level.block.Block.getId(below));
+          row.add("drops", list);
+          rows.add(row);
+        }
+      }
+    }
+    Files.writeString(out, new Gson().toJson(rows));
+    System.out.println("PASS: " + rows.size() + " vanilla block breaks (" + drops + " stacks)");
   }
 
   static JsonObject cost(Enchantment.Cost cost) {

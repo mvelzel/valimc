@@ -1,9 +1,9 @@
 defmodule Valimc.Blocks.Loot do
   @moduledoc """
-  Vanilla's container loot tables (VMC-072a). The loot facts in `priv/loot`
-  (`LootOracle`: the tables chests, barrels, dispensers, decorated pots and
-  brushable blocks name, as a server loads them, and what evaluating them
-  reads) parse once per VM into a native registry (`valimc_core::loot`).
+  Vanilla's loot tables (VMC-072a). The loot facts in `priv/loot`
+  (`LootOracle`: the tables containers, brushable blocks, modelled mobs and
+  blocks name, as a server loads them, and what evaluating them reads) parse
+  once per VM into a native registry (`valimc_core::loot`).
 
   `fill/3` is `RandomizableContainer.unpackLootTable` on an empty container:
   `LootTable.fill` with the stored seed (a fresh random one when none is
@@ -12,8 +12,8 @@ defmodule Valimc.Blocks.Loot do
   `getRandomItems`. The world's answers come with the call: the biome at the
   loot origin, the structure an exploration map would find (none where
   ValiMC has no map search) and the next free map id. `entity_drops/5` is a
-  mob's death loot (VMC-037n); `furnace_smelt` finds furnace results in the
-  cooking recipes.
+  mob's death loot (VMC-037n), `block_drops/5` a broken block's (VMC-029e);
+  `furnace_smelt` finds furnace results in the cooking recipes.
   """
   alias Valimc.Native
   alias Valimc.Protocol.{ItemData, ItemStack}
@@ -127,6 +127,52 @@ defmodule Valimc.Blocks.Loot do
            end),
          do: stacks(tags)
   end
+
+  @doc """
+  A broken block's drops (`BlockBehaviour.getDrops`, VMC-029e): `{:ok,
+  stacks}`. `break` holds `:state` (the block state broken), `:tool` (the
+  stack it was broken with, nil for an empty hand), `:entity` (whether an
+  entity broke it), `:radius` (an explosion's, or nil), `:above` and
+  `:below` (the states there, which location checks read) and `:dynamic`
+  (the dynamic drops by name, `[{name, [item]}]`). Options as `fill/4`.
+  """
+  def block_drops(table, seed, {x, y, z}, break, opts \\ [])
+      when is_binary(table) and is_integer(seed) and is_map(break) do
+    neighbours =
+      for {offset, key} <- [{{0, 1, 0}, :above}, {{0, -1, 0}, :below}],
+          state = Map.get(break, key),
+          state != nil,
+          do: Tuple.insert_at(block_name(state), 0, offset)
+
+    {name, properties} = block_name(break.state)
+    tool = tool(Map.get(break, :tool))
+    radius = Map.get(break, :radius)
+
+    with {:ok, tags} <-
+           call(fn ->
+             Native.loot_block(
+               Keyword.get_lazy(opts, :registry, &registry/0),
+               table,
+               seed,
+               {x + 0.5, y + 0.5, z + 0.5},
+               {name, properties, tool, Map.get(break, :entity, false), radius && radius * 1.0,
+                neighbours, Map.get(break, :dynamic, [])}
+             )
+           end),
+         do: stacks(tags)
+  end
+
+  defp block_name(state) do
+    name = "minecraft:" <> Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(state))
+    {name, Valimc.Data.Blocks.properties(state)}
+  end
+
+  defp tool(nil), do: {"minecraft:air", []}
+
+  defp tool(%ItemStack{item_id: id, components: components}),
+    do:
+      {Valimc.Protocol.ItemTypes.item(id)["name"],
+       components |> Map.get("minecraft:enchantments", %{}) |> Map.to_list()}
 
   defp mainhand(:none), do: nil
   defp mainhand(nil), do: []

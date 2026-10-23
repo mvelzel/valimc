@@ -44,7 +44,9 @@ defmodule Valimc.Protocol.ItemStack do
     "minecraft:instrument" => :instrument,
     "minecraft:ominous_bottle_amplifier" => {:varint, 0, 4},
     "minecraft:map_id" => {:varint, 0, 2_147_483_647},
-    "minecraft:map_decorations" => :map_decorations
+    "minecraft:map_decorations" => :map_decorations,
+    # Block loot's `copy_state` (VMC-029e).
+    "minecraft:block_state" => :block_state
   }
   # Persistent components vanilla never sends to clients.
   @unsynced ["minecraft:map_decorations"]
@@ -297,6 +299,17 @@ defmodule Valimc.Protocol.ItemStack do
   defp read_component(:stew_effects, bytes), do: LootComponents.take_stew(bytes)
   defp read_component(:instrument, bytes), do: LootComponents.take_instrument(bytes)
 
+  defp read_component(:block_state, bytes) do
+    {count, rest} = Wire.take_varint(bytes)
+    check(count in 0..64, :invalid_component_value)
+
+    Enum.reduce(1..count//1, {%{}, rest}, fn _, {map, rest} ->
+      {name, rest} = Wire.take_string(rest, 32767)
+      {value, rest} = Wire.take_string(rest, 32767)
+      {Map.put(map, name, value), rest}
+    end)
+  end
+
   defp read_component(:nbt_compound, bytes) do
     case NBT.take(bytes) do
       {:ok, {:compound, _} = tag, rest} -> {tag, rest}
@@ -341,6 +354,12 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:stew_effects, value), do: LootComponents.valid_stew?(value)
   defp valid_component?(:instrument, value), do: LootComponents.valid_instrument?(value)
   defp valid_component?(:map_decorations, value), do: LootComponents.valid_decorations?(value)
+
+  defp valid_component?(:block_state, value),
+    do:
+      is_map(value) and map_size(value) <= 64 and
+        Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end)
+
   defp valid_component?(:bool, value), do: is_boolean(value)
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -361,6 +380,13 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:potion_contents, value), do: PotionContents.encode(value)
   defp encode_component(:stew_effects, value), do: LootComponents.encode_stew(value)
   defp encode_component(:instrument, value), do: LootComponents.encode_instrument(value)
+
+  defp encode_component(:block_state, value),
+    do: [
+      Wire.varint(map_size(value))
+      | for({k, v} <- Enum.sort(value), do: [Wire.string(k), Wire.string(v)])
+    ]
+
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>

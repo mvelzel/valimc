@@ -950,23 +950,28 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A survival player breaks the block at `position` it mined (VMC-077i3): the
-  # block is still `expected`, it is removed (a container's contents spill),
-  # and the drops `records` are adopted, in one plain call from its group.
-  def handle_call({:mine_block, epoch, position, expected, records}, _from, state) do
+  # A survival player breaks the block at `position` it mined (VMC-077i3,
+  # VMC-029e): each cell of `writes` is still its expected block and becomes
+  # the new one (a container's contents spill), and the drops and orbs
+  # `records` are adopted, in one plain call from its group.
+  def handle_call({:mine_block, epoch, position, writes, records}, _from, state) do
+    expected = Map.new(writes, fn {cell, {block, _}} -> {cell, block} end)
+    cells = Map.keys(writes)
+
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          true <-
-           (valid_block_query?([position], :any) and in_region?(state, position)) or
+           (valid_block_query?(cells, :any) and Enum.all?(cells, &in_region?(state, &1))) or
              {:error, :wrong_region},
          nil <- write_busy(state),
-         true <- Blocks.get(state.blocks, position) == expected or {:error, :stale_block},
+         true <- Blocks.get_many(state.blocks, cells) == expected or {:error, :stale_block},
          # Breaking a chest drops its contents, which unpacks loot with no
          # player (luck 0), as `Containers.dropContents` does.
-         state = unpack_to_break(state, position, expected),
-         {:ok, batch} <- BlockBatch.prepare(%{position => Valimc.Blocks.after_removal(expected)}),
+         state = unpack_to_break(state, position, expected[position]),
+         {:ok, batch} <-
+           BlockBatch.prepare(Map.new(writes, fn {cell, {_, new}} -> {cell, new} end)),
          {:ok, plan} <-
            block_container_metadata(
-             %{expected: %{position => expected}, batch: batch, items: state.entities.store},
+             %{expected: expected, batch: batch, items: state.entities.store},
              state.containers,
              state.key
            ),
@@ -2433,7 +2438,14 @@ defmodule Valimc.World.RegionData do
   # and sound, `removeBlock` after `dropResources`): they leave their fluid and
   # drop their tool-less loot, in the frame that writes the rules' changes.
   defp commit_rule_changes(state, edits, drops, breaks) do
-    items = Enum.reduce(drops, state.entities.store, &add_support_drops(&2, state.key, &1))
+    # Each destroyed block's loot reads its neighbours as vanilla destroys them
+    # in order: the ones destroyed before it already gone.
+    {items, _} =
+      Enum.reduce(drops, {state.entities.store, %{}}, fn {position, _} = drop, {items, gone} ->
+        read = fn cell -> Map.get(gone, cell) || read_block(state, cell) end
+        items = add_support_drops(items, state.key, drop, read)
+        {items, Map.put(gone, position, Map.get(edits, position))}
+      end)
 
     with {:ok, batch} <- BlockBatch.prepare(edits),
          {:ok, proposal} <- block_proposal(state, batch) do
@@ -2448,11 +2460,14 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Loot rules this tool-less break cannot evaluate yet drop nothing. Each stack
-  # pops like vanilla `Block.popResource` (`Valimc.Entity.ItemDrop.pop/2`).
-  defp add_support_drops(items, key, {position, block}) do
+  # A tool-less break's loot (VMC-029e), each stack popping like vanilla
+  # `Block.popResource` (`Valimc.Entity.ItemDrop.pop/2`).
+  defp add_support_drops(items, key, {{x, y, z} = position, block}, read) do
     stacks =
-      case Valimc.Blocks.MiningLoot.drops(block, nil, true) do
+      case Valimc.Blocks.MiningLoot.drops(block, position,
+             above: read.({x, y + 1, z}),
+             below: read.({x, y - 1, z})
+           ) do
         {:ok, stacks} -> stacks
         {:error, _} -> []
       end

@@ -265,6 +265,9 @@ defmodule Valimc.Native do
   def loot_entity(_registry, _table, _seed, _luck, _origin, _death),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def loot_block(_registry, _table, _seed, _origin, _block),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   ## Parity and benchmarks (dev, test and bench builds)
 
   def physics_player_parity(_op, _args), do: :erlang.nif_error(:nif_not_loaded)

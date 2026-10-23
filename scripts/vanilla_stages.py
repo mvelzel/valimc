@@ -386,14 +386,6 @@ STAGES = [
         ('java', 'ToolDurabilityOracle', '@tool-durability.json'),
         ('check', 'check_tool_durability.exs', '@tool-durability.json'),
     ]),
-    ('mining_loot', [
-        ('java', 'MiningLootOracle', '@mining-loot.json', '@mining-loot-cases.json'),
-        ('check', 'check_mining_loot.exs', '@mining-loot.json', '@mining-loot-cases.json'),
-    ]),
-    ('random_mining_loot', [
-        ('java', 'RandomMiningLootOracle', '@random-mining-loot.json', '@random-mining-loot-cases.json'),
-        ('check', 'check_random_mining_loot.exs', '@random-mining-loot.json', '@random-mining-loot-cases.json'),
-    ]),
     ('mining_attempt', [
         ('java', 'MiningAttemptOracle', '@mining-attempt.json'),
         ('check', 'check_mining_attempt.exs', '@mining-attempt.json'),
@@ -725,16 +717,18 @@ STAGES = [
         ('java', 'ContainerDropOracle', '@container-drop.json'),
         ('check', 'check_container_drop.exs', '@container-drop.json'),
     ]),
-    ('chest_loot', [
-        ('java', 'ChestLootOracle', '@chest-loot.json'),
-        ('check', 'check_chest_loot.exs', '@chest-loot.json'),
-    ]),
     ('loot', [
-        ('regen', 'LootOracle', 'facts', '@loot-tables.json', '@loot-registries.json'),
+        ('regen', 'LootOracle', 'facts', '@loot-tables.json', '@loot-registries.json', '@loot-blocks.json'),
         ('same', '@loot-tables.json', 'priv/loot/tables.json'),
         ('same', '@loot-registries.json', 'priv/loot/registries.json'),
+        ('same', '@loot-blocks.json', 'priv/loot/blocks.json'),
         ('java', 'LootOracle', 'cases', '@loot-cases.json'),
         ('check', 'check_loot.exs', '@loot-cases.json'),
+    ]),
+    # VMC-029e: every block state's drops over tools, breakers, explosions and neighbours.
+    ('block_loot', [
+        ('java', 'LootOracle', 'blocks', '@block-loot-cases.json'),
+        ('check', 'check_block_loot.exs', '@block-loot-cases.json'),
     ]),
     ('cooking_fuel', [
         ('java', 'CookingFuelOracle', '@cooking-fuel.json'),
@@ -756,10 +750,6 @@ STAGES = [
     ('cooking_placement', [
         ('java', 'CookingPlacementOracle', '@cooking-placement.json'),
         ('check', 'check_cooking_blocks.exs', '@cooking-placement.json'),
-    ]),
-    ('cooking_loot', [
-        ('java', 'CookingLootOracle', '@cooking-loot.json'),
-        ('check', 'check_cooking_loot.exs', '@cooking-loot.json'),
     ]),
     ('cooking_menu', [
         ('java', 'CookingMenuOracle', '@cooking-menu.json'),
