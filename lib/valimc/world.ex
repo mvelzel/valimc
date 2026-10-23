@@ -255,12 +255,18 @@ defmodule Valimc.World do
   own, as `[{section key, view}]`: of `dimension`, or of every dimension
   (nil). Read from published views, without asking an owner.
   """
-  def bodies(dimension \\ nil) do
+  def bodies(dimension \\ nil), do: entities(dimension, [:mob, :object])
+
+  @doc """
+  `bodies/1` with dropped items and experience orbs (VMC-043a1): every entity
+  but players, the entities a selector picks beside them.
+  """
+  def entities(dimension \\ nil, kinds \\ [:mob, :object, :item, :orb]) do
     for {{dim, _, _} = key, _pid, _token, _monitor, %{publication: table}} <-
           :ets.tab2list(Valimc.RegionRoutes),
         dimension == nil or dim == dimension,
         {_, %{kind: kind} = view} <- safe_source(table),
-        kind in [:mob, :object],
+        kind in kinds,
         do: {key, view}
   rescue
     ArgumentError -> []

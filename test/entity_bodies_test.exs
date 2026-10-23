@@ -2,8 +2,8 @@ defmodule Valimc.EntityBodiesTest do
   @moduledoc "Bodies (VMC-043a): one record for mobs and other entities, kept, handed over and replicated."
   use ExUnit.Case, async: true
   alias Valimc.Data.{Blocks, EntityTypes}
-  alias Valimc.Entity.{Body, Mob, Store, Tracking}
-  alias Valimc.Protocol.{EntityPackets, Packets}
+  alias Valimc.Entity.{Body, ItemMotionState, Mob, Store, Tracking}
+  alias Valimc.Protocol.{EntityPackets, ItemStack, Packets}
   alias Valimc.TestScope
   alias Valimc.World.Region
 
@@ -218,7 +218,7 @@ defmodule Valimc.EntityBodiesTest do
 
       assert run.("tp @e[type=tnt,distance=..3] ~ ~ ~2") =~ "Teleported Primed TNT"
       assert run.("kill @e[type=zombie,distance=..3]") =~ "Killed Zombie"
-      assert run.("kill @e[type=!player,distance=..5]") =~ "Killed Primed TNT"
+      assert run.("kill @e[type=!player,type=!item,distance=..5]") =~ "Killed Primed TNT"
       # The zombie is dying, not yet gone (its loot dropped); the TNT is gone.
       assert [%{kind: :mob, body: body}] =
                for(
@@ -228,6 +228,46 @@ defmodule Valimc.EntityBodiesTest do
                )
 
       refute Body.alive?(body)
+    end
+
+    test "/kill and /tp select dropped items and orbs by type, distance, sort and limit", ctx do
+      {rx, rz} = ctx.key
+      {x, z} = {rx * 128 + 60.5, rz * 128 + 60.5}
+      source = %{Valimc.Commands.Source.rcon() | dimension: :overworld, position: {x, 64.0, z}}
+      [flesh, stone, orb] = [<<11::128>>, <<12::128>>, <<13::128>>]
+      still = %ItemMotionState{no_gravity: true}
+
+      run = fn input ->
+        Valimc.Commands.run(source, input)
+        Valimc.Commands.Source.collect(source)
+      end
+
+      :ok =
+        Region.drop_items(ctx.owner, [
+          %{uuid: flesh, x: x + 1.0, y: 64.0, z: z, stack: ItemStack.new("rotten_flesh", 1)},
+          %{uuid: stone, x: x + 4.0, y: 64.0, z: z, stack: ItemStack.new("stone", 3)},
+          %{kind: :orb, uuid: orb, x: x + 2.0, y: 64.0, z: z, value: 3, count: 1, age: 0}
+          |> Map.put(:motion, still)
+        ])
+
+      section = Valimc.TestWorld.section(ctx.key)
+      ours = fn -> for {^section, view} <- Valimc.World.entities(:overworld), do: view end
+      Valimc.TestWait.until(fn -> length(ours.()) == 3 end)
+
+      assert run.("tp @e[type=item,sort=nearest,limit=1] ~ ~ ~5") =~ "Teleported Rotten Flesh"
+      {:ok, {_, id, _}} = Store.find(store(ctx.owner), flesh)
+
+      assert %{entity: %{z: moved}, motion: %{velocity: {+0.0, +0.0, +0.0}}} =
+               store(ctx.owner).entries[id]
+
+      assert moved == z + 5.0
+
+      Valimc.TestWait.until(fn -> Enum.any?(ours.(), &(&1.at == {x, 64.0, z + 5.0})) end)
+
+      assert run.("kill @e[type=item,distance=..4.5]") =~ "Killed Stone"
+      assert run.("kill @e[type=experience_orb,distance=..3]") =~ "Killed Experience Orb"
+      assert run.("kill @e[distance=..6]") =~ "Killed Rotten Flesh"
+      assert store(ctx.owner).entries == %{}
     end
   end
 end

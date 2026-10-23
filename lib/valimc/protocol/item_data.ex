@@ -366,6 +366,10 @@ defmodule Valimc.Protocol.ItemData do
      }}
   end
 
+  @doc "`ItemStack.getItemName`: the stack's item name, which names its item entity."
+  def item_name(%ItemStack{} = stack),
+    do: effective(stack, "minecraft:item_name", {:string, ""}, &Codec.take/1)
+
   @doc "`display_name/1` of a stack with a custom name, else nil."
   def named_display(nil), do: nil
 

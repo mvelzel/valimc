@@ -1,9 +1,10 @@
 defmodule Valimc.Commands.Entities do
   @moduledoc """
-  Commands over bodies, the entities beyond players, items and orbs
-  (VMC-043a): `/summon` of a modelled type, and what `/kill` and `/teleport`
-  do to the bodies they select. Each body changes through the group owning
-  its section; selection reads published views (`Commands.Targets`).
+  Commands over bodies, the entities beyond players (VMC-043a; dropped items
+  and experience orbs too, VMC-043a1): `/summon` of a modelled type, and what
+  `/kill` and `/teleport` do to the bodies they select. Each body changes
+  through the group owning its section; selection reads published views
+  (`Commands.Targets`).
   """
   alias Valimc.Commands.{Feedback, Players, Source}
   alias Valimc.Data.{EntityTypes, Grid}

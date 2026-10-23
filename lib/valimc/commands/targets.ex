@@ -11,8 +11,9 @@ defmodule Valimc.Commands.Targets do
   players the spatial index holds in the regions it can reach.
 
   Commands that act on any entity (`/kill`, `/teleport`) also select bodies
-  (mobs and other entities, VMC-043a) from the sections' published views
-  (`entities/2`); the rest select players.
+  (mobs and other entities, VMC-043a; dropped items and experience orbs,
+  VMC-043a1) from the sections' published views (`entities/2`); the rest
+  select players.
   """
   alias Valimc.Data.Grid
   alias Valimc.Text.Error
@@ -85,7 +86,7 @@ defmodule Valimc.Commands.Targets do
   @doc """
   Every entity a selector picks, players and bodies (`findEntities`). A body
   is `%{kind: :body, section, type, uuid, entity_id, dimension, x, y, z, yaw,
-  pitch, alive, width, height}`.
+  pitch, alive, width, height}`, an item's also with its `item_name`.
   """
   def entities(%Source{} = source, %Selector{includes_entities: false} = selector),
     do: players(source, selector)
@@ -121,28 +122,35 @@ defmodule Valimc.Commands.Targets do
   end
 
   defp bodies(dimension) do
-    for {section, view} <- Valimc.World.bodies(dimension) do
+    for {section, view} <- Valimc.World.entities(dimension) do
       {x, y, z} = view.at
-      type = Valimc.Data.EntityTypes.fetch(view.type)
+      name = type_name(view)
+      type = Valimc.Data.EntityTypes.fetch(name)
 
-      %{
+      body = %{
         kind: :body,
         section: section,
-        type: view.type,
+        type: name,
         uuid: view.uuid,
         entity_id: view.entity_id,
         dimension: elem(section, 0),
         x: x,
         y: y,
         z: z,
-        yaw: view.yaw,
-        pitch: view.pitch,
-        alive: view.alive,
+        yaw: Map.get(view, :yaw, 0.0),
+        pitch: Map.get(view, :pitch, 0.0),
+        alive: Map.get(view, :alive, true),
         width: type.width,
         height: type.height
       }
+
+      if view.kind == :item, do: Map.put(body, :item_name, view.item_name), else: body
     end
   end
+
+  defp type_name(%{kind: :item}), do: "minecraft:item"
+  defp type_name(%{kind: :orb}), do: "minecraft:experience_orb"
+  defp type_name(view), do: view.type
 
   @doc "The online player with `uuid` as a projection, or nil."
   def by_uuid(uuid), do: Enum.find(projections(:all), &(&1.uuid == uuid))

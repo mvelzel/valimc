@@ -14,7 +14,7 @@ defmodule Valimc.Entity.Store do
   """
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
-  alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes}
+  alias Valimc.Protocol.{EntityPackets, ItemData, ItemStack, ItemTypes}
   alias Valimc.Entity.{Body, Ids, View}
 
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
@@ -700,6 +700,25 @@ defmodule Valimc.Entity.Store do
   end
 
   @doc """
+  The `advance/4` step teleporting entity `id` at `revision` to `position`
+  (VMC-043a): a body faces `rotation` (`{yaw, pitch}`, or as it faced when
+  nil); an item or an orb (VMC-043a1) stops and lands, as `TeleportCommand`
+  leaves an absolute teleport's target.
+  """
+  def teleport_step(state, id, revision, position, rotation) do
+    step = %{id: id, revision: revision, position: position}
+
+    case state.entries[id] do
+      %{kind: kind} = entry when kind in [:item, :orb] ->
+        motion = Map.get(entry, :motion) || %ItemMotionState{no_gravity: entry.no_gravity}
+        Map.put(step, :motion, %{motion | velocity: {0.0, 0.0, 0.0}, on_ground: true})
+
+      _ ->
+        Map.put(step, :rotation, rotation)
+    end
+  end
+
+  @doc """
   A body's own tick moved it (VMC-050a): entity `id` at `revision` is now at
   `{x, y, z}` (in section `key`) with `body` (its motion and data), its
   `events` stamped for its tracker. `{:ok, state, handle}` or an error.
@@ -937,8 +956,11 @@ defmodule Valimc.Entity.Store do
 
   defp build_entity(_, _, _, _, _, _, _), do: {:error, :entity_id_exhausted}
 
+  # What merging and selection read of an item's view: its stack's identity
+  # and space, and its name (`ItemEntity.getName`, VMC-043a1).
   defp merge_hints(stack, motion),
     do: %{
+      item_name: ItemData.item_name(stack),
       merge_key:
         :crypto.hash(
           :sha256,

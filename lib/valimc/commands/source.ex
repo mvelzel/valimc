@@ -103,7 +103,9 @@ defmodule Valimc.Commands.Source do
 
   def display_name(%__MODULE__{player: nil, name: name}), do: Text.literal(name)
   def display_name(%__MODULE__{player: player}), do: Text.player_name(player.name, player.uuid)
-  # A body (VMC-043a) is named by its type.
+  # A body (VMC-043a) is named by its type, an item (VMC-043a1) by its stack.
+  def display_name(%{kind: :body, item_name: name}), do: name
+
   def display_name(%{kind: :body, type: type}),
     do: Text.translatable(Valimc.Data.EntityTypes.fetch(type).description)
 

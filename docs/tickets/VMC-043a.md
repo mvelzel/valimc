@@ -114,4 +114,4 @@ hurt flash, the fall and the poof about a second later.
 
 Finding: `/kill @e[type=item]` answers "No entity was found" beside dropped
 items, because selectors pick players and bodies only (`World.bodies/1`).
-Selecting items and orbs is a follow-up for the command layer.
+Selecting items and orbs is [VMC-043a1](VMC-043a1.md).

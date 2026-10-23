@@ -1493,7 +1493,7 @@ defmodule Valimc.World.RegionData do
          nil <- write_busy(state),
          {:ok, {_, id, revision}} <- Store.find(store, uuid),
          true <- Store.valid_position?(position) or {:error, :invalid_item_position} do
-      step = %{id: id, revision: revision, position: position, rotation: rotation}
+      step = Store.teleport_step(store, id, revision, position, rotation)
       {x, _, z} = position
       destination = Grid.section(state.dimension, Grid.chunk_key(x, z))
 
