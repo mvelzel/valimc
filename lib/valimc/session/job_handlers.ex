@@ -2,7 +2,7 @@ defmodule Valimc.Session.JobHandlers do
   @moduledoc """
   Results, failures and deadlines of a session's worker jobs
   (`Valimc.Player.Jobs`, VMC-069): commands and suggestions, a portal's
-  destination, and a portal item's use.
+  destination, a portal item's use and an eye of ender's stronghold.
   """
 
   import Valimc.Protocol.Codec, only: [reject: 2]
@@ -27,6 +27,13 @@ defmodule Valimc.Session.JobHandlers do
         {:noreply, Valimc.Player.Portals.arrived(state, result)}
       end)
 
+  # An eye of ender's stronghold (VMC-026d): the eye flies.
+  def job_result(:eye, job, result, state),
+    do:
+      Valimc.Session.Messages.guard(state, fn ->
+        {:noreply, Valimc.Player.Projectiles.eyed(state, job.hand, result)}
+      end)
+
   # Command and suggestion jobs (`Valimc.Session.Commands`): the next one starts.
   def job_result(:command, job, _result, state),
     do: {:noreply, Valimc.Session.Commands.finished(state, job, :ok)}
@@ -48,6 +55,8 @@ defmodule Valimc.Session.JobHandlers do
       Valimc.Session.Messages.guard(state, fn ->
         reject(state, "Block interaction failed; please reconnect")
       end)
+
+  def job_down(:eye, _job, _reason, state), do: {:noreply, state}
 
   def job_down(:portal, _job, _reason, state),
     do: {:noreply, Valimc.Player.Portals.failed(state)}

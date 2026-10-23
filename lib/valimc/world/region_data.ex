@@ -21,7 +21,7 @@ defmodule Valimc.World.RegionData do
     Jobs,
     RegionEntities,
     EntityHandoffDelivery,
-    ItemPortals,
+    EntityPortals,
     ItemCrossMergeQuery,
     RegionGeneration,
     RegionStorage,
@@ -1130,6 +1130,9 @@ defmodule Valimc.World.RegionData do
         for step <- steps, {:pickup, {:item, uuid}, n} <- step.effects, do: {step.id, uuid, n}
 
       drops = for step <- steps, {:drop, stack} <- step.effects, do: {step.position, stack}
+
+      # Mobs travel through portals (VMC-026d), standing in one too.
+      {steps, state} = portal_contacts(state, steps)
 
       steps =
         Enum.reject(steps, fn step ->
@@ -4545,12 +4548,8 @@ defmodule Valimc.World.RegionData do
         Grid.section(state.dimension, Grid.chunk_key(x, z)) == route
       end)
 
-    # Items travel through portals; orbs do not yet.
-    {orbs, local} =
-      Enum.split_with(local, &match?(%{kind: :orb}, state.entities.store.entries[&1.id]))
-
+    # Items and orbs travel through portals.
     {local, state} = portal_contacts(state, local)
-    local = local ++ orbs
 
     # Motion waits while a plan holds the store; the tick's end publishes it.
     state =
@@ -4595,8 +4594,8 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Store in portals (VMC-026c): local steps meeting a portal renew their
-  # cooldown; one off cooldown starts this owner's single destination job.
+  # Entities in portals (VMC-026c, VMC-026d): steps meeting a portal renew
+  # their cooldown; one off cooldown starts this owner's single destination job.
   defp portal_contacts(state, local) do
     read = fn cells ->
       Blocks.get_many(state.blocks, Enum.filter(cells, &in_region?(state, &1)))
@@ -4604,18 +4603,18 @@ defmodule Valimc.World.RegionData do
 
     free = state.entities.portal == nil and not Jobs.running?(state.jobs, :portal)
 
-    case ItemPortals.contacts(local, state.entities.store.entries, read, free) do
+    case EntityPortals.contacts(local, state.entities.store.entries, read, free) do
       {local, nil} ->
         {local, state}
 
       {local, {step, entry, _} = travel} ->
-        case start_job(state, :portal, ItemPortals.work(travel),
+        case start_job(state, :portal, EntityPortals.work(travel),
                supervisor: Valimc.TransferWorkers,
-               deadline: ItemPortals.deadline(),
+               deadline: EntityPortals.deadline(),
                data: %{uuid: entry.entity.uuid}
              ) do
           {:ok, state} ->
-            local = Enum.map(local, &if(&1.id == step.id, do: ItemPortals.renew(&1), else: &1))
+            local = Enum.map(local, &if(&1.id == step.id, do: EntityPortals.renew(&1), else: &1))
             {local, state}
 
           {:error, _} ->
@@ -4624,7 +4623,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A travelled item (its destination found) moves once this owner's item
+  # A travelled entity (its destination found) moves once this owner's item
   # plans and outgoing intent are free.
   defp travel_item(
          %{entities: %{portal: %{target: target, uuid: uuid}}, jobs: %{entries: entries}} = state
@@ -4634,7 +4633,7 @@ defmodule Valimc.World.RegionData do
     state = %{state | entities: %{state.entities | portal: nil}}
     deadline = System.monotonic_time(:millisecond) + 250
 
-    case ItemPortals.arrival(state.entities.store, route_key(state), uuid, target) do
+    case EntityPortals.arrival(state.entities.store, route_key(state), uuid, target) do
       :gone ->
         state
 

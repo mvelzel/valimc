@@ -35,7 +35,9 @@ defmodule Valimc.Entity.Body do
             # What generation gave it beyond type, position and yaw, as SNBT
             # (VMC-042b: a template's entity NBT, a minecart's loot table, a
             # frame's item), kept until its family reads it.
-            preserved: nil
+            preserved: nil,
+            # Ticks before a portal takes the body again (VMC-026d, `portalCooldown`).
+            portal_cooldown: 0
 
   @tnt "minecraft:tnt"
   @falling "minecraft:falling_block"
@@ -176,6 +178,11 @@ defmodule Valimc.Entity.Body do
 
     record = if body.preserved, do: Map.put(record, :preserved, body.preserved), else: record
 
+    record =
+      if body.portal_cooldown > 0,
+        do: Map.put(record, :portal_cooldown, body.portal_cooldown),
+        else: record
+
     if body.mob, do: Map.put(record, :mob, Mob.record(body.mob)), else: record
   end
 
@@ -197,6 +204,8 @@ defmodule Valimc.Entity.Body do
          true <- preserved == nil or is_binary(preserved),
          true <- is_boolean(on_ground) and is_boolean(no_gravity),
          true <- is_map(data) and Map.keys(data) == Map.keys(data(type)),
+         cooldown = Map.get(record, :portal_cooldown, 0),
+         true <- is_integer(cooldown) and cooldown in 0..32_767,
          {:ok, mob} <- restore_mob(type, Map.get(record, :mob)) do
       {:ok,
        %__MODULE__{
@@ -210,7 +219,8 @@ defmodule Valimc.Entity.Body do
          data: data,
          mob: mob,
          custom_name: Map.get(record, :custom_name),
-         preserved: preserved
+         preserved: preserved,
+         portal_cooldown: cooldown
        }}
     else
       _ -> {:error, :invalid_body}
@@ -227,14 +237,20 @@ defmodule Valimc.Entity.Body do
   def alive?(%__MODULE__{mob: mob}), do: Mob.alive?(mob)
 
   @doc """
-  One tick of the body's timers: `{body, events, done}`. A dying mob's
+  One tick of the body's timers: `{body, events, done}`. Its portal cooldown
+  runs down (`processPortalCooldown`). A dying mob's
   timers run until its death animation ends (`done`), with the poof (entity
   event 60) one tick before it is removed, so observers still track it. A
   primed TNT is inert until VMC-050a.
   """
-  def tick(%__MODULE__{mob: nil} = body), do: {body, [], false}
+  def tick(%__MODULE__{portal_cooldown: cooldown} = body) when cooldown > 0,
+    do: tick_timers(%{body | portal_cooldown: cooldown - 1})
 
-  def tick(%__MODULE__{mob: mob} = body) do
+  def tick(body), do: tick_timers(body)
+
+  defp tick_timers(%__MODULE__{mob: nil} = body), do: {body, [], false}
+
+  defp tick_timers(%__MODULE__{mob: mob} = body) do
     {next, done} = Mob.tick(mob)
     health = next.living.health
     events = if health.value <= 0 and health.death_ticks == 19, do: [{:event, 60}], else: []

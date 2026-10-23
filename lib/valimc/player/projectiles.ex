@@ -33,7 +33,7 @@ defmodule Valimc.Player.Projectiles do
   alias Valimc.Entity.{Projectile, Store}
   alias Valimc.Living.{DamageSource, Durability}
   alias Valimc.Menus.Inventory
-  alias Valimc.Player.{CreativeInventory, ItemUse, Items, Movement, Teleports, Use, Vitals}
+  alias Valimc.Player.{CreativeInventory, ItemUse, Items, Jobs, Movement, Teleports, Use, Vitals}
   alias Valimc.Protocol.{CombatPackets, ItemStack, ItemTypes, Packets, Wire}
   alias Valimc.World.Region
 
@@ -48,6 +48,8 @@ defmodule Valimc.Player.Projectiles do
       {"minecraft:splash_potion", "minecraft:entity.splash_potion.throw", -20.0, 0.5}
   }
   @arrows ["minecraft:arrow", "minecraft:tipped_arrow"]
+  @eye "minecraft:eye_of_ender"
+  @eye_item "minecraft:ender_eye"
   # `CrossbowItem.getChargeDuration` without Quick Charge: 1.25 seconds.
   @charge 25
   # `use_cooldown` of an ender pearl: one second.
@@ -57,7 +59,7 @@ defmodule Valimc.Player.Projectiles do
   def handles?(nil), do: false
 
   def handles?(%ItemStack{} = stack),
-    do: Map.has_key?(@thrown, name(stack)) or weapon(stack) != nil
+    do: Map.has_key?(@thrown, name(stack)) or weapon(stack) != nil or name(stack) == @eye_item
 
   defp name(%ItemStack{item_id: id}), do: ItemTypes.item(id)["name"]
 
@@ -75,8 +77,86 @@ defmodule Valimc.Player.Projectiles do
       {{:ok, throw}, _} -> throw(state, hand, stack, throw)
       {:error, :bow} -> draw(state, hand, stack, :bow)
       {:error, :crossbow} -> crossbow(state, hand, stack)
+      {:error, nil} -> eye(state, hand)
     end
   end
+
+  ## Eyes of ender
+
+  # `EnderEyeItem.use` in the air (VMC-026d): nothing at an end portal frame
+  # looked at (its use on the block fills it, `Valimc.World.Portal.Items`);
+  # otherwise the nearest stronghold (`eye_of_ender_located`) from the
+  # player's block is found in a job, and the eye flies there (`eyed/3`).
+  defp eye(state, hand) do
+    player = state.player
+    hit = Valimc.Player.Buckets.aim(player, :none)
+
+    cond do
+      Jobs.active?(state.jobs, :eye) ->
+        state
+
+      not hit.miss and
+          Valimc.World.Portal.EndPortal.frame?(
+            Valimc.Player.Buckets.block_at(player.dimension, hit.position)
+          ) ->
+        state
+
+      true ->
+        members = Valimc.Blocks.Loot.structure_tag("minecraft:eye_of_ender_located")
+        at = {floor(player.x), floor(player.y), floor(player.z)}
+        dimension = player.dimension
+
+        task =
+          Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
+            Valimc.Worldgen.Locate.nearest(dimension, members, at)
+          end)
+
+        {jobs, _job} = Jobs.track(state.jobs, :eye, task, timeout: 60_000, data: %{hand: hand})
+        %{state | jobs: jobs}
+    end
+  rescue
+    RuntimeError -> state
+  catch
+    :exit, _ -> state
+  end
+
+  @doc """
+  The stronghold an eye's use found (`{:ok, {x, y, z, id}}`; nothing when
+  none is, or the search failed): from the player's middle an eye flies
+  toward its corner (`signalTo`), with the launch sound, and one eye is used
+  unless the player has infinite materials. An eye no longer held is not
+  thrown.
+  """
+  def eyed(state, hand, {:ok, {x, y, z, _id}}) do
+    player = state.player
+
+    with %ItemStack{} = stack <- Inventory.held(state.inventory, hand),
+         @eye_item <- name(stack),
+         {:ok, dimensions} <- PlayerPose.dimensions(Map.get(player, :pose, :standing)) do
+      at = {player.x, player.y + Float32.round(dimensions["height"]) * 0.5, player.z}
+
+      body =
+        @eye
+        |> Projectile.new(nil, stack)
+        |> Projectile.signal_to(at, {x * 1.0, y * 1.0, z * 1.0})
+
+      case launch(state, body, at) do
+        {:ok, state} ->
+          # `Mth.lerp(nextFloat, 0.33F, 0.5F)`.
+          low = Float32.round(0.33)
+          pitch = Float32.round(low + Float32.round(float() * Float32.round(0.5 - low)))
+          play(state, "minecraft:entity.ender_eye.launch", "neutral", 1.0, pitch)
+          consume(state, hand)
+
+        :error ->
+          state
+      end
+    else
+      _ -> state
+    end
+  end
+
+  def eyed(state, _hand, _result), do: state
 
   ## Throws
 

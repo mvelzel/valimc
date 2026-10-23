@@ -16,8 +16,9 @@ defmodule Valimc.World.Portal.Items do
     block gives way to a primed TNT with an 80-tick fuse, in one box edit,
     when the TNT game rule allows it.
 
-  Campfires and candles, which flint and steel also lights, fire's spread
-  and burning out, and eyes thrown into the air are not handled yet.
+  Campfires and candles, which flint and steel also lights, and fire's
+  spread and burning out are not handled yet. An eye used in the air flies
+  to a stronghold (`Valimc.Player.Projectiles`, VMC-026d).
 
   The use runs as the connection's placement job: a task reads the clicked
   neighbourhood, commits per region owner, then has the owners resend the

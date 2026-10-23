@@ -103,6 +103,23 @@ defmodule Valimc.Entity.Projectile do
 
   defp one(%ItemStack{} = stack), do: %{stack | count: 1}
 
+  @doc """
+  `EyeOfEnder.signalTo`: an eye at `position` heads for `target`, or, past 12
+  blocks across, for the point 12 blocks toward it and 8 up; it breaks on
+  arrival one time in five (`surviveAfterDeath`).
+  """
+  def signal_to(%Body{type: @eye, data: data} = body, {x, y, z}, {tx, _, tz} = target) do
+    {dx, dz} = {tx - x, tz - z}
+    distance = :math.sqrt(dx * dx + dz * dz)
+
+    target =
+      if distance > 12.0,
+        do: {x + dx / distance * 12.0, y + 8.0, z + dz / distance * 12.0},
+        else: target
+
+    %{body | data: %{data | target: target, life: 0, survive: :rand.uniform(5) > 1}}
+  end
+
   ## Shooting
 
   @doc """

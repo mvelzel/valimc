@@ -77,7 +77,8 @@ defmodule Valimc.World.Portal.EndPortal do
   `{:credits, target}` (the credits first; then the target) or `{:error, reason}`.
   """
   def destination(entry) do
-    item = Map.get(entry, :entity) == :item
+    # Any entity but a player (`entry.entity` nil) arrives as items do.
+    item = Map.get(entry, :entity) != nil
 
     case Valimc.World.Dimension.current() do
       :the_end when item ->

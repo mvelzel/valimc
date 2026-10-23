@@ -143,7 +143,9 @@ defmodule Valimc.Entity.Store do
         # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
         # handles and view stay.
         age = min(entry.age + ticks, 6000)
-        entry = %{entry | age: age, lived: entry.lived + ticks}
+        # Its portal cooldown runs down (VMC-026d).
+        motion = %{entry.motion | portal_cooldown: max(0, entry.motion.portal_cooldown - ticks)}
+        entry = %{entry | age: age, lived: entry.lived + ticks, motion: motion}
         items = %{items | entries: Map.put(items.entries, id, entry)}
 
         expired =

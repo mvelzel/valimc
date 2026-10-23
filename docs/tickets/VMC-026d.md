@@ -1,6 +1,6 @@
 # VMC-026d — Eyes of ender; mobs and orbs through portals
 
-Status: Planned
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-037o](VMC-037o.md), [VMC-015i](VMC-015i.md),
 [VMC-034n4c](VMC-034n4c.md) (orb gaps),
@@ -18,3 +18,53 @@ Acceptance:
 
 - An eye leads to the same stronghold as vanilla on fixed seeds.
 - A zombie and an orb pass a Nether portal and arrive with their state.
+
+## Design
+
+- **Eyes of ender.** `Player.Projectiles` handles an ender eye's use in the
+  air as `EnderEyeItem.use` does. Nothing happens when the player looks at an
+  end portal frame (`Buckets.aim`); the use on the block fills it instead
+  (`Portal.Items`). Otherwise a session job (`:eye`) finds the nearest
+  `#eye_of_ender_located` start from the player's block in the player's
+  dimension (`Worldgen.Locate.nearest/3`, which `/locate structure` now
+  shares). The tag's members come from the loot facts
+  (`Blocks.Loot.structure_tag/1`), since the command facts sit a rank above
+  players. When the job returns (`eyed/3`), an eye still held flies from the
+  player's middle. `Projectile.signal_to/3` is `signalTo`: it heads for the
+  start's corner, or past 12 blocks across for 12 toward it and 8 up, and
+  survives four times in five. The launch sound plays at `lerp(f, 0.33F,
+  0.5F)`, and one eye is used unless the player has infinite materials. With
+  no stronghold (the Nether, the End, a world without structures) nothing is
+  thrown, as vanilla's `CONSUME`.
+- **Portal travel.** `World.ItemPortals` became `World.EntityPortals`, with
+  one path for items, orbs and mobs. Each entity's size comes from its kind:
+  items 0.25, orbs 0.5, a mob its type's width and height. Its cooldown
+  lives in its motion (items, orbs) or its body (`Body.portal_cooldown`,
+  saved while above zero). The orb's runs down in `Store.age`, the body's in
+  `Body.tick`. Mob steps meet portals in the entity phase before they route,
+  so a standing mob travels too. Dead mobs and the bosses (dragon, wither)
+  stay. On arrival a body takes the target's motion and rotation; its mind
+  starts afresh, as after any handoff, which matches vanilla's new entity
+  per dimension change. Through an end portal, any non-player arrives as an
+  item does (`EndPortal.destination`). One entity per owner travels at a
+  time.
+
+## Evidence
+
+- `locate` stage (LocateOracle): every structure tag, including
+  `eye_of_ender_located`, gives vanilla's start on fixed seeds. The loot and
+  command facts agree on the tag (`minecraft:stronghold`).
+- `test/projectile_test.exs`: `signalTo` near (the start itself) and far
+  (12 along, 8 up).
+- `test/item_portal_region_test.exs`: an orb (value 7, count 3) and a hurt
+  zombie (13 health) fall into a Nether portal between live owners. Both
+  arrive in the Nether with their state and a fresh cooldown.
+
+Not covered: projectiles, primed TNT and falling blocks in portals; a baby
+mob's smaller size; the used-ender-eye advancement and statistic.
+
+## Client gate
+
+Throw an eye of ender in the overworld: it flies toward the stronghold, then
+drops or shatters. A zombie walking into a Nether portal and orbs thrown into
+one appear on the Nether side.

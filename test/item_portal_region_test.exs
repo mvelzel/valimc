@@ -92,15 +92,16 @@ defmodule Valimc.ItemPortalRegionTest do
   defp holds?(owner, uuid),
     do: match?({:ok, _}, Store.find(resource(owner).entities.store, uuid))
 
-  # The item, searched in the regions around `position` of `dimension`.
-  defp found(dimension, {x, _, z}) do
+  # The entity `uuid` (the item by default), searched in the regions around
+  # `position` of `dimension`.
+  defp found(dimension, {x, _, z}, uuid \\ <<7::128>>) do
     Dimension.within(dimension, fn ->
       Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
       |> TestScope.neighborhood()
       |> Enum.find_value(fn key ->
         {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
-        case Store.find(resource(owner).entities.store, <<7::128>>) do
+        case Store.find(resource(owner).entities.store, uuid) do
           {:ok, {_, id, _}} -> resource(owner).entities.store.entries[id]
           _ -> nil
         end
@@ -136,5 +137,42 @@ defmodule Valimc.ItemPortalRegionTest do
     assert entry.stack == ItemStack.new("diamond", 2)
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 30
     assert entry.entity.uuid == <<7::128>>
+  end
+
+  test "an orb and a zombie pass a nether portal and arrive with their state (VMC-026d)", ctx do
+    {x, y, z} = ctx.origin
+    portal = for dx <- 0..1, dy <- 0..2, do: {{x + dx, y + dy, z}, PortalBlocks.portal(:x)}
+    {:ok, zombie} = Valimc.Entity.Body.new("minecraft:zombie")
+    hurt = put_in(zombie.mob.living.health.value, 13.0)
+    mob = Store.body_record(hurt, <<9::128>>, {x + 1.0, y + 0.5, z + 0.5})
+
+    orb = %{
+      kind: :orb,
+      uuid: <<8::128>>,
+      x: x + 1.0,
+      y: y + 1.5,
+      z: z + 0.5,
+      value: 7,
+      count: 3,
+      age: 40
+    }
+
+    region = Valimc.Data.Grid.region_key(Valimc.Data.Grid.chunk_key(x, z))
+    Valimc.TestDisk.write(ctx.base, region, :items, %{records: [orb, mob]})
+    {:ok, source} = Valimc.TestWorld.item_owner(region)
+    :ok = Access.commit(frame(ctx.origin) ++ portal)
+
+    run(source, fn ->
+      not holds?(source, <<8::128>>) and not holds?(source, <<9::128>>) and
+        resource(source).entities.store.ledger.outgoing == nil
+    end)
+
+    approx = {(x + 1.0) / 8, 64.0, (z + 0.5) / 8}
+    arrived = Valimc.TestWait.until(fn -> found(:the_nether, approx, <<8::128>>) end)
+    assert %{value: 7, count: 3} = arrived
+    assert arrived.motion.portal_cooldown > 0
+    zombie = Valimc.TestWait.until(fn -> found(:the_nether, approx, <<9::128>>) end)
+    assert zombie.body.type == "minecraft:zombie" and zombie.body.portal_cooldown > 0
+    assert zombie.body.mob.living.health.value == 13.0
   end
 end

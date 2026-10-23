@@ -67,6 +67,9 @@ defmodule Valimc.Player.Buckets do
     Clip.clip(eye, to, if(content == :empty, do: :source_only, else: :none), &states[&1])
   end
 
+  @doc "The state at `position` in `dimension`, from its section's owner (air when none answers)."
+  def block_at(dimension, position), do: read(dimension, [position])[position] || 0
+
   # The cells' states, from their sections' owners; a cell no owner gives reads as air.
   defp read(dimension, cells) do
     cells

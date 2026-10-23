@@ -142,6 +142,18 @@ defmodule Valimc.ProjectileTest do
     assert record.type == "minecraft:area_effect_cloud" and record.data.radius == 3.0
   end
 
+  test "an eye of ender heads for its stronghold, or 12 blocks toward it and 8 up (VMC-026d)" do
+    eye = Projectile.new("minecraft:eye_of_ender", nil)
+    near = Projectile.signal_to(eye, {0.5, 70.0, 0.5}, {6.5, 0.0, 8.5})
+    assert near.data.target == {6.5, 0.0, 8.5} and near.data.life == 0
+
+    # 300 east and 400 south: 12 blocks along (0.6, 0.8).
+    far = Projectile.signal_to(eye, {0.0, 70.0, 0.0}, {300.0, 0.0, 400.0})
+    {tx, 78.0, tz} = far.data.target
+    assert_in_delta tx, 7.2, 1.0e-12
+    assert_in_delta tz, 9.6, 1.0e-12
+  end
+
   test "an eye of ender drops or shatters after 80 ticks" do
     eye = Projectile.new("minecraft:eye_of_ender", nil)
     eye = %{eye | data: %{eye.data | life: 80, survive: false}}

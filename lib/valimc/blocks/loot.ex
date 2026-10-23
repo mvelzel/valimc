@@ -35,6 +35,29 @@ defmodule Valimc.Blocks.Loot do
     end
   end
 
+  @doc """
+  The structures of a structure tag (`minecraft:eye_of_ender_located`), as
+  the loot facts carry them for exploration maps; read on first use.
+  """
+  def structure_tag(tag) do
+    tags =
+      case :persistent_term.get({__MODULE__, :structure_tags}, nil) do
+        nil ->
+          tags =
+            Valimc.Data.Facts.read!("loot/registries.json")["tags"][
+              "minecraft:worldgen/structure"
+            ]
+
+          :persistent_term.put({__MODULE__, :structure_tags}, tags)
+          tags
+
+        tags ->
+          tags
+      end
+
+    Map.get(tags, tag, [])
+  end
+
   @doc "What evaluation reads: the loot registries and the furnace results."
   def registries,
     do:
