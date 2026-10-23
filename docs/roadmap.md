@@ -8,27 +8,25 @@ indexes finished tickets. Evidence lives in tickets, not here.
 
 ## M1 — Foundations (complete)
 
-VMC-062..069 replaced the preview's flat-world edit map, fsync-bound region writes,
-per-feature transfers, mailbox block reads and monolithic connection with sections,
-group commit, one transaction engine, snapshots, a game-time tick pipeline, the entity
-model and a generated registry; see [architecture](architecture.md).
+VMC-062..069 replaced the preview's flat-world edit map, fsync-bound region writes, per-feature
+transfers, mailbox block reads and monolithic connection with sections, group commit, one
+transaction engine, snapshots, a game-time tick pipeline, the entity model and a generated registry;
+see [architecture](architecture.md).
 
 ## M2 — Real worlds (complete)
 
-VMC-010, 020..025, 026, 027, 028, 029c, 053 and 070..075 generate vanilla's
-overworld, Nether and End live (terrain, features, structures, loot) with
-portals, world settings and the world-generation commands; the gate is in
-[VMC-025](tickets/VMC-025.md#m2-milestone-gate-october-21-2026). Commands on M3
-systems (VMC-053h, k–n) move with those systems. Generation and tick time stay
-matched against vanilla and Pumpkin, at least in Pumpkin's range.
+VMC-010, 020..025, 026, 027, 028, 029c, 053 and 070..075 generate vanilla's overworld, Nether and
+End live (terrain, features, structures, loot) with portals, world settings and the world-generation
+commands; the gate is in [VMC-025](tickets/VMC-025.md#m2-milestone-gate-october-21-2026). Commands
+on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick time stay matched against
+vanilla and Pumpkin, at least in Pumpkin's range.
 
 ## Foundations II (complete)
 
-VMC-077 audited the code after M2 and rebuilt its foundations: everything that
-interacts shares one owner (groups of 8 × 8 sections that merge and split, with
-players, entities and blocks inside), one atomic frame per owner per tick in one
-striped log, one entity store, one block fact table, Rust kernels for physics,
-block rules, light and generation scheduling, and a layered module layout. The
+VMC-077 audited the code after M2 and rebuilt its foundations: everything that interacts shares one
+owner (groups of 8 × 8 sections that merge and split, with players, entities and blocks inside), one
+atomic frame per owner per tick in one striped log, one entity store, one block fact table, Rust
+kernels for physics, block rules, light and generation scheduling, and a layered module layout. The
 final client run and its rechecks passed; see [VMC-077](tickets/VMC-077.md).
 
 ## M3 — Survival core (planned)
@@ -78,6 +76,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-043a](tickets/VMC-043a.md) | Summoned zombie and primed TNT seen, killed, teleported across a group line and kept over a restart |
 | [VMC-031a](tickets/VMC-031a.md) | A bucket-built Nether portal frame (obsidian from lava and water), lit and entered |
 | [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
+| [VMC-050a1](tickets/VMC-050a1.md) | TNT lit by flint and steel explodes: crater, drops, chained TNT, a survival player hurt and pushed |
 
 ## Retrieve and update
 
