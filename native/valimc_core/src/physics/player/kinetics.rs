@@ -53,6 +53,29 @@ impl World<'_> {
         ctx: &crate::physics::Context,
     ) -> Result<Material, Fault> {
         let support = support::supporting(self.source, self.facts, body, position, [0.0; 3], ctx)?;
+        self.footing(support, position)
+    }
+
+    /// The footing after a move (`setOnGroundWithMovement`, VMC-043d): the
+    /// supporting block only when grounded, found with the move's
+    /// `movement` (the slab moved back when it finds nothing under it).
+    pub fn material_moved(
+        &self,
+        body: &Aabb,
+        position: [f64; 3],
+        grounded: Option<[f64; 3]>,
+        ctx: &crate::physics::Context,
+    ) -> Result<Material, Fault> {
+        let support = match grounded {
+            Some(movement) => {
+                support::supporting(self.source, self.facts, body, position, movement, ctx)?
+            }
+            None => None,
+        };
+        self.footing(support, position)
+    }
+
+    fn footing(&self, support: Option<[i32; 3]>, position: [f64; 3]) -> Result<Material, Fault> {
         let below = support::on_pos(self.source, self.facts, support, position, BELOW)?;
         let legacy = support::on_pos(self.source, self.facts, support, position, 0.2)?;
         let feet = position.map(|v| v.floor() as i32);
@@ -187,6 +210,7 @@ impl Player {
             fall_distance: fall,
             falling_block: false,
             powder_snow_walkable: false,
+            lava_walker: false,
             noclip: None,
         }
     }

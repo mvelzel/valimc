@@ -80,7 +80,20 @@ pub fn block_colliders<'t>(
                     moving_colliders(source, table, [x, y, z], ctx, body, &query, &mut out);
                     continue;
                 }
-                let picked = table.shape(state, [x, y, z], ctx);
+                // `LiquidBlock.getCollisionShape`: a lava source with no lava
+                // above is half a block to a lava walker above it (VMC-043d).
+                let stable = ctx.lava_walker
+                    && table.lava(state) == 2
+                    && ctx.above(0.5, y, true)
+                    && table.lava(source.state(x, y + 1, z).ok_or(Unreadable([x, y + 1, z]))?) == 0;
+                let picked = if stable {
+                    super::table::Picked {
+                        shape: &table.lava_stable,
+                        offset: [0.0; 3],
+                    }
+                } else {
+                    table.shape(state, [x, y, z], ctx)
+                };
                 let place = Place {
                     offset: (picked.offset != [0.0; 3]).then_some(picked.offset),
                     position: Some([x as f64, y as f64, z as f64]),

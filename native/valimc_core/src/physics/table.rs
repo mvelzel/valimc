@@ -42,6 +42,10 @@ pub struct ShapeTable {
     pub piston_heads: Vec<u16>,
     /// Piston bases: state => its extended state, sticky or not, facing.
     pub piston_bases: std::collections::HashMap<u16, (u16, bool, u8)>,
+    /// Per state: 0 no lava, 1 lava, 2 a lava source block (VMC-043d).
+    pub lava: Vec<u8>,
+    /// `LiquidBlock.STABLE_SHAPE`: the half block a lava walker stands on.
+    pub lava_stable: VoxelShape,
 }
 
 pub const LARGE: u8 = 1;
@@ -60,6 +64,8 @@ pub struct Context {
     pub fall_distance: f64,
     pub falling_block: bool,
     pub powder_snow_walkable: bool,
+    /// It stands on lava (`canStandOnFluid`: a strider, VMC-043d).
+    pub lava_walker: bool,
     /// The direction a piston moves the entity in (`PistonMovingBlockEntity.NOCLIP`):
     /// moving blocks headed that way do not collide with it.
     pub noclip: Option<u8>,
@@ -83,6 +89,11 @@ pub struct Picked<'a> {
 }
 
 impl ShapeTable {
+    /// 0 no lava, 1 lava, 2 a lava source block.
+    pub fn lava(&self, state: u16) -> u8 {
+        self.lava.get(state as usize).copied().unwrap_or(0)
+    }
+
     pub fn special(&self, state: u16) -> u8 {
         self.special.get(state as usize).copied().unwrap_or(0)
     }

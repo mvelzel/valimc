@@ -191,6 +191,10 @@ pub struct Mob {
     pub step_gap: Option<f32>,
     /// Out: its move made a step this tick.
     pub stepped: bool,
+    /// It stands on lava (`canStandOnFluid`, a strider): lava sources hold
+    /// it up, it travels in air in lava, and floats up out of it
+    /// (`floatStrider`).
+    pub lava_walker: bool,
 }
 
 /// `AbstractCubeMob.jumpFromGround`: its jump power plus `bonus` (a magma
@@ -361,6 +365,9 @@ pub struct Ticked {
     pub depths: Depths,
     /// A swim sound's volume, when its move made one (`waterSwimSound`).
     pub swim: Option<f32>,
+    /// The block it stands on after the move (`getBlockStateOnLegacy`,
+    /// through its main supporting block; a strider's warmth, VMC-043d).
+    pub support: u16,
 }
 
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -602,6 +609,7 @@ impl Mob {
             fall_distance: fall,
             falling_block: false,
             powder_snow_walkable: self.powder_snow_walkable,
+            lava_walker: self.lava_walker,
             noclip: None,
         }
     }
@@ -844,7 +852,14 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         }
     };
     let before = w.material(&body, start, &m.context(m.fall_distance, start[1]))?;
-    let in_fluid = water || lava;
+    // `travel`: in a fluid it can stand on (a strider in lava) it travels
+    // as in air.
+    let stands = m.lava_walker
+        && w.facts
+            .fluid(w.state(start.map(|v| v.floor() as i32))?)
+            .kind
+            == crate::physics::facts::LAVA;
+    let in_fluid = (water || lava) && !stands;
     // travel: the relative input, then the move.
     let falling = m.velocity[1] <= 0.0;
     let fluid_gravity = m.gravity(m.velocity[1]);
@@ -903,6 +918,11 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let mut moved = mob_move(w, &mut m, &body, fall, water, depths)?;
     // A flier never falls (a ghast's `checkFallDamage` does nothing).
     if flying {
+        m.fall_distance = 0.0;
+        moved.landing = None;
+    }
+    // A strider's `checkFallDamage` in lava resets its fall.
+    if m.lava_walker && lava {
         m.fall_distance = 0.0;
         moved.landing = None;
     }
@@ -993,6 +1013,21 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
             },
         )
     };
+    // `Strider.floatStrider` after its tick: in lava (as its base tick
+    // found it, or its move's fall check re-sampled it), above the half
+    // block with no lava over it, it stands; else it slows and rises.
+    if m.lava_walker && moved.depths.lava > 0.0 {
+        let cell = m.position.map(|v| v.floor() as i32);
+        let above = w.state([cell[0], cell[1] + 1, cell[2]])?;
+        if m.position[1] > cell[1] as f64 + 0.5 - 1.0e-5_f32 as f64
+            && w.facts.fluid(above).kind != crate::physics::facts::LAVA
+        {
+            m.on_ground = true;
+        } else {
+            let [vx, vy, vz] = m.velocity;
+            m.velocity = [vx * 0.5, vy * 0.5 + 0.05, vz * 0.5];
+        }
+    }
     if !rules::bounded(m.velocity, 64.0) {
         return Err(Fault::Limit("kinetic_velocity_limit"));
     }
@@ -1065,6 +1100,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         on_block,
         landing: moved.landing,
         landing_pos: moved.landing.map(|_| moved.material.legacy.0),
+        support: moved.material.legacy.1,
         touched,
         climbing,
         powder_snow,
@@ -1087,6 +1123,11 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     m.strafe = 0.0;
     m.jump = false;
     m.control = Control::Wait;
+    let support = w.state([
+        m.position[0].floor() as i32,
+        (m.position[1] - 0.2_f32 as f64).floor() as i32,
+        m.position[2].floor() as i32,
+    ])?;
     Ok(Ticked {
         mob: m,
         water: depths.water > 0.0,
@@ -1104,6 +1145,7 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         powder_snow: false,
         depths,
         swim: None,
+        support,
     })
 }
 
@@ -1177,10 +1219,16 @@ fn mob_move(
     m.vertical_collision = vertical;
     m.on_ground = vertical && requested[1] < 0.0;
     let after_body = m.body(m.position)?;
-    let material = w.material(&after_body, m.position, &m.context(fall, m.position[1]))?;
+    let material = w.material_moved(
+        &after_body,
+        m.position,
+        m.on_ground.then_some(actual),
+        &m.context(fall, m.position[1]),
+    )?;
     // checkFallDamage re-samples the fluid state (and its currents) when not
     // in water before.
-    let depths = if water_before {
+    // A strider in lava resets its fall instead (`Strider.checkFallDamage`).
+    let depths = if water_before || m.lava_walker && depths_before.lava > 0.0 {
         depths_before
     } else {
         let (depths, pushed) = currents(w, &after_body, m.velocity, m.fluid_pushed)?;
@@ -1510,6 +1558,7 @@ impl Default for Mob {
             next_step: 1.0,
             float: None,
             cube: None,
+            lava_walker: false,
         }
     }
 }

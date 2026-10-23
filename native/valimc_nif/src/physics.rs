@@ -63,6 +63,7 @@ pub(crate) fn context(c: ContextT) -> Context {
         fall_distance: fall,
         falling_block: falling,
         powder_snow_walkable: walkable,
+        lava_walker: false,
         noclip: None,
     }
 }
@@ -505,6 +506,8 @@ struct MobT {
     impulse: Vec<Vec3>,
     vertical_collision: bool,
     emits: bool,
+    /// It stands on lava (a strider, VMC-043d).
+    lava_walker: bool,
     move_dist: f64,
     next_step: f64,
     /// A ghast's move control: `%{wanted, duration, random, speed}`, or nil.
@@ -557,6 +560,8 @@ struct TickedT {
     depths: (f64, f64),
     /// A swim sound's volume, when the move made one.
     swim: Option<f64>,
+    /// The block it stands on after the move (`getBlockStateOnLegacy`).
+    support: u16,
 }
 
 fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
@@ -672,6 +677,7 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         impulse: m.impulse.iter().map(|&p| v3(p)).collect(),
         vertical_collision: m.vertical_collision,
         emits: m.emits,
+        lava_walker: m.lava_walker,
         move_dist: m.move_dist as f32,
         next_step: m.next_step as f32,
         float: m.float.as_ref().map(|f| valimc_core::physics::mob::Float {
@@ -786,6 +792,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         impulse: m.impulse.iter().map(|&p| t3(p)).collect(),
         vertical_collision: m.vertical_collision,
         emits: m.emits,
+        lava_walker: m.lava_walker,
         move_dist: m.move_dist as f64,
         next_step: m.next_step as f64,
         float: m.float.map(|f| FloatT {
@@ -998,6 +1005,7 @@ fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
         powder_snow: t.powder_snow,
         depths: (t.depths.water, t.depths.lava),
         swim: t.swim.map(|v| v as f64),
+        support: t.support,
     }
 }
 

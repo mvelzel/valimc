@@ -190,7 +190,14 @@ defmodule Valimc.AI.RandomPos do
 
           {pos, self} ->
             v = weight.(self, pos)
-            if value == :neg_infinity or v > value, do: {pos, v, self}, else: {best, value, self}
+
+            # A place worth `:neg_infinity` is never taken (a strider in lava
+            # leaves only for lava, VMC-043d).
+            cond do
+              v == :neg_infinity -> {best, value, self}
+              value == :neg_infinity or v > value -> {pos, v, self}
+              true -> {best, value, self}
+            end
         end
       end)
 

@@ -50,6 +50,9 @@ defmodule Valimc.AI.Facts do
   """
   def path_flags, do: @path_flags
 
+  @doc "`isPathfindable(PathComputationType.LAND)` of block `state` (VMC-043d)."
+  def land_pathfindable?(state), do: Bitwise.band(:binary.at(@path_flags, state), 1) == 1
+
   goal = fn [priority, name, flags] -> {priority, name, Enum.map(flags, &String.to_atom/1)} end
 
   @mobs Map.new(@facts["mobs"], fn {name, row} ->

@@ -61,6 +61,7 @@ public class MobAiOracle {
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
       "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast", "minecraft:magma_cube", "minecraft:hoglin",
+      "minecraft:wither_skeleton", "minecraft:strider",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
@@ -101,6 +102,8 @@ public class MobAiOracle {
       // A hoglin's activities and attack.
       "minecraft:entity.hoglin.ambient", "minecraft:entity.hoglin.angry", "minecraft:entity.hoglin.retreat",
       "minecraft:entity.hoglin.attack",
+      // A strider's moods.
+      "minecraft:entity.strider.ambient", "minecraft:entity.strider.happy", "minecraft:entity.strider.retreat",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -1098,6 +1101,7 @@ public class MobAiOracle {
       o.addProperty("jump_delay", field(control.getClass(), "jumpDelay").getInt(control));
     }
     if (m instanceof net.minecraft.world.entity.monster.hoglin.Hoglin h) o.addProperty("age", h.getAge());
+    if (m instanceof net.minecraft.world.entity.monster.Strider s) o.addProperty("suffocating", s.isSuffocating());
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
     if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
       o.addProperty("got_fish", d.gotFish()); o.addProperty("moistness", d.getMoistnessLevel());

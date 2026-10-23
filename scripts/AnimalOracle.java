@@ -38,6 +38,8 @@ public class AnimalOracle {
       "minecraft:chicken", "minecraft:rabbit", "minecraft:cat",
       // VMC-043e: turtles and axolotls (their own fixtures in MobAiOracle).
       "minecraft:turtle", "minecraft:axolotl");
+  // The Nether's animals (VMC-043d): facts only, their cases are NetherMobOracle's.
+  static final List<String> NETHER_ANIMALS = List.of("minecraft:strider");
   // Sounds the animals play beyond their sound variants' and AI facts' own.
   static final List<String> SOUNDS = List.of("minecraft:entity.cow.milk", "minecraft:entity.mooshroom.milk",
       "minecraft:entity.mooshroom.suspicious_milk", "minecraft:entity.mooshroom.shear", "minecraft:entity.mooshroom.eat",
@@ -72,7 +74,7 @@ public class AnimalOracle {
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     var used = new TreeSet<String>(SOUNDS);
     var animals = new JsonObject();
-    for (var name : ANIMALS) {
+    for (var name : java.util.stream.Stream.concat(ANIMALS.stream(), NETHER_ANIMALS.stream()).toList()) {
       var animal = (Animal)MobAiOracle.mob(name, level);
       var row = new JsonObject();
       row.add("adult", dimensions(animal));

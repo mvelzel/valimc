@@ -120,6 +120,25 @@ public class NetherMobOracle {
     // Alone, it wanders and looks about.
     cases.add(MobAiOracle.run(level, "hoglin_idle", floor, List.of(new MobAiOracle.Spawn("minecraft:hoglin", new Vec3(.5, 64, .5), 90, 179L)),
       List.of(), List.of(), 300));
+    // A wither skeleton with its stone sword chases a survival player and withers it.
+    var witherSword = Map.<String, Object>of("mainhand", "minecraft:stone_sword");
+    cases.add(MobAiOracle.run(level, "wither_skeleton_attack", floor, List.of(new MobAiOracle.Spawn("minecraft:wither_skeleton", new Vec3(.5, 64, .5), 0, 181L, witherSword)),
+      List.of(new MobAiOracle.Stand(new Vec3(7.5, 64, 3.5), "survival", null)), List.of(), 160));
+    // A strider on a lava pool walks about on it.
+    var pool9 = new ArrayList<>(floor);
+    pool9.addAll(MobAiOracle.box(-4, 63, -4, 4, 63, 4, Blocks.LAVA.defaultBlockState()));
+    pool9.addAll(MobAiOracle.box(-5, 64, -5, 5, 64, 5, stone));
+    pool9.addAll(MobAiOracle.box(-4, 64, -4, 4, 64, 4, Blocks.AIR.defaultBlockState()));
+    cases.add(MobAiOracle.run(level, "strider_lava", pool9, List.of(new MobAiOracle.Spawn("minecraft:strider", new Vec3(.5, 63.5, .5), 0, 191L)),
+      List.of(), List.of(), 300));
+    // On stone it shivers and heads for the lava nearby.
+    var side = new ArrayList<>(floor);
+    side.addAll(MobAiOracle.box(4, 63, -2, 8, 63, 2, Blocks.LAVA.defaultBlockState()));
+    cases.add(MobAiOracle.run(level, "strider_to_lava", side, List.of(new MobAiOracle.Spawn("minecraft:strider", new Vec3(-2.5, 64, .5), 0, 193L)),
+      List.of(), List.of(), 300));
+    // A player holding warped fungus tempts it.
+    cases.add(MobAiOracle.run(level, "strider_tempt", floor, List.of(new MobAiOracle.Spawn("minecraft:strider", new Vec3(.5, 64, .5), 0, 197L)),
+      List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 3.5), "survival", "minecraft:warped_fungus")), List.of(), 200));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -130,6 +149,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage; magma cube hop, attack, lava; hoglin attack, repellent, baby hit, idle).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger; piglin barter, barter alone, attack, retaliate, baby hit, avoid, repellent; ghast float, attack, cage; magma cube hop, attack, lava; hoglin attack, repellent, baby hit, idle; wither skeleton attack; strider lava, to lava, tempt).");
   }
 }

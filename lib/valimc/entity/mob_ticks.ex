@@ -139,7 +139,8 @@ defmodule Valimc.Entity.MobTicks do
             ticked.mob,
             ticked.depths,
             ticked.powder_snow,
-            ticked.eye_after
+            ticked.eye_after,
+            ticked.support
           )
 
         body = put_in(body.mob.motion.eye_water, ticked.eye_water)

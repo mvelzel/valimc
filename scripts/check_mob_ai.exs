@@ -260,6 +260,9 @@ kind_data = fn
   %{type: "minecraft:hoglin", data: data} ->
     %{"age" => data.age}
 
+  %{type: "minecraft:strider", data: data} ->
+    %{"suffocating" => data.suffocating}
+
   %{type: type, data: data, mob: mob} when type in ~w(minecraft:magma_cube minecraft:slime) ->
     %{
       "size" => data.size,

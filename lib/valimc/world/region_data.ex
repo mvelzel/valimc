@@ -963,6 +963,19 @@ defmodule Valimc.World.RegionData do
   end
 
   defp mob_effect(state, sid, _target, {:add, id, rung}, _template) do
+    # `canBeAffected` (VMC-043d: a wither skeleton is never withered).
+    type =
+      case state.entities.store.entries[sid] do
+        %{body: %Body{type: type}} -> type
+        _ -> nil
+      end
+
+    if Valimc.AI.Mobs.hook(type, :affected?, [id], true),
+      do: add_mob_effect(state, sid, id, rung),
+      else: state
+  end
+
+  defp add_mob_effect(state, sid, id, rung) do
     update_mob(state, sid, fn mob ->
       case Valimc.Living.Effects.add(mob.living.effects, id, rung) do
         {:ok, effects, _} -> %{mob | living: %{mob.living | effects: effects}}

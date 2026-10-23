@@ -228,6 +228,18 @@ impl Facts {
                 large | piston
             })
             .collect();
+        shapes.lava = fluid_states
+            .iter()
+            .map(|&f| match fluids[f as usize] {
+                Fluid {
+                    kind: LAVA,
+                    source: true,
+                    ..
+                } => 2,
+                Fluid { kind: LAVA, .. } => 1,
+                _ => 0,
+            })
+            .collect();
         Some(Facts {
             shapes,
             flags,
@@ -318,5 +330,7 @@ pub fn shape_table(
         block: VoxelShape::block(),
         piston_heads: Vec::new(),
         piston_bases: std::collections::HashMap::new(),
+        lava: Vec::new(),
+        lava_stable: VoxelShape::from_box([0.0; 3], [1.0, 0.5, 1.0]),
     })
 }

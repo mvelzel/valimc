@@ -70,7 +70,8 @@ public class LootOracle {
   static final List<String> ENTITY_TABLES = List.of("minecraft:entities/zombie", "minecraft:entities/chicken",
       "minecraft:entities/endermite", "minecraft:entities/pig", "minecraft:entities/blaze",
       "minecraft:entities/zombified_piglin", "minecraft:entities/ghast", "minecraft:entities/magma_cube",
-      "minecraft:entities/hoglin",
+      "minecraft:entities/hoglin", "minecraft:entities/wither_skeleton",
+      "minecraft:entities/strider",
       // VMC-043b: the overworld hostiles.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager", "minecraft:entities/skeleton",
       "minecraft:entities/stray", "minecraft:entities/bogged", "minecraft:entities/creeper", "minecraft:entities/spider",

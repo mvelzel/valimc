@@ -103,7 +103,8 @@ defmodule Valimc.AI.Mobs.Skeleton do
     halloween(self)
   end
 
-  defp halloween(self) do
+  @doc "A Halloween head one time in four (a jack o'lantern one in ten of those)."
+  def halloween(self) do
     if self.mob.equipment[:head] == nil and self.world.halloween do
       {f, self} = Spawn.level_float(self)
 

@@ -58,7 +58,6 @@ Phases:
 
 When sessions are scarce: 043a, 015i, 041a, 041b, 037n, 037o, 050a, 043b, 029e, 031a, 047a, 042a,
 043c, 042b, 048a, 043d, 039a, 039b, 039c, 048b, 040a, 049a, 034n4c, 034n4d, 034n4e, 026d, 043e, 044a, 032b, 045a, 078.
-
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused
@@ -73,6 +72,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-039c](tickets/VMC-039c.md) | Bone meal grows bamboo, glow lichen, a big dripleaf and a huge fungus, turns netherrack to nylium; shears carve a pumpkin and empty a hive |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |
 | [VMC-043b1](tickets/VMC-043b1.md), [043b3](tickets/VMC-043b3.md), [043b4](tickets/VMC-043b4.md), [043b5](tickets/VMC-043b5.md), [043b6](tickets/VMC-043b6.md) | Witches throw and drink potions, slimes split, silverfish swarm, phantoms swoop; endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
+| [VMC-043d](tickets/VMC-043d.md) | A fortress run: blazes volley and drop rods; zombified piglins turn as a group; a piglin barters gold and attacks without gold; a ghast's fireball hit back kills it; hoglins charge and shun warped fungus; magma cubes hop and split; striders walk on lava |
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
 | [VMC-049a](tickets/VMC-049a.md) | Hoppers feed a furnace from a chest above and coal from a side; a hopper below takes the ingots |
 | [VMC-043c](tickets/VMC-043c.md) | Cows breed, sheep shear, dye and regrow, milk and stew, eggs, rabbits hop; a lead follows, pulls, ties to a fence knot and breaks |

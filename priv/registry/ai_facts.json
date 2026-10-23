@@ -1127,6 +1127,189 @@
       "goals": [],
       "targets": []
     },
+    "minecraft:wither_skeleton": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.wither_skeleton.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": true,
+      "malus": {
+        "lava": 8.0
+      },
+      "goals": [
+        [
+          2,
+          "RestrictSunGoal",
+          []
+        ],
+        [
+          3,
+          "FleeSunGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:strider": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.strider.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "lava": 0.0,
+        "water": -1.0,
+        "fire_in_neighbor": 0.0,
+        "fire": 0.0
+      },
+      "goals": [
+        [
+          1,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "BreedGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          3,
+          "TemptGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "StriderGoToLavaGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          5,
+          "FollowParentGoal",
+          []
+        ],
+        [
+          7,
+          "RandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          9,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ]
+      ],
+      "targets": []
+    },
     "minecraft:husk": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3817,6 +4000,9 @@
     "minecraft:entity.hoglin.angry": 830,
     "minecraft:entity.hoglin.retreat": 835,
     "minecraft:entity.hoglin.attack": 831,
+    "minecraft:entity.strider.ambient": 1541,
+    "minecraft:entity.strider.happy": 1542,
+    "minecraft:entity.strider.retreat": 1543,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -3879,6 +4065,7 @@
     "minecraft:entity.blaze.ambient": 174,
     "minecraft:entity.zombified_piglin.ambient": 1899,
     "minecraft:entity.ghast.ambient": 709,
+    "minecraft:entity.wither_skeleton.ambient": 1789,
     "minecraft:entity.husk.ambient": 881,
     "minecraft:entity.zombie_villager.ambient": 1904,
     "minecraft:entity.skeleton.ambient": 1483,

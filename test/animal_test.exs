@@ -38,7 +38,9 @@ defmodule Valimc.AnimalInteractionTest do
     {:ok, axolotl, %{hand: {:fill, bucket}}} =
       apply_item(animal("minecraft:axolotl"), "minecraft:tropical_fish_bucket")
 
-    assert axolotl.data.in_love == 600 and bucket.item_id == ItemTypes.id("minecraft:water_bucket")
+    assert axolotl.data.in_love == 600 and
+             bucket.item_id == ItemTypes.id("minecraft:water_bucket")
+
     assert apply_item(animal("minecraft:axolotl"), "minecraft:tropical_fish") == :pass
   end
 

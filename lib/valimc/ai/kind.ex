@@ -66,7 +66,9 @@ defmodule Valimc.AI.Kind do
     and `jumpInLiquid` in lava, for the kernel), `loot_properties/1` (what
     its loot table reads of it), `experience/1` (its `xpReward`) and
     `split/2` (the bodies a dead one leaves as it is removed, with their
-    positions); `young?/1` (`isBaby` by its own data: a hoglin's age).
+    positions); `young?/1` (`isBaby` by its own data: a hoglin's age);
+    `affected?/1` (`canBeAffected` of an effect id: a wither skeleton's
+    wither).
   - Its targets: `can_attack?/2` (`canAttack` beyond `Mob`'s, VMC-044a2).
   - Its drinks: `consume_sound/2` (`OverrideConsumeSound.getConsumeSound`
     of a stack, nil for the item's own; VMC-044a4).
@@ -114,7 +116,7 @@ defmodule Valimc.AI.Kind do
   @callback air(integer, boolean) :: {integer, float}
   @callback swim_sound() :: String.t()
   @callback dying?() :: boolean
-  @callback walk_value(Self.t(), tuple) :: float
+  @callback walk_value(Self.t(), tuple) :: float | :neg_infinity
   @callback falls?() :: boolean
   @callback volume(struct) :: float
   @callback jump(struct) :: {float, float | nil}
@@ -135,6 +137,7 @@ defmodule Valimc.AI.Kind do
   @callback swim_volume() :: float
   @callback stable_destination?(Self.t(), tuple) :: boolean
   @callback young?(struct) :: boolean
+  @callback affected?(integer) :: boolean
 
   @optional_callbacks leashable?: 0,
                       volume: 1,
@@ -143,6 +146,7 @@ defmodule Valimc.AI.Kind do
                       experience: 1,
                       split: 2,
                       young?: 1,
+                      affected?: 1,
                       navigation: 0,
                       brain: 0,
                       finalize: 2,

@@ -1,6 +1,6 @@
 # VMC-043d — Nether mobs
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md).
 
@@ -22,12 +22,13 @@ Acceptance:
 3. **043d3 — ghasts** (done): flying travel, wandering, large fireballs.
 4. **043d4a — bartering** (done): a piglin's admired gold ingot becomes
    the bartering table's items, thrown toward the player it sees.
-5. **043d4b — piglins and hoglins** (piglin melee and hoglins done;
-   crossbows next): the piglin brain's fight, avoid and celebrate
+5. **043d4b — piglins and hoglins** (done; crossbow piglins are a gap,
+   below): the piglin brain's fight, avoid and celebrate
    activities, hostility rules; hoglins' brain.
-6. **043d5 — magma cubes** (done; wither skeletons next, on VMC-043b3's
-   skeletons): the shared cube (`AbstractCubeMob`) and magma cubes.
-7. **043d6 — striders**: walking on lava, shivering, warped fungus.
+6. **043d5 — magma cubes and wither skeletons** (done): the shared cube
+   (`AbstractCubeMob`) and magma cubes; wither skeletons on VMC-043b3's
+   skeletons.
+7. **043d6 — striders** (done): walking on lava, shivering, warped fungus.
 
 ## Oracle
 
@@ -137,7 +138,7 @@ factory, so other families' oracles reuse it the same way.
   `mobInteract` (a player giving an ingot by hand), piglins' anger at
   players without gold armour: 043d4b.
 
-## 043d4b — piglins fight (melee done; crossbows next)
+## 043d4b — piglins fight
 
 - Spawning: `Valimc.AI.Mobs.Piglin` joins the mob families: one time in
   five a baby (smaller, faster), else a crossbow or a golden sword (a
@@ -200,7 +201,7 @@ factory, so other families' oracles reuse it the same way.
   (`SetEntityLookTargetSometimes`'s ticker), `baby_follow_adult/2`;
   `Sensors.NearestAdult`, `Sensors.repellent/2`; `Fight.much_farther?/3`;
   a brain's melee runs the family's `hit/2`; Kind `young?/1`.
-- Evidence: `nether_mobs` passes 7, 6980 ticks of 23 scenes (hoglin attack, repellent, baby hit,
+- Evidence: `nether_mobs` passes 6980 ticks of 23 scenes (hoglin attack, repellent, baby hit,
   idle among them); `loot` 45000 deaths; `hostile_spawns` 14040 spawns;
   `mob_ai_connection_test` has a hoglin charge and hit a logged-in player.
 - Gaps: breeding with crimson fungus (`AnimalMakeLove` inert), zombifying
@@ -238,6 +239,42 @@ factory, so other families' oracles reuse it the same way.
 - Gaps: touching iron golems (`push`), slimes' own module (VMC-043b6),
   spawn rules beyond the existing natural spawning, magma cream from frogs.
 
+## 043d5b — wither skeletons
+
+- `Valimc.AI.Mobs.WitherSkeleton` over VMC-043b3's skeleton goals and
+  weapon goal: piglins as targets too, a stone sword (no armour or
+  enchantments), attack damage 4, Wither for ten seconds on what it hits
+  (`doHurtTarget`), never withered itself (Kind `affected?/1`, read where
+  an effect reaches a mob), weapons it dislikes not held. Its loot (coal,
+  bones, the skull by Looting) and sounds are generated facts.
+- Evidence: `nether_mobs`' wither skeleton scene (chase, hits
+  carrying Wither) bit for bit; `hostile_spawns` 15120 spawns; `loot`
+  46500 deaths.
+- Gaps: its arrows' fire (it holds a bow only if it picks one up), Wither
+  on mobs it hits (piglins).
+
+## 043d6 — striders
+
+- `Valimc.Entity.Animals.Strider` on VMC-043c's animals: its goals (panic,
+  breeding and temptation by warped fungus, `StriderGoToLavaGoal` toward
+  the lava block itself, following its parent, strolling, looks), lava
+  worth 10 to its walks and every other place nothing once in lava
+  (`RandomPos` skips `:neg_infinity`), shivering (entity data and a third
+  less speed) away from warm blocks and lava, its happy and retreat
+  sounds, water's hurt, and `finalizeSpawn`'s jockey draws.
+- Kernel: a lava walker (`motion` `lava_walker`) stands on lava sources
+  (`LiquidBlock`'s stable half block when above it with no lava over it),
+  travels as in air in lava, keeps its base tick's lava instead of the
+  fall check's re-sample, and floats up (`floatStrider`). A mob's footing
+  after a move is its supporting block only when grounded, found with the
+  move (`setOnGroundWithMovement`); the kernel reports the block it stands
+  on (`getBlockStateOnLegacy`) to the AI.
+- Evidence: `nether_mobs` passes the strider's lava, to-lava and tempt
+  scenes bit for bit; `loot` 55500 deaths.
+- Gaps: riding (saddles, warped fungus on a stick) and its jockeys wait
+  for vehicles (VMC-046); a strider's path starting inside a lava column
+  (`getStart`'s fluid branch).
+
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player
 above them, and a blaze killed by the player drops blaze rods; zombified
@@ -246,4 +283,5 @@ piglin given a dropped gold ingot admires it and throws barter items (over
 several barters, ender pearls); piglins attack a player without gold armour;
 a ghast shoots fireballs that the player can hit back to kill it; a hoglin
 charges the player and throws it, and keeps away from warped fungus; a magma
-cube hops at the player, hurts it at a touch and splits when killed.
+cube hops at the player, hurts it at a touch and splits when killed; a
+strider walks on a lava lake and shivers off it.

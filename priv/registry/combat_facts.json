@@ -1868,6 +1868,8 @@
     "minecraft:ghast": 5,
     "minecraft:magma_cube": 0,
     "minecraft:hoglin": 5,
+    "minecraft:wither_skeleton": 5,
+    "minecraft:strider": 0,
     "minecraft:husk": 5,
     "minecraft:zombie_villager": 5,
     "minecraft:drowned": 5,
@@ -1961,6 +1963,18 @@
       "hurt_sound": "minecraft:entity.hoglin.hurt",
       "death_sound": "minecraft:entity.hoglin.death",
       "sound_source": 5,
+      "animal": true
+    },
+    "minecraft:wither_skeleton": {
+      "hurt_sound": "minecraft:entity.wither_skeleton.hurt",
+      "death_sound": "minecraft:entity.wither_skeleton.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:strider": {
+      "hurt_sound": "minecraft:entity.strider.hurt",
+      "death_sound": "minecraft:entity.strider.death",
+      "sound_source": 6,
       "animal": true
     },
     "minecraft:husk": {
@@ -2210,6 +2224,10 @@
     "minecraft:entity.magma_cube.death_small": 953,
     "minecraft:entity.hoglin.hurt": 834,
     "minecraft:entity.hoglin.death": 833,
+    "minecraft:entity.wither_skeleton.hurt": 1791,
+    "minecraft:entity.wither_skeleton.death": 1790,
+    "minecraft:entity.strider.hurt": 1545,
+    "minecraft:entity.strider.death": 1544,
     "minecraft:entity.husk.hurt": 884,
     "minecraft:entity.husk.death": 883,
     "minecraft:entity.zombie_villager.hurt": 1908,

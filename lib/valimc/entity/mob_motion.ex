@@ -58,7 +58,8 @@ defmodule Valimc.Entity.MobMotion do
             next_step: 1.0,
             float: nil,
             # Its eyes in water after its last move (`isEyeInFluid(WATER)`).
-            eye_water: false
+            eye_water: false,
+            support: nil
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -235,7 +236,8 @@ defmodule Valimc.Entity.MobMotion do
     pushes: true,
     fluid_pushed: true,
     travel: {:ground, false},
-    emission: :all
+    emission: :all,
+    lava_walker: false
   }
 
   # A ghast's move control, drawing on its mind's random (VMC-043d).
@@ -302,7 +304,14 @@ defmodule Valimc.Entity.MobMotion do
   heights `{water, lava}` its move left and whether it ended in powder
   snow: `{body, position}`.
   """
-  def apply(body, m, {water, lava} \\ {0.0, 0.0}, powder_snow \\ false, eye \\ {false, 0}) do
+  def apply(
+        body,
+        m,
+        {water, lava} \\ {0.0, 0.0},
+        powder_snow \\ false,
+        eye \\ {false, 0},
+        support \\ nil
+      ) do
     {op, target, speed} = m.control
 
     # A family's own move control keeps its operation (`Control::Set`).
@@ -335,7 +344,8 @@ defmodule Valimc.Entity.MobMotion do
       vertical_collision: m.vertical_collision,
       move_dist: m.move_dist,
       next_step: m.next_step,
-      float: m.float && Map.take(m.float, [:wanted, :duration])
+      float: m.float && Map.take(m.float, [:wanted, :duration]),
+      support: support
     }
 
     # The float control drew on the mind's random.

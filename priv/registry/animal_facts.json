@@ -146,6 +146,21 @@
       "food": [
         "minecraft:tropical_fish_bucket"
       ]
+    },
+    "minecraft:strider": {
+      "adult": [
+        1063675494,
+        1071225242,
+        1069086147
+      ],
+      "baby": [
+        1055286886,
+        1062836634,
+        1054867456
+      ],
+      "food": [
+        "minecraft:warped_fungus"
+      ]
     }
   },
   "monsters": [
