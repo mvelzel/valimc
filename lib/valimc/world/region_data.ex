@@ -237,7 +237,7 @@ defmodule Valimc.World.RegionData do
       state = remember_item_counters(%{state | entities: %{state.entities | age_debt: 0}}, items)
 
       if expired == [] do
-        state |> start_item_cross_merging(now) |> move_items(now)
+        state |> start_item_cross_merging(now) |> move_mobs() |> move_items(now)
       else
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
@@ -479,10 +479,12 @@ defmodule Valimc.World.RegionData do
   end
 
   defp start_item_merging(state, now) do
-    if state.entities.persistent and map_size(state.entities.store.entries) >= 2 and
+    # Only items merge: other kinds neither start nor restart a merge plan.
+    items = for {id, %{kind: :item} = entry} <- state.entities.store.entries, do: {id, entry}
+
+    if state.entities.persistent and length(items) >= 2 and
          (state.entities.merge_next == nil or now >= state.entities.merge_next) do
-      stamp =
-        Map.new(state.entities.store.entries, fn {id, entry} -> {id, entry.physical_revision} end)
+      stamp = Map.new(items, fn {id, entry} -> {id, entry.physical_revision} end)
 
       state = %{state | entities: %{state.entities | merge_next: now + 200}}
 
@@ -537,6 +539,87 @@ defmodule Valimc.World.RegionData do
     else
       steps = Valimc.World.ItemStep.steps(inputs) ++ Valimc.World.ItemStep.orb_steps(orbs)
       {:noreply, state} = commit_simulated_items(state, steps)
+      state
+    end
+  end
+
+  # Mobs travel in the entity phase (VMC-015i): one kernel call for the
+  # section's simulated mobs and their living rules; each step lands here, in
+  # a sibling section in the same commit, or in another group by the handoff.
+  defp move_mobs(state) do
+    store = state.entities.store
+
+    mobs =
+      for {id, %{kind: :mob, entity: %{x: x, z: z}} = entry} <- store.entries,
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          do: {id, entry}
+
+    if mobs == [] or write_busy(state) != nil do
+      state
+    else
+      steps =
+        Valimc.World.View.new()
+        |> Valimc.Entity.MobTicks.steps(
+          Enum.sort(mobs),
+          state.player_targets,
+          Valimc.World.Clock.border_snapshot()
+        )
+        |> Enum.reject(fn step ->
+          %{entity: e, body: body} = store.entries[step.id]
+          step.events == [] and step.body == body and step.position == {e.x, e.y, e.z}
+        end)
+
+      route_bodies(state, steps)
+    end
+  end
+
+  # Body steps by destination: this section, a sibling, or another group.
+  defp route_bodies(state, []), do: state
+
+  defp route_bodies(state, steps) do
+    route = route_key(state)
+
+    {local, borders} =
+      Enum.split_with(steps, fn %{position: {x, _, z}} ->
+        Grid.section(state.dimension, Grid.chunk_key(x, z)) == route
+      end)
+
+    state =
+      Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
+        case Store.advance(acc.entities.store, acc.key, acc.epoch, batch) do
+          {:ok, store, _} -> %{acc | entities: %{acc.entities | store: store}}
+          {:error, _} -> acc
+        end
+      end)
+
+    {nearby, away} =
+      borders
+      |> Enum.group_by(fn %{position: {x, _, z}} ->
+        Grid.section(state.dimension, Grid.chunk_key(x, z))
+      end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.split_with(fn {destination, _} -> local_destination?(state, destination) end)
+
+    state =
+      for {destination, batch} <- nearby, chunk <- Enum.chunk_every(batch, 32), reduce: state do
+        acc -> move_to_sibling(acc, destination, chunk)
+      end
+
+    if away != [] and state.entities.store.ledger.outgoing == nil and state.entities.persistent do
+      [{destination, batch} | _] = away
+      deadline = System.monotonic_time(:millisecond) + 250
+
+      state
+      |> then(
+        &plan_item_change(
+          :item_handoff_out,
+          {destination, Enum.take(batch, 32), deadline},
+          nil,
+          &1
+        )
+      )
+      |> elem(1)
+    else
       state
     end
   end

@@ -364,3 +364,226 @@ fn items_step<'a>(
         .collect();
     Ok(ok(env, results))
 }
+
+// ---- mobs (VMC-015i) ----
+
+mod mob_atoms {
+    rustler::atoms! { wait, move_to, jumping }
+}
+
+/// A mob as its owner keeps it (`Valimc.Entity.MobMotion`): position, yaw
+/// and head yaw, motion and its flags, the relative input and speed, the
+/// move control `{operation, target, speed}`, its size `{width, height,
+/// eye}`, the travel attributes `{movement_speed, jump_strength, gravity,
+/// step_height, water_efficiency, friction_modifier, air_drag_modifier}` and
+/// its travel effects.
+#[derive(rustler::NifMap)]
+struct MobT {
+    position: Vec3,
+    yaw: f64,
+    head_yaw: f64,
+    velocity: Vec3,
+    on_ground: bool,
+    horizontal_collision: bool,
+    fall_distance: f64,
+    no_jump_delay: i32,
+    stuck_multiplier: Vec3,
+    strafe: f64,
+    forward: f64,
+    speed: f64,
+    control: (Atom, Option<Vec3>, f64),
+    size: Vec3,
+    attributes: (f64, f64, f64, f64, f64, f64, f64),
+    no_gravity: bool,
+    slow_falling: bool,
+    levitation: Option<i32>,
+    jump_boost: i32,
+    alive: bool,
+}
+
+/// A mob's tick: the mob after it and what its living rules read.
+#[derive(rustler::NifMap)]
+struct TickedT {
+    mob: MobT,
+    water: bool,
+    lava: bool,
+    eye_water: bool,
+    eye_state: u16,
+    landing: Option<(u16, f64)>,
+    fire_contacts: crate::player::FiresT,
+    climbing: bool,
+}
+
+fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
+    use valimc_core::physics::mob::{Attributes, Control, Mob};
+    let (op, target, speed) = m.control;
+    let control = if op == mob_atoms::wait() {
+        Control::Wait
+    } else if op == mob_atoms::move_to() {
+        Control::MoveTo {
+            target: v3(target.ok_or(rustler::Error::BadArg)?),
+            speed,
+        }
+    } else if op == mob_atoms::jumping() {
+        Control::Jumping { speed }
+    } else {
+        return Err(rustler::Error::BadArg);
+    };
+    let a = m.attributes;
+    Ok(Mob {
+        position: v3(m.position),
+        yaw: m.yaw as f32,
+        head_yaw: m.head_yaw as f32,
+        velocity: v3(m.velocity),
+        on_ground: m.on_ground,
+        horizontal_collision: m.horizontal_collision,
+        fall_distance: m.fall_distance,
+        no_jump_delay: m.no_jump_delay,
+        stuck_multiplier: v3(m.stuck_multiplier),
+        strafe: m.strafe as f32,
+        forward: m.forward as f32,
+        speed: m.speed as f32,
+        control,
+        size: valimc_core::physics::player::pose::Dimensions {
+            width: m.size.0,
+            height: m.size.1,
+            eye: m.size.2,
+        },
+        attributes: Attributes {
+            movement_speed: a.0,
+            jump_strength: a.1,
+            gravity: a.2,
+            step_height: a.3,
+            water_efficiency: a.4,
+            friction_modifier: a.5,
+            air_drag_modifier: a.6,
+        },
+        no_gravity: m.no_gravity,
+        slow_falling: m.slow_falling,
+        levitation: m.levitation,
+        jump_boost: m.jump_boost,
+        alive: m.alive,
+    })
+}
+
+fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
+    use valimc_core::physics::mob::Control;
+    let a = &m.attributes;
+    let control = match m.control {
+        Control::Wait => (mob_atoms::wait(), None, 0.0),
+        Control::MoveTo { target, speed } => (mob_atoms::move_to(), Some(t3(target)), speed),
+        Control::Jumping { speed } => (mob_atoms::jumping(), None, speed),
+    };
+    MobT {
+        position: t3(m.position),
+        yaw: m.yaw as f64,
+        head_yaw: m.head_yaw as f64,
+        velocity: t3(m.velocity),
+        on_ground: m.on_ground,
+        horizontal_collision: m.horizontal_collision,
+        fall_distance: m.fall_distance,
+        no_jump_delay: m.no_jump_delay,
+        stuck_multiplier: t3(m.stuck_multiplier),
+        strafe: m.strafe as f64,
+        forward: m.forward as f64,
+        speed: m.speed as f64,
+        control,
+        size: (m.size.width, m.size.height, m.size.eye),
+        attributes: (
+            a.movement_speed,
+            a.jump_strength,
+            a.gravity,
+            a.step_height,
+            a.water_efficiency,
+            a.friction_modifier,
+            a.air_drag_modifier,
+        ),
+        no_gravity: m.no_gravity,
+        slow_falling: m.slow_falling,
+        levitation: m.levitation,
+        jump_boost: m.jump_boost,
+        alive: m.alive,
+    }
+}
+
+/// One tick of every mob of an owner, in order (`LivingEntity.aiStep` and
+/// `pushEntities`; `players` are `{feet, box}` that push the mobs they
+/// touch): `{:ok, results}` in input order, each `{:ok, ticked}` or `{:error,
+/// reason}` (that mob keeps its state).
+#[rustler::nif]
+fn physics_mobs<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    mobs_step(env, view_term, mobs, players, border)
+}
+
+/// `physics_mobs` for batches past the normal scheduler's budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_dirty<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    mobs_step(env, view_term, mobs, players, border)
+}
+
+fn mobs_step<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let bodies = mobs.iter().map(mob).collect::<NifResult<Vec<_>>>()?;
+    let Some(region) = union(
+        &bodies
+            .iter()
+            .map(|m| {
+                let p = m.position;
+                let half = m.size.width / 2.0 + 2.0;
+                Aabb::new(
+                    [p[0] - half, p[1] - 2.0, p[2] - half],
+                    [p[0] + half, p[1] + m.size.height + 2.0, p[2] + half],
+                )
+                .expand_towards(m.velocity)
+            })
+            .collect::<Vec<_>>(),
+    ) else {
+        return Ok(ok(env, Vec::<Term>::new()));
+    };
+    let view = view(view_term, facts, &region)?;
+    let world = valimc_core::physics::player::World {
+        source: &view,
+        facts,
+        border: crate::player::border(border),
+    };
+    let players: Vec<([f64; 3], Aabb)> =
+        players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
+    let results: Vec<Term> = valimc_core::physics::mob::tick_all(&world, &bodies, &players)
+        .iter()
+        .map(|r| match r {
+            Ok(t) => ok(
+                env,
+                TickedT {
+                    mob: mob_t(&t.mob),
+                    water: t.water,
+                    lava: t.lava,
+                    eye_water: t.eye_water,
+                    eye_state: t.eye_state,
+                    landing: t.landing,
+                    fire_contacts: crate::player::fires(&t.touched),
+                    climbing: t.climbing,
+                },
+            ),
+            Err(f) => crate::player::fault(env, *f),
+        })
+        .collect();
+    Ok(ok(env, results))
+}

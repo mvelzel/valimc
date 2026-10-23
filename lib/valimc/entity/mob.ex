@@ -15,7 +15,13 @@ defmodule Valimc.Entity.Mob do
   alias Valimc.Living.{Attributes, Health}
   alias Valimc.Protocol.ItemStack
 
-  defstruct living: %Living{}, equipment: %{}, attributes: %{}, ai: nil
+  alias Valimc.Entity.MobMotion
+
+  defstruct living: %Living{},
+            equipment: %{},
+            attributes: %{},
+            ai: nil,
+            motion: %MobMotion{}
 
   # `EquipmentSlot` ids, as the equipment packet numbers them.
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
@@ -33,7 +39,8 @@ defmodule Valimc.Entity.Mob do
       living: Living.saved(mob.living),
       equipment: mob.equipment,
       attributes: mob.attributes,
-      ai: mob.ai
+      ai: mob.ai,
+      motion: mob.motion
     }
   end
 
@@ -42,7 +49,10 @@ defmodule Valimc.Entity.Mob do
         type,
         %{living: %{} = living, equipment: equipment, attributes: attributes} = record
       ) do
+    motion = Map.get(record, :motion, %MobMotion{})
+
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
+         true <- MobMotion.valid?(motion),
          {:ok, restored} <- Living.restore(living),
          {:ok, health} <- Health.restore(living.health, max_health(type, attributes)) do
       {:ok,
@@ -50,7 +60,8 @@ defmodule Valimc.Entity.Mob do
          living: %{restored | health: health},
          equipment: equipment,
          attributes: attributes,
-         ai: Map.get(record, :ai)
+         ai: Map.get(record, :ai),
+         motion: motion
        }}
     else
       _ -> {:error, :invalid_mob}
@@ -85,6 +96,26 @@ defmodule Valimc.Entity.Mob do
       {:ok, %{mob | living: Living.die(living)}}
     else
       _ -> :ignored
+    end
+  end
+
+  @doc """
+  Damage of `amount` from `source` (`LivingEntity.hurtServer` through the
+  living rules): `{mob, events}`, the damage event when the hit got through
+  the hurt window, then the death event when it killed. Armor and
+  attributes beyond health are VMC-037n's.
+  """
+  def hurt(%__MODULE__{} = mob, source, amount) do
+    with true <- alive?(mob),
+         {:ok, selected} <- Health.hurt_window(mob.living.health, amount),
+         {:ok, %{living: living}} <- Living.Damage.resolve(mob.living, %{}, selected, source) do
+      events = if selected.notify, do: [{:damage, source}], else: []
+
+      if living.health.value <= 0,
+        do: {%{mob | living: Living.die(living)}, events ++ [{:event, 3}]},
+        else: {%{mob | living: living}, events}
+    else
+      _ -> {mob, []}
     end
   end
 

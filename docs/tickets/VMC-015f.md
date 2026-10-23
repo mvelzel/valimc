@@ -1,7 +1,7 @@
 # VMC-015f — Relative movement input
 
 Status: Parked
-Resolved (VMC-079): relative input is not live and vanilla does not replay it for players; mob movement control takes it up in VMC-015i.
+Resolved (VMC-079): relative input is not live and vanilla does not replay it for players; mob movement control takes it up in VMC-015i, whose mob tick runs `Entity.getInputVector` natively.
 Note: In progress. October 15, 2026.
 
 Acceptance: native direction cancellation/normalization and yaw rotation; float

@@ -12,15 +12,15 @@ pub fn f32r(v: f64) -> f64 {
     v as f32 as f64
 }
 
-const SIN_SCALE: f64 = 10_430.378350470453;
+pub(crate) const SIN_SCALE: f64 = 10_430.378350470453;
 pub const EPSILON: f64 = 9.999999747378752e-6;
 
 /// `Mth.sin` of a table index.
-fn trig(index: i64) -> f64 {
+pub(crate) fn trig(index: i64) -> f64 {
     f32r(((index & 65_535) as f64 / SIN_SCALE).sin())
 }
 
-fn angle(degrees: f64) -> f64 {
+pub(crate) fn angle(degrees: f64) -> f64 {
     f32r(f32r(degrees) * f32r(0.017453292))
 }
 

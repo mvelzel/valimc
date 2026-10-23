@@ -636,26 +636,30 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  # A body moved (a teleport, or a handoff's step), with its rotation when the
-  # step names one.
+  # A body moved: a teleport (with its rotation when the step names one), a
+  # mob's tick (its new body and entity events, VMC-015i) or a handoff's step.
   defp advance_body(state, key, %{id: id, revision: revision, position: {x, y, z}} = step) do
     with {:ok, entry} <- current(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and Grid.region_key(Grid.chunk_key(x, z)) == key do
       body =
         case step do
+          %{body: %Body{} = body} -> body
           %{rotation: {yaw, pitch}} -> %{entry.body | yaw: yaw, pitch: pitch, head_yaw: yaw}
           _ -> entry.body
         end
 
+      moved = {x, y, z} != {entry.entity.x, entry.entity.y, entry.entity.z}
+
       entry = %{
         entry
         | entity: %{entry.entity | x: x, y: y, z: z},
-          body: body,
-          revision: revision + 1,
-          physical_revision: entry.physical_revision + 1
+          physical_revision: entry.physical_revision + if(moved, do: 1, else: 0)
       }
 
-      {:ok, put_entry(state, id, entry), {state.epoch, id, revision + 1}}
+      state = %{state | entries: Map.put(state.entries, id, entry)}
+
+      {:ok, put_body(state, id, body, Map.get(step, :events, [])),
+       {state.epoch, id, revision + 1}}
     else
       false -> {:error, :invalid_item_step}
       error -> error
@@ -716,17 +720,28 @@ defmodule Valimc.Entity.Store do
     do: %{
       state
       | entries: Map.put(state.entries, id, entry),
-        views: Map.put(state.views, id, body_view(state.epoch, entry))
+        views: Map.put(state.views, id, body_view(state.epoch, entry, state.views[id]))
     }
 
-  # A body's view: what every view has, the pairing packets as its metadata,
-  # its type and rotation, its body (trackers send what changed) and its
-  # latest entity events.
-  defp body_view(epoch, %{entity: entity, body: body} = entry) do
+  # A body's view: what every view has, the pairing packets as its metadata
+  # (kept while what they show is unchanged), its type and rotation, its body
+  # (trackers send what changed) and its latest entity events.
+  defp body_view(epoch, %{entity: entity, body: body} = entry, previous \\ nil) do
     position = Map.merge(entity, %{velocity: body.velocity, on_ground: body.on_ground})
 
+    metadata =
+      case previous do
+        %{body: old, metadata: metadata} when old.type == body.type ->
+          if Body.shown(old) == Body.shown(body),
+            do: metadata,
+            else: Body.pairing(entity.entity_id, body)
+
+        _ ->
+          Body.pairing(entity.entity_id, body)
+      end
+
     entry.kind
-    |> View.new(position, Body.pairing(entity.entity_id, body), epoch, entry.hops)
+    |> View.new(position, metadata, epoch, entry.hops)
     |> Map.merge(%{
       revision: entry.revision,
       physical_revision: entry.physical_revision,

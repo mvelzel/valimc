@@ -8,3 +8,8 @@ defprotocol Valimc.Physics.Cells do
   """
   def cells(view, region)
 end
+
+defimpl Valimc.Physics.Cells, for: Tuple do
+  # Supplied cells (oracle checks and benches) are read as they are.
+  def cells({:states, packed} = view, _region) when is_binary(packed), do: view
+end

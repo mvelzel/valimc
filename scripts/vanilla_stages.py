@@ -1014,6 +1014,11 @@ STAGES = [
         ('check', 'check_entities.exs', '@entity-fixtures.json', '@elixir-entities.json'),
         ('java', 'EntityOracle', 'verify', '@elixir-entities.json'),
     ]),
+    # VMC-015i: whole vanilla zombie ticks over block scenes against the kernel's mob tick.
+    ('mob_travel', [
+        ('java', 'MobTravelOracle', '@mob-travel.json'),
+        ('check', 'check_mob_travel.exs', '@mob-travel.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

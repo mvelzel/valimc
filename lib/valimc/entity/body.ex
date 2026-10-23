@@ -185,6 +185,14 @@ defmodule Valimc.Entity.Body do
   defp pose(_body), do: :standing
 
   @doc """
+  What observers are shown of `body` beyond its motion: its entity data
+  values, a mob's attribute overrides and equipment. Equal shown parts send
+  equal packets, so a body that only moved keeps its encoded ones.
+  """
+  def shown(%__MODULE__{mob: nil} = body), do: {values(body), nil, nil}
+  def shown(%__MODULE__{mob: mob} = body), do: {values(body), mob.attributes, mob.equipment}
+
+  @doc """
   What an observer that starts tracking entity `id` is sent after its spawn
   (`ServerEntity.sendPairingData`): its non-default entity data, a mob's
   synced attributes and its equipment.
@@ -214,7 +222,13 @@ defmodule Valimc.Entity.Body do
   The packets of what changed from `old` to `new` (entity data, attributes,
   equipment), for observers already tracking entity `id`.
   """
+  def changes(_id, %__MODULE__{} = same, %__MODULE__{} = same), do: []
+
   def changes(id, %__MODULE__{} = old, %__MODULE__{} = new) do
+    if shown(old) == shown(new), do: [], else: shown_changes(id, old, new)
+  end
+
+  defp shown_changes(id, old, new) do
     old_values = values(old)
 
     data =

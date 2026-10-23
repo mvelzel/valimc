@@ -87,7 +87,7 @@ impl World<'_> {
         fluid::any_liquid(self.source, self.facts, body)?.ok_or(Fault::Limit("invalid_fluid_box"))
     }
 
-    fn fluid_bounded(&self, b: &Aabb) -> Result<(), Fault> {
+    pub(crate) fn fluid_bounded(&self, b: &Aabb) -> Result<(), Fault> {
         const INSET: f64 = 0.001;
         if !(b.max[0] - b.min[0] > 2.0 * INSET
             && b.max[1] - b.min[1] > 2.0 * INSET
@@ -132,7 +132,7 @@ impl World<'_> {
     }
 
     /// Whether `body` (offset by an escape) is free of colliders and fluid.
-    fn free(
+    pub(crate) fn free(
         &self,
         body: &Aabb,
         ctx: &crate::physics::Context,

@@ -205,3 +205,8 @@ The serial phase drops by about 10 s. Two runs cannot tell whether the wider asy
 spread afterwards is machine noise or added contention; the six files alone also
 varied, 4.7–12.3 s async across five runs. Raw logs stay in
 `.local/perf/test-suite-split/`.
+
+[Mob travel](tickets/VMC-015i.md) (`bench/mob_ticks.exs`, zombies walking and
+pushing on a floor, medians of 60 ticks at host load about 40): a section's
+whole mob phase takes 8.3 ms a tick for 300 zombies and 17.2 ms for 600,
+about 28 µs a mob.

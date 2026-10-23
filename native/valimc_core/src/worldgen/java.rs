@@ -1,6 +1,6 @@
 //! Java arithmetic that differs from Rust's: `Math.min`/`Math.max` on floats
 //! (NaN wins, -0.0 is below 0.0), `Mth.clamp`, integer `floorDiv`/`floorMod`,
-//! and `StrictMath.sin`/`cos`.
+//! and `StrictMath.sin`/`cos`/`asin`.
 
 pub fn fmin(a: f32, b: f32) -> f32 {
     if a.is_nan() {
@@ -220,9 +220,88 @@ pub fn cos(x: f64) -> f64 {
     }
 }
 
+/// `StrictMath.asin` (fdlibm's `__ieee754_asin`).
+pub fn asin(x: f64) -> f64 {
+    const PIO2_HI: f64 = f64::from_bits(0x3FF9_21FB_5444_2D18);
+    const PIO2_LO: f64 = f64::from_bits(0x3C91_A626_3314_5C07);
+    const PIO4_HI: f64 = f64::from_bits(0x3FE9_21FB_5444_2D18);
+    const PS0: f64 = f64::from_bits(0x3FC5_5555_5555_5555);
+    const PS1: f64 = f64::from_bits(0xBFD4_D612_03EB_6F7D);
+    const PS2: f64 = f64::from_bits(0x3FC9_C155_0E88_4455);
+    const PS3: f64 = f64::from_bits(0xBFA4_8228_B568_8F3B);
+    const PS4: f64 = f64::from_bits(0x3F49_EFE0_7501_B288);
+    const PS5: f64 = f64::from_bits(0x3F02_3DE1_0DFD_F709);
+    const QS1: f64 = f64::from_bits(0xC003_3A27_1C8A_2D4B);
+    const QS2: f64 = f64::from_bits(0x4000_2AE5_9C59_8AC8);
+    const QS3: f64 = f64::from_bits(0xBFE6_066C_1B8D_0159);
+    const QS4: f64 = f64::from_bits(0x3FB3_B8C5_B12E_9282);
+    let hx = high(x);
+    let ix = hx & 0x7fff_ffff;
+    let rational = |t: f64| {
+        let p = t * (PS0 + t * (PS1 + t * (PS2 + t * (PS3 + t * (PS4 + t * PS5)))));
+        let q = 1.0 + t * (QS1 + t * (QS2 + t * (QS3 + t * QS4)));
+        (p, q)
+    };
+    if ix >= 0x3ff0_0000 {
+        if (ix - 0x3ff0_0000) as u32 | x.to_bits() as u32 == 0 {
+            return x * PIO2_HI + x * PIO2_LO;
+        }
+        return f64::NAN;
+    }
+    if ix < 0x3fe0_0000 {
+        if ix < 0x3e40_0000 {
+            return x;
+        }
+        let t = x * x;
+        let (p, q) = rational(t);
+        return x + x * (p / q);
+    }
+    let w = 1.0 - x.abs();
+    let t = w * 0.5;
+    let (p, q) = rational(t);
+    let s = t.sqrt();
+    let t = if ix >= 0x3FEF_3333 {
+        let w = p / q;
+        PIO2_HI - (2.0 * (s + s * w) - PIO2_LO)
+    } else {
+        let w = f64::from_bits(s.to_bits() & 0xffff_ffff_0000_0000);
+        let c = (t - w * w) / (s + w);
+        let r = p / q;
+        let p = 2.0 * s * r - (PIO2_LO - 2.0 * c);
+        let q = PIO4_HI - 2.0 * w;
+        PIO4_HI - (p - q)
+    };
+    if hx > 0 {
+        t
+    } else {
+        -t
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asin_equals_strict_math() {
+        // (i, StrictMath.asin(i / 256), StrictMath.cos of it) as bits, from
+        // Java 25: Mth.atan2's table, where the platform's asin differs.
+        const CASES: [(u32, u64, u64); 8] = [
+            (0, 0x0000000000000000, 0x3ff0000000000000),
+            (27, 0x3fbb0ce107d3f690, 0x3fefd24f61ba0590),
+            (28, 0x3fbc0e5e80f7172d, 0x3fefceda421efdb5),
+            (58, 0x3fcd4106cba45b08, 0x3fef2afafa9380f9),
+            (61, 0x3fcecbd75b6cd8f0, 0x3fef140a0a086af0),
+            (128, 0x3fe0c152382d7366, 0x3febb67ae8584caa),
+            (249, 0x3ff561ebd9c18cd3, 0x3fcdba59d10bfe0a),
+            (256, 0x3ff921fb54442d18, 0x3c91a62633145c07),
+        ];
+        for (i, a, c) in CASES {
+            let v = asin(i as f64 / 256.0);
+            assert_eq!(v.to_bits(), a, "asin({i}/256)");
+            assert_eq!(cos(v).to_bits(), c, "cos(asin({i}/256))");
+        }
+    }
 
     #[test]
     fn sin_and_cos_equal_strict_math() {

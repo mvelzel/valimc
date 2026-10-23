@@ -744,6 +744,12 @@ defmodule Valimc.World.RegionStorage do
     end
   end
 
+  # A body (VMC-015i) that only moved waits for the motion pass, as an item.
+  defp wait({:entity, _}, %{kind: kind, mob: _} = old, %{kind: kind, mob: _} = new, full)
+       when kind in [:mob, :object] do
+    if not full and travelled(old) == travelled(new), do: :motion
+  end
+
   defp wait({:container, _}, %{cooking: %{} = a} = old, %{cooking: %{} = b} = new, _full),
     do: if(%{old | cooking: burning(a)} == %{new | cooking: burning(b)}, do: :counters)
 
@@ -756,6 +762,18 @@ defmodule Valimc.World.RegionStorage do
     %{motion: motion} = record = counters(record)
     %{record | x: 0, y: 0, z: 0, motion: %{motion | velocity: nil, on_ground: nil}}
   end
+
+  defp travelled(record),
+    do: %{
+      record
+      | x: 0,
+        y: 0,
+        z: 0,
+        velocity: nil,
+        rotation: nil,
+        on_ground: nil,
+        mob: %{record.mob | motion: nil}
+    }
 
   # Burning out or finishing is a change; burning on is not.
   defp burning(cooking),

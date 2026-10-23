@@ -276,6 +276,37 @@ defmodule Valimc.Physics.Kernel do
     Native.dispatch(:physics_orbs, cells, [native(view, region), orbs, bounds])
   end
 
+  @doc """
+  One tick of every mob of an owner (VMC-015i), each a map as
+  `Valimc.Entity.MobMotion.kernel/2` makes it, `players` the `{feet, box}`
+  of the players that push them: `{:ok, results}` in order, each `{:ok,
+  ticked}` or `{:error, reason}`.
+  """
+  def mobs(_view, [], _players, _border), do: {:ok, []}
+
+  def mobs(view, mobs, players, border) do
+    region =
+      mobs
+      |> Enum.map(fn %{position: {x, y, z}, size: {width, height, _}, velocity: velocity} ->
+        half = width / 2 + 2.0
+        expand({x - half, y - 2.0, z - half, x + half, y + height + 2.0, z + half}, velocity)
+      end)
+      |> Enum.reduce(&union/2)
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    # A mob's tick scans about four times an item's cells (move, fluids twice,
+    # footing, contacts) over its larger body.
+    cells =
+      Enum.reduce(mobs, 0, fn %{velocity: velocity}, sum -> sum + 4 * scan_cells(velocity) end)
+
+    Native.dispatch(:physics_mobs, cells, [native(view, region), mobs, players, bounds])
+  end
+
   # The cells one item tick scans, about: its movement's (0.25 blocks plus the
   # velocity, and the scan's halo) and its fluid and clearance scans.
   defp scan_cells({x, y, z}),
