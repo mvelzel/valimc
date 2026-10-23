@@ -139,8 +139,11 @@ October 23, 2026, on the host's ten cores.
   before a change) fails on the old facts and passes on the new ones; the old
   facts failed exactly these updates in decoration, which is how a mansion's
   pumpkin room (`woodland_mansion/1x2_a8`, the only template with attached
-  stems) lost its chunks. The seed-20261020 mansion at [-1952, ~, -864] has no
-  such room; its six regions generate with either facts.
+  stems) lost its chunks. The failing mansion (seed -779151933078932174,
+  default settings, chunks -1241..-1237 by 1303..1305): with the old facts
+  regions (-155, 162) and (-155, 163) fail decorating chunk (-1239, 1304) on
+  state 10068 toward north, as the dev server logged; with the new facts all
+  four regions around it generate.
 - `PlacementOracle` (3,800 s, stage `placement`): 1,138 block items in one
   diagram of 36,008 nodes over 284 partitions and 343 outcomes, 9 replacement
   rules; `priv/physics/placement.json` is 2.3 MB. Excluded: repeaters,
