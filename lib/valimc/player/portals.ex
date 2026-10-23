@@ -128,14 +128,17 @@ defmodule Valimc.Player.Portals do
 
   @doc """
   After the credits (`PlayerList.respawn` keeping all data): the player
-  respawns in the overworld with everything it had.
+  respawns at its respawn point (an anchor keeps its charge, VMC-040a) or
+  the world spawn with everything it had.
   """
   def credits_done(%{player: %{won_game: true}} = state) do
     state = %{state | player: Map.put(state.player, :won_game, false)}
+    {state, spawn} = Valimc.Player.RespawnPoint.respawn(state, false)
 
     target =
-      Valimc.World.Portal.EndPortal.respawn_target()
-      |> Map.merge(%{portal: false, keep: 1})
+      spawn
+      |> Map.take([:dimension, :x, :y, :z, :yaw, :pitch])
+      |> Map.merge(%{velocity: {0.0, 0.0, 0.0}, portal: false, keep: 1})
 
     Travel.request(state, target)
   end
@@ -243,6 +246,13 @@ defmodule Valimc.Player.Portals do
   permitting), or teleport within the dimension (an end gateway) keeping the
   player's motion.
   """
+  # Out of the End: the respawn point's place, an anchor keeping its charge.
+  def arrived(state, {:ok, %{respawn_point: true} = target}) do
+    {state, spawn} = Valimc.Player.RespawnPoint.respawn(state, false)
+    place = Map.take(spawn, [:dimension, :x, :y, :z, :yaw, :pitch])
+    arrived(state, {:ok, target |> Map.delete(:respawn_point) |> Map.merge(place)})
+  end
+
   def arrived(state, {:ok, %{dimension: dimension} = target}) do
     cond do
       dimension == :the_nether and not GameRules.get(:allow_entering_nether_using_portals) ->

@@ -127,6 +127,12 @@ defmodule Valimc.Session.Messages do
   """
   @impl Valimc.Player.Host
   def terminate(state) do
+    # A sleeper leaving frees its bed (`ServerPlayer.disconnect`).
+    state =
+      if state.phase == :play,
+        do: Valimc.Player.Sleep.stop(state, true, teleport: false),
+        else: state
+
     Menus.retire_container_view(state)
     Jobs.cancel_all(state.jobs)
     if state.phase == :play, do: return_items(%{state | mining: nil}), else: state
@@ -212,6 +218,7 @@ defmodule Valimc.Session.Messages do
            |> Vitals.reset_effect_fall()
            |> Mining.tick_mining()
            |> Menus.check_table_menu()
+           |> Valimc.Player.Sleep.tick()
            |> Vitals.continue_life()
            |> Valimc.Player.Portals.tick()
            |> Valimc.Player.Travel.tick()
@@ -278,6 +285,8 @@ defmodule Valimc.Session.Messages do
               state
           end
 
+        # A player saved asleep gets up (`readAdditionalSaveData`, VMC-040a).
+        state = Valimc.Player.Sleep.stop(state, true)
         {:noreply, Vitals.continue_life(state)}
       end)
 
@@ -311,6 +320,14 @@ defmodule Valimc.Session.Messages do
            {:noreply, Events.session(state, event)}
          end)
   end
+
+  # Enough players slept through the night (VMC-040a): the environment
+  # owner woke this one.
+  def info({:sleep, :woken}, %{phase: :play} = state),
+    do:
+      guard(state, fn ->
+        {:noreply, Valimc.Player.Sleep.stop(state, false, notify: false)}
+      end)
 
   # An explosion near the player (VMC-050a), from its group.
   def info({:explosion, explosion, count}, state),

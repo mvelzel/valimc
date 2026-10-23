@@ -26,7 +26,15 @@ defmodule Valimc.Player.Menus do
   @repeats 64
 
   @doc "Use of the block at `position` (a `use_item_on`): open its menu, or place against it."
-  def use_block(state, {x, _, z} = position, request) do
+  def use_block(state, position, request) do
+    # Beds and respawn anchors (VMC-040a) come first.
+    case Valimc.Player.SpawnBlocks.use(state, position, request) do
+      {:used, state} -> acknowledge_table_use(state, request)
+      :pass -> use_menu(state, position, request)
+    end
+  end
+
+  defp use_menu(state, {x, _, z} = position, request) do
     section = Grid.section(state.player.dimension, Grid.chunk_key(x, z))
 
     with {:ok, owner} <- World.existing_owner(section),

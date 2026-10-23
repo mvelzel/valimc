@@ -116,6 +116,21 @@ defmodule Valimc.World.Spawning do
     trunc(Float32.round(15.0 - level))
   end
 
+  @doc """
+  `Level.isDarkOutside` in `dimension` (an atom) now: its time is not fixed
+  and the sky darkens by at least 4 (VMC-040a: beds sleep when dark).
+  """
+  def dark?(dimension) do
+    if Valimc.Data.SleepFacts.dimension(dimension).fixed_time do
+      false
+    else
+      %{rain_level: rain, thunder_level: thunder} = weather(dimension)
+
+      darken(Dimension.name(dimension), Clock.day_ticks(), rain, Float32.round(thunder * rain)) >=
+        4
+    end
+  end
+
   @doc "The surface slime chance at `ticks` of the dimension's clock (the moon timeline)."
   def slime_chance(dimension, ticks) do
     case SpawnFacts.dimension(dimension)["tracks"]["surface_slime_spawn_chance"] do

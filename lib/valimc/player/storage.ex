@@ -38,7 +38,8 @@ defmodule Valimc.Player.Storage do
     :fire_ticks,
     :frozen_ticks,
     :effects,
-    :portal_cooldown
+    :portal_cooldown,
+    :time_since_rest
   ]
   @volatile_ms 1000
   @checkpoint_frames 1200

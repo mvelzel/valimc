@@ -10,8 +10,9 @@ defmodule Valimc.World.PlayerTracker do
     ground flag, or an absolute sync when the ground flag changed, the move
     is too long for a delta or 400 updates passed;
   - the head's rotation when it turned;
-  - the entity data (flags, pose, freezing and air, item use, health,
-    absorption and its attribute) and the equipment that changed.
+  - the entity data (flags, pose, the bed it sleeps in, freezing and air,
+    item use, health, absorption and its attribute) and the equipment that
+    changed.
 
   Observers spawn the player from its row (`view/5`): at the tracker's base,
   with all of its data and equipment.
@@ -172,7 +173,11 @@ defmodule Valimc.World.PlayerTracker do
       Valimc.Player.Packets.player_health(player),
       Valimc.Player.Packets.player_absorption(player),
       absorption_attribute(player)
-    ] ++ Valimc.Player.Packets.player_equipment(player)
+    ] ++
+      if(Valimc.Player.Packets.sleeping_pos(player),
+        do: [Valimc.Player.Packets.player_sleeping_pos(player)],
+        else: []
+      ) ++ Valimc.Player.Packets.player_equipment(player)
   end
 
   defp data(player) do
@@ -180,7 +185,8 @@ defmodule Valimc.World.PlayerTracker do
 
     {Valimc.Player.Packets.shared_flags(player), Map.get(player, :pose, :standing),
      {living.freezing.frozen_ticks, living.air_supply}, Map.get(player, :use_flags, 0),
-     living.health.value, living.absorption, Attributes.absorption_level(living.effects)}
+     living.health.value, living.absorption, Attributes.absorption_level(living.effects),
+     Valimc.Player.Packets.sleeping_pos(player)}
   end
 
   defp data_packets(_player, same, same), do: []
@@ -193,7 +199,8 @@ defmodule Valimc.World.PlayerTracker do
       {3, &Valimc.Player.Packets.player_use/1},
       {4, &Valimc.Player.Packets.player_health/1},
       {5, &Valimc.Player.Packets.player_absorption/1},
-      {6, &absorption_attribute/1}
+      {6, &absorption_attribute/1},
+      {7, &Valimc.Player.Packets.player_sleeping_pos/1}
     ]
     |> Enum.filter(fn {index, _} -> elem(old, index) != elem(new, index) end)
     |> Enum.map(fn {_, packet} -> binary(packet.(player)) end)

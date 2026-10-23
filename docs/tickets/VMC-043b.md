@@ -13,7 +13,9 @@ chances, burning in daylight, variants and loot:
 - creeper, including charged creepers;
 - spider and cave spider;
 - enderman (blocks it carries, teleports, stare aggro);
-- witch, slime, phantom and silverfish.
+- witch, slime, phantom and silverfish. Phantoms spawn from
+  `PhantomSpawner`, which reads each player's time since rest
+  (`time_since_rest`, kept by [VMC-040a](VMC-040a.md)).
 
 Acceptance:
 

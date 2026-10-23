@@ -36,7 +36,12 @@ defmodule Valimc.Player.State do
             last_death: nil,
             death_dimension: :overworld,
             portal_cooldown: 0,
-            seen_credits: false
+            seen_credits: false,
+            # VMC-040a: the bed or anchor the player respawns at, the bed it
+            # sleeps in (it gets up when loaded) and its ticks since rest.
+            respawn: nil,
+            sleeping: nil,
+            time_since_rest: 0
 
   @type t :: %__MODULE__{}
 
@@ -72,7 +77,10 @@ defmodule Valimc.Player.State do
         dimension: Map.get(player, :dimension, :overworld),
         death_dimension: Map.get(player, :death_dimension, :overworld),
         portal_cooldown: Map.get(player, :portal_cooldown, 0),
-        seen_credits: Map.get(player, :seen_credits, false)
+        seen_credits: Map.get(player, :seen_credits, false),
+        respawn: Map.get(player, :respawn),
+        sleeping: Valimc.Player.Packets.sleeping_pos(player),
+        time_since_rest: Map.get(player, :time_since_rest, 0)
       })
     )
   end
@@ -183,7 +191,11 @@ defmodule Valimc.Player.State do
       invalid_last_death: Valimc.Player.Life.valid_location?(state.last_death),
       invalid_portal_cooldown:
         is_integer(state.portal_cooldown) and state.portal_cooldown in 0..2_147_483_647,
-      invalid_seen_credits: is_boolean(state.seen_credits)
+      invalid_seen_credits: is_boolean(state.seen_credits),
+      invalid_respawn_point: Valimc.Player.RespawnPoint.valid?(state.respawn),
+      invalid_sleeping_position: Valimc.Player.Life.valid_location?(state.sleeping),
+      invalid_time_since_rest:
+        is_integer(state.time_since_rest) and state.time_since_rest in 0..2_147_483_647
     ]
 
     case Enum.find(checks, fn {_, valid} -> valid != true end) do

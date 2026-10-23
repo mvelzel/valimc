@@ -190,7 +190,13 @@ defmodule Valimc.Session.Play do
 
       "player_command" ->
         {:ok, input} = Input.receive_command(state.player.input, payload)
-        Movement.update_player_input(state, input)
+        state = Movement.update_player_input(state, input)
+
+        # Leaving the bed (VMC-040a, `STOP_SLEEPING`).
+        case Input.decode_command(payload) do
+          {:ok, {_, :stop_sleeping, _}} -> Valimc.Player.Sleep.stop(state, false)
+          _ -> state
+        end
 
       "player_loaded" ->
         <<>> = payload

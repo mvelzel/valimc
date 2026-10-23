@@ -45,6 +45,17 @@ defmodule Valimc.Player.PlayerList do
     nearby(Valimc.Player.ChunkView.regions(view, Map.get(player, :dimension, :overworld)))
   end
 
+  @doc """
+  The ready players of `dimension` that are not spectators, as
+  `[{connection, uuid}]` (who counts toward a night's sleep, VMC-040a).
+  """
+  def active(dimension) do
+    :ets.select(__MODULE__, [
+      {{:"$1", %{ready: true, uuid: :"$2", dimension: :"$3", game_mode: %{current: :"$4"}}},
+       [{:==, :"$3", dimension}, {:"=/=", :"$4", :spectator}], [{{:"$1", :"$2"}}]}
+    ])
+  end
+
   def get(pid) do
     case :ets.lookup(__MODULE__, pid) do
       [{_, %{ready: true} = player}] -> {:ok, player}

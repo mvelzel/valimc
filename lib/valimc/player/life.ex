@@ -28,9 +28,9 @@ defmodule Valimc.Player.Life do
   end
 
   @doc """
-  The respawned player at `spawn` (`Valimc.World.PlayerSpawn.find/1`), in the
-  world spawn's dimension: respawn points elsewhere (beds, anchors) arrive with
-  VMC-040.
+  The respawned player at `spawn`: its respawn point's
+  (`Valimc.Player.RespawnPoint`) or the world spawn's
+  (`Valimc.World.PlayerSpawn.find/1`), in that spawn's dimension.
   """
   def respawn(player, spawn) do
     %{
@@ -57,6 +57,8 @@ defmodule Valimc.Player.Life do
 
   def die(player) do
     player
+    # Dying restarts the time since rest (`ServerPlayer.die`, VMC-040a).
+    |> Map.put(:time_since_rest, 0)
     |> Map.put(:death_dimension, Map.get(player, :dimension, :overworld))
     |> Map.put(:last_death, {floor(player.x), floor(player.y), floor(player.z)})
     |> dead()

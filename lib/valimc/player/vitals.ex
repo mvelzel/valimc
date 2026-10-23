@@ -233,6 +233,9 @@ defmodule Valimc.Player.Vitals do
           Valimc.Player.Movement.broadcast_player_packet(state, packet)
         end
 
+        # A hurt sleeper gets up (`LivingEntity.hurtServer`, VMC-040a).
+        state = Valimc.Player.Sleep.stop(state, true)
+
         state =
           if health.value <= 0 do
             state =
@@ -353,9 +356,14 @@ defmodule Valimc.Player.Vitals do
     end
   end
 
+  # The respawn point decides where (VMC-040a): a bed or charged anchor, or
+  # the world spawn.
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
-    spawn = Valimc.World.PlayerSpawn.find()
-    finish_respawn(state, Life.respawn(state.player, spawn))
+    {state, spawn} = Valimc.Player.RespawnPoint.respawn(state)
+
+    state
+    |> finish_respawn(Life.respawn(state.player, spawn))
+    |> Valimc.Player.RespawnPoint.after_respawn()
   end
 
   def continue_life(state), do: state

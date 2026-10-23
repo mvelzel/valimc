@@ -77,6 +77,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-034n4c](tickets/VMC-034n4c.md) | A furnace's orbs scatter; orbs hop in lava; orbs lying together merge |
 | [VMC-026d](tickets/VMC-026d.md) | A thrown eye of ender flies toward the stronghold; a zombie and orbs cross a Nether portal |
 | [VMC-041a1](tickets/VMC-041a1.md), [041a2](tickets/VMC-041a2.md) | A summoned zombie hunts, chases and hits a survival player, loses one behind a wall, only looks at a creative one; a pig wanders, follows a carrot and panics when hit; a piglin admires a dropped gold ingot |
+| [VMC-040a](tickets/VMC-040a.md) | Two clients: one asleep keeps the night, both skip it; monsters forbid sleep; bed respawn and its fallback; an anchor charges and explodes outside the Nether; a bed explodes in the Nether |
 | [VMC-043a1](tickets/VMC-043a1.md) | `/tp` of the nearest dropped item; `/kill @e[type=item]` and `@e[type=experience_orb]` remove them |
 
 ## Retrieve and update

@@ -176,6 +176,9 @@ defmodule Valimc.Protocol.Packets do
   def unload({x, z}), do: packet("forget_level_chunk", <<z::signed-32, x::signed-32>>)
   def chat(text), do: packet("system_chat", [Wire.text_component(text), <<0>>])
 
+  @doc "A message above the hotbar (`sendOverlayMessage`: system chat as an overlay)."
+  def overlay(text), do: packet("system_chat", [Wire.text_component(text), <<1>>])
+
   def block(position, state),
     do: packet("block_update", [Wire.position(position), Wire.varint(state)])
 

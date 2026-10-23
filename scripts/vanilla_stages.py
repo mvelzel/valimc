@@ -711,6 +711,14 @@ STAGES = [
         ('java', 'ExplosionOracle', '@explosion.json'),
         ('check', 'check_explosion.exs', '@explosion.json'),
     ]),
+    # VMC-040a: bed rules and stand-up facts; stand-ups, respawn points, sleep
+    # checks and counts, and the sleep packets over probe scenes.
+    ('sleep', [
+        ('regen', 'SleepOracle', 'facts', '@sleep-facts.json'),
+        ('same', '@sleep-facts.json', 'priv/physics/sleep.json'),
+        ('java', 'SleepOracle', 'fixtures', '@sleep-fixtures.json'),
+        ('check', 'check_sleep.exs', '@sleep-fixtures.json'),
+    ]),
     # VMC-050a: a primed TNT's motion through the physics kernel.
     ('tnt_travel', [
         ('java', 'TntTravelOracle', '@tnt-travel.json'),

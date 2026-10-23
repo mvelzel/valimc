@@ -216,6 +216,7 @@ defmodule Valimc.Protocol.EntityPackets do
               :tnt_fuse,
               :tnt_block_state,
               :falling_block_start_pos,
+              :sleeping_pos,
               :ageable_baby,
               :arrow_flags,
               :arrow_pierce_level,
@@ -293,6 +294,19 @@ defmodule Valimc.Protocol.EntityPackets do
           )
 
           Wire.position(value)
+
+        # An optional block position: where a living entity sleeps (VMC-040a).
+        :sleeping_pos ->
+          case value do
+            nil ->
+              <<0>>
+
+            {x, y, z} when is_integer(x) and is_integer(y) and is_integer(z) ->
+              [<<1>>, Wire.position(value)]
+
+            _ ->
+              check(false, "invalid sleeping position")
+          end
 
         :experience_value ->
           check(is_integer(value) and value in 1..2_147_483_647, "invalid experience value")

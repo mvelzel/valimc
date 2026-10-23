@@ -104,6 +104,9 @@ defmodule Valimc.Net.LoginFlow do
       death_dimension: :overworld,
       portal_cooldown: 0,
       seen_credits: false,
+      respawn: nil,
+      sleeping: nil,
+      time_since_rest: 0,
       pose: :standing,
       ready: false
     }
@@ -159,6 +162,10 @@ defmodule Valimc.Net.LoginFlow do
               death_dimension: snapshot.death_dimension,
               portal_cooldown: snapshot.portal_cooldown,
               seen_credits: snapshot.seen_credits,
+              respawn: snapshot.respawn,
+              # A sleeper saved in its bed gets up once it plays (VMC-040a).
+              sleeping: snapshot.sleeping && %{bed: snapshot.sleeping, ticks: 0},
+              time_since_rest: snapshot.time_since_rest,
               motion:
                 Motion.flight(
                   %Motion{

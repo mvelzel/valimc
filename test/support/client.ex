@@ -986,9 +986,12 @@ defmodule Valimc.TestPlayer do
       send(pid, :save_player_now)
       %{storage: storage} = state = Valimc.TestConn.state(pid)
 
+      # The time since rest advances every tick a player is awake (VMC-040a).
+      live = PlayerState.records(PlayerState.capture(state.player, state.inventory))
+      rest = {:player, :time_since_rest}
+
       storage.seq == storage.checkpoint_seq and storage.checkpointing == nil and
-        PlayerState.records(PlayerState.capture(state.player, state.inventory)) ==
-          storage.committed
+        Map.delete(live, rest) == Map.delete(storage.committed, rest)
     end)
   end
 

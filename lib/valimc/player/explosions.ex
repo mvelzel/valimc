@@ -4,7 +4,8 @@ defmodule Valimc.Player.Explosions do
   session: the player's share of `ServerExplosion.hurtEntities` and of
   `ServerLevel.explode`'s packets. A player within 64 blocks is sent the
   explode packet; one within reach (not a spectator) is hurt by the
-  `:explosion` damage type, scaled by the difficulty, and pushed. The push
+  explosion's damage type (`:explosion`, a bed's `:bad_respawn_point`),
+  scaled by the difficulty, and pushed. The push
   is the packet's knockback unless the player flies in creative, and the
   server's own velocity takes it as vanilla's `push` does. Explosion
   knockback resistance (Blast Protection) is not modelled yet.
@@ -45,7 +46,7 @@ defmodule Valimc.Player.Explosions do
 
   def hit(state, _explosion, _count), do: state
 
-  defp affect(%{player: player} = state, %Explosion{center: center, radius: radius}) do
+  defp affect(%{player: player} = state, %Explosion{center: center, radius: radius} = explosion) do
     feet = {player.x, player.y, player.z}
     pose = Map.get(player, :pose, :standing)
     {:ok, geometry} = PlayerPose.geometry(pose, feet)
@@ -57,7 +58,7 @@ defmodule Valimc.Player.Explosions do
     else
       {:ok, [seen]} = Kernel.exposure(Valimc.World.View.new(), center, [geometry.box])
       damage = Explosions.damage(radius, center, feet, seen)
-      state = hurt(state, damage, :explosion)
+      state = hurt(state, damage, explosion.source)
       impulse = Explosions.knockback(center, geometry.eye, distance, seen)
       state = push(state, impulse)
 

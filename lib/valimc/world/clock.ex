@@ -9,6 +9,7 @@ defmodule Valimc.World.Clock do
     ClockState,
     ClockStore,
     Difficulty,
+    SleepStatus,
     Weather,
     WeatherReplication
   }
@@ -22,6 +23,15 @@ defmodule Valimc.World.Clock do
     do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, shutdown: 20_000}
 
   def snapshot(pid \\ __MODULE__), do: GenServer.call(pid, :snapshot)
+
+  @doc """
+  The player `uuid` (connection `connection`) lay down (`:asleep`), slept
+  long enough (`:deep`) or got up (`:awake`) in `dimension` (VMC-040a,
+  `Valimc.World.SleepStatus`): only on those changes, never per tick.
+  """
+  def sleep(uuid, dimension, kind, connection, pid \\ __MODULE__),
+    do: GenServer.cast(pid, {:sleep, uuid, dimension, kind, connection})
+
   def flush(pid \\ __MODULE__), do: GenServer.call(pid, :flush, 20_000)
   def configure(operation, pid \\ __MODULE__), do: GenServer.call(pid, {:configure, operation})
 
@@ -131,6 +141,7 @@ defmodule Valimc.World.Clock do
           tick_timer: nil,
           save_timer: nil,
           sync_ticks: 0,
+          sleep: %SleepStatus{},
           # The world's clock publishes the game tick groups follow (VMC-077j).
           main: Keyword.get(opts, :name, __MODULE__) == __MODULE__,
           # Without an explicit interval the clock follows `/tick` (`TickRate`).
@@ -237,6 +248,12 @@ defmodule Valimc.World.Clock do
   end
 
   defp change(_, _), do: {:error, :invalid_clock_change}
+
+  @impl true
+  def handle_cast({:sleep, uuid, dimension, kind, connection}, state),
+    do:
+      {:noreply,
+       %{state | sleep: SleepStatus.change(state.sleep, uuid, dimension, kind, connection)}}
 
   @impl true
   def handle_info({:clock_tick, token}, %{tick_timer: {token, timer}} = state) do
@@ -372,13 +389,14 @@ defmodule Valimc.World.Clock do
 
   defp tick(state, now) do
     if state.tick_interval == :rate, do: Valimc.World.TickRate.clock_ticked()
-    data = ClockRecord.tick(state.data)
+    {data, sleep, skipped} = sleep_tick(ClockRecord.tick(state.data), state.sleep)
     if state.main, do: Valimc.World.GameTick.put(data.game_time)
     count = state.sync_ticks + 1
 
     next = %{
       state
       | data: data,
+        sleep: sleep,
         revision: state.revision + 1,
         dirty: true,
         sync_ticks: rem(count, 20),
@@ -386,9 +404,56 @@ defmodule Valimc.World.Clock do
         next_tick: max(state.next_tick + interval(state), now + 1)
     }
 
-    publish(next, count == 20)
+    publish(next, count == 20 or skipped)
     {:noreply, schedule_tick(next)}
   end
+
+  # VMC-040a: while someone sleeps, the sleepers are counted; enough of them
+  # skip the night to the wake-up marker of the dimension's clock (when time
+  # advances), clear the rain (when the weather advances) and wake up.
+  defp sleep_tick(data, %SleepStatus{sleepers: sleepers, counts: counts} = sleep)
+       when sleepers == %{} and counts == %{},
+       do: {data, sleep, false}
+
+  defp sleep_tick(data, sleep) do
+    percentage = Valimc.World.GameRules.get(:players_sleeping_percentage)
+    {sleep, actions} = SleepStatus.tick(sleep, &Valimc.Player.PlayerList.active/1, percentage)
+
+    Enum.reduce(actions, {data, sleep, false}, fn
+      {:announce, connections, text}, acc ->
+        packet = SleepStatus.packet(text)
+        for pid <- connections, do: Valimc.Player.PlayerList.deliver(pid, {:packet, packet})
+        acc
+
+      {:skip, dimension, woken}, {data, sleep, _} ->
+        for pid <- woken, do: send(pid, {:sleep, :woken})
+        {skip(data, dimension), sleep, true}
+    end)
+  end
+
+  defp skip(data, dimension) do
+    data =
+      case {data.advance_time, sleep_clock(dimension)} do
+        {true, name} when is_map_key(data.clocks, name) ->
+          clock = data.clocks[name]
+          ticks = clock.total_ticks
+          # `wake_up_from_sleep`: tick 0 of the 24000-tick day.
+          next = if rem(ticks, 24_000) == 0, do: ticks, else: ticks + 24_000 - rem(ticks, 24_000)
+          %{data | clocks: Map.put(data.clocks, name, ClockState.set_ticks(clock, next))}
+
+        _ ->
+          data
+      end
+
+    if data.weather.advance_weather and data.weather.raining,
+      do: %{data | weather: Weather.reset_cycle(data.weather)},
+      else: data
+  end
+
+  # The clock a dimension's day follows (`DimensionType.defaultClock`); only
+  # the overworld's beds sleep.
+  defp sleep_clock(:overworld), do: "minecraft:overworld"
+  defp sleep_clock(_dimension), do: nil
 
   defp schedule_tick(%{tick_interval: nil} = state), do: state
 

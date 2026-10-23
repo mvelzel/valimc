@@ -24,7 +24,11 @@ defmodule Valimc.World.Explosion do
 
   An explosion with `fire` (a ghast's fireball, VMC-037o) lights a third
   of its air cells over a solid block (`createFire`). Entity sources (who
-  lit the TNT) come with their sources.
+  lit the TNT) come with their sources. Its `source` is the damage type it
+  hurts with: a bed or respawn anchor's (VMC-040a) is
+  `:bad_respawn_point`. One without `blocks` reaches no cell: an anchor
+  next to water gives its own cell water's resistance, which every ray
+  starts in and none outlasts.
   """
   import Bitwise
   alias Valimc.Blocks.MiningLoot
@@ -35,7 +39,15 @@ defmodule Valimc.World.Explosion do
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{BoxEdit, Dimension, GameRules}
 
-  defstruct [:center, :radius, decay: true, interacts: true, fire: false]
+  defstruct [
+    :center,
+    :radius,
+    decay: true,
+    interacts: true,
+    fire: false,
+    source: :explosion,
+    blocks: true
+  ]
 
   @tnt_offset Float32.round(0.98) * 0.0625
   @air Blocks.default_state("air")
@@ -51,6 +63,22 @@ defmodule Valimc.World.Explosion do
       decay: GameRules.get(:tnt_explosion_drop_decay)
     }
 
+  @doc """
+  A bed's or respawn anchor's explosion at the centre of cell `{x, y, z}`
+  (`BedBlock.destroyOnUse`, `RespawnAnchorBlock.explode`): power 5 with
+  fire, hurting with `bad_respawn_point`, its drops decaying by the block
+  explosion game rule; `blocks: false` for an anchor next to water.
+  """
+  def respawn_point({x, y, z}, blocks \\ true),
+    do: %__MODULE__{
+      center: {x + 0.5, y + 0.5, z + 0.5},
+      radius: 5.0,
+      fire: true,
+      source: :bad_respawn_point,
+      decay: GameRules.get(:block_explosion_drop_decay),
+      blocks: blocks
+    }
+
   @doc "Whether the explosion shows its small particle (`ServerExplosion.isSmall`)."
   def small?(%__MODULE__{radius: radius, interacts: interacts}),
     do: radius < 2.0 or not interacts
@@ -59,7 +87,10 @@ defmodule Valimc.World.Explosion do
   The cells the explosion's rays reach in the current dimension, with their
   states: `{:ok, cells}`.
   """
-  def reach(%__MODULE__{center: center, radius: radius}, seed \\ random_seed()) do
+  def reach(explosion, seed \\ random_seed())
+  def reach(%__MODULE__{blocks: false}, _seed), do: {:ok, []}
+
+  def reach(%__MODULE__{center: center, radius: radius}, seed) do
     {min_y, height} = Dimension.bounds(Dimension.current())
 
     with {:ok, {cells, _unreadable}} <-
@@ -70,7 +101,7 @@ defmodule Valimc.World.Explosion do
   @doc """
   What the explosion does to entries of an owner's store (`id => entry`):
   `[{id, action}]` with `:destroy`, `{:push, impulse}` or `{:hurt, amount,
-  impulse}`. Entries outside its reach box or past twice its radius are left
+  impulse, source}`. Entries outside its reach box or past twice its radius are left
   out.
   """
   def hits(%__MODULE__{center: center, radius: radius} = explosion, entries) do
@@ -101,7 +132,7 @@ defmodule Valimc.World.Explosion do
     cond do
       kind == :item and not Armor.resists_explosion?(entry.stack) and damage > 4.0 -> :destroy
       kind == :orb and damage > 4.0 -> :destroy
-      kind == :mob -> {:hurt, damage, impulse}
+      kind == :mob -> {:hurt, damage, impulse, explosion.source}
       true -> {:push, impulse}
     end
   end
@@ -122,8 +153,8 @@ defmodule Valimc.World.Explosion do
             _ -> acc
           end
 
-        {{:hurt, amount, impulse}, %{body: body}} ->
-          {hurt, events} = Body.hurt(body, :explosion, amount)
+        {{:hurt, amount, impulse, source}, %{body: body}} ->
+          {hurt, events} = Body.hurt(body, source, amount)
           Store.change_body(acc, id, Body.push(hurt, impulse), events)
 
         {{:push, impulse}, %{body: %Body{} = body}} ->

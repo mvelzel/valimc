@@ -46,7 +46,14 @@ defmodule Valimc.Living.DamageSource do
   def wears_armor?(source), do: not is?(source, :bypasses_armor)
 
   @doc "Food exhaustion a player takes from a hit of this type."
-  def exhaustion(source), do: get_in(@types, [Atom.to_string(type(source)), "exhaustion"]) || 0.0
+  # A bed's or anchor's explosion (VMC-040a) takes the explosion's 0.1F
+  # (`SleepOracle` checks it).
+  def exhaustion(source) do
+    case type(source) do
+      :bad_respawn_point -> 0.10000000149011612
+      type -> get_in(@types, [Atom.to_string(type), "exhaustion"]) || 0.0
+    end
+  end
 
   @doc """
   Whether a player's damage of this source scales with the difficulty
@@ -94,6 +101,38 @@ defmodule Valimc.Living.DamageSource do
              }}
         }
     end
+  end
+
+  # `DeathMessageType.INTENTIONAL_GAME_DESIGN` (a bed or anchor, VMC-040a):
+  # the message and a bracketed link to the bug it answers.
+  def death_message(name, :bad_respawn_point) when is_binary(name) do
+    link =
+      {:compound,
+       %{
+         "translate" => {:string, "chat.square_brackets"},
+         "with" =>
+           Valimc.Data.NBT.list([
+             {:compound, %{"translate" => {:string, "death.attack.badRespawnPoint.link"}}}
+           ]),
+         "click_event" =>
+           {:compound,
+            %{
+              "action" => {:string, "open_url"},
+              "url" => {:string, "https://bugs.mojang.com/browse/MCPE-28723"}
+            }},
+         "hover_event" =>
+           {:compound, %{"action" => {:string, "show_text"}, "value" => {:string, "MCPE-28723"}}}
+       }}
+
+    # Its events are server text (item text refuses them).
+    %Valimc.Protocol.ServerText{
+      tag:
+        {:compound,
+         %{
+           "translate" => {:string, "death.attack.badRespawnPoint.message"},
+           "with" => Valimc.Data.NBT.list([{:string, name}, link])
+         }}
+    }
   end
 
   def death_message(name, source)

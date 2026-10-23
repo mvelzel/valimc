@@ -10,6 +10,8 @@ defmodule Valimc.Player.Teleports do
   # `teleportTo` arrives at rest and starts no portal cooldown.
   def apply(%{life_stage: :alive} = state, %{dimension: dimension} = pose)
       when dimension != state.player.dimension do
+    state = Valimc.Player.Sleep.stop(state, true)
+
     Valimc.Player.Travel.request(state, %{
       dimension: dimension,
       x: pose.x * 1.0,
@@ -23,6 +25,8 @@ defmodule Valimc.Player.Teleports do
   end
 
   def apply(%{life_stage: :alive} = state, pose) do
+    # A teleported sleeper gets up first (`ServerPlayer.teleportTo`, VMC-040a).
+    state = Valimc.Player.Sleep.stop(state, true)
     pose = Map.delete(pose, :dimension)
 
     player =

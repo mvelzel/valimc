@@ -84,8 +84,11 @@ defmodule Valimc.World.Portal.EndPortal do
       :the_end when item ->
         world_spawn(entry)
 
+      # A player leaving the End respawns at its respawn point when it has
+      # one (`findRespawnPositionAndUseSpawnBlock`, VMC-040a): its session
+      # reads it on arrival.
       :the_end ->
-        target = respawn_target()
+        target = Map.put(respawn_target(), :respawn_point, true)
         if Map.get(entry, :seen_credits, false), do: {:ok, target}, else: {:credits, target}
 
       _ ->

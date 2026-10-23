@@ -73,6 +73,10 @@ defmodule Valimc.World.Weather do
 
   def configure(_, _, _), do: {:error, :invalid_weather_change}
 
+  @doc "`ServerLevel.resetWeatherCycle` after a night slept through: dry, the timers reset."
+  def reset_cycle(state),
+    do: %{state | rain_time: 0, raining: false, thunder_time: 0, thundering: false}
+
   def tick(state, can_have_weather \\ true)
   def tick(state, false), do: state
 

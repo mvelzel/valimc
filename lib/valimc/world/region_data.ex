@@ -4167,6 +4167,12 @@ defmodule Valimc.World.RegionData do
     {:noreply, maybe_checkpoint(state)}
   end
 
+  # A bed or respawn anchor a player used went off (VMC-040a): sent by the
+  # player's session to this section after its callback, so the group's
+  # players (the user too) are hit through their sessions as by TNT.
+  def handle_info({:explode, %Explosion{} = explosion}, state),
+    do: {:noreply, explode(state, explosion)}
+
   def handle_info({:container_unsubscribe, connection, ref}, state) do
     {:noreply,
      apply_container_viewers(

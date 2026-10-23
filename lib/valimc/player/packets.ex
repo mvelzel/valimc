@@ -132,6 +132,28 @@ defmodule Valimc.Player.Packets do
   def player_pose(player),
     do: EntityPackets.metadata(player.entity_id, pose: Map.get(player, :pose, :standing))
 
+  @doc "Where the player sleeps (VMC-040a): its bed's head, or none."
+  def player_sleeping_pos(player),
+    do: EntityPackets.metadata(player.entity_id, sleeping_pos: sleeping_pos(player))
+
+  @doc "The pose and the bed together, as a player lies down or gets up (VMC-040a)."
+  def player_sleeping(player),
+    do:
+      EntityPackets.metadata(player.entity_id,
+        pose: Map.get(player, :pose, :standing),
+        sleeping_pos: sleeping_pos(player)
+      )
+
+  @doc "The bed's head a sleeping player lies in, or nil."
+  def sleeping_pos(%{sleeping: %{bed: bed}}), do: bed
+  def sleeping_pos(_player), do: nil
+
+  @doc "A player wakes up (`ClientboundAnimatePacket.WAKE_UP`)."
+  def wake_up(entity_id), do: EntityPackets.animate(entity_id, 0)
+
+  @doc "The respawn point's block is gone or blocked (`NO_RESPAWN_BLOCK_AVAILABLE`)."
+  def no_respawn_block, do: Packets.packet("game_event", <<0, 0.0::float-32>>)
+
   def player_health(player),
     do: EntityPackets.metadata(player.entity_id, health: living(player).health.value)
 

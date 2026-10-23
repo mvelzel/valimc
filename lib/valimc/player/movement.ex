@@ -90,6 +90,19 @@ defmodule Valimc.Player.Movement do
 
   def move(%{teleport_pending: true} = state, _, _), do: state
 
+  # A sleeper does not move (VMC-040a, `handleMovePlayer`): a packet more
+  # than a block from it is sent back.
+  def move(%{player: %{sleeping: %{}} = player} = state, changes, _flags) do
+    moved =
+      Enum.sum(
+        for axis <- [:x, :y, :z],
+            Map.has_key?(changes, axis),
+            do: :math.pow(Map.fetch!(changes, axis) - Map.fetch!(player, axis), 2)
+      )
+
+    if moved > 1.0, do: relocate(state, player, false), else: state
+  end
+
   def move(state, changes, flags) do
     player = Map.merge(state.player, changes)
 
@@ -243,6 +256,9 @@ defmodule Valimc.Player.Movement do
   sampled synchronously when its signature changed or a simulation is due
   and it is in an environment that keeps acting on it.
   """
+  # A sleeper keeps its sleeping pose (VMC-040a).
+  def sample_pose(%{player: %{sleeping: %{}}} = state), do: state
+
   def sample_pose(%{life_stage: :alive, teleport_pending: false} = state) do
     signature = pose_signature(state)
 
