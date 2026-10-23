@@ -1,6 +1,6 @@
 # VMC-029d — Survival block states and shape updates
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-029b](VMC-029b.md) (placement), [VMC-077m](VMC-077m.md)
 (the block-update engine).
@@ -175,3 +175,17 @@ Survival, fresh flat world: place and look at
 
 Mining what was placed belongs to [VMC-029e](VMC-029e.md); survival mining still
 corrects most of these blocks.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`..`run-04`)
+
+Passed in survival: the doors (a double door with both hinges outward),
+bed, sunflower, small dripleaf, wall torch, ladder, wall and floor levers,
+wall and standing signs at several rotations, wall and standing banners,
+top-half trapdoor, top and bottom stairs and a corner, top, bottom and
+double slabs, logs on all three axes, a fence gate between walls, joined
+fences, a glass pane, four candles, snow layers, a waterlogged slab (its
+water then flowing out sideways as vanilla's does), scaffolding up and out,
+a sea pickle in water and a lily pad on water (none on a block's side) all
+placed as vanilla's and were unchanged after a server restart and rejoin.
+Placing a sign opens no editor; sign editing is outside this ticket (see
+above).

@@ -26,5 +26,5 @@ Acceptance:
 
 ## Slices
 
-- [VMC-050a1](VMC-050a1.md): explosions and primed TNT (Awaiting client).
+- [VMC-050a1](VMC-050a1.md): explosions and primed TNT (Done).
 - [VMC-050a2](VMC-050a2.md): falling blocks (Awaiting client).

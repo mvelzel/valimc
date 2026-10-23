@@ -70,13 +70,9 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-015i](tickets/VMC-015i.md) | Summoned zombies fall and take fall damage, sink in water, burn in lava, push apart and are pushed |
-| [VMC-043a](tickets/VMC-043a.md) | Summoned zombie and primed TNT seen, killed, teleported across a group line and kept over a restart |
-| [VMC-031a](tickets/VMC-031a.md) | A bucket-built Nether portal frame (obsidian from lava and water), lit and entered |
-| [VMC-031b](tickets/VMC-031b.md) | Bubble columns over soul sand and magma; lava lighting planks |
-| [VMC-050a1](tickets/VMC-050a1.md), [050a2](tickets/VMC-050a2.md) | TNT lit by flint and steel explodes (crater, drops, chained TNT, a player hurt and pushed); sand, gravel, powder and anvils fall and land |
-| [VMC-037n](tickets/VMC-037n.md) | A summoned zombie killed with a sword (cooldown, crits, knockback, drops, XP); a zombie's hits on armor and a raised shield |
-| [VMC-029d](tickets/VMC-029d.md), [029e](tickets/VMC-029e.md) | Doors, beds, attached and oriented blocks, candles and a lily pad placed and kept over a reconnect; they, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
+| [VMC-050a2](tickets/VMC-050a2.md) | Sand, gravel, powder and anvils fall and land; a long anvil fall (rerun after the October 23 crash fix) |
+| [VMC-037n](tickets/VMC-037n.md) | A zombie's hits on armor and a raised shield, once VMC-041a's melee goal attacks |
+| [VMC-029e](tickets/VMC-029e.md) | Doors, beds, leaves, plants, ores (Fortune, Silk Touch), ice and pots mined with vanilla's drops and experience |
 
 ## Retrieve and update
 

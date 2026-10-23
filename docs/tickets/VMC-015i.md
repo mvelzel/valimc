@@ -1,6 +1,6 @@
 # VMC-015i — Living-entity travel in the kernel
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-077l2](VMC-077l2.md) (the player
 kernel).
@@ -91,3 +91,13 @@ Client scenario (phase-end handoff): in creative, `/summon zombie ~ ~8 ~`:
 it falls, flashes red on landing and stands. Summon one at the edge of a
 pool: it sinks and walks the bottom; one beside lava: in lava it burns. Two
 summoned at the same spot push apart; walking into a zombie pushes it.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`..`run-04`)
+
+Passed. Zombies dropped from 8, 12 and 20 blocks landed and stood (the
+red landing flash seen on the 12-block drop); one in a three-deep pool stood
+on the bottom; one in lava burned, flashed and died. Two zombies at the
+exact same spot stay overlapped (vanilla's push has no direction there);
+one 0.3 blocks off pushed all three apart. Sneaking into a zombie for four
+seconds carried it about 1.5 blocks and pushed the player aside; at full
+walking speed the player passes through it before the push builds up.

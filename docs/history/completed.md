@@ -5,6 +5,12 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-043a Entity kinds](../tickets/VMC-043a.md) | `44d23e4b`; generated entity facts for every type, one body record for mobs and objects with persistence, handoff and replication, `/summon` and `/kill` over bodies; client run October 23 |
+| [VMC-015i Mob travel](../tickets/VMC-015i.md) | `44d23e4b`; living-entity travel, movement control and pushing in the physics kernel, one NIF call per section, fall damage, drowning and burning; client run October 23 |
+| [VMC-029d Survival block states](../tickets/VMC-029d.md) | `44d23e4b`; every block item places as `BlockItem.place` does from a generated placement table, with the shape updates `ShapeOracle` used to exclude; client run October 23 |
+| [VMC-031a Water and lava flow](../tickets/VMC-031a.md) | `44d23e4b`; `FlowingFluid` on the block-update engine, mixing, buckets, waterlogging and generated fluids settling; client run October 23 |
+| [VMC-031b Bubble columns and lava's fire](../tickets/VMC-031b.md) | `44d23e4b`; bubble columns over soul sand and magma, lava's random-tick fire near players; client run October 23 |
+| [VMC-050a1 Explosions and primed TNT](../tickets/VMC-050a1.md) | `44d23e4b`; `ServerExplosion` in the kernel with craters as one box edit across owners, drops, chained TNT, entity damage and knockback; client run October 23 |
 | [VMC-077z Placement across a section line](../tickets/VMC-077z.md) | `0487ba62`; a block placed against a block in a sibling section of the same group; client run October 22 |
 | [VMC-005b2c Creative clone and fill](../tickets/VMC-005b2c.md) | `61e6677`; server CLONE and quick-craft type 2 from an ordinary chest menu in creative, refused in survival; client run October 22 |
 | [VMC-079 Ticket hygiene](../tickets/VMC-079.md) | stale In progress and Foundation tickets resolved against the code (43 Done, 6 parked); backlog reduced to open work |

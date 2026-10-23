@@ -1,6 +1,6 @@
 # VMC-031b — Bubble columns and lava's fire
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-031a](VMC-031a.md) (water and lava flow).
 
@@ -69,3 +69,10 @@ column over magma and lights planks beside lava in a region owner.
 Pour water three deep over soul sand and over a magma block: the columns
 appear and push up or drag down. Pour lava beside oak planks with a player
 nearby: fire appears on or beside them within a few minutes.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`..`run-04`)
+
+Passed. A three-deep column over soul sand showed rising bubbles and lifted
+the player to the surface; one over magma dragged the player to the floor
+(where the magma killed them, as vanilla's does). Lava beside oak planks set
+fire on and beside them within twelve minutes, with the player nearby.

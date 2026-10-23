@@ -1,6 +1,6 @@
 # VMC-031a — Water and lava flow
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-077m](VMC-077m.md), [VMC-066](VMC-066.md) (scheduled
 ticks).
@@ -117,3 +117,13 @@ obsidian (a source) or cobblestone (flowing), pick the water back up, repeat
 until the frame stands, light it with flint and steel and enter the portal.
 Water and lava flow as in vanilla on the way, including across an 8 × 8
 section line.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`..`run-04`)
+
+Passed. Inside a glass mould, a lava bucket's source under poured water
+became obsidian and the water was picked back up, on both sides of the
+x = 1152 group line; the frame's other eight blocks were set by command to
+save time. Water poured at (1149, 64, 40) spread a symmetric radius-7 diamond
+across the group line, lava beside it spread three, and cobblestone formed
+where flowing lava met the water. Flint and steel lit the frame and the
+portal took the player to the Nether.

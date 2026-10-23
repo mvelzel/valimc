@@ -1,6 +1,6 @@
 # VMC-043a — Entity kinds beyond items and orbs
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-077h](VMC-077h.md) (one entity store per owner).
 
@@ -103,3 +103,15 @@ longer inert since VMC-050a1 and is covered by that ticket's scenario.
 
 Next: VMC-015i moves bodies; VMC-037n adds damage, loot and XP; families
 add their types' data.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`..`run-04`)
+
+Passed. `/summon zombie ~2 ~ ~` showed an adult zombie facing south that
+stood. A zombie teleported from (1052, 64, -7.5) to (1850.5, 64, -10.5)
+moved to another group and stood there; after a graceful server restart and
+a fresh client it was still there, and `/kill @e[type=zombie]` showed the
+hurt flash, the fall and the poof about a second later.
+
+Finding: `/kill @e[type=item]` answers "No entity was found" beside dropped
+items, because selectors pick players and bodies only (`World.bodies/1`).
+Selecting items and orbs is a follow-up for the command layer.

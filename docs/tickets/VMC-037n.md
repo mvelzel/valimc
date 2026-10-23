@@ -147,3 +147,21 @@ player and on a raised shield wait for VMC-041a's melee goal.
 
 Next: VMC-041a drives `mob_attack/3`; VMC-037 adds the remaining effects and
 enchantments; PvP follows the player-target path.
+
+## Client run (October 23, 2026; frozen `44d23e4b` release, fresh flat world; `.local/client-tests/M3-phase2/run-01`)
+
+The player side passed, normal difficulty, a diamond sword:
+
+- A hit straight after switching slots flashed and knocked the zombie back
+  but did no visible damage; a full hit took two to three hearts and knocked
+  it about two blocks.
+- A jump-hit while falling took five hearts, the critical's damage; the
+  short-lived critical particles were not caught on screen.
+- A sprint-hit knocked it about four blocks.
+- Three full hits killed it: it fell over, poofed, and dropped rotten flesh
+  and 5 experience.
+- A full standing hit knocked back both of two zombies within reach.
+  The client was muted, so no sounds were checked.
+
+The zombie's hits on an armored player and on a raised shield stay this
+ticket's client gate until VMC-041a's melee goal drives `mob_attack/3`.
