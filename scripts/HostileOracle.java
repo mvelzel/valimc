@@ -51,7 +51,8 @@ public class HostileOracle {
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
   // VMC-043b4: creepers and spiders.
   static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
-  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish", "minecraft:witch", "minecraft:phantom");
+  static final List<String> OTHERS = List.of("minecraft:enderman", "minecraft:silverfish", "minecraft:witch", "minecraft:phantom",
+      "minecraft:drowned");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -263,6 +264,7 @@ public class HostileOracle {
     silverfishAndSlimes(level, cases, floor);
     witches(level, cases, floor);
     phantoms(level, cases, floor);
+    drowned(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -409,6 +411,49 @@ public class HostileOracle {
   }
 
   static final int SILVERFISH_MERGE_TICKS = 101;
+
+  // VMC-043b2: drowned on land and in water.
+  static void drowned(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var noDrops = List.<MobAiOracle.Drop>of();
+    var none = List.<MobAiOracle.Hit>of();
+    var stone = Blocks.STONE.defaultBlockState();
+    var water = Blocks.WATER.defaultBlockState();
+    // At night on land it chases and hits the player.
+    cases.add(run(level, "drowned_chase", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:drowned", new Vec3(.5, 64, .5), 0, 291L)),
+        List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 2.5), "survival", null)), none, noDrops, 160));
+    // By day on land it heads for the water beside it (and burns).
+    var shore = new ArrayList<>(MobAiOracle.floor(62, 12, stone));
+    shore.addAll(MobAiOracle.box(-12, 63, -12, 12, 63, 12, stone));
+    shore.addAll(MobAiOracle.box(4, 63, -4, 10, 63, 4, water));
+    cases.add(run(level, "drowned_day", true, List.of(), MobAiOracle.scene(shore),
+        List.of(new MobAiOracle.Spawn("minecraft:drowned", new Vec3(-2.5, 64, .5), 0, 293L)),
+        List.of(), none, noDrops, 200));
+    // At night deep under water it swims up toward the surface.
+    var deep = new ArrayList<>(MobAiOracle.floor(45, 12, stone));
+    deep.addAll(MobAiOracle.box(-12, 46, -12, 12, 62, 12, water));
+    cases.add(run(level, "drowned_swim_up", false, List.of(), MobAiOracle.scene(deep),
+        List.of(new MobAiOracle.Spawn("minecraft:drowned", new Vec3(.5, 50, .5), 0, 307L)),
+        List.of(), none, noDrops, 200));
+    // At night in shallow water near the shore it goes ashore.
+    var beach = new ArrayList<>(MobAiOracle.floor(59, 12, stone));
+    beach.addAll(MobAiOracle.box(-12, 60, -12, 12, 62, 12, water));
+    beach.addAll(MobAiOracle.box(4, 60, -12, 12, 62, 12, stone));
+    cases.add(run(level, "drowned_beach", false, List.of(), MobAiOracle.scene(beach),
+        List.of(new MobAiOracle.Spawn("minecraft:drowned", new Vec3(.5, 60, .5), 0, 311L)),
+        List.of(), none, noDrops, 300));
+    // A zombie walks to a turtle egg and stamps it out.
+    var nest = new ArrayList<>(floor);
+    nest.add(new MobAiOracle.Block(5, 64, 3, Blocks.TURTLE_EGG.defaultBlockState()));
+    // (Cut where the egg goes: the check's physics keeps its blocks.)
+    cases.add(run(level, "zombie_turtle_egg", false, List.of(), MobAiOracle.scene(nest),
+        List.of(new MobAiOracle.Spawn("minecraft:zombie", new Vec3(.5, 64, .5), 0, 317L)),
+        List.of(), none, noDrops, 151));
+    // One with a trident throws it at the player.
+    cases.add(run(level, "drowned_trident", false, List.of(new Prep(0, Map.of("mainhand", "minecraft:trident"), false, false, 0)), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:drowned", new Vec3(.5, 64, .5), 0, 313L)),
+        List.of(new MobAiOracle.Stand(new Vec3(8.5, 64, 2.5), "survival", null)), none, noDrops, 160));
+  }
 
   // VMC-043b6: phantoms circling and swooping at a player.
   static void phantoms(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {

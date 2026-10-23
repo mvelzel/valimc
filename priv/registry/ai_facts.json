@@ -2409,6 +2409,130 @@
         ]
       ]
     },
+    "minecraft:drowned": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.drowned.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": true,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          4,
+          "ZombieAttackTurtleEggGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          8,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          8,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          1,
+          "DrownedGoToWaterGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "DrownedTridentAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "DrownedAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "DrownedGoToBeachGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          6,
+          "DrownedSwimUpGoal",
+          []
+        ],
+        [
+          7,
+          "RandomStrollGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          5,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -4003,6 +4127,18 @@
     "minecraft:entity.strider.ambient": 1541,
     "minecraft:entity.strider.happy": 1542,
     "minecraft:entity.strider.retreat": 1543,
+    "minecraft:entity.drowned.hurt": 570,
+    "minecraft:entity.drowned.hurt_water": 571,
+    "minecraft:entity.drowned.death": 568,
+    "minecraft:entity.drowned.death_water": 569,
+    "minecraft:entity.drowned.ambient_water": 567,
+    "minecraft:entity.drowned.shoot": 572,
+    "minecraft:entity.drowned.swim": 574,
+    "minecraft:entity.zombie.destroy_egg": 1879,
+    "minecraft:entity.turtle.egg_break": 1663,
+    "minecraft:entity.hostile.splash": 879,
+    "minecraft:entity.generic.splash": 707,
+    "minecraft:entity.generic.extinguish_fire": 704,
     "minecraft:entity.shulker.open": 1476,
     "minecraft:entity.shulker.close": 1472,
     "minecraft:entity.shulker.shoot": 1477,
@@ -4076,6 +4212,7 @@
     "minecraft:entity.silverfish.ambient": 1479,
     "minecraft:entity.witch.ambient": 1778,
     "minecraft:entity.phantom.ambient": 1259,
+    "minecraft:entity.drowned.ambient": 566,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

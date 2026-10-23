@@ -729,6 +729,12 @@ checked =
 
           for step <- steps, effect <- step.effects do
             case effect do
+              {:remove_block, cell} ->
+                Process.put({:mob_ai_edit, cell}, air)
+
+              {:crack_egg, cell, state} ->
+                Process.put({:mob_ai_edit, cell}, Valimc.AI.Goals.RemoveBlock.cracked(state))
+
               {:take_block, cell, taken} ->
                 Process.put({:mob_ai_edit, cell}, Valimc.Data.BlockFacts.fluid_remains(taken))
 
@@ -849,6 +855,11 @@ checked =
                     for {:wake_infested, {cx, cy, cz}, state, true} <- step.effects,
                         do: [2001, [cx, cy, cz], state]
 
+                level_events =
+                  level_events ++
+                    for {:crack_egg, {cx, cy, cz}, state} <- step.effects,
+                        do: [2001, [cx, cy, cz], state]
+
                 want_events =
                   for s <- expected["sounds"],
                       s["event"] != nil,
@@ -864,6 +875,13 @@ checked =
 
                            {:place_carried, {bx, by, bz}, carried} ->
                              [[bx, by, bz], carried]
+
+                           # Turtle eggs cracked underfoot and stamped out (VMC-043b2).
+                           {:crack_egg, {bx, by, bz}, state} ->
+                             [[bx, by, bz], Valimc.AI.Goals.RemoveBlock.cracked(state)]
+
+                           {:remove_block, {bx, by, bz}} ->
+                             [[bx, by, bz], 0]
 
                            # A silverfish's stone and the friends it wakes (VMC-043b6).
                            {:infest, {bx, by, bz}, infested} ->
@@ -937,6 +955,12 @@ checked =
                           )
                         ]
 
+                # A drowned's trident where it was thrown (VMC-043b2).
+                adds =
+                  adds ++
+                    for {:throw_trident, %{from: from}} <- step.effects,
+                        do: ["minecraft:trident", Enum.map(Tuple.to_list(from), hex)]
+
                 # A converted mob is a new one where the old one was (VMC-043b).
                 adds =
                   adds ++
@@ -952,10 +976,17 @@ checked =
                 want_adds =
                   for s <- expected["sounds"], s["add"] != nil do
                     cond do
-                      s["add"] == "minecraft:arrow" -> [s["add"], s["position"]]
-                      s["potion"] -> [s["add"], s["position"], s["potion"]]
-                      s["item"] -> [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
-                      true -> [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
+                      s["add"] in ["minecraft:arrow", "minecraft:trident"] ->
+                        [s["add"], s["position"]]
+
+                      s["potion"] ->
+                        [s["add"], s["position"], s["potion"]]
+
+                      s["item"] ->
+                        [s["add"], s["position"], s["velocity"], s["item"], s["count"]]
+
+                      true ->
+                        [s["add"], s["position"], s["velocity"], s["yaw"], s["pitch"]]
                     end
                   end
 
@@ -972,7 +1003,9 @@ checked =
                   target: target,
                   aggressive: mind.aggressive,
                   path: path,
-                  sounds: sounds,
+                  # A tick's sounds as a set: the move's (a swim) and its
+                  # blocks' (a fire put out) come from separate passes here.
+                  sounds: Enum.sort(sounds),
                   swings: swings,
                   hits: hits,
                   entity_events: entity_events,
@@ -1020,7 +1053,7 @@ checked =
                   target: expected["target"],
                   aggressive: expected["aggressive"],
                   path: expected["path"],
-                  sounds: want_sounds,
+                  sounds: Enum.sort(want_sounds),
                   swings: want_swings,
                   hits: want_hits,
                   entity_events: want_entity_events,

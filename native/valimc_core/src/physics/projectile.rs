@@ -27,8 +27,14 @@ use super::source::BlockSource;
 /// How a projectile flies.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
-    /// `AbstractArrow`: drag 0.99 (0.6 in water), then `gravity`.
-    Arrow { gravity: f64 },
+    /// `AbstractArrow`: drag 0.99 (`water`, its water inertia, in water:
+    /// 0.6, a trident's 0.99), then `gravity`; `entities` false passes
+    /// through entities (a trident that has dealt its damage).
+    Arrow {
+        gravity: f64,
+        water: f32,
+        entities: bool,
+    },
     /// `ThrowableProjectile`: `gravity`, then drag 0.99 (0.8 in water).
     Throwable { gravity: f64 },
     /// `AbstractHurtingProjectile`: accelerates by `acceleration` along its
@@ -356,7 +362,7 @@ fn arrow(
     source: &dyn BlockSource,
     facts: &Facts,
     input: &Input,
-    gravity: f64,
+    (gravity, water): (f64, f32),
     targets: &[Target],
     border: Option<&Border>,
     fast_lava: bool,
@@ -413,7 +419,7 @@ fn arrow(
     // what follows (the owner check, the entity search, the next tick).
     let v = p.velocity;
     if p.in_water {
-        p.velocity = scale(p.velocity, 0.6f32 as f64);
+        p.velocity = scale(p.velocity, water as f64);
     }
     let yaw = (atan2(v[0], v[2]) * RADIANS_TO_DEGREES) as f32;
     let pitch_to = (atan2(v[1], horizontal(v)) * RADIANS_TO_DEGREES) as f32;
@@ -616,7 +622,22 @@ pub fn step(
         return Err(ItemFault::Limit);
     }
     let stepped = match input.kind {
-        Kind::Arrow { gravity } => arrow(source, facts, input, gravity, targets, border, fast_lava),
+        Kind::Arrow {
+            gravity,
+            water,
+            entities,
+        } => {
+            let targets = if entities { targets } else { &[] };
+            arrow(
+                source,
+                facts,
+                input,
+                (gravity, water),
+                targets,
+                border,
+                fast_lava,
+            )
+        }
         Kind::Throwable { gravity } => {
             throwable(source, facts, input, gravity, targets, border, fast_lava)
         }

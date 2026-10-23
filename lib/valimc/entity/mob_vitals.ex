@@ -85,11 +85,30 @@ defmodule Valimc.Entity.MobVitals do
             else: {mob, events}
         end)
 
-      {put_fire(mob, Burning.settle(mob.living.fire_ticks, before, facts.fire_immune)), events}
+      mob = put_fire(mob, Burning.settle(mob.living.fire_ticks, before, facts.fire_immune))
+
+      # Put out (`applyEffectsFromBlocks`): the hiss, pitched from its random.
+      if before > 0 and not facts.fire_immune and mob.living.fire_ticks <= 0,
+        do: extinguished(kind, mob, events),
+        else: {mob, events}
     else
       _ -> {mob, events}
     end
   end
+
+  defp extinguished(kind, %Mob{ai: %Valimc.AI.Mind{random: random} = mind} = mob, events) do
+    {a, random} = Valimc.AI.Random.float(random)
+    {b, random} = Valimc.AI.Random.float(random)
+    f = &Valimc.Data.Float32.round/1
+    pitch = f.(f.(1.6) + f.(f.(a - b) * f.(0.4)))
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    source = Valimc.Protocol.CombatPackets.mob_sounds(kind.type)["sound_source"]
+    id = Valimc.AI.Facts.sound_id("minecraft:entity.generic.extinguish_fire")
+    sound = {:sound, id, source, f.(0.7), pitch, seed}
+    {%{mob | ai: %{mind | random: random}}, events ++ [sound]}
+  end
+
+  defp extinguished(_kind, mob, events), do: {mob, events}
 
   defp contact(kind, facts, mob, events, :fire_ignite) do
     {:ok, ignition} =

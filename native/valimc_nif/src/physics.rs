@@ -562,6 +562,8 @@ struct TickedT {
     swim: Option<f64>,
     /// The block it stands on after the move (`getBlockStateOnLegacy`).
     support: u16,
+    /// Its motion as it splashed into water during the move.
+    splash: Option<(f64, f64, f64)>,
 }
 
 fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
@@ -1006,6 +1008,7 @@ fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
         depths: (t.depths.water, t.depths.lava),
         swim: t.swim.map(|v| v as f64),
         support: t.support,
+        splash: t.splash.map(|v| (v[0], v[1], v[2])),
     }
 }
 

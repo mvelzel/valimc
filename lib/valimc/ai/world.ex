@@ -159,6 +159,36 @@ defmodule Valimc.AI.World do
     do: (state = block(world, position)) != nil and BlockFacts.air?(state)
 
   @doc """
+  `isInWater` of a sensed entity: water reaching above its feet in a cell
+  its box (shrunk by 0.001) touches (VMC-043b2: a drowned's target).
+  """
+  def in_water?(%__MODULE__{} = world, entity) do
+    {x0, y0, z0, x1, y1, z1} = box(entity)
+
+    {x0, y0, z0, x1, y1, z1} =
+      {x0 + 0.001, y0 + 0.001, z0 + 0.001, x1 - 0.001, y1 - 0.001, z1 - 0.001}
+
+    Enum.any?(
+      for(
+        x <- floor(x0)..(ceil(x1) - 1)//1,
+        y <- floor(y0)..(ceil(y1) - 1)//1,
+        z <- floor(z0)..(ceil(z1) - 1)//1,
+        do: {x, y, z}
+      ),
+      fn {_, y, _} = cell ->
+        case block(world, cell) do
+          nil ->
+            false
+
+          state ->
+            fluid = BlockFacts.fluid(state)
+            fluid.kind == :water and y + fluid.height >= y0
+        end
+      end
+    )
+  end
+
+  @doc """
   `getHeightmapPos(MOTION_BLOCKING)`'s height of column `{x, z}`: above its
   highest block that blocks motion or holds fluid (a phantom's anchor);
   the bottom where none is read.

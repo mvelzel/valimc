@@ -616,6 +616,7 @@ defmodule Valimc.AI do
     self =
       self
       |> Self.mind(&%{&1 | tick: &1.tick + 1, swing: Self.swing_tick(&1.swing)})
+      |> splash()
       |> Valimc.AI.Leash.tick()
 
     # `LivingEntity.baseTick`'s air, where a family keeps its own (a
@@ -712,6 +713,56 @@ defmodule Valimc.AI do
   end
 
   defp strafe(self), do: self
+
+  # `updateFluidInteraction`: into water after its first tick it splashes
+  # (`doWaterSplashEffect`): the sound by its motion, pitched from its random,
+  # and its bubbles' and splashes' draws (one more than twenty a block of its
+  # width each).
+  defp splash(%Self{mind: mind} = self) do
+    wet = Self.in_water?(self)
+    self = Self.mind(self, &%{&1 | wet: wet})
+
+    if wet and not mind.wet and mind.tick > 1,
+      do: do_splash(self, self.velocity),
+      else: self
+  end
+
+  # `checkFallDamage`'s: into water during its move (out of it before).
+  defp splash(%Self{} = self, {_, _, _} = velocity),
+    do: self |> Self.mind(&%{&1 | wet: true}) |> do_splash(velocity)
+
+  defp do_splash(%Self{} = self, {vx, vy, vz}) do
+    f = &Valimc.Data.Float32.round/1
+    speed = :math.sqrt(vx * vx * f.(0.2) + vy * vy + vz * vz * f.(0.2))
+    volume = min(1.0, f.(f.(speed) * f.(0.2)))
+    {a, self} = Self.float(self)
+    {b, self} = Self.float(self)
+    pitch = f.(1.0 + f.(f.(a - b) * f.(0.4)))
+    bound = f.(1.0 + f.(self.width * 20.0))
+    count = if bound == trunc(bound), do: trunc(bound), else: trunc(bound) + 1
+
+    self =
+      Enum.reduce(1..count//1, self, fn _, self ->
+        Enum.reduce(1..3, self, fn _, self -> elem(Self.double(self), 1) end)
+      end)
+
+    self =
+      Enum.reduce(1..count//1, self, fn _, self ->
+        Enum.reduce(1..2, self, fn _, self -> elem(Self.double(self), 1) end)
+      end)
+
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    name = splash_sound(self.type)
+    Self.effect(self, {:sound, Facts.sound_id(name), source(self.type), volume, pitch, seed})
+  end
+
+  # `getSwimSplashSound`: a monster's, else the generic one.
+  defp splash_sound(type),
+    do:
+      if(EntityTypes.fetch(type).category == :monster,
+        do: "minecraft:entity.hostile.splash",
+        else: "minecraft:entity.generic.splash"
+      )
 
   # `updatingUsingItem` (VMC-043b): an item still in its hand counts another
   # tick of use; one that left it stops. A drink (VMC-044a4) plays its sound
@@ -867,7 +918,7 @@ defmodule Valimc.AI do
         data: body.data
       }
 
-      # The swim sound its move made, then a family's `aiStep` after its
+      # A family's `aiStep` after its
       # super with `Mob.aiStep`'s looting (VMC-043b), the body control, its
       # `tick` after its super (`Valimc.AI.Kind`); a dying mob's own only.
       # What its move made: swim sounds, a step (its family's step sound).
@@ -907,7 +958,27 @@ defmodule Valimc.AI do
     end
   end
 
-  def settle(_mob, body, position, world, _swim), do: {body, position, [], world}
+  def settle(_mob, body, position, world, _moves), do: {body, position, [], world}
+
+  @doc """
+  A mob's splash into water during its move (`checkFallDamage`'s
+  `doWaterSplashEffect`, VMC-043b2): `splash` is its motion then, the sound
+  pitched from its mind's random, before the rest of its tick: `{body,
+  events}`.
+  """
+  def move_sounds(%Body{mob: %Mob{ai: %Mind{} = mind} = mob} = body, {_, _, _} = splash) do
+    {width, _, _} = Body.dimensions(body)
+
+    self =
+      splash(
+        %Self{type: body.type, mob: mob, mind: mind, velocity: body.velocity, width: width},
+        splash
+      )
+
+    {%{body | mob: %{mob | ai: self.mind}}, Enum.reverse(self.effects)}
+  end
+
+  def move_sounds(body, _splash), do: {body, []}
 
   # Whether a dying mob of `type` still runs its family's own tick (a fish's
   # flop).

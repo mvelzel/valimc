@@ -59,6 +59,33 @@ defmodule Valimc.ProjectileTest do
     assert bounced.yaw >= 170.0 and bounced.data.impulse == 1
   end
 
+  test "a drowned's trident hits for eight, bounces back and has dealt its damage (VMC-043b2)" do
+    owner = %{uuid: <<8::128>>, id: 800, player: false, type: "minecraft:drowned"}
+    trident = %{Projectile.new("minecraft:trident", owner) | velocity: {1.6, 0.0, 0.0}}
+    assert trident.data.pickup == :disallowed and not trident.data.dealt
+    hit = {:entities, [{70, {5.2, 65.0, 0.5}}]}
+
+    plan =
+      Projectiles.plan(
+        entry(trident),
+        result(trident, {5.2, 65.0, 0.5}, hit),
+        %{70 => zombie_target()},
+        @context
+      )
+
+    assert {:hurt, %{ref: {:mob, 7}}, hit, next} = plan
+    assert hit.amount == 8.0 and hit.attacker.entity_id == 800
+
+    assert {:keep, bounced, _, [{:sound, "minecraft:item.trident.hit", _, _, 1.0, 1.0}]} =
+             next.(true)
+
+    {vx, _, _} = bounced.velocity
+    assert_in_delta vx, -0.016 * 0.99, 1.0e-6
+    assert bounced.data.dealt
+    # It passes through entities from then on.
+    assert {_, {:arrow, {_, _, false}}, _, _, _} = Projectile.input(bounced, {5.2, 65.0, 0.5}, 1)
+  end
+
   test "a stuck arrow sticks with its sound and despawns after 1200 ticks" do
     arrow = Projectile.new("minecraft:arrow", @owner)
     block = {:block, {3.0, 64.0, 0.5}, 4, {3, 64, 0}, false, false}

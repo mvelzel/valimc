@@ -51,7 +51,9 @@ public class AnimalOracle {
       "minecraft:item.lead.tied", "minecraft:item.lead.untied", "minecraft:item.lead.break", "minecraft:item.shears.snip",
       "minecraft:item.golden_dandelion.use", "minecraft:item.golden_dandelion.unuse");
   static final List<ResourceKey<? extends Registry<?>>> VARIANTS = List.of(Registries.COW_VARIANT, Registries.PIG_VARIANT,
-      Registries.CHICKEN_VARIANT, Registries.CAT_VARIANT);
+      Registries.CHICKEN_VARIANT, Registries.CAT_VARIANT,
+      // A drowned's zombie nautilus (VMC-043b2).
+      Registries.ZOMBIE_NAUTILUS_VARIANT);
 
   static String bits(float f) { return Integer.toString(Float.floatToRawIntBits(f)); }
 

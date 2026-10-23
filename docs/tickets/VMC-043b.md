@@ -1,6 +1,6 @@
 # VMC-043b — Overworld hostiles
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037n](VMC-037n.md),
 [VMC-037o](VMC-037o.md) (skeletons), [VMC-050a](VMC-050a.md) (creepers).
@@ -40,3 +40,11 @@ Acceptance:
 - Each mob's behaviour fixtures match the oracle.
 - On the real client, a night in the open plays as in vanilla, and a
   skeleton and a player shoot each other (from VMC-037o).
+
+## Status (October 23, 2026)
+
+All six slices are implemented and match vanilla's fixtures (`hostile_ai`,
+`hostile_spawns`, `hostile_facts`, `loot`); each awaits the client
+scenarios in its slice, batched in the roadmap's pending gates. What each
+leaves for later is in its own ticket (riding is VMC-046's; raids,
+reinforcements and door breaking are not modelled yet).

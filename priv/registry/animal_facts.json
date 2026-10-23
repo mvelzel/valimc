@@ -498,6 +498,26 @@
           }
         ]
       }
+    ],
+    "minecraft:zombie_nautilus_variant": [
+      {
+        "name": "minecraft:temperate",
+        "selectors": [
+          {
+            "priority": 0,
+            "biomes": null
+          }
+        ]
+      },
+      {
+        "name": "minecraft:warm",
+        "selectors": [
+          {
+            "priority": 1,
+            "biomes": "minecraft:spawns_coral_variant_zombie_nautilus"
+          }
+        ]
+      }
     ]
   },
   "sound_variants": {

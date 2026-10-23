@@ -29,9 +29,9 @@ defmodule Valimc.AI.Mobs.Zombie do
   @zombie "minecraft:zombie"
   @husk "minecraft:husk"
   @villager "minecraft:zombie_villager"
-  # Drowned keep a zombie's data; their own goals are VMC-043b2's.
+  # Drowned are a zombie's kind (`Valimc.AI.Mobs.Drowned`).
   @drowned "minecraft:drowned"
-  @types [@zombie, @husk, @villager, @drowned]
+  @types [@zombie, @husk, @villager]
   # `Zombie.class` and its subclasses but zombified piglins (`setAlertOthers`).
   @alert %{
     @zombie => [@zombie, @husk, "minecraft:drowned", @villager],

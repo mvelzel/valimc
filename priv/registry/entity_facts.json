@@ -402,6 +402,14 @@
       "index": 8,
       "serializer": 1
     },
+    "trident_foil": {
+      "index": 12,
+      "serializer": 8
+    },
+    "trident_loyalty": {
+      "index": 11,
+      "serializer": 0
+    },
     "tropical_fish_variant": {
       "index": 17,
       "serializer": 1

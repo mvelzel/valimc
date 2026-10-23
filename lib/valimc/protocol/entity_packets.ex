@@ -282,6 +282,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :arrow_pierce_level,
               :arrow_in_ground,
               :arrow_color,
+              :trident_loyalty,
+              :trident_foil,
               :thrown_item,
               :eye_item,
               :cloud_radius,
@@ -303,13 +305,14 @@ defmodule Valimc.Protocol.EntityPackets do
                :mob_flags,
                :blaze_flags,
                :arrow_flags,
-               :arrow_pierce_level
+               :arrow_pierce_level,
+               :trident_loyalty
              ] or name in @mob_bytes ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 
         name
-        when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :cloud_waiting] or
+        when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :trident_foil, :cloud_waiting] or
                name in @mob_flags ->
           check(is_boolean(value), "invalid flag")
           Wire.bool(value)

@@ -33,6 +33,8 @@ defmodule Valimc.AI.Mind do
             snapped: nil,
             # Its arm's swing (`LivingEntity.SwingState`): `{duration, ticks}`.
             swing: nil,
+            # Whether it touched water at its last base tick (`wasTouchingWater`).
+            wet: false,
             stable_head: 0.0,
             stable_time: 0,
             navigation: %Navigation{},

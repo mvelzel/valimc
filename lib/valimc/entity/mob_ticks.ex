@@ -6,7 +6,7 @@ defmodule Valimc.Entity.MobTicks do
   travel in the physics kernel (`Valimc.Physics.Kernel.mobs/4`: the move
   and jump controls, travel, collision, fluids, climbing, slowing blocks),
   its pushes (by the players it touches, and of the mobs it touches, which
-  push it back), then its body rotation and looting (`Valimc.AI.settle/5`)
+  push it back), then its body rotation and looting (`Valimc.AI.settle/4`)
   and living rules (`Valimc.Entity.MobVitals`); the players push last. The
   result is a store step per mob: its position, its new body, its entity
   events and what its AI did beyond it (`effects`, with farmland it
@@ -14,6 +14,7 @@ defmodule Valimc.Entity.MobTicks do
   cannot read) has none.
   """
   alias Valimc.AI
+  alias Valimc.Data.Float32
   alias Valimc.Entity.{MobMotion, MobVitals}
   alias Valimc.Physics.Kernel
 
@@ -144,9 +145,14 @@ defmodule Valimc.Entity.MobTicks do
           )
 
         body = put_in(body.mob.motion.eye_water, ticked.eye_water)
+        # The move's splash into water comes before the rest of its tick.
+        {body, sounds} = AI.move_sounds(body, ticked.splash)
+
+        # Turtle eggs it fell or stepped on may crack (level random).
+        {cracked, world} = eggs(body, ticked, state.world)
 
         {body, position, settled, world} =
-          AI.settle({id, old[id]}, body, position, state.world, %{
+          AI.settle({id, old[id]}, body, position, world, %{
             swims: [ticked.pre_swim, ticked.swim],
             step: ticked.step
           })
@@ -157,11 +163,13 @@ defmodule Valimc.Entity.MobTicks do
           do: Kernel.mob_velocity(ticker, i, body.velocity)
 
         {body, events} = MobVitals.apply(body.type, body, ticked)
+        events = sounds ++ events
         # The sun on undead mobs and rain on burning ones (VMC-043b).
         {body, sunned} = Valimc.AI.Daylight.tick(body, position, world)
         # A family's own tick after the move (a zombie drowning, VMC-043b).
         {body, own} = AI.Mobs.after_move(body, position, ticked)
         {later, more} = split(settled ++ own)
+        {crack_sounds, cracks} = split(cracked)
         {px, py, pz} = position
         entry = %{entry | body: body, entity: %{entry.entity | x: px, y: py, z: pz}}
 
@@ -170,8 +178,10 @@ defmodule Valimc.Entity.MobTicks do
           revision: entry.revision,
           position: position,
           body: body,
-          events: Map.get(state.pending, id, []) ++ burnt ++ made ++ events ++ sunned ++ later,
-          effects: rest ++ more ++ trample(body, ticked) ++ crush_eggs(body.type, ticked, world)
+          events:
+            Map.get(state.pending, id, []) ++
+              burnt ++ made ++ events ++ sunned ++ later ++ crack_sounds,
+          effects: rest ++ more ++ trample(body, ticked) ++ cracks
         }
 
         step =
@@ -327,40 +337,60 @@ defmodule Valimc.Entity.MobTicks do
 
   defp trample(_body, _ticked), do: []
 
-  @turtle_eggs MapSet.new(Valimc.Data.Blocks.states("turtle_egg"))
-  @zombies ~w(minecraft:zombie minecraft:husk minecraft:drowned minecraft:zombie_villager
-              minecraft:zombified_piglin)
+  @turtle_egg Valimc.Data.Blocks.id("turtle_egg")
+  # `Zombie.class` and its kinds never crack eggs falling (`fallOn`).
+  @zombies ~w(minecraft:zombie minecraft:husk minecraft:drowned minecraft:zombie_villager minecraft:zombified_piglin)
 
-  # `TurtleEggBlock.fallOn` (one in three, not by a zombie) and `stepOn` (one
-  # in a hundred) of the eggs a mob landed or stands on (VMC-043e): turtles
-  # and bats never crush them, others while mob griefing is on.
-  defp crush_eggs(type, _ticked, %{mob_griefing: false}) when is_binary(type), do: []
+  # `TurtleEggBlock.fallOn` (one in three, not a zombie) and `stepOn` (one
+  # in a hundred on the ground) for a mob that may break eggs (not a turtle
+  # or bat, while mobs may grief), from the level's random: `{:crack_egg,
+  # cell, state}` effects and their sounds, pitched from it too.
+  defp eggs(%{type: type}, ticked, world)
+       when type not in ["minecraft:turtle", "minecraft:bat"] do
+    if world.mob_griefing do
+      {fall, world} =
+        case ticked do
+          %{landing: {state, _}, landing_pos: cell} when cell != nil and type not in @zombies ->
+            crack(world, cell, state, 3)
 
-  defp crush_eggs(type, _ticked, _world) when type in ["minecraft:turtle", "minecraft:bat"],
-    do: []
+          _ ->
+            {[], world}
+        end
 
-  defp crush_eggs(type, ticked, _world) do
-    fall =
-      case ticked do
-        %{landing: {state, _}, landing_pos: cell} when cell != nil ->
-          if MapSet.member?(@turtle_eggs, state) and type not in @zombies,
-            do: [{:crush_egg, cell, 3}],
-            else: []
+      {step, world} =
+        case ticked do
+          %{on_block: {cell, state}} -> crack(world, cell, state, 100)
+          _ -> {[], world}
+        end
 
-        _ ->
-          []
+      {fall ++ step, world}
+    else
+      {[], world}
+    end
+  end
+
+  defp eggs(_body, _ticked, world), do: {[], world}
+
+  defp crack(world, cell, state, chance) do
+    if Valimc.Data.Blocks.block_id(state) == @turtle_egg do
+      {n, random} = AI.Random.int(world.random, chance)
+
+      if n == 0 do
+        {f, random} = AI.Random.float(random)
+        pitch = Float32.round(Float32.round(0.9) + Float32.round(f * Float32.round(0.2)))
+        {cx, cy, cz} = cell
+        id = AI.Facts.sound_id("minecraft:entity.turtle.egg_break")
+
+        sound =
+          {:sound_at, id, "blocks", {cx + 0.5, cy + 0.5, cz + 0.5}, Float32.round(0.7), pitch}
+
+        {[{:crack_egg, cell, state}, sound], %{world | random: random}}
+      else
+        {[], %{world | random: random}}
       end
-
-    step =
-      case ticked do
-        %{on_block: {cell, state}} ->
-          if MapSet.member?(@turtle_eggs, state), do: [{:crush_egg, cell, 100}], else: []
-
-        _ ->
-          []
-      end
-
-    fall ++ step
+    else
+      {[], world}
+    end
   end
 
   # Sounds, entity events and swings are the mob's events; the rest leaves it.

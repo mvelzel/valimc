@@ -37,8 +37,21 @@ type TargetT = (i32, Vec3, BoxT);
 
 fn kind(tag: Atom, arg: Term) -> NifResult<Kind> {
     Ok(if tag == kinds::arrow() {
-        Kind::Arrow {
-            gravity: arg.decode()?,
+        // `gravity`, or `{gravity, water inertia, hits entities}` (a trident's).
+        match arg.decode::<f64>() {
+            Ok(gravity) => Kind::Arrow {
+                gravity,
+                water: 0.6,
+                entities: true,
+            },
+            Err(_) => {
+                let (gravity, water, entities): (f64, f64, bool) = arg.decode()?;
+                Kind::Arrow {
+                    gravity,
+                    water: water as f32,
+                    entities,
+                }
+            }
         }
     } else if tag == kinds::throwable() {
         Kind::Throwable {

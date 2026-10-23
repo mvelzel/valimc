@@ -20,14 +20,18 @@ defmodule Valimc.Entity.Projectile do
   alias Valimc.Protocol.ItemStack
 
   @arrow "minecraft:arrow"
+  # A thrown trident (VMC-043b2: a drowned's) is an arrow of its own.
+  @trident "minecraft:trident"
+  @arrows [@arrow, @trident]
   @eye "minecraft:eye_of_ender"
   @thrown ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion)
   @fireballs ~w(minecraft:small_fireball minecraft:fireball minecraft:dragon_fireball)
   @bullet "minecraft:shulker_bullet"
-  @types [@arrow, @eye, @bullet | @thrown ++ @fireballs]
+  @types [@arrow, @trident, @eye, @bullet | @thrown ++ @fireballs]
 
   @items %{
     @arrow => "arrow",
+    @trident => "trident",
     @eye => "ender_eye",
     "minecraft:snowball" => "snowball",
     "minecraft:egg" => "egg",
@@ -74,6 +78,17 @@ defmodule Valimc.Entity.Projectile do
       effects: []
     }
 
+  # `ThrownTrident`: eight damage whatever its speed, its own sound in the
+  # ground, and whether it has dealt its damage (it then passes through).
+  defp own_data(@trident),
+    do:
+      Map.merge(own_data(@arrow), %{
+        damage: 8.0,
+        item: item(@trident),
+        sound: "minecraft:item.trident.hit_ground",
+        dealt: false
+      })
+
   defp own_data(@eye), do: %{item: item(@eye), target: nil, life: 0, survive: true}
   defp own_data(@bullet), do: Valimc.Entity.ShulkerBullet.data()
   defp own_data("minecraft:fireball"), do: %{acceleration: 0.1, power: 1}
@@ -99,7 +114,7 @@ defmodule Valimc.Entity.Projectile do
 
     # `AbstractArrow.setOwner`: a player's arrow may be picked up.
     data =
-      if type == @arrow and match?(%{player: true}, owner),
+      if type in @arrows and match?(%{player: true}, owner),
         do: %{data | pickup: :allowed},
         else: data
 
@@ -200,6 +215,11 @@ defmodule Valimc.Entity.Projectile do
   end
 
   defp kind(%Body{type: @arrow} = body), do: {:arrow, gravity(body, 0.05)}
+
+  # A trident's water inertia (0.99F), and no entity hits once it dealt damage.
+  defp kind(%Body{type: @trident, data: d} = body),
+    do: {:arrow, {gravity(body, 0.05), Float32.round(0.99), not d.dealt}}
+
   defp kind(%Body{type: "minecraft:splash_potion"} = body), do: {:throwable, gravity(body, 0.05)}
   defp kind(%Body{type: type} = body) when type in @thrown, do: {:throwable, gravity(body, 0.03)}
   defp kind(%Body{type: @eye, data: data}), do: {:eye, data.target}
@@ -231,7 +251,7 @@ defmodule Valimc.Entity.Projectile do
     data = %{d | age: age, in_water: in_water, left_owner: left_owner, fire: fire}
 
     data =
-      if type == @arrow,
+      if type in @arrows,
         do: %{data | in_ground: in_ground, last_state: last, shake: max(data.shake - 1, 0)},
         else: data
 
@@ -250,6 +270,13 @@ defmodule Valimc.Entity.Projectile do
       {:arrow_in_ground, d.in_ground, false},
       {:arrow_color, -1, -1}
     ]
+  end
+
+  def values(%Body{type: @trident, data: d} = body) do
+    foil = map_size(Map.get(d.item.components, "minecraft:enchantments", %{})) > 0
+
+    values(%{body | type: @arrow}) ++
+      [{:trident_loyalty, 0, 0}, {:trident_foil, foil, false}]
   end
 
   # Thrown items and eyes are given their stack when made, which vanilla

@@ -203,6 +203,8 @@ defmodule Valimc.Entity.MobMotion do
       cube: Valimc.AI.Mobs.hook(type, :jump, [body], nil)
     }
     |> Map.merge(kind_motion(type, motion))
+    # A swimming drowned is not pushed by currents (`isPushedByFluid`, VMC-043b2).
+    |> then(&if(Map.get(body.data, :swimming) == true, do: %{&1 | fluid_pushed: false}, else: &1))
     # A `NoAI` mob does not travel (`isEffectiveAi`).
     |> then(&if(mob.no_ai, do: %{&1 | fixed: true}, else: &1))
   end

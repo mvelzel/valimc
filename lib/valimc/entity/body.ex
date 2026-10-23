@@ -474,13 +474,15 @@ defmodule Valimc.Entity.Body do
   end
 
   # Vanilla's on-fire flag (bit 0) for a burning body that is not fire
-  # immune, sprinting (bit 3: a cat, VMC-044a3) and invisible (bit 5: a
+  # immune, sprinting (bit 3: a cat, VMC-044a3), swimming (bit 4) and invisible (bit 5: a
   # wandering trader, VMC-044a4).
   defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type} = body) do
     fire = if ticks > 0 and not EntityTypes.fetch(type).fire_immune, do: 1, else: 0
     sprinting = if Map.get(body.data, :sprinting) == true, do: 8, else: 0
     invisible = if Map.get(body.data, :invisible) == true, do: 32, else: 0
-    fire + sprinting + invisible
+    # Swimming (bit 4: a drowned, VMC-043b2).
+    swimming = if Map.get(body.data, :swimming) == true, do: 16, else: 0
+    fire + sprinting + swimming + invisible
   end
 
   defp shared_flags(%__MODULE__{mob: nil, data: %{fire: _}} = body),

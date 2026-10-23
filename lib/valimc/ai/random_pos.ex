@@ -395,12 +395,14 @@ defmodule Valimc.AI.RandomPos do
     end
   end
 
-  @monsters ["minecraft:zombie"]
-
-  defp family(type) when type in @monsters, do: :monster
   defp family("minecraft:mooshroom"), do: :mooshroom
 
+  # `Monster.getWalkTargetValue` for every `Monster` (the AI facts' flag).
   defp family(type) do
-    if Valimc.Entity.Animal.animal?(type), do: :animal, else: :other
+    cond do
+      Valimc.Entity.Animal.animal?(type) -> :animal
+      match?(%{monster: true}, Valimc.AI.Facts.mob(type)) -> :monster
+      true -> :other
+    end
   end
 end

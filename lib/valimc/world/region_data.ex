@@ -1290,7 +1290,8 @@ defmodule Valimc.World.RegionData do
       shots =
         for step <- steps,
             shot <- step.effects,
-            match?({:projectile, _, _, _, _}, shot) or match?({:throw_potion, _}, shot),
+            match?({:projectile, _, _, _, _}, shot) or match?({:throw_potion, _}, shot) or
+              match?({:throw_trident, _}, shot),
             do: {step.id, shot}
 
       level_events =
@@ -1492,15 +1493,21 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A witch's splash potion (`spawnProjectileUsingShoot`): from its eyes,
-  # shot with its own spread.
-  defp mob_projectile({id, {:throw_potion, info}}, state) do
+  # A witch's splash potion and a drowned's trident
+  # (`spawnProjectileUsingShoot`): from its eyes, shot with its own spread.
+  defp mob_projectile({id, {:throw_trident, info}}, state),
+    do: thrown_by(id, "minecraft:trident", info, state)
+
+  defp mob_projectile({id, {:throw_potion, info}}, state),
+    do: thrown_by(id, "minecraft:splash_potion", info, state)
+
+  defp thrown_by(id, type, info, state) do
     store = state.entities.store
 
     case store.entries[id] do
       %{entity: e, body: %Body{type: thrower}} ->
         owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: thrower}
-        body = Projectile.new("minecraft:splash_potion", owner, info.stack)
+        body = Projectile.new(type, owner, info.stack)
         body = Projectile.shoot(body, info.direction, info.velocity, info.uncertainty)
         record = Store.body_record(body, :crypto.strong_rand_bytes(16), info.from)
 
@@ -1922,6 +1929,29 @@ defmodule Valimc.World.RegionData do
     case Valimc.World.View.block(view, cell) do
       ^taken -> {:edit, cell, taken, Valimc.Data.BlockFacts.fluid_remains(taken), nil, [:updates]}
       _ -> nil
+    end
+  end
+
+  # A turtle egg a mob cracked (`decreaseEggs`, VMC-043b2): one egg fewer
+  # (its break event), the last breaking the block.
+  defp mob_edit(view, {:crack_egg, cell, state}) do
+    if Valimc.World.View.block(view, cell) == state do
+      to = Valimc.AI.Goals.RemoveBlock.cracked(state)
+
+      options =
+        if Valimc.Data.Blocks.block_id(to) == Valimc.Data.Blocks.block_id(state),
+          do: [],
+          else: [:updates]
+
+      {:edit, cell, state, to, state, options}
+    end
+  end
+
+  # A zombie stamps out turtle eggs (`removeBlock`, VMC-043b2).
+  defp mob_edit(view, {:remove_block, cell}) do
+    case Valimc.World.View.block(view, cell) do
+      nil -> nil
+      from -> {:edit, cell, from, Valimc.Data.BlockFacts.fluid_remains(from), nil, [:updates]}
     end
   end
 

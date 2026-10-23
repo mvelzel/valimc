@@ -38,6 +38,7 @@ defmodule Valimc.World.Projectiles do
   alias Valimc.Protocol.ItemStack
 
   @arrow "minecraft:arrow"
+  @trident "minecraft:trident"
   @eye "minecraft:eye_of_ender"
   @bullet "minecraft:shulker_bullet"
   # A bullet's Levitation: ten seconds (`MobEffectInstance(LEVITATION, 200)`).
@@ -119,12 +120,15 @@ defmodule Valimc.World.Projectiles do
 
   ## Arrows
 
-  defp planned(%Body{type: @arrow} = body, _old, position, hit, loosened, targets, context) do
+  defp planned(%Body{type: type} = body, _old, position, hit, loosened, targets, context)
+       when type in [@arrow, @trident] do
     d = body.data
 
     cond do
       d.in_ground and hit == nil ->
         life = if loosened, do: 0, else: d.life + 1
+        # A trident stuck for more than four ticks has dealt its damage.
+        d = if type == @trident and d.life > 4, do: %{d | dealt: true}, else: d
 
         if life >= @despawn,
           do: {:remove, []},
@@ -135,7 +139,7 @@ defmodule Valimc.World.Projectiles do
 
       match?({:block, _, _, _, _, _}, hit) ->
         sound = {:sound, d.sound, "neutral", position, 1.0, hit_pitch()}
-        data = %{d | shake: @shake, crit: false, sound: "minecraft:entity.arrow.hit", life: 0}
+        data = %{d | shake: @shake, crit: false, sound: default_sound(type), life: 0}
         {:keep, Projectile.impulse(%{body | data: data}), position, [sound]}
 
       match?({:entities, [_ | _]}, hit) ->
@@ -143,6 +147,7 @@ defmodule Valimc.World.Projectiles do
 
         case targets[id] do
           nil -> {:keep, tail(body), at, []}
+          target when type == @trident -> trident_hit(body, at, target, context)
           target -> arrow_hit(body, at, target, context)
         end
 
@@ -384,6 +389,34 @@ defmodule Valimc.World.Projectiles do
          else
            {:keep, Projectile.impulse(tail(body)), at, []}
          end
+     end}
+  end
+
+  defp default_sound(@trident), do: "minecraft:item.trident.hit_ground"
+  defp default_sound(_type), do: "minecraft:entity.arrow.hit"
+
+  # `ThrownTrident.onHitEntity`: eight damage (`trident`) and it has dealt
+  # it; hurt or not, its hit sound and it bounces back
+  # (`ProjectileDeflection.REVERSE` at (0.02, 0.2, 0.02)), then the rest of
+  # its tick.
+  defp trident_hit(body, at, target, context) do
+    d = body.data
+    hit = projectile_hit(body, context.me, at, :trident, 8.0)
+    body = %{body | data: %{d | dealt: true}}
+
+    {:hurt, target, hit,
+     fn _hurt ->
+       sound = {:sound, "minecraft:item.trident.hit", "neutral", at, 1.0, 1.0}
+       {x, y, z} = body.velocity
+       turn = Float32.round(170.0 + float() * 20.0)
+
+       body = %{
+         body
+         | velocity: {x * -0.01, y * -0.1, z * -0.01},
+           yaw: Float32.round(body.yaw + turn)
+       }
+
+       {:keep, Projectile.impulse(tail(body)), at, [sound]}
      end}
   end
 

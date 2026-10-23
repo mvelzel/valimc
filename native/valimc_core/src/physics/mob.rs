@@ -368,6 +368,9 @@ pub struct Ticked {
     /// The block it stands on after the move (`getBlockStateOnLegacy`,
     /// through its main supporting block; a strider's warmth, VMC-043d).
     pub support: u16,
+    /// Its motion as it entered water during the move (`checkFallDamage`'s
+    /// `doWaterSplashEffect`), if it did.
+    pub splash: Option<[f64; 3]>,
 }
 
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -1106,6 +1109,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         powder_snow,
         depths: moved.depths,
         swim: moved.swim,
+        splash: moved.splash,
     })
 }
 
@@ -1146,12 +1150,14 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         depths,
         swim: None,
         support,
+        splash: None,
     })
 }
 
 /// What `Entity.move` did.
 struct Moved {
     swim: Option<f32>,
+    splash: Option<[f64; 3]>,
     requested: [f64; 3],
     actual: [f64; 3],
     fall: f64,
@@ -1227,12 +1233,17 @@ fn mob_move(
     )?;
     // checkFallDamage re-samples the fluid state (and its currents) when not
     // in water before.
+    let mut splash = None;
     // A strider in lava resets its fall instead (`Strider.checkFallDamage`).
     let depths = if water_before || m.lava_walker && depths_before.lava > 0.0 {
         depths_before
     } else {
+        let before = m.velocity;
         let (depths, pushed) = currents(w, &after_body, m.velocity, m.fluid_pushed)?;
         m.velocity = pushed;
+        if depths.water > 0.0 {
+            splash = Some(before);
+        }
         depths
     };
     let water = depths.water > 0.0;
@@ -1261,7 +1272,7 @@ fn mob_move(
         m.velocity = r.velocity;
     }
     let swim = if m.emits {
-        emission(w, m, actual, water_before)?
+        emission(w, m, actual, water)?
     } else {
         None
     };
@@ -1283,6 +1294,7 @@ fn mob_move(
         depths,
         material,
         swim,
+        splash,
     })
 }
 

@@ -22,6 +22,9 @@ defmodule Valimc.AI.Goals.MoveToBlock do
       stay: 0,
       cell: {0, 0, 0},
       reached: false,
+      guard: Keyword.get(opts, :guard),
+      # `acceptedDistance`: how near the block above it counts as reached.
+      accepted: Keyword.get(opts, :accepted, 1.0),
       own: Keyword.get(opts, :own, %{})
     }
 
@@ -33,7 +36,12 @@ defmodule Valimc.AI.Goals.MoveToBlock do
   def can_use(state, self) do
     {n, self} = Self.int(self, 200)
     state = %{state | next: Mth.reduced(200 + n)}
-    find(state, self)
+
+    # A goal's own conditions after the search (a drowned's beach, VMC-043b2).
+    case {find(state, self), state.guard} do
+      {{true, state, self}, guard} when guard != nil -> {guard.(self), state, self}
+      {result, _} -> result
+    end
   end
 
   @doc "`findNearestBlock`: `{found, state, self}`."
@@ -90,7 +98,7 @@ defmodule Valimc.AI.Goals.MoveToBlock do
     {x, y, z} = state.cell
     target = {x, y + 1, z}
 
-    if close?(target, self, 1.0) do
+    if close?(target, self, state.accepted) do
       {%{state | reached: true, tries: state.tries - 1}, self}
     else
       tries = state.tries + 1

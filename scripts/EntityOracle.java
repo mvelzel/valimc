@@ -323,6 +323,9 @@ public class EntityOracle {
     fields.put("arrow_pierce_level", field(net.minecraft.world.entity.projectile.arrow.AbstractArrow.class, "PIERCE_LEVEL"));
     fields.put("arrow_in_ground", field(net.minecraft.world.entity.projectile.arrow.AbstractArrow.class, "IN_GROUND"));
     fields.put("arrow_color", field(net.minecraft.world.entity.projectile.arrow.Arrow.class, "ID_EFFECT_COLOR"));
+    // VMC-043b2: a thrown trident's loyalty and enchantment glint.
+    fields.put("trident_loyalty", field(net.minecraft.world.entity.projectile.arrow.ThrownTrident.class, "ID_LOYALTY"));
+    fields.put("trident_foil", field(net.minecraft.world.entity.projectile.arrow.ThrownTrident.class, "ID_FOIL"));
     fields.put("thrown_item", field(net.minecraft.world.entity.projectile.throwableitemprojectile.ThrowableItemProjectile.class, "DATA_ITEM_STACK"));
     fields.put("fireball_item", field(net.minecraft.world.entity.projectile.hurtingprojectile.Fireball.class, "DATA_ITEM_STACK"));
     fields.put("eye_item", field(net.minecraft.world.entity.projectile.EyeOfEnder.class, "DATA_ITEM_STACK"));

@@ -155,9 +155,15 @@ checked =
 
       jockey =
         Enum.find_value(self.effects, fn
-          {:jockey, _} -> "existing"
-          {:spawn, "minecraft:chicken", %{jockey: true}} -> "new"
-          _ -> nil
+          {:jockey, _} ->
+            "existing"
+
+          {:spawn, mount, %{jockey: true}}
+          when mount in ~w(minecraft:chicken minecraft:zombie_nautilus) ->
+            "new"
+
+          _ ->
+            nil
         end)
 
       spawned = for {:spawn, t, _} <- Enum.reverse(self.effects), do: t

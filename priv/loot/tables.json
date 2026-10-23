@@ -39634,6 +39634,67 @@
       }
     ]
   },
+  "minecraft:entities/drowned": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/drowned",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:rotten_flesh",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:copper_ingot",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "terms": [
+            {
+              "type": "minecraft:killed_by_player"
+            },
+            {
+              "unenchanted_chance": 0.10999999940395355,
+              "enchanted_chance": {
+                "base": 0.12999999523162842,
+                "per_level_above_first": 0.019999999552965164,
+                "type": "minecraft:linear"
+              },
+              "enchantment": "minecraft:looting",
+              "type": "minecraft:random_chance_with_enchanted_bonus"
+            }
+          ],
+          "type": "minecraft:all_of"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/elder_guardian": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/elder_guardian",

@@ -65,7 +65,7 @@ public class MobAiOracle {
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
       "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
-      "minecraft:silverfish", "minecraft:slime", "minecraft:witch", "minecraft:phantom",
+      "minecraft:silverfish", "minecraft:slime", "minecraft:witch", "minecraft:phantom", "minecraft:drowned",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
@@ -104,6 +104,14 @@ public class MobAiOracle {
       "minecraft:entity.hoglin.attack",
       // A strider's moods.
       "minecraft:entity.strider.ambient", "minecraft:entity.strider.happy", "minecraft:entity.strider.retreat",
+      // A drowned's sounds on land and in water, and its throw (VMC-043b2).
+      "minecraft:entity.drowned.hurt", "minecraft:entity.drowned.hurt_water", "minecraft:entity.drowned.death",
+      "minecraft:entity.drowned.death_water", "minecraft:entity.drowned.ambient_water", "minecraft:entity.drowned.shoot",
+      "minecraft:entity.drowned.swim",
+      // A zombie stamping out turtle eggs.
+      "minecraft:entity.zombie.destroy_egg", "minecraft:entity.turtle.egg_break",
+      // Splashing into water and fire put out.
+      "minecraft:entity.hostile.splash", "minecraft:entity.generic.splash", "minecraft:entity.generic.extinguish_fire",
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
@@ -428,8 +436,9 @@ public class MobAiOracle {
     public void playSeededSound(Entity e, double x, double y, double z, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) {
       Entity at = null;
       for (var m : entities) if (m.getX() == x && m.getY() == y && m.getZ() == z) at = m;
-      // A turtle's sound at its block (laying, VMC-043e) is its own.
-      if (at == null && current instanceof net.minecraft.world.entity.animal.turtle.Turtle) at = current;
+      // A sound at a block (a turtle laying, VMC-043e; a zombie stamping eggs,
+      // VMC-043b2) is the ticking mob's.
+      if (at == null) at = current;
       sound(at, s, v, p);
     }
     public void playSeededSound(Entity e, Entity t, Holder<SoundEvent> s, SoundSource c, float v, float p, long seed) { sound(t, s, v, p); }
