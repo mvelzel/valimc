@@ -285,3 +285,21 @@ a ghast shoots fireballs that the player can hit back to kill it; a hoglin
 charges the player and throws it, and keeps away from warped fungus; a magma
 cube hops at the player, hurts it at a touch and splits when killed; a
 strider walks on a lava lake and shivers off it.
+
+## Handoff (October 2026)
+
+- Done and verified: every slice above is on main (last commit 4ade4963).
+  `nether_mobs`, `mob_ai`, `loot`, `hostile_spawns` and the 123 stages
+  that `check_vanilla.py --changed` selected passed; `mob_ai_connection_test`
+  passes. Nothing is in progress and there is no open branch.
+- Remains: the client gate above (batched with the M3 client run); the
+  gaps listed in the slice sections: crossbow piglins (`CrossbowAttack`,
+  `BackUpIfTooClose`), hoglin breeding and zombification, riding and
+  jockeys (VMC-046), a strider's path start inside a lava column, and
+  Wither on the mobs a wither skeleton hits.
+- Gotchas: the probe level is overworld-like, so the oracle's piglins and
+  hoglins are subclasses that never convert. Regenerate `ai_facts`,
+  `combat_facts`, `animal_facts` and `priv/loot/tables.json` with
+  `scripts/java_tool.py` after every rebase that touches the oracles'
+  lists. `mix format` also reformats other sessions' unformatted files:
+  keep those out of commits.
