@@ -42,8 +42,8 @@ defmodule Valimc.EntityBodiesTest do
     test "a record of an unknown type, a wrong kind or a broken mob is refused" do
       {_, _, record} = summoned("minecraft:zombie", {0, 0}, {1.5, 64.0, 2.5})
       refute Store.valid_record?({0, 0}, %{record | type: "minecraft:unknown"})
-      # A type without behaviour is kept (VMC-042b: generation's villagers).
-      assert Store.valid_record?({0, 0}, %{record | type: "minecraft:villager", data: %{}})
+      # A type without behaviour is kept (VMC-042b: what generation adds).
+      assert Store.valid_record?({0, 0}, %{record | type: "minecraft:snow_golem", data: %{}})
       refute Store.valid_record?({0, 0}, %{record | kind: :object})
       refute Store.valid_record?({0, 0}, put_in(record, [:mob, :equipment], %{hand: nil}))
       refute Store.valid_record?({1, 0}, record)
@@ -207,7 +207,7 @@ defmodule Valimc.EntityBodiesTest do
 
       assert run.("summon zombie") =~ "Summoned new Zombie"
       assert run.("summon tnt ~1 ~ ~") =~ "Summoned new Primed TNT"
-      assert run.("summon villager") =~ "not supported yet"
+      assert run.("summon snow_golem") =~ "not supported yet"
       assert run.("summon zombie ~ ~ ~ {NoAI:1b}") =~ "not supported yet"
       Valimc.TestWait.until(fn -> map_size(store(ctx.owner).entries) == 2 end)
 

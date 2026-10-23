@@ -113,6 +113,8 @@ defmodule Valimc.World.RegionData do
     # What players did that this section's mobs react to before they next
     # think (VMC-043d, `AI.World.events`): at most 64.
     {:mob_events, []},
+    # The POI tickets this section's villagers hold (VMC-044a1), for its siblings.
+    {:poi_claims, %{}},
     # Mobs' deferred path searches and their results (VMC-041b).
     {:mob_paths, %Valimc.World.MobPaths{}},
     # Explosions whose craters wait for the crater job (VMC-050a):
@@ -1180,7 +1182,8 @@ defmodule Valimc.World.RegionData do
       view = Valimc.World.View.new(state.dimension)
       {ready, mob_paths} = Valimc.World.MobPaths.take(state.mob_paths)
       border = Valimc.World.Clock.border_snapshot()
-      world = %{mob_world(state, view, border) | paths: ready}
+      own = Valimc.AI.Pois.store_claims(mobs, state.dimension)
+      world = %{mob_world(state, view, border) | paths: ready, pois: poi_claims(state, own)}
 
       {steps, world} = Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border)
 
@@ -1384,6 +1387,14 @@ defmodule Valimc.World.RegionData do
         end
 
       state = Enum.reduce(arrows, state, &mob_shot/2)
+
+      # Beds villagers lie in or leave and doors they open and close (VMC-044a1).
+      state = mob_blocks(state, steps)
+
+      state = %{
+        state
+        | poi_claims: Valimc.AI.Pois.store_claims(state.entities.store.entries, state.dimension)
+      }
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,
@@ -2100,7 +2111,11 @@ defmodule Valimc.World.RegionData do
       # Tests that move mobs alone turn their goals off per scope.
       goals:
         Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
-      events: state.mob_events
+      events: state.mob_events,
+      dimension: state.dimension,
+      stand_up: fn _type, head, facing, yaw ->
+        Valimc.World.StandUp.bed(view, head, facing, yaw)
+      end
     }
   end
 
@@ -2108,6 +2123,73 @@ defmodule Valimc.World.RegionData do
   defp local_date do
     {{year, month, day}, _} = :calendar.local_time()
     Date.new!(year, month, day)
+  end
+
+  # The tickets the group's villagers hold: this section's now, its
+  # siblings' as their last mob tick left them.
+  defp poi_claims(state, own) do
+    siblings =
+      for {key, %{pois: pois}} <- state.siblings, key != state.key, map_size(pois) > 0, do: pois
+
+    Valimc.AI.Pois.merge([own | siblings])
+  end
+
+  # `startSleeping` and `stopSleeping` set a bed's `occupied` (its foot
+  # follows its head), `DoorBlock.setOpen` a wooden door's `open` through the
+  # rules (its other half, its sound); each where it still is what the mob saw.
+  defp mob_blocks(state, steps) do
+    beds = for step <- steps, {:bed, cell, occupied} <- step.effects, do: {cell, occupied}
+    doors = for step <- steps, {:door, cell, open} <- step.effects, do: {cell, open}
+    state = Enum.reduce(beds, state, &bed_occupied/2)
+
+    uses =
+      for {cell, open} <- Enum.uniq(doors),
+          block = local_or_sibling_block(state, cell),
+          block != nil and Valimc.AI.Behaviors.mob_door?(block) and
+            Valimc.AI.Behaviors.door_open?(block) != open,
+          do: {:use, cell, 2, true}
+
+    if uses == [], do: state, else: elem(rule_run(state, %{actions: uses}), 0)
+  end
+
+  defp bed_occupied({head, occupied}, state) do
+    with bed when is_integer(bed) <- local_or_sibling_block(state, head),
+         true <- Valimc.Data.Blocks.class(bed) == "BedBlock" do
+      foot = Valimc.Player.Sleep.behind(head, Valimc.Player.Sleep.facing(bed))
+
+      cells =
+        for {cell, block} <- [{head, bed}, {foot, local_or_sibling_block(state, foot)}],
+            is_integer(block) and Valimc.Data.Blocks.class(block) == "BedBlock",
+            do: {cell, Valimc.Player.Sleep.occupied(block, occupied)}
+
+      Enum.reduce(Enum.group_by(cells, &route_of(state, elem(&1, 0))), state, fn
+        {key, changes}, state ->
+          part = %{changes: changes, destroyed: [], ticks: [], fluid_ticks: [], events: []}
+
+          if key == state.key,
+            do: apply_rules(state, part),
+            else: %{state | sibling_effects: state.sibling_effects ++ [{key, {:rules, part}}]}
+      end)
+    else
+      _ -> state
+    end
+  end
+
+  # The section key (`state.key`'s kind) of a cell.
+  defp route_of(state, {x, _, z}) do
+    {_, sx, sz} = Grid.section(state.dimension, Grid.chunk_key(x, z))
+    {sx, sz}
+  end
+
+  # A cell of this section or a sibling's (nil where the group holds none).
+  defp local_or_sibling_block(state, cell) do
+    key = route_of(state, cell)
+
+    cond do
+      key == state.key -> Blocks.get(state.blocks, cell)
+      sibling = state.siblings[key] -> Blocks.get(sibling.blocks, cell)
+      true -> nil
+    end
   end
 
   defp find_blocks(view, {x0, y0, z0, x1, y1, z1}, states) do

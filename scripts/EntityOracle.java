@@ -344,6 +344,18 @@ public class EntityOracle {
     fields.put("chicken_sound_variant", field(net.minecraft.world.entity.animal.chicken.Chicken.class, "DATA_SOUND_VARIANT_ID"));
     fields.put("sheep_wool", field(net.minecraft.world.entity.animal.sheep.Sheep.class, "DATA_WOOL_ID"));
     fields.put("rabbit_type", field(net.minecraft.world.entity.animal.rabbit.Rabbit.class, "DATA_TYPE_ID"));
+    // VMC-044a: villagers, iron golems, cats.
+    fields.put("villager_unhappy", field(net.minecraft.world.entity.npc.villager.AbstractVillager.class, "DATA_UNHAPPY_COUNTER"));
+    fields.put("villager_data", field(net.minecraft.world.entity.npc.villager.Villager.class, "DATA_VILLAGER_DATA"));
+    fields.put("villager_data_finalized", field(net.minecraft.world.entity.npc.villager.Villager.class, "DATA_VILLAGER_DATA_FINALIZED"));
+    fields.put("iron_golem_flags", field(net.minecraft.world.entity.animal.golem.IronGolem.class, "DATA_FLAGS_ID"));
+    fields.put("tamable_flags", field(net.minecraft.world.entity.TamableAnimal.class, "DATA_FLAGS_ID"));
+    fields.put("tamable_owner", field(net.minecraft.world.entity.TamableAnimal.class, "DATA_OWNERUUID_ID"));
+    fields.put("cat_variant", field(net.minecraft.world.entity.animal.feline.Cat.class, "DATA_VARIANT_ID"));
+    fields.put("cat_lying", field(net.minecraft.world.entity.animal.feline.Cat.class, "IS_LYING"));
+    fields.put("cat_relax_state_one", field(net.minecraft.world.entity.animal.feline.Cat.class, "RELAX_STATE_ONE"));
+    fields.put("cat_collar_color", field(net.minecraft.world.entity.animal.feline.Cat.class, "DATA_COLLAR_COLOR"));
+    fields.put("cat_sound_variant", field(net.minecraft.world.entity.animal.feline.Cat.class, "DATA_SOUND_VARIANT_ID"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

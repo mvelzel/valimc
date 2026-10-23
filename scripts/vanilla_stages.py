@@ -1126,6 +1126,16 @@ STAGES = [
         ('java', 'HostileOracle', 'cases', '@hostile-ai.json'),
         ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12'),
     ]),
+    # VMC-044a: the village's facts (POI types, professions, the schedule) and
+    # villagers living a day by their brains over beds, job sites and bells.
+    ('village_facts', [
+        ('regen', 'VillageOracle', 'facts', '@village-facts.json'),
+        ('same', '@village-facts.json', 'priv/registry/village_facts.json'),
+    ]),
+    ('village', [
+        ('java', 'VillageOracle', 'cases', '@village.json'),
+        ('check', 'check_village.exs', '@village.json'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

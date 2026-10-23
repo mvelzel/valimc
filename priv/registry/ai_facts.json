@@ -2842,6 +2842,21 @@
         ]
       ],
       "targets": []
+    },
+    "minecraft:villager": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.villager.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "monster": false,
+      "malus": {
+        "fire_in_neighbor": 16.0,
+        "fire": -1.0
+      },
+      "goals": [],
+      "targets": []
     }
   },
   "shulker_look": [
@@ -2967,7 +2982,8 @@
     "minecraft:entity.cow.ambient": 450,
     "minecraft:entity.sheep.ambient": 1442,
     "minecraft:entity.chicken.ambient": 356,
-    "minecraft:entity.rabbit.ambient": 1353
+    "minecraft:entity.rabbit.ambient": 1353,
+    "minecraft:entity.villager.ambient": 1699
   },
   "swing_fields": "000106"
 }

@@ -845,6 +845,8 @@ defmodule Valimc.World.Region do
     # outputs and its containers (VMC-048a).
     comparators = resource.comparators
     containers = resource.containers
+    # The POI tickets its villagers hold (VMC-044a1).
+    pois = resource.poi_claims
 
     case peers do
       %{
@@ -852,7 +854,8 @@ defmodule Valimc.World.Region do
           absent_set: ^absent,
           busy: ^busy,
           comparators: ^comparators,
-          containers: ^containers
+          containers: ^containers,
+          pois: ^pois
         }
       } ->
         peers
@@ -864,7 +867,8 @@ defmodule Valimc.World.Region do
           absent: MapSet.to_list(absent),
           busy: busy,
           comparators: comparators,
-          containers: containers
+          containers: containers,
+          pois: pois
         })
     end
   end

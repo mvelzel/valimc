@@ -41592,6 +41592,10 @@
       }
     ]
   },
+  "minecraft:entities/villager": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/villager"
+  },
   "minecraft:entities/zombie": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/zombie",

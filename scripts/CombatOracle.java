@@ -53,7 +53,9 @@ public class CombatOracle {
       "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
       "minecraft:bat",
       // VMC-043c: farm animals.
-      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit");
+      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit",
+      // VMC-044a: villagers.
+      "minecraft:villager");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
@@ -178,6 +180,10 @@ public class CombatOracle {
     @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
     // A drowned's goals read the sea level (VMC-043b).
     @Override public int getSeaLevel() { return 63; }
+    // A villager's brain reads the time and its schedule when it is made (VMC-044a).
+    @Override public long getGameTime() { return 0L; }
+    static net.minecraft.world.attribute.EnvironmentAttributeSystem env = net.minecraft.world.attribute.EnvironmentAttributeSystem.builder().build();
+    @Override public net.minecraft.world.attribute.EnvironmentAttributeSystem environmentAttributes() { return env; }
     // A chicken's and a pig's variants (VMC-037o, VMC-041a) come from the level's registries.
     static RegistryAccess access;
     @Override public RegistryAccess registryAccess() { return access; }

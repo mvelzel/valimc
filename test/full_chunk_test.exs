@@ -71,8 +71,8 @@ end
 defmodule Valimc.FullChunkEntitiesTest do
   @moduledoc """
   The entities generation added (VMC-042b) become body records of any type:
-  a template's villager keeps its NBT and persistence, a mineshaft's chest
-  minecart its loot, a frame faces its wall, a shulker's random yaw is drawn.
+  a template's villager reads its NBT (VMC-044a1) and keeps its persistence,
+  a mineshaft's chest minecart its loot, a frame faces its wall, a shulker's random yaw is drawn.
   """
   use ExUnit.Case, async: true
   alias Valimc.Entity.{Body, Store}
@@ -113,8 +113,8 @@ defmodule Valimc.FullChunkEntitiesTest do
 
     {:ok, body} = Body.restore(villager_record)
 
-    assert body.type == "minecraft:villager" and body.mob.persistent and
-             body.preserved == villager
+    assert body.type == "minecraft:villager" and body.mob.persistent and body.preserved == nil
+    assert %{profession: "minecraft:cleric", finalized: true} = body.data
 
     assert cart.kind == :object and cart.preserved == loot
     {:ok, frame} = Body.restore(frame)

@@ -110,6 +110,26 @@
       "index": 16,
       "serializer": 8
     },
+    "cat_collar_color": {
+      "index": 23,
+      "serializer": 1
+    },
+    "cat_lying": {
+      "index": 21,
+      "serializer": 8
+    },
+    "cat_relax_state_one": {
+      "index": 22,
+      "serializer": 8
+    },
+    "cat_sound_variant": {
+      "index": 24,
+      "serializer": 22
+    },
+    "cat_variant": {
+      "index": 20,
+      "serializer": 21
+    },
     "chicken_sound_variant": {
       "index": 19,
       "serializer": 31
@@ -238,6 +258,10 @@
       "index": 18,
       "serializer": 8
     },
+    "iron_golem_flags": {
+      "index": 16,
+      "serializer": 0
+    },
     "item_stack": {
       "index": 8,
       "serializer": 7
@@ -358,6 +382,14 @@
       "index": 19,
       "serializer": 8
     },
+    "tamable_flags": {
+      "index": 18,
+      "serializer": 0
+    },
+    "tamable_owner": {
+      "index": 19,
+      "serializer": 13
+    },
     "thrown_item": {
       "index": 8,
       "serializer": 7
@@ -381,6 +413,18 @@
     "turtle_laying_egg": {
       "index": 19,
       "serializer": 8
+    },
+    "villager_data": {
+      "index": 19,
+      "serializer": 18
+    },
+    "villager_data_finalized": {
+      "index": 20,
+      "serializer": 8
+    },
+    "villager_unhappy": {
+      "index": 18,
+      "serializer": 1
     },
     "witch_using_item": {
       "index": 17,

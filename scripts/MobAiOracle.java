@@ -69,7 +69,9 @@ public class MobAiOracle {
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
       "minecraft:bat",
       // VMC-043c: farm animals (cases in AnimalOracle).
-      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit");
+      "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
+      // VMC-044a: villagers (cases in VillageOracle).
+      "minecraft:villager");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
@@ -107,6 +109,8 @@ public class MobAiOracle {
     // A loot table's random sequence (a piglin's barter, VMC-043d): a fresh
     // seed each time, recorded as the drawing mob's event.
     Probe level; long sequences;
+    // A villager's POI memories name the level they are in (VMC-044a).
+    public ServerLevel getLevel(ResourceKey<net.minecraft.world.level.Level> key) { return level; }
     public net.minecraft.util.RandomSource getRandomSequence(Identifier key) {
       long seed = ++sequences * 7919L + 13L;
       if (level != null && level.current != null) {
@@ -273,14 +277,43 @@ public class MobAiOracle {
     public boolean isLoaded(BlockPos p) { return true; }
     public boolean isRainingAt(BlockPos p) { return false; }
     public boolean isPositionEntityTicking(BlockPos p) { return true; }
-    // No light: brightness reads 0 (a monster's idle time ignores it).
-    public boolean hasChunk(int x, int z) { return false; }
+    // No light: brightness reads 0 (a monster's idle time ignores it); only
+    // a village scene's chunks are loaded (a villager leaving its bed).
+    public boolean hasChunk(int x, int z) { return poi != null; }
     public float getLightLevelDependentMagicValue(BlockPos p) { return 0.0F; }
     public int getRawBrightness(BlockPos p, int darkening) { return 0; }
-    // Night, and no village.
+    // Night, and no village (a village scene's POIs give one: VMC-044a).
     public boolean isBrightOutside() { return false; }
-    public boolean isCloseToVillage(BlockPos p, int r) { return false; }
-    public boolean isVillage(BlockPos p) { return false; }
+    net.minecraft.world.entity.ai.village.poi.PoiManager poi;
+    net.minecraft.util.debug.LevelDebugSynchronizers debug;
+    public net.minecraft.world.entity.ai.village.poi.PoiManager getPoiManager() { return poi; }
+    public net.minecraft.util.debug.LevelDebugSynchronizers debugSynchronizers() { return debug; }
+    public boolean isCloseToVillage(BlockPos p, int r) { return poi != null && super.isCloseToVillage(p, r); }
+    public boolean isVillage(BlockPos p) { return poi != null && super.isVillage(p); }
+    public boolean isVillage(SectionPos p) { return poi != null && super.isVillage(p); }
+    public net.minecraft.world.entity.raid.Raid getRaidAt(BlockPos p) { return null; }
+    // A block set changes the scene, and a POI's record follows its state
+    // (`ServerLevel.onBlockStateChange`).
+    public boolean setBlock(BlockPos p, BlockState state, int flags, int recursion) {
+      var old = getBlockState(p);
+      blocks.put(p.immutable(), state);
+      if (poi != null) {
+        var was = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(old);
+        var now = net.minecraft.world.entity.ai.village.poi.PoiTypes.forState(state);
+        if (!was.equals(now)) {
+          if (was.isPresent()) poi.remove(p);
+          now.ifPresent(t -> poi.add(p.immutable(), t));
+        }
+      }
+      return true;
+    }
+    // Sky light: full where nothing of the scene stands above in the column.
+    public int getBrightness(net.minecraft.world.level.LightLayer layer, BlockPos p) {
+      if (layer != net.minecraft.world.level.LightLayer.SKY) return 0;
+      for (var b : blocks.entrySet())
+        if (b.getKey().getX() == p.getX() && b.getKey().getZ() == p.getZ() && b.getKey().getY() > p.getY() && !b.getValue().isAir()) return 0;
+      return 15;
+    }
     public WorldBorder getWorldBorder() { return border; }
     public int getMinY() { return -64; }
     public int getSeaLevel() { return 63; }
@@ -468,6 +501,7 @@ public class MobAiOracle {
       case "minecraft:zombie" -> new Zombie(level);
       case "minecraft:pig" -> new Pig(level);
       case "minecraft:piglin" -> new Piglin(level);
+      case "minecraft:villager" -> new VillageOracle.Villager(level);
       // Any other type as its own factory makes it (no `finalizeSpawn`).
       default -> (net.minecraft.world.entity.Mob)BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(type)).create(level, EntitySpawnReason.COMMAND);
     };
@@ -514,6 +548,8 @@ public class MobAiOracle {
     level.server = (Server)unsafe.allocateInstance(Server.class);
     level.server.subscribers = new net.minecraft.util.debug.ServerDebugSubscribers(level.server);
     level.server.registries = new net.minecraft.server.ReloadableServerRegistries.Holder(lookup);
+    level.server.level = level;
+    setFinal(net.minecraft.world.level.Level.class, "dimension", level, net.minecraft.world.level.Level.OVERWORLD);
     level.access = access;
     level.sources = sources;
     level.time = 1000L;
@@ -1274,7 +1310,7 @@ public class MobAiOracle {
     return out;
   }
 
-  /** The probe level every case runs in, its registries and tags bound (also NetherMobOracle's). */
+  /** The probe level every case runs in, its registries and tags bound (also NetherMobOracle's and VillageOracle's). */
   static Probe setup() throws Exception {
     return setup(Probe.class);
   }
@@ -1299,6 +1335,7 @@ public class MobAiOracle {
       bind(resources, BuiltInRegistries.FLUID);
       bind(resources, BuiltInRegistries.ENTITY_TYPE);
       bind(resources, BuiltInRegistries.ITEM);
+      bind(resources, BuiltInRegistries.POINT_OF_INTEREST_TYPE);
       bind(resources, damage);
       loot = withLoot(lookup, resources);
     }

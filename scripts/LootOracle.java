@@ -79,7 +79,9 @@ public class LootOracle {
       "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",
       "minecraft:entities/guardian", "minecraft:entities/elder_guardian",
       // VMC-043c: farm animals.
-      "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit");
+      "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit",
+      // VMC-044a: villagers.
+      "minecraft:entities/villager");
   // VMC-043d: what a piglin gives for a gold ingot.
   static final String BARTERING = "minecraft:gameplay/piglin_bartering";
   // VMC-043c: what shearing an animal and a laying hen give (AnimalOracle checks them).

@@ -210,7 +210,8 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("remove_entities", [Wire.varint(length(ids)), Enum.map(ids, &Wire.varint/1)])
   end
 
-  # The water, ambient and End mobs' own fields (VMC-043e) by serializer.
+  # The water, ambient and End mobs' own fields (VMC-043e), the farm
+  # animals' (VMC-043c) and the villagers' (VMC-044a), by serializer.
   @mob_bytes [:shulker_peek, :shulker_color, :bat_flags, :sheep_wool]
   @mob_flags [
     :fish_from_bucket,
@@ -221,7 +222,9 @@ defmodule Valimc.Protocol.EntityPackets do
     :axolotl_from_bucket,
     :guardian_moving,
     # VMC-043c: an ageable mob's age lock.
-    :age_locked
+    :age_locked,
+    # VMC-044a: villagers.
+    :villager_data_finalized
   ]
   @mob_ints [
     :puff_state,
@@ -240,7 +243,8 @@ defmodule Valimc.Protocol.EntityPackets do
     :chicken_variant,
     :chicken_sound_variant,
     :mooshroom_type,
-    :rabbit_type
+    :rabbit_type,
+    :villager_unhappy
   ]
 
   defp metadata_value({name, value})
@@ -271,7 +275,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :cloud_radius,
               :cloud_waiting,
               :cloud_particle,
-              :custom_name
+              :custom_name,
+              :villager_data
             ] or name in @mob_bytes or name in @mob_flags or name in @mob_ints or
               name == :shulker_attach_face do
     fact = EntityTypes.field(name)
@@ -370,6 +375,17 @@ defmodule Valimc.Protocol.EntityPackets do
             _ ->
               check(false, "invalid sleeping position")
           end
+
+        # `VillagerData.STREAM_CODEC`: type, profession (registry ids), level.
+        :villager_data ->
+          {type, profession, level} = value
+
+          check(
+            Enum.all?([type, profession, level], &(is_integer(&1) and &1 >= 0)),
+            "invalid villager data"
+          )
+
+          [Wire.varint(type), Wire.varint(profession), Wire.varint(level)]
 
         :experience_value ->
           check(is_integer(value) and value in 1..2_147_483_647, "invalid experience value")

@@ -43,12 +43,21 @@ defmodule Valimc.Entity.Body do
   @falling "minecraft:falling_block"
   @cloud "minecraft:area_effect_cloud"
   @frames ["minecraft:item_frame", "minecraft:glow_item_frame"]
+  @villager "minecraft:villager"
   # A fence knot mobs are leashed to (VMC-043c3).
   @knot "minecraft:leash_knot"
   # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
   # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
-              ["minecraft:zombie", "minecraft:endermite", @tnt, @falling, @cloud, @knot] ++
+              [
+                "minecraft:zombie",
+                "minecraft:endermite",
+                @tnt,
+                @falling,
+                @cloud,
+                @knot,
+                @villager
+              ] ++
                 Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
             )
   @plain for name <- EntityTypes.names(),
@@ -99,7 +108,7 @@ defmodule Valimc.Entity.Body do
     if EntityTypes.fetch(type) == nil do
       {:error, :unknown_type}
     else
-      body = %__MODULE__{type: type, data: data(type), preserved: preserved}
+      body = generated_data(%__MODULE__{type: type, data: data(type), preserved: preserved})
 
       body =
         if kind(type) == :mob,
@@ -109,6 +118,12 @@ defmodule Valimc.Entity.Body do
       {:ok, body}
     end
   end
+
+  # A villager reads what generation gave it (VMC-044a1).
+  defp generated_data(%__MODULE__{type: @villager, preserved: preserved} = body),
+    do: %{body | data: Valimc.Entity.Villager.from_preserved(preserved), preserved: nil}
+
+  defp generated_data(body), do: body
 
   @doc """
   A primed TNT as `new PrimedTnt` makes it (VMC-050a): `fuse` ticks, a hop of
@@ -391,6 +406,7 @@ defmodule Valimc.Entity.Body do
       [
         {:living_flags, living_flags(mob), 0},
         {:health, living.health.value, 1.0},
+        {:sleeping_pos, sleeping(body), nil},
         {:mob_flags, mob_flags(mob), 0}
       ] ++ Valimc.AI.Mobs.values(body)
 
@@ -459,7 +475,10 @@ defmodule Valimc.Entity.Body do
   defp pose(%__MODULE__{mob: %Mob{living: %{health: %{value: value}}}}) when value <= 0,
     do: :dying
 
-  defp pose(_body), do: :standing
+  defp pose(body), do: if(sleeping(body), do: :sleeping, else: :standing)
+
+  # The bed a mob sleeps in (`LivingEntity.getSleepingPos`, a villager's, VMC-044a1).
+  defp sleeping(%__MODULE__{data: data}), do: Map.get(data, :sleeping)
 
   @doc """
   What observers are shown of `body` beyond its motion: its entity data

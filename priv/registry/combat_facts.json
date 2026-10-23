@@ -1894,7 +1894,8 @@
     "minecraft:cow": 0,
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
-    "minecraft:rabbit": 0
+    "minecraft:rabbit": 0,
+    "minecraft:villager": 0
   },
   "mobs": {
     "minecraft:zombie": {
@@ -2118,6 +2119,12 @@
       "death_sound": "minecraft:entity.rabbit.death",
       "sound_source": 6,
       "animal": true
+    },
+    "minecraft:villager": {
+      "hurt_sound": "minecraft:entity.villager.hurt",
+      "death_sound": "minecraft:entity.villager.death",
+      "sound_source": 6,
+      "animal": false
     }
   },
   "sounds": {
@@ -2217,7 +2224,9 @@
     "minecraft:entity.sheep.hurt": 1444,
     "minecraft:entity.sheep.death": 1443,
     "minecraft:entity.rabbit.hurt": 1356,
-    "minecraft:entity.rabbit.death": 1355
+    "minecraft:entity.rabbit.death": 1355,
+    "minecraft:entity.villager.hurt": 1702,
+    "minecraft:entity.villager.death": 1701
   },
   "sound_sources": {
     "master": 0,

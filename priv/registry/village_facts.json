@@ -1,0 +1,1245 @@
+{
+  "version": "26.3",
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "poi_types": {
+    "minecraft:armorer": {
+      "states": [
+        24119,
+        24120,
+        24121,
+        24122,
+        24123,
+        24124,
+        24125,
+        24126
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:bee_nest": {
+      "states": [
+        25125,
+        25126,
+        25127,
+        25128,
+        25129,
+        25130,
+        25131,
+        25132,
+        25133,
+        25134,
+        25135,
+        25136,
+        25137,
+        25138,
+        25139,
+        25140,
+        25141,
+        25142,
+        25143,
+        25144,
+        25145,
+        25146,
+        25147,
+        25148
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:bee_home"
+      ]
+    },
+    "minecraft:beehive": {
+      "states": [
+        25149,
+        25150,
+        25151,
+        25152,
+        25153,
+        25154,
+        25155,
+        25156,
+        25157,
+        25158,
+        25159,
+        25160,
+        25161,
+        25162,
+        25163,
+        25164,
+        25165,
+        25166,
+        25167,
+        25168,
+        25169,
+        25170,
+        25171,
+        25172
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:bee_home"
+      ]
+    },
+    "minecraft:butcher": {
+      "states": [
+        24111,
+        24112,
+        24113,
+        24114,
+        24115,
+        24116,
+        24117,
+        24118
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:cartographer": {
+      "states": [
+        24127
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:cleric": {
+      "states": [
+        11186,
+        11187,
+        11188,
+        11189,
+        11190,
+        11191,
+        11192,
+        11193
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:farmer": {
+      "states": [
+        25100,
+        25101,
+        25102,
+        25103,
+        25104,
+        25105,
+        25106,
+        25107,
+        25108
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:fisherman": {
+      "states": [
+        24099,
+        24100,
+        24101,
+        24102,
+        24103,
+        24104,
+        24105,
+        24106,
+        24107,
+        24108,
+        24109,
+        24110
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:fletcher": {
+      "states": [
+        24128
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:home": {
+      "states": [
+        2030,
+        2032,
+        2034,
+        2036,
+        2038,
+        2040,
+        2042,
+        2044,
+        2046,
+        2048,
+        2050,
+        2052,
+        2054,
+        2056,
+        2058,
+        2060,
+        2062,
+        2064,
+        2066,
+        2068,
+        2070,
+        2072,
+        2074,
+        2076,
+        2078,
+        2080,
+        2082,
+        2084,
+        2086,
+        2088,
+        2090,
+        2092,
+        2094,
+        2096,
+        2098,
+        2100,
+        2102,
+        2104,
+        2106,
+        2108,
+        2110,
+        2112,
+        2114,
+        2116,
+        2118,
+        2120,
+        2122,
+        2124,
+        2126,
+        2128,
+        2130,
+        2132,
+        2134,
+        2136,
+        2138,
+        2140,
+        2142,
+        2144,
+        2146,
+        2148,
+        2150,
+        2152,
+        2154,
+        2156,
+        2158,
+        2160,
+        2162,
+        2164,
+        2166,
+        2168,
+        2170,
+        2172,
+        2174,
+        2176,
+        2178,
+        2180,
+        2182,
+        2184,
+        2186,
+        2188,
+        2190,
+        2192,
+        2194,
+        2196,
+        2198,
+        2200,
+        2202,
+        2204,
+        2206,
+        2208,
+        2210,
+        2212,
+        2214,
+        2216,
+        2218,
+        2220,
+        2222,
+        2224,
+        2226,
+        2228,
+        2230,
+        2232,
+        2234,
+        2236,
+        2238,
+        2240,
+        2242,
+        2244,
+        2246,
+        2248,
+        2250,
+        2252,
+        2254,
+        2256,
+        2258,
+        2260,
+        2262,
+        2264,
+        2266,
+        2268,
+        2270,
+        2272,
+        2274,
+        2276,
+        2278,
+        2280,
+        2282,
+        2284
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:village"
+      ]
+    },
+    "minecraft:leatherworker": {
+      "states": [
+        11194,
+        11195,
+        11196,
+        11197,
+        11198,
+        11199,
+        11200,
+        11201
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:librarian": {
+      "states": [
+        24141,
+        24142,
+        24143,
+        24144,
+        24145,
+        24146,
+        24147,
+        24148,
+        24149,
+        24150,
+        24151,
+        24152,
+        24153,
+        24154,
+        24155,
+        24156
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:lightning_rod": {
+      "states": [
+        33373,
+        33374,
+        33375,
+        33376,
+        33377,
+        33378,
+        33379,
+        33380,
+        33381,
+        33382,
+        33383,
+        33384,
+        33385,
+        33386,
+        33387,
+        33388,
+        33389,
+        33390,
+        33391,
+        33392,
+        33393,
+        33394,
+        33395,
+        33396,
+        33397,
+        33398,
+        33399,
+        33400,
+        33401,
+        33402,
+        33403,
+        33404,
+        33405,
+        33406,
+        33407,
+        33408,
+        33409,
+        33410,
+        33411,
+        33412,
+        33413,
+        33414,
+        33415,
+        33416,
+        33417,
+        33418,
+        33419,
+        33420,
+        33421,
+        33422,
+        33423,
+        33424,
+        33425,
+        33426,
+        33427,
+        33428,
+        33429,
+        33430,
+        33431,
+        33432,
+        33433,
+        33434,
+        33435,
+        33436,
+        33437,
+        33438,
+        33439,
+        33440,
+        33441,
+        33442,
+        33443,
+        33444,
+        33445,
+        33446,
+        33447,
+        33448,
+        33449,
+        33450,
+        33451,
+        33452,
+        33453,
+        33454,
+        33455,
+        33456,
+        33457,
+        33458,
+        33459,
+        33460,
+        33461,
+        33462,
+        33463,
+        33464,
+        33465,
+        33466,
+        33467,
+        33468,
+        33469,
+        33470,
+        33471,
+        33472,
+        33473,
+        33474,
+        33475,
+        33476,
+        33477,
+        33478,
+        33479,
+        33480,
+        33481,
+        33482,
+        33483,
+        33484,
+        33485,
+        33486,
+        33487,
+        33488,
+        33489,
+        33490,
+        33491,
+        33492,
+        33493,
+        33494,
+        33495,
+        33496,
+        33497,
+        33498,
+        33499,
+        33500,
+        33501,
+        33502,
+        33503,
+        33504,
+        33505,
+        33506,
+        33507,
+        33508,
+        33509,
+        33510,
+        33511,
+        33512,
+        33513,
+        33514,
+        33515,
+        33516,
+        33517,
+        33518,
+        33519,
+        33520,
+        33521,
+        33522,
+        33523,
+        33524,
+        33525,
+        33526,
+        33527,
+        33528,
+        33529,
+        33530,
+        33531,
+        33532,
+        33533,
+        33534,
+        33535,
+        33536,
+        33537,
+        33538,
+        33539,
+        33540,
+        33541,
+        33542,
+        33543,
+        33544,
+        33545,
+        33546,
+        33547,
+        33548,
+        33549,
+        33550,
+        33551,
+        33552,
+        33553,
+        33554,
+        33555,
+        33556,
+        33557,
+        33558,
+        33559,
+        33560,
+        33561,
+        33562,
+        33563,
+        33564
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": []
+    },
+    "minecraft:lodestone": {
+      "states": [
+        25187
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": []
+    },
+    "minecraft:mason": {
+      "states": [
+        24158,
+        24159,
+        24160,
+        24161
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:meeting": {
+      "states": [
+        24162,
+        24163,
+        24164,
+        24165,
+        24166,
+        24167,
+        24168,
+        24169,
+        24170,
+        24171,
+        24172,
+        24173,
+        24174,
+        24175,
+        24176,
+        24177,
+        24178,
+        24179,
+        24180,
+        24181,
+        24182,
+        24183,
+        24184,
+        24185,
+        24186,
+        24187,
+        24188,
+        24189,
+        24190,
+        24191,
+        24192,
+        24193
+      ],
+      "max_tickets": 32,
+      "valid_range": 6,
+      "tags": [
+        "minecraft:village"
+      ]
+    },
+    "minecraft:nether_portal": {
+      "states": [
+        8687,
+        8688
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": []
+    },
+    "minecraft:shepherd": {
+      "states": [
+        24095,
+        24096,
+        24097,
+        24098
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:test_instance": {
+      "states": [
+        25099
+      ],
+      "max_tickets": 0,
+      "valid_range": 1,
+      "tags": []
+    },
+    "minecraft:toolsmith": {
+      "states": [
+        24157
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    },
+    "minecraft:weaponsmith": {
+      "states": [
+        24129,
+        24130,
+        24131,
+        24132,
+        24133,
+        24134,
+        24135,
+        24136,
+        24137,
+        24138,
+        24139,
+        24140
+      ],
+      "max_tickets": 1,
+      "valid_range": 1,
+      "tags": [
+        "minecraft:acquirable_job_site",
+        "minecraft:village"
+      ]
+    }
+  },
+  "professions": [
+    {
+      "name": "minecraft:none",
+      "id": 0,
+      "held": [],
+      "acquirable": [
+        "minecraft:armorer",
+        "minecraft:butcher",
+        "minecraft:cartographer",
+        "minecraft:cleric",
+        "minecraft:farmer",
+        "minecraft:fisherman",
+        "minecraft:fletcher",
+        "minecraft:leatherworker",
+        "minecraft:librarian",
+        "minecraft:mason",
+        "minecraft:shepherd",
+        "minecraft:toolsmith",
+        "minecraft:weaponsmith"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": null
+    },
+    {
+      "name": "minecraft:armorer",
+      "id": 1,
+      "held": [
+        "minecraft:armorer"
+      ],
+      "acquirable": [
+        "minecraft:armorer"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_armorer"
+    },
+    {
+      "name": "minecraft:butcher",
+      "id": 2,
+      "held": [
+        "minecraft:butcher"
+      ],
+      "acquirable": [
+        "minecraft:butcher"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_butcher"
+    },
+    {
+      "name": "minecraft:cartographer",
+      "id": 3,
+      "held": [
+        "minecraft:cartographer"
+      ],
+      "acquirable": [
+        "minecraft:cartographer"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_cartographer"
+    },
+    {
+      "name": "minecraft:cleric",
+      "id": 4,
+      "held": [
+        "minecraft:cleric"
+      ],
+      "acquirable": [
+        "minecraft:cleric"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_cleric"
+    },
+    {
+      "name": "minecraft:farmer",
+      "id": 5,
+      "held": [
+        "minecraft:farmer"
+      ],
+      "acquirable": [
+        "minecraft:farmer"
+      ],
+      "secondary_poi": [
+        "minecraft:farmland"
+      ],
+      "requested_items": [
+        "minecraft:beetroot_seeds",
+        "minecraft:bone_meal",
+        "minecraft:wheat",
+        "minecraft:wheat_seeds"
+      ],
+      "work_sound": "minecraft:entity.villager.work_farmer"
+    },
+    {
+      "name": "minecraft:fisherman",
+      "id": 6,
+      "held": [
+        "minecraft:fisherman"
+      ],
+      "acquirable": [
+        "minecraft:fisherman"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_fisherman"
+    },
+    {
+      "name": "minecraft:fletcher",
+      "id": 7,
+      "held": [
+        "minecraft:fletcher"
+      ],
+      "acquirable": [
+        "minecraft:fletcher"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_fletcher"
+    },
+    {
+      "name": "minecraft:leatherworker",
+      "id": 8,
+      "held": [
+        "minecraft:leatherworker"
+      ],
+      "acquirable": [
+        "minecraft:leatherworker"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_leatherworker"
+    },
+    {
+      "name": "minecraft:librarian",
+      "id": 9,
+      "held": [
+        "minecraft:librarian"
+      ],
+      "acquirable": [
+        "minecraft:librarian"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_librarian"
+    },
+    {
+      "name": "minecraft:mason",
+      "id": 10,
+      "held": [
+        "minecraft:mason"
+      ],
+      "acquirable": [
+        "minecraft:mason"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_mason"
+    },
+    {
+      "name": "minecraft:nitwit",
+      "id": 11,
+      "held": [],
+      "acquirable": [],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": null
+    },
+    {
+      "name": "minecraft:shepherd",
+      "id": 12,
+      "held": [
+        "minecraft:shepherd"
+      ],
+      "acquirable": [
+        "minecraft:shepherd"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_shepherd"
+    },
+    {
+      "name": "minecraft:toolsmith",
+      "id": 13,
+      "held": [
+        "minecraft:toolsmith"
+      ],
+      "acquirable": [
+        "minecraft:toolsmith"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_toolsmith"
+    },
+    {
+      "name": "minecraft:weaponsmith",
+      "id": 14,
+      "held": [
+        "minecraft:weaponsmith"
+      ],
+      "acquirable": [
+        "minecraft:weaponsmith"
+      ],
+      "secondary_poi": [],
+      "requested_items": [],
+      "work_sound": "minecraft:entity.villager.work_weaponsmith"
+    }
+  ],
+  "villager_types": [
+    {
+      "name": "minecraft:desert",
+      "id": 0
+    },
+    {
+      "name": "minecraft:jungle",
+      "id": 1
+    },
+    {
+      "name": "minecraft:plains",
+      "id": 2
+    },
+    {
+      "name": "minecraft:savanna",
+      "id": 3
+    },
+    {
+      "name": "minecraft:snow",
+      "id": 4
+    },
+    {
+      "name": "minecraft:swamp",
+      "id": 5
+    },
+    {
+      "name": "minecraft:taiga",
+      "id": 6
+    }
+  ],
+  "villager_type_by_biome": {
+    "minecraft:badlands": "minecraft:desert",
+    "minecraft:bamboo_jungle": "minecraft:jungle",
+    "minecraft:basalt_deltas": "minecraft:plains",
+    "minecraft:beach": "minecraft:plains",
+    "minecraft:birch_forest": "minecraft:plains",
+    "minecraft:cherry_grove": "minecraft:plains",
+    "minecraft:cold_ocean": "minecraft:plains",
+    "minecraft:crimson_forest": "minecraft:plains",
+    "minecraft:dappled_forest": "minecraft:plains",
+    "minecraft:dark_forest": "minecraft:plains",
+    "minecraft:deep_cold_ocean": "minecraft:plains",
+    "minecraft:deep_dark": "minecraft:plains",
+    "minecraft:deep_frozen_ocean": "minecraft:snow",
+    "minecraft:deep_lukewarm_ocean": "minecraft:plains",
+    "minecraft:deep_ocean": "minecraft:plains",
+    "minecraft:desert": "minecraft:desert",
+    "minecraft:dripstone_caves": "minecraft:plains",
+    "minecraft:end_barrens": "minecraft:plains",
+    "minecraft:end_highlands": "minecraft:plains",
+    "minecraft:end_midlands": "minecraft:plains",
+    "minecraft:eroded_badlands": "minecraft:desert",
+    "minecraft:flower_forest": "minecraft:plains",
+    "minecraft:forest": "minecraft:plains",
+    "minecraft:frozen_ocean": "minecraft:snow",
+    "minecraft:frozen_peaks": "minecraft:snow",
+    "minecraft:frozen_river": "minecraft:snow",
+    "minecraft:grove": "minecraft:snow",
+    "minecraft:ice_spikes": "minecraft:snow",
+    "minecraft:jagged_peaks": "minecraft:snow",
+    "minecraft:jungle": "minecraft:jungle",
+    "minecraft:lukewarm_ocean": "minecraft:plains",
+    "minecraft:lush_caves": "minecraft:plains",
+    "minecraft:mangrove_swamp": "minecraft:swamp",
+    "minecraft:meadow": "minecraft:plains",
+    "minecraft:mushroom_fields": "minecraft:plains",
+    "minecraft:nether_wastes": "minecraft:plains",
+    "minecraft:ocean": "minecraft:plains",
+    "minecraft:old_growth_birch_forest": "minecraft:plains",
+    "minecraft:old_growth_pine_taiga": "minecraft:taiga",
+    "minecraft:old_growth_spruce_taiga": "minecraft:taiga",
+    "minecraft:pale_garden": "minecraft:plains",
+    "minecraft:plains": "minecraft:plains",
+    "minecraft:river": "minecraft:plains",
+    "minecraft:savanna": "minecraft:savanna",
+    "minecraft:savanna_plateau": "minecraft:savanna",
+    "minecraft:small_end_islands": "minecraft:plains",
+    "minecraft:snowy_beach": "minecraft:snow",
+    "minecraft:snowy_plains": "minecraft:snow",
+    "minecraft:snowy_slopes": "minecraft:snow",
+    "minecraft:snowy_taiga": "minecraft:snow",
+    "minecraft:soul_sand_valley": "minecraft:plains",
+    "minecraft:sparse_jungle": "minecraft:jungle",
+    "minecraft:stony_peaks": "minecraft:plains",
+    "minecraft:stony_shore": "minecraft:plains",
+    "minecraft:sulfur_caves": "minecraft:plains",
+    "minecraft:sunflower_plains": "minecraft:plains",
+    "minecraft:swamp": "minecraft:swamp",
+    "minecraft:taiga": "minecraft:taiga",
+    "minecraft:the_end": "minecraft:plains",
+    "minecraft:the_void": "minecraft:plains",
+    "minecraft:warm_ocean": "minecraft:plains",
+    "minecraft:warped_forest": "minecraft:plains",
+    "minecraft:windswept_forest": "minecraft:taiga",
+    "minecraft:windswept_gravelly_hills": "minecraft:taiga",
+    "minecraft:windswept_hills": "minecraft:taiga",
+    "minecraft:windswept_savanna": "minecraft:savanna",
+    "minecraft:wooded_badlands": "minecraft:desert"
+  },
+  "schedules": {
+    "minecraft:overworld": {
+      "adult": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          2000,
+          "work"
+        ],
+        [
+          9000,
+          "meet"
+        ],
+        [
+          11000,
+          "idle"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ],
+      "baby": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          3000,
+          "play"
+        ],
+        [
+          6000,
+          "idle"
+        ],
+        [
+          10000,
+          "play"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ]
+    },
+    "minecraft:overworld_caves": {
+      "adult": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          2000,
+          "work"
+        ],
+        [
+          9000,
+          "meet"
+        ],
+        [
+          11000,
+          "idle"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ],
+      "baby": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          3000,
+          "play"
+        ],
+        [
+          6000,
+          "idle"
+        ],
+        [
+          10000,
+          "play"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ]
+    },
+    "minecraft:the_end": {
+      "adult": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          2000,
+          "work"
+        ],
+        [
+          9000,
+          "meet"
+        ],
+        [
+          11000,
+          "idle"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ],
+      "baby": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          3000,
+          "play"
+        ],
+        [
+          6000,
+          "idle"
+        ],
+        [
+          10000,
+          "play"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ]
+    },
+    "minecraft:the_nether": {
+      "adult": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          2000,
+          "work"
+        ],
+        [
+          9000,
+          "meet"
+        ],
+        [
+          11000,
+          "idle"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ],
+      "baby": [
+        [
+          0,
+          "rest"
+        ],
+        [
+          10,
+          "idle"
+        ],
+        [
+          3000,
+          "play"
+        ],
+        [
+          6000,
+          "idle"
+        ],
+        [
+          10000,
+          "play"
+        ],
+        [
+          12000,
+          "rest"
+        ]
+      ]
+    }
+  },
+  "sounds": {
+    "minecraft:entity.villager.ambient": 1699,
+    "minecraft:entity.villager.celebrate": 1700,
+    "minecraft:entity.villager.death": 1701,
+    "minecraft:entity.villager.hurt": 1702,
+    "minecraft:entity.villager.no": 1703,
+    "minecraft:entity.villager.trade": 1704,
+    "minecraft:entity.villager.work_armorer": 1706,
+    "minecraft:entity.villager.work_butcher": 1707,
+    "minecraft:entity.villager.work_cartographer": 1708,
+    "minecraft:entity.villager.work_cleric": 1709,
+    "minecraft:entity.villager.work_farmer": 1710,
+    "minecraft:entity.villager.work_fisherman": 1711,
+    "minecraft:entity.villager.work_fletcher": 1712,
+    "minecraft:entity.villager.work_leatherworker": 1713,
+    "minecraft:entity.villager.work_librarian": 1714,
+    "minecraft:entity.villager.work_mason": 1715,
+    "minecraft:entity.villager.work_shepherd": 1716,
+    "minecraft:entity.villager.work_toolsmith": 1717,
+    "minecraft:entity.villager.work_weaponsmith": 1718,
+    "minecraft:entity.villager.yes": 1705
+  }
+}
