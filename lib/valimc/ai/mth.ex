@@ -92,6 +92,9 @@ defmodule Valimc.AI.Mth do
   @doc "`Mth.lerp(delta, from, to)` of floats."
   def lerp(delta, from, to), do: f(from + f(delta * f(to - from)))
 
+  @doc "`Mth.rotLerp(delta, from, to)`: from toward to the short way round."
+  def rot_lerp(delta, from, to), do: f(from + f(delta * wrap(f(to - from))))
+
   @doc "`Mth.approach(current, target, increment)`."
   def approach(current, target, increment) do
     increment = abs(increment)

@@ -58,6 +58,7 @@ pub(crate) struct PlayerT {
     jump_boost: i32,
     slow_falling: bool,
     levitation: Option<i32>,
+    dolphins_grace: bool,
 }
 
 pub(crate) fn path(p: &PathT) -> Path {
@@ -133,6 +134,7 @@ pub(crate) fn player(p: &PlayerT) -> NifResult<Player> {
         jump_boost: p.jump_boost,
         slow_falling: p.slow_falling,
         levitation: p.levitation,
+        dolphins_grace: p.dolphins_grace,
     })
 }
 

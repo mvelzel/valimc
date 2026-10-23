@@ -2710,6 +2710,124 @@
       "goals": [],
       "targets": []
     },
+    "minecraft:dolphin": {
+      "max_head_y_rot": 1,
+      "max_head_x_rot": 1,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.dolphin.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "BreathAirGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          0,
+          "TryFindLiquidGoal",
+          []
+        ],
+        [
+          1,
+          "DolphinSwimToTreasureGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          2,
+          "DolphinSwimWithPlayerGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          4,
+          "RandomSwimmingGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          5,
+          "DolphinJumpGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          6,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          7,
+          "MoveToItemGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          8,
+          "PlayWithItemsGoal",
+          []
+        ],
+        [
+          8,
+          "FollowPlayerRiddenEntityGoal",
+          []
+        ],
+        [
+          8,
+          "FollowPlayerRiddenEntityGoal",
+          []
+        ],
+        [
+          9,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:cow": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -3612,6 +3730,14 @@
     "minecraft:entity.elder_guardian.death": 580,
     "minecraft:entity.elder_guardian.death_land": 581,
     "minecraft:entity.bat.ambient": 147,
+    "minecraft:entity.dolphin.ambient": 523,
+    "minecraft:entity.dolphin.ambient_water": 524,
+    "minecraft:entity.dolphin.jump": 529,
+    "minecraft:entity.dolphin.play": 530,
+    "minecraft:entity.dolphin.attack": 525,
+    "minecraft:entity.dolphin.eat": 527,
+    "minecraft:entity.dolphin.swim": 532,
+    "minecraft:entity.dolphin.splash": 531,
     "minecraft:entity.fish.swim": 642,
     "minecraft:entity.generic.swim": 708,
     "minecraft:entity.hostile.swim": 880,

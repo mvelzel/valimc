@@ -51,7 +51,7 @@ public class CombatOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish", "minecraft:tropical_fish",
       "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
-      "minecraft:bat",
+      "minecraft:bat", "minecraft:dolphin",
       // VMC-043c: farm animals.
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems.

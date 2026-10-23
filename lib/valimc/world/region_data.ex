@@ -1262,7 +1262,11 @@ defmodule Valimc.World.RegionData do
       wanted = for step <- steps, {:make_knot, pos} <- step.effects, do: pos
 
       # Items mobs threw (a piglin's barter, VMC-043d).
-      throws = for step <- steps, {:throw, _, _, _} = thrown <- step.effects, do: thrown
+      throws =
+        for step <- steps,
+            thrown <- step.effects,
+            is_tuple(thrown) and elem(thrown, 0) == :throw,
+            do: thrown
 
       # Projectiles mobs fired (a blaze's fireballs, VMC-043d) and their level events.
       # Fireballs (VMC-043d) and a witch's splash potions (VMC-043b6).
@@ -1337,6 +1341,13 @@ defmodule Valimc.World.RegionData do
             %{entity: e, body: body} <- [store.entries[step.id]],
             do: {e, body.type, target, type, amount, actions}
 
+      # Effects mobs give others without a hurt (a dolphin's grace, VMC-043e).
+      gifts =
+        for step <- steps,
+            {:effect, target, actions} <- step.effects,
+            %{entity: e, body: body} <- [store.entries[step.id]],
+            do: {e, body.type, target, actions}
+
       # Mobs whose kind ends them (an endermite's lifetime, VMC-043e) leave.
       {discards, steps} = Enum.split_with(steps, &(:discard in &1.effects))
       # A bred pair's child and orb, and the blocks animals ate (VMC-043c).
@@ -1379,6 +1390,7 @@ defmodule Valimc.World.RegionData do
       state = Enum.reduce(fired, state, &mob_spawns/2)
       state = Enum.reduce(hurts, state, &mob_hurt/2)
       Enum.each(touches, &mob_touch/1)
+      state = Enum.reduce(gifts, state, &mob_gift/2)
       state = Enum.reduce(mob_attacks, state, &mob_attack_mob/2)
       Enum.each(curses, &mob_curse(&1, world.players))
       state = Enum.reduce(pickups, state, &mob_pickup/2)
@@ -1544,6 +1556,24 @@ defmodule Valimc.World.RegionData do
           Enum.reduce(actions, state, &mob_effect(&2, sid, nil, &1, hit))
         else
           {false, state} -> state
+          _ -> state
+        end
+    end
+  end
+
+  # Effect actions mob `e` gives `target` (`addEffect(effect, mob)`).
+  defp mob_gift({e, type, target, actions}, state) do
+    me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
+    hit = %{source: nil, amount: 0.0, attacker: me, direct: me, position: {e.x, e.y, e.z}}
+
+    case target do
+      {:player, uuid} ->
+        send(self(), {:player, uuid, {:splash, actions, hit}})
+        state
+
+      {:mob, uuid} ->
+        case Store.find(state.entities.store, uuid) do
+          {:ok, {_, sid, _}} -> Enum.reduce(actions, state, &mob_effect(&2, sid, nil, &1, hit))
           _ -> state
         end
     end
@@ -1967,14 +1997,21 @@ defmodule Valimc.World.RegionData do
   # threw it, picked up after the default delay.
   defp mob_throws(state, throws) do
     records =
-      for {:throw, stack, {x, y, z}, velocity} <- throws do
+      for thrown <- throws do
+        # A dolphin's toss waits 40 ticks (VMC-043e).
+        {stack, {x, y, z}, velocity, delay} =
+          case thrown do
+            {:throw, stack, at, velocity} -> {stack, at, velocity, 10}
+            {:throw, stack, at, velocity, delay} -> {stack, at, velocity, delay}
+          end
+
         %{
           uuid: :crypto.strong_rand_bytes(16),
           x: x,
           y: y,
           z: z,
           stack: stack,
-          motion: %Valimc.Entity.ItemMotionState{velocity: velocity, pickup_delay: 10}
+          motion: %Valimc.Entity.ItemMotionState{velocity: velocity, pickup_delay: delay}
         }
       end
 

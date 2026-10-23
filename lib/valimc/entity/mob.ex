@@ -78,7 +78,9 @@ defmodule Valimc.Entity.Mob do
         do: %MobMotion{hop: MobMotion.hop(), control: {:move_to, {0.0, 0.0, 0.0}, 0.0}},
         else: %MobMotion{}
 
-    %__MODULE__{living: %Living{health: health}, motion: motion}
+    # `getMaxAirSupply` (a dolphin's own, VMC-043e).
+    air = Valimc.AI.Mobs.hook(type, :max_air, [], 300)
+    %__MODULE__{living: %Living{health: health, air_supply: air}, motion: motion}
   end
 
   @doc "The record a store saves."

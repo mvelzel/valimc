@@ -45,7 +45,8 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.MagmaCube,
     Valimc.AI.Mobs.Villager,
     Valimc.AI.Mobs.IronGolem,
-    Valimc.AI.Mobs.WanderingTrader
+    Valimc.AI.Mobs.WanderingTrader,
+    Valimc.AI.Mobs.Dolphin
     | Valimc.Entity.Animal.modules()
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}
@@ -114,6 +115,12 @@ defmodule Valimc.AI.Mobs do
   def hook(type, name, args, default) do
     module = @family[type]
     if exports?(module, name, length(args)), do: apply(module, name, args), else: default
+  end
+
+  @doc "Whether mobs of `type` keep their own air (`air/2` or `breath/1`), read before their AI."
+  def own_air?(type) do
+    module = @family[type]
+    exports?(module, :air, 2) or exports?(module, :breath, 1)
   end
 
   @doc """

@@ -17,8 +17,18 @@ defmodule Valimc.AI.Look do
   @still Float32.round(2.5000003e-7)
   @near Float32.round(1.0e-5)
 
-  @doc "`LookControl.tick` (a mob kind may measure its look its own way)."
-  def tick(%Self{mind: mind} = self) do
+  @doc """
+  `LookControl.tick` (a mob kind may measure its look its own way, or have
+  its own control: `look_control/1`).
+  """
+  def tick(%Self{type: type} = self) do
+    case Mobs.hook(type, :look_control, [self], nil) do
+      nil -> look(self)
+      self -> self
+    end
+  end
+
+  defp look(%Self{mind: mind} = self) do
     # `resetXRotOnTick`.
     self = %{self | pitch: 0.0}
 
@@ -47,7 +57,9 @@ defmodule Valimc.AI.Look do
       }
   end
 
-  # `getYRotD` and `getXRotD`: nil where the look is too close to measure.
+  @doc "`getYRotD` and `getXRotD` of `look`: nil where it is too close to measure."
+  def wanted(self, look), do: rotations(self, look)
+
   defp rotations(self, look) do
     case Mobs.hook(self.type, :look_rotations, [self, look], :default) do
       :default ->

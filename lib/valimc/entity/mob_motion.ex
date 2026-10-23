@@ -18,10 +18,13 @@ defmodule Valimc.Entity.MobMotion do
 
   A family that runs its own move control in the AI (a fish's, VMC-043e)
   sets `set` for the tick (`{speed, lift}`: `setSpeed`, and a lift while its
-  eyes are in water), `impulse` (motion added after the dead zone) and
-  `travel` (`{:fish | :guardian, sink}`; its type's travel otherwise); its
-  `control` then keeps the operation and wanted position its move control
-  reads.
+  eyes are in water; or `{speed, lift, {xxa, yya, zza}}`, the inputs a smooth
+  swimmer's control sets, nil keeping `setSpeed`'s), `impulse` (motion added
+  after the dead zone) and `travel` (`{:fish | :guardian | :dolphin, sink}`;
+  its type's travel otherwise); its `control` then keeps the operation and
+  wanted position its move control reads. `up` is its vertical input
+  (`yya`), and `pre_move` a goal's own move before the travel
+  (`BreathAirGoal`).
   A ghast's `float` (VMC-043d) keeps its move control's wanted place (nil:
   it waits) and float timer (`GhastMoveControl`, in the kernel, which draws
   on its mind's random).
@@ -32,6 +35,7 @@ defmodule Valimc.Entity.MobMotion do
             no_jump_delay: 0,
             stuck_multiplier: {0.0, 0.0, 0.0},
             strafe: 0.0,
+            up: 0.0,
             forward: 0.0,
             speed: 0.0,
             control: :wait,
@@ -41,9 +45,13 @@ defmodule Valimc.Entity.MobMotion do
             water: 0.0,
             lava: 0.0,
             powder_snow: false,
+            # Its eye's water and block where the last move left it (what the
+            # next base tick reads: `isEyeInFluid`).
+            eye: {false, 0},
             hop: nil,
             vertical_collision: false,
             set: nil,
+            pre_move: nil,
             impulse: {0.0, 0.0, 0.0},
             travel: nil,
             move_dist: 0.0,
@@ -58,7 +66,8 @@ defmodule Valimc.Entity.MobMotion do
   def valid?(%__MODULE__{} = m),
     do:
       is_float(m.fall_distance) and is_integer(m.no_jump_delay) and m.no_jump_delay in 0..10 and
-        vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
+        vector?(m.stuck_multiplier) and
+        Enum.all?([m.strafe, m.up, m.forward, m.speed], &is_float/1) and
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
         is_boolean(Map.get(m, :rise)) and
         is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow) and hop?(m.hop) and
@@ -134,6 +143,8 @@ defmodule Valimc.Entity.MobMotion do
     {op, target, speed} =
       case {alive, motion.set, motion.control} do
         {false, _, _} -> {:wait, nil, 0.0}
+        {true, {speed, true, _}, _} -> {:set_lift, nil, speed}
+        {true, {speed, false, _}, _} -> {:set, nil, speed}
         {true, {speed, true}, _} -> {:set_lift, nil, speed}
         {true, {speed, false}, _} -> {:set, nil, speed}
         {true, nil, :wait} -> {:wait, nil, 0.0}
@@ -155,9 +166,12 @@ defmodule Valimc.Entity.MobMotion do
       no_jump_delay: motion.no_jump_delay,
       stuck_multiplier: motion.stuck_multiplier,
       strafe: if(alive, do: motion.strafe, else: 0.0),
+      up: if(alive, do: motion.up, else: 0.0),
       forward: if(alive, do: motion.forward, else: 0.0),
       speed: motion.speed,
       control: {op, target, speed},
+      set_inputs: set_inputs(alive, motion.set),
+      pre_move: if(alive, do: motion.pre_move),
       # EntityDimensions are floats (a baby's its own, VMC-043b).
       size: Valimc.Entity.Body.dimensions(body),
       attributes: attributes,
@@ -190,6 +204,11 @@ defmodule Valimc.Entity.MobMotion do
     # A `NoAI` mob does not travel (`isEffectiveAi`).
     |> then(&if(mob.no_ai, do: %{&1 | fixed: true}, else: &1))
   end
+
+  # A move control's own inputs (`xxa`, `yya`, `zza`; nil keeps vanilla's
+  # `setSpeed`): a smooth swimmer's.
+  defp set_inputs(true, {_, _, {_, _, _} = inputs}), do: inputs
+  defp set_inputs(_alive, _set), do: {nil, nil, nil}
 
   @walkable MapSet.new(
               Valimc.Protocol.Data.tags()["minecraft:entity_type"][
@@ -277,7 +296,7 @@ defmodule Valimc.Entity.MobMotion do
   heights `{water, lava}` its move left and whether it ended in powder
   snow: `{body, position}`.
   """
-  def apply(body, m, {water, lava} \\ {0.0, 0.0}, powder_snow \\ false) do
+  def apply(body, m, {water, lava} \\ {0.0, 0.0}, powder_snow \\ false, eye \\ {false, 0}) do
     {op, target, speed} = m.control
 
     # A family's own move control keeps its operation (`Control::Set`).
@@ -295,6 +314,7 @@ defmodule Valimc.Entity.MobMotion do
       no_jump_delay: m.no_jump_delay,
       stuck_multiplier: m.stuck_multiplier,
       strafe: m.strafe,
+      up: m.up,
       forward: m.forward,
       speed: m.speed,
       control: control,
@@ -302,6 +322,7 @@ defmodule Valimc.Entity.MobMotion do
       water: water,
       lava: lava,
       powder_snow: powder_snow,
+      eye: eye,
       # What the hop did this tick (`started`, `jumped`, `nav_speed`) stays
       # until the rabbit's AI settles it.
       hop: m.hop && Map.drop(m.hop, [:path_up, :baby]),

@@ -10,6 +10,8 @@ defmodule Valimc.Player.Kinetics do
   alias Valimc.Living.Attributes
   alias Valimc.Physics.Kernel
 
+  @dolphins_grace Valimc.Data.EffectTypes.id("dolphins_grace")
+
   def velocity(player), do: Map.get(player, :motion, %Motion{}).velocity
 
   def valid_velocity?({x, y, z}),
@@ -140,7 +142,8 @@ defmodule Valimc.Player.Kinetics do
       invulnerable: abilities.invulnerable,
       jump_boost: Valimc.Living.Attributes.jump_boost_level(effects),
       slow_falling: slow,
-      levitation: levitation
+      levitation: levitation,
+      dolphins_grace: Map.has_key?(effects, @dolphins_grace)
     }
   end
 

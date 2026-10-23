@@ -13,7 +13,8 @@ defmodule Valimc.Living.Air do
   @nautilus EffectTypes.id("breath_of_the_nautilus")
 
   def maximum, do: @maximum
-  def valid?(air), do: is_integer(air) and air in -20..@maximum
+  # A dolphin holds 4800 (VMC-043e, `getMaxAirSupply`).
+  def valid?(air), do: is_integer(air) and air in -20..4800
   def bubble_states, do: Enum.to_list(Blocks.states("bubble_column"))
 
   @doc "Whether an eye under water at a block of `state` is submerged (bubble columns are not)."

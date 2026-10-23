@@ -25,7 +25,7 @@ defmodule Valimc.AI.World do
   mind (`sees?/2`), and `getVisibilityPercent` of players.
 
   A sensed player is `%{kind: :player, uuid, id, x, y, z, eye, width,
-  height, mode, invulnerable, alive, crouching, invisible, armor_cover,
+  height, mode, invulnerable, alive, crouching, swimming, invisible, armor_cover,
   equipment, yaw, pitch, movement}` (`equipment` slot => item id,
   `movement` its known movement, which a lead it holds pulls with); a sensed mob
   `%{kind: :mob, uuid, id, type, x, y, z, eye, width, height, alive, mind}`

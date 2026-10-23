@@ -1891,6 +1891,7 @@
     "minecraft:guardian": 10,
     "minecraft:elder_guardian": 10,
     "minecraft:bat": 0,
+    "minecraft:dolphin": 0,
     "minecraft:cow": 0,
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
@@ -2097,6 +2098,12 @@
       "sound_source": 6,
       "animal": false
     },
+    "minecraft:dolphin": {
+      "hurt_sound": "minecraft:entity.dolphin.hurt",
+      "death_sound": "minecraft:entity.dolphin.death",
+      "sound_source": 6,
+      "animal": true
+    },
     "minecraft:cow": {
       "hurt_sound": "minecraft:entity.cow.hurt",
       "death_sound": "minecraft:entity.cow.death",
@@ -2226,6 +2233,8 @@
     "minecraft:entity.elder_guardian.death_land": 581,
     "minecraft:entity.bat.hurt": 149,
     "minecraft:entity.bat.death": 148,
+    "minecraft:entity.dolphin.hurt": 528,
+    "minecraft:entity.dolphin.death": 526,
     "minecraft:entity.cow.hurt": 451,
     "minecraft:entity.cow.death": 452,
     "minecraft:entity.sheep.hurt": 1444,

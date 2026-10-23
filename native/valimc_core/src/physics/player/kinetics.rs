@@ -545,6 +545,7 @@ impl Player {
                     falling: velocity[1] <= 0.0,
                     on_ground: motion.physical_ground,
                     sprint: self.sprint,
+                    dolphins_grace: self.dolphins_grace,
                     horizontal_collision: horizontal,
                     climbable: climbing,
                     shallow: depths.lava <= 0.4,

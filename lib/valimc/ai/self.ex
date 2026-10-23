@@ -275,6 +275,15 @@ defmodule Valimc.AI.Self do
   @doc "`isInWater` (the fluid the last move left)."
   def in_water?(%__MODULE__{mob: mob}), do: mob.motion.water > 0.0
 
+  @doc """
+  `LivingEntity.baseTick`'s drowning test: its eyes in water (where its last
+  move left them) outside a bubble column.
+  """
+  def submerged?(%__MODULE__{mob: mob}) do
+    {water, state} = mob.motion.eye
+    Valimc.Living.Air.submerged?(water, state)
+  end
+
   @doc "`isInLava`."
   def in_lava?(%__MODULE__{mob: mob}), do: mob.motion.lava > 0.0
 

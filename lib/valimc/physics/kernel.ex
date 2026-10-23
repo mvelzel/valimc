@@ -115,6 +115,17 @@ defmodule Valimc.Physics.Kernel do
   end
 
   @doc """
+  Whether an eye at `eye` of `body` is in water and the block there
+  (`updateFluidOnEyes` and its bubble column test): `{:ok, {water, state}}`.
+  """
+  def eye_block(view, body, eye) do
+    case Native.physics_eyes(native(view, body), body, eye) do
+      {:ok, {water, state}} -> {:ok, {water, state}}
+      other -> error(other)
+    end
+  end
+
+  @doc """
   The fluid cells `body` touches (scan order) and the water and lava depths:
   `{:ok, nil}` for a degenerate body.
   """

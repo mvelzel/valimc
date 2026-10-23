@@ -29,7 +29,9 @@ Slices, in order:
   (Awaiting client).
 - [VMC-043e4](VMC-043e4.md) — bats: resting, flying and waking (Awaiting
   client).
-- VMC-043e5 — dolphins, turtles (eggs, beaches, home) and axolotls (brain,
-  playing dead), with the smooth swimming controls.
+- [VMC-043e5](VMC-043e5.md) — dolphins: the smooth swimming controls,
+  breathing, drying, leaps, items and Dolphin's Grace (Awaiting client).
+- VMC-043e6 — turtles: eggs, beaches and home.
+- VMC-043e7 — axolotls: their brain, playing dead, hunting.
 
 Acceptance: behaviour fixtures match the oracle.

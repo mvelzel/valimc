@@ -38,6 +38,10 @@ defmodule Valimc.AI.Kind do
     a dying mob still runs its own `tick` and `aiStep` hooks (a dead fish
     flops); `falls?/0` false: it never takes fall damage nor lands on blocks
     (a bat). `ambient_sound/1` may answer `{name, self}` when it draws.
+    `breath/1`: its air from the mob (`{air, drowning damage}`; a dolphin's
+    `LivingEntity` air with its own supply). `look_control/1`: its own look
+    control in place of `Valimc.AI.Look.tick/1` (a smooth swimmer's).
+    `pick_up/2`: its own `pickUpItem`.
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `taken/2` (a hit
     as its class takes it, VMC-043d: a ghast's reflected fireball), `ignores?/2` (a
     hit it takes nothing from), `repelled/2` (what turning one away leaves
@@ -120,6 +124,10 @@ defmodule Valimc.AI.Kind do
   @callback hurt_events(struct, float) :: list
   @callback can_attack?(Self.t(), map) :: boolean
   @callback consume_sound(Self.t(), struct) :: String.t() | nil
+  @callback breath(Self.t()) :: {integer, float}
+  @callback look_control(Self.t()) :: Self.t()
+  @callback pick_up(Self.t(), map) :: Self.t()
+  @callback max_air() :: integer
 
   @optional_callbacks leashable?: 0,
                       volume: 1,
@@ -169,5 +177,9 @@ defmodule Valimc.AI.Kind do
                       falls?: 0,
                       hurt_events: 2,
                       can_attack?: 2,
-                      consume_sound: 2
+                      consume_sound: 2,
+                      breath: 1,
+                      look_control: 1,
+                      pick_up: 2,
+                      max_air: 0
 end

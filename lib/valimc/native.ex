@@ -382,6 +382,7 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
   def physics_fluid_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
   def physics_any_liquid(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
   def physics_flow(_view, _position), do: :erlang.nif_error(:nif_not_loaded)

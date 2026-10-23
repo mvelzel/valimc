@@ -127,12 +127,18 @@ defmodule Valimc.Entity.MobTicks do
             else: %{ticked | landing: nil}
 
         {body, position} =
-          MobMotion.apply(entry.body, ticked.mob, ticked.depths, ticked.powder_snow)
+          MobMotion.apply(
+            entry.body,
+            ticked.mob,
+            ticked.depths,
+            ticked.powder_snow,
+            ticked.eye_after
+          )
 
         body = put_in(body.mob.motion.eye_water, ticked.eye_water)
 
         {body, position, settled, world} =
-          AI.settle({id, old[id]}, body, position, state.world, ticked.swim)
+          AI.settle({id, old[id]}, body, position, state.world, [ticked.pre_swim, ticked.swim])
 
         # A family that set its motion after the move (a squid's stroke)
         # tells the ticker, so later pushes add to it.
@@ -175,19 +181,21 @@ defmodule Valimc.Entity.MobTicks do
     end
   end
 
-  # A mob's first tick reads the fluids it stands in, as its base tick
-  # would before its AI (later ticks read what its last move left).
+  # A mob's first tick reads the fluids it stands in and its eyes', as its
+  # base tick would before its AI (later ticks read what its last move left).
   defp first_fluids(view, %{body: %{mob: %Valimc.Entity.Mob{ai: ai} = mob} = body} = entry) do
     if match?(%AI.Mind{tick: tick} when tick > 0, ai) do
       entry
     else
-      case Kernel.fluids(view, box(entry)) do
-        {:ok, %{water: water, lava: lava}} ->
-          motion = %{mob.motion | water: water * 1.0, lava: lava * 1.0}
-          %{entry | body: %{body | mob: %{mob | motion: motion}}}
+      {_, _, eye} = Valimc.Entity.Body.dimensions(body)
+      e = entry.entity
 
-        _ ->
-          entry
+      with {:ok, %{water: water, lava: lava}} <- Kernel.fluids(view, box(entry)),
+           {:ok, eye} <- Kernel.eye_block(view, box(entry), {e.x * 1.0, e.y + eye, e.z * 1.0}) do
+        motion = %{mob.motion | water: water * 1.0, lava: lava * 1.0, eye: eye}
+        %{entry | body: %{body | mob: %{mob | motion: motion}}}
+      else
+        _ -> entry
       end
     end
   end

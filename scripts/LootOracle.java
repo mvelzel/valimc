@@ -78,7 +78,7 @@ public class LootOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:entities/shulker", "minecraft:entities/cod", "minecraft:entities/salmon", "minecraft:entities/pufferfish",
       "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",
-      "minecraft:entities/guardian", "minecraft:entities/elder_guardian",
+      "minecraft:entities/guardian", "minecraft:entities/elder_guardian", "minecraft:entities/dolphin",
       // VMC-043c: farm animals.
       "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit",
       // VMC-044a: villagers, iron golems, cats and wandering traders.

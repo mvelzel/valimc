@@ -156,6 +156,31 @@ fn physics_fluids<'a>(env: Env<'a>, view_term: Term<'a>, body: BoxT) -> NifResul
     })
 }
 
+/// Whether the eye at `eye` of a body is in water and the block there
+/// (`updateFluidOnEyes`, a mob's first base tick): `{:ok, {water, state}}`.
+#[rustler::nif]
+fn physics_eyes<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    body: BoxT,
+    eye: (f64, f64, f64),
+) -> NifResult<Term<'a>> {
+    use valimc_core::physics::source::BlockSource;
+    let facts = facts()?;
+    let body = aabb(body);
+    let eye = [eye.0, eye.1, eye.2];
+    let view = view(view_term, facts, &body)?;
+    let water = match fluid::eyes(&view, facts, &body, eye) {
+        Ok(found) => found.map(|(water, _)| water).unwrap_or(false),
+        Err(u) => return Ok(unreadable(env, u)),
+    };
+    let p = eye.map(|v| v.floor() as i32);
+    Ok(match view.state(p[0], p[1], p[2]) {
+        Some(state) => ok(env, (water, state)),
+        None => rustler::types::atom::error().encode(env),
+    })
+}
+
 fn kind(k: u8) -> Atom {
     match k {
         fluid_kind::WATER => atoms::water(),

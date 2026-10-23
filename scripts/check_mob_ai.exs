@@ -94,6 +94,7 @@ player = fn p ->
     invulnerable: mode == :creative,
     alive: true,
     crouching: false,
+    swimming: p["swimming"] == true,
     invisible: false,
     armor_cover: 0.0,
     equipment: %{
@@ -306,6 +307,16 @@ kind_data = fn
 
     if type == "minecraft:glow_squid", do: Map.put(squid, "dark", data.dark), else: squid
 
+  %{type: "minecraft:dolphin", data: data, mob: mob} ->
+    held = mob.equipment[:mainhand]
+
+    %{
+      "got_fish" => data.got_fish,
+      "moistness" => data.moistness,
+      "air" => mob.living.air_supply,
+      "mainhand" => held && Valimc.Protocol.ItemTypes.item(held.item_id)["name"]
+    }
+
   %{type: "minecraft:bat", data: data, mob: mob} ->
     case mob.ai.own do
       {x, y, z} -> %{"resting" => data.resting, "target" => [x, y, z]}
@@ -436,8 +447,23 @@ hit_of = fn
   {:touch, {:player, <<_::64, n::64>>}, _, _}, _effects ->
     {n, nil, nil, nil}
 
+  # A dolphin's grace.
+  {:effect, {:player, <<_::64, n::64>>}, [{:add, id, [{duration, _, _, _, _}]}]}, _effects ->
+    {n, Valimc.Data.EffectTypes.name(id), duration, nil}
+
   _, _ ->
     nil
+end
+
+# What a scene set on a family's mob as it was made (VMC-043e: a dolphin's
+# air and moistness).
+start_data = fn
+  %{type: "minecraft:dolphin", mob: mob, data: data} = body, start ->
+    mob = %{mob | living: %{mob.living | air_supply: start["air"]}}
+    %{body | mob: mob, data: %{data | moistness: start["moistness"]}}
+
+  body, _start ->
+    body
 end
 
 # A squid's tentacle speed, drawn as vanilla made it (VMC-043e).
@@ -561,6 +587,7 @@ checked =
             end
 
           body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind, home: home}}
+          body = start_data.(body, m["start"])
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           body = setup.(body, m)
           {m["id"], %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}

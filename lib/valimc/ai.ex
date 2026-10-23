@@ -613,6 +613,10 @@ defmodule Valimc.AI do
       |> Self.mind(&%{&1 | tick: &1.tick + 1, swing: Self.swing_tick(&1.swing)})
       |> Valimc.AI.Leash.tick()
 
+    # `LivingEntity.baseTick`'s air, where a family keeps its own (a
+    # dolphin's), before `Mob.baseTick`'s ambient sound.
+    self = put_air(self, Mobs.hook(self.type, :breath, [self], nil))
+
     self =
       case self.mind.hurt_by do
         {ref, at} ->
@@ -667,6 +671,17 @@ defmodule Valimc.AI do
 
     id = if is_integer(name), do: name, else: Facts.sound_id(name)
     Self.effect(self, {:sound, id, source(self.type), facts.volume, pitch, seed})
+  end
+
+  @doc "`Entity.playSound(name, volume, pitch)` at the mob, a pitch of its own (no draw)."
+  def play(%Self{type: type} = self, name, volume \\ 1.0, pitch \\ 1.0) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+
+    Self.effect(
+      self,
+      {:sound, Facts.sound_id(name), source(type), Valimc.Data.Float32.round(volume),
+       Valimc.Data.Float32.round(pitch), seed}
+    )
   end
 
   defp source(type), do: Valimc.Protocol.CombatPackets.mob_sounds(type)["sound_source"]
@@ -759,6 +774,14 @@ defmodule Valimc.AI do
         self |> Selector.tick(:targets) |> Selector.tick(:goals)
       end
 
+    # A goal that moved the mob itself (`BreathAirGoal`): the rest of its AI
+    # reads where that move took it; the kernel moves it from where it was.
+    {self, at} =
+      case Valimc.AI.Goals.BreathAir.predicted(self) do
+        nil -> {self, nil}
+        {x, y, z} -> {%{self | x: x, y: y, z: z}, {self.x, self.y, self.z}}
+      end
+
     self = Navigation.tick(self)
 
     # `customServerAiStep`: a brain ticks, then its mob picks its activity;
@@ -772,10 +795,14 @@ defmodule Valimc.AI do
     self = hook(self, :custom_step)
     # A family's own move control (a fish's) runs before the look control.
     self = hook(self, :move_control)
-
     # A family without a look control (a phantom's) keeps its rotations.
     self = strafe(self)
-    if Mobs.hook(self.type, :looks?, [], true), do: Look.tick(self), else: self
+    self = if Mobs.hook(self.type, :looks?, [], true), do: Look.tick(self), else: self
+
+    case at do
+      nil -> self
+      {x, y, z} -> %{self | x: x, y: y, z: z}
+    end
   end
 
   # `getLightLevelDependentMagicValue` at the eyes: a blaze is always lit.
@@ -792,21 +819,27 @@ defmodule Valimc.AI do
   defp hook(%Self{type: type} = self, name), do: Mobs.hook(type, name, [self], self)
 
   # A water animal's air after its base tick (`WaterAnimal.baseTick`): in
-  # water as it began the tick, or drowning; its hurt goes through the one
-  # hurt path, which leaves the hurt in its mind.
-  defp own_air(%Self{type: type, mob: mob} = self) do
-    if Mobs.hook(type, :air, [300, true], nil) == nil do
-      self
-    else
-      {mob, events} =
-        Valimc.Entity.MobVitals.own_air(
-          %{type: type, data: self.data},
-          %{mob | ai: self.mind},
-          Self.in_water?(self)
-        )
+  # water as it began the tick, or drowning; its hurt (as a dolphin's own
+  # `breath/1` in the base tick) goes through the one hurt path, which
+  # leaves the hurt in its mind.
+  defp own_air(%Self{type: type, mob: mob} = self),
+    do: put_air(self, Mobs.hook(type, :air, [mob.living.air_supply, Self.in_water?(self)], nil))
 
-      self = %{self | mob: %{mob | ai: nil}, mind: mob.ai}
-      Enum.reduce(events, self, &Self.effect(&2, &1))
+  defp put_air(self, nil), do: self
+
+  defp put_air(%Self{type: type, mob: mob} = self, result) do
+    case result do
+      {air, damage} ->
+        {mob, events} =
+          Valimc.Entity.MobVitals.set_air(
+            %{type: type, data: self.data},
+            %{mob | ai: self.mind},
+            air,
+            damage
+          )
+
+        self = %{self | mob: %{mob | ai: nil}, mind: mob.ai}
+        Enum.reduce(events, self, &Self.effect(&2, &1))
     end
   end
 
@@ -881,6 +914,7 @@ defmodule Valimc.AI do
          | yaw: self.yaw,
            head_yaw: self.head,
            velocity: self.velocity,
+           on_ground: self.on_ground,
            mob: %{self.mob | ai: self.mind},
            data: self.data
        }, {self.x, self.y, self.z}, Enum.reverse(self.effects), self.world}
@@ -895,7 +929,9 @@ defmodule Valimc.AI do
   # flop).
   defp dying?(type), do: Mobs.hook(type, :dying?, [], false)
 
-  # `playSwimSound(volume)`: its pitch from the mob's random.
+  # `playSwimSound(volume)`: its pitch from the mob's random (a goal's own
+  # move's first).
+  defp swim(self, volumes) when is_list(volumes), do: Enum.reduce(volumes, self, &swim(&2, &1))
   defp swim(self, nil), do: self
 
   defp swim(%Self{type: type} = self, volume) do

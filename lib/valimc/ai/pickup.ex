@@ -11,7 +11,8 @@ defmodule Valimc.AI.Pickup do
   mob stays (`PersistenceRequired`).
 
   Effects: `{:pickup, item, count}` for the items it takes and `{:drop,
-  stack}` for what it lets go.
+  stack}` for what it lets go. A family may take an item its own way
+  (`pick_up/2`, a dolphin's into its mouth).
   """
   alias Valimc.AI.{Mobs, Self, World}
   alias Valimc.Data.{Float32, HostileFacts}
@@ -31,7 +32,7 @@ defmodule Valimc.AI.Pickup do
       Enum.reduce(world.items, self, fn item, self ->
         if item.count > 0 and item.pickup_delay == 0 and
              World.intersects?(World.box(item), box) and wants?(self, item),
-           do: pick_up(self, item),
+           do: Mobs.hook(self.type, :pick_up, [self, item], nil) || pick_up(self, item),
            else: self
       end)
     else
@@ -223,6 +224,9 @@ defmodule Valimc.AI.Pickup do
   defp item_name(stack), do: ItemTypes.item(stack.item_id)["name"]
 
   # The item has fewer for the mobs after this one.
+  @doc "The world with `count` of `item` taken."
+  def remove(self, item, count), do: remove_item(self, item, count)
+
   defp remove_item(%Self{world: world} = self, item, count) do
     items =
       for i <- world.items,

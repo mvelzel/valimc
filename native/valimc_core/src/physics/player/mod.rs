@@ -96,6 +96,8 @@ pub struct Player {
     pub jump_boost: i32,
     pub slow_falling: bool,
     pub levitation: Option<i32>,
+    /// Dolphin's Grace: its water drag is 0.96.
+    pub dolphins_grace: bool,
 }
 
 /// What a player query reads: blocks, their facts and the world border.

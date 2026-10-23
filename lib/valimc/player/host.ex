@@ -232,6 +232,8 @@ defmodule Valimc.Player.Host do
         invulnerable: player.game_mode.current == :creative,
         alive: true,
         crouching: pose == :crouching,
+        # `isSwimming` (a dolphin swims along, VMC-043e).
+        swimming: Map.get(player.motion, :swimming, false) == true,
         invisible:
           Valimc.Living.Attributes.amplifier(effects, Valimc.Data.EffectTypes.id("invisibility")) !=
             nil,

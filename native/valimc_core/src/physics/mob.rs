@@ -76,6 +76,11 @@ pub enum Travel {
     },
     /// `Squid.travel`: it only moves by its motion.
     Squid,
+    /// `Dolphin.travelInWater`: input at its speed, drag 0.9, sinking when
+    /// `sink` (no target).
+    Dolphin {
+        sink: bool,
+    },
 }
 
 /// The attributes travel reads.
@@ -116,10 +121,17 @@ pub struct Mob {
     pub fall_distance: f64,
     pub no_jump_delay: i32,
     pub stuck_multiplier: [f64; 3],
-    /// The relative input (`xxa`, `zza`) and speed the controls set.
+    /// The relative input (`xxa`, `yya`, `zza`) and speed the controls set.
     pub strafe: f32,
+    pub up: f32,
     pub forward: f32,
     pub speed: f32,
+    /// The inputs a move control of its own sets with `Control::Set`
+    /// (`xxa`, `yya`, `zza`; none: `setSpeed` sets `zza` alone).
+    pub set_inputs: [Option<f32>; 3],
+    /// A goal moves it once before its travel (`BreathAirGoal.tick`:
+    /// `moveRelative(0.02, input)` at the yaw it had then, and a move).
+    pub pre_move: Option<f32>,
     pub control: Control,
     pub size: Dimensions,
     pub attributes: Attributes,
@@ -318,6 +330,11 @@ pub struct Ticked {
     pub lava: bool,
     pub eye_water: bool,
     pub eye_state: u16,
+    /// The same where the move left it: what the next tick's base tick
+    /// reads before the AI (a dolphin's air).
+    pub eye_after: (bool, u16),
+    /// The swim sound a goal's own move made (`pre_move`).
+    pub pre_swim: Option<f32>,
     /// The landing block and fall distance (`Block.fallOn`), if it landed.
     pub landing: Option<(u16, f64)>,
     /// The landing block's cell (farmland's trampling, VMC-039a).
@@ -547,7 +564,10 @@ pub fn control(mob: &mut Mob, block: Option<(f64, u64)>, in_liquid: bool) -> boo
         }
         Control::Set { speed, .. } => {
             mob.speed = speed as f32;
-            mob.forward = mob.speed;
+            let [strafe, up, forward] = mob.set_inputs;
+            mob.forward = forward.unwrap_or(mob.speed);
+            mob.up = up.unwrap_or(mob.up);
+            mob.strafe = strafe.unwrap_or(mob.strafe);
             false
         }
     }
@@ -671,6 +691,19 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let eye = [start[0], start[1] + m.size.eye, start[2]];
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
+    // A goal's own move before the move control (`BreathAirGoal.tick`):
+    // the rest of the tick travels from where it left the mob.
+    let mut pre_swim = None;
+    let (start, body) = if let Some(yaw) = m.pre_move.take() {
+        let input = [m.strafe as f64, m.up as f64, m.forward as f64];
+        m.velocity = add(m.velocity, input_vector(input, 0.02, yaw));
+        let fall = m.fall_distance;
+        pre_swim = mob_move(w, &mut m, &body, fall, water, depths)?.swim;
+        let moved = m.position;
+        (moved, m.body(moved)?)
+    } else {
+        (start, body)
+    };
     // The AI's move control (a fish's): its eyes in water lift it, then its
     // push toward its target.
     if let Control::Set { lift: true, .. } = m.control {
@@ -779,7 +812,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     if m.slow_falling || m.levitation.is_some() {
         m.fall_distance = 0.0;
     }
-    let input = [m.strafe as f64, 0.0, m.forward as f64];
+    let input = [m.strafe as f64, m.up as f64, m.forward as f64];
     let climbing_before = match m.wall_climb {
         Some(climbing) => climbing,
         None => {
@@ -805,11 +838,16 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         1.0
     };
     // A fish or guardian in water travels its own way; a squid only moves.
-    let own_water = water && matches!(m.travel, Travel::Fish { .. } | Travel::Guardian { .. });
+    let own_water = water
+        && matches!(
+            m.travel,
+            Travel::Fish { .. } | Travel::Guardian { .. } | Travel::Dolphin { .. }
+        );
     let squid = m.travel == Travel::Squid;
     let speed = if own_water {
         match m.travel {
             Travel::Guardian { .. } => 0.1_f32,
+            Travel::Dolphin { .. } => m.speed,
             _ => 0.01_f32,
         }
     } else if in_fluid {
@@ -871,12 +909,13 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         m.velocity
     } else if own_water {
         let sink = match m.travel {
-            Travel::Fish { sink } | Travel::Guardian { sink } => sink,
+            Travel::Fish { sink } | Travel::Guardian { sink } | Travel::Dolphin { sink } => sink,
             _ => false,
         };
         let v = m.velocity.map(|c| c * 0.9);
         if sink {
-            [v[0], v[1] - 0.005, v[2]]
+            // `add(0.0, -0.005, 0.0)`: a -0.0 left by a wall turns +0.0.
+            [v[0] + 0.0, v[1] - 0.005, v[2] + 0.0]
         } else {
             v
         }
@@ -987,12 +1026,19 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         },
     )?;
     m.alive = mob.alive;
+    let eye_after = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
+    let eye_after = (
+        w.eyes(&after_body, eye_after)?.0,
+        w.state(eye_after.map(|v| v.floor() as i32))?,
+    );
     Ok(Ticked {
         mob: m,
         water: water || moved.depths.water > 0.0,
         lava,
         eye_water,
         eye_state,
+        eye_after,
+        pre_swim,
         landing: moved.landing,
         landing_pos: moved.landing.map(|_| moved.material.legacy.0),
         touched,
@@ -1023,6 +1069,8 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         lava: depths.lava > 0.0,
         eye_water,
         eye_state,
+        eye_after: (eye_water, eye_state),
+        pre_swim: None,
         landing: None,
         landing_pos: None,
         touched: Touched::default(),
@@ -1413,6 +1461,9 @@ impl Default for Mob {
             pushes: true,
             wall_climb: None,
             hop: None,
+            up: 0.0,
+            set_inputs: [None; 3],
+            pre_move: None,
             travel: Travel::Ground,
             fluid_pushed: true,
             impulse: [0.0; 3],

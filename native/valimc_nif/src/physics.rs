@@ -452,7 +452,7 @@ fn items_step<'a>(
 // ---- mobs (VMC-015i) ----
 
 mod mob_atoms {
-    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid, strafe, flying }
+    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid, strafe, flying, dolphin }
 }
 
 /// A mob as its owner keeps it (`Valimc.Entity.MobMotion`): position, yaw
@@ -473,9 +473,13 @@ struct MobT {
     no_jump_delay: i32,
     stuck_multiplier: Vec3,
     strafe: f64,
+    up: f64,
     forward: f64,
     speed: f64,
     control: (Atom, Option<Vec3>, f64),
+    /// A move control's own inputs with `:set` (`xxa`, `yya`, `zza`).
+    set_inputs: (Option<f64>, Option<f64>, Option<f64>),
+    pre_move: Option<f64>,
     size: Vec3,
     attributes: (f64, f64, f64, f64, f64, f64, f64),
     no_gravity: bool,
@@ -539,6 +543,8 @@ struct TickedT {
     lava: bool,
     eye_water: bool,
     eye_state: u16,
+    eye_after: (bool, u16),
+    pre_swim: Option<f64>,
     landing: Option<(u16, f64)>,
     landing_pos: Option<(i32, i32, i32)>,
     fire_contacts: crate::player::FiresT,
@@ -588,6 +594,8 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         Travel::Squid
     } else if kind == mob_atoms::flying() {
         Travel::Flying
+    } else if kind == mob_atoms::dolphin() {
+        Travel::Dolphin { sink }
     } else {
         return Err(rustler::Error::BadArg);
     };
@@ -603,8 +611,15 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         no_jump_delay: m.no_jump_delay,
         stuck_multiplier: v3(m.stuck_multiplier),
         strafe: m.strafe as f32,
+        up: m.up as f32,
         forward: m.forward as f32,
         speed: m.speed as f32,
+        set_inputs: [
+            m.set_inputs.0.map(|v| v as f32),
+            m.set_inputs.1.map(|v| v as f32),
+            m.set_inputs.2.map(|v| v as f32),
+        ],
+        pre_move: m.pre_move.map(|y| y as f32),
         control,
         size: valimc_core::physics::player::pose::Dimensions {
             width: m.size.0,
@@ -699,6 +714,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         Travel::Guardian { sink } => (mob_atoms::guardian(), sink),
         Travel::Squid => (mob_atoms::squid(), false),
         Travel::Flying => (mob_atoms::flying(), false),
+        Travel::Dolphin { sink } => (mob_atoms::dolphin(), sink),
     };
     MobT {
         position: t3(m.position),
@@ -711,9 +727,16 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         no_jump_delay: m.no_jump_delay,
         stuck_multiplier: t3(m.stuck_multiplier),
         strafe: m.strafe as f64,
+        up: m.up as f64,
         forward: m.forward as f64,
         speed: m.speed as f64,
         control,
+        set_inputs: (
+            m.set_inputs[0].map(|v| v as f64),
+            m.set_inputs[1].map(|v| v as f64),
+            m.set_inputs[2].map(|v| v as f64),
+        ),
+        pre_move: m.pre_move.map(|y| y as f64),
         size: (m.size.width, m.size.height, m.size.eye),
         attributes: (
             a.movement_speed,
@@ -955,6 +978,8 @@ fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
         lava: t.lava,
         eye_water: t.eye_water,
         eye_state: t.eye_state,
+        eye_after: t.eye_after,
+        pre_swim: t.pre_swim.map(|v| v as f64),
         landing: t.landing,
         landing_pos: t.landing_pos.map(|p| (p[0], p[1], p[2])),
         fire_contacts: crate::player::fires(&t.touched),

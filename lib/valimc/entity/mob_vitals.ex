@@ -131,17 +131,16 @@ defmodule Valimc.Entity.MobVitals do
   # a family's own (a water animal's, VMC-043e, `air/2`) runs with its AI,
   # where vanilla's base tick runs it (`Valimc.AI`).
   defp breathe(kind, mob, events, ticked) do
-    if Valimc.AI.Mobs.hook(kind.type, :air, [300, true], :default) == :default,
-      do: breathe_air(kind, mob, events, ticked),
-      else: {mob, events}
+    if Valimc.AI.Mobs.own_air?(kind.type),
+      do: {mob, events},
+      else: breathe_air(kind, mob, events, ticked)
   end
 
   @doc """
-  A family's own air (`air/2`) for mob `mob` of `kind` (`%{type, data}`), in
-  water or not: `{mob, events}` with the drowning hurt it takes.
+  A family's own air for mob `mob` of `kind` (`%{type, data}`): its new
+  supply and the drowning damage it takes: `{mob, events}`.
   """
-  def own_air(kind, mob, in_water) do
-    {air, damage} = Valimc.AI.Mobs.hook(kind.type, :air, [mob.living.air_supply, in_water], nil)
+  def set_air(kind, mob, air, damage) do
     mob = %{mob | living: %{mob.living | air_supply: air}}
     if damage > 0, do: hurt(kind, mob, [], :drown, damage), else: {mob, []}
   end

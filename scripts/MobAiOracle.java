@@ -68,7 +68,7 @@ public class MobAiOracle {
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",
-      "minecraft:bat",
+      "minecraft:bat", "minecraft:dolphin",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems (cases in VillageOracle).
@@ -112,6 +112,10 @@ public class MobAiOracle {
       "minecraft:entity.elder_guardian.hurt", "minecraft:entity.elder_guardian.hurt_land",
       "minecraft:entity.elder_guardian.death", "minecraft:entity.elder_guardian.death_land",
       "minecraft:entity.bat.ambient",
+      // A dolphin's.
+      "minecraft:entity.dolphin.ambient", "minecraft:entity.dolphin.ambient_water", "minecraft:entity.dolphin.jump",
+      "minecraft:entity.dolphin.play", "minecraft:entity.dolphin.attack", "minecraft:entity.dolphin.eat",
+      "minecraft:entity.dolphin.swim", "minecraft:entity.dolphin.splash",
       // Swimming (`getSwimSound`).
       "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
@@ -458,6 +462,15 @@ public class MobAiOracle {
     }
     // What a hit adds goes with it (VMC-043b: a burning zombie's fire, a husk's hunger).
     public boolean addEffect(net.minecraft.world.effect.MobEffectInstance effect, Entity source) {
+      // A dolphin's grace comes with no hit (VMC-043e).
+      if (source instanceof net.minecraft.world.entity.animal.dolphin.Dolphin) {
+        var o = new JsonObject(); o.addProperty("player", getUUID().getLeastSignificantBits());
+        o.addProperty("by", source.getId());
+        o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
+        o.addProperty("duration", effect.getDuration());
+        hits.add(o);
+        return true;
+      }
       if (!hits.isEmpty()) {
         var o = hits.get(hits.size() - 1);
         o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
@@ -490,6 +503,15 @@ public class MobAiOracle {
       return true;
     }
     public boolean addEffect(net.minecraft.world.effect.MobEffectInstance effect, Entity source) {
+      // A dolphin's grace comes with no hit (VMC-043e).
+      if (source instanceof net.minecraft.world.entity.animal.dolphin.Dolphin) {
+        var o = new JsonObject(); o.addProperty("player", getUUID().getLeastSignificantBits());
+        o.addProperty("by", source.getId());
+        o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
+        o.addProperty("duration", effect.getDuration());
+        hits.add(o);
+        return true;
+      }
       if (!hits.isEmpty()) {
         var o = hits.get(hits.size() - 1);
         o.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(effect.getEffect().value()).toString());
@@ -787,7 +809,9 @@ public class MobAiOracle {
     var fighters = new ArrayList<Fighter>();
     int n = 0;
     for (var s : stands) {
-      var f = new Fighter(level, ++n, net.minecraft.world.level.GameType.byName(s.mode));
+      // A mode `survival:swimming` swims (`isSwimming`, VMC-043e).
+      var f = new Fighter(level, ++n, net.minecraft.world.level.GameType.byName(s.mode.split(":")[0]));
+      if (s.mode.endsWith(":swimming")) f.setSwimming(true);
       f.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, s.pitch);
       // A player looks where its head faces (`getViewYRot`).
       f.setYHeadRot(s.yaw); f.yHeadRotO = s.yaw;
@@ -843,6 +867,10 @@ public class MobAiOracle {
       if (m instanceof net.minecraft.world.entity.monster.Shulker sh && s.data.containsKey("attach_face")) {
         var attach = net.minecraft.world.entity.monster.Shulker.class.getDeclaredMethod("setAttachFace", Direction.class); attach.setAccessible(true);
         attach.invoke(sh, Direction.from3DDataValue((Integer)s.data.get("attach_face")));
+      }
+      if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
+        if (s.data.containsKey("air")) d.setAirSupply((Integer)s.data.get("air"));
+        if (s.data.containsKey("moistness")) d.setMoisntessLevel((Integer)s.data.get("moistness"));
       }
       if (s.data.containsKey("home")) {
         var h = (int[])s.data.get("home");
@@ -968,7 +996,7 @@ public class MobAiOracle {
     var ps = new JsonArray();
     int i = 0;
     for (var s : stands) {
-      var o = new JsonObject(); o.addProperty("uuid", ++i); o.addProperty("id", fighters.get(i - 1).getId()); o.add("position", bits(s.position)); o.addProperty("mode", s.mode);
+      var o = new JsonObject(); o.addProperty("uuid", ++i); o.addProperty("id", fighters.get(i - 1).getId()); o.add("position", bits(s.position)); o.addProperty("mode", s.mode.split(":")[0]); o.addProperty("swimming", s.mode.endsWith(":swimming"));
       o.addProperty("mainhand", s.mainhand); o.addProperty("head", s.head);
       if (s.yaw != 0 || s.pitch != 0) { o.addProperty("yaw", Float.floatToRawIntBits(s.yaw)); o.addProperty("pitch", Float.floatToRawIntBits(s.pitch)); }
       ps.add(o);
@@ -1035,6 +1063,12 @@ public class MobAiOracle {
       o.addProperty("jump_delay", field(control.getClass(), "jumpDelay").getInt(control));
     }
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
+    if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
+      o.addProperty("got_fish", d.gotFish()); o.addProperty("moistness", d.getMoistnessLevel());
+      o.addProperty("air", d.getAirSupply());
+      var held = d.getItemBySlot(EquipmentSlot.MAINHAND);
+      o.addProperty("mainhand", held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString());
+    }
     if (m instanceof net.minecraft.world.entity.ambient.Bat b) {
       o.addProperty("resting", b.isResting());
       var t = (BlockPos)field(net.minecraft.world.entity.ambient.Bat.class, "targetPosition").get(b);
@@ -1202,6 +1236,19 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 300));
     cases.add(run(level, "bat_hurt", cave, List.of(new Spawn("minecraft:bat", new Vec3(.5, 69.1, .5), 0, 104L)),
       List.of(new Stand(new Vec3(9.5, 64, 9.5), "survival", null)), List.of(new Hit(20, 0, 0, 1.0F)), 200));
+    // VMC-043e: dolphins. One swims and leaps about the pool, one low on
+    // air swims up for it, one on land dries and flops, one hit bites back,
+    // one swims along with a swimming player and graces it.
+    cases.add(run(level, "dolphin_swim", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 111L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "dolphin_breath", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 58, .5), 0, 112L, Map.of("air", 150))),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
+    cases.add(run(level, "dolphin_land", floor(63, 12, stone), List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 64, .5), 0, 113L, Map.of("moistness", 40))),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 120));
+    cases.add(run(level, "dolphin_bite", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 114L)),
+      List.of(new Stand(new Vec3(4.5, 60, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
+    cases.add(run(level, "dolphin_with_player", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 115L)),
+      List.of(new Stand(new Vec3(5.5, 60, .5), "survival:swimming", null)), List.of(), 200));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -1410,7 +1457,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians; bats).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid; guardians; bats; dolphins).");
       return;
     }
     if (args[0].equals("paths")) {
