@@ -21,8 +21,9 @@ Slices, in order:
 
 - [VMC-043e1](VMC-043e1.md) — endermites and shulkers: peeking, teleports,
   bullets and levitation, the shell drop (Awaiting client).
-- VMC-043e2 — squid, glow squid and fish: the kernel's water travels, fish
-  move control, schooling, puffing, variants and sizes, flopping and air.
+- [VMC-043e2](VMC-043e2.md) — squid, glow squid and fish: mobs tick one at
+  a time, the kernel's water travels, fish move control, schooling, puffing,
+  variants and sizes, flopping and air (Awaiting client).
 - VMC-043e3 — guardians and elder guardians: the guardian move control and
   travel, the beam, thorns, Mining Fatigue.
 - VMC-043e4 — dolphins, turtles (eggs, beaches, home) and axolotls (brain,

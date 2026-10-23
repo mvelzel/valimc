@@ -34,6 +34,9 @@ defmodule Valimc.AI.World do
             players: [],
             mobs: [],
             by_type: %{},
+            # Mobs sensed again this tick (moved, or their own state
+            # changed), over the snapshot in `mobs` (VMC-043e).
+            moved: %{},
             items: [],
             random: 0,
             difficulty: :normal,
@@ -185,26 +188,11 @@ defmodule Valimc.AI.World do
   def entity(%__MODULE__{players: players}, {:player, uuid}),
     do: Enum.find(players, &(&1.uuid == uuid))
 
-  def entity(%__MODULE__{mobs: mobs}, {:mob, uuid}), do: Enum.find(mobs, &(&1.uuid == uuid))
+  def entity(%__MODULE__{mobs: mobs, moved: moved}, {:mob, uuid}),
+    do: Map.get(moved, uuid) || Enum.find(mobs, &(&1.uuid == uuid))
 
   def entity(%__MODULE__{items: items}, {:item, uuid}), do: Enum.find(items, &(&1.uuid == uuid))
   def entity(_world, nil), do: nil
-
-  @doc """
-  The world with sensed mob `uuid` changed by `fun` (a mob a breeding
-  changed, for those thinking after it).
-  """
-  def update_mob(%__MODULE__{mobs: mobs, by_type: by_type} = world, uuid, fun) do
-    case Enum.find(mobs, &(&1.uuid == uuid)) do
-      nil ->
-        world
-
-      old ->
-        new = fun.(old)
-        swap = fn list -> Enum.map(list, &if(&1.uuid == uuid, do: new, else: &1)) end
-        %{world | mobs: swap.(mobs), by_type: Map.update!(by_type, old.type, swap)}
-    end
-  end
 
   @doc "The reference a mind keeps of a sensed entity."
   def ref(%{kind: kind, uuid: uuid}), do: {kind, uuid}
@@ -405,13 +393,31 @@ defmodule Valimc.AI.World do
   def mobs_in(%Self{world: world}, types, box) when is_list(types) do
     case for(t <- types, list = world.by_type[t], do: list) do
       [] -> []
-      [one] -> for m <- one, intersects?(box(m), box), do: m
-      _ -> for m <- world.mobs, m.type in types, intersects?(box(m), box), do: m
+      [one] -> for m <- now(world, one), intersects?(box(m), box), do: m
+      _ -> for m <- mob_list(world), m.type in types, intersects?(box(m), box), do: m
     end
   end
 
   def mobs_in(%Self{world: world}, select, box),
-    do: for(m <- world.mobs, select.(m.type), intersects?(box(m), box), do: m)
+    do: for(m <- mob_list(world), select.(m.type), intersects?(box(m), box), do: m)
+
+  @doc "The section's mobs as sensed now, in the section's order."
+  def mob_list(%__MODULE__{mobs: mobs} = world), do: now(world, mobs)
+
+  @doc "The section's mobs of type `type` as sensed now."
+  def mobs_of(%__MODULE__{by_type: by_type} = world, type),
+    do: now(world, Map.get(by_type, type, []))
+
+  defp now(%__MODULE__{moved: moved}, mobs) when map_size(moved) == 0, do: mobs
+  defp now(%__MODULE__{moved: moved}, mobs), do: Enum.map(mobs, &Map.get(moved, &1.uuid, &1))
+
+  @doc "The world with mob `uuid` sensed as `fun` changes it."
+  def resense(%__MODULE__{} = world, uuid, fun) do
+    case entity(world, {:mob, uuid}) do
+      nil -> world
+      mob -> %{world | moved: Map.put(world.moved, uuid, fun.(mob))}
+    end
+  end
 
   defp nearest(self, candidates, conditions, {x, y, z}) do
     {best, _, self} =

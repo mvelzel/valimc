@@ -72,8 +72,9 @@ public class LootOracle {
       "minecraft:entities/zombified_piglin",
       // VMC-043b: the zombie family.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager",
-      // VMC-043e: the End's mobs.
-      "minecraft:entities/shulker",
+      // VMC-043e: the End's mobs, fish and squid.
+      "minecraft:entities/shulker", "minecraft:entities/cod", "minecraft:entities/salmon", "minecraft:entities/pufferfish",
+      "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",
       // VMC-043c: farm animals.
       "minecraft:entities/cow", "minecraft:entities/mooshroom", "minecraft:entities/sheep", "minecraft:entities/rabbit");
   // VMC-043d: what a piglin gives for a gold ingot.

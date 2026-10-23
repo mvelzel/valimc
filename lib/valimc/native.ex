@@ -46,6 +46,11 @@ defmodule Valimc.Native do
     # Per cell a mob tick scans (`Physics.Kernel.mobs/4` estimates them): its
     # move, fluid, footing and contact scans, as an item's (VMC-015i).
     physics_mobs: {120, :physics_mobs_dirty},
+    # Per supplied cell a mob ticker's view decodes (oracles and benches;
+    # published rows decode nothing), VMC-043e.
+    physics_mobs_begin: {100, :physics_mobs_begin_dirty},
+    # Per cell one mob's step scans, as `physics_mobs`.
+    physics_mobs_step: {120, :physics_mobs_step_dirty},
     # A primed TNT or falling block scans as an item does (VMC-050a).
     physics_block_bodies: {120, :physics_block_bodies_dirty},
     # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
@@ -224,6 +229,15 @@ defmodule Valimc.Native do
   def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_dirty(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_mobs_begin(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_mobs_begin_dirty(_view, _mobs, _players, _border),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_mobs_step(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_mobs_step_dirty(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_mobs_velocity(_ticker, _index, _velocity), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_mobs_finish(_ticker), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Path search (VMC-041b)
 

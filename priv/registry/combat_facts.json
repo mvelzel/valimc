@@ -1880,6 +1880,12 @@
     "minecraft:phantom": 5,
     "minecraft:silverfish": 5,
     "minecraft:shulker": 5,
+    "minecraft:cod": 0,
+    "minecraft:salmon": 0,
+    "minecraft:pufferfish": 0,
+    "minecraft:tropical_fish": 0,
+    "minecraft:squid": 0,
+    "minecraft:glow_squid": 0,
     "minecraft:cow": 0,
     "minecraft:mooshroom": 0,
     "minecraft:sheep": 0,
@@ -2018,6 +2024,42 @@
       "sound_source": 5,
       "animal": false
     },
+    "minecraft:cod": {
+      "hurt_sound": "minecraft:entity.cod.hurt",
+      "death_sound": "minecraft:entity.cod.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:salmon": {
+      "hurt_sound": "minecraft:entity.salmon.hurt",
+      "death_sound": "minecraft:entity.salmon.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:pufferfish": {
+      "hurt_sound": "minecraft:entity.puffer_fish.hurt",
+      "death_sound": "minecraft:entity.puffer_fish.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:tropical_fish": {
+      "hurt_sound": "minecraft:entity.tropical_fish.hurt",
+      "death_sound": "minecraft:entity.tropical_fish.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:squid": {
+      "hurt_sound": "minecraft:entity.squid.hurt",
+      "death_sound": "minecraft:entity.squid.death",
+      "sound_source": 6,
+      "animal": true
+    },
+    "minecraft:glow_squid": {
+      "hurt_sound": "minecraft:entity.glow_squid.hurt",
+      "death_sound": "minecraft:entity.glow_squid.death",
+      "sound_source": 6,
+      "animal": true
+    },
     "minecraft:cow": {
       "hurt_sound": "minecraft:entity.cow.hurt",
       "death_sound": "minecraft:entity.cow.death",
@@ -2113,6 +2155,18 @@
     "minecraft:entity.silverfish.death": 1480,
     "minecraft:entity.shulker.hurt_closed": 1475,
     "minecraft:entity.shulker.death": 1473,
+    "minecraft:entity.cod.hurt": 382,
+    "minecraft:entity.cod.death": 380,
+    "minecraft:entity.salmon.hurt": 1399,
+    "minecraft:entity.salmon.death": 1397,
+    "minecraft:entity.puffer_fish.hurt": 1350,
+    "minecraft:entity.puffer_fish.death": 1348,
+    "minecraft:entity.tropical_fish.hurt": 1644,
+    "minecraft:entity.tropical_fish.death": 1642,
+    "minecraft:entity.squid.hurt": 1598,
+    "minecraft:entity.squid.death": 1597,
+    "minecraft:entity.glow_squid.hurt": 737,
+    "minecraft:entity.glow_squid.death": 736,
     "minecraft:entity.cow.hurt": 451,
     "minecraft:entity.cow.death": 452,
     "minecraft:entity.sheep.hurt": 1444,
@@ -2136,7 +2190,9 @@
   "particles": {
     "minecraft:sweep_attack": 77,
     "minecraft:damage_indicator": 14,
-    "minecraft:dragon_breath": 15
+    "minecraft:dragon_breath": 15,
+    "minecraft:squid_ink": 76,
+    "minecraft:glow_squid_ink": 109
   },
   "damage_types": {
     "minecraft:arrow": {

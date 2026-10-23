@@ -1,10 +1,12 @@
 defmodule Valimc.AI.Goals.RandomStroll do
   @moduledoc """
-  `RandomStrollGoal` and `WaterAvoidingRandomStrollGoal` (`water_avoiding`):
-  now and then (one chance in half its interval per update), unless idle for
-  100 ticks, a walk to a random target ten blocks around; a water-avoiding
-  stroll picks land targets (from water, fifteen blocks around), all but a
-  thousandth of the time.
+  `RandomStrollGoal`, `WaterAvoidingRandomStrollGoal` (`water_avoiding`) and
+  `RandomSwimmingGoal` (`swim`): now and then (one chance in half its
+  interval per update), unless idle for 100 ticks, a walk to a random target
+  ten blocks around; a water-avoiding stroll picks land targets (from water,
+  fifteen blocks around), all but a thousandth of the time; a swim picks
+  targets in water. `guard` is a test of the mob before anything is drawn
+  (a schooling fish swims alone only when it follows no leader).
   """
   use Valimc.AI.Goal
   alias Valimc.AI.RandomPos
@@ -15,6 +17,8 @@ defmodule Valimc.AI.Goals.RandomStroll do
       interval: Keyword.get(opts, :interval, 120),
       check_idle: Keyword.get(opts, :check_idle, true),
       water_avoiding: Keyword.get(opts, :water_avoiding, false),
+      swim: Keyword.get(opts, :swim, false),
+      guard: Keyword.get(opts, :guard),
       probability: Valimc.Data.Float32.round(Keyword.get(opts, :probability, 0.001)),
       force: false,
       wanted: nil
@@ -22,6 +26,9 @@ defmodule Valimc.AI.Goals.RandomStroll do
 
   def can_use(state, self) do
     cond do
+      state.guard != nil and not state.guard.(self) ->
+        {false, state, self}
+
       not state.force and state.check_idle and self.mind.no_action >= 100 ->
         {false, state, self}
 
@@ -45,6 +52,7 @@ defmodule Valimc.AI.Goals.RandomStroll do
     end
   end
 
+  defp position(%{swim: true}, self), do: RandomPos.swimmable(self, 10, 7)
   defp position(%{water_avoiding: false}, self), do: RandomPos.default(self, 10, 7)
 
   defp position(state, self) do

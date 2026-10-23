@@ -1260,6 +1260,13 @@ defmodule Valimc.World.RegionData do
             %{entity: e} <- [store.entries[step.id]],
             do: {e, effect}
 
+      # A pufferfish's stings (VMC-043e) on what it touches.
+      stings =
+        for step <- steps,
+            {:sting, target, amount, poison} <- step.effects,
+            %{entity: e, body: body} <- [store.entries[step.id]],
+            do: {e, body.type, target, amount, poison}
+
       # Mobs whose kind ends them (an endermite's lifetime, VMC-043e) leave.
       {discards, steps} = Enum.split_with(steps, &(:discard in &1.effects))
       # A bred pair's child and orb, and the blocks animals ate (VMC-043c).
@@ -1283,6 +1290,7 @@ defmodule Valimc.World.RegionData do
       state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
       state = Enum.reduce(fired, state, &mob_spawns/2)
+      state = Enum.reduce(stings, state, &mob_sting/2)
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
       state = if throws == [], do: state, else: mob_throws(state, throws)
@@ -1354,6 +1362,38 @@ defmodule Valimc.World.RegionData do
     {:ok, body} = Body.new(type)
     body = %{body | data: Map.merge(body.data, data)}
     create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+  end
+
+  # `Pufferfish.touch`: `amount` of mob attack damage and, when it takes,
+  # Poison for `poison` ticks (a player's own touch, `playerTouch`, alike).
+  defp mob_sting({e, type, target, amount, poison}, state) do
+    me = %{uuid: e.uuid, entity_id: e.entity_id, player: false, type: type, mainhand: nil}
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:mob_attack),
+      amount: amount,
+      attacker: me,
+      direct: me,
+      position: {e.x, e.y, e.z}
+    }
+
+    effect = {:add, Valimc.Data.EffectTypes.id("poison"), [{poison, 0, false, true, true}]}
+
+    case target do
+      {:player, uuid} ->
+        send(self(), {:player, uuid, {:hurt, hit}})
+        send(self(), {:player, uuid, {:splash, [effect], hit}})
+        state
+
+      {:mob, uuid} ->
+        with {:ok, {_, sid, _}} <- Store.find(state.entities.store, uuid),
+             {true, state} <- projectile_hurt(state, %{ref: {:mob, sid}}, hit) do
+          mob_effect(state, sid, nil, effect, hit)
+        else
+          {false, state} -> state
+          _ -> state
+        end
+    end
   end
 
   defp create_body(state, record) do

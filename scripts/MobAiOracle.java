@@ -63,8 +63,9 @@ public class MobAiOracle {
       "minecraft:blaze", "minecraft:zombified_piglin",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager",
-      // VMC-043e: the End's mobs.
-      "minecraft:endermite", "minecraft:shulker",
+      // VMC-043e: the End's mobs, fish and squid.
+      "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
+      "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid",
       // VMC-043c: farm animals (cases in AnimalOracle).
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:chicken", "minecraft:rabbit");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
@@ -76,7 +77,12 @@ public class MobAiOracle {
       // VMC-043e: a shulker's lid, shots and teleports; its bullet's.
       "minecraft:entity.shulker.open", "minecraft:entity.shulker.close", "minecraft:entity.shulker.shoot",
       "minecraft:entity.shulker.teleport", "minecraft:entity.shulker.hurt", "minecraft:entity.shulker.hurt_closed",
-      "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt");
+      "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt",
+      "minecraft:entity.cod.flop", "minecraft:entity.salmon.flop", "minecraft:entity.puffer_fish.flop",
+      "minecraft:entity.tropical_fish.flop", "minecraft:entity.puffer_fish.blow_up", "minecraft:entity.puffer_fish.blow_out",
+      "minecraft:entity.puffer_fish.sting", "minecraft:entity.squid.squirt", "minecraft:entity.glow_squid.squirt",
+      // Swimming (`getSwimSound`).
+      "minecraft:entity.fish.swim", "minecraft:entity.generic.swim", "minecraft:entity.hostile.swim");
 
   static class Server extends net.minecraft.server.dedicated.DedicatedServer {
     net.minecraft.util.debug.ServerDebugSubscribers subscribers;
@@ -685,7 +691,7 @@ public class MobAiOracle {
       item.setPickUpDelay(0);
       items.add(item); level.entities.add(item);
     }
-    var gates = new JsonArray(); var sensorTimes = new JsonArray();
+    var gates = new JsonArray(); var sensorTimes = new JsonArray(); var starts = new ArrayList<JsonObject>();
     var timeToTick = field(net.minecraft.world.entity.ai.sensing.Sensor.class, "timeToTick");
     var sensorsField = field(net.minecraft.world.entity.ai.Brain.class, "sensors");
     for (var s : spawns) {
@@ -724,8 +730,12 @@ public class MobAiOracle {
       }
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
+      // A flock goal's first wait, drawn as it was made, set to its least (VMC-043e).
+      for (var w : ((GoalSelector)field(net.minecraft.world.entity.Mob.class, "goalSelector").get(m)).getAvailableGoals())
+        if (w.getGoal() instanceof net.minecraft.world.entity.ai.goal.FollowFlockLeaderGoal g)
+          field(net.minecraft.world.entity.ai.goal.FollowFlockLeaderGoal.class, "nextStartTick").setInt(g, 100);
       level.prepare(m, mobs.size());
-      mobs.add(m); level.entities.add(m);
+      mobs.add(m); level.entities.add(m); starts.add(data(m));
     }
     var goalSelector = field(net.minecraft.world.entity.Mob.class, "goalSelector");
     var targetSelector = field(net.minecraft.world.entity.Mob.class, "targetSelector");
@@ -822,7 +832,7 @@ public class MobAiOracle {
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(ms.size()).getId());
       if (s.data.containsKey("mainhand")) o.addProperty("mainhand", (String)s.data.get("mainhand"));
       if (Boolean.TRUE.equals(s.data.get("baby"))) o.addProperty("baby", true);
-      ms.add(o);
+      o.add("start", starts.get(ms.size())); ms.add(o);
     }
     out.add("mobs", ms);
     var ps = new JsonArray();
@@ -856,6 +866,37 @@ public class MobAiOracle {
       o.addProperty("armor", bits(sh.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)));
     }
     if (m instanceof net.minecraft.world.entity.monster.Endermite e) o.addProperty("life", field(net.minecraft.world.entity.monster.Endermite.class, "life").getInt(e));
+    if (m instanceof net.minecraft.world.entity.animal.fish.AbstractFish f) {
+      o.addProperty("from_bucket", f.fromBucket());
+      o.addProperty("move_dist", Float.floatToRawIntBits(f.moveDist));
+      o.addProperty("next_step", Float.floatToRawIntBits(field(Entity.class, "nextStep").getFloat(f)));
+    }
+    if (m instanceof net.minecraft.world.entity.animal.fish.AbstractSchoolingFish f) {
+      var leader = (Entity)field(net.minecraft.world.entity.animal.fish.AbstractSchoolingFish.class, "leader").get(f);
+      o.addProperty("leader", leader == null ? -1 : leader.getId());
+      o.addProperty("school", field(net.minecraft.world.entity.animal.fish.AbstractSchoolingFish.class, "schoolSize").getInt(f));
+    }
+    if (m instanceof net.minecraft.world.entity.animal.fish.Salmon f) o.addProperty("size", f.getVariant().ordinal());
+    if (m instanceof net.minecraft.world.entity.animal.fish.Pufferfish f) {
+      o.addProperty("puff", f.getPuffState());
+      o.addProperty("inflate", field(net.minecraft.world.entity.animal.fish.Pufferfish.class, "inflateCounter").getInt(f));
+      o.addProperty("deflate", field(net.minecraft.world.entity.animal.fish.Pufferfish.class, "deflateTimer").getInt(f));
+    }
+    if (m instanceof net.minecraft.world.entity.animal.fish.TropicalFish f) {
+      var packed = net.minecraft.world.entity.animal.fish.TropicalFish.class.getDeclaredMethod("getPackedVariant"); packed.setAccessible(true);
+      o.addProperty("variant", (int)packed.invoke(f));
+    }
+    if (m instanceof net.minecraft.world.entity.animal.squid.Squid q) {
+      var c = net.minecraft.world.entity.animal.squid.Squid.class;
+      o.addProperty("tentacle", Float.floatToRawIntBits(field(c, "tentacleMovement").getFloat(q)));
+      o.addProperty("tentacle_speed", Float.floatToRawIntBits(field(c, "tentacleSpeed").getFloat(q)));
+      o.addProperty("rotate_speed", Float.floatToRawIntBits(field(c, "rotateSpeed").getFloat(q)));
+      o.addProperty("x_rot", Float.floatToRawIntBits(q.xBodyRot));
+      o.addProperty("z_rot", Float.floatToRawIntBits(q.zBodyRot));
+      o.add("movement", bits((Vec3)field(c, "movementVector").get(q)));
+      o.addProperty("age", q.getAge());
+    }
+    if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
     return o;
   }
 
@@ -950,6 +991,35 @@ public class MobAiOracle {
     for (int t = 5; t < 160; t += 15) beats.add(new Hit(t, 0, 0, 2.5F));
     cases.add(run(level, "shulker_hurt", floor(63, 12, stone), List.of(new Spawn("minecraft:shulker", new Vec3(.5, 64, .5), 0, 61L)),
       List.of(new Stand(new Vec3(2.5, 64, .5), "survival", null)), beats, 220));
+    // VMC-043e: fish and squid in a pool; a cod swims alone, four school,
+    // a salmon flees a player, a pufferfish puffs at one, tropical fish
+    // school; a cod flops and drowns on land; squid swim, flee and ink when
+    // hit, a glow squid darkens, a squid on land falls.
+    var water = Blocks.WATER.defaultBlockState();
+    var pool = scene(box(-9, 56, -9, 9, 64, 9, stone), box(-8, 57, -8, 8, 63, 8, water));
+    cases.add(run(level, "cod_swim", pool, List.of(new Spawn("minecraft:cod", new Vec3(.5, 60, .5), 0, 71L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 300));
+    cases.add(run(level, "cod_school", pool, List.of(new Spawn("minecraft:cod", new Vec3(.5, 60, .5), 0, 72L),
+      new Spawn("minecraft:cod", new Vec3(2.5, 59, 1.5), 90, 73L), new Spawn("minecraft:cod", new Vec3(-1.5, 61, -2.5), 180, 74L),
+      new Spawn("minecraft:cod", new Vec3(3.5, 60, -3.5), 270, 75L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 500));
+    cases.add(run(level, "salmon_flee", pool, List.of(new Spawn("minecraft:salmon", new Vec3(1.5, 60, .5), 0, 76L)),
+      List.of(new Stand(new Vec3(5.5, 64, .5), "survival", null)), List.of(), 300));
+    cases.add(run(level, "cod_flop", floor(63, 12, stone), List.of(new Spawn("minecraft:cod", new Vec3(.5, 64, .5), 0, 77L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 345));
+    cases.add(run(level, "pufferfish_puff", pool, List.of(new Spawn("minecraft:pufferfish", new Vec3(.5, 60, .5), 0, 78L)),
+      List.of(new Stand(new Vec3(1.5, 61, .5), "survival", null)), List.of(), 200));
+    cases.add(run(level, "tropical_school", pool, List.of(new Spawn("minecraft:tropical_fish", new Vec3(.5, 60, .5), 0, 79L),
+      new Spawn("minecraft:tropical_fish", new Vec3(-2.5, 59, 1.5), 45, 80L), new Spawn("minecraft:tropical_fish", new Vec3(1.5, 61, -3.5), 135, 81L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 450));
+    cases.add(run(level, "squid_swim", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 82L)),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "squid_flee", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 83L)),
+      List.of(new Stand(new Vec3(3.5, 61, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
+    cases.add(run(level, "glow_squid_hurt", pool, List.of(new Spawn("minecraft:glow_squid", new Vec3(.5, 60, .5), 0, 84L)),
+      List.of(new Stand(new Vec3(3.5, 61, .5), "survival", null)), List.of(new Hit(20, 0, 0, 1.0F)), 200));
+    cases.add(run(level, "squid_land", floor(63, 12, stone), List.of(new Spawn("minecraft:squid", new Vec3(.5, 66, .5), 0, 85L)),
+      List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 100));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -1156,7 +1226,7 @@ public class MobAiOracle {
     if (args[0].equals("cases")) {
       var out = cases(level);
       Files.writeString(java.nio.file.Path.of(args[1]), json.toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla mob AI traces (zombie chase, wall, creative, alert; pig wander, panic, tempt; piglin idle, admire; endermite chase, alert, powder snow; shulker peek, attack, wall, float, hurt; fish, squid).");
       return;
     }
     if (args[0].equals("paths")) {

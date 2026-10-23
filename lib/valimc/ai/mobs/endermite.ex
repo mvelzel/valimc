@@ -37,6 +37,9 @@ defmodule Valimc.AI.Mobs.Endermite do
   def data(_type), do: %{life: 0}
 
   @impl true
+  def motion, do: [emission: :events]
+
+  @impl true
   def tick_start(self), do: Self.mind(self, &%{&1 | body_yaw: self.yaw})
 
   @impl true

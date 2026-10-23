@@ -129,8 +129,26 @@ defmodule Valimc.Entity.MobVitals do
       else: {mob, events}
   end
 
-  # `LivingEntity.baseTick`'s air: a type that breathes under water keeps it.
+  # `LivingEntity.baseTick`'s air: a type that breathes under water keeps it;
+  # a family's own (a water animal's, VMC-043e, `air/2`) runs with its AI,
+  # where vanilla's base tick runs it (`Valimc.AI`).
   defp breathe(kind, mob, events, ticked) do
+    if Valimc.AI.Mobs.hook(kind.type, :air, [300, true], :default) == :default,
+      do: breathe_air(kind, mob, events, ticked),
+      else: {mob, events}
+  end
+
+  @doc """
+  A family's own air (`air/2`) for mob `mob` of `kind` (`%{type, data}`), in
+  water or not: `{mob, events}` with the drowning hurt it takes.
+  """
+  def own_air(kind, mob, in_water) do
+    {air, damage} = Valimc.AI.Mobs.hook(kind.type, :air, [mob.living.air_supply, in_water], nil)
+    mob = %{mob | living: %{mob.living | air_supply: air}}
+    if damage > 0, do: hurt(kind, mob, [], :drown, damage), else: {mob, []}
+  end
+
+  defp breathe_air(kind, mob, events, ticked) do
     submerged = Air.submerged?(ticked.eye_water, ticked.eye_state)
     effects = mob.living.effects
 

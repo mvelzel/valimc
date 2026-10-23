@@ -75,6 +75,23 @@ defmodule Valimc.AI.Mth do
   @doc "`Control.rotateTowards(from, to, max)`."
   def rotate_towards(from, to, max), do: f(from + clamp(difference(from, to), -max, max))
 
+  @doc """
+  `MoveControl.rotlerp(from, to, max)`: toward `to` by at most `max`
+  degrees, kept within 0 to 360.
+  """
+  def rotlerp(from, to, max) do
+    angle = f(from + clamp(wrap(f(to - from)), -max, max))
+
+    cond do
+      angle < 0.0 -> f(angle + 360.0)
+      angle > 360.0 -> f(angle - 360.0)
+      true -> angle
+    end
+  end
+
+  @doc "`Mth.lerp(delta, from, to)` of floats."
+  def lerp(delta, from, to), do: f(from + f(delta * f(to - from)))
+
   @doc "`Mth.approach(current, target, increment)`."
   def approach(current, target, increment) do
     increment = abs(increment)

@@ -1344,6 +1344,214 @@
         ]
       ]
     },
+    "minecraft:cod": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.cod.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "FishSwimGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "FollowFlockLeaderGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:salmon": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.salmon.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "FishSwimGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "FollowFlockLeaderGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:pufferfish": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "FishSwimGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          1,
+          "PufferfishPuffGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:tropical_fish": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.tropical_fish.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 1.0,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "PanicGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "FishSwimGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          5,
+          "FollowFlockLeaderGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:squid": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.squid.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 0.4,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "SquidRandomMovementGoal",
+          []
+        ],
+        [
+          1,
+          "SquidFleeGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
+    "minecraft:glow_squid": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.glow_squid.ambient",
+      "ambient_sound_interval": 120,
+      "sound_volume": 0.4,
+      "malus": {
+        "water": 0.0
+      },
+      "goals": [
+        [
+          0,
+          "SquidRandomMovementGoal",
+          []
+        ],
+        [
+          1,
+          "SquidFleeGoal",
+          []
+        ]
+      ],
+      "targets": []
+    },
     "minecraft:cow": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -1804,6 +2012,18 @@
     "minecraft:entity.shulker.hurt_closed": 1475,
     "minecraft:entity.shulker_bullet.hit": 1470,
     "minecraft:entity.shulker_bullet.hurt": 1471,
+    "minecraft:entity.cod.flop": 381,
+    "minecraft:entity.salmon.flop": 1398,
+    "minecraft:entity.puffer_fish.flop": 1349,
+    "minecraft:entity.tropical_fish.flop": 1643,
+    "minecraft:entity.puffer_fish.blow_up": 1347,
+    "minecraft:entity.puffer_fish.blow_out": 1346,
+    "minecraft:entity.puffer_fish.sting": 1351,
+    "minecraft:entity.squid.squirt": 1599,
+    "minecraft:entity.glow_squid.squirt": 738,
+    "minecraft:entity.fish.swim": 642,
+    "minecraft:entity.generic.swim": 708,
+    "minecraft:entity.hostile.swim": 880,
     "minecraft:entity.zombie.ambient": 1873,
     "minecraft:entity.pig.ambient": 1272,
     "minecraft:entity.blaze.ambient": 174,
@@ -1812,6 +2032,11 @@
     "minecraft:entity.zombie_villager.ambient": 1904,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
+    "minecraft:entity.cod.ambient": 379,
+    "minecraft:entity.salmon.ambient": 1396,
+    "minecraft:entity.tropical_fish.ambient": 1641,
+    "minecraft:entity.squid.ambient": 1596,
+    "minecraft:entity.glow_squid.ambient": 735,
     "minecraft:entity.cow.ambient": 450,
     "minecraft:entity.sheep.ambient": 1442,
     "minecraft:entity.chicken.ambient": 356,

@@ -359,6 +359,47 @@ defmodule Valimc.Physics.Kernel do
   end
 
   @doc """
+  Begin an owner's mob tick (VMC-043e): `mobs` (kernel maps) as they start
+  it over `view`, pushed by `players` (`{feet, box}`), within `border`.
+  The ticker keeps the view and the mobs' motion while the owner steps each
+  mob (`mob_step/3`) and ends it (`mobs_finish/1`).
+  """
+  def mobs_begin(view, mobs, players, border) do
+    region =
+      mobs
+      |> Enum.map(fn %{position: {x, y, z}, size: {width, height, _}, velocity: velocity} ->
+        half = width / 2 + 2.0
+        expand({x - half, y - 2.0, z - half, x + half, y + height + 2.0, z + half}, velocity)
+      end)
+      |> Enum.reduce(&union/2)
+
+    bounds =
+      case border do
+        nil -> nil
+        border -> elem(BorderSnapshot.bounds(border), 1)
+      end
+
+    cells = native(view, region)
+    units = if match?({:states, _}, cells), do: div(byte_size(elem(cells, 1)), 14), else: 0
+    Native.dispatch(:physics_mobs_begin, units, [cells, mobs, players, bounds])
+  end
+
+  @doc """
+  Mob `index`'s tick with `mob` (its AI's input): `{result, pushed}`, the
+  result `{:ok, ticked}` or an error (the mob keeps its state), and the mobs
+  it pushed (`[{index, velocity}]`).
+  """
+  def mob_step(ticker, index, %{velocity: velocity} = mob),
+    do: Native.dispatch(:physics_mobs_step, 4 * scan_cells(velocity), [ticker, index, mob])
+
+  @doc "Mob `index`'s motion as its tick ended (later pushes add to it)."
+  def mob_velocity(ticker, index, velocity),
+    do: Native.physics_mobs_velocity(ticker, index, floats(velocity))
+
+  @doc "End the tick: the players push; every mob's motion for its next tick."
+  def mobs_finish(ticker), do: Native.physics_mobs_finish(ticker)
+
+  @doc """
   An explosion's reach (VMC-050a): the cells the rays of an explosion of
   `radius` at `center` reach (`{position, state}`, air included, sorted),
   drawing from a `LegacyRandomSource` seeded with `seed`, in a world of

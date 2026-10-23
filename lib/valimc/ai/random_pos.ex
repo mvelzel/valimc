@@ -55,6 +55,28 @@ defmodule Valimc.AI.RandomPos do
     end)
   end
 
+  @doc """
+  `BehaviorUtils.getRandomSwimmablePos(mob, h, v)`: a default target, tried
+  again up to ten times while its block is not pathfindable in water.
+  """
+  def swimmable(%Self{} = self, h, v), do: swimmable(default(self, h, v), h, v, 0)
+
+  defp swimmable({nil, self}, _h, _v, _attempts), do: {nil, self}
+
+  defp swimmable({pos, self}, h, v, attempts) do
+    if swimmable?(self.world, pos) or attempts >= 10,
+      do: {pos, self},
+      else: swimmable(default(self, h, v), h, v, attempts + 1)
+  end
+
+  # `isPathfindable(PathComputationType.WATER)` of the block holding `pos`.
+  defp swimmable?(world, {x, y, z}) do
+    case World.block(world, {floor(x), floor(y), floor(z)}) do
+      nil -> false
+      state -> Bitwise.band(:binary.at(Facts.path_flags(), state), 2) != 0
+    end
+  end
+
   @doc "`LandRandomPos.getPos(mob, h, v)`."
   def land(%Self{} = self, h, v) do
     restrict = restricted?(self, h)
@@ -139,7 +161,7 @@ defmodule Valimc.AI.RandomPos do
 
     ok =
       not World.outside?(world, pos) and not (restrict and not within_home?(self, pos)) and
-        stable?(world, pos) and (land or not malus?(self, pos))
+        stable?(self, pos) and (land or not malus?(self, pos))
 
     {if(ok, do: pos), self}
   end
@@ -185,7 +207,17 @@ defmodule Valimc.AI.RandomPos do
   end
 
   # `GoalUtils.isNotStable`: `isStableDestination` (a solid-rendering block below).
-  defp stable?(world, {x, y, z}), do: World.solid_render?(world, {x, y - 1, z})
+  # `PathNavigation.isStableDestination`: a walker's needs a solid block
+  # below, a swimmer's must not be solid itself, a flier's or amphibian's
+  # needs something below.
+  defp stable?(%Self{mind: %{navigation: %{kind: :water}}, world: world}, pos),
+    do: not World.solid_render?(world, pos)
+
+  defp stable?(%Self{mind: %{navigation: %{kind: kind}}, world: world}, {x, y, z})
+       when kind in [:fly, :amphibious],
+       do: not World.air?(world, {x, y - 1, z})
+
+  defp stable?(%Self{world: world}, {x, y, z}), do: World.solid_render?(world, {x, y - 1, z})
 
   @doc "`GoalUtils.hasMalus`: the mob's malus for the block's path type is not 0."
   def malus?(%Self{} = self, pos), do: malus(self, static(self.world, pos)) != 0.0

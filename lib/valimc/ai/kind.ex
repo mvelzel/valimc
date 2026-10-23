@@ -14,8 +14,10 @@ defmodule Valimc.AI.Kind do
     `dimensions/1` (`{width, height, eye}`, nil for its type's) and `box/2`
     (its bounding box at a position, nil for the usual one).
   - How the kernel moves it (`motion/0`): `fixed` (it never moves, a
-    shulker), `pushable` (others push it) and `pushes` (it pushes what it
-    touches).
+    shulker), `pushable` (others push it), `pushes` (it pushes what it
+    touches), `fluid_pushed` (currents push it), `travel` (its travel, a
+    squid's) and `emission` (`:all`, `:events`, `:sounds` or `:none`: what
+    its movement makes); `swim_sound/0`, the sound it swims with.
   - Its tick, where vanilla's subclass overrides it, each on the mob as its
     AI sees it (`Valimc.AI.Self`): `tick_start/1` (`tick()` before
     `super.tick()`), `before_ai/1` (`aiStep()` before `super.aiStep()`),
@@ -28,6 +30,11 @@ defmodule Valimc.AI.Kind do
   - Its look and body controls: `look_rotations/2` (the yaw and pitch to
     turn toward, nil for none, or `:default`), `clamps_head?/0` and
     `turns_body?/0`.
+  - Its own move control (`move_control/1`, after `custom_step`, before
+    the look control: it sets `MobMotion`'s `set`, `impulse` and `travel`),
+    and its air (`air/2`: from its air supply and whether it is in water,
+    `{air, drowning damage}`; a water animal's). `dying?/0`: a dying mob
+    still runs its own `tick` and `aiStep` hooks (a dead fish flops).
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `ignores?/2` (a
     hit it takes nothing from), `sound/2` (its hurt or death sound, nil for
     its type's) and `hurt/2` (what a hurt leaves on its body).
@@ -71,6 +78,10 @@ defmodule Valimc.AI.Kind do
   @callback voice(String.t(), map) :: float
   @callback after_move(struct, tuple, map) :: {struct, list}
   @callback leashable?() :: boolean
+  @callback move_control(Self.t()) :: Self.t()
+  @callback air(integer, boolean) :: {integer, float}
+  @callback swim_sound() :: String.t()
+  @callback dying?() :: boolean
 
   @optional_callbacks leashable?: 0,
                       navigation: 0,
@@ -99,5 +110,9 @@ defmodule Valimc.AI.Kind do
                       can_hold?: 2,
                       preferred_weapons: 1,
                       voice: 2,
-                      after_move: 3
+                      after_move: 3,
+                      move_control: 1,
+                      air: 2,
+                      swim_sound: 0,
+                      dying?: 0
 end

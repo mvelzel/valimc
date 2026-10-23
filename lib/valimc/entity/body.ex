@@ -335,6 +335,24 @@ defmodule Valimc.Entity.Body do
   def event_packet(_id, {:sound, name, source, volume, pitch, seed}, %{x: x, y: y, z: z}),
     do: binary(Valimc.Protocol.CombatPackets.sound(name, source, {x, y, z}, volume, pitch, seed))
 
+  # Particles at a point relative to the body (`{:at, offset, up}`: its
+  # position plus `offset`, `up` higher), or at a point (a squid's ink).
+  def event_packet(_id, {:particles, name, {:at, {ox, oy, oz}, up}, delta, speed, count}, %{
+        x: x,
+        y: y,
+        z: z
+      }),
+      do:
+        binary(
+          Valimc.Protocol.CombatPackets.particles(
+            name,
+            {x + ox, y + oy + up, z + oz},
+            delta,
+            speed,
+            count
+          )
+        )
+
   # A sound where the mob was (a shulker's teleport, VMC-043e).
   def event_packet(_id, {:sound_at, name, source, position, volume, pitch}, _) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)

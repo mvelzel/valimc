@@ -39167,6 +39167,68 @@
       }
     ]
   },
+  "minecraft:entities/cod": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/cod",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:cod",
+            "modifier": {
+              "condition": {
+                "terms": [
+                  {
+                    "predicate": {
+                      "minecraft:flags": {
+                        "is_on_fire": true
+                      }
+                    },
+                    "entity": "this",
+                    "type": "minecraft:entity_properties"
+                  },
+                  {
+                    "predicate": {
+                      "minecraft:equipment": {
+                        "mainhand": {
+                          "predicates": {
+                            "minecraft:enchantments": [
+                              {
+                                "enchantments": "#minecraft:smelts_loot"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "entity": "direct_attacker",
+                    "type": "minecraft:entity_properties"
+                  }
+                ],
+                "type": "minecraft:any_of"
+              },
+              "type": "minecraft:furnace_smelt"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone_meal",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "chance": 0.05000000074505806,
+          "type": "minecraft:random_chance"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/cow": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/cow",
@@ -39266,6 +39328,40 @@
   "minecraft:entities/endermite": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/endermite"
+  },
+  "minecraft:entities/glow_squid": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/glow_squid",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:glow_ink_sac",
+            "modifier": [
+              {
+                "count": {
+                  "min": 1,
+                  "max": 3,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
   },
   "minecraft:entities/husk": {
     "type": "minecraft:entity",
@@ -39571,6 +39667,38 @@
       }
     ]
   },
+  "minecraft:entities/pufferfish": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/pufferfish",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:pufferfish",
+            "modifier": {
+              "count": 1,
+              "type": "minecraft:set_count"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone_meal",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "chance": 0.05000000074505806,
+          "type": "minecraft:random_chance"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/rabbit": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/rabbit",
@@ -39685,6 +39813,68 @@
             }
           ],
           "type": "minecraft:all_of"
+        },
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/salmon": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/salmon",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:salmon",
+            "modifier": {
+              "condition": {
+                "terms": [
+                  {
+                    "predicate": {
+                      "minecraft:flags": {
+                        "is_on_fire": true
+                      }
+                    },
+                    "entity": "this",
+                    "type": "minecraft:entity_properties"
+                  },
+                  {
+                    "predicate": {
+                      "minecraft:equipment": {
+                        "mainhand": {
+                          "predicates": {
+                            "minecraft:enchantments": [
+                              {
+                                "enchantments": "#minecraft:smelts_loot"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "entity": "direct_attacker",
+                    "type": "minecraft:entity_properties"
+                  }
+                ],
+                "type": "minecraft:any_of"
+              },
+              "type": "minecraft:furnace_smelt"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone_meal",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "chance": 0.05000000074505806,
+          "type": "minecraft:random_chance"
         },
         "rolls": 1
       }
@@ -40284,6 +40474,72 @@
           },
           "enchantment": "minecraft:looting",
           "type": "minecraft:random_chance_with_enchanted_bonus"
+        },
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/squid": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/squid",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:ink_sac",
+            "modifier": [
+              {
+                "count": {
+                  "min": 1,
+                  "max": 3,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/tropical_fish": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/tropical_fish",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:tropical_fish",
+            "modifier": {
+              "count": 1,
+              "type": "minecraft:set_count"
+            },
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:bone_meal",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "chance": 0.05000000074505806,
+          "type": "minecraft:random_chance"
         },
         "rolls": 1
       }

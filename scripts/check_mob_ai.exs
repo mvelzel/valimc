@@ -60,9 +60,11 @@ view = fn blocks ->
   {xs, zs} = {Enum.map(blocks, &Enum.at(&1, 0)), Enum.map(blocks, &Enum.at(&1, 2))}
   {x0, x1} = {min(-16, Enum.min(xs) - 4), max(16, Enum.max(xs) + 4)}
   {z0, z1} = {min(-16, Enum.min(zs) - 4), max(16, Enum.max(zs) + 4)}
+  ys = Enum.map(blocks, &Enum.at(&1, 1))
+  {y0, y1} = {min(56, Enum.min(ys) - 4), max(80, Enum.max(ys) + 8)}
 
   packed =
-    for x <- x0..x1, y <- 56..80, z <- z0..z1, into: <<>> do
+    for x <- x0..x1, y <- y0..y1, z <- z0..z1, into: <<>> do
       <<x::signed-32, y::signed-32, z::signed-32, Map.get(scene, {x, y, z}, air)::16>>
     end
 
@@ -221,6 +223,61 @@ kind_data = fn
   %{type: "minecraft:endermite", data: data} ->
     %{"life" => data.life}
 
+  %{type: type, data: data, mob: mob} = body
+  when type in ~w(minecraft:cod minecraft:salmon minecraft:tropical_fish minecraft:pufferfish) ->
+    fish = %{
+      "from_bucket" => data.from_bucket,
+      "move_dist" => bits.(mob.motion.move_dist),
+      "next_step" => bits.(mob.motion.next_step)
+    }
+
+    fish =
+      if type in Valimc.AI.Mobs.Fish.schooling() do
+        school = Valimc.AI.Mobs.Fish.school(mob.ai)
+
+        Map.merge(fish, %{
+          "leader" =>
+            if(school.leader,
+              do: :binary.decode_unsigned(binary_part(school.leader, 0, 8)),
+              else: -1
+            ),
+          "school" => school.school
+        })
+      else
+        fish
+      end
+
+    case type do
+      "minecraft:salmon" ->
+        Map.put(fish, "size", data.size)
+
+      "minecraft:tropical_fish" ->
+        Map.put(fish, "variant", data.variant)
+
+      "minecraft:pufferfish" ->
+        c = Valimc.AI.Mobs.Pufferfish.counters(mob.ai)
+        Map.merge(fish, %{"puff" => data.puff, "inflate" => c.inflate, "deflate" => c.deflate})
+
+      _ ->
+        _ = body
+        fish
+    end
+
+  %{type: type, data: data, mob: mob} when type in ~w(minecraft:squid minecraft:glow_squid) ->
+    o = Valimc.AI.Mobs.Squid.own(mob.ai)
+
+    squid = %{
+      "tentacle" => bits.(o.tentacle),
+      "tentacle_speed" => bits.(o.tentacle_speed),
+      "rotate_speed" => bits.(o.rotate_speed),
+      "x_rot" => bits.(o.x_rot),
+      "z_rot" => bits.(o.z_rot),
+      "movement" => Enum.map(Tuple.to_list(o.movement), hex),
+      "age" => data.age
+    }
+
+    if type == "minecraft:glow_squid", do: Map.put(squid, "dark", data.dark), else: squid
+
   _ ->
     %{}
 end
@@ -272,6 +329,15 @@ extras = fn body, step ->
     "can_pick_up_loot" => body.mob.can_pick_up_loot,
     "converting" => Map.get(body.data, :converting)
   }
+end
+
+# A squid's tentacle speed, drawn as vanilla made it (VMC-043e).
+own_start = fn
+  type, start when type in ~w(minecraft:squid minecraft:glow_squid) ->
+    Map.merge(Valimc.AI.Mobs.Squid.own(nil), %{tentacle_speed: float.(start["tentacle_speed"])})
+
+  _, _ ->
+    nil
 end
 
 checked =
@@ -361,6 +427,7 @@ checked =
               brain: brain.(mind.brain, Enum.at(c["gates"], i), Enum.at(c["sensors"], i))
           }
 
+          mind = %{mind | own: own_start.(m["type"], m["start"])}
           body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind}}
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           body = setup.(body, m)

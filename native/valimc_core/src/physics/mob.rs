@@ -18,6 +18,7 @@ use super::player::rules::{self, Air, FluidMotion, EPSILON, SIN_SCALE};
 use super::player::{Fault, World};
 use super::response::{self, Response};
 use super::table::Context;
+use std::collections::HashMap;
 
 /// `FenceBlock`s and `DoorBlock`s (flag bits 47 and 48): `MoveControl` does
 /// not jump onto them.
@@ -37,6 +38,31 @@ pub enum Control {
     Jumping {
         speed: f64,
     },
+    /// The AI ran the mob's own move control (a fish's, a guardian's): it
+    /// sets the speed and forward input (`setSpeed`) and, with `lift`,
+    /// rises 0.005 while its eyes are in water.
+    Set {
+        speed: f64,
+        lift: bool,
+    },
+}
+
+/// How a mob travels where vanilla's subclasses override it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Travel {
+    Ground,
+    /// `AbstractFish.travelInWater`: input at 0.01, drag 0.9, sinking
+    /// 0.005 a tick when `sink` (it has no target).
+    Fish {
+        sink: bool,
+    },
+    /// `Guardian.travelInWater`: input at 0.1, drag 0.9, sinking when
+    /// `sink` (neither moving nor targeting).
+    Guardian {
+        sink: bool,
+    },
+    /// `Squid.travel`: it only moves by its motion.
+    Squid,
 }
 
 /// The attributes travel reads.
@@ -111,6 +137,19 @@ pub struct Mob {
     pub pushes: bool,
     /// A rabbit's hopping controls (VMC-043c), or none.
     pub hop: Option<Hop>,
+    pub travel: Travel,
+    /// Flowing fluids push it (`isPushedByFluid`; not a water animal).
+    pub fluid_pushed: bool,
+    /// Motion its AI added after the dead zone (a move control's push).
+    pub impulse: [f64; 3],
+    /// Its last move was stopped vertically (`verticalCollision`).
+    pub vertical_collision: bool,
+    /// It counts the distance it moves for its steps and swim sounds (its
+    /// movement emission is not `NONE`).
+    pub emits: bool,
+    /// The distance walked (`moveDist`) and where the next step falls.
+    pub move_dist: f32,
+    pub next_step: f32,
 }
 
 /// A rabbit's move and jump controls (`RabbitMoveControl`,
@@ -156,6 +195,8 @@ pub struct Ticked {
     /// The fluid heights the move left (`checkFallDamage`'s sample), which
     /// the AI reads the next tick.
     pub depths: Depths,
+    /// A swim sound's volume, when its move made one (`waterSwimSound`).
+    pub swim: Option<f32>,
 }
 
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -359,6 +400,11 @@ pub fn control(mob: &mut Mob, block: Option<(f64, u64)>, in_liquid: bool) -> boo
             mob.forward = 0.0;
             false
         }
+        Control::Set { speed, .. } => {
+            mob.speed = speed as f32;
+            mob.forward = mob.speed;
+            false
+        }
     }
 }
 
@@ -415,13 +461,26 @@ fn feet_block(w: &World, mob: &Mob) -> Result<Option<(f64, u64)>, Fault> {
         .map(|b| (b.max[1] + p[1] as f64, w.facts.flags(state))))
 }
 
-fn currents(w: &World, body: &Aabb, velocity: [f64; 3]) -> Result<(Depths, [f64; 3]), Fault> {
+fn currents(
+    w: &World,
+    body: &Aabb,
+    velocity: [f64; 3],
+    pushed: bool,
+) -> Result<(Depths, [f64; 3]), Fault> {
     if !rules::bounded(velocity, 64.0) {
         return Err(Fault::Limit("invalid_fluid_current"));
     }
     w.fluid_bounded(body)?;
-    fluid::current(w.source, w.facts, body, velocity, true, false, Pushed::Item)?
-        .ok_or(Fault::Limit("invalid_fluid_box"))
+    fluid::current(
+        w.source,
+        w.facts,
+        body,
+        velocity,
+        pushed,
+        false,
+        Pushed::Item,
+    )?
+    .ok_or(Fault::Limit("invalid_fluid_box"))
 }
 
 /// One tick of `mob` (its pushes from others are applied by `tick_all`).
@@ -434,7 +493,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let body = m.body(start)?;
     // baseTick: the fluid state and its currents; water resets the fall,
     // lava halves it.
-    let (depths, pushed) = currents(w, &body, m.velocity)?;
+    let (depths, pushed) = currents(w, &body, m.velocity, m.fluid_pushed)?;
     m.velocity = pushed;
     let water = depths.water > 0.0;
     let lava = depths.lava > 0.0;
@@ -467,6 +526,15 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let eye = [start[0], start[1] + m.size.eye, start[2]];
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
+    // The AI's move control (a fish's): its eyes in water lift it, then its
+    // push toward its target.
+    if let Control::Set { lift: true, .. } = m.control {
+        if eye_water {
+            m.velocity[1] += 0.005;
+        }
+    }
+    m.velocity = add(m.velocity, m.impulse);
+    m.impulse = [0.0; 3];
     let block = feet_block(w, &m)?;
     // A rabbit's move control picks its speed before it moves: none on the
     // ground between hops.
@@ -576,7 +644,15 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     } else {
         1.0
     };
-    let speed = if in_fluid {
+    // A fish or guardian in water travels its own way; a squid only moves.
+    let own_water = water && matches!(m.travel, Travel::Fish { .. } | Travel::Guardian { .. });
+    let squid = m.travel == Travel::Squid;
+    let speed = if own_water {
+        match m.travel {
+            Travel::Guardian { .. } => 0.1_f32,
+            _ => 0.01_f32,
+        }
+    } else if in_fluid {
         if water {
             let mut efficiency = m.attributes.water_efficiency as f32;
             if !m.on_ground {
@@ -594,9 +670,11 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     } else {
         friction_speed(m.speed, friction, m.on_ground)
     };
-    m.velocity = add(m.velocity, input_vector(input, speed, m.yaw));
+    if !squid {
+        m.velocity = add(m.velocity, input_vector(input, speed, m.yaw));
+    }
     let mut fall = m.fall_distance;
-    if !in_fluid {
+    if !in_fluid && !squid {
         let (v, reset) = rules::climb_prepare(m.velocity, climbing_before, false, false)?;
         m.velocity = v;
         if reset {
@@ -615,7 +693,20 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         false,
     )?
     .0;
-    m.velocity = if in_fluid {
+    m.velocity = if squid {
+        m.velocity
+    } else if own_water {
+        let sink = match m.travel {
+            Travel::Fish { sink } | Travel::Guardian { sink } => sink,
+            _ => false,
+        };
+        let v = m.velocity.map(|c| c * 0.9);
+        if sink {
+            [v[0], v[1] - 0.005, v[2]]
+        } else {
+            v
+        }
+    } else if in_fluid {
         let (v, escape) = rules::fluid_motion(
             m.velocity,
             &FluidMotion {
@@ -720,6 +811,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         climbing,
         powder_snow,
         depths: moved.depths,
+        swim: moved.swim,
     })
 }
 
@@ -729,7 +821,7 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let mut m = mob.clone();
     m.velocity = [0.0; 3];
     let body = m.body(m.position)?;
-    let (depths, _) = currents(w, &body, m.velocity)?;
+    let (depths, _) = currents(w, &body, m.velocity, m.fluid_pushed)?;
     let eye = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
@@ -749,11 +841,13 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         climbing: false,
         powder_snow: false,
         depths,
+        swim: None,
     })
 }
 
 /// What `Entity.move` did.
 struct Moved {
+    swim: Option<f32>,
     requested: [f64; 3],
     actual: [f64; 3],
     fall: f64,
@@ -815,10 +909,11 @@ fn mob_move(
     let x_collision = (requested[0] - actual[0]).abs() >= EPSILON;
     let z_collision = (requested[2] - actual[2]).abs() >= EPSILON;
     m.horizontal_collision = x_collision || z_collision;
+    // The server's own mobs always settle their ground state
+    // (`isLocalInstanceAuthoritative`), still or not.
     let vertical = requested[1] != actual[1];
-    if requested[1].abs() > 0.0 {
-        m.on_ground = vertical && requested[1] < 0.0;
-    }
+    m.vertical_collision = vertical;
+    m.on_ground = vertical && requested[1] < 0.0;
     let after_body = m.body(m.position)?;
     let material = w.material(&after_body, m.position, &m.context(fall, m.position[1]))?;
     // checkFallDamage re-samples the fluid state (and its currents) when not
@@ -826,7 +921,7 @@ fn mob_move(
     let depths = if water_before {
         depths_before
     } else {
-        let (depths, pushed) = currents(w, &after_body, m.velocity)?;
+        let (depths, pushed) = currents(w, &after_body, m.velocity, m.fluid_pushed)?;
         m.velocity = pushed;
         depths
     };
@@ -855,6 +950,11 @@ fn mob_move(
         );
         m.velocity = r.velocity;
     }
+    let swim = if m.emits {
+        emission(w, m, actual, water_before)?
+    } else {
+        None
+    };
     let factor = if material.feet.speed_factor == 1.0 {
         material.below.speed_factor
     } else {
@@ -872,7 +972,42 @@ fn mob_move(
         landing,
         depths,
         material,
+        swim,
     })
+}
+
+/// `applyMovementEmissionAndPlaySound`: the distance moved (all of it while
+/// climbing, else across), and past the next step over a block that is not
+/// air, a step (no draw) on the ground or climbing, or in water a swim
+/// sound, whose volume follows the motion.
+fn emission(w: &World, m: &mut Mob, actual: [f64; 3], water: bool) -> Result<Option<f32>, Fault> {
+    let moved = ((actual[0] * actual[0] + actual[1] * actual[1] + actual[2] * actual[2]).sqrt()
+        * 0.6_f32 as f64) as f32;
+    let across = ((actual[0] * actual[0] + actual[2] * actual[2]).sqrt() * 0.6_f32 as f64) as f32;
+    let p = m.position;
+    let below = [
+        p[0].floor() as i32,
+        (p[1] - 1.0e-5_f32 as f64).floor() as i32,
+        p[2].floor() as i32,
+    ];
+    let state = w.state(below)?;
+    let climbing = contacts::climb(w.source, w.facts, below, false, false, false)?.0;
+    m.move_dist += if climbing { moved } else { across };
+    let air = w.facts.flags(state) & 1 != 0;
+    if m.move_dist <= m.next_step || air {
+        return Ok(None);
+    }
+    if m.on_ground || climbing {
+        m.next_step = (m.move_dist as i32 + 1) as f32;
+        return Ok(None);
+    }
+    if !water {
+        return Ok(None);
+    }
+    m.next_step = (m.move_dist as i32 + 1) as f32;
+    let v = m.velocity;
+    let speed = (v[0] * v[0] * 0.2_f32 as f64 + v[1] * v[1] + v[2] * v[2] * 0.2_f32 as f64).sqrt();
+    Ok(Some((speed as f32 * 0.35).min(1.0)))
 }
 
 /// `Entity.push` between a pusher at `from` and a body at `to`: the push the
@@ -896,97 +1031,158 @@ pub fn push(from: [f64; 3], to: [f64; 3]) -> Option<[f64; 3]> {
     Some([xa, 0.0, za])
 }
 
-/// One tick of every mob of an owner, in order: each travels, then pushes
-/// the pushable mobs it touches and is pushed by them
-/// (`LivingEntity.pushEntities`); `players` (feet and box) push the mobs they
-/// touch. Mobs meet only within neighbouring cells of a grid as wide as the
-/// widest mob, so pushing costs what is near. A mob the kernel cannot tick
-/// keeps its state (`Err`).
-pub fn tick_all(
-    w: &World,
-    mobs: &[Mob],
-    players: &[([f64; 3], Aabb)],
-) -> Vec<Result<Ticked, Fault>> {
-    use std::collections::HashMap;
-    let mut current: Vec<Mob> = mobs.to_vec();
-    let cell = mobs.iter().map(|m| m.size.width).fold(2.0_f64, f64::max);
-    let key = |p: [f64; 3]| ((p[0] / cell).floor() as i64, (p[2] / cell).floor() as i64);
-    let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
-    let mut cells: Vec<(i64, i64)> = Vec::with_capacity(mobs.len());
-    for (i, m) in current.iter().enumerate() {
-        let k = key(m.position);
-        grid.entry(k).or_default().push(i);
-        cells.push(k);
-    }
-    let mut out: Vec<Result<Ticked, Fault>> = Vec::with_capacity(mobs.len());
-    for i in 0..mobs.len() {
-        let result = tick(w, &current[i]);
-        if let Ok(t) = &result {
-            current[i] = t.mob.clone();
-            let k = key(current[i].position);
-            if k != cells[i] {
-                if let Some(v) = grid.get_mut(&cells[i]) {
-                    v.retain(|&j| j != i);
-                }
-                grid.entry(k).or_default().push(i);
-                cells[i] = k;
-            }
-        }
-        out.push(result);
-        if !current[i].alive || !current[i].pushes {
-            continue;
-        }
-        let Ok(own) = current[i].body(current[i].position) else {
-            continue;
+/// One step's result: the ticked mob, and the mobs it pushed with their new
+/// motion.
+pub type Stepped = (Result<Ticked, Fault>, Vec<(usize, [f64; 3])>);
+
+/// The mobs of an owner as they tick one at a time, in order (VMC-043e):
+/// each travels with what its AI decided, then pushes the pushable mobs it
+/// touches and is pushed by them (`LivingEntity.pushEntities`), and by the
+/// players it touches. Mobs meet only within neighbouring cells of a grid
+/// as wide as the widest mob, so pushing costs what is near. The owner's AI
+/// thinks between steps, reading each mob's motion as the pushes so far
+/// left it.
+pub struct Ticker {
+    pub current: Vec<Mob>,
+    cell: f64,
+    grid: HashMap<(i64, i64), Vec<usize>>,
+    cells: Vec<(i64, i64)>,
+}
+
+impl Ticker {
+    pub fn new(mobs: Vec<Mob>) -> Ticker {
+        let cell = mobs.iter().map(|m| m.size.width).fold(2.0_f64, f64::max);
+        let mut t = Ticker {
+            current: mobs,
+            cell,
+            grid: HashMap::new(),
+            cells: Vec::new(),
         };
-        let (cx, cz) = cells[i];
+        for i in 0..t.current.len() {
+            let k = t.key(t.current[i].position);
+            t.grid.entry(k).or_default().push(i);
+            t.cells.push(k);
+        }
+        t
+    }
+
+    fn key(&self, p: [f64; 3]) -> (i64, i64) {
+        (
+            (p[0] / self.cell).floor() as i64,
+            (p[2] / self.cell).floor() as i64,
+        )
+    }
+
+    /// Move mob `i` to where it is now (a teleport, or its own move).
+    pub fn place(&mut self, i: usize, mob: Mob) {
+        let k = self.key(mob.position);
+        if k != self.cells[i] {
+            if let Some(v) = self.grid.get_mut(&self.cells[i]) {
+                v.retain(|&j| j != i);
+            }
+            self.grid.entry(k).or_default().push(i);
+            self.cells[i] = k;
+        }
+        self.current[i] = mob;
+    }
+
+    /// Mob `i`'s tick with `mob` (its AI's input): its travel, then its
+    /// pushes. The ticked mob carries its motion after its own pushes; the
+    /// mobs it pushed come back with their new motion.
+    pub fn step(&mut self, w: &World, i: usize, mob: Mob, players: &[([f64; 3], Aabb)]) -> Stepped {
+        self.place(i, mob);
+        let mut result = tick(w, &self.current[i]);
+        if let Ok(t) = &result {
+            self.place(i, t.mob.clone());
+        }
+        let pushed = self.pushes(i, players);
+        if let Ok(t) = &mut result {
+            t.mob.velocity = self.current[i].velocity;
+        }
+        (result, pushed)
+    }
+
+    fn pushes(&mut self, i: usize, players: &[([f64; 3], Aabb)]) -> Vec<(usize, [f64; 3])> {
+        let mut pushed = Vec::new();
+        if !self.current[i].alive || !self.current[i].pushes {
+            return pushed;
+        }
+        let Ok(own) = self.current[i].body(self.current[i].position) else {
+            return pushed;
+        };
+        let (cx, cz) = self.cells[i];
         let mut near: Vec<usize> = (cx - 1..=cx + 1)
             .flat_map(|x| (cz - 1..=cz + 1).map(move |z| (x, z)))
-            .filter_map(|k| grid.get(&k))
+            .filter_map(|k| self.grid.get(&k))
             .flatten()
             .copied()
-            .filter(|&j| j != i && current[j].alive && current[j].pushable)
+            .filter(|&j| j != i && self.current[j].alive && self.current[j].pushable)
             .collect();
         near.sort_unstable();
         // A player it touches pushes it away (`player.push(self)`); players
         // come first in the level's entities, as they joined first.
         for (feet, player) in players {
-            if current[i].pushable && own.intersects(player) {
-                if let Some(p) = push(*feet, current[i].position) {
-                    current[i].velocity = add(current[i].velocity, p);
+            if self.current[i].pushable && own.intersects(player) {
+                if let Some(p) = push(*feet, self.current[i].position) {
+                    self.current[i].velocity = add(self.current[i].velocity, p);
                 }
             }
         }
         for j in near {
-            let Ok(other) = current[j].body(current[j].position) else {
+            let Ok(other) = self.current[j].body(self.current[j].position) else {
                 continue;
             };
             if !own.intersects(&other) {
                 continue;
             }
             // `other.push(self)`: the other moves away, then this one.
-            if let Some(p) = push(current[i].position, current[j].position) {
-                current[j].velocity = add(current[j].velocity, p);
-                current[i].velocity = sub(current[i].velocity, p);
+            if let Some(p) = push(self.current[i].position, self.current[j].position) {
+                self.current[j].velocity = add(self.current[j].velocity, p);
+                self.current[i].velocity = sub(self.current[i].velocity, p);
+                pushed.push((j, self.current[j].velocity));
             }
         }
+        pushed
     }
-    // Players push the mobs they touch (their own `pushEntities`).
-    for (feet, player) in players {
-        for m in current.iter_mut().filter(|m| m.alive && m.pushable) {
-            let Ok(b) = m.body(m.position) else { continue };
-            if b.intersects(player) {
-                if let Some(p) = push(*feet, m.position) {
-                    m.velocity = add(m.velocity, p);
+
+    /// The players' own pushes, after every mob moved; each mob's motion
+    /// for its next tick (a fixed mob has none).
+    pub fn finish(mut self, players: &[([f64; 3], Aabb)]) -> Vec<[f64; 3]> {
+        for (feet, player) in players {
+            for m in self.current.iter_mut().filter(|m| m.alive && m.pushable) {
+                let Ok(b) = m.body(m.position) else { continue };
+                if b.intersects(player) {
+                    if let Some(p) = push(*feet, m.position) {
+                        m.velocity = add(m.velocity, p);
+                    }
                 }
             }
         }
+        self.current
+            .iter()
+            .map(|m| if m.fixed { [0.0; 3] } else { m.velocity })
+            .collect()
     }
-    // The pushes land in each mob's velocity for its next tick; a fixed
-    // mob has none.
-    for (result, mob) in out.iter_mut().zip(current) {
+}
+
+/// One tick of every mob of an owner, in order, with no AI between them
+/// (`Ticker`'s steps): each mob's result carries its motion for its next
+/// tick. A mob the kernel cannot tick keeps its state (`Err`).
+pub fn tick_all(
+    w: &World,
+    mobs: &[Mob],
+    players: &[([f64; 3], Aabb)],
+) -> Vec<Result<Ticked, Fault>> {
+    let mut ticker = Ticker::new(mobs.to_vec());
+    let mut out: Vec<Result<Ticked, Fault>> = Vec::with_capacity(mobs.len());
+    for i in 0..mobs.len() {
+        let mob = ticker.current[i].clone();
+        out.push(ticker.step(w, i, mob, players).0);
+    }
+    let velocities = ticker.finish(players);
+    for (result, velocity) in out.iter_mut().zip(velocities) {
         if let Ok(t) = result {
-            t.mob.velocity = if mob.fixed { [0.0; 3] } else { mob.velocity };
+            t.mob.velocity = velocity;
         }
     }
     out
@@ -1028,6 +1224,13 @@ impl Default for Mob {
             pushable: true,
             pushes: true,
             hop: None,
+            travel: Travel::Ground,
+            fluid_pushed: true,
+            impulse: [0.0; 3],
+            vertical_collision: false,
+            emits: true,
+            move_dist: 0.0,
+            next_step: 1.0,
         }
     }
 }

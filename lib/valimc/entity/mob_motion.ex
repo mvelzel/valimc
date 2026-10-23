@@ -10,9 +10,17 @@ defmodule Valimc.Entity.MobMotion do
   speed}`: what the AI (VMC-041a) sets each tick, as navigation sets
   `MoveControl.setWantedPosition`; `jump` is its `JumpControl.jump()` for the
   tick. `water` and `lava` are the fluid heights the last move left, and
-  `powder_snow` whether it ended inside powder snow, which the AI reads. A
-  rabbit's `hop` (VMC-043c) keeps its hopping controls: whether it is
-  jumping, its wanted position and speeds (`RabbitMoveControl`).
+  `powder_snow` whether it ended inside powder snow and `vertical_collision`
+  whether it was stopped vertically, which the AI reads. A rabbit's `hop`
+  (VMC-043c) keeps its hopping controls: whether it is jumping, its wanted
+  position and speeds (`RabbitMoveControl`).
+
+  A family that runs its own move control in the AI (a fish's, VMC-043e)
+  sets `set` for the tick (`{speed, lift}`: `setSpeed`, and a lift while its
+  eyes are in water), `impulse` (motion added after the dead zone) and
+  `travel` (`{:fish | :guardian, sink}`; its type's travel otherwise); its
+  `control` then keeps the operation and wanted position its move control
+  reads.
   """
   alias Valimc.Living.Attributes
 
@@ -29,7 +37,13 @@ defmodule Valimc.Entity.MobMotion do
             water: 0.0,
             lava: 0.0,
             powder_snow: false,
-            hop: nil
+            hop: nil,
+            vertical_collision: false,
+            set: nil,
+            impulse: {0.0, 0.0, 0.0},
+            travel: nil,
+            move_dist: 0.0,
+            next_step: 1.0
 
   @travel ~w(movement_speed jump_strength gravity step_height water_movement_efficiency
              friction_modifier air_drag_modifier)
@@ -40,7 +54,8 @@ defmodule Valimc.Entity.MobMotion do
         vector?(m.stuck_multiplier) and Enum.all?([m.strafe, m.forward, m.speed], &is_float/1) and
         is_boolean(m.horizontal_collision) and control?(m.control) and is_boolean(m.jump) and
         is_boolean(Map.get(m, :rise)) and
-        is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow) and hop?(m.hop)
+        is_float(m.water) and is_float(m.lava) and is_boolean(m.powder_snow) and hop?(m.hop) and
+        is_boolean(m.vertical_collision) and is_float(m.move_dist) and is_float(m.next_step)
 
   def valid?(_), do: false
 
@@ -98,10 +113,13 @@ defmodule Valimc.Entity.MobMotion do
 
     # A dying mob is immobile (`isImmobile`): it neither walks nor jumps.
     {op, target, speed} =
-      case if(alive, do: motion.control, else: :wait) do
-        :wait -> {:wait, nil, 0.0}
-        {:move_to, target, speed} -> {:move_to, target, speed}
-        {:jumping, speed} -> {:jumping, nil, speed}
+      case {alive, motion.set, motion.control} do
+        {false, _, _} -> {:wait, nil, 0.0}
+        {true, {speed, true}, _} -> {:set_lift, nil, speed}
+        {true, {speed, false}, _} -> {:set, nil, speed}
+        {true, nil, :wait} -> {:wait, nil, 0.0}
+        {true, nil, {:move_to, target, speed}} -> {:move_to, target, speed}
+        {true, nil, {:jumping, speed}} -> {:jumping, nil, speed}
       end
 
     attributes = attributes || travel(type, mob.attributes)
@@ -134,9 +152,13 @@ defmodule Valimc.Entity.MobMotion do
       rise: alive and motion.rise,
       powder_snow_walkable: powder_snow_walkable?(type, mob),
       was_powder_snow: motion.powder_snow,
-      hop: hop(motion.hop, position, body)
+      hop: hop(motion.hop, position, body),
+      impulse: if(alive, do: motion.impulse, else: {0.0, 0.0, 0.0}),
+      vertical_collision: motion.vertical_collision,
+      move_dist: motion.move_dist,
+      next_step: motion.next_step
     }
-    |> Map.merge(kind_motion(type))
+    |> Map.merge(kind_motion(type, motion))
     # A `NoAI` mob does not travel (`isEffectiveAi`).
     |> then(&if(mob.no_ai, do: %{&1 | fixed: true}, else: &1))
   end
@@ -154,11 +176,29 @@ defmodule Valimc.Entity.MobMotion do
       MapSet.member?(@walkable, Valimc.Data.EntityTypes.id(type)) or
         match?(%{feet: %{item_id: @leather_boots}}, mob.equipment)
 
-  @default_kind %{fixed: false, pushable: true, pushes: true}
+  @default_kind %{
+    fixed: false,
+    pushable: true,
+    pushes: true,
+    fluid_pushed: true,
+    travel: {:ground, false},
+    emission: :all
+  }
 
-  # How a family's mob moves and pushes (`Valimc.AI.Kind.motion/0`).
-  defp kind_motion(type),
-    do: Map.merge(@default_kind, Map.new(Valimc.AI.Mobs.hook(type, :motion, [], [])))
+  # How a family's mob moves and pushes (`Valimc.AI.Kind.motion/0`), and the
+  # travel its AI chose this tick; the kernel counts its steps unless its
+  # movement emits nothing (a shulker's).
+  defp kind_motion(type, motion) do
+    kind = Map.merge(@default_kind, Map.new(Valimc.AI.Mobs.hook(type, :motion, [], [])))
+    kind = if motion.travel, do: %{kind | travel: motion.travel}, else: kind
+    {emission, kind} = Map.pop(kind, :emission)
+    Map.put(kind, :emits, emission != :none)
+  end
+
+  @doc "Whether a mob of `type` makes sounds as it moves (`MovementEmission`)."
+  def sounds?(type),
+    do:
+      Keyword.get(Valimc.AI.Mobs.hook(type, :motion, [], []), :emission, :all) in [:all, :sounds]
 
   # A blaze falls slowly (`Blaze.aiStep`).
   defp fall_scale("minecraft:blaze"), do: 0.6
@@ -203,11 +243,13 @@ defmodule Valimc.Entity.MobMotion do
   def apply(body, m, {water, lava} \\ {0.0, 0.0}, powder_snow \\ false) do
     {op, target, speed} = m.control
 
+    # A family's own move control keeps its operation (`Control::Set`).
     control =
       case op do
         :wait -> :wait
         :move_to -> {:move_to, target, speed}
         :jumping -> {:jumping, speed}
+        op when op in [:set, :set_lift] -> body.mob.motion.control
       end
 
     motion = %__MODULE__{
@@ -224,7 +266,10 @@ defmodule Valimc.Entity.MobMotion do
       powder_snow: powder_snow,
       # What the hop did this tick (`started`, `jumped`, `nav_speed`) stays
       # until the rabbit's AI settles it.
-      hop: m.hop && Map.drop(m.hop, [:path_up, :baby])
+      hop: m.hop && Map.drop(m.hop, [:path_up, :baby]),
+      vertical_collision: m.vertical_collision,
+      move_dist: m.move_dist,
+      next_step: m.next_step
     }
 
     body = %{

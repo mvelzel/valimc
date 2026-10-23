@@ -78,12 +78,12 @@ fn invalid() -> rustler::Error {
 }
 
 /// A view decoded for the cells of `region` (inflated a little by callers).
-pub(crate) enum View<'a> {
-    Rows(Rows<'a>),
+pub(crate) enum View<S> {
+    Rows(Rows<S>),
     States(States),
 }
 
-impl BlockSource for View<'_> {
+impl<S: std::ops::Deref<Target = valimc_core::snapshot::ChunkSnapshot>> BlockSource for View<S> {
     fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
         match self {
             View::Rows(r) => r.state(x, y, z),
@@ -107,7 +107,11 @@ impl BlockSource for View<'_> {
 }
 
 /// A view for the cells of `region` (two blocks of margin).
-pub(crate) fn view<'a>(term: Term<'a>, facts: &Facts, region: &Aabb) -> NifResult<View<'a>> {
+pub(crate) fn view<'a>(
+    term: Term<'a>,
+    facts: &Facts,
+    region: &Aabb,
+) -> NifResult<View<&'a valimc_core::snapshot::ChunkSnapshot>> {
     let tuple = rustler::types::tuple::get_tuple(term)?;
     let tag: Atom = tuple.first().ok_or(invalid())?.decode()?;
     if tag == atoms::states() && tuple.len() == 2 {
@@ -130,16 +134,14 @@ pub(crate) fn view<'a>(term: Term<'a>, facts: &Facts, region: &Aabb) -> NifResul
     }
     let snapshots: Vec<&'a Snapshot> = tuple[1].decode()?;
     let outside: u16 = tuple[2].decode()?;
+    let snapshots: Vec<&'a valimc_core::snapshot::ChunkSnapshot> =
+        snapshots.into_iter().map(|s| &s.0).collect();
     // Special colliders are looked up in the sections near the region only.
     let lowest = ((region.min[1] - 2.0).floor() as i32 + 64).max(0) >> 4;
     let highest = ((region.max[1] + 2.0).floor() as i32 + 64).clamp(0, 383) >> 4;
     let mut rows = Rows::new(outside);
     for snapshot in snapshots {
-        rows.insert(
-            &snapshot.0,
-            lowest as usize..=highest as usize,
-            &facts.shapes,
-        );
+        rows.insert(snapshot, lowest as usize..=highest as usize, &facts.shapes);
     }
     Ok(View::Rows(rows))
 }
@@ -450,7 +452,7 @@ fn items_step<'a>(
 // ---- mobs (VMC-015i) ----
 
 mod mob_atoms {
-    rustler::atoms! { wait, move_to, jumping }
+    rustler::atoms! { wait, move_to, jumping, set, set_lift, ground, fish, guardian, squid }
 }
 
 /// A mob as its owner keeps it (`Valimc.Entity.MobMotion`): position, yaw
@@ -491,6 +493,13 @@ struct MobT {
     pushes: bool,
     /// A rabbit's hop (VMC-043c), or nil.
     hop: Option<HopT>,
+    travel: (Atom, bool),
+    fluid_pushed: bool,
+    impulse: Vec3,
+    vertical_collision: bool,
+    emits: bool,
+    move_dist: f64,
+    next_step: f64,
 }
 
 /// A rabbit's hopping controls (`valimc_core::physics::mob::Hop`).
@@ -522,10 +531,12 @@ struct TickedT {
     powder_snow: bool,
     /// The water and lava heights the move left.
     depths: (f64, f64),
+    /// A swim sound's volume, when the move made one.
+    swim: Option<f64>,
 }
 
 fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
-    use valimc_core::physics::mob::{Attributes, Control, Mob};
+    use valimc_core::physics::mob::{Attributes, Control, Mob, Travel};
     let (op, target, speed) = m.control;
     let control = if op == mob_atoms::wait() {
         Control::Wait
@@ -536,6 +547,23 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         }
     } else if op == mob_atoms::jumping() {
         Control::Jumping { speed }
+    } else if op == mob_atoms::set() || op == mob_atoms::set_lift() {
+        Control::Set {
+            speed,
+            lift: op == mob_atoms::set_lift(),
+        }
+    } else {
+        return Err(rustler::Error::BadArg);
+    };
+    let (kind, sink) = m.travel;
+    let travel = if kind == mob_atoms::ground() {
+        Travel::Ground
+    } else if kind == mob_atoms::fish() {
+        Travel::Fish { sink }
+    } else if kind == mob_atoms::guardian() {
+        Travel::Guardian { sink }
+    } else if kind == mob_atoms::squid() {
+        Travel::Squid
     } else {
         return Err(rustler::Error::BadArg);
     };
@@ -592,16 +620,38 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
             jumped: h.jumped,
             nav_speed: h.nav_speed,
         }),
+        travel,
+        fluid_pushed: m.fluid_pushed,
+        impulse: v3(m.impulse),
+        vertical_collision: m.vertical_collision,
+        emits: m.emits,
+        move_dist: m.move_dist as f32,
+        next_step: m.next_step as f32,
     })
 }
 
 fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
-    use valimc_core::physics::mob::Control;
+    use valimc_core::physics::mob::{Control, Travel};
     let a = &m.attributes;
     let control = match m.control {
         Control::Wait => (mob_atoms::wait(), None, 0.0),
         Control::MoveTo { target, speed } => (mob_atoms::move_to(), Some(t3(target)), speed),
         Control::Jumping { speed } => (mob_atoms::jumping(), None, speed),
+        Control::Set { speed, lift } => (
+            if lift {
+                mob_atoms::set_lift()
+            } else {
+                mob_atoms::set()
+            },
+            None,
+            speed,
+        ),
+    };
+    let travel = match m.travel {
+        Travel::Ground => (mob_atoms::ground(), false),
+        Travel::Fish { sink } => (mob_atoms::fish(), sink),
+        Travel::Guardian { sink } => (mob_atoms::guardian(), sink),
+        Travel::Squid => (mob_atoms::squid(), false),
     };
     MobT {
         position: t3(m.position),
@@ -651,6 +701,13 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
             jumped: h.jumped,
             nav_speed: h.nav_speed,
         }),
+        travel,
+        fluid_pushed: m.fluid_pushed,
+        impulse: t3(m.impulse),
+        vertical_collision: m.vertical_collision,
+        emits: m.emits,
+        move_dist: m.move_dist as f64,
+        next_step: m.next_step as f64,
     }
 }
 
@@ -717,26 +774,226 @@ fn mobs_step<'a>(
     let results: Vec<Term> = valimc_core::physics::mob::tick_all(&world, &bodies, &players)
         .iter()
         .map(|r| match r {
-            Ok(t) => ok(
-                env,
-                TickedT {
-                    mob: mob_t(&t.mob),
-                    water: t.water,
-                    lava: t.lava,
-                    eye_water: t.eye_water,
-                    eye_state: t.eye_state,
-                    landing: t.landing,
-                    landing_pos: t.landing_pos.map(|p| (p[0], p[1], p[2])),
-                    fire_contacts: crate::player::fires(&t.touched),
-                    climbing: t.climbing,
-                    powder_snow: t.powder_snow,
-                    depths: (t.depths.water, t.depths.lava),
-                },
-            ),
+            Ok(t) => ok(env, ticked_t(t)),
             Err(f) => crate::player::fault(env, *f),
         })
         .collect();
     Ok(ok(env, results))
+}
+
+/// A shared snapshot a kernel resource holds for its whole tick.
+pub(crate) struct SnapshotArc(rustler::ResourceArc<Snapshot>);
+
+impl std::ops::Deref for SnapshotArc {
+    type Target = valimc_core::snapshot::ChunkSnapshot;
+    fn deref(&self) -> &Self::Target {
+        &self.0 .0
+    }
+}
+
+/// `view` with its snapshots held, not borrowed (a resource's).
+fn owned_view(term: Term, facts: &Facts, region: &Aabb) -> NifResult<View<SnapshotArc>> {
+    let tuple = rustler::types::tuple::get_tuple(term)?;
+    let tag: Atom = tuple.first().ok_or(invalid())?.decode()?;
+    if tag == atoms::states() {
+        return match view(term, facts, region)? {
+            View::States(states) => Ok(View::States(states)),
+            View::Rows(_) => Err(invalid()),
+        };
+    }
+    if tag != atoms::rows() || tuple.len() != 3 {
+        return Err(invalid());
+    }
+    let snapshots: Vec<rustler::ResourceArc<Snapshot>> = tuple[1].decode()?;
+    let outside: u16 = tuple[2].decode()?;
+    let lowest = ((region.min[1] - 2.0).floor() as i32 + 64).max(0) >> 4;
+    let highest = ((region.max[1] + 2.0).floor() as i32 + 64).clamp(0, 383) >> 4;
+    let mut rows = Rows::new(outside);
+    for snapshot in snapshots {
+        rows.insert(
+            SnapshotArc(snapshot),
+            lowest as usize..=highest as usize,
+            &facts.shapes,
+        );
+    }
+    Ok(View::Rows(rows))
+}
+
+/// An owner's mobs ticking one at a time (VMC-043e): the view read once,
+/// the mobs' motion and the push grid kept between the steps the owner's AI
+/// interleaves (`valimc_core::physics::mob::Ticker`). Owned by the owner
+/// for one tick.
+pub struct MobTicker(std::sync::Mutex<Option<TickerState>>);
+
+pub(crate) struct TickerState {
+    view: View<SnapshotArc>,
+    border: Option<(f64, f64, f64, f64)>,
+    players: Vec<([f64; 3], Aabb)>,
+    ticker: valimc_core::physics::mob::Ticker,
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for MobTicker {}
+
+fn ticker_begin(
+    view_term: Term,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<rustler::ResourceArc<MobTicker>> {
+    let facts = facts()?;
+    let bodies = mobs.iter().map(mob).collect::<NifResult<Vec<_>>>()?;
+    let region = union(
+        &bodies
+            .iter()
+            .map(|m| {
+                let p = m.position;
+                let half = m.size.width / 2.0 + 2.0;
+                Aabb::new(
+                    [p[0] - half, p[1] - 2.0, p[2] - half],
+                    [p[0] + half, p[1] + m.size.height + 2.0, p[2] + half],
+                )
+                .expand_towards(m.velocity)
+            })
+            .collect::<Vec<_>>(),
+    )
+    .ok_or(invalid())?;
+    let view = owned_view(view_term, facts, &region)?;
+    let players = players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
+    Ok(rustler::ResourceArc::new(MobTicker(std::sync::Mutex::new(
+        Some(TickerState {
+            view,
+            border,
+            players,
+            ticker: valimc_core::physics::mob::Ticker::new(bodies),
+        }),
+    ))))
+}
+
+/// Begin an owner's mob tick over `view` (the cells around every mob),
+/// `mobs` as they start it, the `players` that push them and the border.
+#[rustler::nif]
+fn physics_mobs_begin(
+    view_term: Term,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<rustler::ResourceArc<MobTicker>> {
+    ticker_begin(view_term, mobs, players, border)
+}
+
+/// `physics_mobs_begin` for views past the normal scheduler's budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_begin_dirty(
+    view_term: Term,
+    mobs: Vec<MobT>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> NifResult<rustler::ResourceArc<MobTicker>> {
+    ticker_begin(view_term, mobs, players, border)
+}
+
+fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
+    TickedT {
+        mob: mob_t(&t.mob),
+        water: t.water,
+        lava: t.lava,
+        eye_water: t.eye_water,
+        eye_state: t.eye_state,
+        landing: t.landing,
+        landing_pos: t.landing_pos.map(|p| (p[0], p[1], p[2])),
+        fire_contacts: crate::player::fires(&t.touched),
+        climbing: t.climbing,
+        powder_snow: t.powder_snow,
+        depths: (t.depths.water, t.depths.lava),
+        swim: t.swim.map(|v| v as f64),
+    }
+}
+
+/// Mob `index`'s tick with `input` (its AI's): `{result, pushed}`, the
+/// result `{:ok, ticked}` or `{:error, reason}` (it keeps its state) and
+/// the mobs it pushed, `[{index, velocity}]`.
+#[rustler::nif]
+fn physics_mobs_step<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    input: MobT,
+) -> NifResult<Term<'a>> {
+    ticker_step(env, resource, index, input)
+}
+
+/// `physics_mobs_step` for a step past the normal scheduler's budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_step_dirty<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    input: MobT,
+) -> NifResult<Term<'a>> {
+    ticker_step(env, resource, index, input)
+}
+
+fn ticker_step<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    input: MobT,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let input = mob(&input)?;
+    let mut guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_mut().ok_or(invalid())?;
+    if index >= state.ticker.current.len() {
+        return Err(invalid());
+    }
+    let TickerState {
+        view,
+        border,
+        players,
+        ticker,
+    } = state;
+    let world = valimc_core::physics::player::World {
+        source: view,
+        facts,
+        border: crate::player::border(*border),
+    };
+    let (result, pushed) = ticker.step(&world, index, input, players);
+    let result = match &result {
+        Ok(t) => ok(env, ticked_t(t)),
+        Err(f) => crate::player::fault(env, *f),
+    };
+    let pushed: Vec<(usize, Vec3)> = pushed.into_iter().map(|(j, v)| (j, t3(v))).collect();
+    Ok((result, pushed).encode(env))
+}
+
+/// Mob `index`'s motion as its tick ended (a squid's stroke): later pushes
+/// add to it.
+#[rustler::nif]
+fn physics_mobs_velocity(
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    velocity: Vec3,
+) -> NifResult<Atom> {
+    let mut guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_mut().ok_or(invalid())?;
+    let mob = state.ticker.current.get_mut(index).ok_or(invalid())?;
+    mob.velocity = v3(velocity);
+    Ok(atoms::ok())
+}
+
+/// The tick's end: the players push, and every mob's motion for its next
+/// tick, in order. The resource is spent.
+#[rustler::nif]
+fn physics_mobs_finish(resource: rustler::ResourceArc<MobTicker>) -> NifResult<Vec<Vec3>> {
+    let mut guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.take().ok_or(invalid())?;
+    Ok(state
+        .ticker
+        .finish(&state.players)
+        .into_iter()
+        .map(t3)
+        .collect())
 }
 
 /// An explosion's reach (VMC-050a, `ServerExplosion.calculateExplodedPositions`):

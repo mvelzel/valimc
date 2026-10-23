@@ -11,7 +11,7 @@ use crate::piston::Moving;
 use crate::section::Storage;
 use crate::snapshot::ChunkSnapshot;
 use std::collections::HashMap;
-use std::ops::RangeInclusive;
+use std::ops::{Deref, RangeInclusive};
 
 /// The position a query could not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,15 +45,17 @@ fn special(storage: &Storage, table: &ShapeTable) -> bool {
 }
 
 /// Published snapshots of the chunks a query may read.
-pub struct Rows<'a> {
+/// `S` holds a snapshot: borrowed for one query, or shared by a kernel
+/// resource for a whole tick (VMC-043e).
+pub struct Rows<S> {
     /// Per chunk its snapshot and which sections may hold special colliders.
-    chunks: HashMap<(i32, i32), (&'a ChunkSnapshot, [bool; SECTIONS])>,
+    chunks: HashMap<(i32, i32), (S, [bool; SECTIONS])>,
     /// The state outside the stored height.
     outside: u16,
 }
 
-impl<'a> Rows<'a> {
-    pub fn new(outside: u16) -> Rows<'a> {
+impl<S: Deref<Target = ChunkSnapshot>> Rows<S> {
+    pub fn new(outside: u16) -> Rows<S> {
         Rows {
             chunks: HashMap::new(),
             outside,
@@ -63,12 +65,7 @@ impl<'a> Rows<'a> {
     /// Add a chunk's snapshot; `table` decides which of the sections `near`
     /// (those the query reaches) hold special colliders, others count as if
     /// they might.
-    pub fn insert(
-        &mut self,
-        snapshot: &'a ChunkSnapshot,
-        near: RangeInclusive<usize>,
-        table: &ShapeTable,
-    ) {
+    pub fn insert(&mut self, snapshot: S, near: RangeInclusive<usize>, table: &ShapeTable) {
         let special =
             std::array::from_fn(|s| !near.contains(&s) || special(&snapshot.sections[s], table));
         self.chunks.insert(snapshot.chunk, (snapshot, special));
@@ -86,7 +83,7 @@ fn local(y: i32) -> Option<usize> {
         .then_some(local as usize)
 }
 
-impl BlockSource for Rows<'_> {
+impl<S: Deref<Target = ChunkSnapshot>> BlockSource for Rows<S> {
     #[inline]
     fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
         let (snapshot, _) = self.chunks.get(&(x >> 4, z >> 4))?;

@@ -100,6 +100,8 @@ defmodule Valimc.AI do
       in_love: if(animal, do: body.data.in_love, else: 0),
       age: if(animal, do: body.data.age, else: 0),
       data: body.data,
+      # What its family keeps of its own (a fish's school, VMC-043e).
+      own: mind && mind.own,
       panicking:
         mind != nil and
           Valimc.AI.Goals.Panic in Selector.running(%Self{mind: mind}, :goals)
@@ -119,77 +121,139 @@ defmodule Valimc.AI do
   in order thinks with it, one earlier keeps it for its next tick.
   """
   def think(mobs, %World{} = world) do
-    mobs = Enum.map(mobs, fn {id, entry} -> {id, ensure(entry)} end)
-    sensed = Enum.map(mobs, &sensed/1)
-    world = %{world | mobs: sensed, by_type: Enum.group_by(sensed, & &1.type)}
-    order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
-    {mobs, early, world} = react(mobs, order, world)
+    {mobs, world, ctx} = prepare(mobs, world)
 
-    {results, {late, world}} =
+    {results, {ctx, world}} =
       mobs
       |> Enum.with_index()
-      |> Enum.map_reduce({%{}, world}, fn {{id, entry}, index}, {changes, world} ->
-        entry = %{entry | body: change(entry.body, changes[entry.entity.uuid])}
-        {body, position, effects, world} = think_one(id, entry, world)
-        effects = Map.get(early, id, []) ++ effects
-
-        # Another mob changed at once, as vanilla changes it: a mob later in
-        # order thinks with it, one earlier keeps it for its next tick.
-        made =
-          for effect <- effects,
-              {uuid, fun} <- [other_change(effect, world)],
-              Map.has_key?(order, uuid),
-              do: {uuid, fun}
-
-        world = if made == [], do: world, else: resense(world, [{entry.entity.uuid, body} | made])
-
-        changes =
-          for {uuid, fun} <- made, reduce: changes do
-            acc ->
-              key = if order[uuid] > index, do: uuid, else: {:late, uuid}
-              Map.update(acc, key, [fun], &(&1 ++ [fun]))
-          end
-
-        {{id, body, position, effects}, {changes, world}}
+      |> Enum.map_reduce({ctx, world}, fn {mob, index}, {ctx, world} ->
+        {result, ctx, world} = think_mob(ctx, index, mob, world)
+        {result, {ctx, world}}
       end)
 
-    results =
-      for {{id, body, position, effects}, {_, entry}} <- Enum.zip(results, mobs),
-          do: {id, change(body, late[{:late, entry.entity.uuid}]), position, effects}
-
-    {results, world}
+    {finish(ctx, results, mobs), world}
   end
 
-  # What an effect changes in another mob: an alert sets its target, a
-  # breeding its age and love.
-  defp other_change({:alert, uuid, target}, world),
-    do: {uuid, fn body -> alerted(body, uuid, target, world) end}
+  @doc """
+  What thinking mobs one by one needs (`think_mob/4`): each mob of `mobs`
+  (`[{id, entry}]`, in id order) with a mind, the world sensing them, and
+  the context the mobs' changes to one another collect in. `{mobs, world,
+  ctx}`.
+  """
+  def prepare(mobs, %World{} = world) do
+    mobs = Enum.map(mobs, fn {id, entry} -> {id, ensure(entry)} end)
+    sensed = Enum.map(mobs, &sensed/1)
+    world = %{world | mobs: sensed, by_type: Enum.group_by(sensed, & &1.type), moved: %{}}
+    order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
+    {mobs, early, world} = react(mobs, order, world)
+    {mobs, world, %{order: order, changes: %{}, early: early}}
+  end
 
-  defp other_change({:bred, {:mob, uuid}}, _world),
-    do: {uuid, fn body -> %{body | data: Animal.bred(body.data)} end}
+  @doc """
+  The AI part of the tick of mob `index` (`{id, entry}`): the changes
+  earlier mobs made to it, then its think. `{{id, body, position, effects},
+  ctx, world}`; the world as it left it (others as it changed them, the
+  level random).
+
+  Another mob changed at once, as vanilla changes it: a mob later in order
+  thinks with it, one earlier keeps it for its next tick.
+  """
+  def think_mob(%{order: order, changes: changes} = ctx, index, {id, entry}, world) do
+    uuid = entry.entity.uuid
+    entry = %{entry | body: change(entry.body, changes[uuid])}
+    {body, position, effects, world} = think_one(id, entry, world)
+    effects = Map.get(ctx.early, id, []) ++ effects
+
+    made =
+      for effect <- effects,
+          {other, fun, sensed} <- [other_change(effect, world)],
+          Map.has_key?(order, other),
+          do: {other, fun, sensed}
+
+    # Others read its own state and the changed mobs' as they are now.
+    world =
+      if own_of(body) != own_of(entry.body) or made != [],
+        do: World.resense(world, uuid, &Map.merge(&1, sensed_state(body))),
+        else: world
+
+    world =
+      Enum.reduce(made, world, fn {other, _, sensed}, world ->
+        World.resense(world, other, sensed)
+      end)
+
+    changes =
+      for {other, fun, _} <- made, reduce: changes do
+        acc ->
+          key = if order[other] > index, do: other, else: {:late, other}
+          Map.update(acc, key, [fun], &(&1 ++ [fun]))
+      end
+
+    {{id, body, position, effects}, %{ctx | changes: changes}, world}
+  end
+
+  @doc """
+  The bodies of `results` (`[{id, body, ...}]`, in the order of `mobs`)
+  with the changes later mobs made to earlier ones.
+  """
+  def finish(%{changes: late}, results, mobs) do
+    for {result, {_, entry}} <- Enum.zip(results, mobs),
+        do: put_elem(result, 1, change(elem(result, 1), late[{:late, entry.entity.uuid}]))
+  end
+
+  @doc "The world with mob `uuid` sensed again from its `entry` (after it moved)."
+  def resense_entry(%World{} = world, _id, %{entity: e, body: body}) do
+    case World.entity(world, {:mob, e.uuid}) do
+      nil ->
+        world
+
+      sensed ->
+        mind = match_mind(body.mob.ai)
+
+        fresh = %{
+          sensed
+          | x: e.x * 1.0,
+            y: e.y * 1.0,
+            z: e.z * 1.0,
+            yaw: body.yaw,
+            pitch: body.pitch,
+            alive: Mob.alive?(body.mob),
+            target: mind && mind.target
+        }
+
+        %{world | moved: Map.put(world.moved, e.uuid, Map.merge(fresh, sensed_state(body)))}
+    end
+  end
+
+  # What an effect changes in another mob, and in what others sense of it:
+  # an alert sets its target, a breeding its age and love, a family's change
+  # its own state (a school's leader and size, VMC-043e).
+  defp other_change({:alert, uuid, target}, world),
+    do: {uuid, fn body -> alerted(body, uuid, target, world) end, & &1}
+
+  defp other_change({:bred, {:mob, uuid}}, _world) do
+    fun = fn body -> %{body | data: Animal.bred(body.data)} end
+
+    {uuid, fun,
+     fn sensed ->
+       Map.merge(sensed, sensed_state(fun.(%Body{type: sensed.type, data: sensed.data})))
+     end}
+  end
+
+  defp other_change({:own, uuid, change}, _world),
+    do: {uuid, &own_body(&1, change), fn sensed -> %{sensed | own: change.(sensed.own)} end}
 
   defp other_change(_effect, _world), do: nil
 
   defp change(body, nil), do: body
   defp change(body, funs), do: Enum.reduce(funs, body, & &1.(&2))
 
-  # The sensed state of mobs a change touched (a bred pair's love), for the
-  # mobs thinking after them.
-  defp resense(world, [{uuid, body} | made]) do
-    world = World.update_mob(world, uuid, &Map.merge(&1, sensed_state(body)))
+  # What others sense of a mob's state beyond its place.
+  defp sensed_state(%Body{type: type, data: data} = body) do
+    own = %{own: own_of(body)}
 
-    Enum.reduce(made, world, fn {uuid, fun}, world ->
-      World.update_mob(world, uuid, fn sensed ->
-        changed = fun.(%Body{type: sensed.type, data: sensed.data, mob: nil})
-        Map.merge(sensed, sensed_state(changed))
-      end)
-    end)
-  end
-
-  defp sensed_state(%Body{type: type, data: data}) do
     if Animal.animal?(type),
-      do: %{in_love: data.in_love, age: data.age, data: data},
-      else: %{}
+      do: Map.merge(own, %{in_love: data.in_love, age: data.age, data: data}),
+      else: own
   end
 
   # A brain mob's reactions before its section thinks (VMC-043d): to the
@@ -281,6 +345,14 @@ defmodule Valimc.AI do
   defp settled(body, %Self{} = self),
     do: %{body | mob: %{self.mob | ai: self.mind}, data: self.data}
 
+  defp own_of(%Body{mob: %Mob{ai: %Mind{own: own}}}), do: own
+  defp own_of(_body), do: nil
+
+  defp own_body(%Body{mob: %Mob{ai: %Mind{} = mind} = mob} = body, change),
+    do: %{body | mob: %{mob | ai: %{mind | own: change.(mind.own)}}}
+
+  defp own_body(body, _change), do: body
+
   # A mob of a type with an AI thinks with a mind (from its record, or new).
   defp ensure(%{entity: e, body: %Body{type: type, mob: %Mob{ai: ai} = mob} = body} = entry) do
     if thinks?(type) and not match?(%Mind{}, ai),
@@ -304,7 +376,8 @@ defmodule Valimc.AI do
     {body, made, world} = finalize(id, e, body, world)
     %Body{type: type, mob: mob} = body
 
-    if not thinks?(type) or not Mob.alive?(mob) or not match?(%Mind{}, mob.ai) do
+    if not thinks?(type) or not match?(%Mind{}, mob.ai) or
+         not (Mob.alive?(mob) or dying?(type)) do
       {body, {e.x, e.y, e.z}, made, world}
     else
       {width, height, eye} = Body.dimensions(body)
@@ -333,15 +406,27 @@ defmodule Valimc.AI do
 
       # A family's `tick` before its super, and its `aiStep` before its
       # super (`Valimc.AI.Kind`). A `NoAI` mob still despawns, ticks and
-      # plays its ambient sound; only its `serverAiStep` is skipped.
+      # plays its ambient sound; only its `serverAiStep` is skipped. A dying
+      # mob of a family that ticks while dying (`dying?/0`) runs only its
+      # own `tick` and `aiStep` (a dead fish still flops); one that dies in
+      # its base tick is immobile.
       self =
-        self
-        |> despawn_check()
-        |> hook(:tick_start)
-        |> base_tick()
-        |> hook(:before_ai)
+        if Mob.alive?(mob) do
+          self =
+            self
+            |> despawn_check()
+            |> hook(:tick_start)
+            |> base_tick()
+            |> own_air()
 
-      self = if mob.no_ai or not world.goals, do: self, else: ai_step(self)
+          cond do
+            not Mob.alive?(self.mob) -> hook(self, :before_ai)
+            mob.no_ai or not world.goals -> hook(self, :before_ai)
+            true -> self |> hook(:before_ai) |> ai_step()
+          end
+        else
+          self |> hook(:tick_start) |> hook(:before_ai)
+        end
 
       motion = %{self.mob.motion | jump: self.mind.jump, rise: self.mind.rise}
       mob = %{self.mob | ai: self.mind, motion: motion}
@@ -353,6 +438,7 @@ defmodule Valimc.AI do
            pitch: self.pitch,
            head_yaw: self.head,
            velocity: self.velocity,
+           on_ground: self.on_ground,
            mob: mob,
            data: self.data
        }, {self.x, self.y, self.z}, made ++ Enum.reverse(self.effects),
@@ -517,6 +603,8 @@ defmodule Valimc.AI do
       end
 
     self = hook(self, :custom_step)
+    # A family's own move control (a fish's) runs before the look control.
+    self = hook(self, :move_control)
 
     Look.tick(self)
   end
@@ -530,6 +618,25 @@ defmodule Valimc.AI do
   # A family's override of part of vanilla's tick (`Valimc.AI.Kind`).
   defp hook(%Self{type: type} = self, name), do: Mobs.hook(type, name, [self], self)
 
+  # A water animal's air after its base tick (`WaterAnimal.baseTick`): in
+  # water as it began the tick, or drowning; its hurt goes through the one
+  # hurt path, which leaves the hurt in its mind.
+  defp own_air(%Self{type: type, mob: mob} = self) do
+    if Mobs.hook(type, :air, [300, true], nil) == nil do
+      self
+    else
+      {mob, events} =
+        Valimc.Entity.MobVitals.own_air(
+          %{type: type, data: self.data},
+          %{mob | ai: self.mind},
+          Self.in_water?(self)
+        )
+
+      self = %{self | mob: %{mob | ai: nil}, mind: mob.ai}
+      Enum.reduce(events, self, &Self.effect(&2, &1))
+    end
+  end
+
   @doc """
   After the kernel moved the mob of `entry` (`{id, entry}`, its entity at
   the old position) to `position`: the body rotation control, an animal's
@@ -538,13 +645,18 @@ defmodule Valimc.AI do
   (`Valimc.AI.Kind`). `{body, position, effects, world}`: a family may
   teleport it.
   """
+  def settle(mob, body, position, world, swim \\ nil)
+
   def settle(
         {id, %{entity: e}},
         %Body{mob: %Mob{ai: %Mind{} = mind} = mob} = body,
         {x, y, z},
-        world
+        world,
+        swim
       ) do
-    if Mob.alive?(mob) and thinking?(body) do
+    alive = Mob.alive?(mob)
+
+    if thinking?(body) and (alive or dying?(body.type)) do
       {width, height, eye} = Body.dimensions(body)
 
       self = %Self{
@@ -569,21 +681,25 @@ defmodule Valimc.AI do
         data: body.data
       }
 
-      # A family's `aiStep` after its super with `Mob.aiStep`'s looting
-      # (VMC-043b), the body control, its `tick` after its super
-      # (`Valimc.AI.Kind`).
+      # The swim sound its move made, then a family's `aiStep` after its
+      # super with `Mob.aiStep`'s looting (VMC-043b), the body control, its
+      # `tick` after its super (`Valimc.AI.Kind`); a dying mob's own only.
       self =
-        self
-        |> hook(:after_ai)
-        |> Valimc.AI.Pickup.tick()
-        |> Look.body({e.x, e.z})
-        |> hook(:after_tick)
-        |> Valimc.AI.Leash.control_flags()
+        if alive,
+          do:
+            self
+            |> swim(swim)
+            |> hook(:after_ai)
+            |> Valimc.AI.Pickup.tick()
+            |> Look.body({e.x, e.z})
+            |> hook(:after_tick)
+            |> Valimc.AI.Leash.control_flags(),
+          else: self |> swim(swim) |> hook(:after_ai) |> hook(:after_tick)
 
       self =
-        case mind.brain do
-          nil -> self
+        case alive && mind.brain do
           %{module: module} -> module.pick_up(self)
+          _ -> self
         end
 
       {%{
@@ -599,7 +715,36 @@ defmodule Valimc.AI do
     end
   end
 
-  def settle(_mob, body, position, world), do: {body, position, [], world}
+  def settle(_mob, body, position, world, _swim), do: {body, position, [], world}
+
+  # Whether a dying mob of `type` still runs its family's own tick (a fish's
+  # flop).
+  defp dying?(type), do: Mobs.hook(type, :dying?, [], false)
+
+  # `playSwimSound(volume)`: its pitch from the mob's random.
+  defp swim(self, nil), do: self
+
+  defp swim(%Self{type: type} = self, volume) do
+    if Valimc.Entity.MobMotion.sounds?(type) do
+      {a, self} = Self.float(self)
+      {b, self} = Self.float(self)
+      f = &Valimc.Data.Float32.round/1
+      pitch = f.(1.0 + f.(f.(a - b) * f.(0.4)))
+      <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+      name = Mobs.hook(type, :swim_sound, [], default_swim(type))
+      Self.effect(self, {:sound, Facts.sound_id(name), source(type), volume, pitch, seed})
+    else
+      self
+    end
+  end
+
+  # `getSwimSound`: a monster's, else the generic one.
+  defp default_swim(type),
+    do:
+      if(EntityTypes.fetch(type).category == :monster,
+        do: "minecraft:entity.hostile.swim",
+        else: "minecraft:entity.generic.swim"
+      )
 
   # A living animal without an AI still ages and loses its love
   # (`AgeableMob.aiStep` runs for a `NoAI` mob: its family's `after_ai`).

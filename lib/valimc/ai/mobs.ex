@@ -26,7 +26,11 @@ defmodule Valimc.AI.Mobs do
     Valimc.AI.Mobs.Endermite,
     Valimc.AI.Mobs.Shulker,
     Valimc.AI.Mobs.Piglin,
-    Valimc.AI.Mobs.Blaze
+    Valimc.AI.Mobs.Blaze,
+    Valimc.AI.Mobs.Fish,
+    Valimc.AI.Mobs.Pufferfish,
+    Valimc.AI.Mobs.TropicalFish,
+    Valimc.AI.Mobs.Squid
     | Valimc.Entity.Animal.modules()
   ]
   @family for module <- @families, type <- module.types(), into: %{}, do: {type, module}

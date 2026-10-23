@@ -48,8 +48,9 @@ public class CombatOracle {
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:drowned", "minecraft:skeleton", "minecraft:stray",
       "minecraft:bogged", "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider", "minecraft:enderman",
       "minecraft:witch", "minecraft:slime", "minecraft:phantom", "minecraft:silverfish",
-      // VMC-043e: the End's mobs.
-      "minecraft:shulker",
+      // VMC-043e: the End's mobs, fish and squid.
+      "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish", "minecraft:tropical_fish",
+      "minecraft:squid", "minecraft:glow_squid",
       // VMC-043c: farm animals.
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
@@ -65,7 +66,7 @@ public class CombatOracle {
       "minecraft:entity.splash_potion.throw", "minecraft:entity.player.teleport",
       "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot");
   static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator",
-      "minecraft:dragon_breath");
+      "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink");
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   static JsonElement encode(DataComponentType type, Object value, com.mojang.serialization.DynamicOps<JsonElement> ops) {
@@ -120,8 +121,11 @@ public class CombatOracle {
       row.addProperty("hurt_sound", sound((net.minecraft.sounds.SoundEvent) hurt.invoke(mob, new net.minecraft.world.damagesource.DamageSource(generic))));
       row.addProperty("death_sound", sound((net.minecraft.sounds.SoundEvent) death.invoke(mob)));
       row.addProperty("sound_source", mob.getSoundSource().ordinal());
-      // An animal's reward is 1 to 3 (`Animal.getBaseExperienceReward`).
-      row.addProperty("animal", mob instanceof net.minecraft.world.entity.animal.Animal);
+      // An animal's reward is 1 to 3 (`Animal.getBaseExperienceReward`), and
+      // a water animal's (fish, squid).
+      row.addProperty("animal", mob instanceof net.minecraft.world.entity.animal.Animal
+          || mob instanceof net.minecraft.world.entity.animal.fish.WaterAnimal
+          || mob instanceof net.minecraft.world.entity.animal.AgeableWaterCreature);
       mobs.add(name, row);
     }
     var sounds = new JsonObject();

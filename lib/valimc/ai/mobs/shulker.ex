@@ -53,7 +53,7 @@ defmodule Valimc.AI.Mobs.Shulker do
   end
 
   @impl true
-  def motion, do: [fixed: true, pushable: false]
+  def motion, do: [fixed: true, pushable: false, emission: :none]
 
   @impl true
   def data(_type), do: %{attach_face: 0, peek: 0, peek_amount: 0.0, color: 16}
@@ -258,7 +258,7 @@ defmodule Valimc.AI.Mobs.Shulker do
   # `noCollision`: blocks, the border and the other shulkers.
   defp free?(self, box) do
     Shapes.free?(self.world, box) and
-      not Enum.any?(Map.get(self.world.by_type, @type_name, []), fn other ->
+      not Enum.any?(World.mobs_of(self.world, @type_name), fn other ->
         other.uuid != self.uuid and other.alive and World.intersects?(World.box(other), box)
       end)
   end
@@ -352,7 +352,7 @@ defmodule Valimc.AI.Mobs.Shulker do
           area = World.inflate(old_box, 8.0, 8.0, 8.0)
 
           others =
-            Enum.count(Map.get(self.world.by_type, @type_name, []), fn other ->
+            Enum.count(World.mobs_of(self.world, @type_name), fn other ->
               other.uuid != self.uuid and other.alive and
                 World.intersects?(World.box(other), area)
             end)

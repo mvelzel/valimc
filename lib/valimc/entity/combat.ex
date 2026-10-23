@@ -135,8 +135,14 @@ defmodule Valimc.Entity.Combat do
           end
 
         body = if outcome.died, do: died(body, hit), else: body
-        # What its kind does after a hurt (`Valimc.AI.Kind.hurt/2`).
-        body = hook.(:hurt, [body, hit], body)
+        # What its family does after a hurt (`Valimc.AI.Kind.hurt/2`), with
+        # the events it adds (a squid's ink).
+        {body, events} =
+          case hook.(:hurt, [body, hit], body) do
+            {body, more} -> {body, events ++ more}
+            body -> {body, events}
+          end
+
         {body, events, outcome}
     end
   end

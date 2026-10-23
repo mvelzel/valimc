@@ -124,7 +124,7 @@ defmodule Valimc.AI.Sensors do
       box = World.inflate(Self.box(self), follow, follow, follow)
 
       living =
-        (world.players ++ world.mobs)
+        (world.players ++ World.mob_list(world))
         |> Enum.filter(
           &(&1.uuid != self.uuid and &1.alive and World.intersects?(World.box(&1), box))
         )

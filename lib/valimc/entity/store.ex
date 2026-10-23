@@ -25,8 +25,9 @@ defmodule Valimc.Entity.Store do
   defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger, deaths: []
   @max_steps 32
   @bodies [:mob, :object]
-  # The entity events a view keeps for its tracker (each tick sends the new ones).
-  @kept_events 8
+  # The entity events a view keeps for its tracker (each tick sends the new
+  # ones): a hurt squid's ink is 30 particles beside its sounds (VMC-043e).
+  @kept_events 40
 
   def empty_ledger, do: @ledger
 
