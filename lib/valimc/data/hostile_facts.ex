@@ -35,6 +35,19 @@ defmodule Valimc.Data.HostileFacts do
               end)
   @equip_sounds Map.new(@facts["equippable"], fn {item, [_, _, sound]} -> {item, sound} end)
   @sounds @facts["sounds"]
+  @operations %{"add_value" => 0, "add_multiplied_base" => 1, "add_multiplied_total" => 2}
+  @effect_modifiers Map.new(@facts["effect_modifiers"], fn {effect, rows} ->
+                      {effect,
+                       for [attribute, id, op, amounts] <- rows do
+                         {attribute, id, Map.fetch!(@operations, op),
+                          List.to_tuple(
+                            Enum.map(amounts, fn hex ->
+                              <<v::float-64>> = Base.decode16!(hex, case: :lower)
+                              v
+                            end)
+                          )}
+                       end}
+                    end)
   @villager_types @facts["villager_types"]
   @default_villager_type @facts["default_villager_type"]
   @professions List.to_tuple(@facts["professions"])
@@ -77,6 +90,22 @@ defmodule Valimc.Data.HostileFacts do
 
   @doc "A hostile's sound's id (nil for one these facts do not hold)."
   def sound_id(name), do: @sounds[name]
+
+  @doc """
+  The attribute modifiers effect `name` gives at `amplifier`
+  (`MobEffect.createModifiers`): `[{attribute, id, amount, operation}]`;
+  past the facts' four amplifiers the amount grows by the first's.
+  """
+  def effect_modifiers(name, amplifier) do
+    for {attribute, id, op, amounts} <- Map.get(@effect_modifiers, name, []) do
+      amount =
+        if amplifier < tuple_size(amounts),
+          do: elem(amounts, amplifier),
+          else: elem(amounts, 0) * (amplifier + 1)
+
+      {attribute, id, amount, op}
+    end
+  end
 
   @doc "`VillagerType.byBiome`."
   def villager_type(biome), do: Map.get(@villager_types, biome, @default_villager_type)

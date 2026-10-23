@@ -1248,6 +1248,16 @@ defmodule Valimc.World.RegionData do
       companions =
         for step <- steps, {:spawn, type, opts} <- step.effects, do: {step.position, type, opts}
 
+      # Mobs a spawn made and finished at once (a spider jockey's skeleton).
+      made =
+        for step <- steps,
+            {:spawn_body, body, uuid} <- step.effects,
+            do: {step.position, body, uuid}
+
+      # Creepers that exploded (VMC-043b4) and mobs simply gone.
+      blasts = for step <- steps, {:explode, blast} <- step.effects, do: {step.id, blast}
+      gone = for step <- steps, :discard <- step.effects, do: step.id
+
       jockeys = for step <- steps, {:jockey, uuid} <- step.effects, do: uuid
 
       # Arrows skeletons loosed (VMC-043b).
@@ -1315,6 +1325,18 @@ defmodule Valimc.World.RegionData do
       state = Enum.reduce(shots, state, &mob_projectile/2)
       if level_events != [], do: publish_level_events(state, level_events)
       state = if companions == [], do: state, else: mob_companions(state, companions)
+
+      state =
+        if made == [],
+          do: state,
+          else:
+            adopt_drops(
+              state,
+              for({position, body, uuid} <- made, do: Store.body_record(body, uuid, position))
+            )
+
+      state = Enum.reduce(blasts, state, &mob_blast/2)
+      state = if gone == [], do: state, else: mob_discards(state, gone)
       state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
       state = if conversions == [], do: state, else: mob_conversions(state, conversions)
 
@@ -1863,6 +1885,39 @@ defmodule Valimc.World.RegionData do
     adopt_drops(state, Enum.reverse(records))
   end
 
+  # `Creeper.explodeCreeper` (VMC-043b4): `level.explode(this, ...,
+  # ExplosionInteraction.MOB)`: it breaks blocks only while mobs may grief,
+  # its drops decaying by the mob explosion rule.
+  defp mob_blast({_id, blast}, state) do
+    griefing = Valimc.World.GameRules.get(:mob_griefing)
+
+    explosion = %Explosion{
+      center: blast.center,
+      radius: blast.radius * 1.0,
+      decay: Valimc.World.GameRules.get(:mob_explosion_drop_decay),
+      blocks: griefing,
+      interacts: griefing
+    }
+
+    explode(state, explosion)
+  end
+
+  # Mobs that left the world without dying (`discard`): a creeper that
+  # exploded.
+  defp mob_discards(state, ids) do
+    store =
+      Enum.reduce(ids, state.entities.store, fn id, store ->
+        with %{revision: revision} <- store.entries[id],
+             {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
+          next
+        else
+          _ -> store
+        end
+      end)
+
+    publish_item_views(%{state | entities: %{state.entities | store: store}})
+  end
+
   # `setChickenJockey`: the chickens baby zombies chose to ride.
   defp mob_jockeys(state, uuids) do
     store =
@@ -2288,7 +2343,7 @@ defmodule Valimc.World.RegionData do
   end
 
   # A player's use of an item on an animal (VMC-043c,
-  # `Valimc.Entity.Animals.Interaction`): its change (or the body it becomes,
+  # `Valimc.Entity.Animals.Interaction`) or another mob (`Mobs.interact/2`): its change (or the body it becomes,
   # a new entity), its events and drops apply here; the reply tells the
   # session how its hand changes.
   def handle_call({:interact_entity, epoch, uuid, request}, _from, state) do
@@ -2303,7 +2358,8 @@ defmodule Valimc.World.RegionData do
       # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
       result =
         with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
-             do: Valimc.Entity.Animals.Interaction.interact(body, request)
+             :pass <- Valimc.Entity.Animals.Interaction.interact(body, request),
+             do: Valimc.AI.Mobs.interact(body, request)
 
       case result do
         {:ok, next, outcome} ->

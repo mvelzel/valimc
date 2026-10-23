@@ -617,7 +617,166 @@
       "minecraft:item.armor.equip_generic"
     ]
   },
+  "effect_modifiers": {
+    "minecraft:speed": [
+      [
+        "minecraft:movement_speed",
+        "minecraft:effect.speed",
+        "add_multiplied_total",
+        [
+          "3fc99999a0000000",
+          "3fd99999a0000000",
+          "3fe3333338000000",
+          "3fe99999a0000000"
+        ]
+      ]
+    ],
+    "minecraft:slowness": [
+      [
+        "minecraft:movement_speed",
+        "minecraft:effect.slowness",
+        "add_multiplied_total",
+        [
+          "bfc3333340000000",
+          "bfd3333340000000",
+          "bfdccccce0000000",
+          "bfe3333340000000"
+        ]
+      ]
+    ],
+    "minecraft:haste": [
+      [
+        "minecraft:attack_speed",
+        "minecraft:effect.haste",
+        "add_multiplied_total",
+        [
+          "3fb99999a0000000",
+          "3fc99999a0000000",
+          "3fd3333338000000",
+          "3fd99999a0000000"
+        ]
+      ]
+    ],
+    "minecraft:mining_fatigue": [
+      [
+        "minecraft:attack_speed",
+        "minecraft:effect.mining_fatigue",
+        "add_multiplied_total",
+        [
+          "bfb99999a0000000",
+          "bfc99999a0000000",
+          "bfd3333338000000",
+          "bfd99999a0000000"
+        ]
+      ]
+    ],
+    "minecraft:strength": [
+      [
+        "minecraft:attack_damage",
+        "minecraft:effect.strength",
+        "add_value",
+        [
+          "4008000000000000",
+          "4018000000000000",
+          "4022000000000000",
+          "4028000000000000"
+        ]
+      ]
+    ],
+    "minecraft:jump_boost": [
+      [
+        "minecraft:safe_fall_distance",
+        "minecraft:effect.jump_boost",
+        "add_value",
+        [
+          "3ff0000000000000",
+          "4000000000000000",
+          "4008000000000000",
+          "4010000000000000"
+        ]
+      ]
+    ],
+    "minecraft:invisibility": [
+      [
+        "minecraft:waypoint_transmit_range",
+        "minecraft:effect.waypoint_transmit_range_hide",
+        "add_multiplied_total",
+        [
+          "bff0000000000000",
+          "c000000000000000",
+          "c008000000000000",
+          "c010000000000000"
+        ]
+      ]
+    ],
+    "minecraft:weakness": [
+      [
+        "minecraft:attack_damage",
+        "minecraft:effect.weakness",
+        "add_value",
+        [
+          "c010000000000000",
+          "c020000000000000",
+          "c028000000000000",
+          "c030000000000000"
+        ]
+      ]
+    ],
+    "minecraft:health_boost": [
+      [
+        "minecraft:max_health",
+        "minecraft:effect.health_boost",
+        "add_value",
+        [
+          "4010000000000000",
+          "4020000000000000",
+          "4028000000000000",
+          "4030000000000000"
+        ]
+      ]
+    ],
+    "minecraft:absorption": [
+      [
+        "minecraft:max_absorption",
+        "minecraft:effect.absorption",
+        "add_value",
+        [
+          "4010000000000000",
+          "4020000000000000",
+          "4028000000000000",
+          "4030000000000000"
+        ]
+      ]
+    ],
+    "minecraft:luck": [
+      [
+        "minecraft:luck",
+        "minecraft:effect.luck",
+        "add_value",
+        [
+          "3ff0000000000000",
+          "4000000000000000",
+          "4008000000000000",
+          "4010000000000000"
+        ]
+      ]
+    ],
+    "minecraft:unluck": [
+      [
+        "minecraft:luck",
+        "minecraft:effect.unluck",
+        "add_value",
+        [
+          "bff0000000000000",
+          "c000000000000000",
+          "c008000000000000",
+          "c010000000000000"
+        ]
+      ]
+    ]
+  },
   "sounds": {
+    "minecraft:entity.creeper.primed": 481,
     "minecraft:entity.happy_ghast.equip": 824,
     "minecraft:entity.horse.armor": 857,
     "minecraft:entity.horse.saddle": 871,
@@ -633,7 +792,9 @@
     "minecraft:item.armor.equip_nautilus": 79,
     "minecraft:item.armor.equip_netherite": 75,
     "minecraft:item.armor.equip_turtle": 76,
-    "minecraft:item.armor.equip_wolf": 77
+    "minecraft:item.armor.equip_wolf": 77,
+    "minecraft:item.firecharge.use": 630,
+    "minecraft:item.flintandsteel.use": 646
   },
   "monsters_burn": {
     "period": 24000,

@@ -63,6 +63,7 @@ public class MobAiOracle {
       "minecraft:blaze", "minecraft:zombified_piglin", "minecraft:ghast",
       // VMC-043b: the zombie family.
       "minecraft:husk", "minecraft:zombie_villager", "minecraft:skeleton", "minecraft:stray", "minecraft:bogged",
+      "minecraft:creeper", "minecraft:spider", "minecraft:cave_spider",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:endermite", "minecraft:shulker", "minecraft:cod", "minecraft:salmon", "minecraft:pufferfish",
       "minecraft:tropical_fish", "minecraft:squid", "minecraft:glow_squid", "minecraft:guardian", "minecraft:elder_guardian",

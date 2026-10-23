@@ -47,6 +47,8 @@ public class HostileOracle {
   static final List<String> NETHER = List.of("minecraft:piglin");
   // VMC-043b3: the skeletons.
   static final List<String> SKELETONS = List.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
+  // VMC-043b4: creepers and spiders.
+  static final List<String> CREEPERS_SPIDERS = List.of("minecraft:creeper", "minecraft:spider", "minecraft:cave_spider");
   static final List<String> ATTRIBUTES = List.of("minecraft:follow_range", "minecraft:knockback_resistance",
       "minecraft:spawn_reinforcements", "minecraft:max_health", "minecraft:movement_speed");
 
@@ -66,7 +68,9 @@ public class HostileOracle {
   }
 
   /** How a scene's mob starts: its equipment by slot, a baby, loot pickup, fire ticks. */
-  record Prep(int index, Map<String, String> equipment, boolean baby, boolean loot, int fire) {}
+  record Prep(int index, Map<String, String> equipment, boolean baby, boolean loot, int fire, Set<String> flags) {
+    Prep(int index, Map<String, String> equipment, boolean baby, boolean loot, int fire) { this(index, equipment, baby, loot, fire, Set.of()); }
+  }
 
   /** The probe by night or day, lit from the sky above each column's top block. */
   static class Day extends MobAiOracle.Probe {
@@ -83,6 +87,17 @@ public class HostileOracle {
     public float getLightLevelDependentMagicValue(BlockPos p) { float v = getRawBrightness(p, 0) / 15.0F; return v / (4.0F - 3.0F * v); }
     public boolean canSeeSky(BlockPos p) { return sky(p) >= 15; }
     public boolean isBrightOutside() { return day; }
+    // An explosion (a creeper's) is recorded, not run.
+    public void explode(Entity source, net.minecraft.world.damagesource.DamageSource damage, net.minecraft.world.level.ExplosionDamageCalculator calc,
+        double x, double y, double z, float radius, boolean fire, net.minecraft.world.level.Level.ExplosionInteraction interaction,
+        net.minecraft.core.particles.ParticleOptions small, net.minecraft.core.particles.ParticleOptions large,
+        net.minecraft.util.random.WeightedList<net.minecraft.core.particles.ExplosionParticleInfo> particles, Holder<net.minecraft.sounds.SoundEvent> sound) {
+      if (current == null) return;
+      var o = new JsonObject(); o.addProperty("explode", Float.floatToRawIntBits(radius));
+      var at = new JsonArray(); at.add(bits(x)); at.add(bits(y)); at.add(bits(z)); o.add("at", at);
+      o.addProperty("fire", fire); o.addProperty("interaction", interaction.name().toLowerCase());
+      sounds.computeIfAbsent(current, k -> new ArrayList<>()).add(o);
+    }
     // A converted mob is discarded, which untracks it as a waypoint.
     net.minecraft.server.waypoints.ServerWaypointManager waypoints;
     public net.minecraft.server.waypoints.ServerWaypointManager getWaypointManager() {
@@ -95,9 +110,19 @@ public class HostileOracle {
         if (p.baby) m.setBaby(true);
         if (p.loot) m.setCanPickUpLoot(true);
         if (p.fire > 0) m.setRemainingFireTicks(p.fire);
+        // VMC-043b4: a lit or charged creeper.
+        if (m instanceof net.minecraft.world.entity.monster.Creeper c) {
+          if (p.flags.contains("ignited")) c.ignite();
+          if (p.flags.contains("powered")) {
+            try {
+              var powered = (net.minecraft.network.syncher.EntityDataAccessor<Boolean>)MobAiOracle.field(net.minecraft.world.entity.monster.Creeper.class, "DATA_IS_POWERED").get(null);
+              c.getEntityData().set(powered, true);
+            } catch (Exception e) { throw new RuntimeException(e); }
+          }
+        }
       }
     }
-    void record(Mob m, JsonObject r) {
+    void record(Mob m, JsonObject r) throws Exception {
       r.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString());
       r.addProperty("removed", m.isRemoved());
       r.addProperty("fire", m.getRemainingFireTicks());
@@ -114,6 +139,11 @@ public class HostileOracle {
       r.addProperty("can_pick_up_loot", m.canPickUpLoot());
       if (m instanceof net.minecraft.world.entity.monster.zombie.Zombie z) r.addProperty("converting", z.isUnderWaterConverting());
       if (m instanceof net.minecraft.world.entity.monster.skeleton.Skeleton s) r.addProperty("converting", s.isShaking());
+      if (m instanceof net.minecraft.world.entity.monster.Creeper c) {
+        r.addProperty("swell_dir", c.getSwellDir());
+        r.addProperty("swell", MobAiOracle.field(net.minecraft.world.entity.monster.Creeper.class, "swell").getInt(c));
+      }
+      if (m instanceof net.minecraft.world.entity.monster.spider.Spider s) r.addProperty("climbing", s.isClimbing());
     }
     void scene(JsonObject out) {
       out.addProperty("day", day);
@@ -121,7 +151,8 @@ public class HostileOracle {
       for (var p : preps) {
         var o = new JsonObject(); o.addProperty("index", p.index);
         var e = new JsonObject(); p.equipment.forEach(e::addProperty); o.add("equipment", e);
-        o.addProperty("baby", p.baby); o.addProperty("loot", p.loot); o.addProperty("fire", p.fire); ps.add(o);
+        o.addProperty("baby", p.baby); o.addProperty("loot", p.loot); o.addProperty("fire", p.fire);
+        var f = new JsonArray(); p.flags.stream().sorted().forEach(f::add); o.add("flags", f); ps.add(o);
       }
       out.add("prepare", ps);
     }
@@ -184,6 +215,7 @@ public class HostileOracle {
         List.of(new MobAiOracle.Spawn("minecraft:husk", new Vec3(.5, 61, .5), 0, 113L)),
         List.of(), none, noDrops, 901));
     skeletons(level, cases, floor);
+    creepersAndSpiders(level, cases, floor);
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -222,6 +254,40 @@ public class HostileOracle {
     cases.add(run(level, "skeleton_freezing", false, List.of(), MobAiOracle.scene(snow),
         List.of(new MobAiOracle.Spawn("minecraft:skeleton", new Vec3(.5, 64, .5), 0, 151L)),
         List.of(), none, noDrops, 443));
+  }
+
+  // VMC-043b4: creepers swelling and exploding (lit, charged), spiders leaping, climbing and shying from light.
+  static void creepersAndSpiders(Day level, JsonArray cases, List<MobAiOracle.Block> floor) throws Exception {
+    var stone = Blocks.STONE.defaultBlockState();
+    var none = List.<MobAiOracle.Hit>of();
+    var noDrops = List.<MobAiOracle.Drop>of();
+    // A creeper walks up to the player, swells and explodes.
+    cases.add(run(level, "creeper_explodes", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:creeper", new Vec3(.5, 64, .5), 0, 157L)),
+        List.of(new MobAiOracle.Stand(new Vec3(6.5, 64, 4.5), "survival", null)), none, noDrops, 86));
+    // A lit creeper and a charged one explode with no target, the charged one twice as hard.
+    cases.add(run(level, "creeper_lit_charged", false,
+        List.of(new Prep(0, Map.of(), false, false, 0, Set.of("ignited")), new Prep(1, Map.of(), false, false, 0, Set.of("ignited", "powered"))),
+        floor, List.of(new MobAiOracle.Spawn("minecraft:creeper", new Vec3(-5.5, 64, .5), 0, 163L),
+            new MobAiOracle.Spawn("minecraft:creeper", new Vec3(5.5, 64, .5), 0, 167L)),
+        List.of(), none, noDrops, 30));
+    // A spider runs at the player, leaps and bites; a cave spider's bite poisons.
+    cases.add(run(level, "spider_leap", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:spider", new Vec3(.5, 64, .5), 0, 173L)),
+        List.of(new MobAiOracle.Stand(new Vec3(7.5, 64, 3.5), "survival", null)), none, noDrops, 200));
+    cases.add(run(level, "cave_spider_bite", false, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:cave_spider", new Vec3(.5, 64, .5), 0, 179L)),
+        List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, 2.5), "survival", null)), none, noDrops, 160));
+    // A spider climbs a wall to the player on top of it.
+    var wall = new ArrayList<>(floor);
+    wall.addAll(MobAiOracle.box(4, 64, -6, 6, 67, 6, stone));
+    cases.add(run(level, "spider_climbs", false, List.of(), MobAiOracle.scene(wall),
+        List.of(new MobAiOracle.Spawn("minecraft:spider", new Vec3(.5, 64, .5), 270, 181L)),
+        List.of(new MobAiOracle.Stand(new Vec3(5.5, 68, .5), "survival", null)), none, noDrops, 160));
+    // By day a spider leaves the player alone.
+    cases.add(run(level, "spider_day", true, List.of(), floor,
+        List.of(new MobAiOracle.Spawn("minecraft:spider", new Vec3(.5, 64, .5), 0, 191L)),
+        List.of(new MobAiOracle.Stand(new Vec3(5.5, 64, 2.5), "survival", null)), none, noDrops, 200));
   }
 
   static String bits(double d) { return MobAiOracle.bits(d); }
@@ -280,8 +346,31 @@ public class HostileOracle {
       equippable.add(id.toString(), row);
     });
     out.add("equippable", equippable);
+    // The attribute modifiers each effect gives at amplifiers 0 to 3
+    // (`MobEffect.createModifiers`): attribute, id, operation and amounts.
+    var effectModifiers = new JsonObject();
+    for (var effect : BuiltInRegistries.MOB_EFFECT) {
+      var rows = new LinkedHashMap<String, JsonArray>();
+      for (int amplifier = 0; amplifier <= 3; amplifier++) {
+        final int a = amplifier;
+        effect.createModifiers(a, (attribute, modifier) -> {
+          var key = id(attribute) + "|" + modifier.id();
+          var row = rows.computeIfAbsent(key, k -> {
+            var r = new JsonArray(); r.add(id(attribute)); r.add(modifier.id().toString()); r.add(modifier.operation().getSerializedName());
+            r.add(new JsonArray()); return r;
+          });
+          row.get(3).getAsJsonArray().add(bits(modifier.amount()));
+        });
+      }
+      if (!rows.isEmpty()) {
+        var list = new JsonArray(); rows.values().forEach(list::add);
+        effectModifiers.add(BuiltInRegistries.MOB_EFFECT.getKey(effect).toString(), list);
+      }
+    }
+    out.add("effect_modifiers", effectModifiers);
     // The ids of the sounds the hostiles play beyond the AI and combat facts'.
-    var soundNames = new TreeSet<String>();
+    var soundNames = new TreeSet<String>(List.of("minecraft:entity.creeper.primed",
+        "minecraft:item.flintandsteel.use", "minecraft:item.firecharge.use"));
     for (var row : equippable.entrySet()) soundNames.add(row.getValue().getAsJsonArray().get(2).getAsString());
     var sounds = new JsonObject();
     for (var n : soundNames) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
@@ -452,7 +541,7 @@ public class HostileOracle {
     var biomes = List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "minecraft:swamp");
     var cases = new JsonArray();
     var picker = new Random(43L);
-    for (var type : java.util.stream.Stream.of(FAMILY, NETHER, SKELETONS).flatMap(List::stream).toList())
+    for (var type : java.util.stream.Stream.of(FAMILY, NETHER, SKELETONS, CREEPERS_SPIDERS).flatMap(List::stream).toList())
       for (var s : settings)
         for (int i = 0; i < 120; i++) {
           var reason = i % 10 == 9 ? EntitySpawnReason.SPAWNER
@@ -469,7 +558,7 @@ public class HostileOracle {
       var level = MobAiOracle.setup(Day.class);
       var out = cases(level);
       Files.writeString(Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla hostile traces (zombies: baby, daylight, husk, fire, villager, pickup, drowning; skeletons: bow, melee, sun, stray, bogged, freezing).");
+      System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla hostile traces (zombies: baby, daylight, husk, fire, villager, pickup, drowning; skeletons: bow, melee, sun, stray, bogged, freezing; creepers, spiders).");
       return;
     }
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();

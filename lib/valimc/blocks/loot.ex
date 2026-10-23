@@ -137,7 +137,8 @@ defmodule Valimc.Blocks.Loot do
   `death` holds `:on_fire`, `:baby`, `:vehicle` (the type name of what the
   victim rides, or nil), `:killed_by_player`, and `:attacker` and
   `:direct_attacker`, each the living attacker's main-hand stack (nil for an
-  empty hand) or `:none` when there is no living one, and `:properties`, the
+  empty hand) or `:none` when there is no living one, with `:attacker_type`
+  and `:direct_attacker_type` their entity types, and `:properties`, the
   entity's own as `[{name, value}]` its tables' predicates read (VMC-043c: a
   sheep's colour and shearing). Options as `fill/4` (`:luck` the killing
   player's). A gift's or shearing's table (eggs, wool) reads the same.
@@ -146,8 +147,9 @@ defmodule Valimc.Blocks.Loot do
       when is_binary(table) and is_integer(seed) and is_map(death) do
     death =
       {Map.get(death, :on_fire, false), Map.get(death, :baby, false), Map.get(death, :vehicle),
-       Map.get(death, :killed_by_player, false), mainhand(Map.get(death, :attacker, :none)),
-       mainhand(Map.get(death, :direct_attacker, :none)),
+       Map.get(death, :killed_by_player, false),
+       attacker(Map.get(death, :attacker, :none), Map.get(death, :attacker_type)),
+       attacker(Map.get(death, :direct_attacker, :none), Map.get(death, :direct_attacker_type)),
        {Map.get(death, :properties, []), source(Map.get(death, :source))}}
 
     with {:ok, tags} <-
@@ -216,7 +218,9 @@ defmodule Valimc.Blocks.Loot do
       {Valimc.Protocol.ItemTypes.item(id)["name"],
        components |> Map.get("minecraft:enchantments", %{}) |> Map.to_list()}
 
-  defp mainhand(:none), do: nil
+  defp attacker(:none, _type), do: nil
+  defp attacker(stack, type), do: {type, mainhand(stack)}
+
   defp mainhand(nil), do: []
 
   defp mainhand(%ItemStack{components: components}),

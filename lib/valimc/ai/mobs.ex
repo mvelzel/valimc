@@ -23,6 +23,8 @@ defmodule Valimc.AI.Mobs do
   @families [
     Valimc.AI.Mobs.Zombie,
     Valimc.AI.Mobs.Skeleton,
+    Valimc.AI.Mobs.Creeper,
+    Valimc.AI.Mobs.Spider,
     Valimc.AI.Mobs.ZombifiedPiglin,
     Valimc.AI.Mobs.Endermite,
     Valimc.AI.Mobs.Shulker,
@@ -142,6 +144,16 @@ defmodule Valimc.AI.Mobs do
     if exports?(module, :after_move, 3),
       do: module.after_move(body, position, ticked),
       else: {body, []}
+  end
+
+  @doc """
+  A player's use of an item on a family's mob (`mobInteract`: its
+  `mob_interact/2` of `body` and the request): as
+  `Valimc.Entity.Animals.Interaction`, else `:pass`.
+  """
+  def interact(%{type: type} = body, request) do
+    module = @family[type]
+    if exports?(module, :mob_interact, 2), do: module.mob_interact(body, request), else: :pass
   end
 
   @doc "The base of a mob's voice pitch (`getVoicePitch`): a family's `voice/2`, else 1.0."

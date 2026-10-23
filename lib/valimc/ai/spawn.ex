@@ -59,6 +59,46 @@ defmodule Valimc.AI.Spawn do
     %{self | mob: %{self.mob | left_handed: f < Float32.round(0.05)}}
   end
 
+  @doc """
+  A mob another one's spawn makes and finalizes at once from the same level
+  random, for `reason` (a spider jockey's skeleton, VMC-043b4): a
+  `{:spawn_body, body, uuid}` effect the owner adopts where the mob stands
+  (riding is VMC-046's).
+  """
+  def companion(%Self{} = self, type, reason) do
+    {:ok, body} = Valimc.Entity.Body.new(type)
+    uuid = :crypto.strong_rand_bytes(16)
+    {width, height, eye} = Valimc.Entity.Body.dimensions(body)
+
+    made =
+      finalize(%Self{
+        self
+        | type: type,
+          uuid: uuid,
+          pitch: 0.0,
+          head: self.yaw,
+          mob: %{body.mob | finalize: reason},
+          mind: Valimc.AI.mind(type, uuid, nil),
+          facts: Valimc.AI.Facts.mob(type),
+          width: width,
+          height: height,
+          eye: eye,
+          data: body.data,
+          effects: []
+      })
+
+    body = %{
+      body
+      | yaw: self.yaw,
+        head_yaw: self.yaw,
+        data: made.data,
+        mob: %{made.mob | ai: made.mind}
+    }
+
+    %{self | world: made.world}
+    |> Self.effect({:spawn_body, body, uuid})
+  end
+
   @doc "The local difficulty at the mob (`getCurrentDifficultyAt`)."
   def local(%Self{world: %World{local: nil} = world}),
     do: LocalDifficulty.at(world.difficulty, world.day)

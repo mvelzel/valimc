@@ -430,6 +430,8 @@ defmodule Valimc.Entity.Combat do
         killed_by_player: player_kill,
         attacker: mainhand(hit[:attacker]),
         direct_attacker: mainhand(hit[:direct]),
+        attacker_type: entity_type(hit[:attacker]),
+        direct_attacker_type: entity_type(hit[:direct]),
         properties: Valimc.Entity.Animal.properties(body),
         source: source_info(hit)
       },
@@ -457,6 +459,10 @@ defmodule Valimc.Entity.Combat do
 
   defp mainhand(%{mainhand: stack}), do: stack
   defp mainhand(_), do: :none
+
+  defp entity_type(%{player: true}), do: "minecraft:player"
+  defp entity_type(%{type: type}), do: type
+  defp entity_type(_), do: nil
 
   # `Mob.getBaseExperienceReward`: the type's reward and, for a mob that has
   # one, one to three for each equipped hand or armor item; an animal's is

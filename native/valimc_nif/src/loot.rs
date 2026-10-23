@@ -394,8 +394,9 @@ fn loot_enchant(
 
 /// An entity's death drops (`LivingEntity.dropFromLootTable`, VMC-037n):
 /// `death` is `{on_fire, baby, vehicle, killed_by_player, attacker,
-/// direct_attacker, properties}`, each attacker its main-hand enchantments as
-/// `[{id, level}]` or nil, `properties` the entity's own as `[{name,
+/// direct_attacker, {properties, source}}`, each attacker `{type,
+/// enchantments}` (its entity type or nil, its main-hand enchantments as
+/// `[{id, level}]`) or nil, `properties` the entity's own as `[{name,
 /// value}]` (VMC-043c). The item tags of the drops. A gift's or shearing's
 /// table reads the same entity.
 type DeathTerm = (
@@ -403,8 +404,8 @@ type DeathTerm = (
     bool,
     Option<String>,
     bool,
-    Option<Vec<(String, i32)>>,
-    Option<Vec<(String, i32)>>,
+    Option<(Option<String>, Vec<(String, i32)>)>,
+    Option<(Option<String>, Vec<(String, i32)>)>,
     // The victim's properties, and the killing damage (VMC-043d): its type's
     // tags, its direct and source entities' types, whether they are one; or nil.
     (
@@ -426,6 +427,9 @@ fn loot_entity<'a>(
     known(&registry, &table)?;
     let (on_fire, baby, vehicle, killed_by_player, attacker, direct_attacker, (properties, source)) =
         death;
+    let (attacker_type, attacker) = attacker.map_or((None, None), |(t, m)| (t, Some(m)));
+    let (direct_attacker_type, direct_attacker) =
+        direct_attacker.map_or((None, None), |(t, m)| (t, Some(m)));
     let mut world = LootAnswers {
         biome: None,
         structure: None,
@@ -446,6 +450,8 @@ fn loot_entity<'a>(
                     killed_by_player,
                     attacker,
                     direct_attacker,
+                    attacker_type,
+                    direct_attacker_type,
                     properties,
                     source: source.map(|(tags, direct, source, is_direct)| {
                         valimc_core::loot::DamageInfo {

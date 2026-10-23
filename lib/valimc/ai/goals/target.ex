@@ -77,12 +77,21 @@ defmodule Valimc.AI.Goals.NearestAttackableTarget do
         selector: Keyword.get(opts, :selector),
         interval: Mth.reduced(Keyword.get(opts, :interval, 10)),
         peaceful: Keyword.get(opts, :peaceful, true),
+        # A condition on the mob before it looks at all (a spider's
+        # darkness, VMC-043b4), or nil.
+        when: Keyword.get(opts, :when),
         found: nil
       })
 
   # Without `peaceful` (a shulker's) it looks for nothing on peaceful.
   def can_use(%{peaceful: false} = state, %Self{world: %{difficulty: :peaceful}} = self),
     do: {false, state, self}
+
+  def can_use(%{when: condition} = state, self) when condition != nil do
+    if condition.(self),
+      do: can_use(%{state | when: nil}, self) |> keep(condition),
+      else: {false, state, self}
+  end
 
   def can_use(state, self) do
     {go, self} =
@@ -124,6 +133,8 @@ defmodule Valimc.AI.Goals.NearestAttackableTarget do
   def can_continue(state, self), do: Target.can_continue(state, self)
 
   def start(state, self), do: {Target.start(state), Self.set_target(self, state.found)}
+
+  defp keep({use, state, self}, condition), do: {use, %{state | when: condition}, self}
 
   def stop(state, self), do: Target.stop(state, self)
 end

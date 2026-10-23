@@ -170,6 +170,11 @@ defmodule Valimc.Entity.MobMotion do
       rise: alive and motion.rise,
       powder_snow_walkable: powder_snow_walkable?(type, mob),
       was_powder_snow: motion.powder_snow,
+      # A spider climbs what it bumped into (VMC-043b4).
+      wall_climb:
+        if(Valimc.AI.Mobs.hook(type, :climbs?, [body], nil) != nil,
+          do: Valimc.AI.Mobs.hook(type, :climbs?, [body], false)
+        ),
       hop: hop(motion.hop, position, body),
       impulse: if(alive, do: motion.impulse, else: {0.0, 0.0, 0.0}),
       vertical_collision: motion.vertical_collision,

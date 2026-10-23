@@ -346,6 +346,9 @@ struct EntityPredicate {
     vehicle: Option<Vec<String>>,
     mainhand_enchantments: Option<Vec<String>>,
     properties: Vec<(String, String)>,
+    /// `minecraft:entity_type`: the types it may be (VMC-043b: a creeper's
+    /// music disc when a skeleton killed it).
+    types: Option<Vec<String>>,
 }
 
 /// An entity's death as its loot table reads it (`LootContextParamSets.ENTITY`):
@@ -361,6 +364,9 @@ pub struct Death {
     pub killed_by_player: bool,
     pub attacker: Option<Vec<(String, i32)>>,
     pub direct_attacker: Option<Vec<(String, i32)>>,
+    /// The attackers' entity types, when known.
+    pub attacker_type: Option<String>,
+    pub direct_attacker_type: Option<String>,
     /// The entity's own properties its predicates read (VMC-043c):
     /// `("minecraft:sheep/color", "white")`, `("sheep/sheared", "false")`.
     pub properties: Vec<(String, String)>,
@@ -398,6 +404,7 @@ impl EntityPredicate {
             && self.vehicle.is_none()
             && self.mainhand_enchantments.is_none()
             && self.properties.is_empty()
+            && self.types.is_none()
     }
 
     fn matches(&self, target: EntityTarget, death: &Death) -> bool {
@@ -413,6 +420,16 @@ impl EntityPredicate {
             },
         };
         let this = matches!(target, EntityTarget::This);
+        let kind = match target {
+            EntityTarget::This => None,
+            EntityTarget::Attacker => death.attacker_type.as_ref(),
+            EntityTarget::DirectAttacker => death.direct_attacker_type.as_ref(),
+        };
+        if let Some(types) = &self.types {
+            if !kind.is_some_and(|k| types.contains(k)) {
+                return false;
+            }
+        }
         // Only the victim's flags, vehicle and properties, and only attackers'
         // items, are known.
         if (self.on_fire.is_some()
@@ -1020,7 +1037,9 @@ impl Loot {
                         "source_entity" => source = Some(Self::entity_types(value)?),
                         "is_direct" => is_direct = Some(value.as_bool()?),
                         other => {
-                            return Err(format!("damage source predicate {other} is not implemented"))
+                            return Err(format!(
+                                "damage source predicate {other} is not implemented"
+                            ))
                         }
                     }
                 }
@@ -1114,7 +1133,9 @@ impl Loot {
                 ("minecraft:entity_type", Json::String(t)) if !t.starts_with('#') => {
                     types = Some(vec![t.clone()])
                 }
-                (other, _) => return Err(format!("damage source entity {other} is not implemented")),
+                (other, _) => {
+                    return Err(format!("damage source entity {other} is not implemented"))
+                }
             }
         }
         types.ok_or_else(|| "damage source entity without a type".to_string())
@@ -1197,6 +1218,9 @@ impl Loot {
                             .properties
                             .push(("sheep/sheared".into(), v.as_bool()?.to_string()));
                     }
+                }
+                "minecraft:entity_type" => {
+                    predicate.types = Some(self.holder_set("minecraft:entity_type", value)?.members)
                 }
                 other => return Err(format!("entity predicate {other} is not implemented")),
             }
@@ -1574,7 +1598,9 @@ impl Loot {
                     return Ok(stack);
                 }
                 let addition = level as f32 * count.get(ctx);
-                stack.count += round_f(addition);
+                // `ItemStack.grow` from `getCount`, which reads an emptied
+                // (non-positive) count as 0: a spider's eye set to -1.
+                stack.count = stack.count.max(0) + round_f(addition);
                 if *limit > 0 && stack.count > *limit {
                     stack.count = *limit;
                 }
@@ -1595,7 +1621,7 @@ impl Loot {
                 }
             }
             Function::SetCount(count, add) => {
-                let base = if *add { stack.count } else { 0 };
+                let base = if *add { stack.count.max(0) } else { 0 };
                 stack.count = base + count.get(ctx);
                 stack
             }

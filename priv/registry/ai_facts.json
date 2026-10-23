@@ -1520,6 +1520,263 @@
         ]
       ]
     },
+    "minecraft:creeper": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": null,
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "SwellGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          4,
+          "MeleeAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "NearestAttackableTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:spider": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.spider.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "LeapAtTargetGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          4,
+          "SpiderAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "SpiderTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "SpiderTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
+    "minecraft:cave_spider": {
+      "max_head_y_rot": 75,
+      "max_head_x_rot": 40,
+      "head_rot_speed": 10,
+      "ambient_sound": "minecraft:entity.spider.ambient",
+      "ambient_sound_interval": 80,
+      "sound_volume": 1.0,
+      "malus": {},
+      "goals": [
+        [
+          1,
+          "FloatGoal",
+          [
+            "jump"
+          ]
+        ],
+        [
+          2,
+          "AvoidEntityGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          3,
+          "LeapAtTargetGoal",
+          [
+            "move",
+            "jump"
+          ]
+        ],
+        [
+          4,
+          "SpiderAttackGoal",
+          [
+            "move",
+            "look"
+          ]
+        ],
+        [
+          5,
+          "WaterAvoidingRandomStrollGoal",
+          [
+            "move"
+          ]
+        ],
+        [
+          6,
+          "LookAtPlayerGoal",
+          [
+            "look"
+          ]
+        ],
+        [
+          6,
+          "RandomLookAroundGoal",
+          [
+            "move",
+            "look"
+          ]
+        ]
+      ],
+      "targets": [
+        [
+          1,
+          "HurtByTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          2,
+          "SpiderTargetGoal",
+          [
+            "target"
+          ]
+        ],
+        [
+          3,
+          "SpiderTargetGoal",
+          [
+            "target"
+          ]
+        ]
+      ]
+    },
     "minecraft:endermite": {
       "max_head_y_rot": 75,
       "max_head_x_rot": 40,
@@ -2503,6 +2760,7 @@
     "minecraft:entity.skeleton.ambient": 1483,
     "minecraft:entity.stray.ambient": 1609,
     "minecraft:entity.bogged.ambient": 181,
+    "minecraft:entity.spider.ambient": 1582,
     "minecraft:entity.endermite.ambient": 604,
     "minecraft:entity.shulker.ambient": 1467,
     "minecraft:entity.cod.ambient": 379,

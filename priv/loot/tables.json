@@ -39177,6 +39177,71 @@
       }
     ]
   },
+  "minecraft:entities/cave_spider": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/cave_spider",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:string",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:spider_eye",
+            "modifier": [
+              {
+                "count": {
+                  "min": -1,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "type": "minecraft:killed_by_player"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:entities/chicken": {
     "type": "minecraft:entity",
     "random_sequence": "minecraft:entities/chicken",
@@ -39419,6 +39484,57 @@
             "type": "minecraft:item"
           }
         ],
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/creeper": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/creeper",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:gunpowder",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "items": "#minecraft:creeper_drop_music_discs",
+            "expand": true,
+            "type": "minecraft:tag"
+          }
+        ],
+        "condition": {
+          "predicate": {
+            "minecraft:entity_type": "#minecraft:skeletons"
+          },
+          "entity": "attacker",
+          "type": "minecraft:entity_properties"
+        },
         "rolls": 1
       }
     ]
@@ -41091,6 +41207,71 @@
             "type": "minecraft:item"
           }
         ],
+        "rolls": 1
+      }
+    ]
+  },
+  "minecraft:entities/spider": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/spider",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:string",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 2,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:spider_eye",
+            "modifier": [
+              {
+                "count": {
+                  "min": -1,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "type": "minecraft:killed_by_player"
+        },
         "rolls": 1
       }
     ]

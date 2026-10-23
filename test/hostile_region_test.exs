@@ -1,11 +1,13 @@
 defmodule Valimc.HostileRegionTest do
   @moduledoc """
-  The zombie family in an owner (VMC-043b1): it finishes its spawn on its
-  first tick, and by day it burns under the open sky, not under a roof.
+  Hostiles in an owner: a zombie finishes its spawn on its first tick, and
+  by day it burns under the open sky, not under a roof (VMC-043b1); flint
+  and steel lights a creeper, which explodes (VMC-043b4).
   """
   # The clock and weather are global: clear noon for the whole test.
   use ExUnit.Case, async: false
   alias Valimc.Entity.{Body, Store}
+  alias Valimc.Protocol.ItemStack
   alias Valimc.TestScope
   alias Valimc.World.Region
 
@@ -58,11 +60,11 @@ defmodule Valimc.HostileRegionTest do
 
   # A finalized one may wear a Halloween pumpkin, which keeps the sun off:
   # the burning zombies skip their spawn.
-  defp summon(ctx, uuid, {x, y, z}, finalize \\ false) do
+  defp summon(ctx, uuid, {x, y, z}, finalize \\ false, type \\ "minecraft:zombie") do
     {:ok, body} =
       if finalize,
-        do: Body.spawned("minecraft:zombie", :command),
-        else: Body.new("minecraft:zombie")
+        do: Body.spawned(type, :command),
+        else: Body.new(type)
 
     # It stands still: only the sun acts on it.
     body = put_in(body.mob.no_ai, true)
@@ -96,5 +98,24 @@ defmodule Valimc.HostileRegionTest do
     step(ctx, 300)
     assert entry(ctx, <<1::128>>).body.mob.living.fire_ticks > 0
     assert entry(ctx, <<2::128>>).body.mob.living.fire_ticks <= 0
+  end
+
+  test "flint and steel lights a creeper, which explodes and is gone", ctx do
+    {x, z} = ctx.at
+    summon(ctx, <<4::128>>, {x + 3.0, 64.0, z}, false, "minecraft:creeper")
+
+    request = %{
+      item: ItemStack.new("minecraft:flint_and_steel"),
+      infinite: false,
+      player: <<9::128>>
+    }
+
+    assert {:ok, %{hand: {:wear, 1}, swing: true}} =
+             Region.interact_entity(ctx.owner, <<4::128>>, request)
+
+    assert entry(ctx, <<4::128>>).body.data.ignited
+    step(ctx, 40)
+    store = Valimc.TestRegion.section(ctx.owner).entities.store
+    assert {:error, _} = Store.find(store, <<4::128>>)
   end
 end

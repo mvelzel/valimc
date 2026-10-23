@@ -491,6 +491,8 @@ struct MobT {
     fixed: bool,
     pushable: bool,
     pushes: bool,
+    /// A wall climber's climbing (VMC-043b4), nil for the others.
+    wall_climb: Option<bool>,
     /// A rabbit's hop (VMC-043c), or nil.
     hop: Option<HopT>,
     travel: (Atom, bool),
@@ -629,6 +631,7 @@ fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
         fixed: m.fixed,
         pushable: m.pushable,
         pushes: m.pushes,
+        wall_climb: m.wall_climb,
         hop: m.hop.as_ref().map(|h| valimc_core::physics::mob::Hop {
             jumping: h.jumping,
             wanted: v3(h.wanted),
@@ -726,6 +729,7 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
         fixed: m.fixed,
         pushable: m.pushable,
         pushes: m.pushes,
+        wall_climb: m.wall_climb,
         hop: m.hop.map(|h| HopT {
             jumping: h.jumping,
             wanted: t3(h.wanted),

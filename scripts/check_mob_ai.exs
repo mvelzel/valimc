@@ -319,6 +319,13 @@ prepare = fn
     mob = %{mob | can_pick_up_loot: p["loot"], living: %{mob.living | fire_ticks: p["fire"]}}
     body = %{body | mob: mob}
 
+    # A lit or charged creeper (VMC-043b4).
+    body =
+      Enum.reduce(p["flags"] || [], body, fn
+        "ignited", b -> %{b | data: %{b.data | ignited: true}}
+        "powered", b -> %{b | data: %{b.data | powered: true}}
+      end)
+
     if p["baby"] do
       self = %Valimc.AI.Self{type: body.type, mob: body.mob, mind: body.mob.ai, data: body.data}
       self = Valimc.AI.Mobs.Zombie.set_baby(self, true)
@@ -343,13 +350,22 @@ extras = fn body, step ->
 
   %{
     "type" => body.type,
-    "removed" => Enum.any?(step.effects, &match?({:convert, _}, &1)),
+    "removed" => Enum.any?(step.effects, &(match?({:convert, _}, &1) or &1 == :discard)),
     "fire" => body.mob.living.fire_ticks,
     "health" => bits.(body.mob.living.health.value),
     "equipment" => equipment,
     "can_pick_up_loot" => body.mob.can_pick_up_loot,
     "converting" => Map.get(body.data, :converting)
   }
+  |> Map.merge(
+    case body.data do
+      # A creeper's fuse (VMC-043b4).
+      %{swell_dir: dir, swell: swell} -> %{"swell_dir" => dir, "swell" => swell}
+      # A spider's climbing.
+      %{climbing: climbing} -> %{"climbing" => climbing}
+      _ -> %{}
+    end
+  )
 end
 
 # The hit a mob's effect lands on a player, with what it adds (VMC-043b:
@@ -635,6 +651,14 @@ checked =
                     s["event"] != nil,
                     do: [s["event"], s["at"], s["data"]]
 
+              # A creeper's explosion where it stood (VMC-043b4).
+              want_blasts =
+                for s <- expected["sounds"], s["explode"] != nil, do: [s["explode"], s["at"]]
+
+              blasts =
+                for {:explode, blast} <- step.effects,
+                    do: [bits.(blast.radius), Enum.map(Tuple.to_list(blast.center), hex)]
+
               adds =
                 for effect <- step.effects,
                     added = added.(effect),
@@ -688,6 +712,7 @@ checked =
                 entity_events: entity_events,
                 takes: takes,
                 level_events: level_events,
+                blasts: blasts,
                 adds: adds,
                 level_seed: world.random,
                 ambient: mind.ambient,
@@ -734,6 +759,7 @@ checked =
                 entity_events: want_entity_events,
                 takes: want_takes,
                 level_events: want_events,
+                blasts: want_blasts,
                 adds: want_adds,
                 level_seed: expected["level_seed"],
                 ambient: expected["ambient"],

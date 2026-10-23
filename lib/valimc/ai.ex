@@ -416,7 +416,7 @@ defmodule Valimc.AI do
         if Mob.alive?(mob) do
           self = self |> despawn_check() |> hook(:tick_start)
 
-          if Enum.any?(self.effects, &match?({:convert, _}, &1)) do
+          if Enum.any?(self.effects, &(match?({:convert, _}, &1) or &1 == :discard)) do
             self
           else
             self = self |> base_tick() |> own_air() |> using_item()

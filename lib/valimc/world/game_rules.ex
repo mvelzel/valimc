@@ -16,6 +16,8 @@ defmodule Valimc.World.GameRules do
     entity_drops: true,
     tnt_explosion_drop_decay: true,
     block_explosion_drop_decay: true,
+    # VMC-043b4: a creeper's explosion drops.
+    mob_explosion_drop_decay: true,
     # VMC-040a: the share of players that must sleep to skip the night.
     players_sleeping_percentage: 100,
     mob_drops: true,

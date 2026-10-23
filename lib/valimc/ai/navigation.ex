@@ -45,7 +45,11 @@ defmodule Valimc.AI.Navigation do
             can_pass_doors: true,
             can_walk_over_fences: false,
             # `GroundPathNavigation.setAvoidSun` (VMC-043b: skeletons by day).
-            avoid_sun: false
+            avoid_sun: false,
+            # `WallClimberNavigation` (a spider's): where its last path went,
+            # steered to straight when no path is left.
+            climber: false,
+            climb_to: nil
 
   @doc "A navigation of `kind` (`:ground`, `:water`, `:fly`, `:amphibious`) with `options`."
   def new(kind \\ :ground, options \\ []) do
@@ -89,8 +93,17 @@ defmodule Valimc.AI.Navigation do
   @doc "`moveTo(entity, speed)`: a path to the entity (none keeps the old one)."
   def move_to_entity(%Self{} = self, target, speed, reach \\ 1) do
     case path_to_entity(self, target, reach) do
-      {nil, self} -> {false, self}
-      {path, self} -> follow(self, path, speed)
+      {nil, self} ->
+        # A climber heads for the target's block anyway.
+        if nav(self).climber do
+          block = {floor(target.x), floor(target.y), floor(target.z)}
+          {true, put(self, %{nav(self) | climb_to: block, speed: speed * 1.0})}
+        else
+          {false, self}
+        end
+
+      {path, self} ->
+        follow(self, path, speed)
     end
   end
 
@@ -101,6 +114,7 @@ defmodule Valimc.AI.Navigation do
   """
   def path_to_entity(%Self{} = self, t, reach) do
     block = {floor(t.x), floor(t.y), floor(t.z)}
+    self = climbing_to(self, block)
 
     if nav(self).kind in [:ground, :fly],
       do: path_to_block(self, block, reach),
@@ -108,8 +122,16 @@ defmodule Valimc.AI.Navigation do
   end
 
   @doc "`createPath(x, y, z, reach)`: `{path | nil, self}`."
-  def path_to(%Self{} = self, {x, y, z}, reach),
-    do: path_to_block(self, {floor(x), floor(y), floor(z)}, reach)
+  def path_to(%Self{} = self, {x, y, z}, reach) do
+    block = {floor(x), floor(y), floor(z)}
+    self |> climbing_to(block) |> path_to_block(block, reach)
+  end
+
+  # `WallClimberNavigation.createPath`: it remembers where the path went.
+  defp climbing_to(self, block) do
+    nav = nav(self)
+    if nav.climber, do: put(self, %{nav | climb_to: block}), else: self
+  end
 
   # `createPath(pos, reach)`: a ground navigation raises the target to its
   # surface (none where its chunk cannot be read).
@@ -332,7 +354,28 @@ defmodule Valimc.AI.Navigation do
   (advancing past a reached node, detecting a stuck mob) and set the move
   control's wanted position at the next node's floor.
   """
-  def tick(%Self{} = self) do
+  def tick(%Self{mind: %{navigation: %{climber: true} = nav}} = self) do
+    if done?(nav), do: climb(self, nav), else: ground_tick(self)
+  end
+
+  def tick(%Self{} = self), do: ground_tick(self)
+
+  # `WallClimberNavigation.tick` with no path left: straight for where the
+  # path went until within its width of that block's centre (or above it).
+  defp climb(self, %{climb_to: nil}), do: self
+
+  defp climb(self, %{climb_to: {bx, by, bz} = block} = nav) do
+    near? = fn {x, y, z} ->
+      {dx, dy, dz} = {x + 0.5 - self.x, y + 0.5 - self.y, z + 0.5 - self.z}
+      dx * dx + dy * dy + dz * dz < self.width * self.width
+    end
+
+    if not near?.(block) and (not (self.y > by) or not near?.({bx, floor(self.y), bz})),
+      do: Self.move_to(self, {bx * 1.0, by * 1.0, bz * 1.0}, nav.speed),
+      else: put(self, %{nav | climb_to: nil})
+  end
+
+  defp ground_tick(%Self{} = self) do
     nav = nav(self)
     self = put(self, %{nav | tick: nav.tick + 1})
     self = if nav.delayed, do: recompute(self), else: self

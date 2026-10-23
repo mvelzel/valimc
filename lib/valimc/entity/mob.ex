@@ -380,6 +380,29 @@ defmodule Valimc.Entity.Mob do
   def drop_chance(%__MODULE__{drop_chances: chances}, slot),
     do: Map.get(chances, slot, Valimc.Data.HostileFacts.drop_chance())
 
+  @doc """
+  `addEffect` of effect `id` (`rung` = `{ticks, amplifier, ambient,
+  particles, icon}`) on a mob: the effect and the attribute modifiers it
+  gives (a hard spider's speed, VMC-043b4).
+  """
+  def add_effect(%__MODULE__{living: living} = mob, id, {_, amplifier, _, _, _} = rung) do
+    name = Valimc.Data.EffectTypes.name(id)
+
+    attributes =
+      Enum.reduce(Valimc.Data.HostileFacts.effect_modifiers(name, amplifier), mob.attributes, fn
+        {attribute, mid, amount, op}, acc ->
+          entry = Map.get(acc, attribute, %{base: nil, modifiers: []})
+          modifiers = Enum.reject(entry.modifiers, &(elem(&1, 0) == mid)) ++ [{mid, amount, op}]
+          Map.put(acc, attribute, %{entry | modifiers: modifiers})
+      end)
+
+    %{
+      mob
+      | living: %{living | effects: Map.put(living.effects, id, [rung])},
+        attributes: attributes
+    }
+  end
+
   @doc "`setDropChance`, kept only where it differs from the default."
   def put_drop_chance(%__MODULE__{drop_chances: chances} = mob, slot, chance) do
     if chance == Valimc.Data.HostileFacts.drop_chance(),

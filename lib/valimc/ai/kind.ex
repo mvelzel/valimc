@@ -46,7 +46,9 @@ defmodule Valimc.AI.Kind do
     to a melee hit), `wants?/2` and `can_hold?/2` (an item id it picks up,
     `Valimc.AI.Pickup`), `preferred_weapons/1`, `voice/2` (the base of its
     voice pitch) and `after_move/3` (its part of the tick after the kernel
-    moved it, `{body, effects}`: a zombie drowning).
+    moved it, `{body, effects}`: a zombie drowning); `harmless?/0` (its
+    melee hits hurt nothing, a creeper's) and `climbs?/1` (it climbs what it
+    bumped into, a spider's `onClimbable`).
   - Leads (VMC-043c3): `leashable?/0` (`canBeLeashed`; false where a family
     leaves it out, until its ticket models it).
   """
@@ -82,6 +84,9 @@ defmodule Valimc.AI.Kind do
   @callback preferred_weapons(String.t()) :: MapSet.t() | nil
   @callback voice(String.t(), map) :: float
   @callback after_move(struct, tuple, map) :: {struct, list}
+  @callback harmless?() :: boolean
+  @callback climbs?(struct) :: boolean
+  @callback mob_interact(struct, map) :: term
   @callback leashable?() :: boolean
   @callback move_control(Self.t()) :: Self.t()
   @callback air(integer, boolean) :: {integer, float}
@@ -119,6 +124,9 @@ defmodule Valimc.AI.Kind do
                       preferred_weapons: 1,
                       voice: 2,
                       after_move: 3,
+                      harmless?: 0,
+                      climbs?: 1,
+                      mob_interact: 2,
                       move_control: 1,
                       air: 2,
                       swim_sound: 0,

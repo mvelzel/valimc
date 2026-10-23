@@ -35,7 +35,7 @@ import net.minecraft.world.phys.Vec3;
  * codec encodes it; and what evaluating them reads: per enchantment in registry order its weight,
  * levels, costs, supported and primary items and exclusive set (resolved), per item its stack
  * size, damage, damageability and enchantability, the instantaneous mob effects, and the
- * enchantment, instrument, biome, structure and item tags.
+ * enchantment, instrument, biome, structure, item and entity type tags.
  *
  * The facts also hold the modelled mobs' entity tables (VMC-037n, `ENTITY_TABLES`), every block's
  * table and the named predicates conditions refer to (VMC-029e), and the block-interaction tables
@@ -72,7 +72,8 @@ public class LootOracle {
       "minecraft:entities/zombified_piglin", "minecraft:entities/ghast",
       // VMC-043b: the overworld hostiles.
       "minecraft:entities/husk", "minecraft:entities/zombie_villager", "minecraft:entities/skeleton",
-      "minecraft:entities/stray", "minecraft:entities/bogged",
+      "minecraft:entities/stray", "minecraft:entities/bogged", "minecraft:entities/creeper", "minecraft:entities/spider",
+      "minecraft:entities/cave_spider",
       // VMC-043e: the End's mobs, fish and squid.
       "minecraft:entities/shulker", "minecraft:entities/cod", "minecraft:entities/salmon", "minecraft:entities/pufferfish",
       "minecraft:entities/tropical_fish", "minecraft:entities/squid", "minecraft:entities/glow_squid",
@@ -302,7 +303,7 @@ public class LootOracle {
     var tags = new JsonObject();
     // Item tags in the order a tag iterates (tag entries pick from them by index).
     for (var key : List.of(Registries.ENCHANTMENT, Registries.INSTRUMENT, Registries.BIOME, Registries.STRUCTURE,
-        Registries.ITEM)) {
+        Registries.ITEM, Registries.ENTITY_TYPE)) {
       var byTag = new TreeMap<String, JsonArray>();
       lookup.lookupOrThrow(key).listTags().forEach(named -> {
         var list = new JsonArray();

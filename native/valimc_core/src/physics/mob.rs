@@ -148,6 +148,10 @@ pub struct Mob {
     pub pushable: bool,
     /// It pushes what it touches (`pushEntities`; a bat's does nothing).
     pub pushes: bool,
+    /// A wall climber's `onClimbable` (VMC-043b4: a spider climbs while it
+    /// bumped into something on its last move), in place of ladders; None
+    /// for the others.
+    pub wall_climb: Option<bool>,
     /// A rabbit's hopping controls (VMC-043c), or none.
     pub hop: Option<Hop>,
     pub travel: Travel,
@@ -761,15 +765,20 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         m.fall_distance = 0.0;
     }
     let input = [m.strafe as f64, 0.0, m.forward as f64];
-    let climbing_before = contacts::climb(
-        w.source,
-        w.facts,
-        start.map(|v| v.floor() as i32),
-        false,
-        false,
-        false,
-    )?
-    .0;
+    let climbing_before = match m.wall_climb {
+        Some(climbing) => climbing,
+        None => {
+            contacts::climb(
+                w.source,
+                w.facts,
+                start.map(|v| v.floor() as i32),
+                false,
+                false,
+                false,
+            )?
+            .0
+        }
+    };
     let before = w.material(&body, start, &m.context(m.fall_distance, start[1]))?;
     let in_fluid = water || lava;
     // travel: the relative input, then the move.
@@ -829,15 +838,20 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         moved.landing = None;
     }
     let after_body = m.body(m.position)?;
-    let climbing = contacts::climb(
-        w.source,
-        w.facts,
-        m.position.map(|v| v.floor() as i32),
-        false,
-        false,
-        false,
-    )?
-    .0;
+    let climbing = match m.wall_climb {
+        Some(climbing) => climbing,
+        None => {
+            contacts::climb(
+                w.source,
+                w.facts,
+                m.position.map(|v| v.floor() as i32),
+                false,
+                false,
+                false,
+            )?
+            .0
+        }
+    };
     m.velocity = if squid {
         m.velocity
     } else if own_water {
@@ -860,7 +874,11 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         } else {
             0.91_f32 as f64
         };
-        [m.velocity[0] * drag, m.velocity[1] * drag, m.velocity[2] * drag]
+        [
+            m.velocity[0] * drag,
+            m.velocity[1] * drag,
+            m.velocity[2] * drag,
+        ]
     } else if in_fluid {
         let (v, escape) = rules::fluid_motion(
             m.velocity,
@@ -1378,6 +1396,7 @@ impl Default for Mob {
             fixed: false,
             pushable: true,
             pushes: true,
+            wall_climb: None,
             hop: None,
             travel: Travel::Ground,
             fluid_pushed: true,
