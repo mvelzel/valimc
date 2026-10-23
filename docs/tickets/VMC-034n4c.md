@@ -73,8 +73,8 @@ fixtures; furnace orbs scatter as in vanilla on the real client.
 - `test/experience_orbs_test.exs`: an award scatters and joins by pick;
   store merging on tick 1, then nothing until tick 21.
 
-Not covered: block effects on orbs (honey's slide, cobwebs) and orbs burning
-in lava or fire (vanilla's 5 health). Items do not burn either.
+Not covered: block effects on orbs (honey's slide, cobwebs). Burning in lava
+and fire is [VMC-034n4d](VMC-034n4d.md).
 
 ## Client gate
 

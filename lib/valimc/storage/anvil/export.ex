@@ -174,7 +174,15 @@ defmodule Valimc.Storage.Anvil.Export do
     saved =
       Map.get(orb, :saved, %{velocity: {0.0, 0.0, 0.0}, on_ground: false, no_gravity: false})
 
-    body = Map.merge(saved, %{position: {orb.x, orb.y, orb.z}, age: orb.age})
+    motion = Map.get(orb, :motion) || %Valimc.Entity.ItemMotionState{}
+
+    body =
+      Map.merge(saved, %{
+        position: {orb.x, orb.y, orb.z},
+        age: orb.age,
+        health: motion.health,
+        fire_ticks: motion.fire_ticks
+      })
 
     Entity.orb_tag(orb.uuid, orb.value, orb.count, body)
   end

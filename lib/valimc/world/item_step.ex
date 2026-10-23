@@ -7,7 +7,7 @@ defmodule Valimc.World.ItemStep do
   kernel cannot step (embedded in a block, near a chunk that cannot be read,
   out of bounds) keeps its state.
   """
-  alias Valimc.Entity.ItemMotionState
+  alias Valimc.Entity.{ItemBurning, ItemMotionState}
   alias Valimc.Physics.Kernel
 
   @doc """
@@ -51,7 +51,8 @@ defmodule Valimc.World.ItemStep do
 
   @doc """
   The next state of each `%{position, motion: %ItemMotionState{}}` (other keys
-  pass through): `{:ok, item}` or `{:error, reason}` per item, in order.
+  pass through; `fire_immune` for one fire cannot hurt): `{:ok, item}` with
+  `dead` whether it burned up, or `{:error, reason}` per item, in order.
   """
   def run(view, items, border) do
     inputs =
@@ -67,11 +68,18 @@ defmodule Valimc.World.ItemStep do
   defp draw, do: :rand.uniform(16_777_216) - 1
 
   # An item's counters tick with its motion; an orb's age is its owner's.
-  defp result(entity, {:ok, position, velocity, on_ground}, counters) do
+  # Both burn (VMC-034n4d): `dead` once fire, lava or a cactus took the last
+  # of its health.
+  defp result(entity, {:ok, position, velocity, on_ground, lava, fires}, counters) do
     motion = if counters, do: ItemMotionState.tick(entity.motion), else: entity.motion
+    {motion, dead} = ItemBurning.tick(motion, Map.get(entity, :fire_immune, false), lava, fires)
 
     {:ok,
-     %{entity | position: position, motion: %{motion | velocity: velocity, on_ground: on_ground}}}
+     Map.merge(entity, %{
+       position: position,
+       motion: %{motion | velocity: velocity, on_ground: on_ground},
+       dead: dead
+     })}
   end
 
   defp result(_entity, :inside, _), do: {:error, :item_inside_block}

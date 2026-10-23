@@ -6,8 +6,9 @@ defmodule Valimc.Storage.Anvil.Entity do
   A dropped item ValiMC can represent becomes an item record of the entity model
   (`Valimc.Entity.Store`), read as vanilla's `Entity.load` and
   `ItemEntity.readAdditionalSaveData` read it: a motion component beyond ±10 is
-  zero, `Age` and `PickupDelay` are shorts. An XP orb becomes an orb entity
-  record (VMC-077h) with its UUID, value, count and age. Every other entity (mobs, items with an owner, riders or components
+  zero, `Age`, `PickupDelay`, `Health` and `Fire` are shorts. An XP orb becomes
+  an orb entity record (VMC-077h) with its UUID, value, count, age, health and
+  burning. Every other entity (mobs, items with an owner, riders or components
   ValiMC cannot hold) is preserved as its compound for export.
   """
   alias Valimc.Entity.ItemMotionState
@@ -36,7 +37,9 @@ defmodule Valimc.Storage.Anvil.Entity do
          value: value,
          count: count,
          on_ground: flag(fields["OnGround"]),
-         no_gravity: flag(fields["NoGravity"])
+         no_gravity: flag(fields["NoGravity"]),
+         health: short(fields["Health"], 5),
+         fire_ticks: short(fields["Fire"], 0)
        }}
     else
       _ -> :preserve
@@ -58,7 +61,9 @@ defmodule Valimc.Storage.Anvil.Entity do
         pickup_delay: delay(fields["PickupDelay"]),
         on_ground: flag(fields["OnGround"]),
         no_gravity: flag(fields["NoGravity"]),
-        portal_cooldown: cooldown(fields["PortalCooldown"])
+        portal_cooldown: cooldown(fields["PortalCooldown"]),
+        health: short(fields["Health"], 5),
+        fire_ticks: short(fields["Fire"], 0)
       }
 
       {:item, %{uuid: uuid, x: x, y: y, z: z, stack: stack, motion: state}}
@@ -104,6 +109,9 @@ defmodule Valimc.Storage.Anvil.Entity do
   defp cooldown({:int, ticks}), do: ticks |> max(0) |> min(32_767)
   defp cooldown(_), do: 0
 
+  defp short({:short, value}, _default), do: value
+  defp short(_, default), do: default
+
   defp flag({:byte, value}), do: value != 0
   defp flag(_), do: false
 
@@ -132,6 +140,8 @@ defmodule Valimc.Storage.Anvil.Entity do
      |> Map.merge(%{
        "Age" => {:short, motion.age},
        "PickupDelay" => {:short, motion.pickup_delay},
+       "Health" => {:short, motion.health},
+       "Fire" => {:short, motion.fire_ticks},
        "Item" => ItemData.tag(stack)
      })
      |> Map.merge(cooldown)}
@@ -146,7 +156,9 @@ defmodule Valimc.Storage.Anvil.Entity do
      Map.merge(fields, %{
        "Age" => {:short, age},
        "Value" => {:short, value},
-       "Count" => {:int, count}
+       "Count" => {:int, count},
+       "Health" => {:short, Map.get(body, :health, 5)},
+       "Fire" => {:short, Map.get(body, :fire_ticks, 0)}
      })}
   end
 

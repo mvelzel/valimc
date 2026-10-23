@@ -228,8 +228,10 @@ defmodule Valimc.Physics.Kernel do
 
   @doc """
   One tick for each item `{position, velocity, on_ground, no_gravity}`:
-  `{:ok, results}` in order, each `{:ok, position, velocity, on_ground}`,
-  `:inside`, `{:unreadable, position}` or `:limit`.
+  `{:ok, results}` in order, each `{:ok, position, velocity, on_ground, lava,
+  fire_contacts}` (whether it began in lava; the fire, lava, water and cactus
+  contacts of its move, as a mob's), `:inside`, `{:unreadable, position}` or
+  `:limit`.
   """
   def items(_view, [], _border), do: {:ok, []}
 

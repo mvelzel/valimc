@@ -1141,6 +1141,10 @@ STAGES = [
         ('java', 'OrbTravelOracle', '@orb-travel.json'),
         ('check', 'check_orb_travel.exs', '@orb-travel.json'),
     ]),
+    ('item_burn', [
+        ('java', 'ItemBurnOracle', '@item-burn.json'),
+        ('check', 'check_item_burn.exs', '@item-burn.json'),
+    ]),
     ('player_experience', [
         ('java', 'PlayerExperienceOracle', '@player-experience.json'),
         ('check', 'check_player_experience.exs', '@player-experience.json'),

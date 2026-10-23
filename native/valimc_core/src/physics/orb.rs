@@ -1,16 +1,19 @@
 //! One experience orb tick (vanilla's `ExperienceOrb.tick` with
-//! `Entity.move`, without block effects): fluid currents, water drag or
-//! gravity, the random jump in lava, the pull toward the player it follows,
-//! collision with the blocks and border, block speed and friction, and the
-//! bounce off the ground. Choosing the player, merging, ageing and pickup stay
-//! with the owner.
+//! `Entity.move`): fluid currents, water drag or gravity, the random jump in
+//! lava, the pull toward the player it follows, collision with the blocks and
+//! border, block speed and friction, the bounce off the ground, and what the
+//! blocks it passed do to it (as an item's). Choosing the player, merging,
+//! ageing, burning and pickup stay with the owner.
 
 use super::aabb::Aabb;
 use super::border::Border;
 use super::collide::{collide_with, colliders, scan_cells, Extra};
 use super::facts::{Facts, LAVA};
 use super::fluid::{current, eyes, normalize, Pushed};
-use super::item::{bounded, context, f32r, position_ok, translated, ItemFault, MAX_SCAN};
+use super::item::{
+    bounded, context, f32r, position_ok, touched, translated, ItemFault, Stepped, MAX_SCAN,
+};
+use super::player::pose::Dimensions;
 use super::response::{respond, Response};
 use super::source::BlockSource;
 use super::support::{motion_at, on_pos, supporting};
@@ -26,6 +29,11 @@ pub struct OrbBody {
 const GRAVITY: f64 = 0.03;
 /// `EntityType.EXPERIENCE_ORB`'s eye: 0.85F of its 0.5F height.
 const EYE: f32 = 0.425;
+const SIZE: Dimensions = Dimensions {
+    width: 0.5,
+    height: 0.5,
+    eye: EYE as f64,
+};
 /// The distance at which an orb stops following a player (`followNearbyPlayer`).
 pub const FOLLOW_RANGE: f64 = 8.0;
 
@@ -46,7 +54,7 @@ pub fn step(
     target: Option<[f64; 3]>,
     draws: [u32; 4],
     border: Option<&Border>,
-) -> Result<OrbBody, ItemFault> {
+) -> Result<Stepped<OrbBody>, ItemFault> {
     if !bounded(orb.velocity) || !position_ok(orb.position) {
         return Err(ItemFault::Limit);
     }
@@ -61,10 +69,14 @@ pub fn step(
     let b = body(orb.position);
     let inside = !shapes_for(&b.deflate(1.0e-7), orb.position)?.is_empty();
     // `Entity.baseTick`: the currents push every entity, normalized for all but players.
-    let (_, velocity) = current(source, facts, &b, orb.velocity, true, false, Pushed::Item)?
+    let (depths, velocity) = current(source, facts, &b, orb.velocity, true, false, Pushed::Item)?
         .ok_or(ItemFault::Limit)?;
     let [x, y, z] = velocity;
-    let eye = [orb.position[0], orb.position[1] + EYE as f64, orb.position[2]];
+    let eye = [
+        orb.position[0],
+        orb.position[1] + EYE as f64,
+        orb.position[2],
+    ];
     let (eye_in_water, _) = eyes(source, facts, &b, eye)?.ok_or(ItemFault::Limit)?;
     let mut v = if eye_in_water {
         // `setUnderwaterMovement`: a slow rise, capped at 0.06F.
@@ -178,9 +190,13 @@ pub fn step(
     if !position_ok(destination) || !bounded(next) {
         return Err(ItemFault::Limit);
     }
-    Ok(OrbBody {
-        position: destination,
-        velocity: next,
-        on_ground: grounded,
+    Ok(Stepped {
+        body: OrbBody {
+            position: destination,
+            velocity: next,
+            on_ground: grounded,
+        },
+        lava: depths.lava > 0.0,
+        touched: touched(source, facts, SIZE, orb.position, v, actual, destination)?,
     })
 }

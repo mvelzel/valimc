@@ -758,7 +758,10 @@ defmodule Valimc.World.RegionStorage do
   defp wait(_key, _old, _new, _full), do: nil
 
   defp counters(%{motion: motion} = record),
-    do: %{record | motion: %{motion | age: 0, pickup_delay: 0, portal_cooldown: 0}}
+    do: %{
+      record
+      | motion: %{motion | age: 0, pickup_delay: 0, portal_cooldown: 0, fire_ticks: 0}
+    }
 
   defp moved(record) do
     %{motion: motion} = record = counters(record)

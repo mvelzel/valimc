@@ -283,7 +283,15 @@ fn orbs_step<'a>(
         .iter()
         .map(|(b, target, draws)| {
             match orb::step(&view, facts, b, *target, *draws, border.as_ref()) {
-                Ok(n) => (atoms::ok(), t3(n.position), t3(n.velocity), n.on_ground).encode(env),
+                Ok(s) => (
+                    atoms::ok(),
+                    t3(s.body.position),
+                    t3(s.body.velocity),
+                    s.body.on_ground,
+                    s.lava,
+                    crate::player::fires(&s.touched),
+                )
+                    .encode(env),
                 Err(ItemFault::Inside) => atoms::inside().encode(env),
                 Err(ItemFault::Limit) => atoms::limit().encode(env),
                 Err(ItemFault::Unreadable(p)) => {
@@ -299,8 +307,8 @@ type ItemT = (Vec3, Vec3, bool, bool);
 
 /// One tick for each item (`ItemEntity.tick` with `Entity.move`, refreshing
 /// resting items when `refresh`): `{:ok, results}` in input order, each
-/// `{:ok, position, velocity, on_ground}`, `:inside`, `{:unreadable, pos}` or
-/// `:limit` (the item keeps its state).
+/// `{:ok, position, velocity, on_ground, lava, fire_contacts}`, `:inside`,
+/// `{:unreadable, pos}` or `:limit` (the item keeps its state).
 #[rustler::nif]
 fn physics_items<'a>(
     env: Env<'a>,
@@ -367,7 +375,15 @@ fn items_step<'a>(
         .iter()
         .map(
             |b| match item::step(&view, facts, b, refresh, border.as_ref()) {
-                Ok(n) => (atoms::ok(), t3(n.position), t3(n.velocity), n.on_ground).encode(env),
+                Ok(s) => (
+                    atoms::ok(),
+                    t3(s.body.position),
+                    t3(s.body.velocity),
+                    s.body.on_ground,
+                    s.lava,
+                    crate::player::fires(&s.touched),
+                )
+                    .encode(env),
                 Err(ItemFault::Inside) => atoms::inside().encode(env),
                 Err(ItemFault::Limit) => atoms::limit().encode(env),
                 Err(ItemFault::Unreadable(p)) => {

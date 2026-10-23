@@ -1,13 +1,18 @@
-//! One item tick (vanilla's `ItemEntity.tick` with `Entity.move`, without
-//! block effects): fluid currents, gravity or buoyancy, collision with the
-//! blocks and border, bounce, block speed and friction, then currents again.
-//! Ageing and pickup delays stay with the owner.
+//! One item tick (vanilla's `ItemEntity.tick` with `Entity.move`): fluid
+//! currents, gravity or buoyancy, collision with the blocks and border,
+//! bounce, block speed and friction, then currents again, with what the
+//! blocks it passed do to it (fire, lava, water, cactus) for the owner's
+//! burning and health. Ageing and pickup delays stay with the owner.
 
 use super::aabb::Aabb;
 use super::border::Border;
 use super::collide::{collide_with, colliders, scan_cells, Extra};
 use super::facts::Facts;
 use super::fluid::{current, Pushed};
+use super::player::contacts::{self, Body, Source, Touched, Toucher};
+use super::player::paths;
+use super::player::pose::Dimensions;
+use super::player::Fault;
 use super::response::{respond, Response};
 use super::source::{BlockSource, Unreadable};
 use super::support::{motion_at, on_pos, supporting};
@@ -42,6 +47,71 @@ impl From<Unreadable> for ItemFault {
         ItemFault::Unreadable(u.0)
     }
 }
+
+impl From<Fault> for ItemFault {
+    fn from(f: Fault) -> ItemFault {
+        match f {
+            Fault::Unreadable(p) => ItemFault::Unreadable(p),
+            Fault::Limit(_) => ItemFault::Limit,
+        }
+    }
+}
+
+/// One tick of an item or orb: its body after it, whether it began the tick
+/// in lava (`isInLava` for `Entity.baseTick`'s burning) and what the blocks
+/// it passed did to it (`applyEffectsFromBlocks`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stepped<B> {
+    pub body: B,
+    pub lava: bool,
+    pub touched: Touched,
+}
+
+/// The fire, lava and water contacts of a move from `from` to `to` (as
+/// `Entity.move` recorded it) for a body of `size`, with the immediate
+/// hazards that hurt any entity: cactus (the rest hurt living ones only).
+pub(super) fn touched(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    size: Dimensions,
+    from: [f64; 3],
+    requested: [f64; 3],
+    actual: [f64; 3],
+    to: [f64; 3],
+) -> Result<Touched, ItemFault> {
+    let mut recorded = Vec::new();
+    paths::record(&mut recorded, from, actual, requested);
+    let visited = paths::collect(&recorded, from, to);
+    let mut t = contacts::touched(
+        source,
+        facts,
+        &[size],
+        &visited,
+        &context(to[1]),
+        &Toucher {
+            body: Body {
+                pose: 0,
+                feet: to,
+                flying: false,
+                spectator: false,
+                weaving: false,
+            },
+            grounded: false,
+            careful: false,
+            known_movement: actual,
+            support_state: 0,
+        },
+    )?;
+    t.immediate.retain(|&(s, _)| s == Source::Cactus);
+    Ok(t)
+}
+
+/// `EntityType.ITEM`'s 0.25F box with its 0.85 eye.
+const SIZE: Dimensions = Dimensions {
+    width: 0.25,
+    height: 0.25,
+    eye: 0.2125000059604645,
+};
 
 fn body(p: [f64; 3]) -> Aabb {
     Aabb {
@@ -78,7 +148,7 @@ pub fn step(
     item: &ItemBody,
     refresh: bool,
     border: Option<&Border>,
-) -> Result<ItemBody, ItemFault> {
+) -> Result<Stepped<ItemBody>, ItemFault> {
     if !bounded(item.velocity) || !position_ok(item.position) {
         return Err(ItemFault::Limit);
     }
@@ -119,8 +189,19 @@ pub fn step(
         return Err(ItemFault::Limit);
     }
     let moves = !item.on_ground || next[0] * next[0] + next[2] * next[2] > f32r(0.00001) || refresh;
-    let (position, velocity, on_ground) = if !moves {
-        (item.position, next, item.on_ground)
+    // A resting item's effects come from its last movement, which ValiMC
+    // takes as standing still.
+    let (position, velocity, on_ground, touched) = if !moves {
+        let t = touched(
+            source,
+            facts,
+            SIZE,
+            item.position,
+            [0.0; 3],
+            [0.0; 3],
+            item.position,
+        )?;
+        (item.position, next, item.on_ground, t)
     } else {
         let requested = next;
         let swept = b.expand_towards(requested);
@@ -184,7 +265,16 @@ pub fn step(
         if !position_ok(destination) {
             return Err(ItemFault::Limit);
         }
-        (destination, v, grounded)
+        let t = touched(
+            source,
+            facts,
+            SIZE,
+            item.position,
+            requested,
+            actual,
+            destination,
+        )?;
+        (destination, v, grounded, t)
     };
     let (_, after) = current(
         source,
@@ -199,11 +289,15 @@ pub fn step(
     if !bounded(after) {
         return Err(ItemFault::Limit);
     }
-    Ok(ItemBody {
-        position,
-        velocity: after,
-        on_ground,
-        no_gravity: item.no_gravity,
+    Ok(Stepped {
+        body: ItemBody {
+            position,
+            velocity: after,
+            on_ground,
+            no_gravity: item.no_gravity,
+        },
+        lava: depths.lava > 0.0,
+        touched,
     })
 }
 

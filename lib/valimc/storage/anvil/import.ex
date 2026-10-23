@@ -392,7 +392,17 @@ defmodule Valimc.Storage.Anvil.Import do
           {x, y, z} = orb.position
           record = %{kind: :orb, uuid: orb.uuid, x: x, y: y, z: z, value: orb.value}
           saved = Map.take(orb, [:velocity, :on_ground, :no_gravity])
-          record = Map.merge(record, %{count: orb.count, age: orb.age, saved: saved})
+
+          motion = %Valimc.Entity.ItemMotionState{
+            velocity: orb.velocity,
+            on_ground: orb.on_ground,
+            health: orb.health,
+            fire_ticks: orb.fire_ticks
+          }
+
+          record =
+            Map.merge(record, %{count: orb.count, age: orb.age, saved: saved, motion: motion})
+
           {[record], MapSet.put(seen, orb.uuid)}
         end
       end)

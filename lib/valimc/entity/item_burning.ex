@@ -1,0 +1,89 @@
+defmodule Valimc.Entity.ItemBurning do
+  @moduledoc """
+  Fire and lava for a dropped item or experience orb (VMC-034n4d), after its
+  kernel tick: `Entity.baseTick`'s burning (a second's damage unless in
+  lava, counting down; a fire-immune item stops burning), then the contacts
+  of its move in order (`Burning.plan/1`): cactus, fire's ignition and
+  damage, lava's ignition and 4 damage, water putting it out, a counter not
+  burning reset to 0. Damage comes
+  off its health as `ItemEntity.hurtServer` and `ExperienceOrb.hurtServer`
+  take it (an integer, truncated); at 0 or below it is gone and later hurts
+  miss it. Fire-immune items (netherite) take no fire damage.
+  """
+  alias Valimc.Living.Burning
+
+  @doc """
+  `{motion, dead}` for `motion` (health and fire ticks) after one tick:
+  `immune` to fire, `lava` whether it began the tick in lava, `fires` its
+  move's contacts (`%{immediate, steps}` as the kernel reports them).
+  """
+  def tick(motion, immune, lava, fires) do
+    {:ok, burned} = Burning.tick(motion.fire_ticks, immune, lava)
+    {state, gone} = hurt({%{motion | fire_ticks: burned.ticks}, false}, burned.damage)
+    immediate = for {:cactus, amount} <- fires.immediate, do: {:damage, :cactus, amount}
+
+    operations =
+      case Burning.plan(fires.steps) do
+        {:ok, operations} -> operations
+        _ -> []
+      end
+
+    # One gone in `baseTick` skips the block effects (`isAffectedByBlocks`).
+    if gone do
+      {state, true}
+    else
+      {after_effects, gone} =
+        Enum.reduce(immediate ++ operations, {state, false}, &apply_contact(&1, &2, immune))
+
+      {settle(after_effects, state, immune), gone}
+    end
+  end
+
+  # The end of `applyEffectsFromBlocks`: an entity neither on fire nor lit
+  # this tick has its counter reset to 0.
+  defp settle(state, before, immune) do
+    if (state.fire_ticks > 0 and not immune) or state.fire_ticks > before.fire_ticks,
+      do: state,
+      else: %{state | fire_ticks: 0}
+  end
+
+  # A gone entity's later hurts miss it (`isInvulnerableToBase`: removed).
+  defp apply_contact(_operation, {_state, true} = gone, _immune), do: gone
+
+  # `BaseFireBlock.fireIgnite` for an entity that is not a player: a negative
+  # counter steps toward zero, then eight seconds at least.
+  defp apply_contact(:fire_ignite, {state, gone}, false) do
+    ticks = if state.fire_ticks < 0, do: state.fire_ticks + 1, else: state.fire_ticks
+
+    if ticks >= 0 do
+      {:ok, ignition} = Burning.ignite_seconds(ticks, 8.0, 1.0)
+      {%{state | fire_ticks: ignition.ticks}, gone}
+    else
+      {%{state | fire_ticks: ticks}, gone}
+    end
+  end
+
+  defp apply_contact(:lava_ignite, {state, gone}, false) do
+    {:ok, ignition} = Burning.lava(state.fire_ticks, false, 1.0)
+    {%{state | fire_ticks: ignition.ticks}, gone}
+  end
+
+  defp apply_contact(:lava_hurt, acc, false), do: hurt(acc, 4.0)
+  defp apply_contact({:damage, :cactus, amount}, acc, _immune), do: hurt(acc, amount)
+  defp apply_contact({:damage, _fire, amount}, acc, false), do: hurt(acc, amount)
+
+  defp apply_contact(:extinguish, {state, gone}, _immune) do
+    {:ok, ticks} = Burning.clear(state.fire_ticks)
+    {%{state | fire_ticks: ticks}, gone}
+  end
+
+  defp apply_contact(_operation, acc, _immune), do: acc
+
+  # `hurtServer`: any hurt that leaves 0 or less discards it.
+  defp hurt({state, gone}, damage) when damage > 0 do
+    health = trunc(state.health - damage)
+    {%{state | health: health}, gone or health <= 0}
+  end
+
+  defp hurt(acc, _damage), do: acc
+end

@@ -44,6 +44,7 @@ parallel. In every slice:
 | [VMC-032b](tickets/VMC-032b.md) | Double chests | Joined chests, the large menu and splitting, across group lines too |
 | [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |
 | [VMC-034n4c](tickets/VMC-034n4c.md) | Experience orb gaps | Orbs merge, jump in lava and launch as vanilla's, checked against the oracle |
+| [VMC-034n4d](tickets/VMC-034n4d.md) | Items and orbs burn | Items and orbs die in fire, lava and on cactus on vanilla's tick, checked against the oracle |
 | [VMC-026d](tickets/VMC-026d.md) | Eyes of ender; mobs and orbs through portals | Eyes lead to vanilla's stronghold; mobs and orbs cross portals with their state |
 | [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals, the exit portal, gateways and the respawn ritual |
 | [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |

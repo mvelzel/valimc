@@ -1083,7 +1083,12 @@ defmodule Valimc.World.RegionData do
       end)
       |> Enum.split_with(fn {_, entry} -> entry.kind == :item end)
 
-    inputs = Enum.map(items, fn {id, entry} -> step_input(id, entry) end)
+    # Fire cannot hurt some stacks (netherite, VMC-034n4d).
+    inputs =
+      Enum.map(items, fn {id, entry} ->
+        step_input(id, entry)
+        |> Map.put(:fire_immune, Valimc.Living.Armor.resists_fire?(entry.stack))
+      end)
 
     # An orb follows the nearest playing player within eight blocks
     # (`ExperienceOrb.followNearbyPlayer`), toward half its eye height.
@@ -4580,6 +4585,10 @@ defmodule Valimc.World.RegionData do
 
     route = route_key(state)
 
+    # Items and orbs that burned up (VMC-034n4d) go at once, wherever their
+    # step led; the next frame drops their records.
+    {dead, steps} = Enum.split_with(steps, &Map.get(&1, :dead, false))
+
     {local, borders} =
       Enum.split_with(steps, fn %{position: {x, _, z}} ->
         Grid.section(state.dimension, Grid.chunk_key(x, z)) == route
@@ -4593,6 +4602,8 @@ defmodule Valimc.World.RegionData do
       if write_busy(state) != nil do
         state
       else
+        state = burn_up(state, dead)
+
         Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
           case Store.advance(acc.entities.store, acc.key, acc.epoch, batch) do
             {:ok, items, _} -> %{acc | entities: %{acc.entities | store: items}}
@@ -4629,6 +4640,20 @@ defmodule Valimc.World.RegionData do
     else
       {:noreply, start_item_merging(state, System.monotonic_time(:millisecond))}
     end
+  end
+
+  defp burn_up(state, []), do: state
+
+  defp burn_up(state, dead) do
+    store =
+      Enum.reduce(dead, state.entities.store, fn step, acc ->
+        case Store.remove(acc, acc.epoch, step.id, step.revision) do
+          {:ok, next} -> next
+          _ -> acc
+        end
+      end)
+
+    publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
 
   # Entities in portals (VMC-026c, VMC-026d): steps meeting a portal renew

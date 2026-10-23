@@ -7,9 +7,9 @@ defmodule Valimc.World.Explosion do
     (`Physics.Kernel.explosion/6`): the cells they reach, air included, as
     they stood when it went off.
   - **Entities.** Each owner whose entities lie in the reach box hits its
-    own (`hits/3`): items and orbs an explosion of more than 4 damage
-    destroys (their 5 health, `ItemEntity.hurtServer`; a nether star
-    resists), mobs are hurt, and everything left is pushed. Players are hit
+    own (`hits/3`): items and orbs whose health the damage uses up it
+    destroys (`ItemEntity.hurtServer`; a nether star resists), mobs are
+    hurt, and everything left is pushed. Players are hit
     by their sessions (`Valimc.Player.Explosions`), so their hosts decide
     damage, knockback and the packet.
   - **Blocks.** The crater commits as one box edit across every owner it
@@ -130,11 +130,24 @@ defmodule Valimc.World.Explosion do
     impulse = Explosions.knockback(explosion.center, origin, distance, seen, resistance)
 
     cond do
-      kind == :item and not Armor.resists_explosion?(entry.stack) and damage > 4.0 -> :destroy
-      kind == :orb and damage > 4.0 -> :destroy
-      kind == :mob -> {:hurt, damage, impulse, explosion.source}
-      true -> {:push, impulse}
+      kind == :item and not Armor.resists_explosion?(entry.stack) and lethal?(entry, damage) ->
+        :destroy
+
+      kind == :orb and lethal?(entry, damage) ->
+        :destroy
+
+      kind == :mob ->
+        {:hurt, damage, impulse, explosion.source}
+
+      true ->
+        {:push, impulse}
     end
+  end
+
+  # `hurtServer` takes the damage off an item's or orb's health, truncated.
+  defp lethal?(entry, damage) do
+    %{health: health} = Map.get(entry, :motion) || %Valimc.Entity.ItemMotionState{}
+    trunc(health - damage) <= 0
   end
 
   @doc """

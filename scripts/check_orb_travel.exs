@@ -49,10 +49,13 @@ for {row, index} <- Enum.with_index(travel) do
   [result] = ItemStep.run_orbs(frame, [orb], nil)
   expected = state.(row["after"])
 
+  # The travel oracle leaves burning out (stage `item_burn` has it).
   exact =
     case result do
       {:ok, actual} ->
-        actual.position == expected.position and actual.motion == expected.motion and
+        motion = %{actual.motion | health: 5, fire_ticks: 0}
+
+        actual.position == expected.position and motion == expected.motion and
           bits.(actual.position) == bits.(expected.position) and
           bits.(actual.motion.velocity) == bits.(expected.motion.velocity)
 

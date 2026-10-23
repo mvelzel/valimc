@@ -194,5 +194,14 @@ defmodule Valimc.Living.Armor do
       MapSet.member?(@explosion_resistant, stack.item_id) and
         not MapSet.member?(stack.removed, "minecraft:damage_resistant")
 
+  @doc """
+  Whether fire cannot hurt `stack` as an item entity (its `damage_resistant`
+  component lists fire: netherite), `ItemEntity.fireImmune`.
+  """
+  def resists_fire?(%ItemStack{} = stack),
+    do:
+      MapSet.member?(@fire_resistant, stack.item_id) and
+        not MapSet.member?(stack.removed, "minecraft:damage_resistant")
+
   defp next_float, do: (:rand.uniform(16_777_216) - 1) / 16_777_216
 end

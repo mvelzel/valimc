@@ -6,7 +6,11 @@ defmodule Valimc.Entity.ItemMotionState do
             on_ground: false,
             no_gravity: false,
             # Ticks before a portal takes the item again (VMC-026c, vanilla's `portalCooldown`).
-            portal_cooldown: 0
+            portal_cooldown: 0,
+            # An item's or orb's health and burning counter (VMC-034n4d,
+            # `Health` and `remainingFireTicks`).
+            health: 5,
+            fire_ticks: 0
 
   def tick(%__MODULE__{} = state), do: advance(state, 1)
 
@@ -29,14 +33,18 @@ defmodule Valimc.Entity.ItemMotionState do
         pickup_delay: delay,
         on_ground: on_ground,
         no_gravity: no_gravity,
-        portal_cooldown: cooldown
+        portal_cooldown: cooldown,
+        health: health,
+        fire_ticks: fire
       }),
       do:
         Enum.all?([x, y, z], &(is_number(&1) and abs(&1) <= 64)) and
           is_integer(age) and age in -32_768..6000 and
           is_integer(delay) and delay in 0..32_767 and
           is_boolean(on_ground) and is_boolean(no_gravity) and
-          is_integer(cooldown) and cooldown in 0..32_767
+          is_integer(cooldown) and cooldown in 0..32_767 and
+          is_integer(health) and health in -32_768..32_767 and
+          is_integer(fire) and fire in -32_768..32_767
 
   def valid?(_), do: false
 end
