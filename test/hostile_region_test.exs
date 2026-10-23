@@ -56,8 +56,14 @@ defmodule Valimc.HostileRegionTest do
     %{key: key, owner: owner, at: {x0 + 0.5, z0 + 0.5}}
   end
 
-  defp summon(ctx, uuid, {x, y, z}) do
-    {:ok, body} = Body.spawned("minecraft:zombie", :command)
+  # A finalized one may wear a Halloween pumpkin, which keeps the sun off:
+  # the burning zombies skip their spawn.
+  defp summon(ctx, uuid, {x, y, z}, finalize \\ false) do
+    {:ok, body} =
+      if finalize,
+        do: Body.spawned("minecraft:zombie", :command),
+        else: Body.new("minecraft:zombie")
+
     # It stands still: only the sun acts on it.
     body = put_in(body.mob.no_ai, true)
     :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x, y, z})])
@@ -79,12 +85,13 @@ defmodule Valimc.HostileRegionTest do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x + 3.0, 64.0, z})
     summon(ctx, <<2::128>>, {x - 5.0, 64.0, z})
+    summon(ctx, <<3::128>>, {x, 64.0, z + 2.0}, true)
     step(ctx, 1)
 
     # `finalizeSpawn` ran: a follow range bonus, its own reinforcement chance.
-    open = entry(ctx, <<1::128>>)
-    assert open.body.mob.finalize == nil
-    assert Map.has_key?(open.body.mob.attributes, "minecraft:spawn_reinforcements")
+    spawned = entry(ctx, <<3::128>>)
+    assert spawned.body.mob.finalize == nil
+    assert Map.has_key?(spawned.body.mob.attributes, "minecraft:spawn_reinforcements")
 
     step(ctx, 300)
     assert entry(ctx, <<1::128>>).body.mob.living.fire_ticks > 0
