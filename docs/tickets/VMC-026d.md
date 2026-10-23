@@ -1,6 +1,6 @@
 # VMC-026d — Eyes of ender; mobs and orbs through portals
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-037o](VMC-037o.md), [VMC-015i](VMC-015i.md),
 [VMC-034n4c](VMC-034n4c.md) (orb gaps),
@@ -68,3 +68,17 @@ mob's smaller size; the used-ender-eye advancement and statistic.
 Throw an eye of ender in the overworld: it flies toward the stronghold, then
 drops or shatters. A zombie walking into a Nether portal and orbs thrown into
 one appear on the Nether side.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-04` and `run-06`)
+
+Passed on seed 20261023:
+
+- Five thrown eyes of ender each flew about 12 blocks toward the stronghold
+  `/locate` named (about 40° west of south) and dropped as items.
+- A zombie walked into a lit Nether portal toward the survival player
+  behind it and stood beside the Nether-side portal when the player came
+  through.
+- Two orbs resting in a frame's opening when it was filled with portal
+  blocks appeared about 3 seconds later, with the same ids, beside the new
+  portal in the Nether near the overworld position over 8 (seen in the
+  server's entities only).

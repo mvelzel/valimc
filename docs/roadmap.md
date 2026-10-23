@@ -68,9 +68,6 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-042b](tickets/VMC-042b.md) | Monsters spawning on a swamp hut's floor are witches; its cat is black |
-| [VMC-034n4c](tickets/VMC-034n4c.md) | Orbs launch with a spread, hop in lava and merge (a furnace's orbs after [VMC-034f](tickets/VMC-034f.md)) |
-| [VMC-026d](tickets/VMC-026d.md) | Orbs cross a Nether portal |
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-043e1](tickets/VMC-043e1.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt, drops shells; a pearl's endermite chases and bites |
 

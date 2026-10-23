@@ -1,6 +1,6 @@
 # VMC-042b — Structure mobs and spawners
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-043a](VMC-043a.md), [VMC-042a](VMC-042a.md).
 
@@ -163,3 +163,20 @@ monsters spawning on its floor are witches. In the Nether, `/locate
 structure fortress` and find a blaze spawner: within 16 blocks of it, in
 survival, blazes appear around it (with the spawner's flames) every 10–40
 seconds, at most six nearby; walking 20 blocks away stops them.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-04` to `run-06`)
+
+Passed on seed 20261023:
+
+- A mountain village's five villagers (standing still), an iron golem and
+  two cats were there when the chunks first loaded, and at the same
+  positions after a fresh client launch.
+- A swamp hut held its witch and a black cat. With every other monster
+  killed (not by peaceful, which removes the witch), in survival 30 blocks
+  away over 7.5 minutes of night, the one new monster in the hut's
+  footprint was a witch, on its roof. Monsters kept spawning around the
+  hut meanwhile.
+- In a fortress, beside a blaze spawner, the spawner's flames and blazes
+  showed; in survival the blazes within 12 blocks went 2, 5, 6 in about a
+  minute and held at six for 90 seconds; 27 blocks away, none spawned in 80
+  seconds.

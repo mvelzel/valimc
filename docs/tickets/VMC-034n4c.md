@@ -1,6 +1,6 @@
 # VMC-034n4c — Experience orb gaps
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-077i](VMC-077i.md) (orbs move in the Rust kernel),
 [VMC-077h](VMC-077h.md) (one entity store).
@@ -80,3 +80,28 @@ and fire is [VMC-034n4d](VMC-034n4d.md).
 
 Take a furnace's output after smelting a stack: the orbs scatter. Drop orbs
 into lava: they hop. Several orbs lying together merge into fewer.
+
+## Client run (October 23, 2026; M3 client run 3, frozen `e13509dd` (origin/main `df9441ec` and the mob-sound fix) release, fresh worlds; `.local/client-tests/M3-run-3/run-02` to `run-06`)
+
+Orbs came from zombies shot with a bow from about 11 blocks into a pit in a
+stone platform (seed 20261023), so they were not pulled to the player;
+positions from `Valimc.World.entities(nil, [:orb])`. Passed:
+
+- Each zombie's 5 experience came as three orbs (3, 1 and 1), which left
+  with a random spread: some travelled 2 to 6 blocks sideways, and in a
+  one-block pit they settled at different points.
+- Six resting orbs plus four more kills left 14 entities, not 18: orbs of
+  one value merged into counts of 2 and 3, and the absorbed ones were gone.
+  Side-by-side orbs whose ids differ modulo 40 stayed apart, as vanilla's.
+- Lava set under 14 resting orbs lifted them all from y 98.0 to 98.2, and
+  they burned up within about 40 ms (seen in the server's entities).
+
+A furnace's orbs come from taking its output at the player, who absorbs
+them at once, as in vanilla. Breaking a furnace that holds items or stored
+experience waits for [VMC-034f](VMC-034f.md).
+
+Unconfirmed: twice, a zombie the player had shot and that died in lava 1.2
+seconds later showed no orbs, even polling every 10 ms. Its player memory
+(100 ticks) should give its experience, but orbs born in lava burn within
+two ticks in vanilla too, so this may be a polling gap. Worth a fixture
+when the lane next touches deaths.

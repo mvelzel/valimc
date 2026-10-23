@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-042b Structure mobs and spawners](../tickets/VMC-042b.md) | `3011516d`; structures' entities from generation, spawner blocks, structure spawn overrides (witch huts, fortresses); client run October 23 |
+| [VMC-026d Eyes of ender; mobs and orbs through portals](../tickets/VMC-026d.md) | `3b78811c`; eyes fly toward vanilla's stronghold and drop or break; mobs and orbs cross portals with their records; client run October 23 |
+| [VMC-034n4c Experience orb gaps](../tickets/VMC-034n4c.md) | `42ae269c`; orbs merge, hop in lava and launch with vanilla's spread; client run October 23 (a furnace's break waits for VMC-034f) |
 | [VMC-040a Beds, sleep and spawn points](../tickets/VMC-040a.md) | `dff984cb`; sleeping and the night skip by share, monsters and daytime refusing, bed and anchor respawn with their fallback, bed and anchor explosions; client run October 23 (a release disconnected a waking sleeper; fixed and rerun) |
 | [VMC-041b Pathfinding and navigation](../tickets/VMC-041b.md) | `3858ad23`; vanilla's `PathFinder` with its node evaluators in Rust, searched off the owner over published snapshots: doors, gaps, water and fence lines; client run October 23 |
 | [VMC-048a Repeaters, comparators and observers](../tickets/VMC-048a.md) | `bf248944`; delays and locking, comparators over containers and the analog blocks, observers, vanilla's tick priorities; client run October 23 |
