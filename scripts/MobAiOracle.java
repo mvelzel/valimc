@@ -60,11 +60,13 @@ public class MobAiOracle {
   static sun.misc.Unsafe unsafe;
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:pig", "minecraft:piglin",
       // VMC-043d's Nether mobs (cases in NetherMobOracle).
-      "minecraft:blaze");
+      "minecraft:blaze", "minecraft:zombified_piglin");
   // The sounds a piglin's activities play (`PiglinAi.getSoundForActivity`).
   static final List<String> SOUNDS = List.of("minecraft:entity.piglin.ambient", "minecraft:entity.piglin.admiring_item",
       "minecraft:entity.piglin.jealous", "minecraft:entity.piglin.retreat", "minecraft:entity.piglin.angry",
-      "minecraft:entity.piglin.celebrate");
+      "minecraft:entity.piglin.celebrate",
+      // A zombified piglin's anger (VMC-043d).
+      "minecraft:entity.zombified_piglin.angry");
 
   static class Server extends net.minecraft.server.dedicated.DedicatedServer {
     net.minecraft.util.debug.ServerDebugSubscribers subscribers;

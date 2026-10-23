@@ -43,7 +43,7 @@ public class CombatOracle {
   }
   // VMC-037o: an egg's chickens, an ender pearl's endermites; VMC-041a: pigs and piglins.
   static final List<String> MOBS = List.of("minecraft:zombie", "minecraft:chicken", "minecraft:endermite", "minecraft:pig",
-      "minecraft:piglin", "minecraft:blaze");
+      "minecraft:piglin", "minecraft:blaze", "minecraft:zombified_piglin");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",

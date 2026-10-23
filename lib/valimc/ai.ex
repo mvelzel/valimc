@@ -119,7 +119,7 @@ defmodule Valimc.AI do
       mobs
       |> Enum.with_index()
       |> Enum.map_reduce({%{}, world}, fn {{id, entry}, index}, {alerts, world} ->
-        entry = alert(entry, alerts[entry.entity.uuid])
+        entry = alert(entry, alerts[entry.entity.uuid], world)
         {body, effects, world} = think_one(id, entry, world)
 
         alerts =
@@ -140,7 +140,7 @@ defmodule Valimc.AI do
             {id, body, effects}
 
           target ->
-            {id, %{body | mob: %{body.mob | ai: %{body.mob.ai | target: target}}}, effects}
+            {id, alerted(body, entry.entity.uuid, target, world), effects}
         end
       end
 
@@ -154,12 +154,18 @@ defmodule Valimc.AI do
       else: entry
   end
 
-  defp alert(entry, nil), do: entry
+  defp alert(entry, nil, _world), do: entry
 
-  defp alert(%{body: %{mob: %{ai: %Mind{} = mind} = mob} = body} = entry, target),
-    do: %{entry | body: %{body | mob: %{mob | ai: %{mind | target: target}}}}
+  defp alert(%{body: %{mob: %{ai: %Mind{}}} = body} = entry, target, world),
+    do: %{entry | body: alerted(body, entry.entity.uuid, target, world)}
 
-  defp alert(entry, _target), do: entry
+  defp alert(entry, _target, _world), do: entry
+
+  # Another mob's alert sets the target through the type's `setTarget`.
+  defp alerted(%Body{type: type, mob: %Mob{ai: %Mind{} = mind} = mob} = body, uuid, target, world) do
+    self = Self.set_target(%Self{type: type, uuid: uuid, mob: mob, mind: mind, world: world}, target)
+    %{body | mob: %{mob | ai: self.mind}}
+  end
 
   defp think_one(id, %{entity: e, body: %Body{type: type, mob: mob} = body}, world) do
     if not thinking?(%Body{type: type, mob: mob}) or not Mob.alive?(mob) do
@@ -267,7 +273,12 @@ defmodule Valimc.AI do
   defp ambient_sound(%Self{mind: %{brain: %Valimc.AI.Brain{module: module}}} = self),
     do: make_sound(self, module.ambient_sound(self))
 
-  defp ambient_sound(%Self{facts: facts} = self), do: make_sound(self, facts.ambient_sound)
+  defp ambient_sound(%Self{facts: facts} = self) do
+    case Mobs.custom(self.type) do
+      nil -> make_sound(self, facts.ambient_sound)
+      module -> make_sound(self, module.ambient_sound(self))
+    end
+  end
 
   @doc """
   `LivingEntity.makeSound`: sound `name` (nil plays none) at the mob's

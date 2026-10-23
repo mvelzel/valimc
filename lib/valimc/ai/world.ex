@@ -152,7 +152,8 @@ defmodule Valimc.AI.World do
   @doc """
   `TargetingConditions.test(level, self, target)`: `conditions` holds
   `combat` (forCombat), `range` (none below 0), `sight` (line of sight),
-  `invisible` (the visibility percent applies) and `select`, a predicate.
+  `invisible` (the visibility percent applies) and `select`, a predicate
+  of the target (or of the target and the mob).
   `{passes, self}` (a line of sight check is cached in the mind).
   """
   def test(%Self{} = self, target, conditions) do
@@ -163,7 +164,7 @@ defmodule Valimc.AI.World do
       not seen?(target) ->
         {false, self}
 
-      conditions[:select] && not conditions.select.(target) ->
+      conditions[:select] && not select(conditions.select, target, self) ->
         {false, self}
 
       conditions.combat and not can_attack?(self, target) ->
@@ -179,6 +180,10 @@ defmodule Valimc.AI.World do
         {true, self}
     end
   end
+
+  # A selector reads the target, or the target and the mob (`isAngryAt`).
+  defp select(select, target, _self) when is_function(select, 1), do: select.(target)
+  defp select(select, target, self), do: select.(target, self)
 
   defp out_of_range?(self, target, conditions) do
     modifier = if conditions.invisible, do: visibility(target, self.type), else: 1.0

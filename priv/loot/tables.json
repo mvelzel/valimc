@@ -39389,6 +39389,95 @@
       }
     ]
   },
+  "minecraft:entities/zombified_piglin": {
+    "type": "minecraft:entity",
+    "random_sequence": "minecraft:entities/zombified_piglin",
+    "pools": [
+      {
+        "entries": [
+          {
+            "name": "minecraft:rotten_flesh",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:gold_nugget",
+            "modifier": [
+              {
+                "count": {
+                  "min": 0,
+                  "max": 1,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:set_count"
+              },
+              {
+                "enchantment": "minecraft:looting",
+                "count": {
+                  "min": 0.0,
+                  "max": 1.0,
+                  "type": "minecraft:uniform"
+                },
+                "type": "minecraft:enchanted_count_increase"
+              }
+            ],
+            "type": "minecraft:item"
+          }
+        ],
+        "rolls": 1
+      },
+      {
+        "entries": [
+          {
+            "name": "minecraft:gold_ingot",
+            "type": "minecraft:item"
+          }
+        ],
+        "condition": {
+          "terms": [
+            {
+              "type": "minecraft:killed_by_player"
+            },
+            {
+              "unenchanted_chance": 0.02500000037252903,
+              "enchanted_chance": {
+                "base": 0.03500000014901161,
+                "per_level_above_first": 0.009999999776482582,
+                "type": "minecraft:linear"
+              },
+              "enchantment": "minecraft:looting",
+              "type": "minecraft:random_chance_with_enchanted_bonus"
+            }
+          ],
+          "type": "minecraft:all_of"
+        },
+        "rolls": 1
+      }
+    ]
+  },
   "minecraft:pots/trial_chambers/corridor": {
     "type": "minecraft:chest",
     "random_sequence": "minecraft:pots/trial_chambers/corridor",

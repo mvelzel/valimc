@@ -1863,7 +1863,8 @@
     "minecraft:endermite": 3,
     "minecraft:pig": 0,
     "minecraft:piglin": 5,
-    "minecraft:blaze": 10
+    "minecraft:blaze": 10,
+    "minecraft:zombified_piglin": 5
   },
   "mobs": {
     "minecraft:zombie": {
@@ -1899,6 +1900,12 @@
     "minecraft:blaze": {
       "hurt_sound": "minecraft:entity.blaze.hurt",
       "death_sound": "minecraft:entity.blaze.death",
+      "sound_source": 5,
+      "animal": false
+    },
+    "minecraft:zombified_piglin": {
+      "hurt_sound": "minecraft:entity.zombified_piglin.hurt",
+      "death_sound": "minecraft:entity.zombified_piglin.death",
       "sound_source": 5,
       "animal": false
     }
@@ -1942,7 +1949,9 @@
     "minecraft:entity.piglin.hurt": 1290,
     "minecraft:entity.piglin.death": 1288,
     "minecraft:entity.blaze.hurt": 177,
-    "minecraft:entity.blaze.death": 176
+    "minecraft:entity.blaze.death": 176,
+    "minecraft:entity.zombified_piglin.hurt": 1902,
+    "minecraft:entity.zombified_piglin.death": 1901
   },
   "sound_sources": {
     "master": 0,

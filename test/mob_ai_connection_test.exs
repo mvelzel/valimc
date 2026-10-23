@@ -3,7 +3,8 @@ defmodule Valimc.MobAiConnectionTest do
   Mob AI live in a group (VMC-041a): a summoned zombie targets a survival
   player, walks to it and hits it; a pig follows a player holding a carrot,
   and panics when the player hits it. A blaze (VMC-043d) sets the player on
-  fire with its fireballs.
+  fire with its fireballs; zombified piglins leave the player alone until it
+  hits one, then all turn on it.
   """
   use ExUnit.Case, async: false
   @moduletag :tcp
@@ -127,5 +128,38 @@ defmodule Valimc.MobAiConnectionTest do
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).fire_ticks > 0 end, 30_000)
     assert TestPlayer.living(pid).health.value < 20.0
     assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
+  end
+
+  test "zombified piglins turn on the player who hits one of them", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    [a, b] = [<<14::128>>, <<15::128>>]
+    owner = summon(ctx, "minecraft:zombified_piglin", a, 5.0)
+    summon(ctx, "minecraft:zombified_piglin", b, -5.0)
+    Valimc.TestWait.until(fn -> entry(owner, b).body.mob.ai != nil end, 10_000)
+    assert entry(owner, a).body.mob.ai.target == nil
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:player_attack),
+      amount: 1.0,
+      attacker: %{
+        uuid: ctx.uuid,
+        entity_id: 1,
+        player: true,
+        type: "minecraft:player",
+        mainhand: nil
+      },
+      position: {ctx.pose.x, 64.0, ctx.pose.z}
+    }
+
+    {:ok, _} = Region.hurt_entity(owner, a, hit)
+
+    # Both angry; a zombified piglin's 5 lands.
+    Valimc.TestWait.until(
+      fn -> entry(owner, b).body.mob.ai.target == {:player, ctx.uuid} end,
+      10_000
+    )
+
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 15.0 end, 30_000)
   end
 end

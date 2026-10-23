@@ -33,6 +33,9 @@ defmodule Valimc.AI.Mobs.Blaze do
      ]}
   end
 
+  @doc "`getAmbientSound`."
+  def ambient_sound(%Self{facts: facts}), do: facts.ambient_sound
+
   @doc "A fresh blaze's own fields."
   def own, do: %{offset: 0.5, next_change: 0, charged: false}
 

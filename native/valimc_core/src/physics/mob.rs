@@ -802,6 +802,15 @@ pub fn tick_all(
             .filter(|&j| j != i && current[j].alive)
             .collect();
         near.sort_unstable();
+        // A player it touches pushes it away (`player.push(self)`); players
+        // come first in the level's entities, as they joined first.
+        for (feet, player) in players {
+            if own.intersects(player) {
+                if let Some(p) = push(*feet, current[i].position) {
+                    current[i].velocity = add(current[i].velocity, p);
+                }
+            }
+        }
         for j in near {
             let Ok(other) = current[j].body(current[j].position) else {
                 continue;
@@ -813,14 +822,6 @@ pub fn tick_all(
             if let Some(p) = push(current[i].position, current[j].position) {
                 current[j].velocity = add(current[j].velocity, p);
                 current[i].velocity = sub(current[i].velocity, p);
-            }
-        }
-        // A player it touches pushes it away (`player.push(self)`).
-        for (feet, player) in players {
-            if own.intersects(player) {
-                if let Some(p) = push(*feet, current[i].position) {
-                    current[i].velocity = add(current[i].velocity, p);
-                }
             }
         }
     }

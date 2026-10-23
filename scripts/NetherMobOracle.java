@@ -32,6 +32,15 @@ public class NetherMobOracle {
       new MobAiOracle.Spawn("minecraft:blaze", new Vec3(-4.5, 64, 3.5), 180, 53L)),
       List.of(new MobAiOracle.Stand(new Vec3(3.5, 64, -6.5), "creative", null), new MobAiOracle.Stand(new Vec3(-9.5, 64, -9.5), "survival", null)),
       List.of(new MobAiOracle.Hit(40, 1, 0, 1.0F)), 200));
+    // A zombified piglin near a player wanders and never targets it.
+    cases.add(MobAiOracle.run(level, "zombified_piglin_neutral", floor, List.of(new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(.5, 64, .5), 0, 59L)),
+      List.of(new MobAiOracle.Stand(new Vec3(4.5, 64, 2.5), "survival", null)), List.of(), 300));
+    // Hit, it and its kind around it turn on the attacker, angry and faster;
+    // the other player is left alone.
+    cases.add(MobAiOracle.run(level, "zombified_piglin_anger", floor, List.of(new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(.5, 64, .5), 0, 61L),
+      new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(-3.5, 64, 4.5), 90, 67L), new MobAiOracle.Spawn("minecraft:zombified_piglin", new Vec3(6.5, 64, -5.5), 180, 71L)),
+      List.of(new MobAiOracle.Stand(new Vec3(2.5, 64, -8.5), "survival", null), new MobAiOracle.Stand(new Vec3(-10.5, 64, 10.5), "survival", null)),
+      List.of(new MobAiOracle.Hit(10, 0, 0, 1.0F)), 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
     return out;
@@ -42,6 +51,6 @@ public class NetherMobOracle {
     if (!args[0].equals("cases")) throw new IllegalArgumentException("usage: NetherMobOracle cases OUT.json");
     var out = cases(level);
     Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
-    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert).");
+    System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla Nether mob traces (blaze burst, rise, melee, alert; zombified piglin neutral, anger).");
   }
 }

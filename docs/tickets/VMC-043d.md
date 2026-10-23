@@ -17,7 +17,8 @@ Acceptance:
 ## Slices
 
 1. **043d1 — blazes** (done): goals, attack, flight and loot below.
-2. **043d2 — zombified piglins**: NeutralMob anger, group alerts, spawn gear.
+2. **043d2 — zombified piglins** (done but spawn gear): NeutralMob anger,
+   group alerts.
 3. **043d3 — ghasts**: flying travel, wandering, large fireballs.
 4. **043d4 — piglins and hoglins**: the piglin brain's fight, avoid,
    celebrate and barter activities, hostility rules; hoglins' brain.
@@ -54,6 +55,28 @@ factory, so other families' oracles reuse it the same way.
   melee, alert) bit for bit; `mob_ai_connection_test` has a blaze's
   fireballs set a logged-in player on fire.
 
+## 043d2 — zombified piglins
+
+- `Valimc.AI.Neutral` is vanilla's `NeutralMob` for every neutral mob
+  (anger end time and target in `Mind.own`, `updatePersistentAnger`,
+  `isAngryAt`, `stopBeingAngry`) with `ResetUniversalAngerTargetGoal`.
+- `Valimc.AI.Mobs.ZombifiedPiglin`: a zombie's goals with its own behaviour
+  goals; `customServerAiStep` (the `attacking` speed modifier while angry,
+  the first growl, anger kept up, alerts every four to six seconds) and its
+  `setTarget` override through the new `Mobs.on_target/1` hook, which other
+  mobs' alerts go through too. A selector may read the mob (`isAngryAt`).
+  Travel reads attribute modifiers now (`MobMotion.travel/2`).
+- The kernel pushes a mob by the players it touches before by other mobs,
+  as the level lists players first.
+- Evidence: `nether_mobs` passes 2240 ticks of 6 scenes (a neutral one; a
+  hit one whose kind joins it, angry and faster, leaving the other player
+  alone); `mob_ai` still passes; `mob_ai_connection_test` has zombified
+  piglins turn on the player who hits one.
+- Gaps: spawn gear (a golden sword or spear) and babies wait on VMC-043b's
+  shared `finalizeSpawn`; anger is not saved with the mob; universal anger
+  does not yet reach the mob's kind around it.
+
 Client gate (pending, batched with the milestone's run): in a Nether
 fortress, blazes from a spawner shoot volleys at the player, rise to a player
-above them, and a blaze killed by the player drops blaze rods.
+above them, and a blaze killed by the player drops blaze rods; zombified
+piglins ignore the player until it hits one, then the group attacks.

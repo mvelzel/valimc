@@ -116,11 +116,18 @@ defmodule Valimc.Entity.MobMotion do
   defp fall_scale("minecraft:blaze"), do: 0.6
   defp fall_scale(_type), do: 1.0
 
-  @doc "The travel attributes the kernel reads of a mob of `type` with `overrides`."
+  @doc """
+  The travel attributes the kernel reads of a mob of `type` with `overrides`
+  (their bases and modifiers: a zombified piglin's attacking speed).
+  """
   def travel(type, overrides),
     do:
       @travel
-      |> Enum.map(&(Valimc.Entity.Mob.base(type, overrides, "minecraft:" <> &1) * 1.0))
+      |> Enum.map(fn name ->
+        name = "minecraft:" <> name
+        base = Valimc.Entity.Mob.base(type, overrides, name)
+        Attributes.value(name, base, get_in(overrides, [name, :modifiers]) || []) * 1.0
+      end)
       |> List.to_tuple()
 
   @doc """

@@ -70,8 +70,20 @@ defmodule Valimc.AI.Self do
   def effect(%__MODULE__{effects: effects} = self, effect),
     do: %{self | effects: [effect | effects]}
 
-  @doc "`Mob.setTarget` (`asValidTarget` is the reader's, `World.target/2`)."
-  def set_target(self, target), do: mind(self, &%{&1 | target: target})
+  @doc """
+  `Mob.setTarget` (`asValidTarget` is the reader's, `World.target/2`),
+  through the type's own override when it has one (`Mobs.on_target/1`: a
+  zombified piglin draws its anger sound and alert delays).
+  """
+  def set_target(%__MODULE__{type: type} = self, target) do
+    case Valimc.AI.Mobs.on_target(type) do
+      nil -> put_target(self, target)
+      module -> module.set_target(self, target)
+    end
+  end
+
+  @doc "`Mob.setTarget` itself: the mind keeps `target`."
+  def put_target(self, target), do: mind(self, &%{&1 | target: target})
 
   @doc "`Mob.setAggressive`."
   def set_aggressive(self, aggressive), do: mind(self, &%{&1 | aggressive: aggressive})
