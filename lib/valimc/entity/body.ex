@@ -46,6 +46,7 @@ defmodule Valimc.Entity.Body do
   @villager "minecraft:villager"
   # A fence knot mobs are leashed to (VMC-043c3).
   @knot "minecraft:leash_knot"
+  @crystal "minecraft:end_crystal"
   # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
   # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
@@ -56,6 +57,7 @@ defmodule Valimc.Entity.Body do
                 @falling,
                 @cloud,
                 @knot,
+                @crystal,
                 @villager,
                 "minecraft:iron_golem",
                 "minecraft:wandering_trader"
@@ -140,6 +142,9 @@ defmodule Valimc.Entity.Body do
   defp generated_data(%__MODULE__{type: @villager, preserved: preserved} = body),
     do: %{body | data: Valimc.Entity.Villager.from_preserved(preserved), preserved: nil}
 
+  defp generated_data(%__MODULE__{type: @crystal, preserved: preserved} = body),
+    do: %{body | data: Valimc.Entity.EndCrystal.from_preserved(preserved), preserved: nil}
+
   defp generated_data(body), do: body
 
   @doc """
@@ -201,6 +206,7 @@ defmodule Valimc.Entity.Body do
     }
 
   defp data(@cloud), do: Valimc.Entity.EffectCloud.data()
+  defp data(@crystal), do: Valimc.Entity.EndCrystal.data()
   # The game tick it was made at (`BlockAttachedEntity.ticksSinceLastCheck`
   # counts from it).
   defp data(@knot), do: %{since: 0}
@@ -437,6 +443,7 @@ defmodule Valimc.Entity.Body do
     do: [{:falling_block_start_pos, data.start, {0, 0, 0}}]
 
   defp own(%__MODULE__{type: @cloud} = body), do: Valimc.Entity.EffectCloud.values(body)
+  defp own(%__MODULE__{type: @crystal} = body), do: Valimc.Entity.EndCrystal.values(body)
   defp own(%__MODULE__{type: @knot}), do: []
   defp own(%__MODULE__{} = body), do: Projectile.values(body)
 

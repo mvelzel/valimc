@@ -309,6 +309,7 @@ defmodule Valimc.World.RegionData do
       if expired == [] do
         state
         |> tick_block_bodies()
+        |> tick_crystals()
         |> tick_projectiles()
         |> tick_knots()
         |> start_item_cross_merging(now)
@@ -616,6 +617,33 @@ defmodule Valimc.World.RegionData do
     start_craters(state)
   end
 
+  # Crystals in a dimension with a dragon fight keep fire at their feet.
+  defp tick_crystals(state) do
+    if Valimc.World.Dimension.facts(state.dimension).dragon_fight and write_busy(state) == nil do
+      Enum.reduce(state.entities.store.entries, state, fn
+        {_, %{body: %{type: "minecraft:end_crystal"}, entity: e}}, acc ->
+          cell = {floor(e.x), floor(e.y), floor(e.z)}
+          below = {floor(e.x), floor(e.y) - 1, floor(e.z)}
+
+          if Tickets.simulated?(acc.tickets, Grid.chunk_key(e.x, e.z)) and
+               Valimc.World.Dimension.in_height?(elem(cell, 1), acc.dimension) and
+               Valimc.Data.BlockFacts.air?(Blocks.get(acc.blocks, cell)),
+             do:
+               commit_landings(
+                 acc,
+                 %{cell => Explosion.fire_state(Blocks.get(acc.blocks, below))},
+                 []
+               ),
+             else: acc
+
+        _, acc ->
+          acc
+      end)
+    else
+      state
+    end
+  end
+
   defp step_block_bodies(state, steps) do
     route = route_key(state)
 
@@ -798,8 +826,9 @@ defmodule Valimc.World.RegionData do
   # players, `%{id, ref, uuid, type, position, box}`.
   defp projectile_targets(state) do
     mobs =
-      for {sid, %{kind: :mob, body: %Body{type: type} = body, entity: e}} <-
+      for {sid, %{body: %Body{type: type} = body, entity: e}} <-
             state.entities.store.entries,
+          body.mob != nil or type == "minecraft:end_crystal",
           Body.alive?(body) do
         {w, h, _} = Body.dimensions(body)
         {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
@@ -827,12 +856,21 @@ defmodule Valimc.World.RegionData do
   end
 
   defp run_projectile(state, id, entry, {:remove, effects}, moves) do
-    state = Enum.reduce(effects, state, &projectile_effect(&2, entry, &1))
+    store = state.entities.store
+    # A hit can change the projectile itself (a crystal's explosion pushes
+    # the arrow) before its terminal result. Its current owner removes the
+    # current entry, then runs the terminal effects without hitting itself.
+    state =
+      case store.entries[id] do
+        %{revision: revision} ->
+          {:ok, store} = Store.remove(store, store.epoch, id, revision)
+          put_entities(state, store)
 
-    case Store.remove(state.entities.store, state.entities.store.epoch, id, entry.revision) do
-      {:ok, store} -> {put_entities(state, store), moves}
-      _ -> {state, moves}
-    end
+        nil ->
+          state
+      end
+
+    {Enum.reduce(effects, state, &projectile_effect(&2, entry, &1)), moves}
   end
 
   defp run_projectile(state, id, entry, {:hurt, target, hit, next}, moves) do
@@ -844,13 +882,25 @@ defmodule Valimc.World.RegionData do
   # once (and set on fire when the hit says so), a player by its session,
   # whose hit is taken to land.
   defp projectile_hurt(state, %{ref: {:mob, sid}}, hit) do
-    store = state.entities.store
+    case state.entities.store.entries[sid] do
+      %{entity: %{uuid: uuid}} -> projectile_hurt_body(state, sid, uuid, hit)
+      nil -> {false, state}
+    end
+  end
 
-    case Valimc.Entity.Combat.hurt(store, sid, hit) do
-      {:ok, store, %{hurt: true}} ->
+  defp projectile_hurt(state, %{ref: {:player, uuid}}, hit) do
+    send(self(), {:player, uuid, {:hurt, hit}})
+    {true, state}
+  end
+
+  defp projectile_hurt_body(state, sid, uuid, hit) do
+    case hurt_body(state, uuid, hit) do
+      {{:ok, %{hurt: true}}, state} ->
+        store = state.entities.store
+
         store =
           case {hit[:ignite], store.entries[sid]} do
-            {ticks, %{body: %Body{mob: mob} = body}} when is_integer(ticks) ->
+            {ticks, %{body: %Body{mob: %{} = mob} = body}} when is_integer(ticks) ->
               living = %{mob.living | fire_ticks: max(mob.living.fire_ticks, ticks)}
               Store.change_body(store, sid, %{body | mob: %{mob | living: living}})
 
@@ -860,17 +910,12 @@ defmodule Valimc.World.RegionData do
 
         {true, put_entities(state, store)}
 
-      {:ok, store, _} ->
-        {false, put_entities(state, store)}
+      {{:ok, _}, state} ->
+        {false, state}
 
       _ ->
         {false, state}
     end
-  end
-
-  defp projectile_hurt(state, %{ref: {:player, uuid}}, hit) do
-    send(self(), {:player, uuid, {:hurt, hit}})
-    {true, state}
   end
 
   defp projectile_effect(state, _entry, {:sound, name, source, position, volume, pitch}) do
@@ -2625,6 +2670,26 @@ defmodule Valimc.World.RegionData do
 
       true ->
         {:reply, :ok, adopt_drops(state, records)}
+    end
+  end
+
+  # Crystal placement and the hosted player's item use share this group frame.
+  def handle_call({:place_crystal, epoch, {x, y, z} = position, player_boxes}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         true <-
+           valid_block_query?([position, {x, y + 1, z}], :any) or {:error, :invalid_block_query},
+         true <- in_region?(state, position) or {:error, :wrong_region},
+         nil <- write_busy(state),
+         {:ok, point} <-
+           Valimc.Entity.EndCrystal.placement(position, &read_block(state, &1), player_boxes),
+         {:ok, body} <- Body.new("minecraft:end_crystal"),
+         body = put_in(body.data.bottom, false),
+         record = Store.body_record(body, :crypto.strong_rand_bytes(16), point),
+         {:ok, store, _} <- Store.create_record(state.entities.store, state.key, record) do
+      {:reply, :ok, put_entities(state, store)}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 
@@ -5330,7 +5395,15 @@ defmodule Valimc.World.RegionData do
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
          {:ok, store, outcome} <- Valimc.Entity.Combat.hurt(store, id, hit) do
-      {{:ok, outcome}, put_entities(state, store)}
+      state = put_entities(state, store)
+
+      state =
+        case outcome do
+          %{crystal: point, explode: true} -> explode(state, Explosion.crystal(point))
+          _ -> state
+        end
+
+      {{:ok, Map.drop(outcome, [:crystal, :explode])}, state}
     else
       {:error, _} = error -> {error, state}
     end

@@ -28,6 +28,7 @@ defmodule Valimc.Player.Placement do
 
   @placement %CollisionContext{kind: :entity, placement: true}
   @bone_meal Valimc.Protocol.Data.item("bone_meal")
+  @end_crystal Valimc.Protocol.Data.item("end_crystal")
 
   def place_block(state, payload) do
     case UseItemOn.decode(payload) do
@@ -77,6 +78,16 @@ defmodule Valimc.Player.Placement do
     slot = if request.hand == :off, do: 45, else: 36 + state.inventory.selected
 
     cond do
+      stack != nil and stack.item_id == @end_crystal ->
+        %{
+          kind: :crystal,
+          request: request,
+          stack: stack,
+          slot: slot,
+          mode: state.player.game_mode.current,
+          body: body(state, request)
+        }
+
       # Flint and steel and fire charges set fire or open portals (VMC-026b2).
       Valimc.World.Portal.Items.item?(stack) ->
         %{
@@ -221,6 +232,22 @@ defmodule Valimc.Player.Placement do
 
   defp run(state, %{kind: :correction, request: request}) do
     state = CreativeInventory.resync_inventory(state)
+    acknowledge(state, request)
+  end
+
+  defp run(state, %{kind: :crystal, request: request} = command) do
+    placed =
+      with %{} <- command.body,
+           {:ok, owner} <- owner(request.position),
+           :ok <- Region.place_crystal(owner, request.position, [box(state.player)]),
+           do: true,
+           else: (_ -> false)
+
+    state =
+      if placed and command.mode == :survival,
+        do: use_up(state, command),
+        else: CreativeInventory.resync_inventory(state)
+
     acknowledge(state, request)
   end
 

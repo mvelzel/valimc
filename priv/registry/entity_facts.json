@@ -170,6 +170,14 @@
       "index": 16,
       "serializer": 1
     },
+    "crystal_beam": {
+      "index": 8,
+      "serializer": 11
+    },
+    "crystal_bottom": {
+      "index": 9,
+      "serializer": 8
+    },
     "cube_size": {
       "index": 18,
       "serializer": 1

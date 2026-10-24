@@ -461,7 +461,13 @@ defmodule Valimc.Player.Projectiles do
 
   ## Making projectiles
 
-  defp owner(player), do: %{uuid: player.uuid, id: player.entity_id, player: true}
+  defp owner(player),
+    do: %{
+      uuid: player.uuid,
+      id: player.entity_id,
+      player: true,
+      creative: player.game_mode.current == :creative
+    }
 
   # `getEyeY() - 0.1F` above the feet.
   defp launch_point(player) do
@@ -565,7 +571,9 @@ defmodule Valimc.Player.Projectiles do
         current ->
           previous = if current, do: elem(hd(current), 0), else: 0
 
-          case Vitals.apply_effect(state, regen, [{min(2400, 100 + previous), 0, false, true, true}]) do
+          case Vitals.apply_effect(state, regen, [
+                 {min(2400, 100 + previous), 0, false, true, true}
+               ]) do
             {:ok, _, next} -> next
             _ -> state
           end

@@ -59,6 +59,23 @@ defmodule Valimc.Entity.Combat do
           _ -> {:ok, store, %{hurt: false}}
         end
 
+      %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e, revision: revision} ->
+        if Valimc.Entity.EndCrystal.hurt?(body, hit) do
+          {:ok, store} = Store.remove(store, store.epoch, id, revision)
+
+          outcome = %{
+            hurt: true,
+            previous: 0.0,
+            health: 0.0,
+            crystal: {e.x, e.y, e.z},
+            explode: Valimc.Entity.EndCrystal.explodes?(hit)
+          }
+
+          {:ok, store, outcome}
+        else
+          {:ok, store, %{hurt: false}}
+        end
+
       %{} ->
         {:ok, store, %{hurt: false}}
 

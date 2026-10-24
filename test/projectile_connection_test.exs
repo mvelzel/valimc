@@ -211,7 +211,9 @@ defmodule Valimc.ProjectileConnectionTest do
     Valimc.TestScope.isolate([far], item_simulation: true)
 
     on_exit(fn ->
-      for {pid, _} <- Valimc.TestWorld.registered(far), do: Valimc.TestScope.kill(pid)
+      # The destination now hosts the player and its view's neighbours.
+      Valimc.TestScope.stop_players(ctx.base)
+      Valimc.TestScope.stop_neighbourhood(far)
     end)
 
     {:ok, there} = Valimc.TestWorld.owner(far)

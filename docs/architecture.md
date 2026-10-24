@@ -117,6 +117,11 @@ frame; a login waits until no group does. A group that crashes disconnects its
 players, whose clients hold state newer than what is durable; their next login
 loads every durable frame.
 
+Player effects raised by an inline world call wait until its current hosted
+callback settles, then run in order before the group cuts its frame. This
+keeps nested explosions and block pushes from overwriting the active session
+or its output buffer; each callback may defer at most 4,096 effects.
+
 One regionizer per dimension applies Folia's rule at section size (grid
 exponent 3, create and merge radius 1): a loaded section joins every group with
 a loaded section within three sections of it, so separate groups keep their

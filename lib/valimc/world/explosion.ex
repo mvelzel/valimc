@@ -63,6 +63,14 @@ defmodule Valimc.World.Explosion do
       decay: GameRules.get(:tnt_explosion_drop_decay)
     }
 
+  @doc "An End crystal's power-six block explosion (`EndCrystal.hurtServer`)."
+  def crystal(position),
+    do: %__MODULE__{
+      center: position,
+      radius: 6.0,
+      decay: GameRules.get(:block_explosion_drop_decay)
+    }
+
   @doc """
   A bed's or respawn anchor's explosion at the centre of cell `{x, y, z}`
   (`BedBlock.destroyOnUse`, `RespawnAnchorBlock.explode`): power 5 with
@@ -130,6 +138,9 @@ defmodule Valimc.World.Explosion do
     impulse = Explosions.knockback(explosion.center, origin, distance, seen, resistance)
 
     cond do
+      match?(%{body: %{type: "minecraft:end_crystal"}}, entry) ->
+        if entry.body.data.invulnerable, do: {:push, {0.0, 0.0, 0.0}}, else: :destroy
+
       kind == :mob ->
         {:hurt, damage, impulse, explosion.source}
 
@@ -210,7 +221,8 @@ defmodule Valimc.World.Explosion do
   def box_hit?(entry, box), do: intersects?(box(entry), box)
 
   # An entity's box and the point it is pushed from.
-  defp box(%{kind: kind, entity: %{x: x, y: y, z: z}} = entry) do
+  @doc "The collision box of a stored entry."
+  def box(%{kind: kind, entity: %{x: x, y: y, z: z}} = entry) do
     {width, height} = size(kind, entry)
     {x - width / 2, y, z - width / 2, x + width / 2, y + height, z + width / 2}
   end

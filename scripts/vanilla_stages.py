@@ -332,6 +332,10 @@ STAGES = [
         ('same', '@block-facts.json', 'priv/registry/block_facts.json'),
     ]),
     # VMC-043a: every entity type's facts (category, size, attributes, loot, spawning, tracking).
+    ('end_crystal', [
+        ('java', 'EndCrystalOracle', '@end-crystal.json'),
+        ('check', 'check_end_crystal.exs', '@end-crystal.json'),
+    ]),
     ('entity_facts', [
         ('regen', 'EntityOracle', 'facts', '@entity-facts.json'),
         ('same', '@entity-facts.json', 'priv/registry/entity_facts.json'),

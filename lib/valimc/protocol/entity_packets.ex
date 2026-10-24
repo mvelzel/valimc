@@ -277,6 +277,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :tnt_block_state,
               :falling_block_start_pos,
               :sleeping_pos,
+              :crystal_beam,
+              :crystal_bottom,
               :ageable_baby,
               :arrow_flags,
               :arrow_pierce_level,
@@ -312,7 +314,14 @@ defmodule Valimc.Protocol.EntityPackets do
           <<value>>
 
         name
-        when name in [:no_gravity, :ageable_baby, :arrow_in_ground, :trident_foil, :cloud_waiting] or
+        when name in [
+               :no_gravity,
+               :ageable_baby,
+               :arrow_in_ground,
+               :trident_foil,
+               :cloud_waiting,
+               :crystal_bottom
+             ] or
                name in @mob_flags ->
           check(is_boolean(value), "invalid flag")
           Wire.bool(value)
@@ -387,7 +396,7 @@ defmodule Valimc.Protocol.EntityPackets do
           Wire.position(value)
 
         # An optional block position: where a living entity sleeps (VMC-040a).
-        :sleeping_pos ->
+        name when name in [:sleeping_pos, :crystal_beam] ->
           case value do
             nil ->
               <<0>>

@@ -416,6 +416,7 @@ defmodule Valimc.Player.Attack do
       uuid: state.player.uuid,
       entity_id: state.player.entity_id,
       player: true,
+      creative: state.player.game_mode.current == :creative,
       type: "minecraft:player",
       mainhand: mainhand
     }

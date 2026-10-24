@@ -350,6 +350,10 @@ defmodule Valimc.World.Region do
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
 
+  @doc "Place an End crystal; the hosted caller admits the player and held stack."
+  def place_crystal({pid, epoch}, position, player_boxes),
+    do: call(pid, {:place_crystal, epoch, position, player_boxes}, budget(pid, 1000))
+
   @doc """
   A player's bucket in the owner of `action`'s cell (VMC-031a), run by the
   block rules: `{:empty, position, fluid, retry, secondary}` (`BucketItem.
@@ -841,7 +845,31 @@ defmodule Valimc.World.Region do
     end
   end
 
+  defp section_call(state, key, {:place_crystal, epoch, position, boxes}, from) do
+    # Placement reads the group's authoritative entries inside this callback.
+    boxes =
+      boxes ++
+        for(
+          {_key, %{resource: resource}} <- state.sections,
+          {_, entry} <- resource.entities.store.entries,
+          do: Valimc.World.Explosion.box(entry)
+        ) ++ crystal_player_boxes(state)
+
+    section_data_call(state, key, {:place_crystal, epoch, position, boxes}, from)
+  end
+
   defp section_call(state, key, message, from), do: section_data_call(state, key, message, from)
+
+  defp crystal_player_boxes(state) do
+    for {_, %{session: %{player: player}}} <- state.players,
+        player.game_mode.current != :spectator,
+        player.living.health.value > 0 do
+      {:ok, geometry} =
+        Valimc.Data.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})
+
+      geometry.box
+    end
+  end
 
   defp section_data_call(state, key, message, from) do
     {kind, resource, rest} =

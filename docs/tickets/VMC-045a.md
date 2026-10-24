@@ -1,6 +1,6 @@
 # VMC-045a — The Ender Dragon fight
 
-Status: Planned
+Status: In progress
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md),
 [VMC-050a](VMC-050a.md), [VMC-043e](VMC-043e.md) (endermen in the End).
@@ -24,3 +24,6 @@ Acceptance:
 - The fight's phase and pathing fixtures match the oracle.
 - On the real client, a player kills the dragon and leaves by the exit
   portal.
+
+Slices: [VMC-045a1](VMC-045a1.md) makes the crystals live first. Dragon
+phases, multipart hits and the arena lifecycle follow within this parent.

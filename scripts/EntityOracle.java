@@ -386,6 +386,9 @@ public class EntityOracle {
     fields.put("cat_relax_state_one", field(net.minecraft.world.entity.animal.feline.Cat.class, "RELAX_STATE_ONE"));
     fields.put("cat_collar_color", field(net.minecraft.world.entity.animal.feline.Cat.class, "DATA_COLLAR_COLOR"));
     fields.put("cat_sound_variant", field(net.minecraft.world.entity.animal.feline.Cat.class, "DATA_SOUND_VARIANT_ID"));
+    // VMC-045a1: a crystal's beam and bottom plate.
+    fields.put("crystal_beam", field(net.minecraft.world.entity.boss.enderdragon.EndCrystal.class, "DATA_BEAM_TARGET"));
+    fields.put("crystal_bottom", field(net.minecraft.world.entity.boss.enderdragon.EndCrystal.class, "DATA_SHOW_BOTTOM"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

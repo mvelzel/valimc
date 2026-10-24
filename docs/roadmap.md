@@ -50,7 +50,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
-2. Blocks: double chests (032b).
+2. Validate double chests (032b) with the next finale client batch.
 3. Finale: the Ender Dragon fight (045a), then the M3 gate (078).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
@@ -64,6 +64,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-032b](tickets/VMC-032b.md) | Join, use and split a large chest across a section line; contents survive reconnect; hoppers and comparators read both halves |
+| [VMC-045a1](tickets/VMC-045a1.md) | Place and strike a crystal; shoot a spike crystal; both explode |
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-039c](tickets/VMC-039c.md) | Bone meal grows bamboo, glow lichen, a big dripleaf and a huge fungus, turns netherrack to nylium; shears carve a pumpkin and empty a hive |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |

@@ -107,9 +107,22 @@ defmodule Valimc.Player.Host do
 
   @doc "A session's message (`{:player, uuid, message}`)."
   def info(state, uuid, message) do
-    deliver(state, uuid, {:player, uuid, message}, {:info, message}, fn state ->
-      run(state, uuid, &route(&1, :dispatch, [message, &1]))
-    end)
+    # A world call may affect players while one of their callbacks is still
+    # running. Settle that callback first: recursively running another would
+    # overwrite its session, group context and output buffer.
+    if acting() != nil do
+      pending = Map.get(state, :player_pending, [])
+      count = Map.get(state, :player_pending_count, 0)
+      if count >= @copies, do: raise("too many player effects in one callback")
+
+      state
+      |> Map.put(:player_pending, [{uuid, message} | pending])
+      |> Map.put(:player_pending_count, count + 1)
+    else
+      deliver(state, uuid, {:player, uuid, message}, {:info, message}, fn state ->
+        run(state, uuid, &route(&1, :dispatch, [message, &1]))
+      end)
+    end
   end
 
   @doc "A session's call (`{:player_call, uuid, message}`), answered to `from`."
@@ -588,13 +601,21 @@ defmodule Valimc.Player.Host do
 
     state = Process.delete(@group)
 
-    case result do
-      {:noreply, session} ->
-        settle(state, uuid, entry, session)
+    state =
+      case result do
+        {:noreply, session} ->
+          settle(state, uuid, entry, session)
 
-      {:stop, reason, session} ->
-        finish(state, uuid, entry, session, reason)
-    end
+        {:stop, reason, session} ->
+          finish(state, uuid, entry, session, reason)
+      end
+
+    pending = Map.get(state, :player_pending, [])
+    state = state |> Map.delete(:player_pending) |> Map.delete(:player_pending_count)
+
+    Enum.reduce(Enum.reverse(pending), state, fn {target, message}, acc ->
+      info(acc, target, message)
+    end)
   end
 
   # A player that stepped out of the group's sections moves once its

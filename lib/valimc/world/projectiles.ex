@@ -512,6 +512,7 @@ defmodule Valimc.World.Projectiles do
             uuid: owner.uuid,
             entity_id: owner.id,
             player: owner.player,
+            creative: owner[:creative] == true,
             type: owner[:type],
             mainhand: nil
           }
