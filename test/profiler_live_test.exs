@@ -207,6 +207,56 @@ defmodule Valimc.ProfilerLiveTest do
     assert Limits.admit(List.last(pids)) == :ok
   end
 
+  test "hosted reports advertise HTTPS and permit only the configured public WebSocket origin" do
+    previous_url = Application.fetch_env(:valimc, :profiler_url)
+    previous_endpoint = Application.fetch_env!(:valimc, @endpoint)
+    endpoint = Keyword.put(previous_endpoint, :check_origin, ["https://valimc.fly.dev"])
+    Application.put_env(:valimc, :profiler_url, "https://valimc.fly.dev")
+    Application.put_env(:valimc, @endpoint, endpoint)
+    @endpoint.config_change([{@endpoint, endpoint}], [])
+
+    on_exit(fn ->
+      case previous_url do
+        {:ok, value} -> Application.put_env(:valimc, :profiler_url, value)
+        :error -> Application.delete_env(:valimc, :profiler_url)
+      end
+
+      Application.put_env(:valimc, @endpoint, previous_endpoint)
+      @endpoint.config_change([{@endpoint, previous_endpoint}], [])
+    end)
+
+    {:ok, id} = Profiler.health_report()
+    assert Profiler.url(id) == "https://valimc.fly.dev/r/#{id}"
+    conn = get(build_conn(), "/r/#{id}")
+    csp = conn |> Plug.Conn.get_resp_header("content-security-policy") |> hd()
+    assert csp =~ "wss://valimc.fly.dev"
+    refute csp =~ "ws://localhost"
+    assert get(build_conn(), "/healthz").resp_body == "ok\n"
+    assert get(build_conn(), "/r/" <> String.duplicate("0", 32)).status == 404
+    {:ok, {_, port}} = @endpoint.server_info(:http)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      for {origin, status} <- [
+            {"https://valimc.fly.dev", "101 Switching Protocols"},
+            {"https://foreign.invalid", "403"},
+            {"http://valimc.fly.dev", "403"}
+          ] do
+        {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false], 2000)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "GET /live/websocket?vsn=2.0.0 HTTP/1.1\r\nHost: valimc.fly.dev\r\nOrigin: ",
+            origin,
+            "\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+          ])
+
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 2000)
+        :gen_tcp.close(socket)
+        assert reply =~ status
+      end
+    end)
+  end
+
   test "endpoint restart retains captures and republishes its actual ephemeral port" do
     id = capture()
     assert :ok = Supervisor.terminate_child(Valimc.Net.ProfileWeb, @endpoint)

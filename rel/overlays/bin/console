@@ -1,0 +1,22 @@
+#!/bin/sh
+set -u
+cd -P -- "$(dirname -- "$0")"
+
+run_command() {
+  # Only base64 data enters the RPC expression; command text is never evaluated.
+  encoded=$(printf '%s' "$1" | base64 | tr -d '\n')
+  ERL_FLAGS="${ERL_FLAGS:-} +S 1:1 +SDcpu 1 +SDio 1" ./valimc rpc \
+    "IO.puts(Valimc.Net.Console.execute(Base.decode64!(\"$encoded\")))"
+}
+
+if [ "$#" -gt 0 ]; then
+  run_command "$*"
+  exit "$?"
+fi
+
+printf 'ValiMC server console. Type exit or press Ctrl-D to detach; stop shuts down the server.\n'
+while printf '> '; IFS= read -r line; do
+  [ "$line" = exit ] && break
+  [ -z "$line" ] && continue
+  run_command "$line" || printf 'Could not execute the command on the running server.\n' >&2
+done

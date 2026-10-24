@@ -83,7 +83,7 @@ second per subscriber (maximum 16); a burst can overwrite older slow ticks.
 
 ## Local reports
 
-The viewer binds only to `127.0.0.1`, on an automatically chosen port. Its URLs
+By default the viewer binds to `127.0.0.1`, on an automatically chosen port. Its URLs
 contain random bearer tokens; anyone with a token and access to that loopback
 listener can read that report. There are no uploads to spark or other services.
 Phoenix routes and LiveView run inside the server's OTP supervision tree; Bandit
@@ -98,8 +98,18 @@ When playing on a remote server, forward the port printed in chat with SSH and
 open that URL on your computer. `config :valimc, profiler_port: 25580` pins the
 port for forwarding; the default is `0` (automatic).
 
+For a hosted viewer, set `VALIMC_PROFILER_BIND` to the listener address,
+`VALIMC_PROFILER_PORT` to its internal HTTP port and `VALIMC_PROFILER_URL` to
+its public HTTP(S) origin, such as `https://valimc.fly.dev`. The public origin
+controls chat links, LiveView's allowed origin and the WebSocket CSP source.
+Terminate HTTPS at the reverse proxy and route WebSocket upgrades to the same
+listener. Unknown report tokens still return 404; `/healthz` returns only `ok`
+for deployment checks. Anyone holding a report link can read it. See
+[Fly hosting](hosting.md) for the supplied single-server deployment.
+
 Completed recordings are also saved under `.local/profiles/` as `.html` and
 `.json`; `config :valimc, profiler_path: "/path/to/profiles"` changes the folder.
+`VALIMC_PROFILER_PATH` sets the same folder in a release.
 Files remain until you remove them. The last 16 report links remain available
 until server restart or observer restart; save a report for longer retention.
 An active capture survives a viewer restart, but an observer crash cancels it.

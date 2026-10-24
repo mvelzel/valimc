@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+if [ "$(id -u)" -eq 0 ]; then
+  # Fly mounts a root-owned volume over /data. Only prepare its top-level paths;
+  # never walk a world or change ownership while its simulation is running.
+  mkdir -p /data/world /data/profiles
+  chown nobody:nogroup /data /data/world /data/profiles
+  exec setpriv --reuid=nobody --regid=nogroup --init-groups "$@"
+fi
+
+exec "$@"

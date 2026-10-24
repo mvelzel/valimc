@@ -71,6 +71,46 @@ if ip = System.get_env("VALIMC_BIND") do
   config :valimc, ip: address
 end
 
+if ip = System.get_env("VALIMC_PROFILER_BIND") do
+  case :inet.parse_address(String.to_charlist(ip)) do
+    {:ok, address} -> config :valimc, profiler_ip: address
+    _ -> raise "VALIMC_PROFILER_BIND must be an IPv4 or IPv6 address"
+  end
+end
+
+if port = System.get_env("VALIMC_PROFILER_PORT") do
+  case Integer.parse(port) do
+    {value, ""} when value in 0..65_535 -> config :valimc, profiler_port: value
+    _ -> raise "VALIMC_PROFILER_PORT must be an integer in 0..65535"
+  end
+end
+
+if url = System.get_env("VALIMC_PROFILER_URL") do
+  uri =
+    case URI.new(url) do
+      {:ok, uri} -> uri
+      _ -> raise "VALIMC_PROFILER_URL must be an absolute HTTP(S) origin without a path"
+    end
+
+  unless uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" and
+           not String.contains?(uri.host, "*") and
+           uri.port in 1..65_535 and is_nil(uri.userinfo) and is_nil(uri.query) and
+           is_nil(uri.fragment) and uri.path in [nil, "", "/"] do
+    raise "VALIMC_PROFILER_URL must be an absolute HTTP(S) origin without a path"
+  end
+
+  origin = URI.to_string(%{uri | path: nil})
+  config :valimc, profiler_url: origin
+
+  config :valimc, Valimc.Net.Profiler.Endpoint,
+    url: [scheme: uri.scheme, host: uri.host, port: uri.port],
+    check_origin: [origin]
+end
+
+if path = System.get_env("VALIMC_PROFILER_PATH") do
+  config :valimc, profiler_path: path
+end
+
 if path = System.get_env("VALIMC_WORLD") do
   config :valimc, world_path: path
 end

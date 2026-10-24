@@ -79,7 +79,7 @@ RUN mix release
 FROM ${RUNNER_IMAGE} AS final
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -99,7 +99,8 @@ ENV MIX_ENV="prod"
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/valimc ./
 
-USER nobody
+# Prepare the mounted data directory, then drop privileges before starting BEAM.
+ENTRYPOINT ["/app/bin/container-entrypoint"]
 
 # If using an environment that doesn't automatically reap zombie processes, it is
 # advised to add an init process such as tini via `apt-get install`

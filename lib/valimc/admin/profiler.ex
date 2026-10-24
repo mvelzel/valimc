@@ -30,9 +30,17 @@ defmodule Valimc.Admin.Profiler do
   def viewer_port(port), do: :persistent_term.put({__MODULE__, :viewer_port}, port)
 
   def url(id) do
+    base_url() <> "/r/" <> id
+  end
+
+  defp base_url do
+    Application.get_env(:valimc, :profiler_url) || local_url()
+  end
+
+  defp local_url do
     address = :persistent_term.get({__MODULE__, :viewer_port}, 0)
     port = if is_function(address, 0), do: address.(), else: address
-    "http://127.0.0.1:#{port}/r/#{id}"
+    "http://127.0.0.1:#{port}"
   end
 
   def report(id) do

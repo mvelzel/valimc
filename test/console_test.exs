@@ -28,4 +28,21 @@ defmodule Valimc.ConsoleTest do
     assert console("gamemode creative") =~ "A player is required to run this command here"
     assert console("kill @s") =~ "No entity was found"
   end
+
+  test "attached release console returns feedback and grants and revokes operators" do
+    alias Valimc.Net.Console
+    alias Valimc.Admin.Lists
+    name = "terminaltest"
+    {:ok, profile} = Lists.resolve(name)
+    on_exit(fn -> Lists.remove_ops([profile]) end)
+
+    assert Console.execute("op #{name}") =~ "Made #{name} a server operator"
+    assert Lists.op(profile.uuid) == {4, false}
+    assert Console.execute("deop #{name}") =~ "Made #{name} no longer a server operator"
+    assert Lists.op(profile.uuid) == nil
+    assert Console.execute("/version") =~ "Server version info:"
+    assert Console.execute("gamemode creative") =~ "A player is required"
+    assert Console.execute("not_a_command") =~ "Unknown or incomplete command"
+    assert Console.execute(String.duplicate("x", 32_768)) =~ "at most 32767 bytes"
+  end
 end

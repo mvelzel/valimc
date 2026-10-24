@@ -11,21 +11,36 @@ defmodule Valimc.Net.Profiler.Router do
     plug(:put_root_layout, html: {Valimc.Net.Profiler.Layouts, :root})
     plug(:protect_from_forgery)
 
-    plug(:put_secure_browser_headers, %{
-      "cache-control" => "no-store",
-      "referrer-policy" => "no-referrer",
-      "content-security-policy" =>
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
-    })
-
+    plug(:browser_headers)
     plug(:load_report)
   end
+
+  get("/healthz", Valimc.Net.Profiler.Health, :show)
 
   scope "/" do
     pipe_through(:report)
     live("/r/:id", Valimc.Net.Profiler.Live, :show, as: :profile)
     get("/data/:id", Valimc.Net.Profiler.Download, :data)
     get("/export/:id/:format", Valimc.Net.Profiler.Download, :export)
+  end
+
+  defp browser_headers(conn, _) do
+    sockets =
+      case Application.get_env(:valimc, :profiler_url) do
+        nil ->
+          "ws://127.0.0.1:* ws://localhost:*"
+
+        url ->
+          uri = URI.parse(url)
+          URI.to_string(%{uri | scheme: if(uri.scheme == "https", do: "wss", else: "ws")})
+      end
+
+    put_secure_browser_headers(conn, %{
+      "cache-control" => "no-store",
+      "referrer-policy" => "no-referrer",
+      "content-security-policy" =>
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' #{sockets}; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+    })
   end
 
   defp load_report(conn, _) do
@@ -39,6 +54,15 @@ defmodule Valimc.Net.Profiler.Router do
       :error -> conn |> send_resp(404, Valimc.Net.Profiler.Errors.render("404", %{})) |> halt()
     end
   end
+end
+
+defmodule Valimc.Net.Profiler.Health do
+  @moduledoc false
+  import Plug.Conn
+  def init(action), do: action
+
+  def call(conn, :show),
+    do: conn |> put_resp_content_type("text/plain") |> send_resp(200, "ok\n")
 end
 
 defmodule Valimc.Net.Profiler.Download do

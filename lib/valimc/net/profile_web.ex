@@ -1,5 +1,5 @@
 defmodule Valimc.Net.ProfileWeb do
-  @moduledoc "Loopback Phoenix/LiveView report service, isolated from simulation owners."
+  @moduledoc "Phoenix/LiveView report service, local by default and isolated from simulation owners."
   use Supervisor
   alias Valimc.Net.Profiler.{Endpoint, Limits}
 
@@ -22,7 +22,7 @@ defmodule Valimc.Net.ProfileWeb do
       server: true,
       secret_key_base: Base.encode64(:crypto.strong_rand_bytes(64)),
       http: [
-        ip: {127, 0, 0, 1},
+        ip: Application.get_env(:valimc, :profiler_ip, {127, 0, 0, 1}),
         port: port,
         thousand_island_options: [
           num_acceptors: 2,

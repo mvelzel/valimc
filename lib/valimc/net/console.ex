@@ -11,6 +11,15 @@ defmodule Valimc.Net.Console do
 
   def start_link(_opts), do: Task.start_link(&read/0)
 
+  @doc "Run a release RPC command as Server and return its feedback to the attached terminal."
+  def execute(line) when is_binary(line) and byte_size(line) <= 32_767 do
+    source = %{Valimc.Commands.Source.console() | sink: {:collect, self(), make_ref()}}
+    Valimc.Commands.run(source, line |> String.trim() |> String.replace_prefix("/", ""))
+    source |> Valimc.Commands.Source.collect() |> String.trim_trailing("\n")
+  end
+
+  def execute(_line), do: "Console commands must be at most 32767 bytes."
+
   defp read do
     case IO.gets(:stdio, "") do
       line when is_binary(line) ->

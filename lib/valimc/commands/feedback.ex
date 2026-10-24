@@ -48,6 +48,9 @@ defmodule Valimc.Commands.Feedback do
   # The console prints the English text (`sendSystemMessage` logs `getString`).
   defp show(%Source{sink: :log}, component), do: Logger.info(Render.string(component))
 
+  defp show(%Source{kind: :console, sink: {:collect, pid, ref}}, component),
+    do: send(pid, {ref, Render.string(component) <> "\n"})
+
   # RCON collects the text for its reply (`RconConsoleSource` appends each
   # message's string, without separators).
   defp show(%Source{sink: {:collect, pid, ref}}, component),
