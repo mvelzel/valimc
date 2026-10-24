@@ -53,11 +53,7 @@ ours =
 # Sounds take the oracle's seed sequence, in its order.
 sounds =
   for sound <-
-        ~w(minecraft:entity.player.attack.strong minecraft:entity.player.attack.weak
-                  minecraft:entity.player.attack.crit minecraft:entity.player.attack.sweep
-                  minecraft:entity.player.attack.knockback minecraft:entity.player.attack.nodamage
-                  minecraft:item.shield.block minecraft:item.shield.break minecraft:entity.item.break
-                  minecraft:entity.player.hurt minecraft:entity.player.death),
+        ("priv/registry/combat_facts.json" |> File.read!() |> JSON.decode!())["packet_sounds"],
       source <- ~w(player hostile),
       do: {sound, source}
 

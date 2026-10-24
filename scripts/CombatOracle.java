@@ -68,7 +68,8 @@ public class CombatOracle {
       "minecraft:item.crossbow.loading_middle", "minecraft:item.crossbow.loading_end",
       "minecraft:entity.snowball.throw", "minecraft:entity.egg.throw", "minecraft:entity.ender_pearl.throw",
       "minecraft:entity.splash_potion.throw", "minecraft:entity.player.teleport",
-      "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot");
+      "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot",
+      "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt");
   static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator",
       "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink");
 
@@ -133,18 +134,16 @@ public class CombatOracle {
       mobs.add(name, row);
     }
     var sounds = new JsonObject();
-    for (var name : SOUNDS) sounds.addProperty(name, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(name))));
-    for (var row : mobs.entrySet())
-      for (var key : List.of("hurt_sound", "death_sound")) {
-        var name = row.getValue().getAsJsonObject().get(key).getAsString();
-        sounds.addProperty(name, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(name))));
-      }
+    // Packet emission may use any registered sound (including projectile hits).
+    for (var event : BuiltInRegistries.SOUND_EVENT)
+      sounds.addProperty(BuiltInRegistries.SOUND_EVENT.getKey(event).toString(), BuiltInRegistries.SOUND_EVENT.getId(event));
     var sources = new JsonObject();
     for (var source : net.minecraft.sounds.SoundSource.values()) sources.addProperty(source.getName(), source.ordinal());
     var particles = new JsonObject();
     for (var name : PARTICLES) particles.addProperty(name, BuiltInRegistries.PARTICLE_TYPE.getId(BuiltInRegistries.PARTICLE_TYPE.getValue(Identifier.parse(name))));
     var out = new JsonObject();
     out.add("items", items);
+    out.add("packet_sounds", new Gson().toJsonTree(SOUNDS));
     out.add("player_attributes", attributes);
     out.add("experience", experience);
     out.add("mobs", mobs);
