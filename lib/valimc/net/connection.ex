@@ -150,6 +150,7 @@ defmodule Valimc.Net.Connection do
        movement_speed_view: nil,
        absorption_view: nil,
        jump_boost_view: nil,
+       attack_speed_view: nil,
        food_tick_origin: 0,
        simulation_due: false,
        air_policy: :none,

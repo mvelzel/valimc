@@ -187,7 +187,7 @@ defmodule Valimc.Player.ItemUse do
             Valimc.Living.Packets.armor_attributes(state.player.entity_id, attributes)
           ])
 
-      %{state | armor_view: attributes}
+      %{state | armor_view: attributes} |> Valimc.Player.Attack.publish_speed()
     end
   end
 

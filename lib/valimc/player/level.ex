@@ -152,6 +152,7 @@ defmodule Valimc.Player.Level do
           |> Movement.publish_movement_speed()
           |> Movement.publish_absorption()
           |> Movement.publish_jump_boost()
+          |> Valimc.Player.Attack.publish_speed()
 
     for pid <- PlayerList.around(state.player),
         pid != state.connection,

@@ -385,6 +385,7 @@ defmodule Valimc.Player.Vitals do
         movement_speed_view: nil,
         absorption_view: nil,
         jump_boost_view: nil,
+        attack_speed_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
         respawn_requested: false,
@@ -468,6 +469,7 @@ defmodule Valimc.Player.Vitals do
     |> Valimc.Player.Movement.publish_movement_speed()
     |> Valimc.Player.Movement.publish_absorption()
     |> Valimc.Player.Movement.publish_jump_boost()
+    |> Valimc.Player.Attack.publish_speed()
   end
 
   def tick_effects(%{life_stage: :alive, player: %{living: %{effects: effects}}} = state)

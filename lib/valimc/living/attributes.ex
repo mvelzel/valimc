@@ -26,6 +26,12 @@ defmodule Valimc.Living.Attributes do
   @slow_falling EffectTypes.id("slow_falling")
   @levitation EffectTypes.id("levitation")
   @absorption EffectTypes.id("absorption")
+  @attack_speed @facts["minecraft:attack_speed"]
+  # Native total-multiplier evaluation order, established by AttackSpeedOracle.
+  @attack_effects [
+    {EffectTypes.id("mining_fatigue"), "minecraft:effect.mining_fatigue", -0.10000000149011612},
+    {EffectTypes.id("haste"), "minecraft:effect.haste", 0.10000000149011612}
+  ]
 
   @doc "An attribute's registry facts (`id`, `default`, `min`, `max`) by name without namespace."
   def fetch(name), do: Map.fetch!(@facts, "minecraft:" <> name)
@@ -63,6 +69,32 @@ defmodule Valimc.Living.Attributes do
     case effects[id] do
       nil -> nil
       [{_, amplifier, _, _, _} | _] -> amplifier
+    end
+  end
+
+  @doc "Held-weapon and effect attack speed, shared by server strength and the client attribute."
+  def attack_speed(mainhand, effects) do
+    if Effects.valid?(effects) do
+      name = "minecraft:attack_speed"
+      base = Valimc.Living.Weapons.player_base(name)
+
+      weapon =
+        for {^name, id, amount, op} <- Valimc.Living.Weapons.modifiers(mainhand, :mainhand),
+            do: {id, amount, op}
+
+      modifiers =
+        weapon ++
+          Enum.flat_map(@attack_effects, fn {id, name, coefficient} ->
+            case amplifier(effects, id) do
+              nil -> []
+              level -> [{name, coefficient * (level + 1), 2}]
+            end
+          end)
+
+      {:ok,
+       %{attribute: {@attack_speed["id"], base, modifiers}, value: value(name, base, modifiers)}}
+    else
+      {:error, :invalid_attack_speed}
     end
   end
 

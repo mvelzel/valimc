@@ -282,6 +282,7 @@ defmodule Valimc.Net.LoginFlow do
       |> Movement.publish_movement_speed()
       |> Movement.publish_absorption()
       |> Movement.publish_jump_boost()
+      |> Valimc.Player.Attack.publish_speed()
 
     existing = PlayerList.ready(state.connection)
     state = state |> Valimc.Player.Presence.joined() |> Replication.update_view()

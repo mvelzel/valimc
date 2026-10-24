@@ -129,6 +129,35 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "zero attack speed from high Mining Fatigue remains a weak attack without closing the connection",
+       ctx do
+    save(ctx, -90.0, %Inventory{slots: %{36 => ItemStack.new("diamond_sword")}})
+    {client, pid} = TestPlayer.login(ctx)
+    uuid = <<861::128>>
+    owner = summon(ctx, uuid)
+    {id, _} = body(owner, uuid)
+    {_entity, client} = Client.await(client, :play, "add_entity")
+    fatigue = Valimc.Data.EffectTypes.id("mining_fatigue")
+
+    :ok =
+      Valimc.TestConn.call(pid, fn state ->
+        {:ok, _, next} =
+          Valimc.Player.Vitals.apply_effect(state, fatigue, [{-1, 9, false, true, true}])
+
+        {:reply, :ok, next}
+      end)
+
+    Client.send_packet(client, :play, "attack", Wire.varint(id))
+
+    Valimc.TestWait.until(fn ->
+      elem(body(owner, uuid), 1).body.mob.living.health.value < 20.0
+    end)
+
+    assert elem(body(owner, uuid), 1).body.mob.living.health.value > 18.0
+    assert Process.alive?(pid)
+    assert Valimc.Living.Melee.strength(1000, 0.0) == 0.0
+  end
+
   test "punching a bullet sends native break feedback and leaves the connection alive", ctx do
     save(ctx, -90.0, Inventory.new())
     {client, pid} = TestPlayer.login(ctx)

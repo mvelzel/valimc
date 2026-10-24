@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('attack_speed', [
+        ('java', 'AttackSpeedOracle', '@attack-speed.json'),
+        ('check', 'check_attack_speed.exs', '@attack-speed.json'),
+    ]),
     ('shulker_bullet_hurt', [
         ('java', 'ShulkerBulletHurtOracle', '@shulker-bullet-hurt.json'),
         ('check', 'check_shulker_bullet_hurt.exs', '@shulker-bullet-hurt.json'),

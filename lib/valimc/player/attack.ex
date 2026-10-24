@@ -28,6 +28,24 @@ defmodule Valimc.Player.Attack do
 
   defstruct ticker: 0, mainhand: nil
 
+  @doc "Publish the player's attack-speed attribute only when its derived modifiers change."
+  def publish_speed(%{phase: :play} = state) do
+    mainhand = Inventory.held(state.inventory, :main)
+    {:ok, derived} = Attributes.attack_speed(mainhand, state.player.living.effects)
+
+    if derived.attribute == Map.get(state, :attack_speed_view) do
+      state
+    else
+      send_packets(state, [
+        Valimc.Protocol.Packets.attribute(state.player.entity_id, derived.attribute)
+      ])
+
+      Map.put(state, :attack_speed_view, derived.attribute)
+    end
+  end
+
+  def publish_speed(state), do: state
+
   @player EntityTypes.id("minecraft:player")
   @blindness Valimc.Data.EffectTypes.id("blindness")
   # `#redirectable_projectile` (VMC-037o): an attack turns it back.
@@ -459,29 +477,9 @@ defmodule Valimc.Player.Attack do
       mainhand: mainhand
     }
 
-  # A player's attribute with the main hand's stock modifiers.
-  @fatigue Valimc.Data.EffectTypes.id("mining_fatigue")
-
-  # The held weapon's attack speed with Mining Fatigue's modifier (-0.1 a
-  # level, multiplied in last; `MobEffects.MINING_FATIGUE`).
   defp attack_speed(state, mainhand) do
-    name = "minecraft:attack_speed"
-
-    modifiers =
-      for {^name, id, amount, op} <- Weapons.modifiers(mainhand, :mainhand),
-          do: {id, amount, op}
-
-    modifiers =
-      case Attributes.amplifier(state.player.living.effects, @fatigue) do
-        nil ->
-          modifiers
-
-        level ->
-          modifiers ++
-            [{"minecraft:effect.mining_fatigue", -0.10000000149011612 * (level + 1), 2}]
-      end
-
-    Attributes.value(name, Weapons.player_base(name), modifiers)
+    {:ok, derived} = Attributes.attack_speed(mainhand, state.player.living.effects)
+    derived.value
   end
 
   defp attribute(mainhand, name) do

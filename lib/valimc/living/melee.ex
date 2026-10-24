@@ -19,11 +19,15 @@ defmodule Valimc.Living.Melee do
   @doc "The knockback of a hit and of a sweep: `0.4F`, widened."
   def default_knockback, do: 0.4000000059604645
 
-  @doc "`getCurrentItemAttackStrengthDelay`: ticks to full strength at `attack_speed`."
+  @doc "`getCurrentItemAttackStrengthDelay`: ticks to full strength, or :infinity at zero speed."
+  def strength_delay(attack_speed) when attack_speed == 0, do: :infinity
   def strength_delay(attack_speed), do: Float32.round(1.0 / attack_speed * 20.0)
 
   @doc "`getAttackStrengthScale(a)` after `ticker` ticks at `attack_speed`."
-  def strength(ticker, attack_speed, a \\ 0.5),
+  def strength(ticker, attack_speed, a \\ 0.5)
+  def strength(_ticker, attack_speed, _a) when attack_speed == 0, do: 0.0
+
+  def strength(ticker, attack_speed, a),
     do:
       Float32.round(
         min(
@@ -36,6 +40,9 @@ defmodule Valimc.Living.Melee do
   `cannotAttackWithItem(stack, tolerance)`: whether the item's minimum charge
   is not reached even `tolerance` ticks later.
   """
+  def too_weak?(minimum, _ticker, attack_speed, _tolerance) when attack_speed == 0,
+    do: minimum > 0.0
+
   def too_weak?(minimum, ticker, attack_speed, tolerance),
     do:
       minimum > 0.0 and
