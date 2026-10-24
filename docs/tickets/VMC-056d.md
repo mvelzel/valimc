@@ -17,7 +17,8 @@ Acceptance:
   diagnostic listener is published only on host loopback, reached through SSH;
   its URL, LiveView origin and WebSocket policy name the tunnel's local origin.
 - The existing release console accepts ordinary commands through `docker compose
-  exec`; disconnecting from it does not stop simulation.
+  exec`; disconnecting from it does not stop simulation. The release uses a
+  loopback node name, so RPC does not require Docker's short hostname to be an FQDN.
 - Bound the container to 3 GiB on the 4 GB host, rotate its logs and compile Rust
   with one Cargo job. Keep view/simulation distance four as in the Fly trial.
 - Deploy a committed source snapshot without copying local research, caches,

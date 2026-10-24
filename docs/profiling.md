@@ -100,12 +100,12 @@ port for forwarding; the default is `0` (automatic).
 
 For a hosted viewer, set `VALIMC_PROFILER_BIND` to the listener address,
 `VALIMC_PROFILER_PORT` to its internal HTTP port and `VALIMC_PROFILER_URL` to
-its public HTTP(S) origin, such as `https://valimc.fly.dev`. The public origin
+its public HTTP(S) origin, such as `https://profiles.example.com`. The public origin
 controls chat links, LiveView's allowed origin and the WebSocket CSP source.
 Terminate HTTPS at the reverse proxy and route WebSocket upgrades to the same
 listener. Unknown report tokens still return 404; `/healthz` returns only `ok`
 for deployment checks. Anyone holding a report link can read it. See
-[Fly hosting](hosting.md) for the supplied single-server deployment.
+[Ubuntu hosting](hosting.md) for the supplied single-server deployment and SSH tunnel.
 
 Completed recordings are also saved under `.local/profiles/` as `.html` and
 `.json`; `config :valimc, profiler_path: "/path/to/profiles"` changes the folder.

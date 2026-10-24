@@ -63,12 +63,22 @@ if [ "$ready" != true ]; then
   exit 1
 fi
 ln -sfn "releases/$revision" /opt/valimc/current
+cat > /opt/valimc/console <<'CONSOLE'
+#!/bin/sh
+set -eu
+cd /opt/valimc/current
+if [ -t 0 ]; then
+  exec docker compose exec server /app/bin/console "$@"
+fi
+exec docker compose exec -T server /app/bin/console "$@"
+CONSOLE
+chmod 755 /opt/valimc/console
 docker compose ps
 '''
     subprocess.run(
         ["ssh", target, f"sh -s -- {revision}"], input=script, text=True, check=True
     )
-    print("Ready. Server files and console are under /opt/valimc/current.")
+    print("Ready. Attach with: ssh -t " + target + " /opt/valimc/console")
 
 
 if __name__ == "__main__":

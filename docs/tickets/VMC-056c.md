@@ -1,8 +1,9 @@
 # VMC-056c — Fly trial hosting and an attached server console
 
-Status: Awaiting client
+Status: Parked
 Milestone: Operations, alongside M3 at the user's request
 Depends on: VMC-056b.
+Note: The user retired the Fly app; Ubuntu hosting continues in VMC-056d.
 
 Serve the existing ValiMC profiler through HTTPS on Fly and run one persistent
 Minecraft server. Use free public IPv6 for Minecraft and shared IPv4 for HTTPS;

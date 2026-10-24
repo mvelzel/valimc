@@ -35,7 +35,7 @@ explains targeted checks and delegated Minecraft validation.
 
 - [Configuration](docs/configuration.md)
 - [Profiling while playing](docs/profiling.md) with the built-in `/spark` commands
-- [Trial hosting on Fly](docs/hosting.md), server terminal and IPv6/proxy access
+- [Ubuntu hosting](docs/hosting.md), server terminal and diagnostic access over SSH
 - [Ownership and architecture](docs/architecture.md)
 - [Reference research](docs/research.md) and [measurements](docs/performance.md)
 - [Feature backlog](docs/backlog.md) and [completed checkpoints](docs/history/completed.md)
