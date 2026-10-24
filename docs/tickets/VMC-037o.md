@@ -38,10 +38,11 @@ Acceptance:
   (`Native.physics_projectiles`, a dirty twin by cost).
 - **Owner.** Projectiles are object bodies (`Entity.Projectile`: owner,
   ticks lived, water and owner flags, fire, the type's fields). A section's
-  entity phase runs the kernel over its projectiles against its living mobs
-  and the group's players (`Player.Host.bodies/1`); `World.Projectiles`
-  plans each step as the type's `onHit` does, and the owner applies it:
-  hits through VMC-037n's hurt path (this section's mobs at once, players
+  entity phase runs the kernel over its projectiles against the owning
+  group's living mobs, crystals, dragon parts and players
+  (`Player.Host.bodies/1`); `World.Projectiles` plans each step as the type's
+  `onHit` does, and the owner applies it:
+  hits through VMC-037n's hurt path (the group's mobs at once, players
   by their sessions with the projectile as the direct entity, knockback
   along its motion), sounds, entity and level events, spawned entities,
   explosions (VMC-050a1), fire, potion splashes. Moves go where mobs' go:
@@ -118,8 +119,7 @@ Not modelled: bow and crossbow enchantments (Power, Punch, Flame, Infinity,
 Multishot, Piercing, Quick Charge: VMC-037), tipped arrows' effects,
 spectral arrows, firework rockets from crossbows, an arrow bouncing off a
 player's shield or a creative player (a player hit is taken to land), more
-than the first entity on one tick's path, projectiles hitting mobs of a
-sibling section (a section is 128 blocks across), arrows hitting fireballs,
+than the first entity on one tick's path, arrows hitting fireballs,
 `state.onProjectileHit` (targets, bells, TNT lit by a burning arrow),
 block effects inside the path, bubble columns and portals, water potions
 dousing fire, potion colours from their effects (the splash particle uses
@@ -165,3 +165,6 @@ Both have connection tests (a real throw, a real ground shot). The rerun on
 the fix commit `169a22a7`, landed as `7dd08fb4` passed: walking over a stuck arrow took it back (16 → 15 → 16); pearls
 carried the player about 33 blocks with 5 damage and the cooldown; an arrow
 left lying went from the client when the server despawned it.
+
+Cross-section authority and same-callback hit/explosion ordering are covered
+by [VMC-037o1](VMC-037o1.md); its additional graphical gate joins the finale.

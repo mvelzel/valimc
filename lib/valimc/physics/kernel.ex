@@ -505,7 +505,10 @@ defmodule Valimc.Physics.Kernel do
         sum + 2 * scan_cells(velocity)
       end)
 
-    Native.dispatch(:physics_projectiles, cells, [
+    # Entity intersection scans grow with the owning group's target count.
+    units = cells + length(projectiles) * length(targets)
+
+    Native.dispatch(:physics_projectiles, units, [
       native(view, region),
       projectiles,
       targets,

@@ -31,58 +31,58 @@ defmodule Valimc.Entity.Combat do
   """
   def hurt(store, id, hit) do
     case store.entries[id] do
-      %{kind: :mob, body: body, entity: entity} ->
-        before = body.mob.living.health.value
-
-        case hurt_body(body, entity, hit) do
-          :ignored ->
-            stirred = body |> stir(hit) |> repelled(hit)
-
-            store =
-              if stirred == body, do: store, else: Store.change_body(store, id, stirred, [])
-
-            {:ok, store, %{hurt: false}}
-
-          {body, events, outcome} ->
-            {:ok, Store.change_body(store, id, body, events),
-             Map.merge(outcome, %{
-               hurt: true,
-               previous: before,
-               health: body.mob.living.health.value
-             })}
-        end
-
-      # A shulker's bullet is broken by any hit (`ShulkerBullet.hurtServer`).
-      %{kind: :object, body: %Body{type: "minecraft:shulker_bullet"}, revision: revision} ->
-        case Store.remove(store, store.epoch, id, revision) do
-          {:ok, store} -> {:ok, store, %{hurt: true}}
-          _ -> {:ok, store, %{hurt: false}}
-        end
-
-      %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e, revision: revision} ->
-        if Valimc.Entity.EndCrystal.hurt?(body, hit) do
-          {:ok, store} = Store.remove(store, store.epoch, id, revision)
-
-          outcome = %{
-            hurt: true,
-            previous: 0.0,
-            health: 0.0,
-            crystal: {e.x, e.y, e.z},
-            explode: Valimc.Entity.EndCrystal.explodes?(hit)
-          }
-
-          {:ok, store, outcome}
-        else
-          {:ok, store, %{hurt: false}}
-        end
-
-      %{} ->
-        {:ok, store, %{hurt: false}}
-
       nil ->
         {:error, :missing_entity}
+
+      %{revision: revision} = entry ->
+        {change, outcome} = resolve(entry, hit)
+
+        with {:ok, store} <- Store.change_entry(store, id, revision, change),
+             do: {:ok, store, outcome}
     end
   end
+
+  @doc """
+  Resolve a hit on an authoritative entry once, returning the store change
+  and its admission outcome. The owner applies it at the entry's revision;
+  siblings project the same result and deliver that fenced change before the
+  group cuts its frame. No sound/random draw or hurt is repeated on delivery.
+  """
+  def resolve(%{kind: :mob, body: body, entity: entity}, hit) do
+    before = body.mob.living.health.value
+
+    case hurt_body(body, entity, hit) do
+      :ignored ->
+        stirred = body |> stir(hit) |> repelled(hit)
+        change = if stirred == body, do: :keep, else: {:body, stirred, []}
+        {change, %{hurt: false}}
+
+      {body, events, outcome} ->
+        {{:body, body, events},
+         Map.merge(outcome, %{hurt: true, previous: before, health: body.mob.living.health.value})}
+    end
+  end
+
+  # A shulker's bullet is broken by any hit (`ShulkerBullet.hurtServer`).
+  def resolve(%{kind: :object, body: %Body{type: "minecraft:shulker_bullet"}}, _hit),
+    do: {:remove, %{hurt: true}}
+
+  def resolve(%{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}, hit) do
+    if Valimc.Entity.EndCrystal.hurt?(body, hit) do
+      {:remove,
+       %{
+         hurt: true,
+         previous: 0.0,
+         health: 0.0,
+         crystal: {e.x, e.y, e.z},
+         explode: Valimc.Entity.EndCrystal.explodes?(hit)
+       }}
+    else
+      {:keep, %{hurt: false}}
+    end
+  end
+
+  def resolve(%{}, _hit), do: {:keep, %{hurt: false}}
 
   @doc """
   `hurtServer` on a mob `body` at `entity`'s position (nil where only

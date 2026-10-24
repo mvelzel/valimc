@@ -160,50 +160,46 @@ defmodule Valimc.World.Explosion do
   end
 
   @doc """
-  Apply `hits/2`'s actions to `store` (section `key`): `{store, removed}`,
-  `removed` the handles of entities to remove once durable.
+  Apply `hits/2`'s actions to an authoritative store, resolving each change
+  once and applying it at the entry's revision.
   """
-  def apply_hits(store, key, actions) do
+  def apply_hits(store, _key, actions) do
     Enum.reduce(actions, store, fn {id, action}, acc ->
-      case {action, acc.entries[id]} do
-        {_, nil} ->
+      case acc.entries[id] do
+        nil ->
           acc
 
-        {:destroy, %{revision: revision}} ->
-          case Store.remove(acc, acc.epoch, id, revision) do
+        %{revision: revision} = entry ->
+          case Store.change_entry(acc, id, revision, change(entry, action)) do
             {:ok, next} -> next
             _ -> acc
           end
-
-        {{:hurt, amount, impulse, source}, %{body: body}} ->
-          {hurt, events} = Body.hurt(body, source, amount)
-          Store.change_body(acc, id, Body.push(hurt, impulse), events)
-
-        {{:push, impulse}, %{body: %Body{} = body}} ->
-          Store.change_body(acc, id, Body.push(body, impulse))
-
-        {{:push, impulse}, entry} ->
-          push(acc, key, id, entry, impulse, nil)
-
-        {{:push, impulse, health}, entry} ->
-          push(acc, key, id, entry, impulse, health)
       end
     end)
   end
 
+  @doc "A resolved, revision-fenced store change for one authoritative explosion target."
+  def change(_entry, :destroy), do: :remove
+
+  def change(%{body: body}, {:hurt, amount, impulse, source}) do
+    {hurt, events} = Body.hurt(body, source, amount)
+    {:body, Body.push(hurt, impulse), events}
+  end
+
+  def change(%{body: %Body{} = body}, {:push, impulse}),
+    do: {:body, Body.push(body, impulse), []}
+
+  def change(entry, {:push, impulse}), do: motion(entry, impulse, nil)
+  def change(entry, {:push, impulse, health}), do: motion(entry, impulse, health)
+
   # An item or orb pushed, with the health the explosion left it.
-  defp push(store, key, id, %{entity: entity, revision: revision} = entry, impulse, health) do
+  defp motion(entry, impulse, health) do
     motion = Map.get(entry, :motion) || %ItemMotionState{}
     {vx, vy, vz} = motion.velocity
     {dx, dy, dz} = impulse
     motion = %{motion | velocity: {vx + dx, vy + dy, vz + dz}, health: health || motion.health}
 
-    step = %{id: id, revision: revision, position: {entity.x, entity.y, entity.z}, motion: motion}
-
-    case Store.advance(store, key, store.epoch, [step]) do
-      {:ok, next, _} -> next
-      _ -> store
-    end
+    {:motion, motion}
   end
 
   @doc "The section keys (`{sx, sz}`) whose entities the explosion's reach box may hold."

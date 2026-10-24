@@ -878,6 +878,28 @@ defmodule Valimc.Entity.Store do
     end
   end
 
+  @doc "A revision-fenced entity change inside its owner (including sibling section effects)."
+  def change_entry(state, id, revision, change) do
+    with {:ok, entry} <- current(state, state.epoch, id, revision) do
+      case change do
+        :keep ->
+          {:ok, state}
+
+        :remove ->
+          remove(state, state.epoch, id, revision)
+
+        {:body, %Body{} = body, events} ->
+          {:ok, change_body(state, id, body, events)}
+
+        {:motion, %ItemMotionState{} = motion} ->
+          %{entity: %{x: x, y: y, z: z}} = entry
+          step = %{id: id, revision: revision, position: {x, y, z}, motion: motion}
+          key = Grid.region_key(Grid.chunk_key(x, z))
+          with {:ok, next, _} <- advance(state, key, state.epoch, [step]), do: {:ok, next}
+      end
+    end
+  end
+
   @doc """
   The deaths bodies left since the last call, oldest first, each
   `{death, position}` (`Entity.Combat`'s death and where the body died), and

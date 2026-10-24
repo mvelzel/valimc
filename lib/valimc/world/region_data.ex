@@ -788,12 +788,14 @@ defmodule Valimc.World.RegionData do
           if type == EffectCloud.type(), do: {p, [{id, entry} | c]}, else: {[{id, entry} | p], c}
       end
 
-    if (projectiles == [] and clouds == []) or write_busy(state) != nil do
+    if (projectiles == [] and clouds == []) or write_busy(state) != nil or
+         Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end) do
       state
     else
       targets = projectile_targets(state)
       part_targets = projectile_targets(state, true)
-      state = Enum.reduce(Enum.sort(clouds), state, &tick_cloud(&2, &1, targets))
+      living = living_targets(targets)
+      state = Enum.reduce(Enum.sort(clouds), state, &tick_cloud(&2, &1, living))
 
       steps =
         Projectiles.step(
@@ -808,7 +810,7 @@ defmodule Valimc.World.RegionData do
       context = %{
         mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
         difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
-        targets: targets,
+        targets: living,
         read: &read_block(state, &1)
       }
 
@@ -823,12 +825,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # What projectiles may hit: this section's living mobs and the group's
+  # What projectiles may hit: the owning group's living mobs, crystals and
   # players, `%{id, ref, uuid, type, position, box}`.
   defp projectile_targets(state, multipart \\ false) do
     mobs =
       for {sid, %{body: %Body{type: type} = body, entity: e}} <-
-            state.entities.store.entries,
+            group_entries(state),
           body.mob != nil or type == "minecraft:end_crystal",
           Body.alive?(body) do
         {w, h, _} = Body.dimensions(body)
@@ -862,6 +864,10 @@ defmodule Valimc.World.RegionData do
     List.flatten(mobs) ++ players
   end
 
+  # Native splash/cloud queries ask for LivingEntity, excluding crystals.
+  defp living_targets(targets),
+    do: Enum.filter(targets, &Valimc.Data.EntityTypes.living?(&1.type))
+
   defp run_projectile(state, id, entry, {:keep, body, position, effects}, moves) do
     state = Enum.reduce(effects, state, &projectile_effect(&2, entry, &1))
     {state, [%{id: id, revision: entry.revision, position: position, body: body} | moves]}
@@ -889,8 +895,8 @@ defmodule Valimc.World.RegionData do
     ignite =
       case target do
         %{ref: {:mob, sid}, uuid: uuid} ->
-          case state.entities.store.entries[sid] do
-            %{entity: %{uuid: ^uuid}, body: %Body{type: "minecraft:ender_dragon"} = body} ->
+          case group_entry(state, sid) do
+            {_, _, %{entity: %{uuid: ^uuid}, body: %Body{type: "minecraft:ender_dragon"} = body}} ->
               Valimc.Entity.Dragon.ignites?(body, hit)
 
             _ ->
@@ -916,19 +922,40 @@ defmodule Valimc.World.RegionData do
     run_projectile(state, id, entry, result, moves)
   end
 
-  # A projectile's hit through the one hurt path: a mob of this section at
-  # once (and set on fire when the hit says so), a player by its session,
+  # A projectile's hit through the one hurt path: an authoritative body of
+  # this group (and set on fire when the hit says so), a player by its session,
   # whose hit is taken to land.
   defp projectile_hurt(state, %{ref: {:mob, sid}} = target, hit) do
-    case state.entities.store.entries[sid] do
-      %{entity: %{uuid: uuid}} ->
+    case group_entry(state, sid) do
+      {key, store, %{entity: %{uuid: uuid}} = entry} ->
         if Map.get(target, :uuid, uuid) == uuid do
           hit =
             if Map.has_key?(target, :dragon_part),
               do: Map.put(hit, :dragon_part, target.dragon_part),
               else: hit
 
-          projectile_hurt_body(state, sid, uuid, hit)
+          {change, outcome} = Valimc.Entity.Combat.resolve(entry, hit)
+
+          change =
+            case {outcome, change, hit[:ignite]} do
+              {%{hurt: true}, {:body, %Body{mob: %{} = mob} = body, events}, ticks}
+              when is_integer(ticks) ->
+                living = %{mob.living | fire_ticks: max(mob.living.fire_ticks, ticks)}
+                {:body, %{body | mob: %{mob | living: living}}, events}
+
+              _ ->
+                change
+            end
+
+          state = change_group_entry(state, key, store, sid, change)
+
+          state =
+            case outcome do
+              %{crystal: point, explode: true} -> explode(state, Explosion.crystal(point))
+              _ -> state
+            end
+
+          {outcome.hurt, state}
         else
           {false, state}
         end
@@ -941,31 +968,6 @@ defmodule Valimc.World.RegionData do
   defp projectile_hurt(state, %{ref: {:player, uuid}}, hit) do
     send(self(), {:player, uuid, {:hurt, hit}})
     {true, state}
-  end
-
-  defp projectile_hurt_body(state, sid, uuid, hit) do
-    case hurt_body(state, uuid, hit) do
-      {{:ok, %{hurt: true}}, state} ->
-        store = state.entities.store
-
-        store =
-          case {hit[:ignite], store.entries[sid]} do
-            {ticks, %{body: %Body{mob: %{} = mob} = body}} when is_integer(ticks) ->
-              living = %{mob.living | fire_ticks: max(mob.living.fire_ticks, ticks)}
-              Store.change_body(store, sid, %{body | mob: %{mob | living: living}})
-
-            _ ->
-              store
-          end
-
-        {true, put_entities(state, store)}
-
-      {{:ok, _}, state} ->
-        {false, state}
-
-      _ ->
-        {false, state}
-    end
   end
 
   defp projectile_effect(state, _entry, {:sound, name, source, position, volume, pitch}) do
@@ -1018,7 +1020,7 @@ defmodule Valimc.World.RegionData do
     do: Enum.reduce(actions, state, &mob_effect(&2, sid, target, &1, hit))
 
   defp projectile_effect(state, entry, {:splash, body, location}) do
-    living = projectile_targets(state)
+    living = state |> projectile_targets() |> living_targets()
     {hits, events} = Projectiles.splash(body, location, living, body.data.age)
 
     me = %{
@@ -1060,8 +1062,8 @@ defmodule Valimc.World.RegionData do
   defp mob_effect(state, sid, _target, {:add, id, rung}, _template) do
     # `canBeAffected` (VMC-043d: a wither skeleton is never withered).
     type =
-      case state.entities.store.entries[sid] do
-        %{body: %Body{type: type}} -> type
+      case group_entry(state, sid) do
+        {_, _, %{body: %Body{type: type}}} -> type
         _ -> nil
       end
 
@@ -1080,11 +1082,9 @@ defmodule Valimc.World.RegionData do
   end
 
   defp update_mob(state, sid, fun) do
-    store = state.entities.store
-
-    case store.entries[sid] do
-      %{body: %Body{mob: mob} = body} when mob != nil ->
-        put_entities(state, Store.change_body(store, sid, %{body | mob: fun.(mob)}))
+    case group_entry(state, sid) do
+      {key, store, %{body: %Body{mob: mob} = body}} when mob != nil ->
+        change_group_entry(state, key, store, sid, {:body, %{body | mob: fun.(mob)}, []})
 
       _ ->
         state
@@ -1180,22 +1180,33 @@ defmodule Valimc.World.RegionData do
     %{put_entities(state, store) | sibling_effects: state.sibling_effects ++ [effect]}
   end
 
-  # An explosion (VMC-050a, `Valimc.World.Explosion`): its reach as the rows
-  # stand, this section's entities hit now, its siblings' with this call and
-  # the group's players by their sessions, and its crater by the crater job.
+  # An explosion (VMC-050a, `Valimc.World.Explosion`): resolve the group's
+  # authoritative entities once, project sibling changes for later hits,
+  # notify players through their sessions, and run its crater outside the owner.
   defp explode(state, explosion) do
     case Explosion.reach(explosion) do
       {:ok, cells} ->
-        store = state.entities.store
-        hits = Explosion.hits(explosion, store.entries)
-        state = put_entities(state, Explosion.apply_hits(store, state.key, hits))
+        state =
+          Enum.reduce(Explosion.sections(explosion), state, fn key, state ->
+            store =
+              case {key == state.key, state.siblings[key]} do
+                {true, _} -> state.entities.store
+                {false, %{entities: store}} -> store
+                _ -> nil
+              end
 
-        siblings =
-          for key <- Explosion.sections(explosion),
-              key != state.key and Map.has_key?(state.siblings, key),
-              do: {key, {:explosion, explosion}}
+            if store do
+              Enum.reduce(Explosion.hits(explosion, store.entries), state, fn {id, action},
+                                                                              state ->
+                {^key, store, entry} = group_entry(state, id, true)
+                change_group_entry(state, key, store, id, Explosion.change(entry, action))
+              end)
+            else
+              state
+            end
+          end)
 
-        effects = siblings ++ [{:players, {:explosion, explosion, length(cells)}}]
+        effects = [{:players, {:explosion, explosion, length(cells)}}]
 
         %{state | sibling_effects: state.sibling_effects ++ effects}
         |> queue_crater(explosion, cells)
@@ -1857,6 +1868,45 @@ defmodule Valimc.World.RegionData do
   defp group_entries(state),
     do: Enum.flat_map(group_stores(state), fn {_, store} -> Map.to_list(store.entries) end)
 
+  defp group_entry(state, id, allow_busy \\ false) do
+    Enum.find_value(group_stores(state), fn {key, store} ->
+      case store.entries[id] do
+        nil ->
+          nil
+
+        entry ->
+          if allow_busy or key == state.key or not state.siblings[key].busy,
+            do: {key, store, entry}
+      end
+    end)
+  end
+
+  defp change_group_entry(state, _key, _store, _id, :keep), do: state
+
+  defp change_group_entry(state, key, store, id, change) do
+    revision = store.entries[id].revision
+    {:ok, next} = Store.change_entry(store, id, revision, change)
+
+    if key == state.key do
+      put_entities(state, next)
+    else
+      # Resolve drops once too: a later explosion must see them. The same
+      # records and reserved ids enter the sibling before the next operation.
+      {next, deaths} = Store.take_deaths(next)
+      records = Enum.flat_map(deaths, &death_records/1)
+
+      {records, next} =
+        Enum.map_reduce(records, next, fn record, store ->
+          {:ok, store, {_, spawned, _}} = Store.create_record(store, key, record)
+          {Map.put(record, :entity_id, spawned), store}
+        end)
+
+      state = put_in(state.siblings[key].entities, next)
+      state = sibling_effect(state, key, {:entity_change, id, revision, change})
+      if records == [], do: state, else: sibling_effect(state, key, {:entities, nil, records})
+    end
+  end
+
   # The group's mobs as leads see them: `{id, body, position}`.
   defp leash_mobs(state) do
     for {id, %{kind: :mob, body: body, entity: e}} <- group_entries(state),
@@ -1951,16 +2001,7 @@ defmodule Valimc.World.RegionData do
       {key, store} =
         Enum.find(group_stores(state), fn {_, store} -> Map.has_key?(store.entries, id) end)
 
-      next = Store.change_body(store, id, body, [])
-
-      if key == state.key do
-        put_entities(state, next)
-      else
-        # Project the same change for later reads in this callback. The group
-        # installs it before replying or cutting the shared frame.
-        state = put_in(state.siblings[key].entities, next)
-        sibling_effect(state, key, {:body_change, id, store.entries[id].revision, body})
-      end
+      change_group_entry(state, key, store, id, {:body, body, []})
     end)
   end
 
@@ -5431,10 +5472,12 @@ defmodule Valimc.World.RegionData do
   rules' changes, entities it moved here, or a donor item to merge into
   `target` here. A move that cannot land goes back to `source` the same way.
   """
-  def apply_sibling(state, {:body_change, id, revision, body}) do
+  def apply_sibling(state, {:entity_change, id, revision, change}) do
     # Prepared from this group's authoritative store with no owner boundary.
-    ^revision = state.entities.store.entries[id].revision
-    put_entities(state, Store.change_body(state.entities.store, id, body, []))
+    {:ok, store} = Store.change_entry(state.entities.store, id, revision, change)
+    # Its death drops are already resolved in the following entity records.
+    {store, _deaths} = Store.take_deaths(store)
+    put_entities(state, store)
   end
 
   def apply_sibling(state, {:mob_drops, drops}), do: mob_drops(state, drops)
@@ -5469,13 +5512,6 @@ defmodule Valimc.World.RegionData do
   def apply_sibling(state, {:container_entries, expected, next, content}) do
     true = state.containers == expected
     containers_moved(%{state | containers: next}, content)
-  end
-
-  # A sibling's explosion reaches this section's entities (VMC-050a).
-  def apply_sibling(state, {:explosion, explosion}) do
-    store = state.entities.store
-    hits = Explosion.hits(explosion, store.entries)
-    put_entities(state, Explosion.apply_hits(store, state.key, hits))
   end
 
   def apply_sibling(state, {:merge, source, target, donor}) do
@@ -5629,7 +5665,16 @@ defmodule Valimc.World.RegionData do
 
   # `dropFromLootTable` (the owner's random stands in for the world's random
   # sequence of the table) and `ExperienceOrb.award`, where the mob died.
-  defp drop_death(store, key, {death, {x, y, z} = position}) do
+  defp drop_death(store, key, death) do
+    Enum.reduce(death_records(death), store, fn record, acc ->
+      case Store.create_record(acc, key, record) do
+        {:ok, next, _} -> next
+        {:error, _} -> acc
+      end
+    end)
+  end
+
+  defp death_records({death, {x, y, z} = position}) do
     drops = Valimc.World.GameRules.get(:mob_drops)
     death = Map.put(death, :position, position)
 
@@ -5665,12 +5710,7 @@ defmodule Valimc.World.RegionData do
 
     orbs = if drops, do: ExperienceOrbs.drop(death.position, death.experience), else: []
 
-    Enum.reduce(items ++ orbs, store, fn record, acc ->
-      case Store.create_record(acc, key, record) do
-        {:ok, next, _} -> next
-        {:error, _} -> acc
-      end
-    end)
+    items ++ orbs
   end
 
   defp put_entities(state, store) when store == state.entities.store, do: state
@@ -6314,7 +6354,7 @@ defmodule Valimc.World.RegionData do
     case start_job(state, :plan, work,
            supervisor: Valimc.ItemWorkers,
            deadline: 5000,
-           data: Map.put(pending, :from, from)
+           data: pending |> Map.put(:from, from) |> Map.put(:base_store, state.entities.store)
          ) do
       {:ok, state} -> {:noreply, state}
       {:error, _} -> {:reply, Error.retry(:item_workers_busy), state}
@@ -7674,11 +7714,21 @@ defmodule Valimc.World.RegionData do
   end
 
   defp job_done(:plan, pending, result, state) do
+    # An immediate group explosion may interrupt the ordinary planning fence.
+    # Reject its copied store instead of overwriting the newly resolved hits.
     result =
-      if pending.acceptance_deadline != nil and
-           System.monotonic_time(:millisecond) >= pending.acceptance_deadline,
-         do: {:error, :expired_item_step},
-         else: result
+      cond do
+        Map.has_key?(pending, :base_store) and
+            pending.base_store != state.entities.store ->
+          {:error, {:retry, :stale_item_plan}}
+
+        pending.acceptance_deadline != nil and
+            System.monotonic_time(:millisecond) >= pending.acceptance_deadline ->
+          {:error, :expired_item_step}
+
+        true ->
+          result
+      end
 
     case result do
       {:write, items, reply} ->
