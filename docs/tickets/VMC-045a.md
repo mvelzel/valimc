@@ -40,3 +40,43 @@ live natural-spawn run exposed ordinary distance despawning of the boss;
 [VMC-045a9](VMC-045a9.md) fixes and rechecks that policy before the fight
 can pass. Its recheck then exposed zeroed actor motion at shared mob-tick
 finalization; [VMC-045a10](VMC-045a10.md) restores that flight boundary.
+
+## Finale client checkpoint (October 24, 2026)
+
+The immutable motion repair runtime now shows the same normally admitted
+dragon crossing the arena and approaching the podium. Actual survival
+breath/knockback observations use disclosed regeneration/resistance; no exact
+player damage amount is claimed. Actual spike-crystal bow explosions reduce
+the live crystal count. A real arrow hurts the naturally computed body through
+a part across X=0; [VMC-037o1](VMC-037o1.md) records the brief aiming freeze,
+slow-tick collision and restoration to twenty ticks per second. A visible
+crystal beam and authoritative health 200 to 191 to 200 establish a limited
+healing observation; the small boss-bar healing delta was not retained.
+
+After those ordinary motion/attack observations, a disclosed one-health
+fixture lets an actual arrow establish first-kill completion. The active
+exit, egg and XP are visible in `first-exit-egg.png` and
+`dragon-staged-kill02.png`, reviewed by the primary. The death-ray interval
+fell between captures and has no visual PASS. This does not establish the
+fresh survival route's ordinary full-health fight.
+
+Reward accounting includes the exit portal: an intact earlier owner snapshot
+holds 8,643 End-orb XP and 3,172 player XP; durable Overworld spawn records
+hold another 185 in unique adopted orb records with incoming End receipts.
+Their sum is 12,000. Counting only End orbs initially suggested missing XP;
+the destination records explain that gap without a storage or reward change.
+The visible pre-kill level was zero, but a native XP baseline was not captured.
+Later End orbs expire normally while the investigation runs; those later reads
+cannot replace the retained earlier snapshot. No source/destination reset or
+receipt edit was used.
+
+Evidence under `.local/client-tests/M3-finale/`: `report.md`,
+`motion-flight02.png`, `live-dragon-survival-attack.png`,
+`dragon-actual-hit-trace.txt`, `first-kill-rewards.txt`,
+`first-reward-simultaneous.txt`, `first-reward-durable-spawn.txt` and
+`first-reward-durable-orbs.txt`. Actual survival movement into the activated
+exit displays the poem/credits; Escape returns to the Overworld spawn with
+inventory and displayed level 41 retained. The primary reviewed
+`end-credits.png` and `credits-return-spawn.png`. Fresh reconnect and the
+complete respawn/abort/restart/repeat-reward observations continue in this
+batch; the fresh-world VMC-078 route remains pending.
