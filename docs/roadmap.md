@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Continue the fresh-world route (078), including the ordinary dragon fight (045a).
+1. Resume the stopped fresh-world client batch (078), including the ordinary dragon fight (045a).
 2. Finish outstanding family and ritual observations in the same batch; resolve findings.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
