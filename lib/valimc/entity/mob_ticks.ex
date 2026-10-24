@@ -72,7 +72,14 @@ defmodule Valimc.Entity.MobTicks do
       )
       |> Enum.zip(steps)
       |> Enum.map(fn {{id, body}, step} ->
-        %{step | body: %{body | velocity: elem(velocities, index[id])}}
+        # The dragon skipped ordinary travel; its actor owns the flight
+        # velocity. The fixed kernel row only excludes it from pushing.
+        body =
+          if body.type == "minecraft:ender_dragon",
+            do: body,
+            else: %{body | velocity: elem(velocities, index[id])}
+
+        %{step | body: body}
       end)
 
     {steps, state.world}

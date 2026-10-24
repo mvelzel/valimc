@@ -38,4 +38,5 @@ full four-crystal ritual, pillar regeneration, abort and restart recovery.
 The complete live fight is in its batched finale client gate. Its first
 live natural-spawn run exposed ordinary distance despawning of the boss;
 [VMC-045a9](VMC-045a9.md) fixes and rechecks that policy before the fight
-can pass.
+can pass. Its recheck then exposed zeroed actor motion at shared mob-tick
+finalization; [VMC-045a10](VMC-045a10.md) restores that flight boundary.

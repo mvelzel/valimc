@@ -77,6 +77,7 @@ defmodule Valimc.DragonActorTest do
     assert e.body.data.brain.tick == 1 and e.body.data.brain.world_tick == 1
     assert e.body.mob.living.health.hurt_ticks == 9
     assert e.body.mob.ai.tick == 1
+    assert e.body.velocity == e.body.data.brain.phases.flight.velocity
     assert length(Valimc.Entity.Dragon.boxes(e.body)) == 8
     :ok = Region.flush(c.pid)
     Valimc.TestScope.kill(c.pid)
@@ -84,6 +85,7 @@ defmodule Valimc.DragonActorTest do
     {:ok, target} = Valimc.TestWorld.owner(c.b)
     saved = entry(target, <<540::128>>)
     assert saved.body.data.brain == e.body.data.brain
+    assert saved.body.velocity == e.body.velocity
     assert saved.body.mob.living.health.hurt_ticks == 9
     :ok = Valimc.TestScope.simulate(target, c.b)
     {:ok, _} = Region.step(target, 1)

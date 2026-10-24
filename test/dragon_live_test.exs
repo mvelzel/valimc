@@ -111,6 +111,24 @@ defmodule Valimc.DragonLiveTest do
     assert {:ok, _} = Store.find(restored.entities.store, uuid)
   end
 
+  test "the admitted dragon carries its own velocity across many owner ticks", c do
+    admit(c)
+    [{_, _, first}] = dragons(c)
+
+    for _ <- 1..8 do
+      {:ok, _} = Region.step(c.origin, 10)
+      [{_, _, current}] = dragons(c)
+      assert current.entity.uuid == first.entity.uuid
+      assert current.body.velocity == current.body.data.brain.phases.flight.velocity
+    end
+
+    [{_, _, last}] = dragons(c)
+    dx = last.entity.x - first.entity.x
+    dz = last.entity.z - first.entity.z
+    assert dx * dx + dz * dz > 100.0
+    :ok = Region.flush(c.pid)
+  end
+
   test "the group's natural spawner keeps its far dragon while removing an ordinary hostile", c do
     admit(c)
     [{_key, dragon_id, _dragon}] = dragons(c)
