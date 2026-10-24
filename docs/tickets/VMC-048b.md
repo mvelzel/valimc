@@ -1,6 +1,6 @@
 # VMC-048b — Pistons and moving blocks
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-047a](VMC-047a.md), [VMC-015i](VMC-015i.md) (entities
 are pushed).
@@ -159,6 +159,20 @@ block, explosion, mining and chest tests; `check_vanilla.py --changed
 --regen` passed all 107 selected stages (`pistons`, `redstone`,
 `redstone_wire`, `placement`, `collision_shapes` and `tcp` among them).
 
-Client gate: on the real client, a two-high sticky piston door opens and
-closes from a button; a player stands on a block a piston pushes up and is
-carried, and rides a honey block pushed sideways.
+## Client gate (October 24, 2026)
+
+The dedicated M3 run 4 tester passed the two-high sticky door's extension
+and return after actual button use. A player rode a block upward from
+Y −59 to −58. The grounded honey retry carried the player exactly one
+block east, with ground true before and after, superseding the earlier
+ambiguous half-block observation. Actual lever/button input and graphical
+motion establish the passes; owner position reads supplement them.
+
+The frozen run-01..11 lineage and fixture limits are in the private report
+`.local/client-tests/M3-run-04/report.md`; the exact honey reads are
+`honey-grounded-before.txt` and `honey-grounded-after.txt` beside it.
+The completed parent check on main also passed the `pistons` and collision
+stages within all 100 selected vanilla stages, and the 558-check fast suite.
+These observations close the stated door/rider/honey graphical gate;
+other push permutations remain covered by native fixtures, with the
+implementation limits above unchanged.

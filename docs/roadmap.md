@@ -53,7 +53,7 @@ Current order:
 2. Validate double chests (032b) with the next finale client batch.
 3. Finale: validate the complete dragon fight (045a) in the batched client run, then run the M3 gate (078).
 
-Done: [039c](tickets/VMC-039c.md), [049a](tickets/VMC-049a.md).
+Done: [039c](tickets/VMC-039c.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -73,8 +73,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |
 | [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Drowned swim, throw tridents and come ashore; zombies stamp out turtle eggs; witches throw and drink potions, slimes split, silverfish swarm, phantoms swoop; endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-043d](tickets/VMC-043d.md) | A fortress run: blazes volley and drop rods; zombified piglins turn as a group; a piglin barters gold and attacks without gold; a ghast's fireball hit back kills it; hoglins charge and shun warped fungus; magma cubes hop and split; striders walk on lava |
-| [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
-| [VMC-043c](tickets/VMC-043c.md) | Sheep regrow wool, chickens lay eggs and rabbits hop |
+| [VMC-043c](tickets/VMC-043c.md) | Rabbits fleeing players and generated animals grazing/wandering; regrowth, laying, hopping and core interactions passed |
 | [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md), [a4](tickets/VMC-044a4.md) | Villagers take job sites' trades, meet at the bell, sleep in beds and flee zombies; a golem kills a zombie hunting one; cats shy from players, creep up to fish, pounce on rabbits; a trader drinks invisibility at dusk |
 
 ## Retrieve and update

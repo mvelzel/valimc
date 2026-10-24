@@ -256,3 +256,17 @@ snip fixtures used NoAI animals; active following was checked in run-05.
 Private evidence is under `.local/client-tests/M3-run-04/`, including the
 run-06 results and patch/hash records. Regrowth, egg laying, rabbits and
 other untested animal scenarios still keep this family open.
+
+
+## Batched client follow-up (October 24, 2026)
+
+Run 4's later fresh launches passed wool regrowth after grazing, a chicken's
+visible egg item (a disclosed `egg_time=300` fixture shortened the wait),
+and airborne rabbit hops/carrot approach during actual player strafing.
+These extend the milk/stew, dye/shears, two-cow breeding and lead passes
+above. The family's remaining client scope is rabbits fleeing a player
+and grazing/wandering from generated animals; the tester did not claim
+all variants or every sequential multi-animal scene from these observations.
+Muted audio remains unverified. The native sequential scenes remain the
+evidence for their exact ordering. Private report and detailed fixture limits:
+`.local/client-tests/M3-run-04/report.md` and its run-07..11 result files.
