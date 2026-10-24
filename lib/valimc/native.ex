@@ -307,6 +307,7 @@ defmodule Valimc.Native do
   def worldgen_new(_registry, _seed, _settings), do: :erlang.nif_error(:nif_not_loaded)
   def worldgen_memory(_state), do: :erlang.nif_error(:nif_not_loaded)
   def worldgen_spawn_origin(_state), do: :erlang.nif_error(:nif_not_loaded)
+  def worldgen_end_spikes(_seed), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_columns(_state, _biome_source, _protocol_biomes, _chunks),
     do: :erlang.nif_error(:nif_not_loaded)

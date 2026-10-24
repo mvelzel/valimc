@@ -30,5 +30,6 @@ geometry and arena paths are [VMC-045a2](VMC-045a2.md), with phase decisions
 in [VMC-045a3](VMC-045a3.md). The living body, part IDs, damage and wire
 routing are [VMC-045a4](VMC-045a4.md), with group-wide projectile authority
 in [VMC-037o1](VMC-037o1.md). [VMC-045a5](VMC-045a5.md) connects live
-ticking, attacks, crystal healing and death. Arena admission, the boss bar,
-portal, egg, gateways and respawn lifecycle follow within this parent.
+ticking, attacks, crystal healing and death. [VMC-045a6](VMC-045a6.md)
+defines arena geometry, boss packets and the respawn sequence. Arena
+admission and durable effects follow within this parent.

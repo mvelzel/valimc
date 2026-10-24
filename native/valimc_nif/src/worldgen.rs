@@ -127,6 +127,21 @@ fn worldgen_memory(state: ResourceArc<WorldgenState>) -> usize {
 /// block (`z * 16 + x`).
 type GeneratedColumn<'a> = (i32, i32, Binary<'a>, Vec<i32>);
 
+/// The fight reads the same ten spike descriptions as terrain decoration.
+/// Fixed-size seed shuffle; no world state or resource is accessed.
+type EndSpike = (i32, i32, i32, i32, bool);
+
+#[rustler::nif]
+fn worldgen_end_spikes(seed: i64) -> (Atom, Vec<EndSpike>) {
+    (
+        crate::atoms::ok(),
+        valimc_core::worldgen::end::spikes_for_seed(seed)
+            .into_iter()
+            .map(|s| (s.x, s.z, s.radius, s.height, s.guarded))
+            .collect(),
+    )
+}
+
 /// The shared spawn's origin column (`Worldgen::spawn_origin`, VMC-027d), or
 /// nil without a spawn target.
 #[rustler::nif(schedule = "DirtyCpu")]
