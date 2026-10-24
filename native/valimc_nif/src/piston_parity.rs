@@ -397,6 +397,7 @@ fn piston_pushes(
                 on_ground,
                 step: if living { 0.6 } else { 0.0 },
                 simulates: true,
+                authoritative: true,
                 ignored: false,
                 bounciness: 0.0,
                 suppress_bounce: false,

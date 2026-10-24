@@ -414,6 +414,36 @@ defmodule Valimc.Physics.Kernel do
   def mob_collider(ticker, index, position, box),
     do: Native.physics_mobs_collider(ticker, index, floats(position), box)
 
+  @doc "A lid's external move of a mob, without running its own tick."
+  def mob_displace(ticker, index, mob, delta),
+    do: Native.physics_mobs_displace(ticker, index, mob, floats(delta))
+
+  @doc "An external move with ordinary collision, without piston limits or exemptions."
+  def displace(
+        view,
+        {{x, y, z}, {w, h}, _, {_, step, _, _}, _} = body,
+        delta,
+        boxes,
+        border,
+        authoritative \\ true
+      ) do
+    region =
+      {x - w, y, z - w, x + w, y + h, z + w}
+      |> expand(delta)
+      |> grow(2.0 + step)
+
+    bounds = if border, do: elem(BorderSnapshot.bounds(border), 1)
+
+    Native.physics_displace(
+      native(view, region),
+      body,
+      floats(delta),
+      boxes,
+      bounds,
+      authoritative
+    )
+  end
+
   @doc "Mob `index`'s motion as its tick ended (later pushes add to it)."
   def mob_velocity(ticker, index, velocity),
     do: Native.physics_mobs_velocity(ticker, index, floats(velocity))

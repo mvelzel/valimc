@@ -129,6 +129,66 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "the hosted session follows an opening lid and closing does not pull it back", ctx do
+    Valimc.TestScope.isolate(Valimc.TestScope.neighborhood(ctx.key),
+      region_ticks: :manual,
+      regionizer: false
+    )
+
+    TestPlayer.save(ctx, Map.put(ctx.pose, :y, 65.0), Inventory.new())
+    {_client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    :ok = Valimc.TestScope.simulate(owner, ctx.key)
+    {:ok, shell} = Body.new("minecraft:shulker")
+    shell = %{shell | mob: %{shell.mob | no_ai: true}, data: %{shell.data | peek: 100}}
+    uuid = <<850::128>>
+
+    :ok =
+      Region.drop_items(owner, [Store.body_record(shell, uuid, {ctx.pose.x, 64.0, ctx.pose.z})])
+
+    {_, {_, dy, _}} =
+      Valimc.AI.Mobs.Shulker.opening(
+        0,
+        0.0,
+        Valimc.Data.Float32.round(0.05),
+        {ctx.pose.x, 64.0, ctx.pose.z}
+      )
+
+    assert {:ok, _} = Region.step(owner, 1)
+    assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
+
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
+      shell = section.entities.store.entries[id].body
+      shell = put_in(shell.data.peek, 0)
+      put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
+    end)
+
+    assert {:ok, _} = Region.step(owner, 1)
+    assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
+
+    Valimc.TestConn.replace(pid, fn s ->
+      %{
+        s
+        | player: %{
+            s.player
+            | game_mode: Valimc.Player.GameMode.new(:spectator),
+              abilities: Valimc.Player.Abilities.for_mode(:spectator)
+          }
+      }
+    end)
+
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
+      shell = section.entities.store.entries[id].body
+      shell = put_in(shell.data.peek, 100)
+      put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
+    end)
+
+    assert {:ok, _} = Region.step(owner, 1)
+    assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
+  end
+
   test "attack reach includes the open shulker lid beyond its closed cube", ctx do
     save(ctx, 0.0, %Inventory{})
     {client, pid} = TestPlayer.login(ctx)

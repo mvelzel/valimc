@@ -30,8 +30,10 @@ pub struct PushBody {
     pub on_ground: bool,
     /// `maxUpStep`.
     pub step: f32,
-    /// `canSimulateMovement` (the server simulates all but players).
+    /// `canSimulateMovement` (including players in the pinned server).
     pub simulates: bool,
+    /// `isLocalInstanceAuthoritative`: updates ground state even on a horizontal move.
+    pub authoritative: bool,
     /// `getPistonPushReaction`: `IGNORE_ENTITY`, or `PUSH_PULL` (which
     /// honey carries).
     pub ignored: bool,
@@ -49,7 +51,7 @@ pub struct PushBody {
 }
 
 impl PushBody {
-    fn aabb(&self) -> Aabb {
+    pub fn aabb(&self) -> Aabb {
         let [x, y, z] = self.position;
         Aabb {
             min: [x - self.half_width, y, z - self.half_width],
@@ -381,12 +383,30 @@ fn by_piston(
     if requested == [0.0; 3] {
         return Ok(());
     }
-    let b = body.aabb();
-    let mut ctx = context(b.min[1]);
+    let mut ctx = context(body.aabb().min[1]);
     ctx.noclip = Some(noclip as u8);
-    let extra = Extra {
-        entities: Vec::new(),
+    let view = super::player::World {
+        source: world.source,
+        facts: world.facts,
         border: world.border.copied(),
+        entities: &[],
+    };
+    displace(&view, body, requested, ctx)
+}
+
+/// An external `Entity.move`: shared collision and response for pistons and lids.
+/// The caller supplies mover-specific filtering, limits and shape context.
+pub fn displace(
+    world: &super::player::World,
+    body: &mut PushBody,
+    requested: [f64; 3],
+    mut ctx: Context,
+) -> Result<(), Unreadable> {
+    let b = body.aabb();
+    ctx.bottom = b.min[1];
+    let extra = Extra {
+        entities: world.entities.to_vec(),
+        border: world.border,
         subject: [body.position[0], body.position[2]],
     };
     let moved = collide(
@@ -408,7 +428,7 @@ fn by_piston(
     let moved_vertically = requested[1].abs() > 0.0;
     let mut vertical = false;
     let mut below = false;
-    if moved_vertically || body.simulates {
+    if moved_vertically || body.authoritative {
         vertical = requested[1] != actual[1];
         below = vertical && requested[1] < 0.0;
         body.on_ground = below;

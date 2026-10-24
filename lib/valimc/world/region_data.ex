@@ -1584,6 +1584,11 @@ defmodule Valimc.World.RegionData do
             from != nil,
             do: {step.id, carried, {:edit, cell, from, carried, nil, [:updates, :survives]}}
 
+      lid_pushes =
+        for step <- steps,
+            {:shulker_push, area, delta, local} <- step.effects,
+            do: {area, delta, local}
+
       steps =
         Enum.reject(steps, fn step ->
           %{entity: e, body: body} = store.entries[step.id]
@@ -1591,6 +1596,7 @@ defmodule Valimc.World.RegionData do
         end)
 
       state = route_bodies(state, steps)
+      state = Enum.reduce(lid_pushes, state, &push_lid(&2, &1))
       state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
       state = Enum.reduce(dragon_effects, state, &dragon_effect/2)
@@ -5910,32 +5916,79 @@ defmodule Valimc.World.RegionData do
         for {{id, entry, _}, {feet, velocity, on_ground, true}} <- Enum.zip(candidates, results),
             do: {id, entry, feet, velocity, on_ground}
 
-      {items, bodies} = Enum.split_with(moved, fn {_, e, _, _, _} -> e.kind in [:item, :orb] end)
-
-      item_steps =
-        for {id, entry, feet, velocity, on_ground} <- items,
-            do: %{
-              id: id,
-              revision: entry.revision,
-              physical_revision: entry.physical_revision,
-              position: feet,
-              motion: %{entry.motion | velocity: velocity, on_ground: on_ground}
-            }
-
-      state =
-        if item_steps == [], do: state, else: elem(commit_simulated_items(state, item_steps), 1)
-
-      body_steps =
-        for {id, entry, feet, velocity, on_ground} <- bodies,
-            do: %{
-              id: id,
-              revision: entry.revision,
-              position: feet,
-              body: %{entry.body | velocity: velocity, on_ground: on_ground}
-            }
-
-      route_bodies(state, body_steps)
+      commit_displaced(state, moved)
     end
+  end
+
+  defp commit_displaced(state, moved) do
+    {items, bodies} = Enum.split_with(moved, fn {_, e, _, _, _} -> e.kind in [:item, :orb] end)
+
+    item_steps =
+      for {id, entry, feet, velocity, on_ground} <- items,
+          do: %{
+            id: id,
+            revision: entry.revision,
+            physical_revision: entry.physical_revision,
+            position: feet,
+            motion: %{entry.motion | velocity: velocity, on_ground: on_ground}
+          }
+
+    state =
+      if item_steps == [], do: state, else: elem(commit_simulated_items(state, item_steps), 1)
+
+    body_steps =
+      for {id, entry, feet, velocity, on_ground} <- bodies,
+          do: %{
+            id: id,
+            revision: entry.revision,
+            position: feet,
+            body: %{entry.body | velocity: velocity, on_ground: on_ground}
+          }
+
+    route_bodies(state, body_steps)
+  end
+
+  # The live mob phase already moved its local targets. Other stores and
+  # hosted players receive the same external effect through the group.
+  defp push_lid(state, {area, delta, local} = push) do
+    effects =
+      for({key, _} <- state.siblings, key != state.key, do: {key, {:shulker_push, push}}) ++
+        [{:players, {:shulker_push, state.dimension, area, delta}}]
+
+    displace_own(
+      %{state | sibling_effects: state.sibling_effects ++ effects},
+      {area, delta, local}
+    )
+  end
+
+  defp displace_own(state, {area, delta, local}) do
+    exclude = MapSet.new(local)
+    entries = group_entries(state)
+    view = Valimc.World.View.new(state.dimension)
+    border = Clock.border_snapshot(state.dimension)
+
+    moved =
+      if write_busy(state) == nil do
+        for {id, entry} <- Enum.sort(state.entities.store.entries),
+            not MapSet.member?(exclude, id),
+            Valimc.Entity.Displacement.meets?(entry, area),
+            {:ok, boxes} <- [Valimc.Entity.Displacement.colliders(entries, entry, delta)],
+            {:ok, {feet, velocity, on_ground}} <-
+              [
+                Valimc.Physics.Kernel.displace(
+                  view,
+                  Valimc.Entity.Displacement.input(entry),
+                  delta,
+                  boxes,
+                  border
+                )
+              ],
+            do: {id, entry, feet, velocity, on_ground}
+      else
+        []
+      end
+
+    commit_displaced(state, moved)
   end
 
   # What a push reads of an entity (VMC-048b): its box, motion, step height,
@@ -6104,6 +6157,7 @@ defmodule Valimc.World.RegionData do
   def apply_sibling(state, {:make_knots, positions}), do: make_knots(state, positions)
   def apply_sibling(state, {:rules, part}), do: apply_rules(state, part)
   def apply_sibling(state, {:piston_pushes, pushes}), do: push_own(state, pushes)
+  def apply_sibling(state, {:shulker_push, push}), do: displace_own(state, push)
   def apply_sibling(state, {:halo, message}), do: Valimc.World.LightHalo.handle(message, state)
 
   def apply_sibling(state, {:entities, source, records}) do

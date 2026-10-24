@@ -186,6 +186,105 @@ defmodule Valimc.GroupProjectileTest do
     assert entry(b, <<642::128>>).body.data.fuse == 78
   end
 
+  test "an opening lid displaces local mobs before or after their own turn without a second tick",
+       c do
+    TestScope.isolate([c.a, c.b], mob_goals: false)
+    owner = {c.pa, c.ea}
+
+    {_, delta} =
+      Valimc.AI.Mobs.Shulker.opening(4, 0.5, Valimc.Data.Float32.round(0.55), {0.0, 0.0, 0.0})
+
+    dx = elem(delta, 0)
+
+    for {source_first, n, z} <- [{true, 701, c.z + 20.5}, {false, 711, c.z + 40.5}] do
+      x = c.edge - 8.5
+      shell = body("minecraft:shulker")
+      shell = %{shell | data: %{shell.data | attach_face: 4, peek: 100, peek_amount: 0.5}}
+      {:ok, mover} = Body.new("minecraft:husk")
+      mover = %{mover | no_gravity: true, velocity: {0.0, 0.0, 0.2}}
+      :ok = Valimc.TestBlocks.set({floor(x) - 1, 80, floor(z)}, 1)
+      records = [record(shell, n, {x, 80.0, z}), record(mover, n + 1, {x + 1.3, 80.0, z})]
+      :ok = Region.drop_items(owner, if(source_first, do: records, else: Enum.reverse(records)))
+    end
+
+    {:ok, _} = Region.step(owner, 1)
+
+    for {n, z} <- [{702, c.z + 20.5}, {712, c.z + 40.5}] do
+      moved = entry(owner, <<n::128>>)
+      assert_in_delta moved.entity.x, c.edge - 8.5 + 1.3 + dx, 1.0e-7
+      assert_in_delta moved.entity.z, z + 0.2, 1.0e-7
+      assert moved.lived == 1
+    end
+  end
+
+  test "opening lids reach sibling mobs, items and orbs in both section orders", c do
+    TestScope.isolate([c.a, c.b], mob_goals: false)
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+    motion = %Valimc.Entity.ItemMotionState{no_gravity: true}
+
+    {_, {dx, _, _}} =
+      Valimc.AI.Mobs.Shulker.opening(4, 0.5, Valimc.Data.Float32.round(0.55), {0.0, 0.0, 0.0})
+
+    for {source, target, sign, face, base} <- [{a, b, 1, 4, 731}, {b, a, -1, 5, 751}],
+        {kind, offset, half, n} <- [
+          {:mob, 20.5, 0.3, base},
+          {:item, 40.5, 0.125, base + 2},
+          {:orb, 60.5, 0.25, base + 4}
+        ] do
+      z = c.z + offset + if(sign == 1, do: 0, else: 6)
+      x = c.edge - sign * 0.5
+      shell = body("minecraft:shulker")
+      shell = %{shell | data: %{shell.data | attach_face: face, peek: 100, peek_amount: 0.5}}
+      :ok = Valimc.TestBlocks.set({floor(x) - sign, 80, floor(z)}, 1)
+      :ok = Region.drop_items(source, [record(shell, n, {x, 80.0, z})])
+      target_x = c.edge + sign * (0.5 + half)
+
+      target_record =
+        case kind do
+          :mob ->
+            record(%{body("minecraft:husk") | no_gravity: true}, n + 1, {target_x, 80.0, z})
+
+          :item ->
+            %{
+              kind: :item,
+              uuid: <<n + 1::128>>,
+              x: target_x,
+              y: 80.0,
+              z: z,
+              motion: motion,
+              stack: Valimc.Protocol.ItemStack.new("stone")
+            }
+
+          :orb ->
+            %{
+              kind: :orb,
+              uuid: <<n + 1::128>>,
+              x: target_x,
+              y: 80.0,
+              z: z,
+              motion: motion,
+              value: 1,
+              count: 1,
+              age: 0
+            }
+        end
+
+      :ok = Region.drop_items(target, [target_record])
+    end
+
+    {:ok, _} = Region.step(a, 1)
+
+    for {target, sign, base} <- [{b, 1, 731}, {a, -1, 751}],
+        {half, n} <- [{0.3, base + 1}, {0.125, base + 3}, {0.25, base + 5}] do
+      moved = entry(target, <<n::128>>)
+      assert_in_delta moved.entity.x, c.edge + sign * (0.5 + half + dx), 1.0e-7
+      if moved.kind == :mob, do: assert(moved.lived == 1)
+      if moved.kind == :item, do: assert(moved.motion.age == 1)
+      if moved.kind == :orb, do: assert(moved.age == 1)
+    end
+  end
+
   test "a mob collides with a neighboring-section shulker lid and crosses after its death", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}

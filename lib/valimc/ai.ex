@@ -1058,7 +1058,7 @@ defmodule Valimc.AI do
   defp still({id, e}, %Body{mob: %Mob{ai: mind} = mob} = body, {x, y, z}, world) do
     if Mob.alive?(mob) and
          (Animal.animal?(body.type) or
-            body.type in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid minecraft:pufferfish)) do
+            body.type in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid minecraft:pufferfish minecraft:shulker)) do
       {width, height, eye} = Body.dimensions(body)
 
       self =

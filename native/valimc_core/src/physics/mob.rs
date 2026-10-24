@@ -1449,15 +1449,22 @@ impl Ticker {
             .body(mob.position)?
             .expand_towards(mob.velocity)
             .inflate(2.0 + mob.attributes.step_height.max(0.0));
-        let (x0, z0) = self.key(query.min);
-        let (x1, z1) = self.key(query.max);
+        self.collision_boxes(i, w, &query)
+    }
+
+    fn collision_boxes(&self, i: usize, w: &World, query: &Aabb) -> Result<Vec<Aabb>, Fault> {
+        // A lid may intersect the query while its centre lies across a grid
+        // boundary. Search the centre halo, then filter by the actual boxes.
+        let centres = query.inflate(2.0);
+        let (x0, z0) = self.key(centres.min);
+        let (x1, z1) = self.key(centres.max);
         let mut boxes = w.entities.to_vec();
         for x in x0..=x1 {
             for z in z0..=z1 {
                 if let Some(near) = self.grid.get(&(x, z)) {
                     for &j in near {
                         if j != i {
-                            if let Some(b) = self.solid[j].filter(|b| b.intersects(&query)) {
+                            if let Some(b) = self.solid[j].filter(|b| b.intersects(query)) {
                                 boxes.push(b);
                                 if boxes.len() > 256 {
                                     return Err(Fault::Limit("entity_query_limit"));
@@ -1469,6 +1476,63 @@ impl Ticker {
             }
         }
         Ok(boxes)
+    }
+
+    /// A lid's external move, without consuming the target's own turn.
+    pub fn displace(
+        &mut self,
+        w: &World,
+        i: usize,
+        mut mob: Mob,
+        delta: [f64; 3],
+    ) -> Result<Mob, Fault> {
+        if !rules::bounded(delta, 1.0)
+            || !rules::bounded(mob.position, 59_999_999.0)
+            || !(0.0..=32.0).contains(&mob.size.width)
+            || !(0.0..=32.0).contains(&mob.size.height)
+            || !(0.0..=16.0).contains(&mob.attributes.step_height)
+        {
+            return Err(Fault::Limit("kinetic_query_limit"));
+        }
+        let bbox = mob.body(mob.position)?;
+        let query = bbox
+            .expand_towards(delta)
+            .inflate(0.01 + mob.attributes.step_height.max(0.0));
+        let boxes = self.collision_boxes(i, w, &query)?;
+        let local = World {
+            source: w.source,
+            facts: w.facts,
+            border: w.border,
+            entities: &boxes,
+        };
+        let mut body = super::piston::PushBody {
+            position: mob.position,
+            half_width: mob.size.width / 2.0,
+            height: mob.size.height,
+            velocity: mob.velocity,
+            on_ground: mob.on_ground,
+            step: mob.attributes.step_height as f32,
+            simulates: true,
+            authoritative: true,
+            ignored: false,
+            bounciness: 0.0,
+            suppress_bounce: false,
+            living: true,
+            gravity: mob.gravity(mob.velocity[1]),
+            air_drag: 0.98 * mob.attributes.air_drag_modifier,
+            pushed: false,
+        };
+        super::piston::displace(
+            &local,
+            &mut body,
+            delta,
+            mob.context(mob.fall_distance, bbox.min[1]),
+        )?;
+        mob.position = body.position;
+        mob.velocity = body.velocity;
+        mob.on_ground = body.on_ground;
+        self.place(i, mob.clone());
+        Ok(mob)
     }
 
     /// Mob `i`'s tick with `mob` (its AI's input): its travel, then its
@@ -1551,10 +1615,7 @@ impl Ticker {
                 }
             }
         }
-        self.current
-            .iter()
-            .map(|m| if m.fixed { [0.0; 3] } else { m.velocity })
-            .collect()
+        self.current.iter().map(|m| m.velocity).collect()
     }
 }
 

@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('shulker_push', [
+        ('java', 'ShulkerPushOracle', '@shulker-push.json'),
+        ('check', 'check_shulker_push.exs', '@shulker-push.json'),
+    ]),
     ('shulker_mob_collision', [
         ('java', 'ShulkerMobCollisionOracle', '@shulker-mob-collision.json'),
         ('check', 'check_shulker_mob_collision.exs', '@shulker-mob-collision.json'),

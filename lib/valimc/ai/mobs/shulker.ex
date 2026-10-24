@@ -189,7 +189,7 @@ defmodule Valimc.AI.Mobs.Shulker do
     peek(self)
   end
 
-  # `updatePeekAmount` (pushing what an opening lid meets is not modelled).
+  # `updatePeekAmount` and the opening-only external move of its lid.
   defp peek(%Self{data: data} = self) do
     target = Float32.round(data.peek * @hundredth)
     current = data.peek_amount
@@ -201,7 +201,34 @@ defmodule Valimc.AI.Mobs.Shulker do
         true -> Float32.round(min(Float32.round(current + @step), target) |> max(0.0))
       end
 
-    %{self | data: %{data | peek_amount: amount}}
+    next = %{self | data: %{data | peek_amount: amount}}
+
+    case opening(data.attach_face, current, amount, {next.x, next.y, next.z}) do
+      nil -> next
+      {area, delta} -> Self.effect(next, {:shulker_push, area, delta})
+    end
+  end
+
+  @doc "The swept lid slab and float32 displacement, or nil while unchanged/closing."
+  def opening(face, previous, current, position) do
+    old = physical(previous)
+    now = physical(current)
+    amount = Float32.round(now - old)
+
+    if amount > 0.0 do
+      direction = Shapes.opposite(face)
+      {dx, dy, dz} = Shapes.step(direction)
+      {x, y, z} = position
+      {x0, y0, z0, x1, y1, z1} = progress_box(direction, now, {0.0, 0.0, 0.0})
+      # AABB.contract(-direction * (1 + previous)): retain only the added face.
+      cut = 1.0 + old
+
+      area =
+        {x0 + max(dx, 0) * cut + x, y0 + max(dy, 0) * cut + y, z0 + max(dz, 0) * cut + z,
+         x1 + min(dx, 0) * cut + x, y1 + min(dy, 0) * cut + y, z1 + min(dz, 0) * cut + z}
+
+      {area, {Float32.round(amount * dx), Float32.round(amount * dy), Float32.round(amount * dz)}}
+    end
   end
 
   @doc "`setRawPeekAmount`: the covered armor while closed, the lid's sound."

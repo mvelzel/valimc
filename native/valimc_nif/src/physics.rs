@@ -1121,6 +1121,39 @@ fn ticker_step<'a>(
     Ok((result, pushed).encode(env))
 }
 
+/// An external lid move interleaved with the owner's mob turns.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_displace<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    input: MobT,
+    delta: Vec3,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let input = mob(&input)?;
+    if !valimc_core::physics::player::rules::bounded(v3(delta), 1.0) {
+        return Err(invalid());
+    }
+    let mut guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_mut().ok_or(invalid())?;
+    if index >= state.ticker.current.len() {
+        return Err(invalid());
+    }
+    let world = valimc_core::physics::player::World {
+        source: &state.view,
+        facts,
+        border: crate::player::border(state.border),
+        entities: &[],
+    };
+    Ok(
+        match state.ticker.displace(&world, index, input, v3(delta)) {
+            Ok(m) => ok(env, (t3(m.position), t3(m.velocity), m.on_ground)),
+            Err(f) => crate::player::fault(env, f),
+        },
+    )
+}
+
 /// A solid family's box and position as its owner just left them.
 #[rustler::nif]
 fn physics_mobs_collider(
@@ -1345,6 +1378,86 @@ type PushBodyT = (
     (f64, bool, bool, f64, f64),
 );
 
+fn push_body(input: PushBodyT) -> valimc_core::physics::piston::PushBody {
+    let (
+        p,
+        (half_width, height),
+        v,
+        (on_ground, step, simulates, ignored),
+        (bounciness, suppress_bounce, living, gravity, air_drag),
+    ) = input;
+    valimc_core::physics::piston::PushBody {
+        position: v3(p),
+        half_width,
+        height,
+        velocity: v3(v),
+        on_ground,
+        step,
+        simulates,
+        authoritative: simulates,
+        ignored,
+        bounciness,
+        suppress_bounce,
+        living,
+        gravity,
+        air_drag,
+        pushed: false,
+    }
+}
+
+/// Bounded external moves for non-ticking bodies and hosted players.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_displace<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    input: PushBodyT,
+    delta: Vec3,
+    boxes: Vec<BoxT>,
+    border: Option<(f64, f64, f64, f64)>,
+    authoritative: bool,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let mut body = push_body(input);
+    body.authoritative = authoritative;
+    if boxes.len() > 256
+        || !valimc_core::physics::player::rules::bounded(v3(delta), 1.0)
+        || !valimc_core::physics::player::rules::bounded(body.position, 59_999_999.0)
+        || !valimc_core::physics::player::rules::bounded(body.velocity, 64.0)
+        || !body.half_width.is_finite()
+        || !body.height.is_finite()
+        || !(0.0..=16.0).contains(&body.half_width)
+        || !(0.0..=32.0).contains(&body.height)
+        || !body.step.is_finite()
+        || !(0.0..=16.0).contains(&body.step)
+    {
+        return Err(invalid());
+    }
+    let region = body
+        .aabb()
+        .expand_towards(v3(delta))
+        .inflate(2.0 + body.step as f64);
+    let view = view(view_term, facts, &region)?;
+    let boxes = boxes.into_iter().map(aabb).collect::<Vec<_>>();
+    let world = valimc_core::physics::player::World {
+        source: &view,
+        facts,
+        border: crate::player::border(border),
+        entities: &boxes,
+    };
+    let ctx = valimc_core::physics::table::Context {
+        entity: true,
+        entity_present: true,
+        bottom: body.aabb().min[1],
+        ..Default::default()
+    };
+    Ok(
+        match valimc_core::physics::piston::displace(&world, &mut body, v3(delta), ctx) {
+            Ok(()) => ok(env, (t3(body.position), t3(body.velocity), body.on_ground)),
+            Err(f) => unreadable(env, f),
+        },
+    )
+}
+
 /// A tick's moving-block pushes (VMC-048b) on `bodies` over a view:
 /// `pushes` are `piston::Moving` records each followed by its new progress
 /// (float bits), `states` the slime and honey block states. Each body
@@ -1381,33 +1494,7 @@ fn physics_pistons<'a>(
             landed: chunk[record + 6] != 0,
         });
     }
-    let mut bodies: Vec<PushBody> = bodies
-        .into_iter()
-        .map(
-            |(
-                p,
-                (half_width, height),
-                v,
-                (on_ground, step, simulates, ignored),
-                (bounciness, suppress_bounce, living, gravity, air_drag),
-            )| PushBody {
-                position: v3(p),
-                half_width,
-                height,
-                velocity: v3(v),
-                on_ground,
-                step,
-                simulates,
-                ignored,
-                bounciness,
-                suppress_bounce,
-                living,
-                gravity,
-                air_drag,
-                pushed: false,
-            },
-        )
-        .collect();
+    let mut bodies: Vec<PushBody> = bodies.into_iter().map(push_body).collect();
     let mut areas: Vec<Aabb> = list
         .iter()
         .filter(|p| !p.landed)

@@ -280,6 +280,8 @@ defmodule Valimc.Entity.MobTicks do
         {px, py, pz} = position
         entry = %{entry | body: body, entity: %{entry.entity | x: px, y: py, z: pz}}
         sync_collider(ticker, state, i, entry)
+        {more, state} = lid_pushes(ticker, more, %{state | world: world})
+        world = state.world
 
         step = %{
           id: id,
@@ -308,6 +310,53 @@ defmodule Valimc.Entity.MobTicks do
       _ ->
         state
     end
+  end
+
+  # The opening lid acts before the next entity ticks. Its displaced target
+  # keeps its own turn, and an already-ticked target's returned step is amended.
+  defp lid_pushes(ticker, effects, state) do
+    Enum.map_reduce(effects, state, fn
+      {:shulker_push, area, delta}, state ->
+        state =
+          Enum.reduce(state.entries, state, fn {id, _}, state ->
+            entry = state.entries[id]
+
+            if Valimc.Entity.Displacement.meets?(entry, area) do
+              {input, travel} = input(entry, state.travel)
+
+              case Kernel.mob_displace(ticker, state.index[id], input, delta) do
+                {:ok, result} ->
+                  entry = Valimc.Entity.Displacement.apply(entry, result)
+                  {x, y, z} = result |> elem(0)
+
+                  steps =
+                    Enum.map(state.steps, fn
+                      %{id: ^id} = step -> %{step | body: entry.body, position: {x, y, z}}
+                      step -> step
+                    end)
+
+                  %{
+                    state
+                    | entries: Map.put(state.entries, id, entry),
+                      steps: steps,
+                      travel: travel,
+                      world: AI.resense_entry(state.world, id, entry)
+                  }
+
+                _ ->
+                  state
+              end
+            else
+              state
+            end
+          end)
+
+        # The owner forwards to all bodies outside this phase and its players.
+        {{:shulker_push, area, delta, Map.keys(state.entries)}, state}
+
+      effect, state ->
+        {effect, state}
+    end)
   end
 
   # Its melee hits on mobs of this tick land at once, as `doHurtTarget`

@@ -56,4 +56,35 @@ defmodule Valimc.ShulkerMobCollisionTest do
     assert {{:error, :entity_query_limit}, _} = Kernel.mob_step(ticker, 0, input(mover, -2.0))
     _ = Kernel.mobs_finish(ticker)
   end
+
+  test "external moves of NoAI bodies keep query bounds and do not spend the ticker on refusal" do
+    {view, mover, shell} = scene()
+    mover = put_in(mover.mob.no_ai, true)
+    boxes = for i <- 1..257, do: {i, box(shell, 0.5)}
+    own = input(mover, -1.5)
+    mobs = [own | List.duplicate(MobMotion.kernel(shell.type, {0.5, 64.0, 0.5}, shell), 257)]
+    ticker = Kernel.mobs_begin(view, mobs, [], nil, boxes)
+    assert {:error, :entity_query_limit} = Kernel.mob_displace(ticker, 0, own, {0.5, 0.0, 0.0})
+    for {i, _} <- boxes, do: :ok = Kernel.mob_collider(ticker, i, {0.5, 64.0, 0.5}, nil)
+    assert {:ok, {{-1.0, 64.0, 0.5}, _, _}} = Kernel.mob_displace(ticker, 0, own, {0.5, 0.0, 0.0})
+    _ = Kernel.mobs_finish(ticker)
+  end
+
+  test "external mover rejects oversized motion and collider sets before reading the world" do
+    {view, _, _} = scene()
+
+    body =
+      {{0.5, 64.0, 0.5}, {0.3, 1.8}, {0.0, 0.0, 0.0}, {false, 0.6, true, false},
+       {0.0, false, true, 0.08, 0.98}}
+
+    cells = Kernel.native(view, {-2.0, 60.0, -2.0, 3.0, 68.0, 3.0})
+
+    assert {:error, :invalid_view} =
+             Valimc.Native.physics_displace(cells, body, {1.01, 0.0, 0.0}, [], nil, true)
+
+    boxes = List.duplicate({0.0, 64.0, 0.0, 1.0, 65.0, 1.0}, 257)
+
+    assert {:error, :invalid_view} =
+             Valimc.Native.physics_displace(cells, body, {0.1, 0.0, 0.0}, boxes, nil, true)
+  end
 end

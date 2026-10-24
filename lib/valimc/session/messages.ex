@@ -346,6 +346,9 @@ defmodule Valimc.Session.Messages do
   def info({:piston_pushes, pushes}, state),
     do: {:noreply, Valimc.Player.Pistons.push(state, pushes)}
 
+  def info({:shulker_push, area, delta}, state),
+    do: {:noreply, Valimc.Player.Displacement.push(state, area, delta)}
+
   # An anvil landing (VMC-050a2), from its group.
   def info({:falling_block, box, amount}, state),
     do: {:noreply, Valimc.Player.Explosions.falling_block(state, box, amount)}

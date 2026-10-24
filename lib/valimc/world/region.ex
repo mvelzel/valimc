@@ -1005,6 +1005,16 @@ defmodule Valimc.World.Region do
     end)
   end
 
+  defp deliver_players(state, {:shulker_push, dimension, {x0, y0, z0, x1, y1, z1} = area, delta}) do
+    Enum.reduce(state.players, state, fn {uuid, %{session: %{player: p}}}, acc ->
+      near =
+        p.dimension == dimension and p.x >= x0 - 2 and p.x <= x1 + 2 and
+          p.y >= y0 - 3 and p.y <= y1 + 3 and p.z >= z0 - 2 and p.z <= z1 + 2
+
+      if near, do: Host.info(acc, uuid, {:shulker_push, area, delta}), else: acc
+    end)
+  end
+
   defp deliver_players(state, {:explosion, %{center: {cx, cy, cz}}, _} = message) do
     Enum.reduce(state.players, state, fn {uuid, %{session: %{player: player}}}, acc ->
       dx = player.x - cx
