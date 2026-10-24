@@ -332,6 +332,12 @@ STAGES = [
         ('same', '@block-facts.json', 'priv/registry/block_facts.json'),
     ]),
     # VMC-043a: every entity type's facts (category, size, attributes, loot, spawning, tracking).
+    ('dragon_flight', [
+        ('regen', 'DragonFlightOracle', 'facts', '@dragon-facts.json'),
+        ('same', '@dragon-facts.json', 'priv/registry/dragon_facts.json'),
+        ('java', 'DragonFlightOracle', 'cases', '@dragon-flight.json'),
+        ('check', 'check_dragon_flight.exs', '@dragon-flight.json'),
+    ]),
     ('end_crystal', [
         ('java', 'EndCrystalOracle', '@end-crystal.json'),
         ('check', 'check_end_crystal.exs', '@end-crystal.json'),
