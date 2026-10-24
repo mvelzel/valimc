@@ -1127,6 +1127,10 @@ STAGES = [
         ('java', 'WaterAgeOracle', '@water-age.json'),
         ('check', 'check_water_age.exs', '@water-age.json'),
     ]),
+    ('turtle_egg_place', [
+        ('java', 'TurtleEggPlaceOracle', '@turtle-egg-place.json'),
+        ('check', 'check_turtle_egg_place.exs', '@turtle-egg-place.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

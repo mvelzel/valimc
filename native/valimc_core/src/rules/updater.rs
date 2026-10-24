@@ -312,6 +312,20 @@ impl<'r, W: World> Engine<'r, W> {
             self.world.set_comparator_output(pos, Some(0));
         }
         self.placed(pos, old, new);
+        if flags & 512 == 0 && self.rules.table.class_name(new) == "TurtleEggBlock" {
+            let below = at(pos, 0);
+            if self.world.owns(below) {
+                if self
+                    .rules
+                    .table
+                    .in_tag(self.world.get(below), &self.rules.egg_sand)
+                {
+                    self.report.events.push((pos, 2012, 15));
+                }
+            } else {
+                self.report.stopped += 1;
+            }
+        }
         if self.rules.fluids.is_some() && self.world.get(pos) == new {
             if self.rules.table.flag(new, LIQUID_BLOCK) {
                 self.liquid_changed(pos, new);

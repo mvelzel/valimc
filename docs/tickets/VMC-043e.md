@@ -41,6 +41,7 @@ Slices, in order:
   variants, ages and schools (Awaiting client).
 - [VMC-043e10](VMC-043e10.md) — ageable dolphins, squid and glow squid,
   pack babies, growth and dolphin feeding (Awaiting client).
+- [VMC-043e11](VMC-043e11.md) — turtle-egg placement events (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -58,6 +59,6 @@ Acceptance: behaviour fixtures match the oracle.
   [VMC-043e8](VMC-043e8.md), with its actual-client gate deferred.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
-- Remains: turtle eggs' `onPlace` particles; the batched client handoff
-  for 043e1–043e10. Then close
+- Remains: the documented contact/collision and other family gaps in the
+  individual tickets; the batched client handoff for 043e1–043e11. Then close
   VMC-043e (Status stays In progress until the client gate).

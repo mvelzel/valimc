@@ -134,6 +134,8 @@ pub struct Rules {
     speleothems: BlockSet,
     /// Blocks that hold leaves at distance 0 (`prevents_nearby_leaf_decay`).
     leaf_anchors: BlockSet,
+    /// Substrates of turtle eggs' placement particles (`minecraft:sand`).
+    egg_sand: BlockSet,
 }
 
 impl std::fmt::Debug for Rules {
@@ -157,6 +159,7 @@ impl Rules {
             vine_block: table.block("vine")?,
             speleothems: table.tag("minecraft:speleothems")?.clone(),
             leaf_anchors: table.tag("minecraft:prevents_nearby_leaf_decay")?.clone(),
+            egg_sand: table.tag("minecraft:sand")?.clone(),
             table,
             support,
             shapes,
