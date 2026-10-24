@@ -56,9 +56,9 @@ healing observation; the small boss-bar healing delta was not retained.
 After those ordinary motion/attack observations, a disclosed one-health
 fixture lets an actual arrow establish first-kill completion. The active
 exit, egg and XP are visible in `first-exit-egg.png` and
-`dragon-staged-kill02.png`, reviewed by the primary. The death-ray interval
-fell between captures and has no visual PASS. This does not establish the
-fresh survival route's ordinary full-health fight.
+`dragon-staged-kill02.png`, reviewed by the primary. The first death-ray
+interval fell between captures; the repeated staged kill below captures it.
+This does not establish the fresh survival route's ordinary full-health fight.
 
 Reward accounting includes the exit portal: an intact earlier owner snapshot
 holds 8,643 End-orb XP and 3,172 player XP; durable Overworld spawn records
@@ -77,6 +77,36 @@ Evidence under `.local/client-tests/M3-finale/`: `report.md`,
 `first-reward-durable-orbs.txt`. Actual survival movement into the activated
 exit displays the poem/credits; Escape returns to the Overworld spawn with
 inventory and displayed level 41 retained. The primary reviewed
-`end-credits.png` and `credits-return-spawn.png`. Fresh reconnect and the
-complete respawn/abort/restart/repeat-reward observations continue in this
-batch; the fresh-world VMC-078 route remains pending.
+`end-credits.png` and `credits-return-spawn.png`. A fresh helper reconnect
+retains the active exit and egg; displayed level is then 42 after the
+Overworld-spawn orb pickup. `first-kill-fresh-reconnect.png` and
+`first-gateway.png` retain the exit and first gateway observations.
+
+Four actual cardinal crystal placements start the respawn sequence at the
+normal twenty-tick rate. The arena reaches summoning time 71, then completes
+with a new UUID at 200 health and ten spike crystals. The attempted participant
+strike arrives after completion, so it establishes no abort result.
+`ritual-start-01.png`, `ritual-abort-before.txt` and
+`first-ritual-completed.txt` retain this first attempt.
+
+A second disclosed one-health fixture ends through an actual arrow after
+resuming normal twenty-tick simulation. `repeat-kill-death.png` captures
+clear death rays and explosion particles, reviewed by the primary. The
+pre-kill player total is 3,357 XP with no orbs; the retained post-kill
+snapshot holds the same player total plus exactly 500 End-orb XP and no
+outgoing transfers. Remaining gateway choices decrease from nineteen to
+eighteen. `repeat-kill-baseline.txt` and `repeat-kill-reward.txt` retain
+that comparison. The original egg was removed with a disclosed host block
+edit before the shot, so its presence cannot mask a repeated egg placement.
+The exit reactivates; a retained block read finds air at the previous egg
+position above the bedrock column. `repeat-exit-no-egg.png` shows the exit
+with the column top partly outside the frame; `repeat-egg-absence.txt`
+settles that absence.
+
+A fresh set of four actual crystal placements disables the exit, then an
+immediate actual strike explodes the participants and reopens it. The
+post-action arena remains defeated, with no ritual stage, participants or
+new dragon. `abort-ritual-start.png`, `abort-immediate-strike.png` and
+`abort-after.txt` retain the graphical actions and state; no stage/counter
+edit establishes the result. Mid-ritual restart and the fresh-world
+VMC-078 route remain pending.
