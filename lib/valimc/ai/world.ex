@@ -94,6 +94,9 @@ defmodule Valimc.AI.World do
             melee: nil,
             # Read-only collision result for a goal's own move before its controls.
             goal_position: nil,
+            # Structure queries run outside the owner; ready results are keyed by mob and request.
+            locate: :deferred,
+            located: %{},
             # What players did that mobs react to before thinking (VMC-043d):
             # `{:anger, player_ref, seen}` (opening or breaking what piglins guard).
             events: [],
@@ -115,6 +118,10 @@ defmodule Valimc.AI.World do
   """
   def search(%__MODULE__{search: :deferred}, _request), do: :deferred
   def search(%__MODULE__{search: search}, request), do: search.(request)
+
+  @doc "A bounded structure query: deferred in live play, immediate in native fixtures."
+  def locate(%__MODULE__{locate: :deferred}, _request), do: :deferred
+  def locate(%__MODULE__{locate: locate}, request), do: locate.(request)
 
   @doc """
   The seed of a loot table roll a mob makes (vanilla draws the world's

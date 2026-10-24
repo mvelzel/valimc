@@ -125,6 +125,8 @@ defmodule Valimc.World.RegionData do
     {:poi_claims, %{}},
     # Mobs' deferred path searches and their results (VMC-041b).
     {:mob_paths, %Valimc.World.MobPaths{}},
+    # One completed structure search, consumed at the next accepted mob tick.
+    {:mob_located, nil},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -1383,7 +1385,19 @@ defmodule Valimc.World.RegionData do
       {ready, mob_paths} = Valimc.World.MobPaths.take(state.mob_paths)
       border = Valimc.World.Clock.border_snapshot()
       own = Valimc.AI.Pois.store_claims(mobs, state.dimension)
-      world = %{mob_world(state, view, border) | paths: ready, pois: poi_claims(state, own)}
+
+      located =
+        case state.mob_located do
+          nil -> %{}
+          {key, result} -> %{key => result}
+        end
+
+      world = %{
+        mob_world(state, view, border)
+        | paths: ready,
+          pois: poi_claims(state, own),
+          located: located
+      }
 
       {steps, world} =
         Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, group_entries(state))
@@ -1404,7 +1418,14 @@ defmodule Valimc.World.RegionData do
       mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
 
       state =
-        start_paths(%{state | ai_random: world.random, mob_paths: mob_paths, mob_events: []})
+        start_paths(%{
+          state
+          | ai_random: world.random,
+            mob_paths: mob_paths,
+            mob_events: [],
+            mob_located: Enum.at(Map.to_list(world.located), 0)
+        })
+        |> start_mob_locate(steps)
 
       # A hit's extras (VMC-043b: a burning zombie's fire, a husk's hunger).
       attacks =
@@ -2546,6 +2567,39 @@ defmodule Valimc.World.RegionData do
       end)
 
     put_entities(state, store)
+  end
+
+  # At most one structure query per section runs under the existing bounded
+  # workers and generation pool. Busy requests are re-emitted by their live goal;
+  # no separate queue accumulates while a worker is occupied.
+  defp start_mob_locate(state, steps) do
+    request =
+      for step <- steps, {:locate, uuid, token, query} <- step.effects, do: {uuid, token, query}
+
+    if Jobs.running?(state.jobs, :mob_locate) or request == [] do
+      state
+    else
+      {uuid, token, query} = hd(request)
+      dimension = state.dimension
+
+      work = fn ->
+        members = Valimc.Blocks.Loot.structure_tag(query.tag)
+
+        case Valimc.Worldgen.Locate.nearest(dimension, members, query.position, query.radius) do
+          {:ok, {x, y, z, _id}} -> {:ok, {x, y, z}}
+          result -> result
+        end
+      end
+
+      case start_job(state, :mob_locate, work,
+             supervisor: Valimc.TransferWorkers,
+             deadline: 60_000,
+             data: %{uuid: uuid, request: token}
+           ) do
+        {:ok, state} -> state
+        {:error, _} -> state
+      end
+    end
   end
 
   # The next batch of mobs' path searches, when none runs (VMC-041b).
@@ -8496,6 +8550,9 @@ defmodule Valimc.World.RegionData do
     {:noreply, start_paths(%{state | mob_paths: paths})}
   end
 
+  defp job_done(:mob_locate, job, result, state),
+    do: {:noreply, %{state | mob_located: {{job.uuid, job.request}, result}}}
+
   defp job_done(:portal, job, {:ok, target}, state),
     do:
       {:noreply,
@@ -8617,6 +8674,9 @@ defmodule Valimc.World.RegionData do
 
   # Its mobs' pending paths give up on their own (`Navigation.receive/1`).
   defp job_failed(:paths, _job, _reason, state), do: {:noreply, start_paths(state)}
+
+  defp job_failed(:mob_locate, job, reason, state),
+    do: job_done(:mob_locate, job, {:error, reason}, state)
 
   defp job_failed(:explosion, _job, reason, state) do
     require Logger

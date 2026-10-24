@@ -270,6 +270,48 @@ defmodule Valimc.MobTravelRegionTest do
   end
 
   @tag goals: true
+  test "a dolphin's background lookup survives unticked goals and is consumed after NoAI ends",
+       ctx do
+    assert Valimc.World.Spec.current().generator == :flat
+    {x, z} = ctx.at
+    water = Valimc.Data.Blocks.default_state("water")
+
+    for a <- (floor(x) - 2)..(floor(x) + 2),
+        b <- 64..66,
+        c <- (floor(z) - 2)..(floor(z) + 2),
+        do: Valimc.TestBlocks.set({a, b, c}, water)
+
+    {:ok, body} = Body.new("minecraft:dolphin")
+    body = %{body | no_gravity: true, data: %{body.data | got_fish: true}}
+    uuid = <<884::128>>
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(body, uuid, {x, 64.0, z})])
+    step(ctx, 1)
+    Valimc.TestWait.until(fn -> Valimc.TestRegion.section(ctx.owner).mob_located != nil end)
+    ready = Valimc.TestRegion.section(ctx.owner).mob_located
+    assert {{^uuid, _}, {:error, :flat}} = ready
+
+    no_ai = fn flag ->
+      Valimc.TestRegion.replace_section(ctx.owner, fn state ->
+        {:ok, {_, id, _}} = Store.find(state.entities.store, uuid)
+        current = state.entities.store.entries[id].body
+        body = put_in(current.mob.no_ai, flag)
+        store = Store.change_body(state.entities.store, id, body, [])
+        %{state | entities: %{state.entities | store: store}}
+      end)
+    end
+
+    no_ai.(true)
+    step(ctx, 3)
+    assert Valimc.TestRegion.section(ctx.owner).mob_located == ready
+    assert entry(ctx, uuid).body.data.got_fish
+    no_ai.(false)
+    step(ctx, 6)
+    refute entry(ctx, uuid).body.data.got_fish
+    assert Valimc.TestRegion.section(ctx.owner).mob_located == nil
+    refute Valimc.World.Jobs.running?(Valimc.TestRegion.section(ctx.owner).jobs, :mob_locate)
+  end
+
+  @tag goals: true
   test "a guardian beams a squid: magic, then its bite (VMC-043e)", ctx do
     {x, z} = ctx.at
     {bx, bz} = {floor(x), floor(z)}

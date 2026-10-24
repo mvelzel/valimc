@@ -13,9 +13,7 @@ defmodule Valimc.AI.Mobs.Dolphin do
   player's hand (`GotFish`).
 
   Its moistness and whether it got fish are its data (saved); a fish it ate
-  sends it to treasure, which needs a structure search the AI cannot run
-  inside its tick yet (it gives up at once, as vanilla does when nothing is
-  near).
+  sends it toward treasure found by a structure search outside its tick.
   """
   @behaviour Valimc.AI.Kind
   alias Valimc.AI.{Goals, Mth, Navigation, Self, SmoothSwimming, World}
@@ -78,6 +76,9 @@ defmodule Valimc.AI.Mobs.Dolphin do
 
   @impl true
   def swim_sound, do: "minecraft:entity.dolphin.swim"
+
+  @impl true
+  def splash_sound, do: "minecraft:entity.dolphin.splash"
 
   @impl true
   def data(_type),
@@ -171,10 +172,6 @@ defmodule Valimc.AI.Mobs.Dolphin do
 
   # ---- its tick
 
-  @doc "Whether it was in water as its tick began (its tick reads it after the move)."
-  @impl true
-  def before_ai(self), do: Self.mind(self, &%{&1 | own: Self.in_water?(self)})
-
   @doc """
   `Dolphin.tick` after its super: moist in water or rain, else drying (hurt
   each tick once dry) and flopping on the ground.
@@ -184,7 +181,7 @@ defmodule Valimc.AI.Mobs.Dolphin do
     do: %{self | mob: %{mob | living: %{mob.living | air_supply: @max_air}}}
 
   def after_tick(%Self{data: data} = self) do
-    if self.mind.own == true or raining?(self) do
+    if Self.in_water?(self) or raining?(self) do
       %{self | data: %{data | moistness: @moist}}
     else
       self = %{self | data: %{data | moistness: data.moistness - 1}}
@@ -324,22 +321,132 @@ defmodule Valimc.AI.Mobs.Dolphin do
   defmodule Treasure do
     @moduledoc """
     `DolphinSwimToTreasureGoal`: a dolphin that ate fish (with air to spare)
-    looks for treasure. The structure search runs outside the AI (`Worldgen.Locate`),
-    which a tick cannot wait for, so it finds none and, as vanilla does then,
-    gives up and forgets the fish.
+    looks for treasure. The owner's bounded background job finds the structure;
+    the goal waits without blocking simulation, then chooses water waypoints.
     """
     use Valimc.AI.Goal
+    alias Valimc.AI.{Facts, RandomPos}
+    alias Valimc.Data.Float32
 
     def can_use(state, self),
       do: {self.data.got_fish and self.mob.living.air_supply >= 100, state, self}
 
-    def can_continue(state, self), do: {false, state, self}
+    def can_continue(state, self),
+      do:
+        {not state.stuck and self.mob.living.air_supply >= 100 and
+           (state.waiting or (self.data.treasure != nil and not reached?(self))), state, self}
 
     def interruptable?(_state), do: false
 
-    def start(state, self), do: {state, Navigation.stop(self)}
+    def start(_state, self) do
+      self = Navigation.stop(self)
+      query = %{tag: "minecraft:dolphin_located", position: Self.block(self), radius: 50}
+      state = %{stuck: false, waiting: false, request: nil, query: query}
 
-    def stop(state, self), do: {state, %{self | data: %{self.data | got_fish: false}}}
+      case World.locate(self.world, query) do
+        :deferred ->
+          state = %{state | waiting: true, request: make_ref()}
+          {state, ask(state, self)}
+
+        result ->
+          located(state, self, result)
+      end
+    end
+
+    def stop(state, self) do
+      self =
+        if state.stuck or reached?(self),
+          do: %{self | data: %{self.data | got_fish: false}},
+          else: self
+
+      {%{state | waiting: false, request: nil}, self}
+    end
+
+    def tick(%{waiting: true} = state, self) do
+      case Map.fetch(self.world.located, {self.uuid, state.request}) do
+        {:ok, result} ->
+          self = %{
+            self
+            | world: %{
+                self.world
+                | located: Map.delete(self.world.located, {self.uuid, state.request})
+              }
+          }
+
+          {state, self} = located(state, self, result)
+          tick(state, self)
+
+        :error ->
+          {state, ask(state, self)}
+      end
+    end
+
+    def tick(state, %Self{data: %{treasure: nil}} = self), do: {state, self}
+    def tick(%{stuck: true} = state, self), do: {state, self}
+
+    def tick(state, self) do
+      nav = self.mind.navigation
+
+      if Navigation.done?(nav) or (nav.target != nil and near?(self, nav.target, 12.0)) do
+        {x, y, z} = self.data.treasure
+        target = {x + 0.5, y + 0.5, z + 0.5}
+        {at, self} = RandomPos.default_towards(self, 16, 1, target, Float32.round(:math.pi() / 8))
+
+        {at, self} =
+          if at == nil,
+            do: RandomPos.default_towards(self, 8, 4, target, Float32.round(:math.pi() / 2)),
+            else: {at, self}
+
+        {at, self} =
+          if at != nil and not water?(self.world, at),
+            do: RandomPos.default_towards(self, 8, 5, target, Float32.round(:math.pi() / 2)),
+            else: {at, self}
+
+        if at == nil do
+          {%{state | stuck: true}, self}
+        else
+          self = Self.look_at(self, at, self.facts.max_head_y_rot + 20, self.facts.max_head_x_rot)
+          {_, self} = Navigation.move_to(self, at, 1.3)
+          {n, random} = Valimc.AI.Random.int(self.world.random, adjusted(state, 80))
+          self = %{self | world: %{self.world | random: random}}
+          self = if n == 0, do: Self.effect(self, {:event, 38}), else: self
+          {state, self}
+        end
+      else
+        {state, self}
+      end
+    end
+
+    defp ask(state, self), do: Self.effect(self, {:locate, self.uuid, state.request, state.query})
+
+    defp located(state, self, {:ok, {x, y, z}}) do
+      self = %{self | data: %{self.data | treasure: {x, y, z}}} |> Self.effect({:event, 38})
+      {%{state | waiting: false}, self}
+    end
+
+    defp located(state, self, _), do: {%{state | waiting: false, stuck: true}, self}
+    defp reached?(%{data: %{treasure: nil}}), do: false
+
+    defp reached?(self) do
+      {x, _, z} = self.data.treasure
+      near?(self, {x, floor(self.y), z}, 4.0)
+    end
+
+    defp near?(self, {x, y, z}, range),
+      do: Self.distance_sq(self, {x + 0.5, y + 0.5, z + 0.5}) < range * range
+
+    defp water?(world, at) do
+      pos = Mth.block(at)
+
+      case World.block(world, pos) do
+        nil ->
+          false
+
+        state ->
+          World.fluid(world, pos) == :water and
+            Bitwise.band(:binary.at(Facts.path_flags(), state), 2) != 0
+      end
+    end
   end
 
   defmodule SwimWithPlayer do

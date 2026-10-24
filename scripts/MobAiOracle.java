@@ -24,6 +24,7 @@ import net.minecraft.world.entity.ai.goal.GoalSelector;
 import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import net.minecraft.world.entity.animal.dolphin.Dolphin;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.item.ItemStack;
@@ -381,6 +382,15 @@ public class MobAiOracle {
     public int getHeight() { return 384; }
     public long getGameTime() { return time; }
     public GameRules getGameRules() { return rules; }
+    BlockPos treasureResult;
+    List<int[]> structureQueries;
+    public BlockPos findNearestMapStructure(net.minecraft.tags.TagKey<net.minecraft.world.level.levelgen.structure.Structure> tag,
+        BlockPos origin,int radius,boolean skipReferenced) {
+      if (!tag.equals(net.minecraft.tags.StructureTags.DOLPHIN_LOCATED) || radius != 50 || skipReferenced)
+        throw new AssertionError("Unexpected dolphin structure query");
+      if (structureQueries != null) structureQueries.add(new int[] {origin.getX(),origin.getY(),origin.getZ()});
+      return treasureResult;
+    }
     public DamageSources damageSources() { return sources; }
     public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
     public net.minecraft.world.Difficulty getDifficulty() { return net.minecraft.world.Difficulty.NORMAL; }
@@ -917,6 +927,7 @@ public class MobAiOracle {
       if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
         if (s.data.containsKey("air")) d.setAirSupply((Integer)s.data.get("air"));
         if (s.data.containsKey("moistness")) d.setMoisntessLevel((Integer)s.data.get("moistness"));
+        if (Boolean.TRUE.equals(s.data.get("got_fish"))) d.setGotFish(true);
       }
       if (s.data.containsKey("home")) {
         var h = (int[])s.data.get("home");
@@ -1117,6 +1128,9 @@ public class MobAiOracle {
     if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
       o.addProperty("age", d.getAge());
       o.addProperty("got_fish", d.gotFish()); o.addProperty("moistness", d.getMoistnessLevel());
+      var treasure = (BlockPos)field(Dolphin.class,"treasurePos").get(d);
+      if (treasure == null) o.add("treasure",JsonNull.INSTANCE);
+      else { var at = new JsonArray(); at.add(treasure.getX()); at.add(treasure.getY()); at.add(treasure.getZ()); o.add("treasure",at); }
       o.addProperty("air", d.getAirSupply());
       var held = d.getItemBySlot(EquipmentSlot.MAINHAND);
       o.addProperty("mainhand", held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString());

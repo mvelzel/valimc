@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('dolphin_treasure', [
+        ('java', 'DolphinTreasureOracle', '@dolphin-treasure.json'),
+        ('check', 'check_mob_ai.exs', '@dolphin-treasure.json', '6'),
+    ]),
     ('dolphin_breath', [
         ('java', 'DolphinBreathOracle', '@dolphin-breath.json'),
         ('check', 'check_dolphin_breath.exs', '@dolphin-breath.json'),

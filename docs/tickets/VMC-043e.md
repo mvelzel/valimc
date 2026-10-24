@@ -1,6 +1,6 @@
 # VMC-043e — Water, ambient and End mobs
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md).
 
@@ -80,6 +80,9 @@ Slices, in order:
 - [VMC-043e25](VMC-043e25.md) — collision-aware breathing-goal observations
   (Awaiting client).
 
+- [VMC-043e26](VMC-043e26.md) — deferred treasure searches and dolphin
+  guidance through breathing and water transitions (Awaiting client).
+
 Acceptance: behaviour fixtures match the oracle.
 
 ## Handoff (October 2026)
@@ -96,6 +99,7 @@ Acceptance: behaviour fixtures match the oracle.
   [VMC-043e8](VMC-043e8.md), with its actual-client gate deferred.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
-- Remains: the documented contact/collision and other family gaps in the
-  individual tickets; the batched client handoff for 043e1–043e25. Then close
-  VMC-043e (Status stays In progress until the client gate).
+- The M3 implementation follow-ups are ready for the combined automated gate.
+  The batched client handoff for 043e1–043e26 remains deferred at the user's
+  request. Riding and spawn-egg item support remain in their later systems;
+  the family is not Done until its client gate passes.

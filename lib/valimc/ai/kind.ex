@@ -19,7 +19,7 @@ defmodule Valimc.AI.Kind do
     shulker), `pushable` (others push it), `pushes` (it pushes what it
     touches), `fluid_pushed` (currents push it), `travel` (its travel, a
     squid's) and `emission` (`:all`, `:events`, `:sounds` or `:none`: what
-    its movement makes); `swim_sound/0`, the sound it swims with.
+    its movement makes); `swim_sound/0` and `splash_sound/0`, its movement sounds.
   - Its tick, where vanilla's subclass overrides it, each on the mob as its
     AI sees it (`Valimc.AI.Self`): `tick_start/1` (`tick()` before
     `super.tick()`), `before_ai/1` (`aiStep()` before `super.aiStep()`),
@@ -124,6 +124,7 @@ defmodule Valimc.AI.Kind do
   @callback move_control(Self.t()) :: Self.t()
   @callback air(integer, boolean) :: {integer, float}
   @callback swim_sound() :: String.t()
+  @callback splash_sound() :: String.t()
   @callback dying?() :: boolean
   @callback walk_value(Self.t(), tuple) :: float | :neg_infinity
   @callback falls?() :: boolean
@@ -197,6 +198,7 @@ defmodule Valimc.AI.Kind do
                       move_control: 1,
                       air: 2,
                       swim_sound: 0,
+                      splash_sound: 0,
                       dying?: 0,
                       walk_value: 2,
                       falls?: 0,

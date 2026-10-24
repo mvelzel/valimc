@@ -219,7 +219,7 @@ defmodule Valimc.Entity.MobTicks do
   end
 
   defp ordinary_step(view, ticker, old, id, i, state) do
-    entry = first_fluids(view, state.entries[id])
+    entry = sense_fluids(view, state.entries[id])
     # `baseTick`'s burning comes first (VMC-043b).
     {body, burnt} = MobVitals.base_tick(entry.body.type, entry.body)
     entry = %{entry | body: body}
@@ -502,26 +502,22 @@ defmodule Valimc.Entity.MobTicks do
     }
   end
 
-  # A mob's first tick reads the fluids it stands in and its eyes', as its
-  # base tick would before its AI (later ticks read what its last move left).
-  defp first_fluids(view, %{body: %{mob: %Valimc.Entity.Mob{ai: ai} = mob} = body} = entry) do
-    if match?(%AI.Mind{tick: tick} when tick > 0, ai) do
-      entry
-    else
-      {_, _, eye} = Valimc.Entity.Body.dimensions(body)
-      e = entry.entity
+  # Entity.baseTick refreshes fluid observations before every AI turn. A
+  # water move may retain its old flag until this refresh, including on exit.
+  defp sense_fluids(view, %{body: %{mob: %Valimc.Entity.Mob{} = mob} = body} = entry) do
+    {_, _, eye} = Valimc.Entity.Body.dimensions(body)
+    e = entry.entity
 
-      with {:ok, %{water: water, lava: lava}} <- Kernel.fluids(view, box(entry)),
-           {:ok, eye} <- Kernel.eye_block(view, box(entry), {e.x * 1.0, e.y + eye, e.z * 1.0}) do
-        motion = %{mob.motion | water: water * 1.0, lava: lava * 1.0, eye: eye}
-        %{entry | body: %{body | mob: %{mob | motion: motion}}}
-      else
-        _ -> entry
-      end
+    with {:ok, %{water: water, lava: lava}} <- Kernel.fluids(view, box(entry)),
+         {:ok, eye} <- Kernel.eye_block(view, box(entry), {e.x * 1.0, e.y + eye, e.z * 1.0}) do
+      motion = %{mob.motion | water: water * 1.0, lava: lava * 1.0, eye: eye}
+      %{entry | body: %{body | mob: %{mob | motion: motion}}}
+    else
+      _ -> entry
     end
   end
 
-  defp first_fluids(_view, entry), do: entry
+  defp sense_fluids(_view, entry), do: entry
 
   defp box(%{entity: e, body: body}) do
     {width, height, _} = Valimc.Entity.Body.dimensions(body)

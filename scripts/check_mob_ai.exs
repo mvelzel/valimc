@@ -337,6 +337,7 @@ kind_data = fn
     %{
       "age" => data.age,
       "got_fish" => data.got_fish,
+      "treasure" => data.treasure && Tuple.to_list(data.treasure),
       "moistness" => data.moistness,
       "air" => mob.living.air_supply,
       "mainhand" => held && Valimc.Protocol.ItemTypes.item(held.item_id)["name"]
@@ -530,7 +531,17 @@ start_data = fn
 
   %{type: "minecraft:dolphin", mob: mob, data: data} = body, start ->
     mob = %{mob | living: %{mob.living | air_supply: start["air"]}}
-    %{body | mob: mob, data: %{data | moistness: start["moistness"]}}
+
+    %{
+      body
+      | mob: mob,
+        data: %{
+          data
+          | moistness: start["moistness"],
+            got_fish: start["got_fish"],
+            treasure: start["treasure"] && List.to_tuple(start["treasure"])
+        }
+    }
 
   body, _start ->
     body
@@ -555,6 +566,7 @@ checked =
         )
 
       players = Enum.map(c["players"], player)
+      Process.put(:mob_structure_queries, c["structure_queries"] || [])
 
       items =
         for {item, n} <- Enum.with_index(c["items"]) do
@@ -597,6 +609,16 @@ checked =
           [result] = AI.Paths.find(kernel_view, [request])
           result
         end,
+        locate:
+          if(Map.has_key?(c, "treasure_result"),
+            do: fn %{tag: "minecraft:dolphin_located", radius: 50, position: origin} ->
+              [expected | rest] = Process.get(:mob_structure_queries)
+              true = origin == List.to_tuple(expected)
+              Process.put(:mob_structure_queries, rest)
+              {:ok, c["treasure_result"] && List.to_tuple(c["treasure_result"])}
+            end,
+            else: :deferred
+          ),
         players: players,
         items: items,
         random: AI.Random.new(7),
@@ -1123,6 +1145,9 @@ checked =
 
           {entries, world, count + Enum.sum(checks)}
         end)
+
+      unless Process.get(:mob_structure_queries) == [],
+        do: raise("Missing native structure query")
 
       count
   end

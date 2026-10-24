@@ -793,7 +793,7 @@ defmodule Valimc.AI do
       end)
 
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
-    name = splash_sound(self.type)
+    name = Mobs.hook(self.type, :splash_sound, [], splash_sound(self.type))
     Self.effect(self, {:sound, Facts.sound_id(name), source(self.type), volume, pitch, seed})
   end
 
