@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-078a Natural-spawn tick headroom](../tickets/VMC-078a.md) | Reuse fixed mob-phase indexes; matched mob outcomes, one/eight-player natural-spawn p99 budget and affected vanilla checks |
 | [VMC-048b Pistons and moving blocks](../tickets/VMC-048b.md) | Two-high sticky door from a button, upward rider and exact grounded honey carry; native push/collision fixtures, M3 client run 4, October 24 |
 | [VMC-039c Bamboo, cave and Nether growth; shears](../tickets/VMC-039c.md) | `f4913887`, hive repair `99cb23f0`; growth, huge fungi, nylium, pumpkin carving and one-shot hive harvest; M3 client run 4, October 24 |
 | [VMC-049a Hoppers, droppers and dispensers](../tickets/VMC-049a.md) | `b7a8ca1d`; item transfers and supported dispense behaviours; actual hopper-fed furnace and four ingots in the output chest, M3 client run 4, October 24 |

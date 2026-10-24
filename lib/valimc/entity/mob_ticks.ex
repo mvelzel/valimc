@@ -29,6 +29,7 @@ defmodule Valimc.Entity.MobTicks do
     {mobs, world, ctx} = AI.prepare(mobs, world)
     old = Map.new(mobs)
     ids = mobs |> Enum.map(&elem(&1, 0)) |> List.to_tuple()
+    index = Map.new(Enum.with_index(Tuple.to_list(ids)))
 
     # A player's standing box pushes the mobs it touches.
     players =
@@ -44,6 +45,8 @@ defmodule Valimc.Entity.MobTicks do
     state = %{
       entries: Map.new(mobs),
       ids: ids,
+      index: index,
+      by_uuid: Map.new(mobs, fn {id, entry} -> {entry.entity.uuid, id} end),
       ctx: ctx,
       world: world,
       travel: travel,
@@ -57,7 +60,6 @@ defmodule Valimc.Entity.MobTicks do
       |> Enum.reduce(state, fn {{id, _}, i}, state -> step(view, ticker, old, id, i, state) end)
 
     velocities = ticker |> Kernel.mobs_finish() |> List.to_tuple()
-    position = Map.new(Enum.with_index(Tuple.to_list(ids)))
     steps = Enum.reverse(state.steps)
 
     # The alerts later mobs left earlier ones; each mob's motion with every
@@ -70,7 +72,7 @@ defmodule Valimc.Entity.MobTicks do
       )
       |> Enum.zip(steps)
       |> Enum.map(fn {{id, body}, step} ->
-        %{step | body: %{body | velocity: elem(velocities, position[id])}}
+        %{step | body: %{body | velocity: elem(velocities, index[id])}}
       end)
 
     {steps, state.world}
@@ -247,8 +249,10 @@ defmodule Valimc.Entity.MobTicks do
   # (or ticked) hurt, its knockback in the ticker before any push; a hit on
   # a mob elsewhere stays an effect for the region.
   defp melee(ticker, id, entry, effects, state) do
-    index = state.ids |> Tuple.to_list() |> Enum.with_index() |> Map.new()
-    by_uuid = Map.new(state.entries, fn {other, e} -> {e.entity.uuid, other} end)
+    # The phase's membership and ticker positions stay fixed while bodies
+    # move and are hurt. Reuse their indexes for every mob's effects.
+    index = state.index
+    by_uuid = state.by_uuid
 
     Enum.flat_map_reduce(effects, state, fn
       {:dragon_contact, {:mob, uuid}, push, amount, wing}, state when is_map_key(by_uuid, uuid) ->
@@ -307,7 +311,8 @@ defmodule Valimc.Entity.MobTicks do
 
   # Whether mob `id`'s melee hit on `ref` kills it, for the rest of its think.
   defp kills?(state, id, entry, {:mob, uuid}, effects) do
-    with {_, target} <- Enum.find(state.entries, fn {_, e} -> e.entity.uuid == uuid end),
+    with target_id when target_id != nil <- state.by_uuid[uuid],
+         target = state.entries[target_id],
          {:ok, hit} <-
            Valimc.Entity.Combat.mob_hit(
              %{entries: %{id => attacker(id, entry)}},

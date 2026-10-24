@@ -1,6 +1,6 @@
 # VMC-078a — Natural-spawn group tick headroom
 
-Status: In progress
+Status: Done
 Milestone: M3
 Depends on: [VMC-042a](VMC-042a.md), [VMC-041a](VMC-041a.md).
 Parent gate: [VMC-078](VMC-078.md).
@@ -51,7 +51,7 @@ socket-EOF teardown logs), and `.local/m3-gate-ticks-one.log` /
 `.local/m3-gate-ticks-eight.log`. The public harness now records its own hash,
 owner/GC data and metric deltas, has optional call profiling and cleanly
 recognizes deliberately closed sockets. The initial FAIL remains evidence;
-no runtime fix or passing eight-player tail is claimed yet.
+the follow-up below records the focused fix and its limits.
 
 ## Profiling
 
@@ -71,3 +71,45 @@ these paths with a fixed-UUID mob workload before changing them, then
 repeat the complete natural-spawn budget gate. Private diagnostics:
 `eight-profile.json`, `eight-gc.json` / `diagnostic.exs`, and
 `eight-coarse2.json` / `coarse.exs`, under `.local/m3-gate-ticks/`.
+
+## Index reuse and follow-up
+
+The mob phase now creates its ticker-position and UUID indexes once. Its
+membership is fixed for the phase; moved or hurt bodies still come from
+the current entries. Melee effects and the lethal-hit query share those
+indexes, and final velocities use the same positions. No simulation
+ordering, combat decision or native kernel changes. The travel-cache
+candidate is left unchanged because the focused index change restores the
+measured budget.
+
+The deterministic 300-zombie floor workload (`bench/mob_ticks.exs`, 60
+measured ticks, five warm-ups, fixed UUIDs) takes a median 22.76 ms before
+and 10.35 ms after, including store application. Raw samples are in
+`.local/m3-gate-ticks/mob-phase-before.json` and
+`mob-phase-index-after.json`, with the exact `mob_phase.exs` harness. A
+separate before/after run in one VM produces identical saved entity
+records, SHA-256 `25ee80b3899b54ed0f704342c3ed6b7162e9d01bcdffb426e970d6e0ab3c3b8e`;
+its timings ran alongside correctness work and are not comparison evidence.
+The single-floor herd magnifies the former quadratic index construction;
+its speedup does not describe the spread-out natural-spawn group.
+
+The complete unprofiled gate, with the same terrain and client-position
+scheme, now has one player / 88–94 mobs: p50/p95/p99
+6.563/8.419/16.332 ms, max 18.636 ms, no overrun. Eight players / 270–296
+mobs: 28.238/33.723/44.514 ms, max 61.316 ms, one overrun. Both pass the
+50-ms p99 acceptance; intervals are 10.001/10.012 seconds, queues empty,
+ten schedulers, host loads 4.27/3.73. Natural UUID/AI seeds and populations
+vary, so these complete-group results establish the bounded budget only;
+they do not establish an implementation speedup or production capacity.
+Raw metadata and 200 tick samples each: `one-index-after.json` and
+`eight-index-after.json` under `.local/m3-gate-ticks/`.
+
+Validation: 23 affected movement, combat and dragon owner/actor/socket
+tests pass. All six stages selected by `check_vanilla.py --changed` pass
+(animals, Nether mobs, mob AI, hostiles, villagers and the official-codec
+session), including the existing sequential combat/animal fixtures. No
+Rust code changed. The fast parent suite passes 559 checks (217 excluded).
+The exact source hashes are retained in
+`.local/m3-gate-ticks/index-source-manifest.json`. Logs: `.local/m3-gate-index-tests.log` and
+`.local/m3-gate-index-vanilla.log`. This closes the bounded tick-budget
+finding; the parent still needs its survival and outstanding client gates.
