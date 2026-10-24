@@ -48,9 +48,11 @@ Slices, in order:
   (Awaiting client).
 - [VMC-043e14](VMC-043e14.md) — guardian retaliation on refused hits
   (Awaiting client).
-
 - [VMC-043e15](VMC-043e15.md) — physical shulker lids in projectile and
   player attack targeting (Awaiting client).
+
+- [VMC-043e16](VMC-043e16.md) — solid shulker boxes in player movement
+  and resting pose/travel (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -69,5 +71,5 @@ Acceptance: behaviour fixtures match the oracle.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
 - Remains: the documented contact/collision and other family gaps in the
-  individual tickets; the batched client handoff for 043e1–043e15. Then close
+  individual tickets; the batched client handoff for 043e1–043e16. Then close
   VMC-043e (Status stays In progress until the client gate).

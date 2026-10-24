@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('shulker_player_collision', [
+        ('java', 'ShulkerPlayerCollisionOracle', '@shulker-player-collision.json'),
+        ('check', 'check_shulker_player_collision.exs', '@shulker-player-collision.json'),
+    ]),
     ('shulker_body_box', [
         ('java', 'ShulkerBodyBoxOracle', '@shulker-body-box.json'),
         ('check', 'check_shulker_body_box.exs', '@shulker-body-box.json'),

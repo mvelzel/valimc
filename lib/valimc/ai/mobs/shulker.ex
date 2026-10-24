@@ -88,6 +88,11 @@ defmodule Valimc.AI.Mobs.Shulker do
   @impl true
   def box(%{data: data}, position), do: physical_box(data, position)
 
+  @doc "A living shulker is solid to other entities (`canBeCollidedWith`)."
+  @impl true
+  def collider(body, position),
+    do: if(Valimc.Entity.Body.alive?(body), do: box(body, position))
+
   defp physical_box(%{attach_face: face, peek_amount: peek}, position),
     do: progress_box(Shapes.opposite(face), physical(peek), position)
 

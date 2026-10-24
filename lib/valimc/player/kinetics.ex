@@ -79,21 +79,36 @@ defmodule Valimc.Player.Kinetics do
   def player_move(view, query, player, target, flags) do
     target = {target.x * 1.0, target.y * 1.0, target.z * 1.0}
 
-    Valimc.Native.physics_player_move(
-      Kernel.native(view, query),
-      player(player),
-      target,
-      flags,
-      border()
-    )
-    |> Kernel.error()
+    with {:ok, entities} <- colliders(view, query, player) do
+      Valimc.Native.physics_player_move(
+        Kernel.native(view, query),
+        player(player),
+        target,
+        flags,
+        border(),
+        entities
+      )
+      |> Kernel.error()
+    end
   end
 
   @doc "Sample a resting `player`'s tick over `view` (its query box `query`), in one call."
-  def player_rest(view, query, player),
-    do:
-      Valimc.Native.physics_player_rest(Kernel.native(view, query), player(player), border())
+  def player_rest(view, query, player) do
+    with {:ok, entities} <- colliders(view, query, player) do
+      Valimc.Native.physics_player_rest(
+        Kernel.native(view, query),
+        player(player),
+        border(),
+        entities
+      )
       |> Kernel.error()
+    end
+  end
+
+  defp colliders(_view, _query, %{game_mode: %{current: :spectator}}), do: {:ok, []}
+
+  defp colliders(view, query, player),
+    do: Valimc.World.EntityColliders.collect(view, query, Map.get(player, :entity_id))
 
   defp border do
     case Valimc.Physics.BorderSnapshot.bounds(Valimc.World.Clock.border_snapshot()) do

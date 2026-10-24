@@ -277,10 +277,11 @@ defmodule Valimc.Native do
 
   def physics_player_query(_player, _target, _flags), do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_player_move(_view, _player, _target, _flags, _border),
+  def physics_player_move(_view, _player, _target, _flags, _border, _entities \\ []),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_player_rest(_view, _player, _border), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_player_rest(_view, _player, _border, _entities \\ []),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   ## Natural spawning (VMC-042a)
 

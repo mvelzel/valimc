@@ -15,7 +15,7 @@ defmodule Valimc.Player.PoseQuery do
     {player.x, player.y, player.z, Map.get(player, :pose, :standing),
      (player.input.shared_flags &&& 2) != 0, player.abilities.flying,
      player.game_mode.current == :spectator, Motion.distance(player),
-     Valimc.Player.Kinetics.signature(player)}
+     Valimc.Player.Kinetics.signature(player), Valimc.World.EntityColliders.signature(player)}
   end
 
   @doc """

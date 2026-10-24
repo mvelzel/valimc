@@ -12,7 +12,9 @@ defmodule Valimc.AI.Kind do
   - Its own data: `data/1` (defaults, saved with the body), `values/1` (the
     entity data fields a client is sent, `[{field, value, default}]`),
     `dimensions/1` (`{width, height, eye}`, nil for its type's) and `box/2`
-    (its bounding box at a position, nil for the usual one).
+    (its bounding box at a position, nil for the usual one). `collider/2`
+    optionally supplies a solid entity box, independent of its subject (a
+    living shulker).
   - How the kernel moves it (`motion/0`): `fixed` (it never moves, a
     shulker), `pushable` (others push it), `pushes` (it pushes what it
     touches), `fluid_pushed` (currents push it), `travel` (its travel, a
@@ -87,6 +89,7 @@ defmodule Valimc.AI.Kind do
   @callback values(struct) :: list
   @callback dimensions(struct) :: tuple | nil
   @callback box(struct, tuple) :: tuple | nil
+  @callback collider(struct, tuple) :: tuple | nil
   @callback motion() :: keyword
   @callback tick_start(Self.t()) :: Self.t()
   @callback before_ai(Self.t()) :: Self.t()
@@ -160,6 +163,7 @@ defmodule Valimc.AI.Kind do
                       values: 1,
                       dimensions: 1,
                       box: 2,
+                      collider: 2,
                       motion: 0,
                       tick_start: 1,
                       before_ai: 1,

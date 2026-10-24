@@ -904,6 +904,7 @@ fn mobs_step<'a>(
         source: &view,
         facts,
         border: crate::player::border(border),
+        entities: &[],
     };
     let players: Vec<([f64; 3], Aabb)> =
         players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
@@ -1099,6 +1100,7 @@ fn ticker_step<'a>(
         source: view,
         facts,
         border: crate::player::border(*border),
+        entities: &[],
     };
     let (result, pushed) = ticker.step(&world, index, input, players);
     let result = match &result {

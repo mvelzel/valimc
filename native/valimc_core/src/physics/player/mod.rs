@@ -100,11 +100,12 @@ pub struct Player {
     pub dolphins_grace: bool,
 }
 
-/// What a player query reads: blocks, their facts and the world border.
+/// What a player query reads: blocks, solid entity observations and the border.
 pub struct World<'a> {
     pub source: &'a dyn BlockSource,
     pub facts: &'a Facts,
     pub border: Option<Border>,
+    pub entities: &'a [Aabb],
 }
 
 impl<'a> World<'a> {
@@ -115,6 +116,7 @@ impl<'a> World<'a> {
             source: if spectator { air } else { self.source },
             facts: self.facts,
             border: self.border,
+            entities: if spectator { &[] } else { self.entities },
         }
     }
 
@@ -126,7 +128,7 @@ impl<'a> World<'a> {
 
     fn extra(&self, subject: [f64; 2]) -> Extra {
         Extra {
-            entities: Vec::new(),
+            entities: self.entities.to_vec(),
             border: self.border,
             subject,
         }

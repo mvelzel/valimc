@@ -15,6 +15,10 @@ defmodule Valimc.Entity.Publication do
   An observer forwards, for each entity it tracks, the packets of the frames
   after the view it spawned from; one that fell behind the ring resyncs.
 
+  Compact `{:colliders, chunk}` rows hold only solid entity boxes and their
+  handoff generations. Their stamps change with the boxes, so stationary
+  player physics can invalidate a cached fit when a shulker's lid animates.
+
   The table also keeps the owner's full views (`{:entity_source, :items}`, what
   cross-region merge discovery reads) and a chunk index of row hashes
   (`:entity_index`).
@@ -49,6 +53,7 @@ defmodule Valimc.Entity.Publication do
         case Map.fetch(by_chunk, chunk) do
           :error ->
             :ets.delete(table, {:entities, chunk})
+            :ets.delete(table, {:colliders, chunk})
             {Map.delete(index, chunk), revision}
 
           {:ok, chunk_views} ->
@@ -60,6 +65,7 @@ defmodule Valimc.Entity.Publication do
               stamped =
                 Map.new(chunk_views, fn {id, view} -> {id, Map.put(view, :tick, tick)} end)
 
+              publish_colliders(table, chunk, {epoch, revision + 1}, chunk_views)
               :ets.insert(table, {{:entities, chunk}, {epoch, revision + 1}, stamped})
               {Map.put(index, chunk, hash), revision + 1}
             end
@@ -75,6 +81,41 @@ defmodule Valimc.Entity.Publication do
     end
 
     :ok
+  end
+
+  # Physics reads only solid boxes, without copying item or mob metadata.
+  defp publish_colliders(table, chunk, stamp, views) do
+    colliders =
+      for {id, %{collider: box, ownership_generation: hops}} <- views,
+          box != nil,
+          into: %{},
+          do: {id, {hops, box}}
+
+    key = {:colliders, chunk}
+
+    case :ets.lookup(table, key) do
+      [{_, _, ^colliders}] -> :ok
+      [] when colliders == %{} -> :ok
+      _ when colliders == %{} -> :ets.delete(table, key)
+      _ -> :ets.insert(table, {key, stamp, colliders})
+    end
+  end
+
+  @doc "Solid collider observations in one chunk, with their publication stamp."
+  def colliders(table, chunk) do
+    case :ets.lookup(table, {:colliders, chunk}) do
+      [{_, stamp, boxes}] -> {stamp, boxes}
+      [] -> {nil, %{}}
+    end
+  rescue
+    ArgumentError -> {nil, %{}}
+  end
+
+  @doc "The solid-collider stamp, without copying the boxes."
+  def collider_stamp(table, chunk) do
+    :ets.lookup_element(table, {:colliders, chunk}, 2)
+  rescue
+    ArgumentError -> nil
   end
 
   @doc """

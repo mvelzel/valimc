@@ -407,6 +407,7 @@ fn physics_player_parity<'a>(env: Env<'a>, op: Atom, args: Term<'a>) -> NifResul
             source: &source,
             facts,
             border: None,
+            entities: &[],
         };
         let tuple = |p: [i32; 3]| (p[0], p[1], p[2]);
         reply!(world.material(&b, v3(position), &context(ctx)).map(|m| {

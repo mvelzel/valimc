@@ -5,7 +5,7 @@
 //! `{from, to, axis}` tuples), input flags, mode and travel effects; results
 //! are maps the connection applies.
 
-use crate::physics::{facts, t3, v3, view, Vec3};
+use crate::physics::{aabb, facts, t3, v3, view, BoxT, Vec3};
 use rustler::{Atom, Encoder, Env, NifMap, NifResult, Term};
 use valimc_core::physics::border::Border;
 use valimc_core::physics::player::contacts::{Contact, Source, Touched};
@@ -336,7 +336,12 @@ fn physics_player_move<'a>(
     target: Vec3,
     flags: u8,
     border_t: Option<(f64, f64, f64, f64)>,
+    entities: Vec<BoxT>,
 ) -> NifResult<Term<'a>> {
+    if entities.len() > 256 {
+        return Err(rustler::Error::BadArg);
+    }
+    let entities: Vec<Aabb> = entities.into_iter().map(aabb).collect();
     let facts = facts()?;
     let p = player(&p)?;
     let catalog = &facts.player.poses;
@@ -349,6 +354,7 @@ fn physics_player_move<'a>(
         source: &view,
         facts,
         border: border(border_t),
+        entities: &entities,
     };
     Ok(reply(
         env,
@@ -365,7 +371,12 @@ fn physics_player_rest<'a>(
     view_term: Term<'a>,
     p: PlayerT,
     border_t: Option<(f64, f64, f64, f64)>,
+    entities: Vec<BoxT>,
 ) -> NifResult<Term<'a>> {
+    if entities.len() > 256 {
+        return Err(rustler::Error::BadArg);
+    }
+    let entities: Vec<Aabb> = entities.into_iter().map(aabb).collect();
     let facts = facts()?;
     let p = player(&p)?;
     let catalog = &facts.player.poses;
@@ -378,6 +389,7 @@ fn physics_player_rest<'a>(
         source: &view,
         facts,
         border: border(border_t),
+        entities: &entities,
     };
     Ok(reply(
         env,
