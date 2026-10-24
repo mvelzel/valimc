@@ -68,6 +68,124 @@ defmodule Valimc.GroupProjectileTest do
     %{arrow | data: %{arrow.data | damage: damage}}
   end
 
+  test "mob travel and living timers run once across either section direction", c do
+    TestScope.isolate([c.a, c.b], mob_goals: false)
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+
+    for {owner, n, x, z, vx} <- [
+          {a, 631, c.edge - 1.5, c.z + 20.5, 4.0},
+          {b, 632, c.edge + 1.5, c.z + 40.5, -4.0},
+          {a, 633, c.edge - 20.5, c.z + 60.5, 4.0}
+        ] do
+      {:ok, body} = Body.new("minecraft:husk")
+      body = %{body | no_gravity: true, velocity: {vx, 0.0, 0.0}}
+      :ok = Region.drop_items(owner, [record(body, n, {x, 80.0, z})])
+
+      Valimc.TestRegion.replace_section(owner, fn section ->
+        {:ok, {_, id, _}} = Store.find(section.entities.store, <<n::128>>)
+        live = section.entities.store.entries[id].body
+        mind = Valimc.AI.mind(live.type, <<n::128>>, nil)
+        mind = %{mind | own: Map.put(mind.own || %{}, :carry_marker, n)}
+        live = %{live | mob: %{live.mob | ai: mind}}
+        live = put_in(live.mob.living.health.cooldown, 20)
+        put_in(section.entities.store, Store.change_body(section.entities.store, id, live))
+      end)
+    end
+
+    {:ok, _} = Region.step(a, 1)
+    east = entry(b, <<631::128>>)
+    west = entry(a, <<632::128>>)
+    same = entry(a, <<633::128>>)
+    assert_in_delta east.entity.x, c.edge + 2.5, 1.0e-7
+    assert_in_delta west.entity.x, c.edge - 2.5, 1.0e-7
+    assert_in_delta same.entity.x, c.edge - 16.5, 1.0e-7
+    assert east.body.velocity == same.body.velocity
+    assert elem(west.body.velocity, 0) == -elem(same.body.velocity, 0)
+    assert Enum.all?([east, west, same], &(&1.body.mob.living.health.cooldown == 19))
+    assert Enum.map([east, west, same], & &1.body.mob.ai.own.carry_marker) == [631, 632, 633]
+    assert Enum.all?([east, west, same], &(&1.lived == 1))
+    {:ok, _} = Region.step(a, 1)
+    east2 = entry(b, <<631::128>>)
+    same2 = entry(a, <<633::128>>)
+    assert_in_delta east2.entity.x - east.entity.x, elem(east.body.velocity, 0), 1.0e-7
+    assert east2.body.velocity == same2.body.velocity
+    assert east2.body.mob.living.health.cooldown == 18
+    assert east2.lived == 2
+    record = Store.record(east2)
+    refute Map.has_key?(record, :simulated_tick) or Map.has_key?(record, :aged_tick)
+    refute Map.has_key?(record, :spawn_body) or Map.has_key?(record, :entity_counters)
+    {:ok, reloaded} = Store.restore(c.b, [record])
+    {:ok, {_, id, _}} = Store.find(reloaded, <<631::128>>)
+    refute Store.simulated?(reloaded.entries[id], east2.simulated_tick)
+    assert Map.get(reloaded.entries[id], :aged_tick) == nil
+  end
+
+  test "dropped items and XP orbs keep one age and movement tick across adoption", c do
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+    motion = %Valimc.Entity.ItemMotionState{velocity: {4.0, 0.0, 0.0}, no_gravity: true}
+
+    for {kind, n, z} <- [{:item, 661, c.z + 20.5}, {:orb, 662, c.z + 40.5}] do
+      record = %{kind: kind, uuid: <<n::128>>, x: c.edge - 1.5, y: 80.0, z: z, motion: motion}
+
+      record =
+        case kind do
+          :item -> Map.put(record, :stack, Valimc.Protocol.ItemStack.new("stone"))
+          :orb -> Map.merge(record, %{value: 1, count: 1, age: 0})
+        end
+
+      :ok = Region.drop_items(a, [record])
+    end
+
+    {:ok, _} = Region.step(a, 1)
+    before = for n <- [661, 662], into: %{}, do: {n, entry(b, <<n::128>>)}
+    for {_, crossed} <- before, do: assert_in_delta(crossed.entity.x, c.edge + 2.5, 1.0e-7)
+    assert before[661].motion.age == 1
+    assert before[662].age == 1
+    {:ok, _} = Region.step(a, 1)
+
+    for n <- [661, 662] do
+      after_tick = entry(b, <<n::128>>)
+
+      assert_in_delta after_tick.entity.x - before[n].entity.x,
+                      elem(before[n].motion.velocity, 0),
+                      1.0e-7
+    end
+
+    assert entry(b, <<661::128>>).motion.age == 2
+    assert entry(b, <<662::128>>).age == 2
+  end
+
+  test "an arrow and primed TNT simulate once when adopted by a later section", c do
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+    shot = %{arrow() | no_gravity: true, velocity: {4.0, 0.0, 0.0}}
+    {:ok, tnt} = Body.new("minecraft:tnt")
+    tnt = %{tnt | no_gravity: true, velocity: {4.0, 0.0, 0.0}}
+
+    for {body, n, z} <- [{shot, 641, c.z + 20.5}, {tnt, 642, c.z + 40.5}] do
+      :ok = Region.drop_items(a, [record(body, n, {c.edge - 1.5, 80.0, z})])
+      :ok = Region.drop_items(a, [record(body, n + 10, {c.edge - 20.5, 80.0, z})])
+    end
+
+    {:ok, _} = Region.step(a, 1)
+
+    for n <- [641, 642] do
+      crossed = entry(b, <<n::128>>)
+      reference = entry(a, <<n + 10::128>>)
+      assert_in_delta crossed.entity.x, c.edge + 2.5, 1.0e-7
+      assert crossed.body.velocity == reference.body.velocity
+      assert crossed.body.data == reference.body.data
+    end
+
+    assert entry(b, <<641::128>>).body.data.age == 1
+    assert entry(b, <<642::128>>).body.data.fuse == 79
+    {:ok, _} = Region.step(a, 1)
+    assert entry(b, <<641::128>>).body.data.age == 2
+    assert entry(b, <<642::128>>).body.data.fuse == 78
+  end
+
   test "a mob collides with a neighboring-section shulker lid and crosses after its death", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}
@@ -90,8 +208,7 @@ defmodule Valimc.GroupProjectileTest do
 
     {:ok, _} = Region.step(a, 1)
     assert entry(a, <<622::128>>) == nil
-    assert entry(b, <<622::128>>).entity.x > c.edge
-    # One movement per group tick across this adoption is VMC-043e18.
+    assert_in_delta entry(b, <<622::128>>).entity.x, c.edge + 2.7, 1.0e-7
   end
 
   test "an arrow hits an open shulker lid across the section edge, but misses its closed cube",

@@ -66,23 +66,35 @@ defmodule Valimc.Entity.Store do
 
   @doc """
   Advance counters and identify expired/below-world items and the orbs merged
-  away (`merge_orbs/2`); removal waits for the owner's durable commit.
+  away (`merge_orbs/3`); removal waits for the owner's durable commit.
   """
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y(), game_tick \\ nil) do
-    {state, absorbed} = merge_orbs(state, ticks)
+    {state, absorbed} = merge_orbs(state, ticks, game_tick)
 
     {state, expired} = age_entries(state, ticks, minimum_y, game_tick)
+
+    state =
+      if game_tick != nil do
+        entries =
+          Map.new(state.entries, fn {id, entry} -> {id, Map.put(entry, :aged_tick, game_tick)} end)
+
+        %{state | entries: entries}
+      else
+        state
+      end
+
     {state, Enum.uniq(absorbed ++ expired)}
   end
 
   # Orbs merge when they scan (VMC-034n4c): on their first tick and every
   # twentieth after (`ExperienceOrb.tick` at `tickCount % 20 == 1`), in id
   # order; `lived` counts an orb's ticks in this VM, as vanilla's `tickCount`.
-  defp merge_orbs(state, ticks) do
+  defp merge_orbs(state, ticks, game_tick) do
     orbs = for {id, %{kind: :orb} = entry} <- state.entries, do: {id, entry}
 
     scanning =
-      for {id, %{lived: lived}} <- orbs,
+      for {id, %{lived: lived} = entry} <- orbs,
+          game_tick == nil or Map.get(entry, :aged_tick) != game_tick,
           lived + 1 + Integer.mod(-lived, 20) <= lived + ticks,
           do: id
 
@@ -142,9 +154,15 @@ defmodule Valimc.Entity.Store do
 
   defp age_entries(state, ticks, minimum_y, game_tick) do
     Enum.reduce(state.entries, {state, []}, fn
+      {_id, %{aged_tick: tick}}, acc when tick != nil and tick == game_tick ->
+        acc
+
+      {_id, %{simulated_tick: tick}}, acc when tick != nil and tick == game_tick ->
+        acc
+
       {id, %{kind: kind} = entry}, {items, expired} when kind in @bodies ->
-        # A dragon can move between sibling sections during this group tick.
-        # Its living timers, like its actor, run only once on that tick.
+        # A body can move between sibling sections during this group tick.
+        # Its living timers run only once, with its live state carried over.
         {body, events, done} = age_body(entry.body, ticks, game_tick)
 
         items =
@@ -879,6 +897,37 @@ defmodule Valimc.Entity.Store do
       false -> {:error, :invalid_item_step}
       error -> error
     end
+  end
+
+  @doc "Whether this entry has already simulated on a non-nil group tick."
+  def simulated?(entry, tick), do: tick != nil and Map.get(entry, :simulated_tick) == tick
+
+  @doc "Record successful simulation without changing revisions, views or durable records."
+  def mark_simulated(state, _ids, nil), do: state
+
+  def mark_simulated(state, ids, tick) do
+    entries =
+      Enum.reduce(ids, state.entries, fn id, entries ->
+        case entries do
+          %{^id => entry} -> Map.put(entries, id, Map.put(entry, :simulated_tick, tick))
+          _ -> entries
+        end
+      end)
+
+    %{state | entries: entries}
+  end
+
+  @doc "Restore same-process live state and unsaved lifecycle counters after adoption."
+  def restore_live(state, id, body, counters \\ %{}) do
+    state = if match?(%Body{}, body), do: change_body(state, id, body), else: state
+
+    entry =
+      Map.merge(
+        state.entries[id],
+        Map.take(counters, [:idle, :lived, :aged_tick, :simulated_tick])
+      )
+
+    %{state | entries: Map.put(state.entries, id, entry)}
   end
 
   @doc "Entity `id`'s body changes to `body` with `events` (a hit, a push): the new state."

@@ -628,6 +628,7 @@ defmodule Valimc.World.RegionData do
       for {id, %{kind: :object, body: %{type: type}, entity: %{x: x, z: z}} = entry} <-
             state.entities.store.entries,
           BlockBodies.ticks?(type),
+          not Store.simulated?(entry, state.game_tick),
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           do: {id, entry}
 
@@ -684,7 +685,8 @@ defmodule Valimc.World.RegionData do
     }
 
     acc = Enum.reduce(steps, start, &block_body_step(&1, &2, state.dimension, route, state.key))
-    state = put_entities(state, acc.store)
+    moved = for {:moved, id, _, _, _} <- steps, do: id
+    state = put_entities(state, Store.mark_simulated(acc.store, moved, state.game_tick))
 
     # A body that crossed into a sibling section goes there in this commit;
     # one bound for another group stays (groups keep loaded chunks apart).
@@ -809,6 +811,7 @@ defmodule Valimc.World.RegionData do
             state.entities.store.entries,
           Projectile.projectile?(type) or type == EffectCloud.type(),
           Map.get(entry.body.data, :world_tick) != state.game_tick,
+          not Store.simulated?(entry, state.game_tick),
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           reduce: {[], []} do
         {p, c} ->
@@ -847,6 +850,14 @@ defmodule Valimc.World.RegionData do
         Enum.reduce(steps, {state, []}, fn {id, entry, result}, {acc, moves} ->
           run_projectile(acc, id, entry, Projectiles.plan(entry, result, by_id, context), moves)
         end)
+
+      moved = for {id, _, {:ok, _, _, _, _}} <- steps, do: id
+
+      state =
+        put_in(
+          state.entities.store,
+          Store.mark_simulated(state.entities.store, moved, state.game_tick)
+        )
 
       route_bodies(state, Enum.reverse(moves))
     end
@@ -1305,8 +1316,9 @@ defmodule Valimc.World.RegionData do
     # Bodies (VMC-043a) are inert until VMC-015i moves them.
     {items, orbs} =
       state.entities.store.entries
-      |> Enum.filter(fn {_, %{kind: kind, entity: %{x: x, z: z}}} ->
-        kind in [:item, :orb] and Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
+      |> Enum.filter(fn {_, %{kind: kind, entity: %{x: x, z: z}} = entry} ->
+        kind in [:item, :orb] and not Store.simulated?(entry, state.game_tick) and
+          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
       end)
       |> Enum.split_with(fn {_, entry} -> entry.kind == :item end)
 
@@ -1328,6 +1340,13 @@ defmodule Valimc.World.RegionData do
       start_item_merging(state, now)
     else
       steps = Valimc.World.ItemStep.steps(inputs) ++ Valimc.World.ItemStep.orb_steps(orbs)
+
+      state =
+        put_in(
+          state.entities.store,
+          Store.mark_simulated(state.entities.store, Enum.map(steps, & &1.id), state.game_tick)
+        )
+
       {:noreply, state} = commit_simulated_items(state, steps)
       state
     end
@@ -1343,6 +1362,7 @@ defmodule Valimc.World.RegionData do
     mobs =
       for {id, %{kind: :mob, entity: %{x: x, z: z}} = entry} <- store.entries,
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+          not Store.simulated?(entry, state.game_tick),
           do: {id, entry}
 
     dragon_waits =
@@ -1360,6 +1380,12 @@ defmodule Valimc.World.RegionData do
 
       {steps, world} =
         Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, group_entries(state))
+
+      state =
+        put_in(
+          state.entities.store,
+          Store.mark_simulated(state.entities.store, Enum.map(steps, & &1.id), state.game_tick)
+        )
 
       dragon_effects =
         for step <- steps,
@@ -6084,8 +6110,8 @@ defmodule Valimc.World.RegionData do
     {store, refused} =
       Enum.reduce(records, {state.entities.store, []}, fn record, {store, refused} ->
         with false <- Store.reserved_uuid?(store, record.uuid),
-             {:ok, next, _} <- Store.create_record(store, state.key, record) do
-          {next, refused}
+             {:ok, next, {_, id, _}} <- Store.create_record(store, state.key, record) do
+          {live_body(next, id, record), refused}
         else
           _ -> {store, [record | refused]}
         end
@@ -6371,6 +6397,28 @@ defmodule Valimc.World.RegionData do
            Store.advance(state.entities.store, {sx, sz}, state.entities.store.epoch, steps),
          {:ok, store, records} <- Store.withdraw(moved, handles) do
       Valimc.Data.Metrics.add(:item_section_moves, length(records))
+      # Within one owner, carry the live body as the existing spawn/adopt
+      # path does. Saving/reloading a record here would reset AI and combat
+      # windows, and discard this tick's simulation fences.
+      records =
+        Enum.map(records, fn record ->
+          id = moved.uuids[record.uuid]
+
+          entry = moved.entries[id]
+
+          record =
+            Map.put(
+              record,
+              :entity_counters,
+              Map.take(entry, [:idle, :lived, :aged_tick, :simulated_tick])
+            )
+
+          case entry do
+            %{body: %Body{} = body} -> Map.put(record, :spawn_body, body)
+            _ -> record
+          end
+        end)
+
       effect = {{sx, sz}, {:entities, state.key, records}}
 
       %{
@@ -6891,15 +6939,23 @@ defmodule Valimc.World.RegionData do
 
   defp adopt_box_records(state, _grant), do: state
 
+  # A transient live body crosses only an in-process adoption. Durable
+  # records and the cross-owner handoff ledger keep their existing codecs.
+  defp live_body(store, id, record),
+    do:
+      Store.restore_live(
+        store,
+        id,
+        Map.get(record, :spawn_body),
+        Map.get(record, :entity_counters, %{})
+      )
+
   defp adopt_drops(state, records) do
     items =
       Enum.reduce(records, state.entities.store, fn record, items ->
         case Store.create_record(items, state.key, record) do
           {:ok, next, {_, id, _}} ->
-            case record do
-              %{spawn_body: %Valimc.Entity.Body{} = body} -> Store.change_body(next, id, body)
-              _ -> next
-            end
+            live_body(next, id, record)
 
           {:error, reason} ->
             require Logger
