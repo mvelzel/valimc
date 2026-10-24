@@ -901,6 +901,7 @@ public class MobAiOracle {
       if (s.data.containsKey("mainhand"))
         m.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse((String)s.data.get("mainhand")))));
       if (Boolean.TRUE.equals(s.data.get("baby"))) m.setBaby(true);
+      if (Boolean.TRUE.equals(s.data.get("no_ai"))) m.setNoAi(true);
       if (m instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob c && s.data.containsKey("size"))
         c.setSize((Integer)s.data.get("size"), true);
       if (m instanceof net.minecraft.world.entity.monster.Shulker sh && s.data.containsKey("attach_face")) {
@@ -1036,6 +1037,7 @@ public class MobAiOracle {
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(ms.size()).getId());
       if (s.data.containsKey("mainhand")) o.addProperty("mainhand", (String)s.data.get("mainhand"));
       if (Boolean.TRUE.equals(s.data.get("baby"))) o.addProperty("baby", true);
+      if (Boolean.TRUE.equals(s.data.get("no_ai"))) o.addProperty("no_ai", true);
       if (s.data.containsKey("size")) o.addProperty("size", (Integer)s.data.get("size"));
       o.add("start", starts.get(ms.size())); ms.add(o);
     }
@@ -1282,6 +1284,8 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
     cases.add(run(level, "squid_baby", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 182L, Map.of("baby", true))),
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
+    cases.add(run(level, "squid_baby_no_ai", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 184L, Map.of("baby", true, "no_ai", true))),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 100));
     cases.add(run(level, "squid_flee", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 83L)),
       List.of(new Stand(new Vec3(3.5, 61, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
     cases.add(run(level, "glow_squid_hurt", pool, List.of(new Spawn("minecraft:glow_squid", new Vec3(.5, 60, .5), 0, 84L)),
@@ -1327,6 +1331,8 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
     cases.add(run(level, "dolphin_baby", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 181L, Map.of("baby", true))),
       List.of(new Stand(new Vec3(4.5, 60, .5), "survival:swimming", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
+    cases.add(run(level, "dolphin_baby_no_ai", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 183L, Map.of("baby", true, "no_ai", true, "air", 150))),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 100));
     cases.add(run(level, "dolphin_land", floor(63, 12, stone), List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 64, .5), 0, 113L, Map.of("moistness", 40))),
       List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 120));
     cases.add(run(level, "dolphin_bite", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 114L)),

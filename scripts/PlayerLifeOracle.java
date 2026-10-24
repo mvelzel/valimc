@@ -43,6 +43,7 @@ public class PlayerLifeOracle {
   private static Map<String,Object> packets()throws Exception{
     var result=new LinkedHashMap<String,Object>();
     result.put("level_load_start",new ClientboundGameEventPacket(ClientboundGameEventPacket.LEVEL_CHUNKS_LOAD_START,0));
+    result.put("puffer_sting",new ClientboundGameEventPacket(ClientboundGameEventPacket.PUFFER_FISH_STING,0));
     for(float health:new float[]{0,1,19.5f,20})for(int food:new int[]{0,6,17,18,20})for(float saturation:new float[]{0,.1f,5,20.5f})
       result.put("health_"+(double)health+"_"+food+"_"+(double)saturation,new ClientboundSetHealthPacket(health,food,saturation));
     var positions=Arrays.asList(null,new BlockPos(0,64,0),new BlockPos(-17,-64,42),new BlockPos(29999984,319,-29999984),new BlockPos(1,1000000,-1),new BlockPos(-1,-1000000,1));

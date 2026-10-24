@@ -1734,8 +1734,8 @@ defmodule Valimc.World.RegionData do
 
     case target do
       {:player, uuid} ->
-        send(self(), {:player, uuid, {:hurt, hit}})
-        if actions != [], do: send(self(), {:player, uuid, {:splash, actions, hit}})
+        actions = if type == "minecraft:pufferfish", do: [:puffer_sting | actions], else: actions
+        send(self(), {:player, uuid, {:hurt, Map.put(hit, :taken_actions, actions)}})
         state
 
       {:mob, uuid} ->

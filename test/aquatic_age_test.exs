@@ -39,6 +39,17 @@ defmodule Valimc.AquaticAgeTest do
       assert Animal.settle_ageable(self).data.age == 0
       locked = %{self | data: %{self.data | age_locked: true}}
       assert Animal.settle_ageable(locked).data.age == -1
+
+      if no_ai do
+        live = %{body | mob: %{body.mob | ai: mind}}
+        entity = %{uuid: <<1::128>>, x: 0.0, y: 64.0, z: 0.0}
+
+        {grown, _, _, _} =
+          Valimc.AI.settle({1, %{entity: entity}}, live, {0.0, 64.0, 0.0}, %World{})
+
+        assert grown.data.age == 0
+      end
+
       {_, _, eye} = Body.dimensions(body)
       assert eye == elem(Animal.water_ageable(body.type).baby, 2)
     end

@@ -1053,10 +1053,12 @@ defmodule Valimc.AI do
         else: "minecraft:entity.generic.swim"
       )
 
-  # A living animal without an AI still ages and loses its love
-  # (`AgeableMob.aiStep` runs for a `NoAI` mob: its family's `after_ai`).
+  # Ageing and pufferfish contact still run without goals. The ocean
+  # ageables are not Animal subclasses; their own aiStep runs too.
   defp still({id, e}, %Body{mob: %Mob{ai: mind} = mob} = body, {x, y, z}, world) do
-    if Mob.alive?(mob) and Animal.animal?(body.type) do
+    if Mob.alive?(mob) and
+         (Animal.animal?(body.type) or
+            body.type in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid minecraft:pufferfish)) do
       {width, height, eye} = Body.dimensions(body)
 
       self =
@@ -1084,6 +1086,7 @@ defmodule Valimc.AI do
           },
           :after_ai
         )
+        |> hook(:after_tick)
 
       {%{body | mob: %{self.mob | ai: self.mind}, data: self.data, velocity: self.velocity},
        {x, y, z}, Enum.reverse(self.effects), self.world}

@@ -22,6 +22,9 @@ packets =
         ["level", "load", "start"] ->
           Packets.level_load_start()
 
+        ["puffer", "sting"] ->
+          Packets.puffer_sting()
+
         ["health", health, food, saturation] ->
           Valimc.Player.Packets.health(
             %Health{value: String.to_float(health)},

@@ -527,6 +527,12 @@ defmodule Valimc.Player.Projectiles do
 
   def pearl(state, _position), do: state
 
+  @doc "An admitted contact hit's event precedes its living effects, including a lethal sting."
+  def hit_actions(state, actions, template) do
+    if :puffer_sting in actions, do: send_packets(state, [Packets.puffer_sting()])
+    splash(state, Enum.reject(actions, &(&1 == :puffer_sting)), template)
+  end
+
   @doc """
   The effects a splash potion or an effect cloud gives the player:
   `{:add, id, [rung]}`, `{:heal, amount}` and `{:hurt, type, amount}` (the

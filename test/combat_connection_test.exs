@@ -129,6 +129,97 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "pufferfish post-hit poison and sting follow damage admission, shields and immunity",
+       ctx do
+    save(ctx, -90.0, %Inventory{slots: %{45 => ItemStack.new("shield")}})
+    {client, pid} = TestPlayer.login(ctx)
+    poison = Valimc.Data.EffectTypes.id("poison")
+
+    fish = %{
+      uuid: <<32::128>>,
+      entity_id: 999,
+      player: false,
+      type: "minecraft:pufferfish",
+      mainhand: nil
+    }
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:mob_attack),
+      amount: 3.0,
+      attacker: fish,
+      direct: fish,
+      position: {ctx.pose.x + 2.0, 64.0, ctx.pose.z},
+      taken_actions: [:puffer_sting, {:add, poison, [{120, 0, false, true, true}]}]
+    }
+
+    # A packet barrier from the actual session lets refused-hit assertions
+    # account for every preceding sting without a timed socket poll.
+    drain = fn client ->
+      marker = <<12, 77.0::float-32>>
+
+      Valimc.TestConn.replace(pid, fn s ->
+        Valimc.Protocol.Codec.send_packets(s, [Packets.packet("game_event", marker)])
+        s
+      end)
+
+      Enum.reduce_while(1..5000, {client, 0}, fn _, {client, count} ->
+        {id, body, client} = Client.read(client)
+        name = Valimc.Protocol.Data.name(:play, :clientbound, id)
+
+        cond do
+          name == "game_event" and body == marker -> {:halt, {client, count}}
+          name == "game_event" and body == <<9, 0.0::float-32>> -> {:cont, {client, count + 1}}
+          true -> {:cont, {Client.auto_reply(client, :play, name, body), count}}
+        end
+      end)
+    end
+
+    send(pid, {:hurt, hit})
+    {client, 1} = drain.(client)
+    assert TestPlayer.living(pid).health.value == 17.0
+    assert Map.has_key?(TestPlayer.living(pid).effects, poison)
+
+    # The same hit in the hurt window cannot restore poison after removal.
+    Valimc.TestConn.replace(pid, &put_in(&1.player.living.effects, %{}))
+    send(pid, {:hurt, hit})
+    {client, 0} = drain.(client)
+    assert TestPlayer.living(pid).effects == %{}
+    assert TestPlayer.living(pid).health.value == 17.0
+
+    Client.send_packet(client, :play, "use_item", [
+      Wire.varint(1),
+      Wire.varint(1),
+      <<-90.0::float-32, 0.0::float-32>>
+    ])
+
+    Valimc.TestWait.until(fn -> match?(%{blocking: true}, TestPlayer.state(pid).active_use) end)
+    TestPlayer.ticks(pid, 6)
+    Valimc.TestConn.replace(pid, &put_in(&1.player.living.health.cooldown, 0))
+    send(pid, {:hurt, hit})
+    {client, 0} = drain.(client)
+    assert TestPlayer.state(pid).inventory.slots[45].components["minecraft:damage"] == 4
+    assert TestPlayer.living(pid).health.value == 17.0
+    assert TestPlayer.living(pid).effects == %{}
+
+    Valimc.TestConn.replace(pid, fn s ->
+      s = put_in(s.player.abilities.invulnerable, true)
+      %{s | active_use: nil}
+    end)
+
+    send(pid, {:hurt, hit})
+    {client, 0} = drain.(client)
+    assert TestPlayer.living(pid).effects == %{}
+
+    Valimc.TestConn.replace(pid, fn s ->
+      s = put_in(s.player.abilities.invulnerable, false)
+      put_in(s.player.living.health, %{s.player.living.health | value: 0.5, cooldown: 0})
+    end)
+
+    send(pid, {:hurt, hit})
+    {_client, 1} = drain.(client)
+    assert TestPlayer.state(pid).life_stage == :dead
+  end
+
   test "a zombie's hits go through armor and knock the player back; a raised shield blocks them",
        ctx do
     inventory = %Inventory{

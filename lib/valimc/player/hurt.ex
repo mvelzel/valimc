@@ -211,6 +211,11 @@ defmodule Valimc.Player.Hurt do
           end
 
         state =
+          if result in [:hurt, :dead] and not fully,
+            do: Valimc.Player.Projectiles.hit_actions(state, hit[:taken_actions] || [], hit),
+            else: state
+
+        state =
           if result in [:hurt, :dead] and match?(%{player: false}, attacker),
             do: put_in(state.player.living.last_mob_hurt, Valimc.World.GameTick.current()),
             else: state

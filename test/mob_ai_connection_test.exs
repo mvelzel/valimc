@@ -207,6 +207,29 @@ defmodule Valimc.MobAiConnectionTest do
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
   end
 
+  test "a live pufferfish contact cannot reapply poison during a refused repeat", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    poison = Valimc.Data.EffectTypes.id("poison")
+    {:ok, body} = Body.new("minecraft:pufferfish")
+
+    body = %{
+      body
+      | no_gravity: true,
+        data: %{body.data | puff: 2},
+        mob: %{body.mob | no_ai: true}
+    }
+
+    owner = summon_body(ctx, body, <<31::128>>, 1.0)
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 17.0 end)
+    assert Map.has_key?(TestPlayer.living(pid).effects, poison)
+    Valimc.TestConn.replace(pid, &put_in(&1.player.living.effects, %{}))
+    before = Valimc.TestRegion.section(owner).game_tick
+    Valimc.TestWait.until(fn -> Valimc.TestRegion.section(owner).game_tick >= before + 3 end)
+    assert TestPlayer.living(pid).health.value == 17.0
+    assert TestPlayer.living(pid).effects == %{}
+  end
+
   test "a magma cube hurts the player it touches and splits when it dies", ctx do
     save(ctx, %Inventory{})
     {_client, pid} = TestPlayer.login(ctx)

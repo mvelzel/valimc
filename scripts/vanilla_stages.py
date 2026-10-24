@@ -1131,6 +1131,10 @@ STAGES = [
         ('java', 'TurtleEggPlaceOracle', '@turtle-egg-place.json'),
         ('check', 'check_turtle_egg_place.exs', '@turtle-egg-place.json'),
     ]),
+    ('puffer_touch', [
+        ('java', 'PufferTouchOracle', '@puffer-touch.json'),
+        ('check', 'check_puffer_touch.exs', '@puffer-touch.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

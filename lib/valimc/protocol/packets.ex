@@ -77,6 +77,7 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def level_load_start, do: packet("game_event", <<13, 0.0::float-32>>)
+  def puffer_sting, do: packet("game_event", <<9, 0.0::float-32>>)
 
   def remove_effect(entity_id, effect_id) do
     life_entity_id!(entity_id)

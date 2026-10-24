@@ -199,6 +199,8 @@ end
 # A mob as the oracle set it up (VMC-043d): a weapon in hand, a baby (with
 # its speed modifier, as `setBaby` adds it).
 setup = fn body, m ->
+  body = if m["no_ai"] == true, do: %{body | mob: %{body.mob | no_ai: true}}, else: body
+
   body =
     case m["mainhand"] do
       nil ->
