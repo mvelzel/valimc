@@ -247,5 +247,12 @@ cows across a boundary to one knot, keeps the rope through an AI tick,
 checks a shared log frame, returns both cows to the player and snips them,
 with exactly one lead in each section. All 21 animal, animal socket and
 group checks pass in `.local/m3-leash-tests.log`. All seven selected vanilla
-stages pass in `.local/m3-leash-vanilla.log`. The graphical boundary
-retry remains pending; this does not close the animal family.
+stages pass in `.local/m3-leash-vanilla.log`. Run-06 then passed the actual
+boundary retry: clicking the original positive-Z fence tied a cow on the
+negative-Z side, and clicking its knot retrieved the lead. Walking out of
+reach broke it and the player collected the dropped lead; shears snipped a
+sheep's rope, left its wool intact and wore the tool. These boundary/break/
+snip fixtures used NoAI animals; active following was checked in run-05.
+Private evidence is under `.local/client-tests/M3-run-04/`, including the
+run-06 results and patch/hash records. Regrowth, egg laying, rabbits and
+other untested animal scenarios still keep this family open.

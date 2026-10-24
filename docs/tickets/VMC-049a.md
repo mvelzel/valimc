@@ -1,6 +1,6 @@
 # VMC-049a — Hoppers, droppers and dispensers
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-047a](VMC-047a.md), [VMC-037o](VMC-037o.md) (dispensers
 shoot projectiles), [VMC-032](VMC-032a.md) (containers).
@@ -18,8 +18,8 @@ Item machines, as vanilla's `HopperBlockEntity`, `DispenserBlock` and
 - **Menus:** each block's menu.
 
 Transfers are ordered and atomic in the group's commit and never duplicate
-items. A transfer between containers in different groups uses the
-cross-owner primitive.
+items. Transfers reach sibling sections of the same owning group; an
+unloaded target outside that group is unavailable.
 
 Acceptance:
 
@@ -58,6 +58,8 @@ Acceptance:
   move sets 8, and an empty hopper that receives waits 8, or 7 when it
   already ticked (`tickedGameTime`, kept by the owner in memory).
   Comparators read hoppers, droppers and dispensers (`entry_signal`).
+  Double chests expose both physical halves through the shared logical
+  container view ([VMC-032b](VMC-032b.md)).
 - **Droppers and dispensers** (`Blocks.Dispensing` from DispenserOracle's
   facts, `RegionData.dispense/2`): a random filled slot
   (`getRandomSlot`), else event 1001. A dropper puts one item into the
@@ -130,8 +132,7 @@ cooldown and order.
   charges: they keep their item and fail (event 1001). Equipment does not go
   on players, horses, wolves or armor stands yet: it drops.
 - Hopper minecarts and other entity containers; composters and
-  other `WorldlyContainerHolder` blocks; double chests (ValiMC refuses
-  them, VMC-032b).
+  other `WorldlyContainerHolder` blocks.
 - `entityInside` runs on an item's final box after its move, not along its
   path. A section's hoppers tick in creation order within the section; a
   group's sections run one after another.
@@ -159,8 +160,8 @@ container, chest, cooking, menu, anvil, placement and piston tests;
 
 ## Handoff (October 2026)
 
-- Done and verified: everything under "What is live", with the checks
-  above, rebased onto main and pushed. Status stays Awaiting client.
+- The implementation under "What is live" and its checks were rebased
+  onto main and pushed; the graphical gate remained pending at handoff.
 - Not run (stopped when usage ran out): `mix test.fast` and the full
   `check_vanilla.py --changed` set (118 stages, mostly NIF-dependent).
   Run both before the M3 milestone gate.
@@ -169,3 +170,19 @@ container, chest, cooking, menu, anvil, placement and piston tests;
 - Gotchas: `placement_region_test.exs` can fail under load with
   `:invalid_or_expired_placement` (passes alone). A container block set
   without a plan now gets its entry at once (chests and furnaces too).
+
+## Client gate (October 24, 2026)
+
+The dedicated tester passed the hopper-fed furnace scenario in M3 run 4:
+actual GUI actions put four raw iron in the input chest and two coal in the
+side chest. The hoppers drained them, the furnace lit and its menu showed
+input, fuel and cooking; the output chest received four iron ingots. The
+hopper menu itself was not opened in this run; its routes remain covered by
+the owner/menu checks. Evidence: `.local/client-tests/M3-run-04/report.md`
+and the run-02 results. The handoff's missing initial fast and changed checks
+were completed before the batch (536 fast checks and 103 selected stages).
+VMC-032b also passed its 539-check fast suite and the affected machine stages;
+the listed deferred dispense behaviours remain outside this checkpoint.
+
+Parent closure: the fresh fast suite passes 541 checks (9 properties, 532
+tests), with 215 socket/slow checks excluded; `.local/m3-client-gates-fast.log`.

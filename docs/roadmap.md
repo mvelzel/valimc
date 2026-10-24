@@ -53,6 +53,8 @@ Current order:
 2. Validate double chests (032b) with the next finale client batch.
 3. Finale: the Ender Dragon fight (045a), then the M3 gate (078).
 
+Done: [039c](tickets/VMC-039c.md), [049a](tickets/VMC-049a.md).
+
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
 ## Paused
@@ -66,13 +68,11 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | [VMC-032b](tickets/VMC-032b.md) | Join, use and split a large chest across a section line; contents survive reconnect; hoppers and comparators read both halves |
 | [VMC-045a1](tickets/VMC-045a1.md) | Place and strike a crystal; shoot a spike crystal; both explode |
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
-| [VMC-039c](tickets/VMC-039c.md) | Bone meal grows bamboo, glow lichen, a big dripleaf and a huge fungus, turns netherrack to nylium; shears carve a pumpkin and empty a hive |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |
 | [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Drowned swim, throw tridents and come ashore; zombies stamp out turtle eggs; witches throw and drink potions, slimes split, silverfish swarm, phantoms swoop; endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-043d](tickets/VMC-043d.md) | A fortress run: blazes volley and drop rods; zombified piglins turn as a group; a piglin barters gold and attacks without gold; a ghast's fireball hit back kills it; hoglins charge and shun warped fungus; magma cubes hop and split; striders walk on lava |
 | [VMC-048b](tickets/VMC-048b.md) | A sticky piston door from a button; a player rides a block pushed up and honey pushed sideways |
-| [VMC-049a](tickets/VMC-049a.md) | Hoppers feed a furnace from a chest above and coal from a side; a hopper below takes the ingots |
-| [VMC-043c](tickets/VMC-043c.md) | Cows breed, sheep shear, dye and regrow, milk and stew, eggs, rabbits hop; a lead follows, pulls, ties to a fence knot and breaks |
+| [VMC-043c](tickets/VMC-043c.md) | Sheep regrow wool, chickens lay eggs and rabbits hop |
 | [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md), [a4](tickets/VMC-044a4.md) | Villagers take job sites' trades, meet at the bell, sleep in beds and flee zombies; a golem kills a zombie hunting one; cats shy from players, creep up to fish, pounce on rabbits; a trader drinks invisibility at dusk |
 
 ## Retrieve and update

@@ -1,6 +1,6 @@
 # VMC-039c — Bamboo, cave and Nether growth; shears on hives and pumpkins
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-039b](VMC-039b.md).
 
@@ -86,7 +86,7 @@ valimc_core`; `test/growth_test.exs`: shears carve a pumpkin toward the
 click and drop its seeds, and a fungus grows its huge fungus through the
 owner, with the other affected owner and placement suites (54 tests).
 
-Client (pending, for the milestone's batched run): bone meal on a bamboo
+Client (M3 run 4, October 24): bone meal on a bamboo
 sapling and stalk grows bamboo; on glow lichen it spreads; on a small
 dripleaf a big one grows; on a crimson fungus over crimson nylium a huge
 fungus grows; on netherrack beside nylium it turns to nylium; shears on a
@@ -102,5 +102,14 @@ updates, while still refusing unsupported new block entities or changes
 that would discard preserved data. Shearing also checks the block actually
 changed before granting the harvest. The existing growth owner scenario now
 imports a hive, empties it once, checks exactly three honeycomb and refuses
-a second harvest while retaining its NBT. Graphical retry is pending;
-evidence is `.local/client-tests/M3-run-04/hive-not-emptying.png`.
+a second harvest while retaining its NBT. The dedicated tester's run-05
+retry passed: actual shears use emptied the hive, wore the tool and dropped
+exactly three honeycomb; a second use produced no extra harvest. All listed
+plant, fungus, nylium and pumpkin interactions passed earlier in the same
+batch. The hive used an imported preserved block entity; natural bee filling
+is outside this growth gate. Evidence is in
+`.local/client-tests/M3-run-04/report.md` and `run-05-results.md`; the original
+failure is `hive-not-emptying.png`.
+
+Parent closure: the fresh fast suite passes 541 checks (9 properties, 532
+tests), with 215 socket/slow checks excluded; `.local/m3-client-gates-fast.log`.
