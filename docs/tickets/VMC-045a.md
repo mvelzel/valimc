@@ -108,5 +108,13 @@ immediate actual strike explodes the participants and reopens it. The
 post-action arena remains defeated, with no ritual stage, participants or
 new dragon. `abort-ritual-start.png`, `abort-immediate-strike.png` and
 `abort-after.txt` retain the graphical actions and state; no stage/counter
-edit establishes the result. Mid-ritual restart and the fresh-world
-VMC-078 route remain pending.
+edit establishes the result.
+
+A clean owned server restart then retains the next ritual at pillar time
+206 with the same four participant UUIDs. A fresh helper join resumes
+summoning and completion admits one fresh full-health dragon, clears the
+ritual, restores ten ordinary spike crystals and retains eighteen gateway
+choices. [VMC-045a8](VMC-045a8.md) records the state/evidence and graphical
+limits: ritual beams and protected-crystal rejection still need observation.
+Those checks and the ordinary full-health survival fight remain in the
+fresh-world VMC-078 route.

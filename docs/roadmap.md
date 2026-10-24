@@ -49,12 +49,12 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Finish the pending client gates in one batched run; resolve integration failures.
-2. Complete the dragon fight (045a), including its respawn and restart gates.
-3. Finish the fresh-world M3 gate (078).
+1. Run the fresh-world M3 route (078), including the ordinary dragon fight (045a).
+2. Finish outstanding family and ritual observations in the same batch; resolve findings.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
-[037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md).
+[037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
+[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -66,12 +66,12 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-045a](tickets/VMC-045a.md) | Kill the dragon and exit; respawn it with four crystals; rewards survive reconnect |
-| [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |
-| [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Drowned swim, throw tridents and come ashore; zombies stamp out turtle eggs; witches throw and drink potions, slimes split, silverfish swarm, phantoms swoop; endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
-| [VMC-043d](tickets/VMC-043d.md) | A fortress run: blazes volley and drop rods; zombified piglins turn as a group; a piglin barters gold and attacks without gold; a ghast's fireball hit back kills it; hoglins charge and shun warped fungus; magma cubes hop and split; striders walk on lava |
+| [VMC-045a](tickets/VMC-045a.md) | Ordinary survival fight, exit/reconnect and ritual beam/protection observations in the M3 route |
+| [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | Shulker range closure, survival hurt-teleport and shell; pearl-spawned endermite; fish flee/puff/flop and squid ink; elder ghost; bat wake/no-push; dolphin leap, feed, retaliation and land; turtles lay eggs and eggs break underfoot; axolotls hunt, play dead and return to water |
+| [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Baby zombies, husk Hunger/conversion and equipment pickup; drowned tridents/day return and zombie egg-stomping; stray/bogged effects and skeleton shade; creeper ignition and spider leap/climb; enderman pumpkin/projectile teleport/block handling; witch drinking, silverfish alarm, ordinary slime combat and open-sky/dawn phantoms |
+| [VMC-043d](tickets/VMC-043d.md) | Generated fortress blazes volley and drop rods; zombified piglins attack together; piglins attack without gold; return a ghast fireball; hoglin charge, ordinary magma-cube combat and wither skeletons |
 | [VMC-043c](tickets/VMC-043c.md) | Rabbits fleeing players and generated animals grazing/wandering; regrowth, laying, hopping and core interactions passed |
-| [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md), [a4](tickets/VMC-044a4.md) | Villagers take job sites' trades, meet at the bell, sleep in beds and flee zombies; a golem kills a zombie hunting one; cats shy from players, creep up to fish, pounce on rabbits; a trader drinks invisibility at dusk |
+| [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md), [a4](tickets/VMC-044a4.md) | Generated village gathering and zombie panic; golem defense/kill; cat rabbit predation; trader avoidance and drinking animation |
 
 ## Retrieve and update
 
