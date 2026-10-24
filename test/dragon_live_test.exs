@@ -26,6 +26,11 @@ defmodule Valimc.DragonLiveTest do
       # This serial suite owns the End; stop generation and final writes
       # before deleting its world, including a socket's extra view chunks.
       Valimc.TestScope.stop_dimensions()
+
+      # Normal view unloads detach their checkpoint after locking its path;
+      # those writers can outlive the last registered region owner.
+      Valimc.TestScope.await_checkpoints(base)
+
       File.rm_rf!(base)
     end)
 

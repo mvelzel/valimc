@@ -11,7 +11,7 @@ defmodule Valimc.PlayerHandoffConnectionTest do
   alias Valimc.World.Region
 
   setup do
-    ctx = TestPlayer.scope("Hand", {46_000, 760})
+    ctx = TestPlayer.scope("Hand", {46_000, 760}, cleanup_radius: 3)
     # The test, not the regionizer, decides which group holds which section.
     TestScope.isolate(TestScope.neighborhood(ctx.key, 3), regionizer: false)
     TestPlayer.save(ctx, ctx.pose, Valimc.Menus.Inventory.new())

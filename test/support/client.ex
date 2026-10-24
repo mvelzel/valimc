@@ -797,12 +797,24 @@ defmodule Valimc.TestScope do
   def stop_neighbourhood(key, opts \\ []) do
     # Serial socket tests also stop the regions around the world spawn, which a
     # respawn or a spawn-point join loads with the test's world path.
-    regions =
-      if opts[:spawn], do: neighborhood(key) ++ neighborhood({0, 0}), else: neighborhood(key)
+    regions = neighborhood(key, Keyword.get(opts, :radius, 1))
+    regions = if opts[:spawn], do: regions ++ neighborhood({0, 0}), else: regions
 
     for region <- Enum.uniq(regions),
         {pid, _} <- Valimc.TestWorld.registered(region),
         do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+
+    :ok
+  end
+
+  @doc "Wait for a stopped test world's detached unload checkpoints before removing its files."
+  def await_checkpoints(base) do
+    Valimc.TestWait.until(fn ->
+      Registry.select(Valimc.StorageRegistry, [
+        {{{:checkpoint, :"$1"}, :_, :_}, [], [:"$1"]}
+      ])
+      |> Enum.all?(&(not String.starts_with?(&1, base <> "/")))
+    end)
 
     :ok
   end
@@ -956,8 +968,13 @@ defmodule Valimc.TestPlayer do
         :ok = Clock.configure({:natural_regeneration, regeneration})
       end
 
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_neighbourhood(key,
+        spawn: true,
+        radius: Keyword.get(opts, :cleanup_radius, 1)
+      )
+
       Valimc.TestScope.stop_players(base)
+      Valimc.TestScope.await_checkpoints(base)
       File.rm_rf!(base)
     end)
 

@@ -1,6 +1,6 @@
 # VMC-078b — Isolate native artifacts between build profiles
 
-Status: In progress
+Status: Done
 Milestone: M3
 Parent gate: [VMC-078](VMC-078.md), at its final validation/build boundary.
 
@@ -75,3 +75,13 @@ Logs: `.local/dragon-motion-build-fast.log`,
 `.local/dragon-motion-build-vanilla.log` and
 `.local/finale-motion-frozen-release.log`. The full M3 suite and the
 remaining client gates still precede milestone completion.
+
+The final full suite passes all 778 checks (nine properties and 769 tests)
+in 110.8 seconds: `.local/m3-full-suite-fixture-boundaries.log`. Earlier
+runs exposed obsolete chest placement, incomplete villager terrain and an
+unconstrained portal-return fixture; [VMC-078c](VMC-078c.md) retains their
+corrections and the remaining checkpoint diagnostics. None changes the
+native implementation or the immutable release. Fresh run-04 of that release
+passes rendered movement/stats and sustained ordinary dragon flight, with
+successful actual projectile damage. This closes the build-isolation slice;
+the gameplay and temporary-world cleanup gates remain with VMC-078.

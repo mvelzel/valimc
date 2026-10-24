@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037o1 Group projectile hits](../tickets/VMC-037o1.md) | Actual bow hit on a naturally computed dragon part across X=0; disclosed freeze/slow-tick aiming, normal collision and restored rate; M3 finale run 04 |
+| [VMC-078b Native build isolation](../tickets/VMC-078b.md) | Physical per-build assets, overlapping production/parity builds and stable oracle NIF; all vanilla stages, full suite and immutable production-client baseline |
 | [VMC-039b Remaining farm growth](../tickets/VMC-039b.md) | Actual grass/flower/berry/cocoa/kelp bone meal, berry picking, accelerated grass spread/death and verified river-water seagrass; M3 client batches, October 24 |
 | [VMC-032b Double chests](../tickets/VMC-032b.md) | Cross-section placement, menus, collect/shift, both-half split, hoppers/comparators and reconnect/restart; refresh retry repaired and rechecked in the M3 finale batch |
 | [VMC-045a1 End crystals](../tickets/VMC-045a1.md) | Survival placement and occupied-base refusal, actual melee and native-spike bow explosions; M3 finale client batch, October 24 |

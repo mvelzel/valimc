@@ -130,3 +130,11 @@ survivor images. The full fixture limits and original failures remain in
 `chest-opposite-break.png` and `chest-opposite-survivor.png`.
 The final parent fast suite passes 561 checks with the later shared dragon
 repair, in `.local/dragon-motion-build-fast.log`.
+
+The milestone's full suite exposed one obsolete socket expectation: adjacent
+same-facing chest placement was still expected to be refused. That existing
+test now checks joined states, consumption, the six-row view and both physical
+entries through a fresh login. The chest-view suite also stops all neighboring
+owners before deleting its dataset; its former bare registry key matched no
+dimension-qualified owner. The twenty affected socket/live-owner checks pass
+without checkpoint errors in `.local/m3-final-socket-fixtures.log`.

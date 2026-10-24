@@ -26,20 +26,29 @@ defmodule Valimc.VillagerRegionTest do
 
     File.mkdir_p!(base)
     Valimc.TestDisk.write(base, key, :items, %{records: []})
-    {:ok, owner} = Valimc.TestWorld.item_owner(key)
     {rx, rz} = key
-    {x0, z0} = {rx * 128 + 8, rz * 128 + 8}
+    {x0, z0} = {rx * 128 + 64, rz * 128 + 64}
     stone = Blocks.default_state("stone")
 
-    for x <- (x0 - 6)..(x0 + 6),
-        z <- (z0 - 6)..(z0 + 6),
-        do: Valimc.TestBlocks.set({x, 63, z}, stone)
+    # Load the surrounding chunks too: an ordinary stroll must not reach
+    # an unreadable chunk edge and park its entire mob tick before bedtime.
+    floor =
+      for x <- (x0 - 16)..(x0 + 16),
+          z <- (z0 - 16)..(z0 + 16),
+          into: %{},
+          do: {{x, 63, z}, stone}
 
     head = Blocks.state("red_bed", %{"facing" => "east", "part" => "head", "occupied" => "false"})
     foot = Blocks.state("red_bed", %{"facing" => "east", "part" => "foot", "occupied" => "false"})
-    Valimc.TestBlocks.set({x0 + 3, 64, z0}, head)
-    Valimc.TestBlocks.set({x0 + 2, 64, z0}, foot)
-    Valimc.TestBlocks.set({x0 - 1, 64, z0}, Blocks.default_state("lectern"))
+
+    cells =
+      floor
+      |> Map.put({x0 + 3, 64, z0}, head)
+      |> Map.put({x0 + 2, 64, z0}, foot)
+      |> Map.put({x0 - 1, 64, z0}, Blocks.default_state("lectern"))
+
+    Valimc.TestDisk.write(base, key, :blocks, cells)
+    {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
     on_exit(fn ->
       :ok = Clock.configure({"minecraft:overworld", :ticks, day})

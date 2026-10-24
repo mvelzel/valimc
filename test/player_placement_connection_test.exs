@@ -116,18 +116,26 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestBlocks.get(wet) == wet_state
     assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
-    # Beside it on its clockwise side and facing the same way, vanilla would
-    # join a double chest, which is refused before spending a source sequence.
-    :ok = Valimc.TestBlocks.set({x, y, z + 1}, 0)
-    send_place(client, {x, y, z + 1}, 1, 0.5, 0, 3)
+    # The same facing on its clockwise side joins and spends the last chest.
+    partner = {x, y, z + 1}
+    :ok = Valimc.TestBlocks.set(partner, 0)
+    send_place(client, partner, 1, 0.5, 0, 3)
     client = ack(client, 3)
-    assert Valimc.TestBlocks.get({x, y, z + 1}) == 0
-    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
+
+    assert Valimc.Blocks.Chest.connected_position(Valimc.TestBlocks.get(c.target), c.target) ==
+             partner
+
+    assert Valimc.Blocks.Chest.connected_position(Valimc.TestBlocks.get(partner), partner) ==
+             c.target
+
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
 
     send_place(client, c.target, 1, 0.5, 0, 4)
     client = ack(client, 4)
     {_body, client} = Client.await(client, :play, "open_screen")
     assert Valimc.TestConn.state(pid).table_menu.position == c.target
+    assert Valimc.TestConn.state(pid).table_menu.view.rows == 6
+    assert tuple_size(Valimc.TestConn.state(pid).table_menu.view.slots) == 54
     Client.close(client)
 
     wait(fn ->
@@ -135,12 +143,13 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end)
 
     {_fresh, fresh_pid} = login(c)
-    assert Valimc.TestConn.state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
+    assert Valimc.TestConn.state(fresh_pid).inventory.slots[36] == nil
     assert Valimc.TestConn.state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
     {:ok, owner} = Valimc.TestWorld.existing_owner(c.key)
     containers = Valimc.TestRegion.section(owner).containers
-    assert containers.sequence == 2
+    assert containers.sequence == 3
     assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
+    assert containers.entries[partner].slots == Tuple.duplicate(nil, 27)
     assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
     assert Valimc.TestWorld.item_snapshot(c.key) == %{}
   end

@@ -33,6 +33,7 @@ defmodule Valimc.PortalConnectionTest do
       # (the credits' respawn lands there, and its owners may still be loading).
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
       Valimc.TestScope.stop_dimensions()
+      Valimc.TestScope.await_checkpoints(base)
       Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
@@ -162,6 +163,22 @@ defmodule Valimc.PortalConnectionTest do
     assert state(pid).inventory.slots[36] == ItemStack.new("flint_and_steel", 1)
     # The Nether's regions around the scaled position start loading before anyone steps in.
     wait(fn -> warmed?(:nether_portal, bottom) end)
+
+    # This checks reuse of the original portal on return. Give creation a
+    # nearby valid site: arbitrary Nether terrain can displace a new portal
+    # far enough that its scaled return lies outside the original's search.
+    Dimension.within(:the_nether, fn ->
+      {tx, tz} = {floor((x + 1.0) / 8), floor((z + 0.5) / 8)}
+
+      for(
+        px <- (tx - 2)..(tx + 2),
+        pz <- (tz - 2)..(tz + 2),
+        py <- (y - 1)..(y + 4),
+        do: {{px, py, pz}, if(py == y - 1, do: PortalBlocks.obsidian(), else: 0)}
+      )
+      |> Enum.chunk_every(128)
+      |> Enum.each(&set(Map.new(&1)))
+    end)
 
     # A creative player travels at once; the Nether has no portal yet, so one is made.
     client = move(client, pid, {x + 1.0, y * 1.0, z + 0.5})

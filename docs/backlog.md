@@ -51,6 +51,7 @@ parallel. In every slice:
 | [VMC-026d](tickets/VMC-026d.md) | Eyes of ender; mobs and orbs through portals | Eyes lead to vanilla's stronghold; mobs and orbs cross portals with their state |
 | [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals ([045a1](tickets/VMC-045a1.md)), the exit portal, gateways and the respawn ritual |
 | [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |
+| [VMC-078c](tickets/VMC-078c.md) | Milestone fixture boundaries and teardown | Readable mob scenes, controlled portal reuse and no writers outliving removed test worlds |
 
 Out of M3: enchanting, anvils and brewing,
 villager trading, POIs and raids, vehicles and riding (VMC-046), maps, books
