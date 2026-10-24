@@ -19,6 +19,9 @@ defmodule Valimc.Entity.Animal do
   animal's goals keep drawing what vanilla's would.
   """
   use Valimc.Data.Facts, "registry/animal_facts.json"
+  <<group_baby_chance::float-32>> = <<@facts["spawn_group_baby_chance"]::signed-32>>
+  @group_baby_chance group_baby_chance
+  def group_baby_chance, do: @group_baby_chance
 
   alias Valimc.AI.Self
   alias Valimc.Entity.Body

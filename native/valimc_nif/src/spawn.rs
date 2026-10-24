@@ -151,10 +151,12 @@ impl SpawnerBlock {
 /// A spawner's tick: its position, its countdown after it and its spawns.
 type SpawnerOut = ((i32, i32, i32), i32, Vec<Out>);
 
-type Out = (u16, f64, f64, f64, f32, bool);
+type Out = (u16, f64, f64, f64, f32, bool, Option<usize>);
 
 fn out(s: &Spawned) -> Out {
-    (s.kind, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.school)
+    (
+        s.kind, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.school, s.pack,
+    )
 }
 
 fn world<'a>(

@@ -31,6 +31,24 @@ end
 
 show = fn {id, x, y, z, yaw, school} -> {name.(id), x, y, z, yaw, school} end
 
+unpack = fn got, want ->
+  unless length(got) == length(want), do: raise("spawn count differs from native")
+
+  Enum.zip(got, want)
+  |> Enum.with_index()
+  |> Enum.map(fn {{row, native}, i} ->
+    pack = elem(row, 6)
+
+    unless is_integer(pack) and pack >= 0 and pack <= i,
+      do: raise("invalid spawn pack #{inspect(row)}")
+
+    if Enum.at(native, 6) >= 0 and pack != Enum.at(native, 6),
+      do: raise("native school leader #{inspect(native)} != #{inspect(row)}")
+
+    row |> Tuple.to_list() |> Enum.take(6) |> List.to_tuple()
+  end)
+end
+
 {ticks, spawns, generated} =
   for c <- cases, c["kind"] in ["tick", "generation"], reduce: {0, 0, 0} do
     {ticks, spawns, generated} ->
@@ -41,7 +59,8 @@ show = fn {id, x, y, z, yaw, school} -> {name.(id), x, y, z, yaw, school} end
       case c["kind"] do
         "generation" ->
           [{got, _}] = runs
-          want = Enum.map(c["spawns"], expect)
+          got = unpack.(got, c["spawns"])
+          want = Enum.map(c["spawns"], &expect.(Enum.take(&1, 6)))
 
           if got != want,
             do:
@@ -57,7 +76,8 @@ show = fn {id, x, y, z, yaw, school} -> {name.(id), x, y, z, yaw, school} end
           |> Enum.reduce({ticks, spawns, generated}, fn {{[start, after_, want], {got, random}},
                                                          i},
                                                         {t, s, g} ->
-            want = Enum.map(want, expect)
+            got = unpack.(got, want)
+            want = Enum.map(want, &expect.(Enum.take(&1, 6)))
 
             if got != want or random != after_,
               do:
@@ -99,6 +119,14 @@ end
       Enum.zip(c["runs"], runs)
       |> Enum.with_index()
       |> Enum.reduce({ticks, spawns}, fn {{[start, after_, want], {got, random}}, i}, {t, s} ->
+        got =
+          for {delay, list} <- got do
+            {delay,
+             Enum.map(list, fn {kind, x, y, z, yaw, school, nil} ->
+               {kind, x, y, z, yaw, school}
+             end)}
+          end
+
         want = for [delay, list] <- want, do: {delay, Enum.map(list, &expect.(Enum.take(&1, 6)))}
 
         case Enum.find_index(Enum.zip(got, want), fn {a, b} -> a != b end) do

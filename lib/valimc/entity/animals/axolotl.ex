@@ -15,6 +15,7 @@ defmodule Valimc.Entity.Animals.Axolotl do
 
   @type_name "minecraft:axolotl"
   @commons [0, 1, 2, 3]
+  def common_variants, do: @commons
   @blue 4
   @controls %{max_x: 85.0, max_y: 10.0, in_water: 0.1, out: 0.5, gravity: false}
 

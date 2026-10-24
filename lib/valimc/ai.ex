@@ -97,6 +97,45 @@ defmodule Valimc.AI do
   defp exports?(module, name, arity),
     do: Code.ensure_loaded?(module) and function_exported?(module, name, arity)
 
+  @doc """
+  Finalize ordered aquatic pack members inside one owner admission callback.
+  Entries are `{section, pack, school_decision, record}`; worlds retain each
+  section's level random. School effects use the same changes as ordinary AI,
+  before the resulting live bodies are published. No pack state survives this call.
+  """
+  def spawn_groups(entries, worlds) do
+    {bodies, worlds, _packs} =
+      Enum.reduce(entries, {%{}, worlds, %{}}, fn {key, pack, school, record},
+                                                  {bodies, worlds, packs} ->
+        world = Map.fetch!(worlds, key)
+
+        body =
+          Map.get_lazy(record, :spawn_body, fn ->
+            {:ok, body} = Body.restore(record)
+            body
+          end)
+
+        entry = ensure(%{body: body, entity: Map.take(record, [:uuid, :x, :y, :z])}, world)
+
+        {self, group} =
+          Valimc.AI.SpawnGroup.finalize(self_of(0, entry, world), packs[pack], school)
+
+        bodies = Map.put(bodies, record.uuid, settled(entry.body, self))
+
+        bodies =
+          Enum.reduce(Enum.reverse(self.effects), bodies, fn effect, acc ->
+            case other_change(effect, self.world) do
+              {uuid, change, _} when is_map_key(acc, uuid) -> Map.update!(acc, uuid, change)
+              _ -> acc
+            end
+          end)
+
+        {bodies, Map.put(worlds, key, self.world), Map.put(packs, pack, group)}
+      end)
+
+    {bodies, worlds}
+  end
+
   defp baby?(%{age: age}), do: age < 0
   defp baby?(_data), do: false
 

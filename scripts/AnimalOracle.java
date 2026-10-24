@@ -74,6 +74,8 @@ public class AnimalOracle {
   static JsonObject facts(HolderLookup.Provider lookup, MobAiOracle.Probe level) throws Exception {
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
+    out.addProperty("spawn_group_baby_chance", Float.floatToRawIntBits(
+        new net.minecraft.world.entity.AgeableMob.AgeableMobGroupData(true).getBabySpawnChance()));
     var used = new TreeSet<String>(SOUNDS);
     var animals = new JsonObject();
     for (var name : java.util.stream.Stream.concat(ANIMALS.stream(), NETHER_ANIMALS.stream()).toList()) {

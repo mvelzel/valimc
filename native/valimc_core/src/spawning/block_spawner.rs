@@ -130,6 +130,7 @@ pub fn tick(
             pos: [x, y, z],
             yaw,
             school: true,
+            pack: None,
         });
         spawned = true;
     }

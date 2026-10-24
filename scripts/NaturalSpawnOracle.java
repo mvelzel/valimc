@@ -640,6 +640,17 @@ public class NaturalSpawnOracle {
     return a;
   }
 
+  // Native school leaders identify a pack's first successful spawn without
+  // reproducing NaturalSpawner's attempt loop in this oracle.
+  static JsonArray packRecord(Entity e, List<Entity> spawned) throws Exception {
+    var row = record(e);
+    if (e instanceof AbstractSchoolingFish fish) {
+      var leader = (Entity) field(AbstractSchoolingFish.class, "leader").get(fish);
+      row.add(spawned.indexOf(leader == null ? fish : leader));
+    } else row.add(-1);
+    return row;
+  }
+
   // ---------------------------------------------------------------- spawn fixtures
 
   /** A cap calculator that admits every category: caps are ValiMC's own tests. */
@@ -664,7 +675,7 @@ public class NaturalSpawnOracle {
       var categories = NaturalSpawner.getFilteredSpawningCategories(state, scene.difficulty != 0, persistent);
       NaturalSpawner.spawnForChunk(level, level.chunk(cx, cz), state, categories);
       var spawns = new JsonArray();
-      for (var e : level.spawned) spawns.add(record(e));
+      for (var e : level.spawned) spawns.add(packRecord(e, level.spawned));
       total += level.spawned.size();
       var cats = new JsonArray(); for (var c : categories) cats.add(c.getSerializedName());
       if (seed == 1) first = cats;
@@ -687,7 +698,7 @@ public class NaturalSpawnOracle {
     random.setDecorationSeed(scene.seed, cx * 16, cz * 16);
     NaturalSpawner.spawnMobsForChunkGeneration(level, new BlockPos(cx * 16, 319, cz * 16), new ChunkPos(cx, cz), random);
     var spawns = new JsonArray();
-    for (var e : level.spawned) spawns.add(record(e));
+    for (var e : level.spawned) spawns.add(packRecord(e, level.spawned));
     var o = scene.json();
     o.addProperty("kind", "generation"); o.addProperty("chunk_x", cx); o.addProperty("chunk_z", cz);
     o.add("spawns", spawns);

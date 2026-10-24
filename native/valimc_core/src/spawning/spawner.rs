@@ -17,6 +17,9 @@ pub struct Spawned {
     pub pos: [f64; 3],
     pub yaw: f32,
     pub school: bool,
+    /// Index of the pack's first admitted member in this result. Spawner
+    /// blocks have no shared group data and use None.
+    pub pack: Option<usize>,
 }
 
 /// A mob counted toward the caps (`createState`): not persistent, in a
@@ -342,6 +345,7 @@ impl Tick<'_, '_> {
         let y = start[1];
         let mut cluster = 0;
         for _ in 0..3 {
+            let pack = self.spawned.len();
             let (mut x, mut z) = (start[0], start[2]);
             let mut current: Option<Spawner> = None;
             let mut max = ceil(self.random.next_float() * 4.0);
@@ -401,6 +405,7 @@ impl Tick<'_, '_> {
                     pos: [xx, y as f64, zz],
                     yaw,
                     school,
+                    pack: Some(pack),
                 });
                 self.state.after(world, kind, pos, charge);
                 world
@@ -514,6 +519,7 @@ pub fn generate(
     }
     let probability = biome.creature_probability;
     while random.next_float() < probability {
+        let pack = out.len();
         let Some(spawner) = pick(list, total, random) else {
             continue;
         };
@@ -551,6 +557,7 @@ pub fn generate(
                             pos: [fx, pos[1] as f64, fz],
                             yaw,
                             school: true,
+                            pack: Some(pack),
                         });
                         success = true;
                     }

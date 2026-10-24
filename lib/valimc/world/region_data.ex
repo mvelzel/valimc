@@ -6895,8 +6895,11 @@ defmodule Valimc.World.RegionData do
     items =
       Enum.reduce(records, state.entities.store, fn record, items ->
         case Store.create_record(items, state.key, record) do
-          {:ok, next, _} ->
-            next
+          {:ok, next, {_, id, _}} ->
+            case record do
+              %{spawn_body: %Valimc.Entity.Body{} = body} -> Store.change_body(next, id, body)
+              _ -> next
+            end
 
           {:error, reason} ->
             require Logger
@@ -6912,6 +6915,56 @@ defmodule Valimc.World.RegionData do
   def publish_level_events(state, events),
     do: Valimc.World.publish(route_key(state), {:level_events, events})
 
+  @doc "Finalize aquatic packs across the group's sections before any member is published."
+  def spawn_packs(sections, plan) do
+    entries =
+      for {key, {records, _, _, _}} <- plan,
+          Map.has_key?(sections, key),
+          record <- records,
+          Map.has_key?(record, :spawn_pack),
+          do: {key, record.spawn_pack, record.spawn_school, record}
+
+    entries = Enum.sort_by(entries, fn {_, _, _, record} -> record.spawn_order end)
+
+    worlds =
+      for key <- entries |> Enum.map(&elem(&1, 0)) |> Enum.uniq(), into: %{} do
+        state = Map.fetch!(sections, key)
+
+        {key,
+         %Valimc.AI.World{
+           random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656))
+         }}
+      end
+
+    {bodies, worlds} = Valimc.AI.spawn_groups(entries, worlds)
+
+    sections =
+      Enum.reduce(worlds, sections, fn {key, world}, acc ->
+        Map.update!(acc, key, &%{&1 | ai_random: world.random})
+      end)
+
+    plan =
+      Map.new(plan, fn {key, {records, discards, resets, events}} ->
+        records =
+          Enum.map(records, fn record ->
+            case bodies[record.uuid] do
+              nil ->
+                record
+
+              body ->
+                record
+                |> Map.merge(Valimc.Entity.Body.record(body))
+                |> Map.drop([:spawn_pack, :spawn_order, :spawn_school])
+                |> Map.put(:spawn_body, body)
+            end
+          end)
+
+        {key, {records, discards, resets, events}}
+      end)
+
+    {sections, plan}
+  end
+
   @doc """
   A tick's natural spawning in this section (VMC-042a, `World.Spawning`):
   it adopts the records of the mobs that spawned (queued like drops while a
@@ -6920,6 +6973,10 @@ defmodule Valimc.World.RegionData do
   of those a player came near.
   """
   def spawned(state, records, discards, resets) do
+    {sections, plan} = spawn_packs(%{state.key => state}, %{state.key => {records, [], [], []}})
+    state = sections[state.key]
+    {records, _, _, _} = plan[state.key]
+
     state =
       cond do
         records == [] ->

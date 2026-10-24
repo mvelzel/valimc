@@ -138,11 +138,21 @@ defmodule Valimc.AI.Mobs.TropicalFish do
   """
   @impl true
   def finalize(%Self{} = self, reason) do
-    %Self{world: world, data: data} = self = Valimc.AI.Spawn.mob(self, reason)
-    {f, random} = Random.float(world.random)
+    self = Valimc.AI.Spawn.mob(self, reason)
+    {f, random} = Random.float(self.world.random)
+
+    spawn_variant(
+      %{self | world: %{self.world | random: random}},
+      f < Valimc.Data.Float32.round(0.9)
+    )
+  end
+
+  @doc "The variant chosen after the owning spawner's school decision."
+  def spawn_variant(%Self{world: world, data: data} = self, school) do
+    random = world.random
 
     {variant, random} =
-      if f < 0.9 do
+      if school do
         {n, random} = Random.int(random, tuple_size(@common_packed))
         {elem(@common_packed, n), random}
       else

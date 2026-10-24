@@ -1119,6 +1119,10 @@ STAGES = [
         ('java', 'NaturalSpawnOracle', 'fixtures', '@natural-spawning.json'),
         ('check', 'check_natural_spawning.exs', '@natural-spawning.json'),
     ]),
+    ('aquatic_packs', [
+        ('java', 'AquaticPackOracle', '@aquatic-packs.json'),
+        ('check', 'check_aquatic_packs.exs', '@aquatic-packs.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

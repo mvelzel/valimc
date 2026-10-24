@@ -101,13 +101,15 @@ defmodule Valimc.NaturalSpawningTest do
   # A tick's plan, applied in the owners.
   defp tick(owners, players, env, spawning, tick) do
     owners = List.wrap(owners)
-    {spawning, plan} = Spawning.plan(group(owners, players, env, spawning, tick))
+    group = group(owners, players, env, spawning, tick)
+    {spawning, plan} = Spawning.plan(group)
+    {sections, plan} = RegionData.spawn_packs(group.sections, plan)
     by_key = Map.new(owners, &{Valimc.TestRegion.section(&1).key, &1})
 
     for {key, {records, discards, resets, _events}} <- plan do
       Valimc.TestRegion.replace_section(
         by_key[key],
-        &RegionData.spawned(&1, records, discards, resets)
+        &RegionData.spawned(%{&1 | ai_random: sections[key].ai_random}, records, discards, resets)
       )
     end
 
@@ -394,5 +396,85 @@ defmodule Valimc.NaturalSpawningTest do
       assert EntityTypes.fetch(type).category == :creature
       assert y == 64.0 and {div(floor(x), 128), div(floor(z), 128)} == {rx, rz}
     end
+  end
+
+  test "pack admission preserves leaders across sections and variants and ages over records", %{
+    owners: owners
+  } do
+    [{a, owner_a}, {b, owner_b}] = owners
+
+    sections =
+      Map.new(owners, fn {key, owner} ->
+        {key, %{Valimc.TestRegion.section(owner) | ai_random: Valimc.AI.Random.new(13)}}
+      end)
+
+    records =
+      for {type, pack} <- [{"cod", 0}, {"tropical_fish", 1}, {"axolotl", 2}, {"turtle", 3}],
+          i <- 0..3 do
+        key = if rem(i, 2) == 0, do: a, else: b
+        {:ok, body} = Body.spawned("minecraft:" <> type, :natural)
+        record = Store.body_record(body, :crypto.strong_rand_bytes(16), centre(key, 60 + i, 64))
+
+        {key,
+         Map.merge(record, %{
+           spawn_pack: {:natural, pack},
+           spawn_order: pack * 4 + i,
+           spawn_school: true
+         })}
+      end
+
+    plan =
+      Enum.reduce(Enum.reverse(records), %{}, fn {key, record}, acc ->
+        Map.update(acc, key, {[record], [], [], []}, fn {r, d, s, e} ->
+          {[record | r], d, s, e}
+        end)
+      end)
+
+    {sections, plan} = RegionData.spawn_packs(sections, plan)
+    # The batch is finalized exactly once, even when spawned/4 handles it again.
+    assert RegionData.spawn_packs(sections, plan) == {sections, plan}
+
+    for {key, owner} <- [{a, owner_a}, {b, owner_b}] do
+      {made, _, _, _} = plan[key]
+
+      Valimc.TestRegion.replace_section(owner, fn resource ->
+        RegionData.spawned(%{resource | ai_random: sections[key].ai_random}, made, [], [])
+      end)
+    end
+
+    bodies =
+      Map.new(
+        for {key, record} <- records do
+          owner = if key == a, do: owner_a, else: owner_b
+          store = Valimc.TestRegion.section(owner).entities.store
+          {:ok, {_, id, _}} = Store.find(store, record.uuid)
+          body = store.entries[id].body
+          assert body.mob.finalize == nil
+          {:ok, restored} = body |> Body.record() |> Body.restore()
+          assert restored.data == body.data
+          assert restored.mob.ai.random == body.mob.ai.random
+          assert Valimc.AI.Mobs.Fish.school(restored.mob.ai).leader == nil
+          {record.uuid, body}
+        end
+      )
+
+    for pack <- 0..1 do
+      members = Enum.filter(records, fn {_, r} -> r.spawn_pack == {:natural, pack} end)
+      [{_, leader} | followers] = members
+      assert Valimc.AI.Mobs.Fish.school(bodies[leader.uuid].mob.ai).school == 4
+
+      for {_, follower} <- followers do
+        assert Valimc.AI.Mobs.Fish.school(bodies[follower.uuid].mob.ai).leader == leader.uuid
+      end
+
+      if pack == 1 do
+        variants = Enum.map(members, fn {_, r} -> bodies[r.uuid].data.variant end)
+        assert length(Enum.uniq(variants)) == 1
+      end
+    end
+
+    axolotls = for {_, r} <- records, r.spawn_pack == {:natural, 2}, do: bodies[r.uuid]
+    assert Enum.map(axolotls, & &1.data.age) == [0, 0, -24_000, -24_000]
+    assert length(Enum.uniq(Enum.map(axolotls, & &1.data.variant))) <= 2
   end
 end

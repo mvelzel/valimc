@@ -320,8 +320,10 @@ defmodule Valimc.World.Spawning do
       Native.dispatch(:natural_spawn, units, [region, siblings, group.absent, request])
 
     from_spawners = for {_, _, list} <- ticked, spawn <- list, do: spawn
-    by_section = Enum.reduce(spawned, %{}, &add_spawn(&1, &2, :natural))
-    by_section = Enum.reduce(from_spawners, by_section, &add_spawn(&1, &2, :spawner))
+    by_section = spawned |> Enum.with_index() |> Enum.reduce(%{}, &add_spawn(&1, &2, :natural))
+
+    by_section =
+      from_spawners |> Enum.with_index() |> Enum.reduce(by_section, &add_spawn(&1, &2, :spawner))
 
     # Each spawn of a spawner block is a level event (2004) at the block.
     by_section =
@@ -401,11 +403,12 @@ defmodule Valimc.World.Spawning do
         do: {chunk, kept}
   end
 
-  defp add_spawn({kind, x, y, z, yaw, _school}, acc, reason) do
+  defp add_spawn({{kind, x, y, z, yaw, school, pack}, order}, acc, reason) do
     case Body.spawned(Valimc.Data.EntityTypes.name(kind), reason) do
       {:ok, body} ->
         body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
         record = Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
+        record = pack_record(record, pack, order, school, reason)
         key = Grid.region_key(Grid.chunk_key(x, z))
 
         Map.update(acc, key, {[record], [], [], []}, fn {r, d, s, e} ->
@@ -415,6 +418,13 @@ defmodule Valimc.World.Spawning do
       {:error, _} ->
         acc
     end
+  end
+
+  defp pack_record(record, pack, order, school, reason) do
+    if pack != nil and Valimc.AI.SpawnGroup.handles?(record.type),
+      do:
+        Map.merge(record, %{spawn_pack: {reason, pack}, spawn_order: order, spawn_school: school}),
+      else: record
   end
 
   ## Spawner blocks
@@ -509,11 +519,13 @@ defmodule Valimc.World.Spawning do
       {:ok, spawned} =
         Native.spawn_generated(state.blocks.ref, [], absent, env, Enum.sort(chunks))
 
-      for {_chunk, list} <- spawned,
-          {kind, x, y, z, yaw, _} <- list,
+      for {chunk, list} <- spawned,
+          {{kind, x, y, z, yaw, school, pack}, order} <- Enum.with_index(list),
           {:ok, body} <- [Body.spawned(Valimc.Data.EntityTypes.name(kind), :chunk_generation)] do
         body = %{body | yaw: yaw * 1.0, head_yaw: yaw * 1.0}
+
         Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y, z})
+        |> pack_record({chunk, pack}, {chunk, order}, school, :chunk_generation)
       end
     end
   end

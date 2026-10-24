@@ -37,6 +37,8 @@ Slices, in order:
   hunting, mid-tick melee on mobs, mob effects (Awaiting client).
 - [VMC-043e8](VMC-043e8.md) — catching and releasing fish and axolotls
   with their bucket data (Awaiting client).
+- [VMC-043e9](VMC-043e9.md) — aquatic spawn-pack identity and shared
+  variants, ages and schools (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -52,7 +54,8 @@ Acceptance: behaviour fixtures match the oracle.
   mob targets by entity id and stops ticking removed mobs.
 - Bucket capture, release and saved variants are implemented in
   [VMC-043e8](VMC-043e8.md), with its actual-client gate deferred.
-- Remains: a spawn group's later babies (axolotl variants, turtle packs),
-  turtle eggs' `onPlace` particles; the batched client handoff for
-  043e1–043e8. Then close
+- Aquatic packs now retain shared variants, ages and schools through
+  admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
+- Remains: dolphin/squid ageable behavior and their pack babies, turtle
+  eggs' `onPlace` particles; the batched client handoff for 043e1–043e9. Then close
   VMC-043e (Status stays In progress until the client gate).
