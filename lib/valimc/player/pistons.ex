@@ -7,8 +7,9 @@ defmodule Valimc.Player.Pistons do
   client moves its own player alike from the block event. The server keeps
   the moved position as the start of the client's next move, so the move
   packets that follow compare with where both put the player; nothing is
-  sent. The server does not simulate a player's motion (`canSimulateMovement`),
-  so a slime block flings only the client's. A spectator passes through.
+  sent. Both sides simulate the push's collision response and slime impulse;
+  the server preserves horizontal ground state for a client-authoritative player.
+  A spectator passes through.
   """
   alias Valimc.Data.PlayerPose
   alias Valimc.Physics.Kernel
@@ -26,18 +27,25 @@ defmodule Valimc.Player.Pistons do
            PlayerPose.geometry(Map.get(player, :pose, :standing), feet) do
       motion = player.motion
 
-      body =
-        {feet, {(x1 - x0) / 2, y1 - y0}, motion.velocity, {motion.on_ground, 0.6, false, false},
-         {0.0, false, true, 0.08, 0.98}}
+      body = Valimc.Player.Displacement.input(player, {(x1 - x0) / 2, y1 - y0})
 
       case Kernel.pistons(
              Valimc.World.View.new(player.dimension),
              pushes,
              [body],
-             Valimc.World.Clock.border_snapshot(player.dimension)
+             Valimc.World.Clock.border_snapshot(player.dimension),
+             false
            ) do
-        {:ok, [{{x, y, z}, _velocity, on_ground, true}]} ->
-          player = %{player | x: x, y: y, z: z, motion: %{motion | on_ground: on_ground}}
+        {:ok, [{{x, y, z}, velocity, on_ground, _}]}
+        when {x, y, z} != feet or velocity != motion.velocity or on_ground != motion.on_ground ->
+          player = %{
+            player
+            | x: x,
+              y: y,
+              z: z,
+              motion: %{motion | velocity: velocity, on_ground: on_ground}
+          }
+
           PlayerList.update(state.connection, player)
           %{state | player: player}
 

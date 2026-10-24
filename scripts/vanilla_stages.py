@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('piston_player', [
+        ('java', 'PistonPlayerOracle', '@piston-player.json'),
+        ('check', 'check_piston_player.exs', '@piston-player.json'),
+    ]),
     ('attack_speed', [
         ('java', 'AttackSpeedOracle', '@attack-speed.json'),
         ('check', 'check_attack_speed.exs', '@attack-speed.json'),

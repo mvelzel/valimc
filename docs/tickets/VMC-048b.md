@@ -132,6 +132,9 @@ and carries an item.
 
 ## Not here
 
+The hosted player's collision-response and retained slime-velocity correction
+is tracked in [VMC-048b1](VMC-048b1.md), with its additional client gate deferred.
+
 - Pushes leave out what an entity's move does beyond its motion: fall
   damage, `applyEffectsFromBlocks` (a pushed entity's plates count at the
   next contacts pass) and the stuck multiplier's reset.

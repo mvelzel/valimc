@@ -91,7 +91,7 @@ defmodule Valimc.Native do
   def read_box(_region, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
   def set_pistons(_region, _kept, _gone), do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_pistons(_view, _pushes, _bodies, _states, _border),
+  def physics_pistons(_view, _pushes, _bodies, _states, _border, _authoritative \\ true),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def chunk_pistons(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)

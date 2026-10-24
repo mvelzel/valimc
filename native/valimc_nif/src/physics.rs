@@ -1470,6 +1470,7 @@ fn physics_pistons<'a>(
     bodies: Vec<PushBodyT>,
     states: (u16, u16),
     border: Option<(f64, f64, f64, f64)>,
+    authoritative: bool,
 ) -> NifResult<Term<'a>> {
     use valimc_core::physics::piston::{push_all, Push, PushBody, PushStates, World};
     let facts = facts()?;
@@ -1494,7 +1495,14 @@ fn physics_pistons<'a>(
             landed: chunk[record + 6] != 0,
         });
     }
-    let mut bodies: Vec<PushBody> = bodies.into_iter().map(push_body).collect();
+    let mut bodies: Vec<PushBody> = bodies
+        .into_iter()
+        .map(|input| {
+            let mut body = push_body(input);
+            body.authoritative = authoritative && body.simulates;
+            body
+        })
+        .collect();
     let mut areas: Vec<Aabb> = list
         .iter()
         .filter(|p| !p.landed)

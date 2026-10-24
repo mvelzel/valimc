@@ -306,11 +306,13 @@ defmodule Valimc.Physics.Kernel do
   after them all; each body `{feet, {half_width, height}, velocity, {on_ground,
   max_step, simulates?, ignored?}, {bounciness, suppresses_bounce?, living?,
   gravity, air_drag}}`. `{:ok, [{feet, velocity, on_ground, pushed?}]}` in
-  order.
+  order. `authoritative` controls ground-state authority separately from a
+  body's simulation eligibility; hosted players simulate with it set to false.
   """
-  def pistons(_view, _pushes, [], _border), do: {:ok, []}
+  def pistons(view, pushes, bodies, border, authoritative \\ true)
+  def pistons(_view, _pushes, [], _border, _authoritative), do: {:ok, []}
 
-  def pistons(view, pushes, bodies, border) do
+  def pistons(view, pushes, bodies, border, authoritative) do
     regions =
       for(
         {{x, y, z}, _, _, _, _} <- pushes,
@@ -341,7 +343,8 @@ defmodule Valimc.Physics.Kernel do
       packed,
       bodies,
       states,
-      bounds
+      bounds,
+      authoritative
     )
   end
 

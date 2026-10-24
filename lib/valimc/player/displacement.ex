@@ -19,9 +19,7 @@ defmodule Valimc.Player.Displacement do
          view = View.new(player.dimension),
          {:ok, boxes} <- EntityColliders.collect(view, query(box), player.entity_id),
          motion = player.motion,
-         body =
-           {feet, {(x1 - x0) / 2, y1 - y0}, motion.velocity, {motion.on_ground, 0.6, true, false},
-            {0.0, false, true, 0.08, 0.98}},
+         body = input(player, {(x1 - x0) / 2, y1 - y0}),
          {:ok, {{x, y, z}, velocity, on_ground}} <-
            Kernel.displace(
              view,
@@ -47,6 +45,15 @@ defmodule Valimc.Player.Displacement do
   end
 
   def push(state, _area, _delta), do: state
+
+  @doc "A hosted player's shared external-move body, with native simulation and bounce policy."
+  def input(player, size) do
+    motion = player.motion
+    suppress = Bitwise.band(player.input.shared_flags, 2) != 0
+
+    {{player.x, player.y, player.z}, size, motion.velocity, {motion.on_ground, 0.6, true, false},
+     {0.0, suppress, true, 0.08, 0.98}}
+  end
 
   defp query({a, b, c, d, e, f}), do: {a - 2.0, b - 2.0, c - 2.0, d + 2.0, e + 2.0, f + 2.0}
 end
