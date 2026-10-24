@@ -13,10 +13,15 @@ and when it finishes. `/spark profiler open` returns the running report again;
 `/spark profiler info` shows elapsed time. `/spark profiler cancel` discards it.
 Console and RCON accept the same commands without the leading slash.
 
+The Phoenix LiveView browser UI follows spark's dark palette, JetBrains Mono,
+compact widgets, controls and dense call-tree rows. Commands use spark's
+lightning prefix, colors and multiline statistics. Architecture-specific labels
+identify BEAM and independent region measurements.
+
 The browser has a searchable call tree, a flame graph with click-to-zoom, hot
 methods, process reductions/memory/mailboxes, per-region tick measurements, ETS
 memory and server counters. A running report refreshes every two seconds. The
-health dashboard refreshes every ten seconds. Save a report as a self-contained
+health dashboard refreshes every ten seconds over WebSockets. Save a report as a self-contained
 HTML file to inspect it later, or download its JSON for analysis.
 
 ## Commands
@@ -28,7 +33,7 @@ HTML file to inspect it later, or download its JSON for analysis.
 | `/spark profiler start --process Valimc.World` | Select process groups by a case-sensitive name substring |
 | `/spark profiler start --include-waiting` | Include waiting processes to inspect idle stacks |
 | `/spark health [show]` | Print health and link a live dashboard |
-| `/spark tps` | Actual world-clock TPS, target/frozen state and region MSPT |
+| `/spark tps` | Rolling world-clock TPS, region min/median/p95/max MSPT and scheduler utilization |
 | `/spark tickmonitor [--threshold-tick 50]` | Toggle slow-region-tick messages for this player; expires after ten minutes |
 | `/spark processes [--sort memory]` | Top eight observed processes from a running profile; also accepts `mailbox` or `reductions` |
 | `/spark schedulers` | Normal, dirty CPU and dirty IO scheduler utilization and run queue |
@@ -60,7 +65,10 @@ owner's latest observation interval, tick duration, lateness, sample age and
 maximum since that owner started. A new owner needs two observations for an
 interval rate. Clock TPS is measured from actual clock progress over the latest
 health interval; it can stay healthy while one region falls behind. Frozen and
-sprint states affect the expected rate. Health history retains up to 15 minutes.
+sprint states affect the expected rate. Commands average available observations
+over 5 s, 10 s, 1 m, 5 m and 15 m windows; these warm up after startup. Region
+duration statistics use the latest 100 ticks, rather than claiming Java's single
+global tick windows. Health history retains up to 15 minutes.
 
 Scheduler utilization is sampled wall-time utilization, not host CPU usage.
 Dirty scheduler utilization helps identify native work, but sampled stacks only
@@ -78,6 +86,14 @@ second per subscriber (maximum 16); a burst can overwrite older slow ticks.
 The viewer binds only to `127.0.0.1`, on an automatically chosen port. Its URLs
 contain random bearer tokens; anyone with a token and access to that loopback
 listener can read that report. There are no uploads to spark or other services.
+Phoenix routes and LiveView run inside the server's OTP supervision tree; Bandit
+provides HTTP and WebSocket connections. Clients and fonts are served locally.
+The endpoint allows 64 connections and 16 connected report views. Request lines
+and headers are limited to 4 KiB, with at most 32 headers; WebSocket messages are
+limited to 16 KiB. Filters accept 128 bytes. Tables show at most 500 rows, call
+trees 1,000 visible rows / 128 expanded branches, and flame graphs 2,000 frames /
+24 levels. Only one refresh timer runs per view. Signed sessions, CSRF and local
+origin checks protect LiveView; report tokens still authorize report access.
 When playing on a remote server, forward the port printed in chat with SSH and
 open that URL on your computer. `config :valimc, profiler_port: 25580` pins the
 port for forwarding; the default is `0` (automatic).

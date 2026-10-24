@@ -98,6 +98,18 @@ config :valimc,
 
 config :logger, :console, format: "$time $metadata[$level] $message\n"
 
+config :phoenix, :json_library, JSON
+
+config :valimc, Valimc.Net.Profiler.Endpoint,
+  adapter: Bandit.PhoenixAdapter,
+  url: [host: "127.0.0.1"],
+  pubsub_server: Valimc.ProfilePubSub,
+  live_view: [signing_salt: "valimc-profile-live"],
+  render_errors: [formats: [html: Valimc.Net.Profiler.Errors], layout: false],
+  debug_errors: false,
+  code_reloader: false,
+  check_origin: ["//127.0.0.1", "//localhost"]
+
 # Dev and test builds of the NIF (tests, oracle checks, `iex -S mix`) skip LTO and
 # compile in parallel and incrementally into their own target directory, so a
 # one-line Rust change rebuilds in seconds. Releases and benchmarks retain the

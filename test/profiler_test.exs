@@ -187,7 +187,7 @@ defmodule Valimc.ProfilerTest do
     assert Process.whereis(Valimc.Net.ProfileWeb) == viewer
     assert :error = Profiler.report(id)
     {:ok, fresh} = Profiler.health_report()
-    assert {"200 OK", _, _} = Valimc.Net.ProfileWeb.route("/r/" <> fresh)
+    assert request("/r/" <> fresh).status == 200
   end
 
   test "bounded report retention and token-only read-only HTTP routes" do
@@ -197,13 +197,20 @@ defmodule Valimc.ProfilerTest do
     {:ok, current} = Profiler.health_report()
     uri = URI.parse(Profiler.url(current))
     {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", uri.port, [:binary, active: false], 2000)
-    :ok = :gen_tcp.send(socket, "GET #{uri.path} HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+    :ok =
+      :gen_tcp.send(
+        socket,
+        "GET #{uri.path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+      )
+
     reply = read_http(socket, [])
     assert reply =~ "200 OK"
     assert reply =~ "Call tree"
     assert reply =~ "frame-ancestors 'none'"
-    assert {"200 OK", "application/json", json} = Valimc.Net.ProfileWeb.route("/data/" <> current)
-    assert :json.decode(IO.iodata_to_binary(json))["status"] == "live"
+    json = request("/data/" <> current)
+    assert json.status == 200
+    assert :json.decode(json.resp_body)["status"] == "live"
 
     for path <- [
           "/",
@@ -211,7 +218,7 @@ defmodule Valimc.ProfilerTest do
           "/r/" <> String.duplicate("0", 32),
           "/data/" <> current <> "/extra"
         ] do
-      assert {"404 Not Found", _, _} = Valimc.Net.ProfileWeb.route(path)
+      assert request(path).status == 404
     end
   end
 
@@ -260,7 +267,7 @@ defmodule Valimc.ProfilerTest do
     assert ProfileTicks.pings()[self()] >= 7
     source = %{Source.parse_only(4) | sink: {:collect, self(), make_ref()}}
     Valimc.Commands.run(source, "spark ping")
-    assert Source.collect(source) =~ "RTT"
+    assert Source.collect(source) =~ "samples"
   end
 
   defp read_http(socket, acc) do
@@ -268,6 +275,10 @@ defmodule Valimc.ProfilerTest do
       {:ok, bytes} -> read_http(socket, [acc, bytes])
       {:error, :closed} -> IO.iodata_to_binary(acc)
     end
+  end
+
+  defp request(path) do
+    Plug.Test.conn(:get, path) |> Valimc.Net.Profiler.Endpoint.call([])
   end
 
   defp busy(n), do: busy(:erlang.phash2({n, n + 1}))
@@ -308,13 +319,14 @@ defmodule Valimc.ProfilerConnectionTest do
     )
 
     {body, client} = Client.await(client, :play, "system_chat")
-    assert body =~ "Profiler started"
+    assert body =~ "Profiler is now running!"
+    {_timeout, client} = Client.await(client, :play, "system_chat")
     {link, client} = Client.await(client, :play, "system_chat")
     assert link =~ "open_url"
     assert link =~ "http://127.0.0.1:"
     Client.send_packet(client, :play, "chat_command", Wire.string("spark profiler stop"))
     {body, client} = Client.await(client, :play, "system_chat")
-    assert body =~ "Profile complete"
+    assert body =~ "Profiler stopped & save complete!"
     {link, _client} = Client.await(client, :play, "system_chat")
     assert link =~ "/r/"
   end

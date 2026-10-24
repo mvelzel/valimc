@@ -29,8 +29,11 @@ defmodule Valimc.Admin.Profiler do
   # The network owner outlives an observer restart; its publication must too.
   def viewer_port(port), do: :persistent_term.put({__MODULE__, :viewer_port}, port)
 
-  def url(id),
-    do: "http://127.0.0.1:#{:persistent_term.get({__MODULE__, :viewer_port}, 0)}/r/#{id}"
+  def url(id) do
+    address = :persistent_term.get({__MODULE__, :viewer_port}, 0)
+    port = if is_function(address, 0), do: address.(), else: address
+    "http://127.0.0.1:#{port}/r/#{id}"
+  end
 
   def report(id) do
     case :ets.lookup(@reports, id) do
@@ -224,6 +227,7 @@ defmodule Valimc.Admin.Profiler do
         900
       )
 
+    health = Map.put(health, :windows, windows(history))
     :ets.insert(@view, {:health, health})
 
     state = %{
@@ -331,6 +335,8 @@ defmodule Valimc.Admin.Profiler do
       tps: max(0, clock - state.clock) * 1000.0 / elapsed,
       tick_state: Map.take(Valimc.World.TickRate.published(), [:rate, :frozen, :sprinting]),
       mspt: %{
+        min: List.first(values) || 0.0,
+        median: median(values),
         mean: if(values == [], do: 0.0, else: Enum.sum(values) / length(values)),
         p95: Enum.at(values, max(0, ceil(length(values) * 0.95) - 1), 0.0),
         max: List.last(values) || 0.0
@@ -349,6 +355,41 @@ defmodule Valimc.Admin.Profiler do
 
     {health, wall,
      Map.new(ticks, fn {pid, count, total, _, _, _, _} -> {pid, {count, total}} end)}
+  end
+
+  @doc false
+  def median([]), do: 0.0
+
+  def median(sorted) do
+    middle = div(length(sorted), 2)
+
+    if rem(length(sorted), 2) == 0,
+      do: (Enum.at(sorted, middle - 1) + Enum.at(sorted, middle)) / 2,
+      else: Enum.at(sorted, middle)
+  end
+
+  @doc false
+  def windows(history) do
+    latest =
+      case history do
+        [h | _] -> h.at
+        [] -> 0
+      end
+
+    for seconds <- [5, 10, 60, 300, 900] do
+      points = Enum.take_while(history, &(&1.at > latest - seconds * 1000))
+      average = fn fun -> Enum.sum(Enum.map(points, fun)) / max(1, length(points)) end
+
+      %{
+        seconds: seconds,
+        observations: length(points),
+        tps: average.(& &1.tps),
+        scheduler:
+          Map.new([:normal, :dirty_cpu, :dirty_io], fn key ->
+            {key, average.(& &1.scheduler[key])}
+          end)
+      }
+    end
   end
 
   defp ets_summary do

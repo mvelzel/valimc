@@ -16,8 +16,9 @@ mix run --no-halt
 Join `localhost:25565` with Java 26.3. The default is loopback/offline mode.
 Elixir 1.20.4 and OTP 29.1.1 are pinned in `.tool-versions`. Building also needs
 Rust 1.99+ (rustup's stable toolchain): `mix deps.get && mix compile` builds the `native/` crates
-(chunk section storage) through Rustler, a build-time Hex dependency. There are no
-runtime Hex or JVM dependencies; Java 25 is used only by development reference tools.
+(chunk section storage) through Rustler, a build-time Hex dependency. The built-in
+profiler uses Phoenix LiveView with Bandit for local HTTP/WebSockets. Java 25 is
+used only by development reference tools; the server has no JVM dependency.
 
 It supports login with encryption and optional online authentication, vanilla
 generation of the overworld, the Nether and the End (flat worlds by default),

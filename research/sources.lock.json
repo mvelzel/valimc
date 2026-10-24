@@ -1,5 +1,5 @@
 {
-  "researched_on": "2026-10-13",
+  "researched_on": "2026-10-24",
   "repositories": [
     {
       "name": "cuberite",
@@ -141,6 +141,24 @@
       "date": "2026-10-12T00:09:47+02:00",
       "license_files": [
         "LICENSE"
+      ]
+    },
+    {
+      "name": "spark",
+      "url": "https://github.com/lucko/spark.git",
+      "commit": "3e8745a76eaabe9a4f70aad6283876fb518d2ae8",
+      "date": "2026-10-07T18:11:57+01:00",
+      "license_files": [
+        "LICENSE.txt"
+      ]
+    },
+    {
+      "name": "spark-viewer",
+      "url": "https://github.com/lucko/spark-viewer.git",
+      "commit": "05d68bda52ef483122c1498794dbc2cb5e3ada78",
+      "date": "2026-10-06T08:12:52+01:00",
+      "license_files": [
+        "LICENSE.txt"
       ]
     },
     {

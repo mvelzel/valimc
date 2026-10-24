@@ -54,7 +54,7 @@ Current order:
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
-[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [056a](tickets/VMC-056a.md).
+[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 

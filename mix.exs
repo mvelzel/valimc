@@ -27,6 +27,11 @@ defmodule Valimc.MixProject do
 
   defp deps do
     [
+      {:phoenix, "~> 1.8.16"},
+      {:phoenix_live_view, "~> 1.2.13"},
+      {:phoenix_html, "~> 4.3"},
+      {:bandit, "~> 1.13.1"},
+      {:lazy_html, ">= 0.1.0", only: :test},
       # Build-time only: compiles `native/valimc_nif` (keep the crate on the same minor).
       {:rustler, "~> 0.38.0", runtime: false},
       {:stream_data, "~> 1.1", only: :test},
