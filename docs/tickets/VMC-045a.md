@@ -26,5 +26,6 @@ Acceptance:
   portal.
 
 Slices: [VMC-045a1](VMC-045a1.md) makes the crystals live first. Dragon
-geometry and arena paths are [VMC-045a2](VMC-045a2.md). Phase decisions,
-multipart hits and the arena lifecycle follow within this parent.
+geometry and arena paths are [VMC-045a2](VMC-045a2.md), with phase decisions
+in [VMC-045a3](VMC-045a3.md). The multipart actor and arena lifecycle follow
+within this parent.
