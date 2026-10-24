@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('turtle_growth', [
+        ('java', 'TurtleGrowthOracle', '@turtle-growth.json'),
+        ('check', 'check_turtle_growth.exs', '@turtle-growth.json'),
+    ]),
     ('piston_player', [
         ('java', 'PistonPlayerOracle', '@piston-player.json'),
         ('check', 'check_piston_player.exs', '@piston-player.json'),

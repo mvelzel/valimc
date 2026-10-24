@@ -57,14 +57,12 @@ defmodule Valimc.Entity.Animals.Turtle do
     do: %{self | data: %{data | home: Self.block(self)}}
 
   # What it keeps beyond its saved data: going home, its travel's target,
-  # its laying count, whether it was a baby last tick.
-  @own %{going_home: false, travel: nil, lay: 0, baby: false}
+  # its laying count.
+  @own %{going_home: false, travel: nil, lay: 0}
 
   @doc "Its own state (`Mind.own`)."
   def own(%{own: %{going_home: _} = own}), do: own
   def own(_mind), do: @own
-
-  defp put_own(self, fun), do: Self.mind(self, &%{&1 | own: fun.(own(&1))})
 
   @doc "Its home."
   def home(%Self{data: %{home: home}}), do: home
@@ -255,32 +253,35 @@ defmodule Valimc.Entity.Animals.Turtle do
 
   @doc """
   `Turtle.aiStep` after its super: laying, the sand under it crumbles every
-  five ticks; a baby that grew up drops a scute (`ageBoundaryReached`).
+  five ticks.
   """
   @impl true
   def settle(%Self{} = self) do
     own = own(self.mind)
 
-    self =
-      if Valimc.Entity.Mob.alive?(self.mob) and self.data.laying_egg and own.lay >= 1 and
-           rem(own.lay, 5) == 0 do
-        {x, y, z} = Self.block(self)
+    if Valimc.Entity.Mob.alive?(self.mob) and self.data.laying_egg and own.lay >= 1 and
+         rem(own.lay, 5) == 0 do
+      {x, y, z} = Self.block(self)
 
-        if on_sand?(self.world, {x, y, z}),
-          do:
-            Self.effect(
-              self,
-              {:level_event, {x, y, z}, 2001, World.block(self.world, {x, y - 1, z})}
-            ),
-          else: self
-      else
-        self
-      end
+      if on_sand?(self.world, {x, y, z}),
+        do:
+          Self.effect(
+            self,
+            {:level_event, {x, y, z}, 2001, World.block(self.world, {x, y - 1, z})}
+          ),
+        else: self
+    else
+      self
+    end
+  end
 
-    grew = own.baby and not baby?(self)
-    self = put_own(self, &%{&1 | baby: baby?(self)})
+  @doc "The actual age transition drops the growth gift, including the first tick after loading."
+  @impl Valimc.AI.Kind
+  def after_ai(%Self{} = self) do
+    was_baby = baby?(self)
+    self = Animal.settle(self)
 
-    if grew and self.world.mob_drops do
+    if was_baby and not baby?(self) and self.world.mob_drops do
       {[a, b], world} = level_doubles(self.world)
       self = %{self | world: world}
 

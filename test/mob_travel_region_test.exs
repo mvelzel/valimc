@@ -231,6 +231,44 @@ defmodule Valimc.MobTravelRegionTest do
     assert entry(ctx, <<872::128>>).body.data.life == 2398
   end
 
+  test "a restored NoAI turtle drops one scute when its first tick reaches adulthood", ctx do
+    {x, z} = ctx.at
+
+    for {n, age, locked, offset} <- [
+          {881, -1, false, 0.0},
+          {882, -1, true, 2.0},
+          {883, 0, false, 4.0}
+        ] do
+      {:ok, body} = Body.new("minecraft:turtle")
+
+      body = %{
+        body
+        | data: %{body.data | age: age, age_locked: locked},
+          mob: %{body.mob | no_ai: true}
+      }
+
+      saved = Store.body_record(body, <<n::128>>, {x + offset, 64.0, z})
+      {:ok, restored} = Store.restore(ctx.key, [saved])
+      [{_, entry}] = Map.to_list(restored.entries)
+      :ok = Region.drop_items(ctx.owner, [Store.record(entry)])
+    end
+
+    scutes = fn ->
+      for {_, %{kind: :item, stack: stack}} <-
+            Valimc.TestRegion.section(ctx.owner).entities.store.entries,
+          stack.item_id == Valimc.Protocol.ItemTypes.id("minecraft:turtle_scute"),
+          do: stack.count
+    end
+
+    step(ctx, 1)
+    assert entry(ctx, <<881::128>>).body.data.age == 0
+    assert entry(ctx, <<882::128>>).body.data.age == -1
+    assert entry(ctx, <<883::128>>).body.data.age == 0
+    assert scutes.() == [1]
+    step(ctx, 2)
+    assert scutes.() == [1]
+  end
+
   @tag goals: true
   test "a guardian beams a squid: magic, then its bite (VMC-043e)", ctx do
     {x, z} = ctx.at
