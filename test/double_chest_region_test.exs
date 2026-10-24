@@ -53,7 +53,7 @@ defmodule Valimc.DoubleChestRegionTest do
         kind: kind,
         mode: :survival,
         eye: {x + 0.5, y + 1.6, z + 2.5},
-        expires: System.monotonic_time(:millisecond) + 250,
+        expires: Valimc.TestRegion.grant_expires(),
         hand: :main,
         secondary: false,
         main: false,
@@ -80,7 +80,7 @@ defmodule Valimc.DoubleChestRegionTest do
     {:ok, batch} = BlockBatch.prepare(Map.new(writes))
 
     {:ok, _} =
-      Region.place_block(owner, observed.fence, batch, System.monotonic_time(:millisecond) + 250)
+      Region.place_block(owner, observed.fence, batch, Valimc.TestRegion.grant_expires())
 
     assert not Chest.single?(Valimc.TestBlocks.get(left)),
            inspect(
@@ -108,6 +108,8 @@ defmodule Valimc.DoubleChestRegionTest do
       Map.merge(grant(:click, right), %{health: 20.0, position: {x + 0.5, y * 1.0, z + 2.5}})
 
     click = fn inventory, action, slot ->
+      actor = %{actor | expires: Valimc.TestRegion.grant_expires()}
+
       Region.container_click(owner, self(), ref, right, actor, %{
         inventory: inventory,
         action: action,

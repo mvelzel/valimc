@@ -116,6 +116,9 @@ defmodule Valimc.BlockObservationTest do
       :sys.resume(pid)
     end
 
+    # Only the suspended call samples the play deadline. Recovery reads
+    # use the suite's normal allowance on a loaded host.
+    Valimc.TestScope.isolate(pid, owner_call_scale: Valimc.config(:owner_call_scale))
     assert {:ok, %{blocks: blocks}} = Region.observe_blocks(c.owner, [c.pos])
     assert blocks == %{c.pos => 0}
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
