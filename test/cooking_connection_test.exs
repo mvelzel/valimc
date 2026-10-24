@@ -28,14 +28,10 @@ defmodule Valimc.CookingConnectionTest do
           player.name == name,
           do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
 
-      for {registry, supervisor, identity} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key}
-          ],
-          {pid, _} <- Registry.lookup(registry, identity),
-          do: DynamicSupervisor.terminate_child(supervisor, pid)
-
       Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
       Valimc.TestScope.stop_players(base)
+      Valimc.TestScope.await_checkpoints(base)
       File.rm_rf!(base)
     end)
 

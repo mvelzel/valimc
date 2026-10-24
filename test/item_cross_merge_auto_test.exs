@@ -6,7 +6,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   alias Valimc.Entity.{Handoffs, Store}
   alias Valimc.World.Region
 
-  setup do
+  setup tags do
     n = System.unique_integer([:positive])
     key = {72000 + rem(n, 3333) * 3, 2300}
     target_key = {elem(key, 0) + 1, elem(key, 1)}
@@ -14,7 +14,11 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     File.mkdir_p!(base)
     # Separate groups: the merge crosses by the durable handoff (inside one
     # group it is local, `region_group_test.exs`).
-    TestScope.isolate(TestScope.neighborhood(key, 2), world_path: base, regionizer: false)
+    TestScope.isolate(TestScope.neighborhood(key, 2),
+      world_path: base,
+      regionizer: false,
+      region_ticks: if(tags[:manual], do: :manual, else: :timer)
+    )
 
     donor = %{
       uuid: <<n::64, 1::64>>,
@@ -110,6 +114,36 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
     assert [%{uuid: ^uuid, stack: %{count: 5}}] =
              Store.records(state(restarted).entities.store)
+  end
+
+  @tag manual: true
+  test "a merge started during the tick keeps its copied store until adoption", c do
+    start(c)
+    parent = self()
+
+    Valimc.TestRegion.replace_section(c.source, fn s ->
+      next =
+        Valimc.World.RegionData.item_tick(
+          %{s | game_tick: s.game_tick + 1},
+          System.monotonic_time(:millisecond)
+        )
+
+      job = Valimc.World.Jobs.get(next.jobs, :plan)
+      send(parent, {:merge_copy, job.data.kind, job.data.base_store == next.entities.store})
+      next
+    end)
+
+    assert_receive {:merge_copy, :item_merge_out, unchanged}
+    assert unchanged
+
+    wait(fn ->
+      for owner <- [c.source, c.target], do: Region.step(owner, 1)
+      converged(c)
+    end)
+
+    assert total(c) == 5
+    assert disk(c, c.key).records == []
+    assert disk(c, c.target_key).ledger.incoming[section(c.key)].sequence == 1
   end
 
   test "a donor whose target is gone is rejected and comes back with its network id", c do

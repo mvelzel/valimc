@@ -1322,6 +1322,12 @@ defmodule Valimc.World.RegionData do
   # Store move in the items phase, all at once through the physics kernel over
   # published rows (VMC-077l); publishing the steps then starts merging.
   defp move_items(state, now) do
+    # Cross-owner merging may have taken the planning slot earlier this tick.
+    # Even the unsaved simulation marker would invalidate that plan's store fence.
+    if planning?(state), do: state, else: move_unplanned_items(state, now)
+  end
+
+  defp move_unplanned_items(state, now) do
     # Bodies (VMC-043a) are inert until VMC-015i moves them.
     {items, orbs} =
       state.entities.store.entries

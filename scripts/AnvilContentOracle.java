@@ -394,6 +394,10 @@ public class AnvilContentOracle {
 
   /** As above, for the entities stored in `only` chunks (all when null). */
   static Map<String, String> entityFacts(Path entityDir, Set<ChunkPos> only) throws Exception {
+    return entityFacts(entityDir, only, false);
+  }
+
+  static Map<String, String> entityFacts(Path entityDir, Set<ChunkPos> only, boolean describe) throws Exception {
     var result = new TreeMap<String, String>();
     if (!Files.isDirectory(entityDir)) return result;
     var ops = access.createSerializationContext(NbtOps.INSTANCE);
@@ -416,7 +420,7 @@ public class AnvilContentOracle {
             fact = "orb " + entity.get("Pos") + " " + entity.get("Motion") + " " + entity.getShortOr("Age", (short) 0) + " "
                 + entity.getShortOr("Value", (short) 0) + " " + entity.getIntOr("Count", 1) + " "
                 + entity.getBooleanOr("OnGround", false) + " " + entity.getBooleanOr("NoGravity", false);
-          else fact = digest(entity);
+          else fact = describe ? entity.toString() : digest(entity);
           if (result.put(uuid, fact) != null) throw new AssertionError("repeated UUID " + uuid);
         }
       }
@@ -499,8 +503,19 @@ public class AnvilContentOracle {
     // exported chunks' entities are compared.
     var mine = entityFacts(loaded.resolve("entities"), written.keySet());
     var theirs = entityFacts(vanilla.resolve("entities"), written.keySet());
-    if (!mine.equals(theirs) || !mine.keySet().containsAll(entities.keySet()))
-      throw new AssertionError("vanilla's saves of the export and the original hold different entities:\n " + theirs + "\n " + mine);
+    if (!mine.equals(theirs) || !mine.keySet().containsAll(entities.keySet())) {
+      var originalTags = entityFacts(vanilla.resolve("entities"), written.keySet(), true);
+      var exportTags = entityFacts(loaded.resolve("entities"), written.keySet(), true);
+      var ids = new TreeSet<>(theirs.keySet());
+      ids.addAll(mine.keySet());
+      ids.addAll(entities.keySet());
+      var differences = new StringBuilder();
+      for (var id : ids)
+        if (!Objects.equals(theirs.get(id), mine.get(id)) || !mine.containsKey(id))
+          differences.append("\n ").append(id).append(" original: ").append(originalTags.get(id))
+              .append("\n ").append(id).append(" export: ").append(exportTags.get(id));
+      throw new AssertionError("vanilla's saves of the export and the original hold different entities:" + differences);
+    }
     System.out.println("PASS: ValiMC's export holds vanilla's blocks, biomes and " + chunks.values().stream().mapToInt(c -> c.get(24).split("=").length - 1).sum()
         + " block entities in " + chunks.size() + " full chunks and its " + entities.size() + " entities; the pinned server loads it without errors and saves what it saves for the original ("
         + reloaded.size() + " interior chunks compared)");

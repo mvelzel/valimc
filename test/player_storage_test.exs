@@ -38,11 +38,14 @@ defmodule Valimc.PlayerStorageTest do
     assert {:ok, storage, nil} = Storage.read(base, uuid)
     {:ok, storage} = Storage.cut(storage, state())
     assert storage.seq == 1
-    storage = commit(storage, base)
 
-    # Moving alone waits for the next second; an inventory change takes it along.
+    # Check the volatile window before waiting for disk acknowledgement: a loaded
+    # log can legitimately take longer than that window to acknowledge its frame.
     moved = %{state() | pose: %{pose() | x: -10.25}}
     assert {:ok, ^storage} = Storage.cut(storage, moved)
+    storage = commit(storage, base)
+
+    # An inventory change takes the waiting motion along.
     stone = ItemStack.new("stone", 3)
     stocked = %{moved | inventory: %Inventory{slots: %{36 => stone}}}
     {:ok, storage} = Storage.cut(storage, stocked)

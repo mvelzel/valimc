@@ -50,12 +50,12 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. User trial of Ubuntu VPS hosting and diagnostic access ([056d](tickets/VMC-056d.md)).
-2. Run the combined automated M3 gate after dolphin guidance [043e26](tickets/VMC-043e26.md); client testing is deferred.
+2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
-[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
+[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [078e](tickets/VMC-078e.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 

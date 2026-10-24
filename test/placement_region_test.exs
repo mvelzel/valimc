@@ -1,6 +1,7 @@
 defmodule Valimc.PlacementRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
+  alias Valimc.Txn.Permits
   alias Valimc.World.{BlockBatch, Containers, Region}
   alias Valimc.Blocks.Placement
 
@@ -31,7 +32,7 @@ defmodule Valimc.PlacementRegionTest do
   defp put(ctx, position, state) do
     {:ok, observed} = Region.observe_blocks(ctx.owner, [position])
     {:ok, batch} = BlockBatch.prepare(%{position => state})
-    deadline = System.monotonic_time(:millisecond) + 200
+    deadline = System.monotonic_time(:millisecond) + Permits.window(200)
     {:ok, _} = Region.place_block(ctx.owner, observed.revision, batch, deadline)
   end
 
@@ -60,7 +61,7 @@ defmodule Valimc.PlacementRegionTest do
   test "a chest's block and empty contents apply in one placement; its break clears both", ctx do
     {:ok, observed} = Region.observe_blocks(ctx.owner, [ctx.position])
     {:ok, batch} = BlockBatch.prepare(%{ctx.position => @chest})
-    deadline = System.monotonic_time(:millisecond) + 200
+    deadline = System.monotonic_time(:millisecond) + Permits.window(200)
     assert {:ok, _} = Region.place_block(ctx.owner, observed.revision, batch, deadline)
     assert Valimc.TestRegion.section(ctx.owner).containers.entries[ctx.position].rows == 3
     assert :ok = Region.flush(ctx.pid)

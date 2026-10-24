@@ -85,3 +85,32 @@ enabled; its new evidence directory has no failure capture. Logs:
 `.local/m3-checkpoint-final-cleanup/`. The changes are entirely in existing
 fixtures and their cleanup; no new test cases or runtime storage rules are
 introduced. The build checkpoint and graphical M3 gate remain separate.
+
+The post-family checkpoint finds the same obsolete bare registry lookup in the
+cooking socket fixture. It now uses the canonical neighborhood cleanup (including
+the spawn area), stops its players and awaits detached checkpoints before
+removing its dataset. All three cooking socket checks pass in
+`.local/m3-family-auto-cooking-cleanup-tests.log`. The failed combined run retains
+the former removed-dataset WAL reads in
+`.local/m3-family-auto-final-full-tests.log`; the parent records the final rerun.
+
+The traced rerun also exposes a player-storage fixture that waits for a durable
+log acknowledgement before checking its one-second volatile window. The fixture
+now checks that window before the potentially slower acknowledgement, then still
+verifies the inventory-triggered frame and complete disk reload. This removes a
+host-load dependency without changing production timing or persistence.
+
+The final complete suite passes all 845 checks (nine properties and 836 tests)
+in 122 seconds, with the read-location tracer active and no failed WAL read or
+checkpoint error. Evidence: `.local/m3-family-auto-clean-full-tests.log` and
+`.local/m3-family-auto-clean-checkpoints/`.
+
+The full native run passes 260 of 261 stages. The sole failure is the Anvil
+content oracle comparing two independently reloaded vanilla copies: direct
+exported entity records and chunk packets already match. A fresh isolated
+`anvil_content` rerun passes without changing import/export runtime code. Its
+failure output now includes the differing entity compounds rather than opaque
+digests, so a recurrence is actionable. The original failure is retained in
+`.local/m3-family-auto-full-vanilla-resumed.log`; the successful native rerun is
+`.local/m3-family-auto-final-vanilla-recheck.log`. This records a transient
+native reload comparison; it does not claim a production storage repair.
