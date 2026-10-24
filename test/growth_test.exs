@@ -205,7 +205,7 @@ defmodule Valimc.GrowthTest do
     assert {roots, 1} in items
   end
 
-  test "shears carve a pumpkin; a fungus grows its huge fungus",
+  test "shears carve a pumpkin and empty a preserved hive; a fungus grows its huge fungus",
        %{owner: owner, origin: {x, y, z}} do
     {pumpkin, fungus} = {{x + 14, y + 1, z + 2}, {x + 14, y + 1, z + 8}}
 
@@ -235,6 +235,39 @@ defmodule Valimc.GrowthTest do
           do: {stack.item_id, stack.count}
 
     assert items == [{Valimc.Protocol.Data.item("pumpkin_seeds"), 4}]
+
+    hive = {x + 8, y + 1, z + 2}
+    full = Blocks.state("beehive", %{"facing" => "north", "honey_level" => "5"})
+    {:ok, observed} = Region.observe_blocks(owner, [hive])
+    {:ok, _} = Region.set_blocks(owner, observed.fence, %{hive => full}, MapSet.new([hive]))
+    {hx, hy, hz} = hive
+
+    {:ok, nbt} =
+      Valimc.World.BlockEntities.encode_nbt(
+        {:compound,
+         %{
+           "id" => {:string, "minecraft:beehive"},
+           "x" => {:int, hx},
+           "y" => {:int, hy},
+           "z" => {:int, hz}
+         }}
+      )
+
+    entry = {Valimc.Blocks.BlockEntityTypes.type_id(full), nbt}
+    {:ok, :applied} = Region.put_block_entities(owner, %{hive => entry})
+    assert :sheared = Region.menu(owner, self(), hive, grant(hive, shears))
+    assert value(blocks(owner, [hive])[hive], "honey_level") == "0"
+    refute :sheared == Region.menu(owner, self(), hive, grant(hive, shears))
+    assert Valimc.TestRegion.section(owner).block_entities.entries[hive].nbt == nbt
+
+    assert 3 ==
+             for(
+               %{stack: stack} <-
+                 Valimc.Entity.Store.records(Valimc.TestRegion.section(owner).entities.store),
+               stack.item_id == Valimc.Protocol.Data.item("honeycomb"),
+               do: stack.count
+             )
+             |> Enum.sum()
 
     # Bone meal succeeds on a fungus two times in five; then the generator
     # grows the planted huge fungus from its cell.

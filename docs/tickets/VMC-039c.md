@@ -91,3 +91,16 @@ sapling and stalk grows bamboo; on glow lichen it spreads; on a small
 dripleaf a big one grows; on a crimson fungus over crimson nylium a huge
 fungus grows; on netherrack beside nylium it turns to nylium; shears on a
 pumpkin carve it and drop seeds; shears on a full beehive drop honeycomb.
+
+## Client integration fix (October 24, 2026)
+
+M3 client run 4 found that shearing an imported hive dropped honeycomb and
+wore the shears while leaving `honey_level=5`, allowing another harvest.
+The shared block admission guard refused even state changes that retain an
+existing preserved block entity of the same type. It now permits those
+updates, while still refusing unsupported new block entities or changes
+that would discard preserved data. Shearing also checks the block actually
+changed before granting the harvest. The existing growth owner scenario now
+imports a hive, empties it once, checks exactly three honeycomb and refuses
+a second harvest while retaining its NBT. Graphical retry is pending;
+evidence is `.local/client-tests/M3-run-04/hive-not-emptying.png`.

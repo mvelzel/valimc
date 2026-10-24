@@ -6272,7 +6272,8 @@ defmodule Valimc.World.RegionData do
       # unless the caller writes its record next.
       Enum.any?(batch.edits, fn {position, block} ->
         Valimc.Blocks.BlockEntityTypes.unsupported?(block) and
-            not MapSet.member?(entities, position)
+          not MapSet.member?(entities, position) and
+            BlockEntities.live(state.block_entities, position, block) == nil
       end) ->
         {:error, :unsupported_block_entity}
 
@@ -6832,7 +6833,8 @@ defmodule Valimc.World.RegionData do
              entity: true
            }),
          {state, %{results: [1]}} <-
-           rule_run(state, %{actions: [{:shear, position, shear.facing}], actor: viewer}) do
+           rule_run(state, %{actions: [{:shear, position, shear.facing}], actor: viewer}),
+         true <- Blocks.get(state.blocks, position) != block do
       {x, y, z} = position
       at = if shear.carved, do: {x + 0.5, y + 0.5, z + 0.5}, else: grant[:feet] || {x, y, z}
       sound = Valimc.World.Sounds.packet(shear.sound, :block, at, :rand.uniform(1 <<< 62))
