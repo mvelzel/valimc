@@ -301,7 +301,7 @@ defmodule Valimc.Entity.Store do
     begin(fn ->
       Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}}, fn record, {:ok, state} ->
         with true <- valid_record?(key, record) and not Map.has_key?(state.uuids, record.uuid),
-             {:ok, id} <- Ids.next(),
+             {:ok, id} <- next_id(record),
              {:ok, next, _} <- build_record(state, id, record) do
           {:cont, {:ok, next}}
         else
@@ -520,13 +520,18 @@ defmodule Valimc.Entity.Store do
   def create_record(_, _, _), do: {:error, :invalid_item}
 
   # The id a handed-over record carries, unless this store already uses it.
-  defp record_id(state, %{entity_id: id}) when is_integer(id) do
-    if Ids.valid?(id) and not Map.has_key?(state.entries, id),
-      do: {:ok, id},
-      else: Ids.next()
+  defp record_id(state, %{entity_id: id} = record) when is_integer(id) do
+    if Ids.valid?(id) and Ids.valid?(id + id_span(record) - 1) and
+         Enum.all?(id..(id + id_span(record) - 1), &(not Map.has_key?(state.entries, &1))),
+       do: {:ok, id},
+       else: next_id(record)
   end
 
-  defp record_id(_state, _record), do: Ids.next()
+  defp record_id(_state, record), do: next_id(record)
+
+  defp next_id(record), do: Ids.next(id_span(record))
+  defp id_span(%{type: "minecraft:ender_dragon"}), do: 1 + length(Valimc.AI.Dragon.Facts.parts())
+  defp id_span(_record), do: 1
 
   @doc "Take one unit of the orb `uuid` of `value` (an XP pickup): removed with its last."
   def take_orb(state, uuid, value) do

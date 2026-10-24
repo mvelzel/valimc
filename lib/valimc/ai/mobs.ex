@@ -21,6 +21,7 @@ defmodule Valimc.AI.Mobs do
   # overrides (`hook/4`). Farm animals (VMC-043c) are one module each over
   # `Valimc.Entity.Animal`.
   @families [
+    Valimc.Entity.Dragon,
     Valimc.AI.Mobs.Zombie,
     Valimc.AI.Mobs.Skeleton,
     Valimc.AI.Mobs.Creeper,

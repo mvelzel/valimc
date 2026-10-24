@@ -13,10 +13,10 @@ defmodule Valimc.Entity.Ids do
   @doc "Create the counter (application start)."
   def init!, do: :persistent_term.put(@key, :atomics.new(1, signed: false))
 
-  @doc "The next id, or `{:error, :entity_id_exhausted}` past the protocol's range."
-  def next do
-    case :atomics.add_get(counter(), 1, 1) do
-      id when id <= @max -> {:ok, id}
+  @doc "Reserve consecutive ids; return their first, or an exhaustion error."
+  def next(count \\ 1) when is_integer(count) and count in 1..@max do
+    case :atomics.add_get(counter(), 1, count) do
+      last when last <= @max -> {:ok, last - count + 1}
       _ -> {:error, :entity_id_exhausted}
     end
   end

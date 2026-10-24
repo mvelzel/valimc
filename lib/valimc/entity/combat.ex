@@ -97,6 +97,7 @@ defmodule Valimc.Entity.Combat do
     hit = hook.(:taken, [body, hit], hit)
     # A family's part before the hurt lands (an axolotl's choice to play dead).
     body = hook.(:before_hurt, [body, hit], body)
+    knockback? = hook.(:knockback?, [body], true)
     mob = body.mob
     mob_before = mob
 
@@ -105,9 +106,12 @@ defmodule Valimc.Entity.Combat do
            else: Mob.hurt(mob, body.type, hit)
          ) do
       :ignored ->
-        :ignored
+        if hook.(:admits_ignored?, [body, hit], false),
+          do: {body, [], %{full: false, died: false}},
+          else: :ignored
 
       {:ok, mob, outcome} ->
+        {body, mob, outcome} = hook.(:damage_result, [body, mob, outcome], {body, mob, outcome})
         source = hit.source
         sounds = sounds(body)
         mob = %{mob | ai: Valimc.AI.hurt(mob.ai, anger(hit, source), DamageSource.type(source))}
@@ -120,7 +124,7 @@ defmodule Valimc.Entity.Combat do
                entity_id(hit[:direct]), nil}
 
             body =
-              if DamageSource.is?(source, :no_knockback),
+              if not knockback? or DamageSource.is?(source, :no_knockback),
                 do: body,
                 else:
                   knock(
@@ -304,12 +308,16 @@ defmodule Valimc.Entity.Combat do
   end
 
   defp knock(body, power, direction) do
-    resistance = Mob.value(body.type, body.mob, "minecraft:knockback_resistance")
+    if Valimc.AI.Mobs.hook(body.type, :knockback?, [body], true) do
+      resistance = Mob.value(body.type, body.mob, "minecraft:knockback_resistance")
 
-    %{
+      %{
+        body
+        | velocity: Melee.knockback(body.velocity, body.on_ground, power, direction, resistance)
+      }
+    else
       body
-      | velocity: Melee.knockback(body.velocity, body.on_ground, power, direction, resistance)
-    }
+    end
   end
 
   # `dealDefaultKnockback`: from the source position towards the mob, reversed

@@ -792,12 +792,13 @@ defmodule Valimc.World.RegionData do
       state
     else
       targets = projectile_targets(state)
+      part_targets = projectile_targets(state, true)
       state = Enum.reduce(Enum.sort(clouds), state, &tick_cloud(&2, &1, targets))
 
       steps =
         Projectiles.step(
           Enum.sort(projectiles),
-          targets,
+          part_targets,
           Clock.border_snapshot(),
           state.dimension == :the_nether
         )
@@ -811,7 +812,7 @@ defmodule Valimc.World.RegionData do
         read: &read_block(state, &1)
       }
 
-      by_id = Map.new(targets, &{&1.id, &1})
+      by_id = Map.new(part_targets, &{&1.id, &1})
 
       {state, moves} =
         Enum.reduce(steps, {state, []}, fn {id, entry, result}, {acc, moves} ->
@@ -824,7 +825,7 @@ defmodule Valimc.World.RegionData do
 
   # What projectiles may hit: this section's living mobs and the group's
   # players, `%{id, ref, uuid, type, position, box}`.
-  defp projectile_targets(state) do
+  defp projectile_targets(state, multipart \\ false) do
     mobs =
       for {sid, %{body: %Body{type: type} = body, entity: e}} <-
             state.entities.store.entries,
@@ -833,7 +834,7 @@ defmodule Valimc.World.RegionData do
         {w, h, _} = Body.dimensions(body)
         {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
 
-        %{
+        target = %{
           id: e.entity_id,
           ref: {:mob, sid},
           uuid: e.uuid,
@@ -841,13 +842,24 @@ defmodule Valimc.World.RegionData do
           position: {x, y, z},
           box: {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
         }
+
+        if multipart and type == "minecraft:ender_dragon" do
+          body
+          |> Valimc.Entity.Dragon.boxes()
+          |> Enum.with_index()
+          |> Enum.map(fn {box, part} ->
+            Map.merge(target, %{id: e.entity_id + part + 1, dragon_part: part, box: box})
+          end)
+        else
+          [target]
+        end
       end
 
     players =
       for p <- state.player_bodies,
           do: Map.merge(p, %{ref: {:player, p.uuid}, type: "minecraft:player"})
 
-    mobs ++ players
+    List.flatten(mobs) ++ players
   end
 
   defp run_projectile(state, id, entry, {:keep, body, position, effects}, moves) do
@@ -874,17 +886,55 @@ defmodule Valimc.World.RegionData do
   end
 
   defp run_projectile(state, id, entry, {:hurt, target, hit, next}, moves) do
+    ignite =
+      case target do
+        %{ref: {:mob, sid}, uuid: uuid} ->
+          case state.entities.store.entries[sid] do
+            %{entity: %{uuid: ^uuid}, body: %Body{type: "minecraft:ender_dragon"} = body} ->
+              Valimc.Entity.Dragon.ignites?(body, hit)
+
+            _ ->
+              false
+          end
+
+        _ ->
+          false
+      end
+
     {hurt, state} = projectile_hurt(state, target, hit)
-    run_projectile(state, id, entry, next.(hurt), moves)
+    result = next.(hurt)
+
+    result =
+      case result do
+        {:keep, body, position, effects} when ignite ->
+          {:keep, %{body | data: %{body.data | fire: max(body.data.fire, 20)}}, position, effects}
+
+        _ ->
+          result
+      end
+
+    run_projectile(state, id, entry, result, moves)
   end
 
   # A projectile's hit through the one hurt path: a mob of this section at
   # once (and set on fire when the hit says so), a player by its session,
   # whose hit is taken to land.
-  defp projectile_hurt(state, %{ref: {:mob, sid}}, hit) do
+  defp projectile_hurt(state, %{ref: {:mob, sid}} = target, hit) do
     case state.entities.store.entries[sid] do
-      %{entity: %{uuid: uuid}} -> projectile_hurt_body(state, sid, uuid, hit)
-      nil -> {false, state}
+      %{entity: %{uuid: uuid}} ->
+        if Map.get(target, :uuid, uuid) == uuid do
+          hit =
+            if Map.has_key?(target, :dragon_part),
+              do: Map.put(hit, :dragon_part, target.dragon_part),
+              else: hit
+
+          projectile_hurt_body(state, sid, uuid, hit)
+        else
+          {false, state}
+        end
+
+      nil ->
+        {false, state}
     end
   end
 

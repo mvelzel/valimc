@@ -389,6 +389,7 @@ public class EntityOracle {
     // VMC-045a1: a crystal's beam and bottom plate.
     fields.put("crystal_beam", field(net.minecraft.world.entity.boss.enderdragon.EndCrystal.class, "DATA_BEAM_TARGET"));
     fields.put("crystal_bottom", field(net.minecraft.world.entity.boss.enderdragon.EndCrystal.class, "DATA_SHOW_BOTTOM"));
+    fields.put("dragon_phase", field(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, "DATA_PHASE"));
     var version = SharedConstants.getCurrentVersion();
     var out = new LinkedHashMap<String,Object>();
     out.put("version", version.id()); out.put("data_version", version.dataVersion().version());

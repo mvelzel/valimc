@@ -153,7 +153,15 @@ defmodule Valimc.Entity.Tracking do
     |> Map.take([:type, :yaw, :pitch, :alive])
     |> Map.put(:range, Valimc.Data.EntityTypes.tracking_range(view.type))
     |> takeable(view)
+    |> multipart(view)
   end
+
+  # Keep the bounded part boxes in the observation, rather than copying the
+  # dragon's phase paths and flight history to every nearby player.
+  defp multipart(fields, %{type: "minecraft:ender_dragon", body: body}),
+    do: Map.put(fields, :dragon_parts, body |> Valimc.Entity.Dragon.boxes() |> List.to_tuple())
+
+  defp multipart(fields, _view), do: fields
 
   # A stuck arrow a player may take (`AbstractArrow.playerTouch`): in the
   # ground, its shake over, its pickup rule not disallowed. The owner checks

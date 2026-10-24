@@ -44,7 +44,10 @@ defmodule Valimc.AI.Kind do
     `pick_up/2`: its own `pickUpItem`.
   - Its hurts, through `Valimc.Entity.Combat`'s one path: `taken/2` (a hit
     as its class takes it, VMC-043d: a ghast's reflected fireball), `ignores?/2` (a
-    hit it takes nothing from), `repelled/2` (what turning one away leaves
+    hit it takes nothing from), `admits_ignored?/2` (a dragon admits some
+    hits even when they take no health), `damage_result/3` (its killing-blow
+    or phase rules before shared hurt events), `knockback?/1` (whether its
+    current phase allows knockback), `repelled/2` (what turning one away leaves
     on its body: an enderman's teleport), `sound/2` (its hurt or death
     sound, nil for its type's), `hurt/2` (what a hurt leaves on its
     body), `death_drops/1` (stacks it drops on death beside its
@@ -96,6 +99,9 @@ defmodule Valimc.AI.Kind do
   @callback clamps_head?() :: boolean
   @callback turns_body?() :: boolean
   @callback ignores?(struct, map) :: boolean
+  @callback admits_ignored?(struct, map) :: boolean
+  @callback damage_result(struct, struct, map) :: {struct, struct, map}
+  @callback knockback?(struct) :: boolean
   @callback taken(struct, map) :: map
   @callback sound(struct, String.t()) :: String.t() | nil
   @callback hurt(struct, map) :: struct
@@ -166,6 +172,9 @@ defmodule Valimc.AI.Kind do
                       clamps_head?: 0,
                       turns_body?: 0,
                       ignores?: 2,
+                      admits_ignored?: 2,
+                      damage_result: 3,
+                      knockback?: 1,
                       taken: 2,
                       sound: 2,
                       hurt: 2,

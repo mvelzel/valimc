@@ -51,7 +51,7 @@ Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
 2. Validate double chests (032b) with the next finale client batch.
-3. Finale: the Ender Dragon fight (045a), then the M3 gate (078).
+3. Finale: connect the dragon actor and arena lifecycle (045a), then the M3 gate (078).
 
 Done: [039c](tickets/VMC-039c.md), [049a](tickets/VMC-049a.md).
 

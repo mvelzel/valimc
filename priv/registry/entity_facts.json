@@ -198,6 +198,10 @@
       "index": 19,
       "serializer": 1
     },
+    "dragon_phase": {
+      "index": 16,
+      "serializer": 1
+    },
     "effect_ambience": {
       "index": 11,
       "serializer": 8

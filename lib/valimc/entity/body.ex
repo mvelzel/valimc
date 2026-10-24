@@ -47,6 +47,7 @@ defmodule Valimc.Entity.Body do
   # A fence knot mobs are leashed to (VMC-043c3).
   @knot "minecraft:leash_knot"
   @crystal "minecraft:end_crystal"
+  @dragon "minecraft:ender_dragon"
   # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
   # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
@@ -144,6 +145,9 @@ defmodule Valimc.Entity.Body do
 
   defp generated_data(%__MODULE__{type: @crystal, preserved: preserved} = body),
     do: %{body | data: Valimc.Entity.EndCrystal.from_preserved(preserved), preserved: nil}
+
+  defp generated_data(%__MODULE__{type: @dragon, preserved: preserved} = body),
+    do: %{body | data: Valimc.Entity.Dragon.from_preserved(preserved), preserved: nil}
 
   defp generated_data(body), do: body
 
@@ -305,6 +309,8 @@ defmodule Valimc.Entity.Body do
 
   def tick(body), do: tick_timers(body)
 
+  defp tick_timers(%__MODULE__{type: @dragon} = body), do: Valimc.Entity.Dragon.timers(body)
+
   defp tick_timers(%__MODULE__{mob: nil} = body), do: {body, [], false}
 
   defp tick_timers(%__MODULE__{mob: mob} = body) do
@@ -319,6 +325,7 @@ defmodule Valimc.Entity.Body do
   then its death animation), any other body is removed (`:remove`).
   """
   def kill(%__MODULE__{mob: nil}), do: :remove
+  def kill(%__MODULE__{type: @dragon}), do: :remove
 
   def kill(%__MODULE__{mob: mob} = body) do
     case Mob.kill(mob) do

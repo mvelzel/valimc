@@ -102,7 +102,7 @@ defmodule Valimc.Player.Attack do
     sections = MapSet.new(chunks, &Grid.section(dimension, &1))
     {views, _} = World.visible_entities(sections, chunks)
 
-    with %{} = view <- views[id] || :none,
+    with %{} = view <- views[id] || dragon_part(views, id) || :none,
          true <- in_reach?(player, view) || :none,
          true <- view.kind not in [:item, :orb] || :invalid,
          {:ok, owner} <- owner_of(dimension, view) do
@@ -111,6 +111,27 @@ defmodule Valimc.Player.Attack do
       {:error, _} -> :none
       other -> other
     end
+  end
+
+  # Dragon parts are created by the client from the root's consecutive ids;
+  # only their one authoritative living body is published and stored.
+  defp dragon_part(views, id) do
+    Enum.find_value(0..7, fn part ->
+      case views[id - part - 1] do
+        %{type: "minecraft:ender_dragon", dragon_parts: parts} = view ->
+          {x0, y0, z0, x1, _, z1} = box = elem(parts, part)
+
+          Map.merge(view, %{
+            entity_id: id,
+            at: {(x0 + x1) / 2, y0, (z0 + z1) / 2},
+            dragon_part: part,
+            part_box: box
+          })
+
+        _ ->
+          nil
+      end
+    end)
   end
 
   # `isWithinAttackRange(item, box, 3.0)`: the eye within the entity
@@ -127,6 +148,8 @@ defmodule Valimc.Player.Attack do
 
   # A fence knot's entity stands at its block's corner, its box at the
   # block's centre (VMC-043c3).
+  defp box(%{part_box: box}), do: box
+
   defp box(%{at: {x, y, z}, type: "minecraft:leash_knot"}),
     do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
 
@@ -200,7 +223,7 @@ defmodule Valimc.Player.Attack do
            critical:
              motion.fall_distance > 0 and not motion.on_ground and
                not Map.has_key?(effects, @blindness) and EntityTypes.living?(view.type) and
-               not sprinting,
+               not Map.has_key?(view, :dragon_part) and not sprinting,
            sweep:
              motion.on_ground and
                Melee.slow_enough?(motion.known_movement, Float32.round(movement.value)) and
@@ -236,6 +259,14 @@ defmodule Valimc.Player.Attack do
           extra_knockback: {knockback, facing}
         }
 
+        request =
+          if Map.has_key?(view, :dragon_part),
+            # Native extra knockback pushes the non-living part alone; its
+            # velocity never moves the root. The hurt path's base push remains.
+            do:
+              Map.merge(request, %{dragon_part: view.dragon_part, extra_knockback: {0.0, facing}}),
+            else: request
+
         state =
           if hit.sprint_knockback,
             do: sound(state, "minecraft:entity.player.attack.knockback"),
@@ -243,9 +274,14 @@ defmodule Valimc.Player.Attack do
 
         case Region.hurt_entity(owner, view.uuid, request) do
           {:ok, %{hurt: true} = outcome} ->
+            actual =
+              if Map.has_key?(view, :dragon_part),
+                do: 0.0,
+                else: Float32.round(outcome.previous - outcome.health)
+
             state
             |> sweep(hit, view, me, source, enchantments, strength, facing)
-            |> show(effects(hit, true, Float32.round(outcome.previous - outcome.health)), view)
+            |> show(effects(hit, true, actual), view)
             |> wear(mainhand)
             |> Vitals.apply_effect_action({:exhaust, 0.1})
 

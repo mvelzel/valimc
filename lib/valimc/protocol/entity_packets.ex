@@ -463,7 +463,8 @@ defmodule Valimc.Protocol.EntityPackets do
     :creeper_swell_dir,
     :cube_size,
     :phantom_size,
-    :strider_boost_time
+    :strider_boost_time,
+    :dragon_phase
   ]
 
   defp metadata_value({name, value}) when name in @flags do
