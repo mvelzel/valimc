@@ -51,7 +51,7 @@ Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
 2. Recheck the joined-chest refresh repair (032b) in the finale client batch.
-3. Finale: validate the complete dragon fight (045a) in the batched client run, then run the M3 gate (078).
+3. Recheck live dragon retention and the fight (045a), then the fresh-world M3 gate (078) and build isolation (078b).
 
 Done: [039c](tickets/VMC-039c.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md).
 

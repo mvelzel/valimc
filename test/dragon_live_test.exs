@@ -111,6 +111,34 @@ defmodule Valimc.DragonLiveTest do
     assert {:ok, _} = Store.find(restored.entities.store, uuid)
   end
 
+  test "the group's natural spawner keeps its far dragon while removing an ordinary hostile", c do
+    admit(c)
+    [{_key, dragon_id, _dragon}] = dragons(c)
+    {:ok, body} = Valimc.Entity.Body.new("minecraft:zombie")
+    uuid = <<459::128>>
+    :ok = Region.drop_items(c.origin, [Store.body_record(body, uuid, {0.5, 128.0, 0.5})])
+    store = section(c).entities.store
+    {:ok, {_, zombie_id, _}} = Store.find(store, uuid)
+    resources = Map.new(:sys.get_state(c.pid).sections, fn {key, s} -> {key, s.resource} end)
+
+    {_spawning, plan} =
+      Valimc.World.Spawning.plan(%{
+        sections: resources,
+        stores: for({_, r} <- resources, do: r.blocks.ref),
+        absent: [],
+        players: [{180.5, 128.0, 0.5, false, true}],
+        rest: [],
+        spawning: Valimc.World.Spawning.new(),
+        environment: Valimc.World.Spawning.environment(:the_end),
+        dimension: :the_end,
+        game_time: 1
+      })
+
+    discarded = for {_, {_, discards, _, _}} <- plan, id <- discards, do: id
+    assert zombie_id in discarded
+    refute dragon_id in discarded
+  end
+
   test "a sibling dragon completes once with first XP, portal, dropped blocks, egg and gateway",
        c do
     admit(c)

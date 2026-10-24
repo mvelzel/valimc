@@ -35,4 +35,7 @@ defines arena geometry, boss packets and the respawn sequence.
 [VMC-045a7](VMC-045a7.md) admits the live fight and commits its portal,
 egg and gateway with completion. [VMC-045a8](VMC-045a8.md) connects the
 full four-crystal ritual, pillar regeneration, abort and restart recovery.
-The complete live fight now awaits its batched finale client gate.
+The complete live fight is in its batched finale client gate. Its first
+live natural-spawn run exposed ordinary distance despawning of the boss;
+[VMC-045a9](VMC-045a9.md) fixes and rechecks that policy before the fight
+can pass.

@@ -621,6 +621,9 @@ pub fn despawn(
     lived: i32,
     random: &mut Random,
 ) -> Despawn {
+    if kind.removal == super::facts::Removal::NoCheck {
+        return Despawn::Keep;
+    }
     if world.difficulty == 0 && !kind.peaceful {
         return Despawn::Discard;
     }
@@ -630,7 +633,7 @@ pub fn despawn(
     let category = world.facts.category(kind.category);
     let far = match kind.removal {
         super::facts::Removal::Always => true,
-        super::facts::Removal::Never => false,
+        super::facts::Removal::Never | super::facts::Removal::NoCheck => false,
         super::facts::Removal::Aged => lived > 2400,
     };
     let instant = category.despawn_distance * category.despawn_distance;

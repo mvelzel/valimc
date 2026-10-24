@@ -257,6 +257,21 @@ for row <- raw["cases"] do
   end)
 end
 
+Valimc.World.Spawning.install!()
+
+for [difficulty, distance, persistent, removed, idle] <- raw["despawn"] do
+  {:ok, got} =
+    Valimc.Native.spawn_despawn(
+      Valimc.Data.EntityTypes.id("minecraft:ender_dragon"),
+      difficulty,
+      distance * 1.0,
+      persistent
+    )
+
+  if got != {removed, idle},
+    do: raise("dragon despawn: #{inspect(got)} != #{inspect({removed, idle})}")
+end
+
 IO.puts(
   "PASS: #{length(raw["cases"])} complete native dragon sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, crystal healing, wall breaking, inherited rotation/random and death/XP"
 )

@@ -147,6 +147,8 @@ pub enum Obstruction {
 /// `removeWhenFarAway` of a fresh mob.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Removal {
+    /// The dragon overrides `checkDespawn` itself with no action.
+    NoCheck,
     Always,
     Never,
     /// Ocelots and cats: after 2400 ticks (`tickCount > 2400`), untamed.
@@ -704,6 +706,7 @@ fn obstruction(name: &str) -> Obstruction {
 fn removal(name: &str, category: Category) -> Removal {
     let short = name.strip_prefix("minecraft:").unwrap_or(name);
     match short {
+        "ender_dragon" => Removal::NoCheck,
         "ocelot" | "cat" => Removal::Aged,
         "zombie_horse" | "camel_husk" | "hoglin" | "nautilus" | "zombie_nautilus" => {
             Removal::Always

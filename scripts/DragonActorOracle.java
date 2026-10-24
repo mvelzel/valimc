@@ -16,7 +16,9 @@ import net.minecraft.world.phys.Vec3;
 public class DragonActorOracle {
   static class Probe extends DragonPhaseOracle.Probe {
     JsonArray particles, removed, global;
+    int difficulty;
     Probe() { super(); }
+    public net.minecraft.world.Difficulty getDifficulty() { return net.minecraft.world.Difficulty.byId(difficulty); }
     public BlockState getBlockState(BlockPos p) {
       return blocks.containsKey(p) ? blocks.get(p) : super.getBlockState(p);
     }
@@ -58,7 +60,7 @@ public class DragonActorOracle {
     return row;
   }
   public static void main(String[] args) throws Exception {
-    var level=MobAiOracle.setup(Probe.class); var cases=new JsonArray();
+    var level=MobAiOracle.setup(Probe.class); level.difficulty=2; var cases=new JsonArray();
     var flags=net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS;
     for(int phase=0;phase<11;phase++) for(int scene=0;scene<4;scene++) {
       reset(level); level.rules=new net.minecraft.world.level.gamerules.GameRules(flags);
@@ -110,7 +112,23 @@ public class DragonActorOracle {
       }
       row.add("ticks",ticks); cases.add(row);
     }
-    var out=new JsonObject(); out.addProperty("version","26.3"); out.addProperty("server_sha1",VersionMetadata.serverSha1()); out.add("cases",cases);
+    var despawn=new JsonArray();
+    for(int difficulty : new int[]{0,2}) for(double distance : new double[]{10,127.9,128.1,200})
+      for(boolean persistent : new boolean[]{false,true}) {
+        reset(level); level.difficulty=difficulty;
+        var d=new DragonPhaseOracle.Dragon(level); level.current=d; level.entities.add(d);
+        d.snapTo(.5+distance,64,.5,0,0);
+        if(persistent) d.setPersistenceRequired();
+        var fighter=new MobAiOracle.Fighter(level,1,GameType.SURVIVAL);
+        fighter.snapTo(.5,64,.5,0,0); var player=MobAiOracle.serverFighter(fighter);
+        level.fighters.add(player); level.entities.add(player);
+        MobAiOracle.field(LivingEntity.class,"noActionTime").setInt(d,100);
+        d.checkDespawn();
+        var row=new JsonArray(); row.add(difficulty); row.add(distance); row.add(persistent);
+        row.add(d.isRemoved()); row.add(MobAiOracle.field(LivingEntity.class,"noActionTime").getInt(d));
+        despawn.add(row);
+      }
+    var out=new JsonObject(); out.addProperty("version","26.3"); out.addProperty("server_sha1",VersionMetadata.serverSha1()); out.add("cases",cases); out.add("despawn",despawn);
     Files.writeString(java.nio.file.Path.of(args[0]),new GsonBuilder().serializeNulls().create().toJson(out));
   }
 }
