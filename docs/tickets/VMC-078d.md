@@ -1,6 +1,6 @@
 # VMC-078d — Villager wandering under roofs
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Parent: [VMC-078](VMC-078.md).
 Depends on: [VMC-044a1](VMC-044a1.md).
@@ -70,4 +70,15 @@ match the repair. Base `445a5eae`, runtime patch SHA-256
 Its source manifest and physical native/build outputs remain separate
 from the old failed release; docs are a freeze-time snapshot. Build log:
 `.local/m3-villager-frozen-release.log`. The dedicated tester resumes the
-same complete survival dataset; its graphical recheck remains pending.
+same complete survival dataset.
+
+The repaired run-02 rejoins that intact generated village, moves normally
+and receives its typed stats response. A bounded local arity-only trace on
+the relevant owner records 161 calls to `stands_on?/2` during ordinary
+nighttime play, without the former owner restart. Tracing is removed after
+the observation. The previously placed piston and inventory survive; actual
+GUI equipment use also remains live. The dedicated tester continues the
+unfinished circuits on this runtime. This closes the repair, while the full
+village-family and M3 survival gates remain open. Evidence:
+`.local/client-tests/M3-survival/villager-stands-count.txt`,
+`run02-equipped.txt` and the same authoritative report.

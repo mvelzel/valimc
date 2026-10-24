@@ -49,12 +49,12 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Recheck village wandering ([078d](tickets/VMC-078d.md)) and resume the fresh-world route (078), including the ordinary dragon fight (045a).
+1. Continue the fresh-world route (078), including the ordinary dragon fight (045a).
 2. Finish outstanding family and ritual observations in the same batch; resolve findings.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
-[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md).
+[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 

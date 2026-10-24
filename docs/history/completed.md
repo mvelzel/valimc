@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-078d Roofed villager wandering](../tickets/VMC-078d.md) | Generated support fact, independent shuffle and native candidate order; fifteen village scenes, affected checks and same-world nighttime client recheck through 161 support calls |
 | [VMC-078c Milestone fixture boundaries](../tickets/VMC-078c.md) | Complete existing chest, villager and portal fixtures; stop all visited owners in both dimensions; 778 full-suite checks with no checkpoint or traced WAL-read errors |
 | [VMC-037o1 Group projectile hits](../tickets/VMC-037o1.md) | Actual bow hit on a naturally computed dragon part across X=0; disclosed freeze/slow-tick aiming, normal collision and restored rate; M3 finale run 04 |
 | [VMC-078b Native build isolation](../tickets/VMC-078b.md) | Physical per-build assets, overlapping production/parity builds and stable oracle NIF; all vanilla stages, full suite and immutable production-client baseline |
