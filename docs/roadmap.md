@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. User trial of Ubuntu VPS hosting ([056d](tickets/VMC-056d.md)).
+1. User trial of Ubuntu VPS hosting and diagnostic access ([056d](tickets/VMC-056d.md)).
 2. Run the combined automated M3 gate after dolphin guidance [043e26](tickets/VMC-043e26.md); client testing is deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 

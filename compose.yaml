@@ -13,7 +13,7 @@ services:
     mem_limit: 3g
     ports:
       - "25565:25565/tcp"
-      - "127.0.0.1:8080:8080/tcp"
+      - "${VALIMC_PROFILER_HOST_IP:-127.0.0.1}:8080:8080/tcp"
     environment:
       RELEASE_NODE: valimc@127.0.0.1
       VALIMC_BIND: "0.0.0.0"
@@ -24,8 +24,8 @@ services:
       VALIMC_WORLD: /data/world
       VALIMC_GENERATOR: vanilla
       VALIMC_GAME_MODE: survival
-      VALIMC_VIEW_DISTANCE: "4"
-      VALIMC_SIMULATION_DISTANCE: "4"
+      VALIMC_VIEW_DISTANCE: ${VALIMC_VIEW_DISTANCE:-10}
+      VALIMC_SIMULATION_DISTANCE: ${VALIMC_SIMULATION_DISTANCE:-10}
       VALIMC_WORLDGEN_PROTO_CELLS: "128"
       VALIMC_PROFILER_BIND: "0.0.0.0"
       VALIMC_PROFILER_PORT: "8080"

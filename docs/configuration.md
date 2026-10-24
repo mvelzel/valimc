@@ -13,7 +13,11 @@
 | `VALIMC_GENERATOR_SETTINGS` | A flat world's layers and biome (`generator-settings`, vanilla's flat settings JSON); flat worlds with features or lakes are refused |
 | `VALIMC_GENERATE_STRUCTURES` | `generate-structures` (`true` by default), recorded in the world's generation settings |
 | `VALIMC_VIEW_DISTANCE` | Server view distance (`view-distance`, 2..32, default 10): each client gets the distance it requests, at least 2 and at most this |
-| `VALIMC_SIMULATION_DISTANCE` | Simulation distance clients are told (`simulation-distance`, 2..32, default 10); regions still simulate every loaded chunk |
+| `VALIMC_SIMULATION_DISTANCE` | Distance around each player that receives simulation tickets (`simulation-distance`, 2..32, default 10), capped by the server view distance and independent of the client render distance |
+| `VALIMC_PROFILER_BIND` | Diagnostic HTTP listen address; default `127.0.0.1` (Compose listens inside the container on `0.0.0.0`) |
+| `VALIMC_PROFILER_HOST_IP` | Compose-only host address for publishing diagnostic TCP 8080; default `127.0.0.1` for SSH, `0.0.0.0` for public IPv4 |
+| `VALIMC_PROFILER_PORT` | Diagnostic HTTP port; default `0` (an available port), `8080` in Compose |
+| `VALIMC_PROFILER_URL` | HTTP(S) origin printed in `/spark` links and used by LiveView/WebSockets; Compose defaults to `http://localhost:8080` for an SSH tunnel |
 | `VALIMC_RESPAWN_RADIUS` | The `respawn_radius` game rule: new players and bedless respawns appear within this many blocks of the world spawn; default 10 |
 | `VALIMC_GAME_MODE` | New/legacy player mode: survival, creative, adventure, spectator |
 | `VALIMC_ENCRYPTION` | Offline RSA/AES transport test; does not authenticate accounts |
