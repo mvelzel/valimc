@@ -19,6 +19,10 @@
 # Version control is not needed by the release build.
 .git
 
+# Deployment settings are read by Compose on the host, not by the image build.
+/.env
+/.env.*
+
 # Local worktrees, private research, test evidence and disposable world data
 /.claude/
 /.local/

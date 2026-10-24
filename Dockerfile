@@ -26,6 +26,10 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} AS builder
 
+# Keep native compilation bounded on small deployment hosts.
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
+
 # install build dependencies
 RUN apt-get update \
   && apt-get install -y --no-install-recommends build-essential ca-certificates curl git \
