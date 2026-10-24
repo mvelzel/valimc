@@ -50,10 +50,11 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
-2. Recheck the joined-chest refresh repair (032b) in the finale client batch.
-3. Recheck live dragon retention and the fight (045a), then the fresh-world M3 gate (078) and build isolation (078b).
+2. Finish native build isolation (078b) and recheck ordinary dragon flight (045a).
+3. Complete the dragon fight (045a), then the fresh-world M3 gate (078).
 
-Done: [039c](tickets/VMC-039c.md), [045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md).
+Done: [032b](tickets/VMC-032b.md), [039c](tickets/VMC-039c.md),
+[045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 
@@ -65,7 +66,6 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-032b](tickets/VMC-032b.md) | Join, use and split a large chest across a section line; contents survive reconnect; hoppers and comparators read both halves |
 | [VMC-037o1](tickets/VMC-037o1.md) | Shoot a dragon part across a section line |
 | [VMC-045a](tickets/VMC-045a.md) | Kill the dragon and exit; respawn it with four crystals; rewards survive reconnect |
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |

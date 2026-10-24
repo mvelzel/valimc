@@ -1,6 +1,6 @@
 # VMC-032b — Double chests
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-032a](VMC-032a.md) (chests).
 
@@ -71,7 +71,7 @@ shift-click and collect across its midpoint. Check sneaking and a third
 chest, block either roof, break each half in turn, and reconnect with the
 contents retained. Repeat across x=128. Feed and empty it through either
 half with hoppers, and check a comparator against a half-full large chest.
-This graphical gate remains pending.
+The finale batch below completes this graphical gate.
 
 ## Finale client finding (October 24, 2026)
 
@@ -90,7 +90,43 @@ checks the refreshed view; actual removal still closes it. All ten
 chest/cooking/owner flow tests pass, as do the 559-check fast suite and the one affected vanilla stage (official-codec TCP). Logs:
 `.local/double-chest-refresh-flow-tests.log`,
 `.local/m3-gate-headroom-menu-fast.log` and
-`.local/double-chest-refresh-retry-vanilla.log`. The graphical recheck
-remains pending. Private evidence:
+`.local/double-chest-refresh-retry-vanilla.log`. The combined runtime's
+graphical recheck follows. Private evidence:
 `.local/client-tests/M3-finale/chest-menu-trace.txt` and
 `chest-single-click-after.txt`; the batch report retains the FAIL.
+
+The combined repair build's fresh run-03 passes that exact single-click
+reproduction after a full server restart. The retained six-row contents
+reopen; a disclosed half-full stock isolates the retry. One actual click
+keeps menu id 2 open with 64 carried and 26 full stacks; placing the stack
+in the inventory and returning it also keep the view open. The comparator
+output changes from seven to eight, with both halves visibly powering
+their wires. Reviewed images and owner reads are under the same evidence
+root: `chest-repaired-single-click.png`, `comparator-both-halves.png` and
+`chest-repair-before.txt`, `chest-repair-after.txt`,
+`chest-repair-returned.txt`. The original failure remains retained;
+the remaining placement and split scenarios also pass below.
+
+The completed batch passes actual sneaking ground placement as two singles,
+deliberate sneaking side placement as a joined chest, and a third adjacent
+chest remaining single. A roof over either half blocks opening from its
+partner; removing it restores the six-row menu. Actual double-click collect
+combines disclosed 20/30-stone stacks across the section line into 50, and
+actual shift-click transfers work through both menu halves with the view
+remaining open. Survival axe breaks of each half spill only that half's
+stock and one chest item; the remaining three-row chest retains its own
+gold or diamonds. Earlier hopper fixtures feed and extract through both
+halves, including extraction through an empty physical half from its full
+partner. Initial contents survive both a fresh-client reconnect and a full
+server restart. These close the player-visible scope; they do not claim
+every drag/overflow permutation or audible playback on the muted client.
+
+The primary reviewed the tester's report and saved joined/single menus,
+both-half comparator view, collect/shift counts and opposite-half spill/
+survivor images. The full fixture limits and original failures remain in
+`.local/client-tests/M3-finale/report.md`; images include
+`chest-sneak-side-menu.png`, `chest-third-menu.png`,
+`chest-collected50.png`, `chest-shift-lower-half.png`,
+`chest-opposite-break.png` and `chest-opposite-survivor.png`.
+The final parent fast suite passes 561 checks with the later shared dragon
+repair, in `.local/dragon-motion-build-fast.log`.
