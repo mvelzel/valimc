@@ -62,5 +62,17 @@ IPv6 could not be verified from this host (`No route to host`); the documented
 proxy works without native IPv6. Only free public IPv6 and shared IPv4 are
 allocated. Raw logs stay in `.local/fly-*`.
 
+Client address selection research: inspected the installed official 26.3 client
+jar (SHA-1 `e877b6a07acd633fb3bb475002175cec036e7b87`).
+`ServerAddressResolver.SYSTEM` calls `InetAddress.getByName`, constructs one
+`InetSocketAddress` and returns it. `ConnectScreen$1.run` passes that address to
+`Connection.connect`, whose Netty bootstrap uses its resolved `InetAddress`;
+there is no alternate-family retry. No client class or stock version JVM
+argument sets a `preferIPv*` property. IPv6 is supported, but Java 25's default
+`java.net.preferIPv6Addresses=false` selects IPv4 when both DNS records exist.
+`-Djava.net.preferIPv6Addresses=true` changes that selection, provided the client
+has a working IPv6 route. Private bytecode stays in `.local/fly-client-*`.
+Reference: https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/net/doc-files/net-properties.html
+
 Client: the user will test gameplay and the browser personally; no delegated or
 automated CUA testing. Gameplay rules are unchanged.

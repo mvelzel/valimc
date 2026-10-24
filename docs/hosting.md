@@ -29,8 +29,12 @@ starting the release. Back up the whole world dataset rather than selected files
 
 On an IPv6-capable connection, run `fly ips list -a valimc` and enter the public
 IPv6 address in Minecraft as `[address]:25565`. Use the literal IPv6 address:
-the `valimc.fly.dev` hostname also has a shared IPv4 record for HTTPS, and a Java
-client may select that IPv4 address, which cannot carry raw Minecraft TCP.
+the `valimc.fly.dev` hostname also has a shared IPv4 record for HTTPS. The stock
+26.3 client resolves one address with `InetAddress.getByName`, then connects to
+that address without trying the other address family. Java prefers IPv4 by
+default when both records exist, so it selects the shared IPv4, which cannot
+carry raw Minecraft TCP. On a working IPv6 connection, the client JVM argument
+`-Djava.net.preferIPv6Addresses=true` makes the hostname select IPv6 instead.
 
 For an IPv4-only connection, keep this running on your computer:
 
