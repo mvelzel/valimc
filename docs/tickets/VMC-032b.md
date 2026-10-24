@@ -72,3 +72,25 @@ chest, block either roof, break each half in turn, and reconnect with the
 contents retained. Repeat across x=128. Feed and empty it through either
 half with hoppers, and check a comparator against a half-full large chest.
 This graphical gate remains pending.
+
+## Finale client finding (October 24, 2026)
+
+The frozen `264113e1` client batch passes actual x=127/128 placement, the
+six-row menu, items in both halves, and a fresh-client reconnect. An
+isolated single click then reproduces a menu closing when the content
+change also updates nearby comparators. The retained trace shows
+`Player.Menus.refresh/2` receiving `{:error, {:retry, :chest_busy}}` from
+`Region.menu/4`, immediately followed by `Menus.close/1`. The chest stays
+intact. This is a transient write-plan conflict, not an invalid view.
+
+The repair keeps its subscription and dirty view on the existing shared
+retry error, so the next player tick refreshes it. The focused owner test
+holds one half busy, checks no close or output, releases the plan and
+checks the refreshed view; actual removal still closes it. All ten
+chest/cooking/owner flow tests pass, as do the 559-check fast suite and the one affected vanilla stage (official-codec TCP). Logs:
+`.local/double-chest-refresh-flow-tests.log`,
+`.local/m3-gate-headroom-menu-fast.log` and
+`.local/double-chest-refresh-retry-vanilla.log`. The graphical recheck
+remains pending. Private evidence:
+`.local/client-tests/M3-finale/chest-menu-trace.txt` and
+`chest-single-click-after.txt`; the batch report retains the FAIL.

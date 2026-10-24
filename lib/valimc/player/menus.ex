@@ -307,6 +307,12 @@ defmodule Valimc.Player.Menus do
       {menu_kind, _, _} = decision when menu_kind == menu.kind ->
         refreshed(state, decision)
 
+      {:error, {:retry, _}} ->
+        # A joined half may be planning a write while redstone or another
+        # viewer changes its contents. Keep the subscription and refresh on
+        # the next player tick, including after a click that could not run.
+        %{state | table_menu: %{menu | dirty: true}}
+
       _ ->
         close(state)
     end

@@ -92,6 +92,70 @@ defmodule Valimc.DoubleChestRegionTest do
     {left, right, owner}
   end
 
+  test "a busy half defers a session refresh without closing; removal still closes", ctx do
+    {_left, right, owner} = pair(ctx, true)
+    ref = make_ref()
+
+    {:chest, block, view} =
+      Region.menu(owner, self(), right, grant(:subscribe, right, %{menu: :chest, view_ref: ref}))
+
+    {x, y, z} = right
+
+    state = %{
+      life_stage: :alive,
+      teleport_pending: false,
+      socket: nil,
+      threshold: 256,
+      connection: self(),
+      inventory: %Inventory{},
+      player: %{
+        x: x + 0.5,
+        y: y * 1.0,
+        z: z + 2.5,
+        yaw: 0.0,
+        uuid: <<0::128>>,
+        dimension: :overworld,
+        input: %Valimc.Player.Input{load_ticks: 0},
+        game_mode: %{current: :survival}
+      },
+      table_menu: %{
+        id: 1,
+        kind: :chest,
+        owner: owner,
+        position: right,
+        view_ref: ref,
+        block: block,
+        view: view,
+        opener: true,
+        dirty: false,
+        progress_dirty: false
+      }
+    }
+
+    Valimc.TestRegion.replace_section(owner, fn resource ->
+      %{resource | jobs: %{resource.jobs | entries: Map.put(resource.jobs.entries, :plan, %{})}}
+    end)
+
+    Valimc.Protocol.Codec.open_outbox()
+    deferred = Valimc.Player.Menus.changed(state, 1)
+    assert deferred.table_menu.view_ref == ref and deferred.table_menu.dirty
+    assert Valimc.Protocol.Codec.take_outbox() == []
+
+    Valimc.TestRegion.replace_section(owner, fn resource ->
+      %{resource | jobs: %{resource.jobs | entries: Map.delete(resource.jobs.entries, :plan)}}
+    end)
+
+    Valimc.Protocol.Codec.open_outbox()
+    refreshed = Valimc.Player.Menus.check_table_menu(deferred)
+    assert refreshed.table_menu.view_ref == ref and not refreshed.table_menu.dirty
+    assert Valimc.Protocol.Codec.take_outbox() != []
+
+    :ok = Region.mine_block(owner, right, %{right => {block, 0}}, [])
+    Valimc.Protocol.Codec.open_outbox()
+    assert Valimc.Player.Menus.changed(refreshed, 2).table_menu == nil
+    assert Valimc.Protocol.Codec.take_outbox() != []
+  end
+
   test "one collection spans both sections, survives reload, and breaking one half keeps the other",
        ctx do
     {left, right, owner} = pair(ctx, true)
