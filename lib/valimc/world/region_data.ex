@@ -96,6 +96,8 @@ defmodule Valimc.World.RegionData do
     {:arena, nil},
     {:arena_view, nil},
     {:arena_spikes, []},
+    {:arena_pillars, nil},
+    {:arena_retry, 0},
     # The group's other sections (VMC-077j), as the group hands them in
     # (`Region`): what the block rules read across and whether a plan holds
     # each; and what this section's call did to them (block-rule changes,
@@ -1258,6 +1260,8 @@ defmodule Valimc.World.RegionData do
   end
 
   # Craters wait for the one crater job; past 64 the newest two merge.
+  defp queue_crater(state, _explosion, []), do: state
+
   defp queue_crater(state, explosion, cells) do
     pending = state.explosions ++ [{explosion, cells}]
 
@@ -2692,6 +2696,10 @@ defmodule Valimc.World.RegionData do
       edits: &arena_edits/2,
       spawn: &arena_spawn/1,
       gateway: &arena_gateway/2,
+      ritual: &arena_ritual/2,
+      queue: fn state, effect ->
+        %{state | sibling_effects: state.sibling_effects ++ [{state.key, effect}]}
+      end,
       event: fn state, id, at ->
         {x, _, z} = at
         route = Grid.section(state.dimension, Grid.chunk_key(x, z))
@@ -2729,9 +2737,12 @@ defmodule Valimc.World.RegionData do
     intents =
       Enum.filter(intents, fn {{_, y, _}, _, _} -> y >= min_y and y < min_y + height end)
 
+    cells = Enum.map(intents, &elem(&1, 0))
+    initial = Map.new(Enum.zip(cells, Valimc.World.View.blocks(view, cells)))
+
     {_projected, actions} =
-      Enum.reduce(intents, {%{}, []}, fn {cell, block, drops}, {projected, actions} ->
-        old = Map.get_lazy(projected, cell, fn -> Valimc.World.View.block(view, cell) end)
+      Enum.reduce(intents, {initial, []}, fn {cell, block, drops}, {projected, actions} ->
+        old = Map.get(projected, cell)
 
         next =
           cond do
@@ -2775,9 +2786,98 @@ defmodule Valimc.World.RegionData do
     arena_edits(state, intents)
   end
 
+  defp arena_ritual(state, {:beam, uuids, target}) do
+    arena_crystals(state, fn entry ->
+      if entry.entity.uuid in uuids, do: %{entry.body.data | beam: target}, else: entry.body.data
+    end)
+  end
+
+  defp arena_ritual(state, :reset_spike_crystals) do
+    arena_crystals(state, fn entry ->
+      if Valimc.World.Dragon.Ritual.on_spike?(entry.entity, state.arena_spikes),
+        do: %{entry.body.data | invulnerable: false, beam: nil},
+        else: entry.body.data
+    end)
+  end
+
+  defp arena_ritual(state, {kind, spike}) when kind in [:pillar_clear, :pillar_build] do
+    {clear, build} = Map.fetch!(state.arena_pillars, {spike.x, spike.z})
+    intents = Valimc.World.Dragon.Ritual.intents(if kind == :pillar_clear, do: clear, else: build)
+    state = arena_edits(state, intents)
+
+    if kind == :pillar_build do
+      {:ok, body} = Body.new("minecraft:end_crystal")
+
+      {yaw, random} =
+        Valimc.Data.JavaRandom.next_float(state.ai_random || Valimc.Data.JavaRandom.create())
+
+      body = %{
+        body
+        | yaw: Valimc.Data.Float32.round(yaw * 360.0),
+          data: %{body.data | invulnerable: true, beam: {0, 128, 0}}
+      }
+
+      record =
+        Store.body_record(
+          body,
+          :crypto.strong_rand_bytes(16),
+          {spike.x + 0.5, spike.height + 1.0, spike.z + 0.5}
+        )
+
+      create_group_body(%{state | ai_random: random}, record)
+    else
+      state
+    end
+  end
+
+  defp arena_ritual(state, {:pillar_blast, spike}) do
+    # Every block the power-five rays can reach lies inside the cleared
+    # 21-cube. Keep the native entity damage and large particle without
+    # starting an asynchronous empty crater.
+    explode(state, %Explosion{
+      center: {spike.x + 0.5, spike.height * 1.0, spike.z + 0.5},
+      radius: 5.0,
+      blocks: false
+    })
+  end
+
+  defp arena_ritual(state, {:ritual_explode, uuid, position}) do
+    # Capture all positions before the first blast: earlier blasts may
+    # discard later crystals, but native still explodes every listed one.
+    state =
+      arena_crystals(state, fn entry ->
+        if entry.entity.uuid == uuid, do: %{entry.body.data | beam: nil}, else: entry.body.data
+      end)
+
+    state =
+      case Enum.find(group_entries(state), fn {_, e} -> e.entity.uuid == uuid end) do
+        {id, _} ->
+          {key, store, _} = group_entry(state, id)
+          change_group_entry(state, key, store, id, :remove)
+
+        nil ->
+          state
+      end
+
+    explode(state, %Explosion{center: position, radius: 6.0, blocks: false, interacts: false})
+  end
+
+  defp arena_crystals(state, change) do
+    ids = for {id, %{body: %Body{type: "minecraft:end_crystal"}}} <- group_entries(state), do: id
+
+    Enum.reduce(ids, state, fn id, state ->
+      {key, store, entry} = group_entry(state, id)
+      data = change.(entry)
+
+      if data == entry.body.data,
+        do: state,
+        else: change_group_entry(state, key, store, id, {:body, %{entry.body | data: data}, []})
+    end)
+  end
+
   defp crystal_destroyed(state, crystal, hit) do
     if Valimc.World.Dimension.facts(state.dimension).dragon_fight do
-      state = arena_crystal_change(state)
+      state = arena_crystal_change(state, crystal.uuid)
       point = {floor(crystal.x), floor(crystal.y), floor(crystal.z)}
 
       player =
@@ -2858,7 +2958,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp arena_crystal_change(state) do
+  defp arena_crystal_change(state, uuid) do
     arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
 
     if arena do
@@ -2866,10 +2966,11 @@ defmodule Valimc.World.RegionData do
       arena = %{arena | alive_crystals: count, scan: 0}
 
       if state.arena do
-        %{state | arena: arena}
+        Valimc.World.Dragon.Ritual.destroyed(%{state | arena: arena}, uuid, arena_ops())
       else
-        state = put_in(state.siblings[{0, 0}].arena, arena)
-        sibling_effect(state, {0, 0}, {:arena_count, count})
+        {projected, _} = Valimc.World.Dragon.Fight.crystal_destroyed(arena, uuid)
+        state = put_in(state.siblings[{0, 0}].arena, projected)
+        sibling_effect(state, {0, 0}, {:arena_crystal_destroyed, count, uuid})
       end
     else
       state
@@ -3237,7 +3338,14 @@ defmodule Valimc.World.RegionData do
          body = put_in(body.data.bottom, false),
          record = Store.body_record(body, :crypto.strong_rand_bytes(16), point),
          {:ok, store, _} <- Store.create_record(state.entities.store, state.key, record) do
-      {:reply, :ok, put_entities(state, store)}
+      state = put_entities(state, store)
+
+      state =
+        if state.arena,
+          do: Valimc.World.Dragon.Ritual.try_respawn(state, arena_ops()),
+          else: sibling_effect(state, {0, 0}, :arena_try_respawn)
+
+      {:reply, :ok, state}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
@@ -5931,8 +6039,20 @@ defmodule Valimc.World.RegionData do
     %{state | block_entities: entities}
   end
 
-  def apply_sibling(%{arena: arena} = state, {:arena_count, count}) when arena != nil,
-    do: %{state | arena: %{arena | alive_crystals: count, scan: 0}}
+  def apply_sibling(%{arena: arena} = state, {:arena_crystal_destroyed, count, uuid})
+      when arena != nil,
+      do:
+        Valimc.World.Dragon.Ritual.destroyed(
+          %{state | arena: %{arena | alive_crystals: count, scan: 0}},
+          uuid,
+          arena_ops()
+        )
+
+  def apply_sibling(state, :arena_try_respawn),
+    do: Valimc.World.Dragon.Ritual.try_respawn(state, arena_ops())
+
+  def apply_sibling(state, {:arena_effect, effect}),
+    do: Valimc.World.Dragon.Arena.effect(effect, state, arena_ops())
 
   # A sibling's hoppers' inserts into this section's containers (VMC-049a).
   def apply_sibling(state, {:hopper_inserts, inserts}), do: hopper_inserts(state, inserts)
@@ -8100,6 +8220,12 @@ defmodule Valimc.World.RegionData do
   # Work that an unload would cut short: queued or planned writes, jobs,
   # generation, waiting calls, open containers and box edit locks.
   # A job's result (`Valimc.World.Jobs`), by kind.
+  defp job_done(:dragon_pillars, _job, {:ok, plans}, state),
+    do: {:noreply, %{state | arena_pillars: plans}}
+
+  defp job_done(:dragon_pillars, _job, _error, state),
+    do: {:noreply, %{state | arena_retry: state.game_tick + 20}}
+
   defp job_done(:cooking, job, {:ok, plan}, state),
     do: {:noreply, accept_cooking_plan(state, job, plan)}
 
@@ -8220,6 +8346,9 @@ defmodule Valimc.World.RegionData do
     for from <- waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
     {:noreply, %{state | encodes: encodes}}
   end
+
+  defp job_failed(:dragon_pillars, _job, _reason, state),
+    do: {:noreply, %{state | arena_retry: state.game_tick + 20}}
 
   defp job_failed(:handoff, _job, _reason, state) do
     Valimc.Data.Metrics.add(:item_handoff_retries)

@@ -51,7 +51,7 @@ Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
 2. Validate double chests (032b) with the next finale client batch.
-3. Finale: finish the dragon's live respawn ritual (045a), validate the finale batch, then run the M3 gate (078).
+3. Finale: validate the complete dragon fight (045a) in the batched client run, then run the M3 gate (078).
 
 Done: [039c](tickets/VMC-039c.md), [049a](tickets/VMC-049a.md).
 

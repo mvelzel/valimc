@@ -129,6 +129,7 @@ public class DragonArenaOracle {
       var row=new JsonObject(); row.addProperty("stage",stage(fight.stage)); row.addProperty("time",fight.time);
       var beams=new JsonArray(); for(var c:crystals) beams.add(pos(c.getBeamTarget())); row.add("beams",beams);
       row.add("events",level.events); row.add("explosions",level.explosions); row.add("added",level.added);
+      if(!level.added.isEmpty()) row.add("pillar_writes",level.writes);
       row.addProperty("reset",fight.reset); row.addProperty("removed",crystals.getFirst().isRemoved()); ticks.add(row);
     }
     out.add("ritual",ticks);

@@ -23,10 +23,9 @@ defmodule Valimc.DragonLiveTest do
     on_exit(fn ->
       Valimc.TestScope.stop_players(base)
 
-      for key <- keys,
-          {pid, _} <- Valimc.TestWorld.registered({:the_end, key}),
-          do: Valimc.TestScope.kill(pid)
-
+      # This serial suite owns the End; stop generation and final writes
+      # before deleting its world, including a socket's extra view chunks.
+      Valimc.TestScope.stop_dimensions()
       File.rm_rf!(base)
     end)
 
@@ -174,6 +173,208 @@ defmodule Valimc.DragonLiveTest do
     {:ok, _} = Region.step(owner, 3)
     assert Valimc.TestRegion.section(owner).arena.gateways == fight.gateways
   end
+
+  # The fixture starts at a defeated fight; crystals, block effects, jobs,
+  # clock and restart all use the live owner paths. The disclosed audience
+  # row is retained so the serial owner test needs no listening client.
+  defp defeated(c) do
+    admit(c)
+
+    for {key, id, entry} <- dragons(c) do
+      Valimc.TestRegion.replace_section(c.owners[key], fn state ->
+        {:ok, store} =
+          Store.remove(state.entities.store, state.entities.store.epoch, id, entry.revision)
+
+        put_in(state.entities.store, store)
+      end)
+    end
+
+    Valimc.TestRegion.replace_section(c.origin, fn state ->
+      state = %{state | arena: %{state.arena | dragon: nil, killed: true, previous_kill: true}}
+      state = put_in(state.arena_view.scan, -10_000)
+      RegionData.apply_sibling(state, {:arena_effect, {:podium, true}})
+    end)
+
+    {:ok, _} = Region.step(c.origin, 1)
+  end
+
+  defp place_ritual(c) do
+    for {x, z} <- [{0, -3}, {3, 0}, {0, 3}, {-3, 0}] do
+      key = Grid.region_key(Grid.chunk_key(x, z))
+
+      Valimc.TestWait.until(fn ->
+        case Region.place_crystal(c.owners[key], {x, 63, z}, []) do
+          :ok -> true
+          {:error, {:retry, _}} -> false
+          error -> flunk("crystal placement failed: #{inspect(error)}")
+        end
+      end)
+    end
+
+    assert section(c).arena.stage == :start
+    section(c).arena.crystals
+  end
+
+  defp crystals(c) do
+    for key <- c.keys,
+        {_, %{body: %{type: "minecraft:end_crystal"}} = entry} <-
+          section(c, key).entities.store.entries,
+        do: entry
+  end
+
+  defp reopen(c) do
+    Valimc.TestWait.until(fn ->
+      Enum.all?(:sys.get_state(c.pid).sections, fn {_, section} ->
+        not Valimc.World.Jobs.busy?(section.resource.jobs)
+      end)
+    end)
+
+    :ok = Region.flush(c.pid)
+    Valimc.TestScope.kill(c.pid)
+    {:ok, {pid, epoch}} = Valimc.TestWorld.owner({:the_end, {0, 0}})
+
+    owners =
+      for key <- c.keys, into: %{} do
+        {:ok, {other, e}} = Valimc.TestWorld.owner({:the_end, key})
+        if other != pid, do: assert({:ok, [_]} = Region.hand_over(other, pid))
+        {key, {pid, e}}
+      end
+
+    for {key, owner} <- owners, do: :ok = Valimc.TestScope.simulate(owner, key)
+    %{c | pid: pid, origin: {pid, epoch}, owners: owners}
+  end
+
+  defp advance(c, ticks) do
+    for _ <- 1..ticks do
+      before = section(c).arena
+      # A multi-tick step is one callback and cannot receive worker replies.
+      # Count accepted ritual clock steps, letting existing jobs finish and
+      # group fencing settle between callbacks, as live ticks do.
+      Valimc.TestWait.until(fn ->
+        ready =
+          Enum.all?(:sys.get_state(c.pid).sections, fn {_, section} ->
+            RegionData.write_busy(section.resource) == nil
+          end)
+
+        if ready do
+          {:ok, _} = Region.step(c.origin, 1)
+          after_step = section(c).arena
+
+          before.stage == nil or
+            {after_step.stage, after_step.time} != {before.stage, before.time}
+        end
+      end)
+    end
+  end
+
+  defp ritual_clock(%{stage: :start}), do: 0
+  defp ritual_clock(%{stage: :preparing, time: t}), do: 1 + t
+  defp ritual_clock(%{stage: :pillars, time: t}), do: 102 + t
+  defp ritual_clock(%{stage: :summoning, time: t}), do: 503 + t
+  defp ritual_clock(%{stage: nil}), do: 604
+
+  test "all ten live pillars and the next dragon resume across restart, then reward 500 XP", c do
+    defeated(c)
+    ritual = place_ritual(c)
+    advance(c, 1)
+    Valimc.TestWait.until(fn -> section(c).arena_pillars != nil end)
+    advance(c, 141)
+    assert section(c).arena.stage == :pillars and section(c).arena.time == 40
+    [first] = Enum.reject(crystals(c), &(&1.entity.uuid in ritual))
+    assert first.body.data.invulnerable and first.body.data.beam == {0, 128, 0}
+    fight = section(c).arena
+    c = reopen(c)
+    assert section(c).arena == fight and section(c).arena_pillars == nil
+    admit(c)
+    Valimc.TestRegion.replace_section(c.origin, &put_in(&1.arena_view.scan, -10_000))
+    Valimc.TestWait.until(fn -> section(c).arena_pillars != nil end)
+    advance(c, 604 - ritual_clock(section(c).arena))
+    fight = section(c).arena
+    assert fight.stage == nil and not fight.killed and fight.previous_kill, inspect(fight)
+    assert length(fight.gateways) == 20
+    assert length(crystals(c)) == 10
+    assert Enum.all?(crystals(c), &(not &1.body.data.invulnerable and &1.body.data.beam == nil))
+    assert Enum.all?(crystals(c), &(&1.entity.uuid not in ritual))
+    view = View.new(:the_end)
+
+    for s <- section(c).arena_spikes do
+      assert View.block(view, {s.x, s.height, s.z}) == Blocks.default_state("bedrock")
+      assert View.block(view, {s.x, s.height - 1, s.z}) == Blocks.default_state("obsidian")
+    end
+
+    [{key, id, dragon}] = dragons(c)
+    assert fight.dragon == dragon.entity.uuid
+
+    Valimc.TestRegion.replace_section(c.owners[key], fn state ->
+      body = dragon.body
+      body = put_in(body.mob.living.health.value, 0.0)
+      put_in(state.entities.store, Store.change_body(state.entities.store, id, body))
+    end)
+
+    # Existing item plans can defer an entity phase; bound wall ticks while
+    # the native actor still retains exactly its own 200 death ticks.
+    Enum.reduce_while(1..220, nil, fn _, _ ->
+      if section(c).arena.killed do
+        {:halt, nil}
+      else
+        advance(c, 1)
+        {:cont, nil}
+      end
+    end)
+
+    xp =
+      for key <- c.keys,
+          {_, %{kind: :orb, value: v, count: n}} <- section(c, key).entities.store.entries,
+          reduce: 0,
+          do: (sum -> sum + v * n)
+
+    assert xp == 500
+    assert dragons(c) == []
+    assert section(c).arena.killed and length(section(c).arena.gateways) == 19
+  end
+
+  test "a sibling participant aborts and resets spike protection; missing restored participants abort",
+       c do
+    defeated(c)
+    _ = place_ritual(c)
+    advance(c, 1)
+    Valimc.TestWait.until(fn -> section(c).arena_pillars != nil end)
+    advance(c, 141)
+    assert Enum.any?(crystals(c), & &1.body.data.invulnerable)
+    participant = Enum.find(crystals(c), &(&1.entity.x < 0 and &1.entity.z > 0))
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:player_attack),
+      amount: 1.0,
+      attacker: nil,
+      position: {participant.entity.x, participant.entity.y, participant.entity.z}
+    }
+
+    assert {:ok, %{hurt: true}} =
+             Region.hurt_entity(c.owners[{-1, 0}], participant.entity.uuid, hit)
+
+    assert section(c).arena.stage == nil and section(c).arena.killed
+
+    assert Enum.all?(
+             Enum.reject(crystals(c), &(&1.entity.uuid in section(c).arena.crystals)),
+             fn entry ->
+               if Valimc.World.Dragon.Ritual.on_spike?(entry.entity, section(c).arena_spikes),
+                 do: not entry.body.data.invulnerable and entry.body.data.beam == nil,
+                 else: true
+             end
+           )
+
+    assert View.block(View.new(:the_end), {1, 63, 0}) == Blocks.default_state("end_portal")
+
+    Valimc.TestRegion.replace_section(c.origin, fn state ->
+      %{state | arena: %{state.arena | stage: :summoning, time: 90, crystals: [<<999::128>>]}}
+    end)
+
+    c = reopen(c)
+    admit(c)
+    assert section(c).arena.stage == nil and section(c).arena.killed
+    assert dragons(c) == []
+  end
 end
 
 defmodule Valimc.DragonLiveConnectionTest do
@@ -263,5 +464,11 @@ defmodule Valimc.DragonLiveConnectionTest do
     {:ok, _} = Region.step(c.origin, 20)
     {remove, _} = Client.await(client, :play, "boss_event")
     assert remove == <<bar::binary, 1>>
+    Client.close(client)
+    # This fixture parks its normal commit timer for ten minutes. Flush
+    # the leaving player's final frame explicitly before awaiting release.
+    Valimc.TestWait.until(fn -> :sys.get_state(c.pid).players[uuid] == nil end)
+    :ok = Region.flush(c.pid)
+    Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerRegistry, uuid) == [] end)
   end
 end

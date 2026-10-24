@@ -71,6 +71,12 @@ spikes =
     %{x: s["x"], z: s["z"], height: s["height"], radius: s["radius"], guarded: s["guarded"]}
   end)
 
+{:ok, native} = Valimc.Worldgen.Generator.worldgen(20_261_024, "minecraft:end")
+{:ok, pillar_plans} = Valimc.Native.worldgen_end_pillars(native, 20_261_024)
+
+pillar_plans =
+  Enum.zip(spikes, pillar_plans) |> Map.new(fn {s, binary} -> {{s.x, s.z}, binary} end)
+
 fight = %{Fight.new(20_261_024) | killed: true, stage: :start, crystals: [700, 701, 702, 703]}
 
 final =
@@ -128,6 +134,15 @@ final =
           }
 
     DragonArenaCheck.same(added, row["added"], label <> " crystals")
+
+    for {:pillar, s} <- effects do
+      writes =
+        Valimc.World.Dragon.Ritual.intents(pillar_plans[{s.x, s.z}])
+        |> Enum.map(fn {at, block, false} -> DragonArenaCheck.list(at) ++ [block] end)
+
+      DragonArenaCheck.same(writes, row["pillar_writes"], label <> " shared pillar geometry")
+    end
+
     DragonArenaCheck.same(:reset_spike_crystals in effects, row["reset"], label <> " reset")
     DragonArenaCheck.same(:spawn_dragon in effects, row["removed"], label <> " completion")
     {next, beams}

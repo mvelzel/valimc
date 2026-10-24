@@ -122,18 +122,53 @@ fn place_spike(
     random: &mut Random,
     spike: Spike,
 ) -> Result<(), String> {
+    let min_y = region.min_y();
+    spike_blocks(d, spike, min_y, |p, block| {
+        region.set(p, block, 3);
+    })?;
     let known = d.known();
     let table = d.table.as_ref();
+    let yaw = random.next_float() * 360.0;
+    region.add_entity(Entity {
+        kind: "minecraft:end_crystal",
+        pos: [
+            spike.x as f64 + 0.5,
+            (spike.height + 1) as f64,
+            spike.z as f64 + 0.5,
+        ],
+        yaw,
+        ..Entity::default()
+    });
+    let crystal = [spike.x, spike.height + 1, spike.z];
+    region.set(offset(crystal, [0, -1, 0]), known.bedrock, 3);
+    let fire = d
+        .rules
+        .fire
+        .state_at(table, &mut |p| region.get(p), crystal);
+    region.set(crystal, fire, 3);
+    Ok(())
+}
+
+// Decoration and live regeneration visit the same ordered geometry.
+fn spike_blocks(
+    d: &Decoration,
+    spike: Spike,
+    min_y: i32,
+    mut emit: impl FnMut([i32; 3], u16),
+) -> Result<(), String> {
+    let known = d.known();
+    let table = d.table.as_ref();
+    let air = table.default_state("air")?;
     let r = spike.radius;
     // `BlockPos.betweenClosed`: X fastest, then Y, then Z.
     for z in spike.z - r..=spike.z + r {
-        for y in region.min_y()..=spike.height + 10 {
+        for y in min_y..=spike.height + 10 {
             for x in spike.x - r..=spike.x + r {
                 let (dx, dz) = ((x - spike.x) as f64, (z - spike.z) as f64);
                 if dx * dx + dz * dz <= (r * r + 1) as f64 && y < spike.height {
-                    region.set([x, y, z], known.obsidian, 3);
+                    emit([x, y, z], known.obsidian);
                 } else if y > 65 {
-                    region.set([x, y, z], region.air, 3);
+                    emit([x, y, z], air);
                 }
             }
         }
@@ -159,30 +194,37 @@ fn place_spike(
                             .with(bars, property, if on { "true" } else { "false" })
                             .ok_or("iron bars")?;
                     }
-                    region.set([spike.x + dx, spike.height + dy, spike.z + dz], bars, 3);
+                    emit([spike.x + dx, spike.height + dy, spike.z + dz], bars);
                 }
             }
         }
     }
-    let yaw = random.next_float() * 360.0;
-    region.add_entity(Entity {
-        kind: "minecraft:end_crystal",
-        pos: [
-            spike.x as f64 + 0.5,
-            (spike.height + 1) as f64,
-            spike.z as f64 + 0.5,
-        ],
-        yaw,
-        ..Entity::default()
-    });
-    let crystal = [spike.x, spike.height + 1, spike.z];
-    region.set(offset(crystal, [0, -1, 0]), known.bedrock, 3);
-    let fire = d
-        .rules
-        .fire
-        .state_at(table, &mut |p| region.get(p), crystal);
-    region.set(crystal, fire, 3);
     Ok(())
+}
+
+/// A live ritual's bounded blueprint, after its 21-cube was cleared.
+/// The caller runs this CPU work outside the simulation owner.
+pub fn pillar_plan(d: &Decoration, spike: Spike) -> Result<Vec<([i32; 3], u16)>, String> {
+    let mut writes = Vec::new();
+    spike_blocks(d, spike, d.dimension.0, |p, block| writes.push((p, block)))?;
+    let base = [spike.x, spike.height, spike.z];
+    let crystal = offset(base, [0, 1, 0]);
+    let bedrock = d.known().bedrock;
+    let air = d.table.default_state("air")?;
+    writes.push((base, bedrock));
+    let fire = d.rules.fire.state_at(
+        &d.table,
+        &mut |p| {
+            if p == base {
+                bedrock
+            } else {
+                air
+            }
+        },
+        crystal,
+    );
+    writes.push((crystal, fire));
+    Ok(writes)
 }
 
 /// `EndGatewayFeature`: a gateway in a bedrock frame, its block entity sent

@@ -1,6 +1,6 @@
 # VMC-045a — The Ender Dragon fight
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md),
 [VMC-050a](VMC-050a.md), [VMC-043e](VMC-043e.md) (endermen in the End).
@@ -33,5 +33,6 @@ in [VMC-037o1](VMC-037o1.md). [VMC-045a5](VMC-045a5.md) connects live
 ticking, attacks, crystal healing and death. [VMC-045a6](VMC-045a6.md)
 defines arena geometry, boss packets and the respawn sequence.
 [VMC-045a7](VMC-045a7.md) admits the live fight and commits its portal,
-egg and gateway with completion. Live ritual effects still follow before
-the batched finale gate.
+egg and gateway with completion. [VMC-045a8](VMC-045a8.md) connects the
+full four-crystal ritual, pillar regeneration, abort and restart recovery.
+The complete live fight now awaits its batched finale client gate.

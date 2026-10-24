@@ -3,7 +3,7 @@ defmodule Valimc.World.Dragon.Arena do
   alias Valimc.Data.{BlockFacts, Blocks, Float32, Grid}
   alias Valimc.Entity.Body
   alias Valimc.Protocol.BossPackets
-  alias Valimc.World.Dragon.{Fight, Podium}
+  alias Valimc.World.Dragon.{Fight, Podium, Ritual}
   alias Valimc.World.View
 
   @chunks for x <- -8..8, z <- -8..8, do: {x, z}
@@ -39,7 +39,14 @@ defmodule Valimc.World.Dragon.Arena do
 
     if map_size(state.arena_view.players) > 0 and ready?(state) and ops.ready.(state) do
       state = if state.arena.initialized, do: state, else: initialize(state, ops)
-      state = if state.arena.killed, do: state, else: track(state, ops)
+
+      state =
+        cond do
+          state.arena.stage != nil -> Ritual.tick(state, ops)
+          state.arena.killed -> Ritual.try_respawn(state, ops)
+          true -> track(state, ops)
+        end
+
       sync_bar(state, ops)
     else
       state
@@ -121,15 +128,31 @@ defmodule Valimc.World.Dragon.Arena do
     sync_bar(state, ops)
   end
 
-  defp effect({:podium, active}, state, ops),
+  def effect({:podium, active}, state, ops),
     do: ops.edits.(state, Podium.feature(state.arena.podium, active))
 
-  defp effect({:gateway, at}, state, ops) do
+  def effect({:gateway, at}, state, ops) do
     state = ops.gateway.(state, at)
     ops.event.(state, 3000, at)
   end
 
-  defp effect(:egg, state, ops) do
+  def effect(:clear_portal, state, ops), do: ops.edits.(state, Ritual.clear_portal(state))
+  def effect(:spawn_dragon, state, ops), do: ensure_dragon(state, ops)
+  def effect({:event, id, at}, state, ops), do: ops.event.(state, id, at)
+
+  def effect(effect, state, ops)
+      when elem(effect, 0) in [
+             :beam,
+             :pillar_clear,
+             :pillar_blast,
+             :pillar_build,
+             :ritual_explode
+           ],
+      do: ops.ritual.(state, effect)
+
+  def effect(:reset_spike_crystals, state, ops), do: ops.ritual.(state, :reset_spike_crystals)
+
+  def effect(:egg, state, ops) do
     view = View.new(state.dimension)
     {:ok, %{motion_blocking: top}} = View.column(view, 0, 0)
     ops.edits.(state, [{{0, top, 0}, Blocks.default_state("dragon_egg"), false}])

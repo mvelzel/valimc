@@ -142,6 +142,33 @@ fn worldgen_end_spikes(seed: i64) -> (Atom, Vec<EndSpike>) {
     )
 }
 
+/// Ten immutable pillar blueprints, packed as signed XYZ32 + state16.
+/// Fixed ten spikes, each below 16K writes; no world resource is mutated.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_end_pillars<'a>(
+    env: Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    seed: i64,
+) -> NifResult<(Atom, Vec<Binary<'a>>)> {
+    reply((|| {
+        let d = state.lease()?.decoration(&BiomeSource::End)?;
+        valimc_core::worldgen::end::spikes_for_seed(seed)
+            .into_iter()
+            .map(|spike| {
+                let writes = valimc_core::worldgen::end::pillar_plan(&d, spike)?;
+                let mut packed = Vec::with_capacity(writes.len() * 14);
+                for (p, block) in writes {
+                    for v in p {
+                        packed.extend_from_slice(&v.to_be_bytes());
+                    }
+                    packed.extend_from_slice(&block.to_be_bytes());
+                }
+                Ok(bytes(env, packed))
+            })
+            .collect()
+    })())
+}
+
 /// The shared spawn's origin column (`Worldgen::spawn_origin`, VMC-027d), or
 /// nil without a spawn target.
 #[rustler::nif(schedule = "DirtyCpu")]
