@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Continue aquatic collision follow-ups after [043e12](tickets/VMC-043e12.md); client testing is deferred.
+1. Continue the remaining aquatic-family follow-ups after [043e14](tickets/VMC-043e14.md); client testing is deferred.
 2. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),

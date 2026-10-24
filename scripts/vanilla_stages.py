@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('guardian_hurt', [
+        ('java', 'GuardianHurtOracle', '@guardian-hurt.json'),
+        ('check', 'check_guardian_hurt.exs', '@guardian-hurt.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

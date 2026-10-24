@@ -263,6 +263,10 @@ defmodule Valimc.AI.Mobs.Guardian do
 
   def hurt(body, _hit), do: body
 
+  @doc "Native retaliation and stroll also precede a refused hurt."
+  @impl true
+  def repelled(body, hit), do: hurt(body, hit)
+
   defp own(%{own: %{} = own}), do: own
   defp own(_mind), do: %{thorns: []}
 
@@ -272,8 +276,7 @@ defmodule Valimc.AI.Mobs.Guardian do
     alias Valimc.Living.DamageSource
 
     living =
-      direct[:player] == true or
-        Valimc.Data.EntityTypes.fetch(direct.type).category != :misc
+      direct[:player] == true or Valimc.Data.EntityTypes.living?(direct.type)
 
     if living and not DamageSource.is?(source, :avoids_guardian_thorns) and
          DamageSource.type(source) != :thorns,

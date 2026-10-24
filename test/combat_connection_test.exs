@@ -129,6 +129,58 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "a guardian retaliates even when its hurt window refuses the next hit", ctx do
+    save(ctx, 0.0, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, body} = Body.new("minecraft:guardian")
+    body = %{body | no_gravity: true, mob: %{body.mob | no_ai: true}}
+    uuid = <<34::128>>
+    record = Store.body_record(body, uuid, {ctx.pose.x + 2.0, 64.0, ctx.pose.z})
+    :ok = Region.drop_items(owner, [record])
+
+    Valimc.TestWait.until(fn ->
+      case Store.find(store(owner), uuid) do
+        {:ok, {_, id, _}} -> match?(%Valimc.AI.Mind{}, store(owner).entries[id].body.mob.ai)
+        _ -> false
+      end
+    end)
+
+    player = %{
+      uuid: ctx.uuid,
+      entity_id: 1,
+      player: true,
+      type: "minecraft:player",
+      mainhand: nil
+    }
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:player_attack),
+      amount: 1.0,
+      attacker: player,
+      direct: player,
+      position: {ctx.pose.x, 64.0, ctx.pose.z}
+    }
+
+    assert {:ok, %{hurt: true, health: 29.0}} = Region.hurt_entity(owner, uuid, hit)
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 18.0 end)
+
+    # Pin the two independent damage windows in this headless regression.
+    Valimc.TestConn.replace(pid, &put_in(&1.player.living.health.cooldown, 0))
+
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
+      body = section.entities.store.entries[id].body
+      body = put_in(body.mob.living.health.cooldown, 20)
+      put_in(section.entities.store, Store.change_body(section.entities.store, id, body))
+    end)
+
+    assert {:ok, %{hurt: false}} = Region.hurt_entity(owner, uuid, hit)
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 16.0 end)
+    {:ok, {_, id, _}} = Store.find(store(owner), uuid)
+    assert store(owner).entries[id].body.mob.living.health.value == 29.0
+  end
+
   test "pufferfish post-hit poison and sting follow damage admission, shields and immunity",
        ctx do
     save(ctx, -90.0, %Inventory{slots: %{45 => ItemStack.new("shield")}})
