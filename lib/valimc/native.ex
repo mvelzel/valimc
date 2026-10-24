@@ -1,9 +1,9 @@
 defmodule Valimc.Native do
   @moduledoc """
-  Rust NIFs from `native/valimc_nif`, compiled by Rustler (release profile; dev and
-  test builds skip LTO, see `config/config.exs`). The stubs follow the crate's
-  modules: region, light, codec, sys, worldgen, loot, and the parity NIFs that only
-  dev, test and bench builds have (the `parity` cargo feature).
+  Rust NIFs from `native/valimc_nif`, compiled into this Mix build's private assets
+  (release profile; dev and test skip LTO, see `config/config.exs`). The stubs
+  follow the crate's modules: region, light, codec, sys, worldgen, loot, and the
+  parity NIFs that only dev, test and bench builds have (the `parity` cargo feature).
 
   Results: `{:ok, value}`, or `:ok` without one; an expected failure is
   `{:error, atom}`; a broken invariant raises. A region resource is changed only by
@@ -18,7 +18,15 @@ defmodule Valimc.Native do
     otp_app: :valimc,
     crate: "valimc_nif",
     path: "native/valimc_nif",
-    mode: :release
+    mode: :release,
+    skip_compilation?: true
+
+  for path <-
+        ["native/Cargo.toml", "native/Cargo.lock"] ++
+          Path.wildcard("native/*/Cargo.toml") ++ Path.wildcard("native/*/src/**/*"),
+      File.regular?(path) do
+    @external_resource path
+  end
 
   # A normal scheduler runs one NIF call for at most about this long.
   @budget_ns 1_000_000

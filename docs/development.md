@@ -46,9 +46,17 @@ python3 scripts/heavy.py --status
 
 Dev and test builds compile the NIF without LTO, in parallel and incrementally,
 into `native/target/fast`, so a Rust change rebuilds in seconds. Releases and
-benchmarks (`MIX_ENV=bench`) keep the full release profile in `native/target`.
+benchmarks (`MIX_ENV=bench`) keep the full release profile in separate
+`native/target/prod` and `native/target/bench` directories.
 Every build but a release has the crate's `parity` feature: the oracle and
 benchmark NIFs that `scripts/check_*.exs` and `bench/` call.
+
+The project's native compiler copies Cargo's artifact directly into that Mix
+build's physical `priv` assets, with an environment-specific loader filename.
+It never writes the source `priv/native` path. Rustler loads that private library;
+a later build in another environment cannot replace it. Private oracle builds
+also hold physical data assets; `build_embedded` is not an asset-copy switch in
+the pinned Elixir version.
 
 ```sh
 mix format --check-formatted lib/valimc/physics/pose_fit.ex test/pose_fit_test.exs

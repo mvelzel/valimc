@@ -100,17 +100,25 @@ config :logger, :console, format: "$time $metadata[$level] $message\n"
 
 # Dev and test builds of the NIF (tests, oracle checks, `iex -S mix`) skip LTO and
 # compile in parallel and incrementally into their own target directory, so a
-# one-line Rust change rebuilds in seconds. Releases (`prod`) and benchmarks
-# (`MIX_ENV=bench`) keep the full release profile of `native/Cargo.toml`.
-if config_env() in [:dev, :test] do
-  config :valimc, Valimc.Native,
-    env: [
-      {"CARGO_TARGET_DIR", Path.expand("../native/target/fast", __DIR__)},
+# one-line Rust change rebuilds in seconds. Releases and benchmarks retain the
+# full release profile, with separate outputs because only benchmarks use parity.
+fast = config_env() in [:dev, :test]
+target = if fast, do: "fast", else: Atom.to_string(config_env())
+
+native_env =
+  if fast do
+    [
       {"CARGO_PROFILE_RELEASE_LTO", "false"},
       {"CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16"},
       {"CARGO_PROFILE_RELEASE_INCREMENTAL", "true"}
     ]
-end
+  else
+    []
+  end
+
+config :valimc, Valimc.Native,
+  load_from: {:valimc, "priv/native/valimc_nif-#{config_env()}"},
+  env: [{"CARGO_TARGET_DIR", Path.expand("../native/target/#{target}", __DIR__)} | native_env]
 
 # Oracle and benchmark NIFs (the crate's `parity` feature) are left out of releases.
 if config_env() != :prod do

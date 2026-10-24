@@ -61,7 +61,7 @@ def toolchain():
 
 # A private build compiled once up front: concurrent source edits cannot change a run.
 mix_env = dict(os.environ, MIX_BUILD_PATH=str(root / '.local/vanilla-checks/_build'),
-               VALIMC_BUILD_EMBEDDED='1', **toolchain())
+               **toolchain())
 # One all-core oracle at a time (cold ones also get their own lane in `main`), sized to the
 # cores the other jobs leave free.
 all_core = threading.Lock()
