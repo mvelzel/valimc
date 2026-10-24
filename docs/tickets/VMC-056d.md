@@ -1,6 +1,6 @@
 # VMC-056d — Ubuntu hosting through SSH and Docker Compose
 
-Status: In progress
+Status: Awaiting client
 Milestone: Operations, alongside M3 at the user's request
 Depends on: VMC-056c.
 
@@ -35,5 +35,26 @@ by Docker bypass UFW, so the profiler port itself binds host loopback.
 - https://docs.docker.com/reference/compose-file/services/
 - https://www.1password.dev/ssh/get-started
 
-Checks: pending deployment and targeted configuration/audit checks.
+Checks (October 24, 2026): Docker Compose validates the configuration; Python
+and embedded shell syntax pass, as do the publication/docs/layer audits. Docker
+Engine 29.9.2 and Compose 5.6.1 are installed on Ubuntu 26.04.1 x86_64. The full
+production image builds on the two-vCPU, 4 GB host with one Cargo job.
+
+The initial console check exposed Docker's short hostname failing Erlang's
+long-name RPC validation. Compose now explicitly uses `valimc@127.0.0.1`;
+the runtime includes `libsctp1`, removing OTP's missing-library warning. The
+deployed image is `valimc:447fa3e81c3ce1c8c003b388f2d3b413a227505a`, with
+configuration digest `2d937b49df435afa8e4802c8b1e8ec905f0f380a8401bff0a54d5ac3919ae81a`.
+The replacement retains the same `valimc_data` volume. Startup HTTP health
+passes, public IPv4 Minecraft status reports Java 26.3/protocol 777, and the
+fixed console's one-off `list` exits successfully without the former warnings.
+The diagnostic port is published only on 127.0.0.1 and an external connection
+cannot reach it. The inspected container memory limit is 3 GiB and its restart
+policy is `unless-stopped`; the initial runtime check confirms BEAM runs as nobody.
+
+The Mac has a `valimc` SSH host entry using the 1Password agent; the private key
+was never exported. Extra tunnel/report and interactive-console checks await
+renewed 1Password key authorization. Raw build/runtime evidence stays in
+`.local/hetzner/`. No gameplay or comparative performance result is claimed.
+
 Client: the user tests Minecraft and diagnostic browsing; no automated client.
