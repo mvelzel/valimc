@@ -1123,6 +1123,10 @@ STAGES = [
         ('java', 'AquaticPackOracle', '@aquatic-packs.json'),
         ('check', 'check_aquatic_packs.exs', '@aquatic-packs.json'),
     ]),
+    ('water_age', [
+        ('java', 'WaterAgeOracle', '@water-age.json'),
+        ('check', 'check_water_age.exs', '@water-age.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

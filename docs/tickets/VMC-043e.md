@@ -39,6 +39,8 @@ Slices, in order:
   with their bucket data (Awaiting client).
 - [VMC-043e9](VMC-043e9.md) — aquatic spawn-pack identity and shared
   variants, ages and schools (Awaiting client).
+- [VMC-043e10](VMC-043e10.md) — ageable dolphins, squid and glow squid,
+  pack babies, growth and dolphin feeding (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -56,6 +58,6 @@ Acceptance: behaviour fixtures match the oracle.
   [VMC-043e8](VMC-043e8.md), with its actual-client gate deferred.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
-- Remains: dolphin/squid ageable behavior and their pack babies, turtle
-  eggs' `onPlace` particles; the batched client handoff for 043e1–043e9. Then close
+- Remains: turtle eggs' `onPlace` particles; the batched client handoff
+  for 043e1–043e10. Then close
   VMC-043e (Status stays In progress until the client gate).

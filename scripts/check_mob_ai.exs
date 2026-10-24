@@ -235,12 +235,16 @@ setup = fn body, m ->
       body
     end
 
-  if m["baby"] == true and m["type"] != "minecraft:hoglin" do
-    speed = %{base: nil, modifiers: [{"minecraft:baby", Valimc.Data.Float32.round(0.2), 1}]}
-    attributes = Map.put(body.mob.attributes, "minecraft:movement_speed", speed)
-    %{body | data: %{body.data | baby: true}, mob: %{body.mob | attributes: attributes}}
+  if m["baby"] == true and m["type"] in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid) do
+    %{body | data: %{body.data | age: -24_000}}
   else
-    body
+    if m["baby"] == true and m["type"] != "minecraft:hoglin" do
+      speed = %{base: nil, modifiers: [{"minecraft:baby", Valimc.Data.Float32.round(0.2), 1}]}
+      attributes = Map.put(body.mob.attributes, "minecraft:movement_speed", speed)
+      %{body | data: %{body.data | baby: true}, mob: %{body.mob | attributes: attributes}}
+    else
+      body
+    end
   end
 end
 
@@ -329,6 +333,7 @@ kind_data = fn
     held = mob.equipment[:mainhand]
 
     %{
+      "age" => data.age,
       "got_fish" => data.got_fish,
       "moistness" => data.moistness,
       "air" => mob.living.air_supply,

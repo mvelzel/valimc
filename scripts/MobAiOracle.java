@@ -1113,6 +1113,7 @@ public class MobAiOracle {
     if (m instanceof net.minecraft.world.entity.monster.Strider s) o.addProperty("suffocating", s.isSuffocating());
     if (m instanceof net.minecraft.world.entity.animal.squid.GlowSquid g) o.addProperty("dark", g.getDarkTicksRemaining());
     if (m instanceof net.minecraft.world.entity.animal.dolphin.Dolphin d) {
+      o.addProperty("age", d.getAge());
       o.addProperty("got_fish", d.gotFish()); o.addProperty("moistness", d.getMoistnessLevel());
       o.addProperty("air", d.getAirSupply());
       var held = d.getItemBySlot(EquipmentSlot.MAINHAND);
@@ -1279,6 +1280,8 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 450));
     cases.add(run(level, "squid_swim", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 82L)),
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
+    cases.add(run(level, "squid_baby", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 182L, Map.of("baby", true))),
+      List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
     cases.add(run(level, "squid_flee", pool, List.of(new Spawn("minecraft:squid", new Vec3(.5, 60, .5), 0, 83L)),
       List.of(new Stand(new Vec3(3.5, 61, .5), "survival", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
     cases.add(run(level, "glow_squid_hurt", pool, List.of(new Spawn("minecraft:glow_squid", new Vec3(.5, 60, .5), 0, 84L)),
@@ -1322,6 +1325,8 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
     cases.add(run(level, "dolphin_breath", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 58, .5), 0, 112L, Map.of("air", 150))),
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
+    cases.add(run(level, "dolphin_baby", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 181L, Map.of("baby", true))),
+      List.of(new Stand(new Vec3(4.5, 60, .5), "survival:swimming", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
     cases.add(run(level, "dolphin_land", floor(63, 12, stone), List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 64, .5), 0, 113L, Map.of("moistness", 40))),
       List.of(new Stand(new Vec3(9.5, 64, 9.5), "creative", null)), List.of(), 120));
     cases.add(run(level, "dolphin_bite", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 114L)),

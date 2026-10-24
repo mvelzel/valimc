@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Finish aquatic ageing and egg-placement gaps after [043e9](tickets/VMC-043e9.md); client testing is deferred.
+1. Continue aquatic follow-ups after [043e10](tickets/VMC-043e10.md), starting with egg placement; client testing is deferred.
 2. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),

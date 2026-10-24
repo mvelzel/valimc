@@ -2,6 +2,32 @@
   "version": "26.3",
   "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
   "spawn_group_baby_chance": 1028443341,
+  "water_ageable": {
+    "minecraft:dolphin": {
+      "baby_chance": 1036831949,
+      "baby": [
+        1058390671,
+        1053273621,
+        1035993088
+      ]
+    },
+    "minecraft:squid": {
+      "baby_chance": 1028443341,
+      "baby": [
+        1056964608,
+        1056964608,
+        1052602532
+      ]
+    },
+    "minecraft:glow_squid": {
+      "baby_chance": 1028443341,
+      "baby": [
+        1056964608,
+        1056964608,
+        1052602532
+      ]
+    }
+  },
   "animals": {
     "minecraft:cow": {
       "adult": [

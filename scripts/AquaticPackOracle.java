@@ -12,7 +12,7 @@ import net.minecraft.world.entity.animal.fish.*;
 
 /** Original ordered calls to native finalizeSpawn, retaining the returned pack object. */
 public class AquaticPackOracle {
-  static final List<String> TYPES = List.of("axolotl", "turtle", "cod", "salmon", "tropical_fish");
+  static final List<String> TYPES = List.of("axolotl", "turtle", "cod", "salmon", "tropical_fish", "dolphin", "squid", "glow_squid");
   static java.lang.reflect.Field seedField;
   // A kernel-supplied school choice replaces just that one native draw.
   // Other native draws and their state remain observable and unmodified.

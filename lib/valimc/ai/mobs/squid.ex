@@ -42,20 +42,23 @@ defmodule Valimc.AI.Mobs.Squid do
   def motion, do: [fluid_pushed: false, travel: {:squid, false}, emission: :events]
 
   @impl true
-  def data(@glow), do: %{age: 0, dark: 0}
-  def data(_type), do: %{age: 0}
+  def data(@glow), do: Map.put(Valimc.Entity.Animal.ageable_data(), :dark, 0)
+  def data(_type), do: Valimc.Entity.Animal.ageable_data()
 
   @impl true
   def values(%{type: type, data: data}) do
-    baby = [{:ageable_baby, data.age < 0, false}]
+    baby = [{:ageable_baby, data.age < 0, false}, {:age_locked, data.age_locked, false}]
     if type == @glow, do: baby ++ [{:glow_squid_dark_ticks, data.dark, 0}], else: baby
   end
 
   @impl true
-  def dimensions(%{data: %{age: age}}) when age < 0,
-    do: {@f.(0.5), @f.(0.5), @f.(0.37)}
+  def dimensions(%{type: type, data: %{age: age}}) when age < 0,
+    do: Valimc.Entity.Animal.water_ageable(type).baby
 
   def dimensions(_body), do: nil
+
+  @impl true
+  def voice(_type, data), do: Valimc.Entity.Animal.voice(data)
 
   @impl true
   defdelegate air(air, in_water), to: Valimc.AI.Mobs.Fish
@@ -92,7 +95,7 @@ defmodule Valimc.AI.Mobs.Squid do
   """
   @impl true
   def after_ai(%Self{} = self) do
-    self = age(self)
+    self = Valimc.Entity.Animal.settle_ageable(self)
     o = own(self.mind)
     tentacle = @f.(o.tentacle + o.tentacle_speed)
 
@@ -169,15 +172,6 @@ defmodule Valimc.AI.Mobs.Squid do
     drag = @f.(min(1.0, max(0.0, @f.(1.0 - @f.(@f.(1.0 - @f.(0.98)) * @f.(modifier))))))
     x_rot = @f.(o.x_rot + @f.(@f.(-90.0 - o.x_rot) * @f.(0.02)))
     {%{o | x_rot: x_rot}, %{self | velocity: {0.0, yd * drag, 0.0}}}
-  end
-
-  # `AgeableMob.aiStep`: a baby grows up, a parent's wait runs out.
-  defp age(%Self{data: %{age: age} = data} = self) do
-    cond do
-      age < 0 -> %{self | data: %{data | age: age + 1}}
-      age > 0 -> %{self | data: %{data | age: age - 1}}
-      true -> self
-    end
   end
 
   # `GlowSquid.aiStep`: its dark ticks run out; its glow particle's place is

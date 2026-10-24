@@ -80,11 +80,37 @@ defmodule Valimc.AI.Mobs.Dolphin do
   def swim_sound, do: "minecraft:entity.dolphin.swim"
 
   @impl true
-  def data(_type), do: %{got_fish: false, moistness: @moist, treasure: nil}
+  def data(_type),
+    do:
+      Map.merge(Valimc.Entity.Animal.ageable_data(), %{
+        got_fish: false,
+        moistness: @moist,
+        treasure: nil
+      })
 
   @impl true
   def values(%{data: data}),
-    do: [{:dolphin_got_fish, data.got_fish, false}, {:dolphin_moistness, data.moistness, @moist}]
+    do: [
+      {:ageable_baby, data.age < 0, false},
+      {:age_locked, data.age_locked, false},
+      {:dolphin_got_fish, data.got_fish, false},
+      {:dolphin_moistness, data.moistness, @moist}
+    ]
+
+  @impl true
+  def dimensions(%{type: type, data: %{age: age}}) when age < 0,
+    do: Valimc.Entity.Animal.water_ageable(type).baby
+
+  def dimensions(_), do: nil
+
+  @impl true
+  def after_ai(self), do: Valimc.Entity.Animal.settle_ageable(self)
+
+  @impl true
+  def voice(_type, data), do: Valimc.Entity.Animal.voice(data)
+
+  @impl true
+  def can_attack?(%Self{data: data}, _target), do: data.age >= 0
 
   @doc "`getMaxAirSupply`."
   @impl true
@@ -92,9 +118,12 @@ defmodule Valimc.AI.Mobs.Dolphin do
 
   @doc "`finalizeSpawn`: full air, level."
   @impl true
-  def finalize(%Self{mob: mob} = self, reason) do
+  def finalize(%Self{} = self, reason), do: Valimc.AI.Spawn.mob(spawn_part(self), reason)
+
+  @doc "Dolphin's part before AgeableMob.finalizeSpawn."
+  def spawn_part(%Self{mob: mob} = self) do
     mob = %{mob | living: %{mob.living | air_supply: @max_air}}
-    Valimc.AI.Spawn.mob(%{self | mob: mob, pitch: 0.0}, reason)
+    %{self | mob: mob, pitch: 0.0}
   end
 
   @doc """
@@ -267,7 +296,10 @@ defmodule Valimc.AI.Mobs.Dolphin do
          seed()}
       ]
 
-      body = %{body | data: %{body.data | got_fish: true}}
+      body =
+        if Valimc.Entity.Animal.can_age_up?(body.data),
+          do: Valimc.Entity.Animal.feed_baby(body),
+          else: %{body | data: %{body.data | got_fish: true}}
 
       {:ok, body,
        Valimc.Entity.Animals.Interaction.outcome(hand: {:use, 1}, swing: true, events: events)}

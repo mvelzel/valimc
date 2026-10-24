@@ -23,6 +23,21 @@ defmodule Valimc.Entity.Animal do
   @group_baby_chance group_baby_chance
   def group_baby_chance, do: @group_baby_chance
 
+  @water_ageable Map.new(@facts["water_ageable"], fn {type, row} ->
+                   <<chance::float-32>> = <<row["baby_chance"]::signed-32>>
+
+                   dims =
+                     row["baby"]
+                     |> Enum.map(fn bits ->
+                       <<v::float-32>> = <<bits::signed-32>>
+                       v
+                     end)
+                     |> List.to_tuple()
+
+                   {type, %{baby_chance: chance, baby: dims}}
+                 end)
+  def water_ageable(type), do: Map.fetch!(@water_ageable, type)
+
   alias Valimc.AI.Self
   alias Valimc.Entity.Body
   alias Valimc.Data.Float32
@@ -95,7 +110,7 @@ defmodule Valimc.Entity.Animal do
       def hurt(body, _hit), do: %{body | data: Valimc.Entity.Animal.reset_love(body.data)}
       # `getVoicePitch`: a baby's is higher.
       @impl Valimc.AI.Kind
-      def voice(_type, data), do: if(data.age < 0, do: 1.5, else: 1.0)
+      def voice(_type, data), do: Valimc.Entity.Animal.voice(data)
       # `Mob.canBeLeashed`: an animal is no `Enemy`.
       @impl Valimc.AI.Kind
       def leashable?, do: true
@@ -245,6 +260,8 @@ defmodule Valimc.Entity.Animal do
   ## Data
 
   @ageable %{age: 0, forced_age: 0, age_locked: false, in_love: 0, love_cause: nil}
+  def ageable_data, do: Map.take(@ageable, [:age, :forced_age, :age_locked])
+  def voice(data), do: if(data.age < 0, do: 1.5, else: 1.0)
 
   @doc "The data of a fresh animal of `type`."
   def data(type), do: Map.merge(@ageable, module!(type).defaults())
@@ -483,6 +500,23 @@ defmodule Valimc.Entity.Animal do
   with its hearts' draws every ten ticks, then the animal's own part.
   """
   def settle(%Self{} = self) do
+    self = settle_ageable(self)
+    self = if self.data.age != 0, do: %{self | data: %{self.data | in_love: 0}}, else: self
+
+    self =
+      if self.data.in_love > 0 do
+        love = self.data.in_love - 1
+        self = %{self | data: %{self.data | in_love: love}}
+        if rem(love, 10) == 0, do: hearts(self), else: self
+      else
+        self
+      end
+
+    own(self, :settle, self)
+  end
+
+  @doc "Shared AgeableMob.aiStep, also used by ageable ocean mobs."
+  def settle_ageable(%Self{} = self) do
     self = forced_age_particles(self)
 
     self =
@@ -498,19 +532,7 @@ defmodule Valimc.Entity.Animal do
         self
       end
 
-    self = age_lock_particles(self)
-    self = if self.data.age != 0, do: %{self | data: %{self.data | in_love: 0}}, else: self
-
-    self =
-      if self.data.in_love > 0 do
-        love = self.data.in_love - 1
-        self = %{self | data: %{self.data | in_love: love}}
-        if rem(love, 10) == 0, do: hearts(self), else: self
-      else
-        self
-      end
-
-    own(self, :settle, self)
+    age_lock_particles(self)
   end
 
   @doc "`Mob.ate` of the mob (an animal's module's, else nothing)."

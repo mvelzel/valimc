@@ -3,7 +3,7 @@ alias Valimc.Entity.{Body, Store}
 
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
-unless length(cases) == 896, do: raise("Incomplete aquatic pack fixtures")
+unless length(cases) == 1280, do: raise("Incomplete aquatic pack fixtures")
 
 for scene <- cases do
   reason =

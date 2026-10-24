@@ -76,6 +76,16 @@ public class AnimalOracle {
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     out.addProperty("spawn_group_baby_chance", Float.floatToRawIntBits(
         new net.minecraft.world.entity.AgeableMob.AgeableMobGroupData(true).getBabySpawnChance()));
+    var water = new JsonObject();
+    for (var name : List.of("minecraft:dolphin", "minecraft:squid", "minecraft:glow_squid")) {
+      var mob = (AgeableMob)MobAiOracle.mob(name, level);
+      var group = (AgeableMob.AgeableMobGroupData) mob.finalizeSpawn(level,
+        level.getCurrentDifficultyAt(mob.blockPosition()), EntitySpawnReason.NATURAL, null);
+      var row = new JsonObject();
+      row.addProperty("baby_chance", Float.floatToRawIntBits(group.getBabySpawnChance()));
+      mob.setBaby(true); row.add("baby", dimensions(mob)); water.add(name, row);
+    }
+    out.add("water_ageable", water);
     var used = new TreeSet<String>(SOUNDS);
     var animals = new JsonObject();
     for (var name : java.util.stream.Stream.concat(ANIMALS.stream(), NETHER_ANIMALS.stream()).toList()) {

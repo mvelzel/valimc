@@ -259,12 +259,14 @@ defmodule Valimc.Entity.Body do
         } = record
       ) do
     preserved = Map.get(record, :preserved)
+    data = restore_data(type, data)
 
     with true <- EntityTypes.fetch(type) != nil,
          true <- Enum.all?([yaw, pitch, head, vx, vy, vz], &is_float/1),
          true <- preserved == nil or is_binary(preserved),
          true <- is_boolean(on_ground) and is_boolean(no_gravity),
          true <- is_map(data) and Map.keys(data) == Map.keys(data(type)),
+         true <- valid_water_age?(type, data),
          cooldown = Map.get(record, :portal_cooldown, 0),
          true <- is_integer(cooldown) and cooldown in 0..32_767,
          {:ok, mob} <- restore_mob(type, Map.get(record, :mob)) do
@@ -289,6 +291,31 @@ defmodule Valimc.Entity.Body do
   end
 
   def restore(_record), do: {:error, :invalid_body}
+
+  # VMC-043e10 adds AgeableMob fields to already stored ocean mobs.
+  # Only their exact former shape is migrated; all other validation remains.
+  defp restore_data(type, data)
+       when type in ["minecraft:dolphin", "minecraft:squid", "minecraft:glow_squid"] and
+              is_map(data) do
+    old_keys =
+      case type do
+        "minecraft:dolphin" -> [:got_fish, :moistness, :treasure]
+        "minecraft:squid" -> [:age]
+        "minecraft:glow_squid" -> [:age, :dark]
+      end
+
+    if Enum.sort(Map.keys(data)) == Enum.sort(old_keys),
+      do: Map.merge(Valimc.Entity.Animal.ageable_data(), data),
+      else: data
+  end
+
+  defp restore_data(_type, data), do: data
+
+  defp valid_water_age?(type, data)
+       when type in ["minecraft:dolphin", "minecraft:squid", "minecraft:glow_squid"],
+       do: is_integer(data.age) and is_integer(data.forced_age) and is_boolean(data.age_locked)
+
+  defp valid_water_age?(_type, _data), do: true
 
   defp restore_mob(type, nil), do: if(kind(type) == :object, do: {:ok, nil}, else: :error)
   defp restore_mob(type, record), do: if(kind(type) == :mob, do: Mob.restore(type, record))

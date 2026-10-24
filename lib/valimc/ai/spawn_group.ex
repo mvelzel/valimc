@@ -3,7 +3,7 @@ defmodule Valimc.AI.SpawnGroup do
   alias Valimc.AI.{Mobs.Fish, Mobs.TropicalFish, Spawn}
   alias Valimc.Entity.{Animal, Animals.Axolotl, Animals.Turtle}
 
-  @types ~w(minecraft:axolotl minecraft:turtle minecraft:cod minecraft:salmon minecraft:tropical_fish)
+  @types ~w(minecraft:axolotl minecraft:turtle minecraft:cod minecraft:salmon minecraft:tropical_fish minecraft:dolphin minecraft:squid minecraft:glow_squid)
   def handles?(type), do: type in @types
 
   @doc "Finalize one member. A supplied school decision belongs to the natural-spawn kernel."
@@ -17,6 +17,17 @@ defmodule Valimc.AI.SpawnGroup do
 
       "minecraft:turtle" ->
         turtle(self, group, reason)
+
+      "minecraft:dolphin" ->
+        ageable(
+          Valimc.AI.Mobs.Dolphin.spawn_part(self),
+          group,
+          reason,
+          Animal.water_ageable(self.type).baby_chance
+        )
+
+      type when type in ["minecraft:squid", "minecraft:glow_squid"] ->
+        ageable(self, group, reason, Animal.water_ageable(type).baby_chance)
 
       "minecraft:tropical_fish" ->
         tropical(self, group, reason, school)
@@ -47,13 +58,17 @@ defmodule Valimc.AI.SpawnGroup do
 
   defp turtle(self, group, reason) do
     self = Turtle.spawn_part(self, reason)
+    ageable(self, group, reason, Animal.group_baby_chance())
+  end
+
+  defp ageable(self, group, reason, chance) do
     group = group || %{count: 0}
 
     self =
       if group.count > 0 do
         {f, self} = Spawn.level_float(self)
 
-        if f <= Animal.group_baby_chance(),
+        if f <= chance,
           do: %{self | data: %{self.data | age: -24_000}},
           else: self
       else
