@@ -113,7 +113,7 @@ defmodule Valimc.Player.Hurt do
             cause: attacker && attacker.entity_id,
             direct: (hit[:direct] || attacker) && (hit[:direct] || attacker).entity_id,
             blocked: plan.blocked > 0.0,
-            killer: hit[:killer]
+            killer: hit[:killer] || attacker_name(attacker)
           )
 
         fully = plan.blocked > 0.0 and plan.damage <= 0.0
@@ -340,4 +340,13 @@ defmodule Valimc.Player.Hurt do
   @doc "`dealDefaultKnockback`'s direction: from `position` towards `source` (reversed by knockback)."
   def away(_position, nil), do: {0.0, 0.0}
   def away({x, _, z}, {sx, _, sz}), do: {sx - x, sz - z}
+
+  defp attacker_name(%{type: type}) when is_binary(type) do
+    case Valimc.Data.EntityTypes.fetch(type) do
+      %{description: name} -> {:compound, %{"translate" => {:string, name}}}
+      _ -> nil
+    end
+  end
+
+  defp attacker_name(_), do: nil
 end

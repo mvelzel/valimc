@@ -174,6 +174,35 @@ defmodule Valimc.CombatConnectionTest do
     end)
 
     assert TestPlayer.living(pid).health.value == expected
-    _ = client
+    # A contact hit has no prebuilt killer label (a pufferfish's sting).
+    Valimc.TestConn.replace(pid, fn s ->
+      health = %{s.player.living.health | value: 0.5, cooldown: 0}
+      s = put_in(s.player.living.health, health)
+      %{s | active_use: nil}
+    end)
+
+    fish = %{
+      uuid: <<8::128>>,
+      entity_id: 999,
+      player: false,
+      type: "minecraft:pufferfish",
+      mainhand: nil
+    }
+
+    send(
+      pid,
+      {:hurt,
+       %{
+         source: Valimc.Living.DamageSource.new(:mob_attack),
+         amount: 6.0,
+         attacker: fish,
+         direct: fish
+       }}
+    )
+
+    {death, client} = Client.await(client, :play, "player_combat_kill")
+    assert :binary.match(death, "entity.minecraft.pufferfish") != :nomatch
+    _ = Client.barrier(client)
+    assert TestPlayer.living(pid).health.value == 0.0
   end
 end

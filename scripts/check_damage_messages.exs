@@ -12,6 +12,7 @@ rows =
   for row <- cases, entity <- [1, 127, 128, 2_147_483_647], kind <- ["death", "chat"] do
     source = String.to_atom(row["source"])
     message = DamageSource.death_message(row["name"], source)
+    true = message == DamageSource.death_message(row["name"], DamageSource.new(source))
     {:compound, %{"translate" => {:string, key}, "with" => {:list, {:string, names}}}} = message
 
     unless key == row["message"]["translate"] and names == row["message"]["with"],

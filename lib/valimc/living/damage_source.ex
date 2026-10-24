@@ -11,7 +11,7 @@ defmodule Valimc.Living.DamageSource do
   alias Valimc.Protocol.DamageTypes
   @messages @facts["keys"]
   @types @facts["types"]
-  unless map_size(@messages) == 21 and Map.keys(@types) == Map.keys(@messages),
+  unless map_size(@messages) > 0 and Map.keys(@types) == Map.keys(@messages),
     do: raise("Wrong native death message keys")
 
   use Valimc.Data.Facts, file: "registry/combat_facts.json", as: :combat
@@ -134,6 +134,8 @@ defmodule Valimc.Living.DamageSource do
          }}
     }
   end
+
+  def death_message(name, %__MODULE__{type: type}), do: death_message(name, type)
 
   def death_message(name, source)
       when is_binary(name) and byte_size(name) in 1..64 and is_atom(source) do
