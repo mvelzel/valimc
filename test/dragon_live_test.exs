@@ -27,6 +27,11 @@ defmodule Valimc.DragonLiveTest do
       # before deleting its world, including a socket's extra view chunks.
       Valimc.TestScope.stop_dimensions()
 
+      # The fixture also loads an Overworld owner at the spawn.
+      Valimc.World.Dimension.within(:overworld, fn ->
+        Valimc.TestScope.stop_neighbourhood({0, 0})
+      end)
+
       # Normal view unloads detach their checkpoint after locking its path;
       # those writers can outlive the last registered region owner.
       Valimc.TestScope.await_checkpoints(base)

@@ -50,11 +50,11 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
-2. Finish test-world cleanup (078c) alongside the finale client batch.
-3. Complete the dragon fight (045a), then the fresh-world M3 gate (078).
+2. Complete the dragon fight (045a), including its respawn and restart gates.
+3. Finish the fresh-world M3 gate (078).
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
-[037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md).
+[037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
 

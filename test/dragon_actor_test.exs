@@ -19,10 +19,12 @@ defmodule Valimc.DragonActorTest do
     )
 
     on_exit(fn ->
-      for key <- [a, b],
-          {pid, _} <- Valimc.TestWorld.registered(key),
+      for dimension <- [:overworld, :the_end],
+          key <- [a, b],
+          {pid, _} <- Valimc.TestWorld.registered({dimension, key}),
           do: Valimc.TestScope.kill(pid)
 
+      Valimc.TestScope.await_checkpoints(base)
       File.rm_rf(base)
     end)
 

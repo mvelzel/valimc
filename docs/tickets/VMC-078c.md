@@ -1,6 +1,6 @@
 # VMC-078c — Complete milestone fixtures and quiesce test worlds
 
-Status: In progress
+Status: Done
 Milestone: M3
 Parent gate: [VMC-078](VMC-078.md).
 
@@ -56,10 +56,32 @@ all 778 checks (nine properties, 769 tests) in 110.8 seconds, retained in
 `.local/m3-full-suite-fixture-boundaries.log`. Test-only changes select no
 additional vanilla stages in `.local/m3-final-fixture-vanilla.log`.
 
-Still open: that full run logs `:corrupt_frame` and later missing log files
-under a removed `valimc-dragon-live-*` dataset. Waiting for registered
-checkpoint paths alone does not resolve the full-run sequence. Three isolated
-seven-test arena repetitions pass without reproducing it; the private
-read-location tracer and raw captures live under
-`.local/m3-checkpoint-diagnostic*`. Continue from these specific writers;
-do not mark this cleanup slice or the M3 gate complete yet.
+The remaining full-run `:corrupt_frame` traces identify a removed
+`valimc-dragon-actor-*` dataset. Its crystal test creates End owners as well
+as Overworld owners, but cleanup stopped only its bare Overworld keys.
+It now kills only its own keys in both dimensions and awaits their writers,
+preserving the suite's async isolation. The eleven actor/live-arena tests
+pass all three repetitions. The complete traced suite then passes all 778
+checks with no malformed-frame errors; it still identifies one other leak.
+
+A post-suite inspection of the seven live-arena tests finds the exact
+remaining owner: Overworld (0, 0), sequence three, saving under the removed
+`valimc-dragon-live-*` dataset. Cleanup had stopped only other dimensions.
+It now also stops the Overworld spawn neighborhood. The same inspection
+then returns no remaining fixture owners. No production persistence code
+changes on this evidence.
+
+Private evidence: `.local/m3-checkpoint-full-diagnostic.log`,
+`.local/m3-checkpoint-diagnostic/` raw ranges and location traces,
+`.local/m3-dragon-dimension-cleanup-tests.log`,
+`.local/m3-full-dimension-cleanup.log`,
+`.local/m3-checkpoint-dimension-cleanup/`,
+`.local/m3-dragon-leftovers.log` and `.local/m3-dragon-leftovers-after.log`.
+The last complete sequence verifies both cleanup repairs together: all 778
+checks pass in 110.3 seconds, with no checkpoint error or failed WAL read.
+The trace's activation file confirms real read-location tracing remained
+enabled; its new evidence directory has no failure capture. Logs:
+`.local/m3-full-clean-checkpoints.log` and
+`.local/m3-checkpoint-final-cleanup/`. The changes are entirely in existing
+fixtures and their cleanup; no new test cases or runtime storage rules are
+introduced. The build checkpoint and graphical M3 gate remain separate.

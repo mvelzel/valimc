@@ -85,7 +85,8 @@ Socket suites whose player ticks only the test drives use `Valimc.TestPlayer`
 (`test/support/client.ex`) for the private world, login, clock parking and ticks.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
-built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.
+built by the native compiler in `mix.exs` and loaded by `Valimc.Native`).
+Run `cargo fmt --check` there too.
 
 Vanilla oracles compare Elixir output with the pinned Mojang jar. Run the stages
 a change affects, named stages, or every stage in parallel (logs under
