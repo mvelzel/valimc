@@ -5,8 +5,9 @@ defmodule Valimc.AI.World do
   state at a block (nil where it cannot be read: an unloaded chunk reads as
   nothing to stand on or see through), `time` the game time, `players` the
   group's playing players, `mobs` the section's mobs and `items` its items
-  (`%{kind: :item, uuid, x, y, z, item, count, components, pickup_delay}`),
-  `random` the level's random (behaviours' run times), `light` the sky and
+  (`%{kind: :item, uuid, x, y, z, item, count, components, pickup_delay, in_water}`).
+  An item's `in_water` is its last physics observation. `random` is the level's
+  random (behaviours' run times), `light` the sky and
   block light at a block (`{sky, block}`, nil where unknown) and `darken`
   the sky's darkening (`light/2`: `getLightLevelDependentMagicValue`), `search` how path searches run and
   `paths` the deferred results that arrived (`search/2`), `sea_level` and

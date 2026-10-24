@@ -79,6 +79,20 @@ defmodule Valimc.ItemSimulationRegionTest do
     :ok
   end
 
+  @tag motion: %ItemMotionState{no_gravity: true}
+  test "the owner retains the item's water observation until its next physics step", ctx do
+    record = hd(ctx.records)
+    pos = {floor(record.x), floor(record.y), floor(record.z)}
+    :ok = Valimc.TestBlocks.set(pos, Valimc.Data.Blocks.default_state("water"))
+    refute entry(ctx).motion.in_water
+    step(ctx, 1)
+    assert entry(ctx).motion.in_water
+    :ok = Valimc.TestBlocks.set(pos, 0)
+    assert entry(ctx).motion.in_water
+    step(ctx, 1)
+    refute entry(ctx).motion.in_water
+  end
+
   @tag count: 256
   test "one owner advances every active item at its cadence", ctx do
     wait(ctx, fn ->

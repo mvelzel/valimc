@@ -23,7 +23,8 @@ input = fn row ->
       age: row["age"],
       pickup_delay: row["pickup_delay"],
       on_ground: row["on_ground"],
-      no_gravity: row["no_gravity"]
+      no_gravity: row["no_gravity"],
+      in_water: row["water"]
     }
   }
 end
@@ -51,6 +52,36 @@ for {row, index} <- Enum.with_index(cases) do
   frame = View.of(states)
   [result] = ItemStep.run(frame, [before], nil, fn _, _ -> false end)
   expected = input.(row["after"])
+  {:ok, travel} = result
+  {x, y, z} = travel.position
+
+  sensed = %{
+    kind: :item,
+    uuid: <<1::128>>,
+    x: x,
+    y: y,
+    z: z,
+    width: 0.25,
+    height: 0.25,
+    count: 3,
+    pickup_delay: 0,
+    in_water: travel.motion.in_water
+  }
+
+  self = %Valimc.AI.Self{
+    x: x,
+    y: y,
+    z: z,
+    width: 0.9,
+    height: 0.6,
+    world: %Valimc.AI.World{items: [sensed], read: fn p -> states[p] end}
+  }
+
+  allowed = Valimc.AI.Mobs.Dolphin.items(self) != []
+
+  unless allowed == row["after"]["play_ready"],
+    do: raise("Dolphin native item predicate mismatch #{index}")
+
   bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end
 
   # The travel oracle leaves burning out (stage `item_burn` has it).

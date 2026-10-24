@@ -197,6 +197,7 @@ pub fn step(
             on_ground: grounded,
         },
         lava: depths.lava > 0.0,
+        water: depths.water > 0.0,
         touched: touched(source, facts, SIZE, orb.position, v, actual, destination)?,
     })
 }

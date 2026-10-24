@@ -78,6 +78,11 @@ defmodule Valimc.World.ItemStep do
   # An item's counters tick with its motion; an orb's age is its owner's.
   # Both burn (VMC-034n4d): `dead` once fire, lava or a cactus took the last
   # of its health; rain where the move ended puts them out (VMC-034n4e).
+  defp result(entity, {:ok, position, velocity, on_ground, lava, fires, water}, item, rain) do
+    entity = %{entity | motion: %{entity.motion | in_water: water}}
+    result(entity, {:ok, position, velocity, on_ground, lava, fires}, item, rain)
+  end
+
   defp result(entity, {:ok, position, velocity, on_ground, lava, fires}, item, rain) do
     motion = if item, do: ItemMotionState.tick(entity.motion), else: entity.motion
     {_, y, _} = position

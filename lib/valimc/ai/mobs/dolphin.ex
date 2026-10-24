@@ -278,7 +278,7 @@ defmodule Valimc.AI.Mobs.Dolphin do
     for item <- world.items,
         item.count > 0 and item.pickup_delay == 0,
         World.intersects?(World.box(item), box),
-        World.fluid(world, Mth.block({item.x, item.y, item.z})) == :water,
+        Map.get(item, :in_water, false),
         do: item
   end
 

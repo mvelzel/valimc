@@ -5,6 +5,8 @@ defmodule Valimc.Entity.ItemMotionState do
             pickup_delay: 0,
             on_ground: false,
             no_gravity: false,
+            # Live fluid observation, refreshed by physics; vanilla does not save it in NBT.
+            in_water: false,
             # Ticks before a portal takes the item again (VMC-026c, vanilla's `portalCooldown`).
             portal_cooldown: 0,
             # An item's or orb's health and burning counter (VMC-034n4d,
@@ -33,6 +35,7 @@ defmodule Valimc.Entity.ItemMotionState do
         pickup_delay: delay,
         on_ground: on_ground,
         no_gravity: no_gravity,
+        in_water: in_water,
         portal_cooldown: cooldown,
         health: health,
         fire_ticks: fire
@@ -42,6 +45,7 @@ defmodule Valimc.Entity.ItemMotionState do
           is_integer(age) and age in -32_768..6000 and
           is_integer(delay) and delay in 0..32_767 and
           is_boolean(on_ground) and is_boolean(no_gravity) and
+          is_boolean(in_water) and
           is_integer(cooldown) and cooldown in 0..32_767 and
           is_integer(health) and health in -32_768..32_767 and
           is_integer(fire) and fire in -32_768..32_767

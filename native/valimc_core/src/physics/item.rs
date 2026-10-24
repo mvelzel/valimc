@@ -58,12 +58,13 @@ impl From<Fault> for ItemFault {
 }
 
 /// One tick of an item or orb: its body after it, whether it began the tick
-/// in lava (`isInLava` for `Entity.baseTick`'s burning) and what the blocks
-/// it passed did to it (`applyEffectsFromBlocks`).
+/// in lava (`isInLava` for `Entity.baseTick`'s burning), the last sampled
+/// water flag and what the blocks it passed did to it (`applyEffectsFromBlocks`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stepped<B> {
     pub body: B,
     pub lava: bool,
+    pub water: bool,
     pub touched: Touched,
 }
 
@@ -276,7 +277,7 @@ pub fn step(
         )?;
         (destination, v, grounded, t)
     };
-    let (_, after) = current(
+    let (after_depths, after) = current(
         source,
         facts,
         &body(position),
@@ -297,6 +298,7 @@ pub fn step(
             no_gravity: item.no_gravity,
         },
         lava: depths.lava > 0.0,
+        water: after_depths.water > 0.0,
         touched,
     })
 }

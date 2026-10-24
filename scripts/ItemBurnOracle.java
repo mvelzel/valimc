@@ -126,7 +126,7 @@ public class ItemBurnOracle {
   o.addProperty("health",field(e instanceof ExperienceOrb?ExperienceOrb.class:ItemEntity.class,"health").getInt(e));
   o.addProperty("fire",e.getRemainingFireTicks());o.addProperty("removed",e.isRemoved());
   var flag=Entity.class.getDeclaredMethod("getSharedFlag",int.class);flag.setAccessible(true);o.addProperty("on_fire",(boolean)flag.invoke(e,0));
-  if(e instanceof ItemEntity item){o.addProperty("age",field(ItemEntity.class,"age").getInt(item));o.addProperty("pickup_delay",field(ItemEntity.class,"pickupDelay").getInt(item));}
+  if(e instanceof ItemEntity item){o.addProperty("age",field(ItemEntity.class,"age").getInt(item));o.addProperty("pickup_delay",field(ItemEntity.class,"pickupDelay").getInt(item));o.addProperty("water",item.isInWater());}
   return o;
  }
  static void put(World world,int x0,int x1,int z0,int z1,int y,BlockState state){for(int x=x0;x<=x1;x++)for(int z=z0;z<=z1;z++)world.blocks.put(new BlockPos(x,y,z),state);}

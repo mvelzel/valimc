@@ -477,6 +477,7 @@ fn items_step<'a>(
                     s.body.on_ground,
                     s.lava,
                     crate::player::fires(&s.touched),
+                    s.water,
                 )
                     .encode(env),
                 Err(ItemFault::Inside) => atoms::inside().encode(env),

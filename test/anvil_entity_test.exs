@@ -55,6 +55,12 @@ defmodule Valimc.AnvilEntityTest do
     assert Entity.convert(Entity.item_tag(record)) == {:item, record}
   end
 
+  test "the item's live water observation is not persisted in vanilla NBT" do
+    {:item, record} = Entity.convert(item())
+    wet = put_in(record.motion.in_water, true)
+    assert Entity.convert(Entity.item_tag(wet)) == {:item, record}
+  end
+
   test "an XP orb becomes an imported birth with its body; its compound converts back" do
     orb = fn extra ->
       {:compound,

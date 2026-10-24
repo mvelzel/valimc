@@ -2585,6 +2585,7 @@ defmodule Valimc.World.RegionData do
             count: stack.count,
             components: stack.components,
             pickup_delay: Map.get(entry, :motion, %{pickup_delay: 0}).pickup_delay,
+            in_water: Map.get(entry, :motion, %Valimc.Entity.ItemMotionState{}).in_water,
             alive: true
           }
 

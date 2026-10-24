@@ -27,6 +27,7 @@ state = fn row ->
       on_ground: row["on_ground"],
       age: Map.get(row, "age", 0),
       pickup_delay: Map.get(row, "pickup_delay", 0),
+      in_water: Map.get(row, "water", false),
       health: row["health"],
       fire_ticks: row["fire"]
     }

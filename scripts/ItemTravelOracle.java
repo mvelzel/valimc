@@ -70,7 +70,9 @@ public class ItemTravelOracle {
  static JsonArray vec(double... nums){var a=new JsonArray();for(double n:nums)a.add(n);return a;}
  static JsonArray vec(Vec3 v){return vec(v.x,v.y,v.z);}
  static JsonObject snapshot(Item item)throws Exception{
-  var o=new JsonObject();o.add("position",vec(item.position()));o.add("velocity",vec(item.getDeltaMovement()));o.addProperty("on_ground",item.onGround());o.addProperty("no_gravity",item.isNoGravity());o.addProperty("age",field(ItemEntity.class,"age").getInt(item));o.addProperty("pickup_delay",field(ItemEntity.class,"pickupDelay").getInt(item));return o;
+  var o=new JsonObject();o.add("position",vec(item.position()));o.add("velocity",vec(item.getDeltaMovement()));o.addProperty("on_ground",item.onGround());o.addProperty("no_gravity",item.isNoGravity());o.addProperty("age",field(ItemEntity.class,"age").getInt(item));
+  int delay=field(ItemEntity.class,"pickupDelay").getInt(item);o.addProperty("pickup_delay",delay);o.addProperty("water",item.isInWater());
+  item.setPickUpDelay(0);o.addProperty("play_ready",net.minecraft.world.entity.animal.dolphin.Dolphin.ALLOWED_ITEMS.test(item));item.setPickUpDelay(delay);return o;
  }
  public static void main(String[] args)throws Exception{
   MiningToolOracle.initialize();BlockFactsOracle.bindOnly(net.minecraft.tags.BlockTags.BLOCKS_FLUID_FLOW);
