@@ -1150,7 +1150,7 @@ defmodule Valimc.World.Region do
             Valimc.Data.Metrics.add(:region_late_milliseconds, late)
             started = System.monotonic_time(:nanosecond)
             state = run_tick(%{state | tick_clock: clock, tick_steps: steps}, clock.tick, now)
-            Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started)
+            Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started, late)
             lifecycle(state, delay, now)
 
           {false, steps} ->

@@ -459,6 +459,27 @@ public class CommandTreeOracle {
     int cursor = 0;
     for (var child : actual.getChildren()) {
       String here = path + "/" + child.getName();
+      if (path.isEmpty() && child.getName().equals("spark")) {
+        if (level < 3 || child.getCommand() == null || !Builder.restricted.contains(child))
+          throw new AssertionError("Restricted ValiMC profiler root " + here);
+        var expectedNames = Set.of("profiler", "health", "tps", "ping", "tickmonitor", "heapsummary",
+          "processes", "ets", "schedulers", "gc", "activity", "help");
+        if (!child.getChildren().stream().map(CommandNode::getName).collect(Collectors.toSet()).equals(expectedNames))
+          throw new AssertionError("Profiler children differ");
+        var profiler = child.getChild("profiler");
+        if (!profiler.getChildren().stream().map(CommandNode::getName).collect(Collectors.toSet())
+              .equals(Set.of("start", "stop", "cancel", "info", "open")))
+          throw new AssertionError("Profiler lifecycle children differ");
+        for (var command : List.of(child.getChild("health"), child.getChild("processes"),
+              child.getChild("tickmonitor"), profiler.getChild("start"))) {
+          if (!(command.getChild("options") instanceof ArgumentCommandNode<Object, ?> options)
+              || !(options.getType() instanceof com.mojang.brigadier.arguments.StringArgumentType strings)
+              || strings.getType() != com.mojang.brigadier.arguments.StringArgumentType.StringType.GREEDY_PHRASE)
+            throw new AssertionError("Profiler option codec differs at " + command.getName());
+        }
+        count++;
+        continue;
+      }
       if (child.getName().equals("stats") || child.getName().equals("spawn")) {
         if (!path.isEmpty() || child.getCommand() == null || !child.getChildren().isEmpty()) throw new AssertionError("ValiMC literal " + here);
         count++;

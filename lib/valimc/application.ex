@@ -35,6 +35,7 @@ defmodule Valimc.Application do
     Valimc.Net.LoginKeys.init!()
     Valimc.Commands.init!()
     Valimc.Data.Metrics.init!()
+    Valimc.Data.ProfileTicks.init!()
     Valimc.Entity.Ids.init!()
     Valimc.World.Saving.init!()
     Valimc.Worldgen.Pool.init!()
@@ -56,6 +57,7 @@ defmodule Valimc.Application do
       {Valimc.World.Clock, []},
       {Valimc.World.Stopwatches, []},
       {Valimc.Admin.Lists, []},
+      Valimc.Admin.Profiler,
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4}
     ]
@@ -100,7 +102,7 @@ defmodule Valimc.Application do
     # VMC-010f: the console reads standard input once the server listens.
     # VMC-010g: RCON, when enabled.
     network =
-      [Valimc.Net.Listener] ++
+      [Valimc.Net.Listener, Valimc.Net.ProfileWeb] ++
         if(Valimc.config(:console), do: [Valimc.Net.Console], else: []) ++
         if(Valimc.config(:rcon), do: [Valimc.Net.Rcon], else: [])
 

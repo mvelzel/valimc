@@ -45,6 +45,7 @@ implements.
 | Generated chunks before they are full | Generation scheduler per dimension (`Worldgen.Scheduler`): statuses, proto chunks as native cells, structure starts; terrain, decoration and full chunks as jobs on the generation pool |
 | Entity observations | Region-owned protected ETS: per-chunk views and per-tick frames encoded once by the owner's trackers |
 | World clock, weather, difficulty, who sleeps | Environment owner; immutable publications; sessions report only sleep changes |
+| Profiling and health | One bounded admin observer; per-owner tick ETS rows; immutable reports served by two loopback workers ([profiling](profiling.md)) |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
 | Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Commands.Source` value; blocks change through region owners, players through the groups hosting them |

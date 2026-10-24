@@ -97,7 +97,7 @@ and signs, advancements, and the remaining command families.
 | [VMC-053](tickets/VMC-053.md) | Vanilla command families | Parsers/selectors/permissions/suggestions, command blocks/functions and exact errors |
 | VMC-054 | Resource packs, dialogs and custom payloads | Current negotiation/UI codecs and bounded processing |
 | VMC-055 | Upgrades, backups, recovery and shutdown | Tested migration/rollback and durable acknowledged world/player state |
-| VMC-056 | Metrics, tracing and tick profiling | Per-owner queues, reductions/GC, latency and reproducible workload records |
+| [VMC-056](tickets/VMC-056.md) | Metrics, tracing and tick profiling | Interactive profiler: [056a](tickets/VMC-056a.md); latency/tracing and reproducible workload records remain |
 | VMC-057 | Malformed/abusive clients and load matrix | No cross-player failures, retry storms or unbounded work/allocation |
 | VMC-058 | Supervised Elixir extension API | Versioned contracts, explicit authorized mutations, bounded callbacks and isolation |
 | VMC-059 | Measured performance optimization | Matched feature coverage/workloads against vanilla, Paper/Folia and relevant rewrites |

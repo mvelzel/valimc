@@ -128,8 +128,16 @@ defmodule Valimc.Session.Play do
         <<id::signed-64>> = payload
 
         case state.keepalive do
-          {^id, _} -> %{state | keepalive: nil}
-          _ -> reject(state, "Invalid keepalive")
+          {^id, sent} ->
+            Valimc.Data.ProfileTicks.rtt(
+              state.connection,
+              System.monotonic_time(:millisecond) - sent
+            )
+
+            %{state | keepalive: nil}
+
+          _ ->
+            reject(state, "Invalid keepalive")
         end
 
       "move_player_pos" ->

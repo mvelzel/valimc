@@ -31,8 +31,12 @@ defmodule Valimc.Data.Metrics do
     end
   end
 
-  def snapshot do
+  def counters do
     Map.new(:ets.tab2list(__MODULE__), fn {key, cell} -> {key, :counters.get(cell, 1)} end)
+  end
+
+  def snapshot do
+    counters()
     |> Map.merge(%{
       processes: :erlang.system_info(:process_count),
       schedulers: :erlang.system_info(:schedulers_online),

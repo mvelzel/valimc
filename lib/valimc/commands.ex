@@ -94,6 +94,7 @@ defmodule Valimc.Commands do
       "whitelist" => {C.Operators, :whitelist, suggest: true},
       "worldborder" => {C.WorldBorder, :worldborder},
       # ValiMC's own, beside vanilla's tree.
+      "spark" => {C.Spark, :run, own: true, tree: &C.Spark.tree/0},
       "stats" => {C.Preview, :stats, own: true},
       "spawn" => {C.Preview, :spawn, own: true}
     }

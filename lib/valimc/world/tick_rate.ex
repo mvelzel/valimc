@@ -51,7 +51,9 @@ defmodule Valimc.World.TickRate do
   def run?(_), do: run?({-1, 0})
 
   @doc "Records a region tick's duration (nanoseconds) for `/tick query`."
-  def sample(nanoseconds) do
+  def sample(nanoseconds, late \\ 0) do
+    Valimc.Data.ProfileTicks.record(nanoseconds, late)
+
     case :ets.whereis(__MODULE__) do
       :undefined ->
         :ok
@@ -101,6 +103,7 @@ defmodule Valimc.World.TickRate do
 
   @doc "The world clock ran one game tick: step and sprint progress."
   def clock_ticked do
+    Valimc.Data.Metrics.add(:clock_ticks)
     if Process.whereis(__MODULE__), do: GenServer.cast(__MODULE__, :clock_ticked)
     :ok
   end

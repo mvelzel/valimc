@@ -33,6 +33,7 @@ Start with [current work](docs/roadmap.md), then the relevant ticket.
 explains targeted checks and delegated Minecraft validation.
 
 - [Configuration](docs/configuration.md)
+- [Profiling while playing](docs/profiling.md) with the built-in `/spark` commands
 - [Ownership and architecture](docs/architecture.md)
 - [Reference research](docs/research.md) and [measurements](docs/performance.md)
 - [Feature backlog](docs/backlog.md) and [completed checkpoints](docs/history/completed.md)

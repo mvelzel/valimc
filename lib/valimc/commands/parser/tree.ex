@@ -44,7 +44,8 @@ defmodule Valimc.Commands.Parser.Tree do
 
   @doc """
   The tree for `commands`: name => options (`except:` paths, `only:` paths,
-  `own: true` for a ValiMC command without a vanilla node). Executable nodes
+  `own: true` for a ValiMC command without a vanilla node, with an optional
+  `tree:` callback for its subtree). Executable nodes
   run their command's name; redirects are kept when their target is.
   """
   def build(commands) do
@@ -71,14 +72,18 @@ defmodule Valimc.Commands.Parser.Tree do
     own =
       for {name, options} <- commands,
           options[:own],
-          do: %Node{
-            name: name,
-            type: :literal,
-            level: 0,
-            restricted: false,
-            command: name,
-            path: [name]
-          }
+          do:
+            if(options[:tree],
+              do: options[:tree].(),
+              else: %Node{
+                name: name,
+                type: :literal,
+                level: 0,
+                restricted: false,
+                command: name,
+                path: [name]
+              }
+            )
 
     %Node{
       name: "",
