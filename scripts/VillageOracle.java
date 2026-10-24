@@ -246,6 +246,14 @@ public class VillageOracle {
       random.setSeed(s);
       var row = new JsonArray(); row.add(keys.get(i)); row.add(s); out.add(row);
     }
+    if (m instanceof Villager) {
+      // InsideBrownianWalk uses JDK Collections.shuffle's separate random.
+      // Seed it for this probe just as the independent brain gates above.
+      long s = seed + 101 * ++k;
+      var f = Collections.class.getDeclaredField("r");
+      unsafe().putObject(unsafe().staticFieldBase(f), unsafe().staticFieldOffset(f), new Random(s));
+      var row = new JsonArray(); row.add("inside_brownian_walk"); row.add(s); out.add(row);
+    }
     return out;
   }
 
@@ -547,6 +555,9 @@ public class VillageOracle {
     // At dusk it walks to its bed and sleeps, and wakes in the morning.
     cases.add(run(level, "villager_night", scene(floor(63, 12, stone), bed(4, 64, 0, Direction.EAST)),
         List.of(new Spawn("minecraft:villager", start, 0, 37L)), 11800L, 600));
+    // No bed to claim: the rest activity tries InsideBrownianWalk below a roof.
+    cases.add(run(level, "villager_roof_no_home", scene(floor(63, 12, stone), floor(67, 12, stone)),
+        List.of(new Spawn("minecraft:villager", start, 0, 139L)), 13000L, 160));
     cases.add(run(level, "villager_morning", scene(floor(63, 12, stone), bed(4, 64, 0, Direction.EAST)),
         List.of(new Spawn("minecraft:villager", start, 0, 41L)), 23700L, 500));
     // A lectern makes it a librarian, which works there.

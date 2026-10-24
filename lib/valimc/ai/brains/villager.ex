@@ -101,7 +101,7 @@ defmodule Valimc.AI.Brains.Villager do
   @doc """
   The keys of a villager brain's gates, `"priority:activity:index:0"` (the
   behaviour's place among its activity's at that priority), in the order
-  vanilla's brain lists them.
+  vanilla's brain lists them, followed by its independent roofed-walk shuffle.
   """
   def gate_keys(baby) do
     work_or_play = if baby, do: ["5:play:0:0", "5:play:1:0"], else: ["5:work:0:0", "5:work:1:0"]
@@ -117,7 +117,8 @@ defmodule Valimc.AI.Brains.Villager do
         "3:idle:3:0",
         "3:idle:4:0",
         "5:idle:0:0",
-        "5:panic:0:0"
+        "5:panic:0:0",
+        "inside_brownian_walk"
       ]
   end
 
@@ -226,7 +227,7 @@ defmodule Valimc.AI.Brains.Villager do
        Behavior.run_one(
          [
            {Poi.walk_to_closest_home(@speed), 1},
-           {brownian_walk(@speed), 4},
+           {brownian_walk(@speed, g.("inside_brownian_walk")), 4},
            {Poi.go_to_village(@speed, 4), 2},
            {Behavior.do_nothing(20, 40), 2}
          ],
@@ -1123,21 +1124,21 @@ defmodule Valimc.AI.Brains.Villager do
 
   # `InsideBrownianWalk`: under a roof, a random neighbouring block it can
   # stand on under it too.
-  defp brownian_walk(speed) do
-    Behavior.one_shot([walk_target: :absent], fn self ->
+  defp brownian_walk(speed, random) do
+    Behavior.one_shot([walk_target: :absent], random, fn self, random ->
       {x, y, z} = block = Self.block(self)
 
       if sky?(self, block) do
-        {false, self}
+        {false, self, random}
       else
-        cells = for dx <- -1..1, dy <- -1..1, dz <- -1..1, do: {x + dx, y + dy, z + dz}
-        {cells, self} = shuffle(cells, self)
+        cells = for dz <- -1..1, dy <- -1..1, dx <- -1..1, do: {x + dx, y + dy, z + dz}
+        {cells, random} = shuffle(cells, random)
 
         target =
           Enum.find(cells, fn cell -> not sky?(self, cell) and stands_on?(self, cell) end)
 
         self =
-          if target,
+          if target && World.fits?(self.world, Self.box(self)),
             do:
               Brain.set(self, :walk_target, %{
                 target: {:block, target, center(target)},
@@ -1146,25 +1147,26 @@ defmodule Valimc.AI.Brains.Villager do
               }),
             else: self
 
-        {true, self}
+        {true, self, random}
       end
     end)
   end
 
   defp center({x, y, z}), do: {x + 0.5, y + 0.5, z + 0.5}
 
-  # `Collections.shuffle` with the level random (`Util.shuffle`'s order).
-  defp shuffle(list, self) do
+  # `Collections.shuffle` uses a separate RNG, not the level or mob random.
+  # Keep that independent stream in this existing one-shot's owned state.
+  defp shuffle(list, random) do
     tuple = List.to_tuple(list)
 
-    {tuple, self} =
-      Enum.reduce((tuple_size(tuple) - 1)..1//-1, {tuple, self}, fn i, {t, self} ->
-        {j, self} = Behavior.level_int(self, i + 1)
+    {tuple, random} =
+      Enum.reduce((tuple_size(tuple) - 1)..1//-1, {tuple, random}, fn i, {t, random} ->
+        {j, random} = Random.int(random, i + 1)
         a = elem(t, i)
-        {put_elem(put_elem(t, i, elem(t, j)), j, a), self}
+        {put_elem(put_elem(t, i, elem(t, j)), j, a), random}
       end)
 
-    {Tuple.to_list(tuple), self}
+    {Tuple.to_list(tuple), random}
   end
 
   # `canSeeSky`: no sky source above (a column's lowest sky source).
@@ -1174,7 +1176,7 @@ defmodule Valimc.AI.Brains.Villager do
   defp stands_on?(self, {x, y, z}) do
     case World.block(self.world, {x, y, z}) do
       nil -> false
-      state -> Valimc.Data.BlockFacts.flag?(state, :face_sturdy_up)
+      state -> Valimc.Data.BlockFacts.flag?(state, :sturdy_up)
     end
   end
 
