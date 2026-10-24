@@ -218,8 +218,7 @@ defmodule Valimc.World.Projectiles do
             end
 
           {:block, _, _, _, _, _} ->
-            {:remove,
-             [{:sound, "minecraft:entity.shulker_bullet.hit", "hostile", position, 1.0, 1.0}]}
+            {:remove, ShulkerBullet.feedback(:block, position)}
         end
     end
   end

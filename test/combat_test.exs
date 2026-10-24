@@ -33,6 +33,16 @@ defmodule Valimc.CombatTest do
 
   defp binary({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 
+  test "a bullet accepts even a zero hit, returns a nonliving attack outcome and removes once" do
+    {store, id} = zombie({1.5, 64.0, 2.5}, "minecraft:shulker_bullet")
+    {:ok, next, outcome} = Combat.hurt(store, id, hit(0.0))
+    assert outcome.hurt
+    assert outcome.previous == 0.0 and outcome.health == 0.0
+    assert length(outcome.feedback) == 2
+    refute Map.has_key?(next.entries, id)
+    assert {:error, :missing_entity} = Combat.hurt(next, id, hit(0.0))
+  end
+
   test "a hit goes through the zombie's armor, knocks it away and starts its cooldown" do
     {store, id} = zombie()
     {:ok, store, outcome} = Combat.hurt(store, id, hit(7.0))

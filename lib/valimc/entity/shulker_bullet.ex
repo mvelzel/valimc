@@ -28,6 +28,23 @@ defmodule Valimc.Entity.ShulkerBullet do
 
   def type, do: @type_name
 
+  @doc "Terminal hurt/block feedback, before the native callback discards the bullet."
+  def feedback(:hurt, at) do
+    [
+      sound("minecraft:entity.shulker_bullet.hurt", at),
+      {:particles, "minecraft:crit", at, {0.2, 0.2, 0.2}, 0.0, 15}
+    ]
+  end
+
+  def feedback(:block, at) do
+    [
+      {:particles, "minecraft:explosion", at, {0.2, 0.2, 0.2}, 0.0, 2},
+      sound("minecraft:entity.shulker_bullet.hit", at)
+    ]
+  end
+
+  defp sound(name, at), do: {:sound_at, name, "hostile", at, 1.0, 1.0}
+
   @doc "Its own data and defaults."
   def data,
     do: %{target: nil, direction: nil, steps: 0, deltas: {0.0, 0.0, 0.0}, home: nil, random: 0}

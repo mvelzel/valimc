@@ -4227,7 +4227,8 @@
     "minecraft:explosion_emitter": 29,
     "minecraft:dragon_breath": 15,
     "minecraft:squid_ink": 76,
-    "minecraft:glow_squid_ink": 109
+    "minecraft:glow_squid_ink": 109,
+    "minecraft:crit": 13
   },
   "damage_types": {
     "minecraft:arrow": {

@@ -64,8 +64,15 @@ defmodule Valimc.Entity.Combat do
   end
 
   # A shulker's bullet is broken by any hit (`ShulkerBullet.hurtServer`).
-  def resolve(%{kind: :object, body: %Body{type: "minecraft:shulker_bullet"}}, _hit),
-    do: {:remove, %{hurt: true}}
+  def resolve(%{kind: :object, body: %Body{type: "minecraft:shulker_bullet"}, entity: e}, _hit),
+    do:
+      {:remove,
+       %{
+         hurt: true,
+         previous: 0.0,
+         health: 0.0,
+         feedback: Valimc.Entity.ShulkerBullet.feedback(:hurt, {e.x, e.y, e.z})
+       }}
 
   def resolve(%{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}, hit) do
     if Valimc.Entity.EndCrystal.hurt?(body, hit) do

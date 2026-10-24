@@ -71,7 +71,7 @@ public class CombatOracle {
       "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot",
       "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt");
   static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator",
-      "minecraft:explosion", "minecraft:explosion_emitter", "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink");
+      "minecraft:explosion", "minecraft:explosion_emitter", "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink", "minecraft:crit");
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   static JsonElement encode(DataComponentType type, Object value, com.mojang.serialization.DynamicOps<JsonElement> ops) {

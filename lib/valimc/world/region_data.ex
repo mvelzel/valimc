@@ -986,6 +986,7 @@ defmodule Valimc.World.RegionData do
             end
 
           state = change_group_entry(state, key, store, sid, change)
+          state = combat_feedback(state, entry, outcome)
 
           state =
             case outcome do
@@ -1020,6 +1021,12 @@ defmodule Valimc.World.RegionData do
     Valimc.World.publish(route_key(state), {:sound, position, 16.0 * max(volume, 1.0), packet})
     state
   end
+
+  defp projectile_effect(state, entry, {:sound_at, _, _, at, volume, _} = event),
+    do: terminal_event(state, entry, event, at, 16.0 * max(volume, 1.0))
+
+  defp projectile_effect(state, entry, {:particles, _, at, _, _, _} = event),
+    do: terminal_event(state, entry, event, at, 32.0)
 
   # An entity event before the projectile goes (a snowball's or egg's break).
   defp projectile_effect(state, entry, {:event, event, position}) do
@@ -6251,7 +6258,7 @@ defmodule Valimc.World.RegionData do
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
          entry = store.entries[id],
          {:ok, store, outcome} <- Valimc.Entity.Combat.hurt(store, id, hit) do
-      state = put_entities(state, store)
+      state = state |> put_entities(store) |> combat_feedback(entry, outcome)
 
       state =
         case outcome do
@@ -6263,10 +6270,21 @@ defmodule Valimc.World.RegionData do
             state
         end
 
-      {{:ok, Map.drop(outcome, [:crystal, :explode])}, state}
+      {{:ok, Map.drop(outcome, [:crystal, :explode, :feedback])}, state}
     else
       {:error, _} = error -> {error, state}
     end
+  end
+
+  # A removed body cannot retain tracker events. Publish its bounded terminal
+  # feedback once, after the authoritative store admitted the hit.
+  defp combat_feedback(state, entry, outcome),
+    do: Enum.reduce(Map.get(outcome, :feedback, []), state, &projectile_effect(&2, entry, &1))
+
+  defp terminal_event(state, entry, event, at, range) do
+    packet = Body.event_packet(entry.entity.entity_id, event, entry.entity)
+    Valimc.World.publish(route_key(state), {:sound, at, range, packet})
+    state
   end
 
   @doc """

@@ -129,6 +129,54 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "punching a bullet sends native break feedback and leaves the connection alive", ctx do
+    save(ctx, -90.0, Inventory.new())
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, bullet} = Body.new("minecraft:shulker_bullet")
+    bullet = %{bullet | no_gravity: true}
+    at = {ctx.pose.x + 2.0, 65.0, ctx.pose.z}
+    uuid = <<860::128>>
+    :ok = Region.drop_items(owner, [Store.body_record(bullet, uuid, at)])
+    {id, _} = body(owner, uuid)
+    {_entity, client} = Client.await(client, :play, "add_entity")
+    Client.send_packet(client, :play, "attack", Wire.varint(id))
+
+    sound = Valimc.AI.Facts.sound_id("minecraft:entity.shulker_bullet.hurt") + 1
+
+    {payload, client} =
+      Enum.reduce_while(1..8, {nil, client}, fn _, {_, client} ->
+        {payload, client} = Client.await(client, :play, "sound")
+        {event, _} = Wire.take_varint(payload)
+        if event == sound, do: {:halt, {payload, client}}, else: {:cont, {nil, client}}
+      end)
+
+    assert payload != nil
+
+    {_, expected} =
+      Valimc.Protocol.CombatPackets.sound(
+        "minecraft:entity.shulker_bullet.hurt",
+        "hostile",
+        at,
+        1.0,
+        1.0,
+        0
+      )
+
+    assert binary_part(payload, 0, byte_size(payload) - 8) ==
+             binary_part(IO.iodata_to_binary(expected), 0, byte_size(payload) - 8)
+
+    {particles, _client} = Client.await(client, :play, "level_particles")
+
+    {_, expected} =
+      Valimc.Protocol.CombatPackets.particles("minecraft:crit", at, {0.2, 0.2, 0.2}, 0.0, 15)
+
+    assert particles == IO.iodata_to_binary(expected)
+    assert Process.alive?(pid)
+    assert {:error, _} = Store.find(store(owner), uuid)
+    assert {:error, :missing_item} = Region.hurt_entity(owner, uuid, %{amount: 1.0})
+  end
+
   test "the hosted session follows an opening lid and closing does not pull it back", ctx do
     Valimc.TestScope.isolate(Valimc.TestScope.neighborhood(ctx.key),
       region_ticks: :manual,
