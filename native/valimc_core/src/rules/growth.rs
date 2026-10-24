@@ -776,15 +776,14 @@ impl<W: World> Engine<'_, W> {
         from: u16,
         to: Option<u16>,
         event: Option<i32>,
-        updates: bool,
-        survives: bool,
+        options: u8,
     ) -> i32 {
         if !self.world.owns(pos) || self.world.get(pos) != from {
             return 0;
         }
         match to {
             Some(to) => {
-                if survives {
+                if options & 2 != 0 {
                     let rules = self.rules;
                     if !rules.live_survives(&mut self.world, to, pos) {
                         return 0;
@@ -793,10 +792,10 @@ impl<W: World> Engine<'_, W> {
                 if let Some(data) = event {
                     self.event(pos, super::fluid::BREAK, data);
                 }
-                let flags = if updates { ALL } else { CLIENTS };
+                let flags = if options & 1 != 0 { ALL } else { CLIENTS };
                 i32::from(self.set_block(pos, to, flags, UPDATE_LIMIT))
             }
-            None => i32::from(self.destroy(pos, false, UPDATE_LIMIT)),
+            None => i32::from(self.destroy(pos, options & 4 != 0, UPDATE_LIMIT)),
         }
     }
 

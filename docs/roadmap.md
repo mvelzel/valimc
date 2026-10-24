@@ -51,7 +51,7 @@ Current order:
 
 1. Finish the pending client gates in one batched run; resolve integration failures.
 2. Validate double chests (032b) with the next finale client batch.
-3. Finale: connect the dragon actor's arena lifecycle (045a), then run the M3 gate (078).
+3. Finale: finish the dragon's live respawn ritual (045a), validate the finale batch, then run the M3 gate (078).
 
 Done: [039c](tickets/VMC-039c.md), [049a](tickets/VMC-049a.md).
 
@@ -67,6 +67,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 |---|---|
 | [VMC-032b](tickets/VMC-032b.md) | Join, use and split a large chest across a section line; contents survive reconnect; hoppers and comparators read both halves |
 | [VMC-037o1](tickets/VMC-037o1.md) | Shoot a dragon part across a section line |
+| [VMC-045a](tickets/VMC-045a.md) | Kill the dragon and exit; respawn it with four crystals; rewards survive reconnect |
 | [VMC-045a1](tickets/VMC-045a1.md) | Place and strike a crystal; shoot a spike crystal; both explode |
 | [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |

@@ -48,6 +48,7 @@ defmodule Valimc.Net.Link do
     :regions,
     :wanted,
     :wanted_owners,
+    :dragon_arena,
     :generation_focus,
     :pending,
     :chunk_sender,
@@ -91,6 +92,7 @@ defmodule Valimc.Net.Link do
         player:
           state.player
           |> Map.take(@player_keys)
+          |> Map.put(:alive, state.life_stage == :alive)
           |> Map.put(:spectator, state.player.game_mode.current == :spectator),
         owner: pid,
         owner_monitor: Process.monitor(pid)

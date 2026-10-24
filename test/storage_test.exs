@@ -137,6 +137,7 @@ defmodule Valimc.StorageTest do
       pistons: %{},
       post: %{},
       structures: %{},
+      arena: nil,
       game_tick: 0
     }
 

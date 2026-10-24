@@ -270,6 +270,13 @@ defmodule Valimc.Player.Host do
     end
   end
 
+  @doc "Every alive player of this group's dimension, including spectators, for boss audiences."
+  def boss_players(state) do
+    for {uuid, %{session: %{player: player, life_stage: :alive}}} <- state.players,
+        player.dimension == state.dimension,
+        do: %{uuid: uuid, alive: true, x: player.x, y: player.y, z: player.z}
+  end
+
   @doc """
   The players orbs follow (VMC-077i): every living, non-spectator player in
   this group's dimension, as `{feet, aim}`, `aim` at half its eye height.
@@ -690,6 +697,7 @@ defmodule Valimc.Player.Host do
       pitch: player.pitch,
       dimension: player.dimension,
       spectator: player.game_mode.current == :spectator,
+      alive: session.life_stage == :alive,
       teleport_pending: session.teleport_pending
     }
   end

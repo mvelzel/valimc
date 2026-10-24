@@ -36,8 +36,12 @@ defmodule Valimc.Session.Replication do
       {Grid.chunk_key(state.player.x, state.player.z),
        ChunkView.distance(state.requested_view_distance)}
 
+    arena = dragon_arena?(state)
+
     if view == state.view do
-      state
+      if arena == Map.get(state, :dragon_arena, false),
+        do: state,
+        else: state |> Map.put(:dragon_arena, arena) |> want_chunks()
     else
       {entering, leaving} = ChunkView.difference(state.view, view)
       forgotten = Enum.filter(leaving, &MapSet.member?(state.chunks, &1))
@@ -71,6 +75,7 @@ defmodule Valimc.Session.Replication do
           pending: pending,
           chunk_sender: ChunkSender.forget(state.chunk_sender, leaving)
       }
+      |> Map.put(:dragon_arena, arena)
       |> focus()
       |> want_chunks()
     end
@@ -81,6 +86,13 @@ defmodule Valimc.Session.Replication do
   # chunks ahead go first, and the regions' tickets, which wait in their
   # owners' mailboxes, need not change to reorder anything.
   @jump 64.0
+  defp dragon_arena?(%{player: %{dimension: :the_end} = player} = state) do
+    alive = Map.get(player, :alive, Map.get(state, :life_stage) == :alive)
+    Valimc.World.Dragon.Fight.eligible?(%{alive: alive, x: player.x, y: player.y, z: player.z})
+  end
+
+  defp dragon_arena?(_state), do: false
+
   defp focus(%{view: {center, _}, player: player} = state) do
     dimension = player.dimension
     position = {player.x, player.z}
@@ -126,7 +138,13 @@ defmodule Valimc.Session.Replication do
   # dimension) withdraws. `wanted` remembers which owner was told.
   defp want_chunks(%{view: {{cx, cz}, _} = view} = state) do
     reach = min(Valimc.config(:simulation_distance), ChunkView.server_distance())
-    simulation = for x <- (cx - reach)..(cx + reach), z <- (cz - reach)..(cz + reach), do: {x, z}
+    local = for x <- (cx - reach)..(cx + reach), z <- (cz - reach)..(cz + reach), do: {x, z}
+
+    arena =
+      if Map.get(state, :dragon_arena, false), do: Valimc.World.Dragon.Arena.chunks(), else: []
+
+    simulation = Enum.uniq(local ++ arena)
+    simulated_chunks = MapSet.new(simulation)
 
     loading =
       view
@@ -146,8 +164,7 @@ defmodule Valimc.Session.Replication do
 
         case World.region(section) do
           {:ok, pid} ->
-            simulated =
-              Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
+            simulated = Enum.filter(chunks, &MapSet.member?(simulated_chunks, &1))
 
             told = {pid, MapSet.new(chunks), MapSet.new(simulated)}
 

@@ -261,7 +261,11 @@ defmodule Valimc.World.BlockRules do
 
   defp pack_action({:edit, position, from, to, event, options}) do
     {to, event} = {to || 0xFFFF, event || -1}
-    flags = if(:updates in options, do: 1, else: 0) + if(:survives in options, do: 2, else: 0)
+
+    flags =
+      if(:updates in options, do: 1, else: 0) + if(:survives in options, do: 2, else: 0) +
+        if(:drops in options, do: 4, else: 0)
+
     <<16, pos(position)::binary, 0, 0, from::16, to::16, event::32-signed, flags, 0::24>>
   end
 

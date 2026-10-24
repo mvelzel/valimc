@@ -19,6 +19,7 @@ defmodule Valimc.World.RegionStorage do
   | `{:block_entity, position}` | a preserved block entity, `{type, nbt}` |
   | `{:comparator, position}` | a comparator's output (VMC-048a) |
   | `{:piston, position}` | a moving piston's block entity (VMC-048b) |
+  | `:dragon_fight` | the End origin section's fight state (VMC-045a7) |
   | `:game_tick` | the region's game tick when the frame was cut |
 
   The owner adopts every change in memory at once and replies at once (D2).
@@ -71,7 +72,8 @@ defmodule Valimc.World.RegionStorage do
     :comparators,
     :pistons,
     :post,
-    :structures
+    :structures,
+    :arena
   ]
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
@@ -666,6 +668,9 @@ defmodule Valimc.World.RegionStorage do
   defp fields(:post, post), do: [{post, &{{:post, &1}, &2}}]
   defp fields(:structures, structures), do: [{structures, &{{:structures, &1}, &2}}]
 
+  defp fields(:arena, fight),
+    do: [{if(fight, do: %{fight: fight}, else: %{}), fn _, value -> {:dragon_fight, value} end}]
+
   # `changes` with the records of `part` that changed between its last
   # committed value and `value`: `key => {old, new}`, `new` `:deleted` for a
   # gone record, `old` nil for a new one. A chunk's old ticks are `:unknown`:
@@ -857,6 +862,7 @@ defmodule Valimc.World.RegionStorage do
       cells: %{},
       post_processing: %{},
       structures: %{},
+      arena: nil,
       items: [],
       ledger: Store.empty_ledger(),
       containers: %Containers{},
@@ -880,6 +886,9 @@ defmodule Valimc.World.RegionStorage do
 
       {{:structures, chunk}, value}, acc ->
         put_in(acc, [:structures, chunk], value)
+
+      {:dragon_fight, fight}, acc ->
+        %{acc | arena: fight}
 
       {{:block_entity, pos}, value}, acc ->
         put_in(acc, [:block_entities, pos], value)

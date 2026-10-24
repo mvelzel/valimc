@@ -161,7 +161,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                 15 => Action::Harvest { pos },
                 // A mob's edit: `from` and `to` (0xFFFF: destroyed), then the
                 // event's data (-1: none), big-endian, and its flags (1:
-                // neighbour updates, 2: only where it survives).
+                // neighbour updates, 2: only where it survives, 4: drop loot).
                 16 => {
                     let from = u16::from_be_bytes([r[15], r[16]]);
                     let to = u16::from_be_bytes([r[17], r[18]]);
@@ -171,8 +171,7 @@ pub(crate) fn actions(packed: &[u8]) -> Result<Vec<Action>, Atom> {
                         from,
                         to: (to != u16::MAX).then_some(to),
                         event: (event >= 0).then_some(event),
-                        updates: r[23] & 1 == 1,
-                        survives: r[23] & 2 == 2,
+                        flags: r[23],
                     }
                 }
                 17 => Action::Moving { pos },

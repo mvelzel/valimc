@@ -31,5 +31,7 @@ in [VMC-045a3](VMC-045a3.md). The living body, part IDs, damage and wire
 routing are [VMC-045a4](VMC-045a4.md), with group-wide projectile authority
 in [VMC-037o1](VMC-037o1.md). [VMC-045a5](VMC-045a5.md) connects live
 ticking, attacks, crystal healing and death. [VMC-045a6](VMC-045a6.md)
-defines arena geometry, boss packets and the respawn sequence. Arena
-admission and durable effects follow within this parent.
+defines arena geometry, boss packets and the respawn sequence.
+[VMC-045a7](VMC-045a7.md) admits the live fight and commits its portal,
+egg and gateway with completion. Live ritual effects still follow before
+the batched finale gate.

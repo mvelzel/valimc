@@ -132,14 +132,14 @@ pub enum Action {
     /// `event` is the block-break event's data shown first, if any. With
     /// `updates` the change updates its neighbours (`setBlockAndUpdate`, an
     /// enderman's), and with `survives` only a state that survives there is
-    /// set (an enderman putting down its block, VMC-043b5).
+    /// set (an enderman putting down its block, VMC-043b5). Flags are
+    /// updates=1, survives=2, destroy with drops=4 (the End podium).
     Edit {
         pos: [i32; 3],
         from: u16,
         to: Option<u16>,
         event: Option<i32>,
-        updates: bool,
-        survives: bool,
+        flags: u8,
     },
     /// The moving piston's block entity at `pos` ticks (VMC-048b).
     Moving { pos: [i32; 3] },
@@ -497,9 +497,8 @@ pub fn run(
                 from,
                 to,
                 event,
-                updates,
-                survives,
-            } => engine.mob_edit(pos, from, to, event, updates, survives),
+                flags,
+            } => engine.mob_edit(pos, from, to, event, flags),
             Action::Shear { pos, facing } => engine.shear(pos, facing),
             Action::RandomTick { pos, rain, .. } if engine.growing(pos) => {
                 engine.growth_random_tick(pos, rain)

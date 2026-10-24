@@ -899,7 +899,8 @@ defmodule Valimc.World.Region do
   defp touch(touched, key, old, new) do
     if old.storage === new.storage and old.scheduled_ticks === new.scheduled_ticks and
          old.entities.store === new.entities.store and old.containers === new.containers and
-         old.block_entities === new.block_entities and old.comparators === new.comparators,
+         old.block_entities === new.block_entities and old.comparators === new.comparators and
+         old.arena === new.arena,
        do: touched,
        else: MapSet.put(touched, key)
   end
@@ -918,6 +919,7 @@ defmodule Valimc.World.Region do
     # The POI tickets its villagers hold (VMC-044a1).
     pois = resource.poi_claims
     entities = resource.entities.store
+    arena = resource.arena
 
     case peers do
       %{
@@ -927,7 +929,8 @@ defmodule Valimc.World.Region do
           comparators: ^comparators,
           containers: ^containers,
           pois: ^pois,
-          entities: ^entities
+          entities: ^entities,
+          arena: ^arena
         }
       } ->
         peers
@@ -941,7 +944,9 @@ defmodule Valimc.World.Region do
           comparators: comparators,
           containers: containers,
           pois: pois,
-          entities: entities
+          entities: entities,
+          arena: arena,
+          arena_spikes: resource.arena_spikes
         })
     end
   end
@@ -1426,6 +1431,18 @@ defmodule Valimc.World.Region do
 
   defp run_tick(state, tick, now) do
     state = state |> track_players() |> spawn_mobs(tick)
+
+    state =
+      if state.dimension == :the_end and Map.has_key?(state.sections, {0, 0}) do
+        state
+        |> put_resource(
+          {0, 0},
+          RegionData.dragon_arena_tick(enter(state, {0, 0}), Host.boss_players(state))
+        )
+        |> deliver_rules({0, 0})
+      else
+        state
+      end
 
     state.sections
     |> Map.keys()

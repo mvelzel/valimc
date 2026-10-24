@@ -91,6 +91,11 @@ defmodule Valimc.World.RegionData do
     # (VMC-042b): `chunk => [{structure, box, pieces}]`, which natural
     # spawning reads.
     {:structures, %{}},
+    # Only the End origin section owns the durable fight; the bar and
+    # generated spike descriptions are transient and move with that section.
+    {:arena, nil},
+    {:arena_view, nil},
+    {:arena_spikes, []},
     # The group's other sections (VMC-077j), as the group hands them in
     # (`Region`): what the block rules read across and whether a plan holds
     # each; and what this section's call did to them (block-rule changes,
@@ -206,6 +211,16 @@ defmodule Valimc.World.RegionData do
     :ok = BlockSnapshot.publish_chunks(publication, blocks, present, 0)
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
 
+    arena =
+      if dimension == :the_end and key == {0, 0} do
+        seed = Valimc.World.Spec.fetch(Valimc.config(:world_path, key)).seed
+
+        {loaded.arena || Valimc.World.Dragon.Arena.new(dimension, key, seed),
+         Valimc.World.Dragon.Fight.spikes(seed)}
+      else
+        {nil, []}
+      end
+
     %__MODULE__{
       dimension: dimension,
       key: key,
@@ -244,6 +259,8 @@ defmodule Valimc.World.RegionData do
       rule_backlog: [],
       post: loaded.post_processing,
       structures: loaded.structures,
+      arena: elem(arena, 0),
+      arena_spikes: elem(arena, 1),
       random_tick_speed: Valimc.config(:random_tick_speed, key),
       storage: storage
     }
@@ -266,6 +283,7 @@ defmodule Valimc.World.RegionData do
       pistons: state.pistons,
       post: state.post,
       structures: state.structures,
+      arena: state.arena,
       game_tick: state.game_tick
     }
 
@@ -2654,14 +2672,112 @@ defmodule Valimc.World.RegionData do
   end
 
   defp dragon_effect({e, _, :dragon_killed}, state) do
-    Valimc.World.publish(route_key(state), {:dragon_killed, e.uuid})
-    state
+    if state.key == {0, 0},
+      do: Valimc.World.Dragon.Arena.complete(state, e.uuid, arena_ops()),
+      else: sibling_effect(state, {0, 0}, {:dragon_killed, e.uuid})
   end
 
   defp dragon_effect(_, state), do: state
 
+  @doc "The origin section's fight before the group's entity phase."
+  def dragon_arena_tick(state, players \\ []),
+    do: Valimc.World.Dragon.Arena.tick(state, arena_ops(), players)
+
+  defp arena_ops do
+    %{
+      ready: fn state ->
+        write_busy(state) == nil and Enum.all?(state.siblings, fn {_, peer} -> not peer.busy end)
+      end,
+      entries: &group_entries/1,
+      edits: &arena_edits/2,
+      spawn: &arena_spawn/1,
+      gateway: &arena_gateway/2,
+      event: fn state, id, at ->
+        {x, _, z} = at
+        route = Grid.section(state.dimension, Grid.chunk_key(x, z))
+        Valimc.World.publish(route, {:level_events, [{at, id, 0}]})
+        state
+      end,
+      packet: fn uuid, packet -> send(self(), {:player, uuid, {:boss_packet, packet}}) end
+    }
+  end
+
+  defp arena_spawn(state) do
+    {:ok, body} = Body.new("minecraft:ender_dragon")
+
+    {yaw, random} =
+      Valimc.Data.JavaRandom.next_float(state.ai_random || Valimc.Data.JavaRandom.create())
+
+    yaw = Valimc.Data.Float32.round(yaw * 360.0)
+    body = %{body | yaw: yaw, head_yaw: yaw, data: %{body.data | phase: 0}}
+    uuid = :crypto.strong_rand_bytes(16)
+    record = Store.body_record(body, uuid, {0.0, 128.0, 0.0})
+    state = create_body(%{state | ai_random: random}, record)
+
+    case Store.find(state.entities.store, uuid) do
+      {:ok, _} -> {state, uuid}
+      _ -> {state, nil}
+    end
+  end
+
+  # Native feature intents use the existing fenced rules, drops, container
+  # spills, neighbour updates and one shared group frame.
+  defp arena_edits(state, intents) do
+    view = Valimc.World.View.new(state.dimension)
+    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
+
+    intents =
+      Enum.filter(intents, fn {{_, y, _}, _, _} -> y >= min_y and y < min_y + height end)
+
+    {_projected, actions} =
+      Enum.reduce(intents, {%{}, []}, fn {cell, block, drops}, {projected, actions} ->
+        old = Map.get_lazy(projected, cell, fn -> Valimc.World.View.block(view, cell) end)
+
+        next =
+          cond do
+            old == nil or old == block ->
+              []
+
+            drops and not Valimc.Data.BlockFacts.air?(old) ->
+              [
+                {:edit, cell, old, nil, nil, [:drops]},
+                {:edit, cell, Valimc.Data.BlockFacts.fluid_remains(old), block, nil, [:updates]}
+              ]
+
+            true ->
+              [{:edit, cell, old, block, nil, [:updates]}]
+          end
+
+        {Map.put(projected, cell, block), Enum.reverse(next, actions)}
+      end)
+
+    {state, _} = rule_run(state, %{actions: Enum.reverse(actions)})
+    state
+  end
+
+  defp arena_gateway(state, at) do
+    type = Valimc.Blocks.BlockEntityTypes.type_id(Valimc.Data.Blocks.default_state("end_gateway"))
+    {:ok, nbt} = BlockEntities.encode_nbt({:compound, %{"Age" => {:long, 0}}})
+    key = Grid.region_key(Grid.chunk_key(elem(at, 0), elem(at, 2)))
+    entry = %{at => {type, nbt}}
+
+    state =
+      if key == state.key do
+        {:ok, entities} = BlockEntities.add(state.block_entities, entry)
+        %{state | block_entities: entities}
+      else
+        sibling_effect(state, key, {:arena_entries, entry})
+      end
+
+    intents =
+      for {cell, block} <- Valimc.World.Portal.Gateway.structure(at), do: {cell, block, false}
+
+    arena_edits(state, intents)
+  end
+
   defp crystal_destroyed(state, crystal, hit) do
     if Valimc.World.Dimension.facts(state.dimension).dragon_fight do
+      state = arena_crystal_change(state)
       point = {floor(crystal.x), floor(crystal.y), floor(crystal.z)}
 
       player =
@@ -2708,8 +2824,13 @@ defmodule Valimc.World.RegionData do
         position: {crystal.x, crystal.y, crystal.z}
       }
 
+      arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
+
       dragons =
-        for {id, %{body: %Body{type: "minecraft:ender_dragon"}}} <- group_entries(state), do: id
+        for {id, %{body: %Body{type: "minecraft:ender_dragon"}, entity: e}} <-
+              group_entries(state),
+            arena == nil or arena.dragon == e.uuid,
+            do: id
 
       Enum.reduce(dragons, state, fn id, state ->
         case group_entry(state, id) do
@@ -2732,6 +2853,24 @@ defmodule Valimc.World.RegionData do
             state
         end
       end)
+    else
+      state
+    end
+  end
+
+  defp arena_crystal_change(state) do
+    arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
+
+    if arena do
+      count = Valimc.World.Dragon.Arena.count_crystals(state, arena_ops())
+      arena = %{arena | alive_crystals: count, scan: 0}
+
+      if state.arena do
+        %{state | arena: arena}
+      else
+        state = put_in(state.siblings[{0, 0}].arena, arena)
+        sibling_effect(state, {0, 0}, {:arena_count, count})
+      end
     else
       state
     end
@@ -2771,7 +2910,8 @@ defmodule Valimc.World.RegionData do
          match?(%{body: %Body{type: "minecraft:ender_dragon"}}, e)
        end) do
       {min_y, _} = Valimc.World.Dimension.bounds(state.dimension)
-      height = fn x, z -> dragon_height(view, x, z, min_y) end
+      height = fn x, z -> Valimc.World.Dragon.Arena.height(view, x, z, min_y) end
+      arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
 
       crystals =
         for {_, %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}} <-
@@ -2792,31 +2932,12 @@ defmodule Valimc.World.RegionData do
       %{
         height: height,
         podium: {0, height.(0, 0), 0},
-        crystals: nil,
+        crystals: arena && arena.alive_crystals,
         crystal_bodies: crystals,
         targets: targets,
-        previous_kill: true,
+        previous_kill: arena == nil or arena.previous_kill,
         blocks: &Valimc.World.View.blocks(view, &1)
       }
-    end
-  end
-
-  defp dragon_height(view, x, z, min_y) do
-    case Valimc.World.View.column(view, x, z) do
-      {:ok, %{motion_blocking: top}} when top > min_y ->
-        cells = for y <- (top - 1)..min_y, do: {x, y, z}
-
-        Enum.zip(cells, Valimc.World.View.blocks(view, cells))
-        |> Enum.find_value(min_y, fn
-          {{_, y, _}, block} when is_integer(block) ->
-            if Valimc.Data.BlockFacts.heightmap?(block, :motion_blocking_no_leaves), do: y + 1
-
-          _ ->
-            nil
-        end)
-
-      _ ->
-        min_y
     end
   end
 
@@ -5801,6 +5922,17 @@ defmodule Valimc.World.RegionData do
 
   # A sibling's projectile hits a body here (VMC-037o).
   def apply_sibling(state, {:hurt, uuid, hit}), do: elem(hurt_entity(state, uuid, hit), 1)
+
+  def apply_sibling(state, {:dragon_killed, uuid}),
+    do: Valimc.World.Dragon.Arena.complete(state, uuid, arena_ops())
+
+  def apply_sibling(state, {:arena_entries, entries}) do
+    {:ok, entities} = BlockEntities.add(state.block_entities, entries)
+    %{state | block_entities: entities}
+  end
+
+  def apply_sibling(%{arena: arena} = state, {:arena_count, count}) when arena != nil,
+    do: %{state | arena: %{arena | alive_crystals: count, scan: 0}}
 
   # A sibling's hoppers' inserts into this section's containers (VMC-049a).
   def apply_sibling(state, {:hopper_inserts, inserts}), do: hopper_inserts(state, inserts)
