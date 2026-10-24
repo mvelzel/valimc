@@ -96,6 +96,46 @@ defmodule Valimc.Entity.MobTicks do
   # before it where they moved to), travels and pushes in the ticker, then
   # finishes its tick.
   defp step(view, ticker, old, id, i, state) do
+    if state.entries[id].body.type == "minecraft:ender_dragon",
+      do: dragon_step(ticker, id, i, state),
+      else: ordinary_step(view, ticker, old, id, i, state)
+  end
+
+  defp dragon_step(ticker, id, i, %{entries: entries} = state) do
+    entry = entries[id]
+
+    {body, position, events, effects} =
+      if match?(%{world_tick: tick} when tick == state.world.time, entry.body.data.brain) do
+        {Valimc.AI.Dragon.Actor.resume(entry.body, entry.entity),
+         {entry.entity.x, entry.entity.y, entry.entity.z}, [], []}
+      else
+        env = Valimc.AI.Dragon.Actor.environment(entry.body, entry.entity, state.world)
+        Valimc.AI.Dragon.Actor.tick(entry.body, entry.entity, env)
+      end
+
+    {x, y, z} = position
+    entry = %{entry | body: body, entity: %{entry.entity | x: x, y: y, z: z}}
+    {effects, state} = melee(ticker, id, entry, effects, state)
+    Kernel.mob_velocity(ticker, i, body.velocity)
+
+    step = %{
+      id: id,
+      revision: entry.revision,
+      position: position,
+      body: body,
+      events: Map.get(state.pending, id, []) ++ events,
+      effects: effects
+    }
+
+    %{
+      state
+      | entries: Map.put(state.entries, id, entry),
+        steps: [step | state.steps],
+        world: AI.resense_entry(state.world, id, entry)
+    }
+  end
+
+  defp ordinary_step(view, ticker, old, id, i, state) do
     entry = first_fluids(view, state.entries[id])
     # `baseTick`'s burning comes first (VMC-043b).
     {body, burnt} = MobVitals.base_tick(entry.body.type, entry.body)
@@ -211,6 +251,28 @@ defmodule Valimc.Entity.MobTicks do
     by_uuid = Map.new(state.entries, fn {other, e} -> {e.entity.uuid, other} end)
 
     Enum.flat_map_reduce(effects, state, fn
+      {:dragon_contact, {:mob, uuid}, push, amount, wing}, state when is_map_key(by_uuid, uuid) ->
+        target = by_uuid[uuid]
+        target_entry = state.entries[target]
+        recent = wing and Valimc.AI.Dragon.Actor.recent?(target_entry.body)
+        pushed = Valimc.Entity.Body.push(target_entry.body, push)
+
+        {body, events, hurt} =
+          if amount > 0.0 and not recent,
+            do:
+              Valimc.Entity.Combat.hit_body(
+                pushed,
+                target_entry.entity,
+                Valimc.AI.Dragon.Actor.hit(entry.entity, amount)
+              ),
+            else: {pushed, [], false}
+
+        body =
+          if hurt and not Enum.any?(state.steps, &(&1.id == target)), do: timers(body), else: body
+
+        Kernel.mob_velocity(ticker, index[target], body.velocity)
+        {[], hurt(state, target, %{target_entry | body: body}, events)}
+
       {:attack, {:mob, uuid}} = effect, state when is_map_key(by_uuid, uuid) ->
         target = by_uuid[uuid]
         target_entry = state.entries[target]

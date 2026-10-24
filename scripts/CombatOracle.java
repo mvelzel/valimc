@@ -56,7 +56,7 @@ public class CombatOracle {
       // VMC-043c: farm animals.
       "minecraft:cow", "minecraft:mooshroom", "minecraft:sheep", "minecraft:rabbit",
       // VMC-044a: villagers and iron golems.
-      "minecraft:villager", "minecraft:iron_golem");
+      "minecraft:villager", "minecraft:iron_golem", "minecraft:ender_dragon");
   static final List<String> SOUNDS = List.of("minecraft:entity.player.attack.strong",
       "minecraft:entity.player.attack.weak", "minecraft:entity.player.attack.crit",
       "minecraft:entity.player.attack.sweep", "minecraft:entity.player.attack.knockback",
@@ -71,7 +71,7 @@ public class CombatOracle {
       "minecraft:entity.ender_eye.launch", "minecraft:entity.ender_eye.death", "minecraft:entity.skeleton.shoot",
       "minecraft:entity.shulker_bullet.hit", "minecraft:entity.shulker_bullet.hurt");
   static final List<String> PARTICLES = List.of("minecraft:sweep_attack", "minecraft:damage_indicator",
-      "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink");
+      "minecraft:explosion", "minecraft:explosion_emitter", "minecraft:dragon_breath", "minecraft:squid_ink", "minecraft:glow_squid_ink");
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   static JsonElement encode(DataComponentType type, Object value, com.mojang.serialization.DynamicOps<JsonElement> ops) {
@@ -548,6 +548,10 @@ public class CombatOracle {
     out.addProperty("particles_damage",
         wire(access, new net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket(net.minecraft.core.particles.ParticleTypes.DAMAGE_INDICATOR,
             false, false, -7.5, 65.0, 2.25, 0.1F, 0.0F, 0.1F, 0.2F, 3)));
+    for (var particle : List.of(net.minecraft.core.particles.ParticleTypes.EXPLOSION,net.minecraft.core.particles.ParticleTypes.EXPLOSION_EMITTER))
+      out.addProperty("particles_"+BuiltInRegistries.PARTICLE_TYPE.getKey(particle).getPath(),
+          wire(access,new net.minecraft.network.protocol.game.ClientboundLevelParticlesPacket(particle,
+              false,false,10.25,64.9,-3.5,0,0,0,0,1)));
     for (int action : new int[]{4, 5}) {
       zombie.setId(42);
       out.addProperty("animate_" + action, wire(access, new net.minecraft.network.protocol.game.ClientboundAnimatePacket(zombie, action)));

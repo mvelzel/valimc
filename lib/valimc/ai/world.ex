@@ -101,7 +101,9 @@ defmodule Valimc.AI.World do
             sky: nil,
             # The kept starts of structures that override spawns, by chunk
             # (`RegionData` `structures`): a cat's swamp hut (VMC-044a3).
-            structures: %{}
+            structures: %{},
+            # Authoritative dragon arena/crystal rows and batched block reads.
+            dragon: nil
 
   @doc """
   A path search (VMC-041b): `search` answers it at once (`{path | nil,

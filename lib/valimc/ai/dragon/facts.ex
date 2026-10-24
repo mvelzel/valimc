@@ -10,6 +10,8 @@ defmodule Valimc.AI.Dragon.Facts do
              %{speed: &1["speed"], sitting: &1["sitting"], landing: &1["name"] == "Landing"}}
           )
 
+  def ambient_interval, do: @facts["ambient_interval"]
+  def max_head_y_rot, do: @facts["max_head_y_rot"]
   def graph, do: @graph
   def parts, do: @parts
   def phase(id), do: Map.fetch!(@phases, id)

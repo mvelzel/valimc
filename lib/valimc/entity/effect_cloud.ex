@@ -20,6 +20,7 @@ defmodule Valimc.Entity.EffectCloud do
   def data do
     %{
       owner: nil,
+      world_tick: nil,
       age: 0,
       radius: 3.0,
       radius_per_tick: 0.0,

@@ -1,0 +1,262 @@
+alias Valimc.AI.{Random, Mind}
+alias Valimc.AI.Dragon.{Actor, Flight, Paths, Phases}
+alias Valimc.Entity.Body
+
+[file] = System.argv()
+raw = file |> File.read!() |> JSON.decode!()
+
+true =
+  raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
+
+defmodule DragonActorCheck do
+  def equal(a, b, label) when is_tuple(b), do: equal(a, Tuple.to_list(b), label)
+  def equal(a, b, label) when is_tuple(a), do: equal(Tuple.to_list(a), b, label)
+
+  def equal(a, b, label) when is_list(a) and is_list(b) do
+    if length(a) != length(b), do: raise("#{label}: lengths #{inspect({a, b})}")
+    Enum.zip(a, b) |> Enum.each(fn {a, b} -> equal(a, b, label) end)
+  end
+
+  def equal(a, b, label) when is_number(a) and is_number(b) do
+    if abs(a - b) > 1.0e-9, do: raise("#{label}: #{inspect(a)} != #{inspect(b)}")
+  end
+
+  def equal(a, a, _), do: :ok
+  def equal(a, b, label), do: raise("#{label}: #{inspect(a)} != #{inspect(b)}")
+
+  def bits(n) do
+    <<b::signed-32>> = <<n::float-32>>
+    b
+  end
+end
+
+for row <- raw["cases"] do
+  scene = row["scene"] || 0
+  dead = row["death"] == true
+  initial = List.to_tuple(row["position"])
+  {x, y, z} = initial
+  {:ok, body} = Body.new("minecraft:ender_dragon")
+
+  body = %{
+    body
+    | yaw: 25.0,
+      head_yaw: 25.0,
+      data: %{body.data | phase: row["start_phase"] || 10},
+      mob: %{body.mob | no_ai: scene == 1, ai: %Mind{random: Random.new(7241 + scene)}}
+  }
+
+  body = put_in(body.mob.living.health.value, if(dead, do: 0.0, else: 180.0))
+  entity = %{x: x, y: y, z: z, uuid: <<4505::128>>}
+
+  blocks =
+    Map.new(row["blocks"] || [], fn row ->
+      {row["position"] |> Enum.map(&trunc/1) |> List.to_tuple(), row["state"]}
+    end)
+
+  crystal = if dead, do: nil, else: List.to_tuple(row["crystal_position"])
+
+  crystal_row =
+    if crystal do
+      {cx, cy, cz} = crystal
+      %{uuid: 800, position: crystal, box: {cx - 1, cy, cz - 1, cx + 1, cy + 2, cz + 1}}
+    end
+
+  player = %{id: row["player_id"], position: {8.0, 90.0, 2.0}, height: 1.7999999523162842}
+  phase_env = %{graph: Paths.graph(fn _, _ -> 90 end), crystals: nil}
+
+  phases =
+    Phases.set(
+      %Phases{flight: %Flight{position: initial, yaw: 25.0}, random: Random.new(7241 + scene)},
+      body.data.phase
+    )
+
+  phases =
+    cond do
+      phases.phase == 1 -> Phases.strafe(phases, player, phase_env)
+      phases.phase == 8 -> %{phases | target: player.position}
+      true -> phases
+    end
+
+  body = %{
+    body
+    | data: %{body.data | brain: %Actor{phases: phases}},
+      mob: %{body.mob | ai: %{body.mob.ai | random: phases.random}}
+  }
+
+  Enum.with_index(row["ticks"])
+  |> Enum.reduce({body, entity, blocks}, fn {tick, index}, {body, entity, blocks} ->
+    read = fn {_, by, _} = cell ->
+      Map.get(
+        blocks,
+        cell,
+        if(by < 70, do: Valimc.Data.Blocks.default_state("end_stone"), else: 0)
+      )
+    end
+
+    env = %{
+      graph: Paths.graph(fn _, _ -> 90 end),
+      podium: {0, 90, 0},
+      players: if(dead, do: [], else: [player]),
+      visible: fn _ -> true end,
+      solid: fn cell -> not Valimc.Data.BlockFacts.air?(read.(cell)) end,
+      read: read,
+      targets:
+        if(dead,
+          do: [],
+          else: [
+            %{
+              ref: :player,
+              position: player.position,
+              box: {7.7, 90.0, 1.7, 8.3, 91.79999995231628, 2.3},
+              recent: index < 2
+            }
+          ]
+        ),
+      crystal_bodies: if(crystal_row && index < 100, do: [crystal_row], else: []),
+      crystals: nil,
+      mob_griefing: scene != 3,
+      mob_drops: true,
+      previous_kill: row["previous"] != false
+    }
+
+    body =
+      if not dead and index == 100 do
+        {cx, cy, cz} = crystal
+
+        direct = %{
+          uuid: 800,
+          entity_id: 800,
+          player: false,
+          type: "minecraft:end_crystal",
+          position: {cx, cy, cz}
+        }
+
+        target =
+          Map.merge(player, %{
+            eligible: true,
+            attacker: %{
+              uuid: <<1::128>>,
+              entity_id: player.id,
+              player: true,
+              type: "minecraft:player",
+              mainhand: nil
+            }
+          })
+
+        {body, _} = Actor.crystal_destroyed(body, entity, 800, direct, target, env)
+        body
+      else
+        body
+      end
+
+    {body, _, _} = Body.tick(body)
+    {body, at, events, effects} = Actor.tick(body, entity, env)
+    actor = body.data.brain
+    label = "phase #{row["start_phase"]} scene #{scene} death #{dead} tick #{index + 1}"
+
+    for {key, value} <- [
+          {"phase", body.data.phase},
+          {"position", at},
+          {"velocity", body.velocity},
+          {"yaw", body.yaw},
+          {"head", body.head_yaw},
+          {"body_yaw", actor.body_yaw},
+          {"random", body.mob.ai.random},
+          {"ambient", actor.ambient},
+          {"wall", actor.wall},
+          {"death_time", body.data.death_time},
+          {"health", body.mob.living.health.value},
+          {"crystal", actor.crystal || -1},
+          {"removed", :discard in effects}
+        ] do
+      DragonActorCheck.equal(value, tick[key], label <> " " <> key)
+    end
+
+    DragonActorCheck.equal(Flight.boxes(actor.phases.flight), tick["parts"], label <> " parts")
+    removed = for {:dragon_break, cell, _} <- effects, do: cell
+    DragonActorCheck.equal(removed, tick["breaks"], label <> " breaks")
+    particles = for {:particles, name, at, _, _, _} <- events, do: {name, at}
+    expected = for p <- tick["particles"], do: {p["name"], p["position"]}
+    DragonActorCheck.equal(particles, expected, label <> " particles")
+    xp = for {:dragon_xp, amount, at} <- effects, do: {at, amount}
+
+    expected_xp =
+      tick["added"]
+      |> Enum.filter(&(&1["type"] == "minecraft:experience_orb"))
+      |> Enum.chunk_by(& &1["position"])
+      |> Enum.map(fn orbs -> {hd(orbs)["position"], Enum.sum(Enum.map(orbs, & &1["xp"]))} end)
+
+    DragonActorCheck.equal(xp, expected_xp, label <> " xp")
+
+    sounds =
+      for {:sound, id, _, volume, pitch, _} <- events,
+          do: {id, DragonActorCheck.bits(volume), DragonActorCheck.bits(pitch)}
+
+    expected_sounds =
+      for e <- tick["events"],
+          e["sound"],
+          do: {e["sound"], e["volume"], e["pitch"]}
+
+    DragonActorCheck.equal(sounds, expected_sounds, label <> " sound")
+    world_events = for {:level_event, at, id, data} <- effects, do: {id, at, data}
+    expected_events = for e <- tick["events"], e["event"], do: {e["event"], e["at"], e["data"]}
+    DragonActorCheck.equal(world_events, expected_events, label <> " level events")
+
+    DragonActorCheck.equal(
+      for({:global_event, id} <- effects, do: id),
+      tick["global"],
+      label <> " global events"
+    )
+
+    spawned =
+      for effect <- actor.phases.effects,
+          match?({:fireball, _, _}, effect) or match?({:flame, _}, effect),
+          do: effect
+
+    spawned = if dead, do: [], else: spawned
+    expected_spawned = Enum.filter(tick["added"], &(&1["type"] != "minecraft:experience_orb"))
+    DragonActorCheck.equal(length(spawned), length(expected_spawned), label <> " spawned effects")
+
+    for {effect, expected} <- Enum.zip(spawned, expected_spawned) do
+      case effect do
+        {:fireball, at, direction} ->
+          true = expected["type"] == "minecraft:dragon_fireball"
+          DragonActorCheck.equal(at, expected["position"], label <> " fireball origin")
+          DragonActorCheck.equal(direction, expected["direction"], label <> " fireball direction")
+
+        {:flame, at} ->
+          true =
+            expected["type"] == "minecraft:area_effect_cloud" and expected["radius"] == 5.0 and
+              expected["duration"] == 200
+
+          DragonActorCheck.equal(at, expected["position"], label <> " flame origin")
+      end
+    end
+
+    unless dead do
+      contacts = for {:dragon_contact, _, push, amount, _} <- effects, do: {push, amount}
+
+      pushed =
+        Enum.reduce(contacts, {0.0, 0.0, 0.0}, fn {{x, y, z}, _}, {a, b, c} ->
+          {x + a, y + b, z + c}
+        end)
+
+      DragonActorCheck.equal(pushed, tick["push"], label <> " contact push")
+      hits = for {_, amount} <- contacts, amount > 0.0, do: DragonActorCheck.bits(amount)
+
+      DragonActorCheck.equal(
+        hits,
+        Enum.map(tick["hits"], & &1["amount"]),
+        label <> " contact hits"
+      )
+    end
+
+    blocks = Enum.reduce(removed, blocks, &Map.put(&2, &1, 0))
+    {nx, ny, nz} = at
+    {body, %{entity | x: nx, y: ny, z: nz}, blocks}
+  end)
+end
+
+IO.puts(
+  "PASS: #{length(raw["cases"])} complete native dragon sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, crystal healing, wall breaking, inherited rotation/random and death/XP"
+)

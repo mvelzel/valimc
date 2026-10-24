@@ -300,7 +300,13 @@ defmodule Valimc.World.RegionData do
 
     {items, expired} =
       if state.entities.simulate and not planning?(state),
-        do: Store.age(state.entities.store, ticks),
+        do:
+          Store.age(
+            state.entities.store,
+            ticks,
+            elem(Valimc.World.Dimension.bounds(state.dimension), 0),
+            state.game_tick
+          ),
         else: {nil, []}
 
     if items != nil and (expired == [] or write_busy(state) == nil) do
@@ -782,6 +788,7 @@ defmodule Valimc.World.RegionData do
       for {id, %{kind: :object, body: %Body{type: type}, entity: %{x: x, z: z}} = entry} <-
             state.entities.store.entries,
           Projectile.projectile?(type) or type == EffectCloud.type(),
+          Map.get(entry.body.data, :world_tick) != state.game_tick,
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           reduce: {[], []} do
         {p, c} ->
@@ -870,6 +877,7 @@ defmodule Valimc.World.RegionData do
 
   defp run_projectile(state, id, entry, {:keep, body, position, effects}, moves) do
     state = Enum.reduce(effects, state, &projectile_effect(&2, entry, &1))
+    body = %{body | data: Map.put(body.data, :world_tick, state.game_tick)}
     {state, [%{id: id, revision: entry.revision, position: position, body: body} | moves]}
   end
 
@@ -951,8 +959,14 @@ defmodule Valimc.World.RegionData do
 
           state =
             case outcome do
-              %{crystal: point, explode: true} -> explode(state, Explosion.crystal(point))
-              _ -> state
+              %{crystal: point} = outcome ->
+                state =
+                  if outcome.explode, do: explode(state, Explosion.crystal(point)), else: state
+
+                crystal_destroyed(state, entry.entity, hit)
+
+              _ ->
+                state
             end
 
           {outcome.hurt, state}
@@ -1104,6 +1118,8 @@ defmodule Valimc.World.RegionData do
         end
 
       {:keep, next, effects} ->
+        next = %{next | data: Map.put(next.data, :world_tick, state.game_tick)}
+
         state =
           case Store.step_body(store, state.key, id, revision, position, next) do
             {:ok, store, _} -> put_entities(state, store)
@@ -1126,7 +1142,7 @@ defmodule Valimc.World.RegionData do
               uuid: owner.uuid,
               entity_id: owner.id,
               player: owner.player,
-              type: nil,
+              type: owner[:type],
               mainhand: nil
             },
             else: me
@@ -1199,7 +1215,12 @@ defmodule Valimc.World.RegionData do
               Enum.reduce(Explosion.hits(explosion, store.entries), state, fn {id, action},
                                                                               state ->
                 {^key, store, entry} = group_entry(state, id, true)
-                change_group_entry(state, key, store, id, Explosion.change(entry, action))
+                state = change_group_entry(state, key, store, id, Explosion.change(entry, action))
+
+                if action == :destroy and
+                     match?(%{body: %Body{type: "minecraft:end_crystal"}}, entry),
+                   do: crystal_destroyed(state, entry.entity, %{attacker: nil}),
+                   else: state
               end)
             else
               state
@@ -1303,7 +1324,11 @@ defmodule Valimc.World.RegionData do
           Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           do: {id, entry}
 
-    if mobs == [] or write_busy(state) != nil do
+    dragon_waits =
+      Enum.any?(mobs, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
+        Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end)
+
+    if mobs == [] or write_busy(state) != nil or dragon_waits do
       state
     else
       view = Valimc.World.View.new(state.dimension)
@@ -1313,6 +1338,12 @@ defmodule Valimc.World.RegionData do
       world = %{mob_world(state, view, border) | paths: ready, pois: poi_claims(state, own)}
 
       {steps, world} = Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border)
+
+      dragon_effects =
+        for step <- steps,
+            step.body.type == "minecraft:ender_dragon",
+            effect <- step.effects,
+            do: {store.entries[step.id].entity, step.position, effect}
 
       # Paths the mobs asked for run as a job (VMC-041b).
       mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
@@ -1514,6 +1545,7 @@ defmodule Valimc.World.RegionData do
       state = route_bodies(state, steps)
       state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
+      state = Enum.reduce(dragon_effects, state, &dragon_effect/2)
       state = Enum.reduce(fired, state, &mob_spawns/2)
       state = Enum.reduce(hurts, state, &mob_hurt/2)
       Enum.each(touches, &mob_touch/1)
@@ -2126,6 +2158,16 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  defp mob_edit(view, {:dragon_break, cell, expected}) do
+    case Valimc.World.View.block(view, cell) do
+      ^expected ->
+        {:edit, cell, expected, Valimc.Data.BlockFacts.fluid_remains(expected), nil, [:updates]}
+
+      _ ->
+        nil
+    end
+  end
+
   # A zombie stamps out turtle eggs (`removeBlock`, VMC-043b2).
   defp mob_edit(view, {:remove_block, cell}) do
     case Valimc.World.View.block(view, cell) do
@@ -2518,10 +2560,264 @@ defmodule Valimc.World.RegionData do
       events: state.mob_events,
       dimension: state.dimension,
       structures: state.structures,
+      dragon: dragon_world(state, view),
       stand_up: fn _type, head, facing, yaw ->
         Valimc.World.StandUp.bed(view, head, facing, yaw)
       end
     }
+  end
+
+  defp dragon_effect({entity, {x, y, z}, {:dragon_contact, target, push, amount, wing}}, state) do
+    entity = %{entity | x: x, y: y, z: z}
+    hit = Valimc.AI.Dragon.Actor.hit(entity, amount)
+
+    case target do
+      {:player, uuid} ->
+        send(self(), {:player, uuid, {:dragon_contact, hit, push, wing}})
+        state
+
+      {:mob, uuid} ->
+        case Enum.find(group_entries(state), fn {_, e} -> e.entity.uuid == uuid end) do
+          {id, _} ->
+            case group_entry(state, id) do
+              {key, store, entry} ->
+                recent = wing and Valimc.AI.Dragon.Actor.recent?(entry.body)
+                body = Body.push(entry.body, push)
+
+                {change, _} =
+                  if amount > 0.0 and not recent,
+                    do: Valimc.Entity.Combat.resolve(%{entry | body: body}, hit),
+                    else: {:keep, %{}}
+
+                change = if change == :keep, do: {:body, body, []}, else: change
+                change_group_entry(state, key, store, id, change)
+
+              _ ->
+                state
+            end
+
+          _ ->
+            state
+        end
+    end
+  end
+
+  defp dragon_effect({e, _, {:fireball, at, direction}}, state) do
+    owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: "minecraft:ender_dragon"}
+    body = Projectile.new("minecraft:dragon_fireball", owner)
+
+    body =
+      Projectile.impulse(%{
+        body
+        | velocity: direction,
+          data: Map.put(body.data, :world_tick, state.game_tick)
+      })
+
+    create_group_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), at))
+  end
+
+  defp dragon_effect({e, _, {:dragon_flame, uuid, at}}, state) do
+    owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: "minecraft:ender_dragon"}
+    body = EffectCloud.dragon_breath(owner)
+
+    body = %{
+      body
+      | data:
+          body.data
+          |> Map.merge(%{radius: 5.0, duration: 200, radius_per_tick: 0.0})
+          |> Map.put(:world_tick, state.game_tick)
+    }
+
+    create_group_body(state, Store.body_record(body, uuid, at))
+  end
+
+  defp dragon_effect({_, _, {:dragon_end_flame, uuid}}, state) do
+    case Enum.find(group_entries(state), fn {_, e} -> e.entity.uuid == uuid end) do
+      {id, _} ->
+        case group_entry(state, id) do
+          {key, store, _} -> change_group_entry(state, key, store, id, :remove)
+          _ -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp dragon_effect({_, _, {:dragon_xp, amount, at}}, state),
+    do: Enum.reduce(ExperienceOrbs.drop(at, amount), state, &create_group_body(&2, &1))
+
+  defp dragon_effect({_, {x, y, z}, {:global_event, id}}, state) do
+    packet = Valimc.Protocol.Packets.level_event(id, {floor(x), floor(y), floor(z)}, 0, true)
+    Valimc.Player.PlayerList.broadcast({:packet, packet})
+    state
+  end
+
+  defp dragon_effect({e, _, :dragon_killed}, state) do
+    Valimc.World.publish(route_key(state), {:dragon_killed, e.uuid})
+    state
+  end
+
+  defp dragon_effect(_, state), do: state
+
+  defp crystal_destroyed(state, crystal, hit) do
+    if Valimc.World.Dimension.facts(state.dimension).dragon_fight do
+      point = {floor(crystal.x), floor(crystal.y), floor(crystal.z)}
+
+      player =
+        case hit[:attacker] do
+          %{player: true, uuid: uuid} ->
+            Enum.find(state.player_sensed, &(&1.uuid == uuid))
+
+          _ ->
+            state.player_sensed
+            |> Enum.filter(fn p ->
+              p.alive and p.mode not in [:creative, :spectator] and not p.invulnerable and
+                squared({p.x, p.y, p.z}, point) <= 4096.0
+            end)
+            |> Enum.min_by(&squared({&1.x, &1.y, &1.z}, point), fn -> nil end)
+        end
+
+      player =
+        if player do
+          %{
+            id: player.id,
+            position: {player.x, player.y, player.z},
+            height: player.height,
+            eligible:
+              player.alive and player.mode not in [:creative, :spectator] and
+                not player.invulnerable,
+            attacker: %{
+              uuid: player.uuid,
+              entity_id: player.id,
+              player: true,
+              type: "minecraft:player",
+              mainhand: nil
+            }
+          }
+        end
+
+      view = Valimc.World.View.new(state.dimension)
+      world = mob_world(state, view, Valimc.World.Clock.border_snapshot())
+
+      direct = %{
+        uuid: crystal.uuid,
+        entity_id: crystal.entity_id,
+        player: false,
+        type: "minecraft:end_crystal",
+        position: {crystal.x, crystal.y, crystal.z}
+      }
+
+      dragons =
+        for {id, %{body: %Body{type: "minecraft:ender_dragon"}}} <- group_entries(state), do: id
+
+      Enum.reduce(dragons, state, fn id, state ->
+        case group_entry(state, id) do
+          {key, store, entry} ->
+            env = Valimc.AI.Dragon.Actor.environment(entry.body, entry.entity, world)
+
+            {body, events} =
+              Valimc.AI.Dragon.Actor.crystal_destroyed(
+                entry.body,
+                entry.entity,
+                crystal.uuid,
+                direct,
+                player,
+                env
+              )
+
+            change_group_entry(state, key, store, id, {:body, body, events})
+
+          _ ->
+            state
+        end
+      end)
+    else
+      state
+    end
+  end
+
+  defp squared({x, y, z}, {a, b, c}),
+    do: (x - a) * (x - a) + (y - b) * (y - b) + (z - c) * (z - c)
+
+  # A dragon's head/cloud can lie in a sibling even before its root moves.
+  defp create_group_body(state, %{x: x, z: z} = record) do
+    key = Grid.region_key(Grid.chunk_key(x, z))
+
+    cond do
+      key == state.key ->
+        create_body(state, record)
+
+      match?(%{busy: false}, state.siblings[key]) ->
+        store = state.siblings[key].entities
+
+        case Store.create_record(store, key, record) do
+          {:ok, next, {_, id, _}} ->
+            state = put_in(state.siblings[key].entities, next)
+            sibling_effect(state, key, {:entities, nil, [Map.put(record, :entity_id, id)]})
+
+          _ ->
+            state
+        end
+
+      true ->
+        state
+    end
+  end
+
+  # Built only for a ticking dragon; every entity row comes from this owner.
+  defp dragon_world(state, view) do
+    if Enum.any?(group_entries(state), fn {_, e} ->
+         match?(%{body: %Body{type: "minecraft:ender_dragon"}}, e)
+       end) do
+      {min_y, _} = Valimc.World.Dimension.bounds(state.dimension)
+      height = fn x, z -> dragon_height(view, x, z, min_y) end
+
+      crystals =
+        for {_, %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}} <-
+              group_entries(state) do
+          {w, h, _} = Body.dimensions(body)
+
+          %{
+            uuid: e.uuid,
+            position: {e.x, e.y, e.z},
+            box: {e.x - w / 2, e.y, e.z - w / 2, e.x + w / 2, e.y + h, e.z + w / 2}
+          }
+        end
+
+      targets =
+        for {id, %{kind: :mob} = entry} <- group_entries(state),
+            do: Valimc.AI.sensed({id, entry})
+
+      %{
+        height: height,
+        podium: {0, height.(0, 0), 0},
+        crystals: nil,
+        crystal_bodies: crystals,
+        targets: targets,
+        previous_kill: true,
+        blocks: &Valimc.World.View.blocks(view, &1)
+      }
+    end
+  end
+
+  defp dragon_height(view, x, z, min_y) do
+    case Valimc.World.View.column(view, x, z) do
+      {:ok, %{motion_blocking: top}} when top > min_y ->
+        cells = for y <- (top - 1)..min_y, do: {x, y, z}
+
+        Enum.zip(cells, Valimc.World.View.blocks(view, cells))
+        |> Enum.find_value(min_y, fn
+          {{_, y, _}, block} when is_integer(block) ->
+            if Valimc.Data.BlockFacts.heightmap?(block, :motion_blocking_no_leaves), do: y + 1
+
+          _ ->
+            nil
+        end)
+
+      _ ->
+        min_y
+    end
   end
 
   # Vanilla's `LocalDate.now()`: the host's own date.
@@ -5553,13 +5849,18 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
+         entry = store.entries[id],
          {:ok, store, outcome} <- Valimc.Entity.Combat.hurt(store, id, hit) do
       state = put_entities(state, store)
 
       state =
         case outcome do
-          %{crystal: point, explode: true} -> explode(state, Explosion.crystal(point))
-          _ -> state
+          %{crystal: point} = outcome ->
+            state = if outcome.explode, do: explode(state, Explosion.crystal(point)), else: state
+            crystal_destroyed(state, entry.entity, hit)
+
+          _ ->
+            state
         end
 
       {{:ok, Map.drop(outcome, [:crystal, :explode])}, state}

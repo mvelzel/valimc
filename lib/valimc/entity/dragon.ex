@@ -1,7 +1,7 @@
 defmodule Valimc.Entity.Dragon do
   @moduledoc """
   The dragon's body data and multipart damage rules (VMC-045a4). All eight
-  parts address one living body. Its complete phase actor follows separately.
+  parts address one living body. Its phase actor ticks inside the owning group.
   """
   alias Valimc.AI.Dragon.{Facts, Flight}
   alias Valimc.Data.{EntityTypes, Float32}
@@ -12,8 +12,15 @@ defmodule Valimc.Entity.Dragon do
   @arrow_types ~w(minecraft:arrow minecraft:spectral_arrow minecraft:trident minecraft:wind_charge)
   def types, do: [@type_name]
   def goals(_type), do: {[], []}
-  def data(_type), do: %{phase: 10, sitting_damage: 0.0, death_time: 0, brain: nil}
+
+  def data(_type),
+    do: %{phase: 10, sitting_damage: 0.0, death_time: 0, brain: nil, aged_tick: nil}
+
   def values(%{data: data}), do: [{:dragon_phase, data.phase, 10}]
+
+  def motion,
+    do: [fixed: true, pushable: false, pushes: false, fluid_pushed: false, emission: :none]
+
   def volume(_body), do: 5.0
   # The dragon's 200-tick death actor awards XP in its own bursts.
   def experience(_body), do: 0
@@ -46,6 +53,9 @@ defmodule Valimc.Entity.Dragon do
   defp number(_, default), do: default
 
   @doc "The current eight part boxes, in the client's root+1 through root+8 order."
+  def boxes(%Body{data: %{brain: %{phases: %{flight: %Flight{} = flight}}}}),
+    do: Flight.boxes(flight)
+
   def boxes(%Body{data: %{brain: %{flight: %Flight{} = flight}}}), do: Flight.boxes(flight)
   def boxes(_body), do: Flight.boxes(%Flight{})
   def sitting?(%{data: %{phase: phase}}), do: Facts.phase(phase).sitting
@@ -109,6 +119,15 @@ defmodule Valimc.Entity.Dragon do
     {mob, _} = Mob.tick(body.mob)
     {%{body | mob: mob}, [], false}
   end
+
+  # Shared hurt sounds reset Mob's ambient clock before its subclass callback.
+  def hurt(
+        %Body{data: %{brain: %{ambient: _} = actor}, mob: %{ai: %Valimc.AI.Mind{} = mind}} = body,
+        _hit
+      ),
+      do: %{body | data: %{body.data | brain: %{actor | ambient: mind.ambient}}}
+
+  def hurt(body, _hit), do: body
 
   defp f(value), do: Float32.round(value)
 end

@@ -1,4 +1,6 @@
 {
+  "ambient_interval": 80,
+  "max_head_y_rot": 75,
   "graph": [
     [
       60.0,

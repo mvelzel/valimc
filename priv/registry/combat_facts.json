@@ -1933,7 +1933,8 @@
     "minecraft:sheep": 0,
     "minecraft:rabbit": 0,
     "minecraft:villager": 0,
-    "minecraft:iron_golem": 0
+    "minecraft:iron_golem": 0,
+    "minecraft:ender_dragon": 0
   },
   "mobs": {
     "minecraft:zombie": {
@@ -2204,6 +2205,12 @@
       "hurt_sound": "minecraft:entity.iron_golem.hurt",
       "death_sound": "minecraft:entity.iron_golem.death",
       "sound_source": 6,
+      "animal": false
+    },
+    "minecraft:ender_dragon": {
+      "hurt_sound": "minecraft:entity.ender_dragon.hurt",
+      "death_sound": "minecraft:entity.generic.death",
+      "sound_source": 5,
       "animal": false
     }
   },
@@ -4216,6 +4223,8 @@
   "particles": {
     "minecraft:sweep_attack": 77,
     "minecraft:damage_indicator": 14,
+    "minecraft:explosion": 30,
+    "minecraft:explosion_emitter": 29,
     "minecraft:dragon_breath": 15,
     "minecraft:squid_ink": 76,
     "minecraft:glow_squid_ink": 109

@@ -9,6 +9,8 @@ defmodule Valimc.Living do
   alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
 
   defstruct health: %Health{},
+            # Transient admission time for dragon wing contacts (lastHurtByMobTimestamp).
+            last_mob_hurt: nil,
             absorption: 0.0,
             effects: %{},
             fire_ticks: 0,

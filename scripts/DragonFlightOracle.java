@@ -51,6 +51,8 @@ public class DragonFlightOracle {
     var out = new JsonObject(); var d = dragon(level); level.terrain = 1; d.findClosestNode();
     var nodes = (Node[])field(d,"nodes"); var adjacent = (int[])field(d,"nodeAdjacency"); var graph = new JsonArray();
     for (int i=0;i<nodes.length;i++) graph.add(vec(nodes[i].x,nodes[i].y-90,nodes[i].z,adjacent[i]));
+    out.addProperty("ambient_interval",d.getAmbientSoundInterval());
+    out.addProperty("max_head_y_rot",d.getMaxHeadYRot());
     out.add("graph",graph); var parts = new JsonArray();
     for (var p : d.getSubEntities()) { var row = new JsonObject(); row.addProperty("name",p.name);
       row.addProperty("width",p.getBbWidth()); row.addProperty("height",p.getBbHeight()); parts.add(row); }

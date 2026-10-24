@@ -126,6 +126,7 @@ defmodule Valimc.AI do
       # A family's own bounding box (a shulker's lid), else the usual one.
       box: Mobs.hook(type, :box, [body, position], nil),
       alive: Mob.alive?(mob),
+      recent_mob_hurt: Valimc.AI.Dragon.Actor.recent?(body),
       # A baby by its family's flag (zombies, piglins) or age (a hoglin); a
       # hoglin hunters may hunt (VMC-043d).
       baby: Mobs.hook(type, :young?, [body], Map.get(body.data, :baby, false)),
@@ -275,6 +276,7 @@ defmodule Valimc.AI do
             yaw: body.yaw,
             pitch: body.pitch,
             alive: Mob.alive?(body.mob),
+            recent_mob_hurt: Valimc.AI.Dragon.Actor.recent?(body),
             target: mind && mind.target
         }
 
@@ -1083,5 +1085,6 @@ defmodule Valimc.AI do
   end
 
   @doc "The ambient interval of a mob of `type` (nil without AI facts)."
+  def ambient_interval("minecraft:ender_dragon"), do: Valimc.AI.Dragon.Facts.ambient_interval()
   def ambient_interval(type), do: (f = Facts.mob(type)) && f.ambient_interval
 end

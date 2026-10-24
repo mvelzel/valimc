@@ -68,10 +68,10 @@ defmodule Valimc.Entity.Store do
   Advance counters and identify expired/below-world items and the orbs merged
   away (`merge_orbs/2`); removal waits for the owner's durable commit.
   """
-  def age(state, ticks \\ 1, minimum_y \\ Grid.min_y()) do
+  def age(state, ticks \\ 1, minimum_y \\ Grid.min_y(), game_tick \\ nil) do
     {state, absorbed} = merge_orbs(state, ticks)
 
-    {state, expired} = age_entries(state, ticks, minimum_y)
+    {state, expired} = age_entries(state, ticks, minimum_y, game_tick)
     {state, Enum.uniq(absorbed ++ expired)}
   end
 
@@ -118,15 +118,34 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  defp age_entries(state, ticks, minimum_y) do
+  defp age_body(
+         %Body{type: "minecraft:ender_dragon", data: %{aged_tick: tick}} = body,
+         _ticks,
+         tick
+       )
+       when tick != nil, do: {body, [], false}
+
+  defp age_body(body, ticks, game_tick) do
+    {body, events, done} =
+      Enum.reduce_while(1..min(ticks, 40), {body, [], false}, fn _, {body, events, _} ->
+        {body, more, done} = Body.tick(body)
+        {if(done, do: :halt, else: :cont), {body, events ++ more, done}}
+      end)
+
+    body =
+      if body.type == "minecraft:ender_dragon" and game_tick != nil,
+        do: %{body | data: Map.put(body.data, :aged_tick, game_tick)},
+        else: body
+
+    {body, events, done}
+  end
+
+  defp age_entries(state, ticks, minimum_y, game_tick) do
     Enum.reduce(state.entries, {state, []}, fn
       {id, %{kind: kind} = entry}, {items, expired} when kind in @bodies ->
-        # A body's timers (a dying mob's death animation); an inert one is unchanged.
-        {body, events, done} =
-          Enum.reduce_while(1..min(ticks, 40), {entry.body, [], false}, fn _, {body, events, _} ->
-            {body, more, done} = Body.tick(body)
-            {if(done, do: :halt, else: :cont), {body, events ++ more, done}}
-          end)
+        # A dragon can move between sibling sections during this group tick.
+        # Its living timers, like its actor, run only once on that tick.
+        {body, events, done} = age_body(entry.body, ticks, game_tick)
 
         items =
           if body == entry.body and events == [],

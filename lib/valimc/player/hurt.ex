@@ -210,11 +210,34 @@ defmodule Valimc.Player.Hurt do
               state
           end
 
+        state =
+          if result in [:hurt, :dead] and match?(%{player: false}, attacker),
+            do: put_in(state.player.living.last_mob_hurt, Valimc.World.GameTick.current()),
+            else: state
+
         {if(fully, do: :blocked, else: result), state}
     end
   end
 
   def hurt(state, _hit), do: {:ignored, state}
+
+  @doc "A dragon part pushes first, then admits its living hit against the fresh session."
+  def dragon_contact(%{life_stage: :alive} = state, hit, {dx, dy, dz}, wing) do
+    if state.player.game_mode.current in [:creative, :spectator] do
+      state
+    else
+      motion = state.player.motion
+      {x, y, z} = motion.velocity
+      velocity = {x + dx, y + dy, z + dz}
+      state = put_in(state.player.motion.velocity, velocity)
+      if dx != 0.0 or dy != 0.0 or dz != 0.0, do: Movement.send_velocity(state, velocity)
+      at = state.player.living.last_mob_hurt
+      recent = wing and at != nil and at >= Valimc.World.GameTick.current() - 2
+      if hit.amount > 0.0 and not recent, do: elem(hurt(state, hit), 1), else: state
+    end
+  end
+
+  def dragon_contact(state, _hit, _push, _wing), do: state
 
   # `Player.hurtServer`'s difficulty scaling.
   defp difficulty(0, _damage), do: 0.0

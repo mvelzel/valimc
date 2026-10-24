@@ -43,6 +43,15 @@ ours =
             3
           )
 
+        ["particles" | rest] when rest in [["explosion"], ["explosion", "emitter"]] ->
+          CombatPackets.particles(
+            "minecraft:" <> Enum.join(rest, "_"),
+            {10.25, 64.9, -3.5},
+            {0.0, 0.0, 0.0},
+            0.0,
+            1
+          )
+
         ["animate", action] ->
           EntityPackets.animate(42, String.to_integer(action))
       end

@@ -57,7 +57,16 @@ defmodule Valimc.Entity.Projectile do
 
   @doc "A type's data and its defaults (`Body.new/1`)."
   def data(type) do
-    common = %{owner: nil, age: 0, in_water: false, left_owner: false, fire: 0, impulse: 0}
+    common = %{
+      owner: nil,
+      age: 0,
+      world_tick: nil,
+      in_water: false,
+      left_owner: false,
+      fire: 0,
+      impulse: 0
+    }
+
     Map.merge(common, own_data(type))
   end
 

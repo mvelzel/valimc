@@ -398,6 +398,10 @@ defmodule Valimc.Entity.Body do
           )
         )
 
+  # Absolute particles from an owner-local actor (the dragon's death).
+  def event_packet(_id, {:particles, name, {_, _, _} = at, delta, speed, count}, _),
+    do: binary(Valimc.Protocol.CombatPackets.particles(name, at, delta, speed, count))
+
   # A sound where the mob was (a shulker's teleport, VMC-043e).
   def event_packet(_id, {:sound_at, name, source, position, volume, pitch}, _) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)

@@ -158,6 +158,10 @@ defmodule Valimc.Session.Messages do
   def info({:hurt, hit}, %{phase: :play} = state),
     do: guard(state, fn -> {:noreply, elem(Valimc.Player.Hurt.hurt(state, hit), 1)} end)
 
+  def info({:dragon_contact, hit, push, wing}, %{phase: :play} = state),
+    do:
+      guard(state, fn -> {:noreply, Valimc.Player.Hurt.dragon_contact(state, hit, push, wing)} end)
+
   # What the player's projectiles and others' bring back (VMC-037o).
   def info({:ender_pearl, position}, %{phase: :play} = state),
     do: guard(state, fn -> {:noreply, Valimc.Player.Projectiles.pearl(state, position)} end)

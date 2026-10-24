@@ -29,5 +29,6 @@ Slices: [VMC-045a1](VMC-045a1.md) makes the crystals live first. Dragon
 geometry and arena paths are [VMC-045a2](VMC-045a2.md), with phase decisions
 in [VMC-045a3](VMC-045a3.md). The living body, part IDs, damage and wire
 routing are [VMC-045a4](VMC-045a4.md), with group-wide projectile authority
-in [VMC-037o1](VMC-037o1.md). World ticking, attacks and the arena
-lifecycle follow within this parent.
+in [VMC-037o1](VMC-037o1.md). [VMC-045a5](VMC-045a5.md) connects live
+ticking, attacks, crystal healing and death. Arena admission, the boss bar,
+portal, egg, gateways and respawn lifecycle follow within this parent.
