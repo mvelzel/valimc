@@ -1786,7 +1786,7 @@ defmodule Valimc.World.RegionData do
 
   defp knots(state) do
     for {id, %{kind: :object, body: %Body{type: @knot}, entity: e}} <-
-          state.entities.store.entries,
+          group_entries(state),
         into: %{},
         do: {{floor(e.x), floor(e.y), floor(e.z)}, id}
   end
@@ -1798,9 +1798,18 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # The section's mobs as leads see them: `{id, body, position}`.
+  # The owning group's authoritative stores, including this callback's changes.
+  defp group_stores(state) do
+    [{state.key, state.entities.store}] ++
+      for {key, %{entities: store}} <- state.siblings, key != state.key, do: {key, store}
+  end
+
+  defp group_entries(state),
+    do: Enum.flat_map(group_stores(state), fn {_, store} -> Map.to_list(store.entries) end)
+
+  # The group's mobs as leads see them: `{id, body, position}`.
   defp leash_mobs(state) do
-    for {id, %{kind: :mob, body: body, entity: e}} <- state.entities.store.entries,
+    for {id, %{kind: :mob, body: body, entity: e}} <- group_entries(state),
         do: {id, body, {e.x, e.y, e.z}}
   end
 
@@ -1808,28 +1817,42 @@ defmodule Valimc.World.RegionData do
   defp free_knots(state, []), do: state
 
   defp free_knots(state, positions) do
+    {own, other} = Enum.split_with(Enum.uniq(positions), &(block_section(&1) == state.key))
+
     held =
       for {_, %{kind: :mob, body: %Body{mob: %{leash: %{holder: {:knot, pos}}}}}} <-
-            state.entities.store.entries,
+            group_entries(state),
           into: MapSet.new(),
           do: pos
 
-    knots = knots(state)
+    state =
+      own
+      |> Enum.reject(&MapSet.member?(held, &1))
+      |> Enum.flat_map(&List.wrap(knots(state)[&1]))
+      |> Enum.reduce(state, &remove_entry(&2, &1))
 
-    positions
-    |> Enum.uniq()
-    |> Enum.reject(&MapSet.member?(held, &1))
-    |> Enum.flat_map(&List.wrap(knots[&1]))
-    |> Enum.reduce(state, &remove_entry(&2, &1))
+    Enum.reduce(Enum.group_by(other, &block_section/1), state, fn {key, positions}, state ->
+      sibling_effect(state, key, {:free_knots, positions})
+    end)
   end
 
-  # `getOrCreateKnot` for leads restored from records.
-  defp make_knots(state, []), do: state
-
+  # Restored leads make their knot in the section holding the fence.
   defp make_knots(state, positions) do
     Enum.reduce(Enum.uniq(positions), state, fn pos, state ->
-      if Map.has_key?(knots(state), pos), do: state, else: elem(new_knot(state, pos), 0)
+      cond do
+        Map.has_key?(knots(state), pos) -> state
+        block_section(pos) == state.key -> elem(new_knot(state, pos), 0)
+        true -> sibling_effect(state, block_section(pos), {:make_knots, [pos]})
+      end
     end)
+  end
+
+  defp block_section({x, _, z}), do: Grid.region_key(Grid.chunk_key(x, z))
+
+  defp sibling_effect(state, key, effect) do
+    if Map.has_key?(state.siblings, key),
+      do: %{state | sibling_effects: state.sibling_effects ++ [{key, effect}]},
+      else: state
   end
 
   defp new_knot(state, {x, y, z}) do
@@ -1863,13 +1886,32 @@ defmodule Valimc.World.RegionData do
   end
 
   # Mobs whose lead changed (`{id, body}`), each with its drops.
-  defp releash(state, changes) do
-    store =
-      Enum.reduce(changes, state.entities.store, fn {id, body}, store ->
-        Store.change_body(store, id, body, [])
-      end)
+  defp leash_ready?(state, changes) do
+    Enum.all?(changes, fn change ->
+      id = elem(change, 0)
 
-    publish_item_views(put_entities(state, store))
+      Enum.any?(group_stores(state), fn {key, store} ->
+        Map.has_key?(store.entries, id) and (key == state.key or not state.siblings[key].busy)
+      end)
+    end)
+  end
+
+  defp releash(state, changes) do
+    Enum.reduce(changes, state, fn {id, body}, state ->
+      {key, store} =
+        Enum.find(group_stores(state), fn {_, store} -> Map.has_key?(store.entries, id) end)
+
+      next = Store.change_body(store, id, body, [])
+
+      if key == state.key do
+        put_entities(state, next)
+      else
+        # Project the same change for later reads in this callback. The group
+        # installs it before replying or cutting the shared frame.
+        state = put_in(state.siblings[key].entities, next)
+        sibling_effect(state, key, {:body_change, id, store.entries[id].revision, body})
+      end
+    end)
   end
 
   # `BlockAttachedEntity.tick`: every 101st tick of its life (counted from
@@ -1910,7 +1952,8 @@ defmodule Valimc.World.RegionData do
          true <- fence?(state, position),
          existing = knots(state)[position],
          [_ | _] = moved <-
-           Valimc.Entity.Leashes.bind(leash_mobs(state), player, {position, existing}) do
+           Valimc.Entity.Leashes.bind(leash_mobs(state), player, {position, existing}),
+         true <- leash_ready?(state, moved) do
       {state, id} = if existing, do: {state, existing}, else: new_knot(state, position)
       moved = for {mob, body} <- moved, do: {mob, put_in(body.mob.leash.id, id)}
       {:swing, state |> releash(moved) |> knot_sound(position, "minecraft:item.lead.tied")}
@@ -2860,26 +2903,47 @@ defmodule Valimc.World.RegionData do
           do: Valimc.Entity.Leashes.snip(mobs, pos, {knot.x, knot.y + 0.25, knot.z}),
           else: []
 
-      if snipped != [] do
-        drops =
-          for {mob, _, drops} <- snipped,
-              {stack, _, _} <- drops,
-              %{entity: m} <- [store.entries[mob]],
-              do: {{m.x, m.y, m.z}, stack}
+      cond do
+        not leash_ready?(state, snipped) ->
+          {:reply, :pass, state}
 
-        state = releash(state, for({mob, body, _} <- snipped, do: {mob, body}))
-        state = state |> mob_drops(drops) |> free_knots([pos])
-        Valimc.World.Sounds.play(pos, "minecraft:item.shears.snip", :player)
-        {:reply, {:ok, %{hand: {:wear, 1}, swing: false, others: nil}}, state}
-      else
-        case Valimc.Entity.Leashes.knot(mobs, {pos, id}, request) do
-          [] ->
-            {:reply, :pass, state}
+        snipped != [] ->
+          drops =
+            for {mob, _, drops} <- snipped,
+                {stack, _, _} <- drops,
+                {^mob, %{entity: m}} <- group_entries(state),
+                do: {{m.x, m.y, m.z}, stack}
 
-          moved ->
-            state = state |> releash(moved) |> knot_sound(pos, "minecraft:item.lead.tied")
-            {:reply, {:ok, %{hand: :keep, swing: false, others: nil}}, free_knots(state, [pos])}
-        end
+          state = releash(state, for({mob, body, _} <- snipped, do: {mob, body}))
+
+          state =
+            Enum.reduce(Enum.group_by(drops, fn {at, _} -> block_section(at) end), state, fn {key,
+                                                                                              drops},
+                                                                                             state ->
+              if key == state.key,
+                do: mob_drops(state, drops),
+                else: sibling_effect(state, key, {:mob_drops, drops})
+            end)
+
+          state = free_knots(state, [pos])
+          Valimc.World.Sounds.play(pos, "minecraft:item.shears.snip", :player)
+          {:reply, {:ok, %{hand: {:wear, 1}, swing: false, others: nil}}, state}
+
+        true ->
+          case Valimc.Entity.Leashes.knot(mobs, {pos, id}, request) do
+            [] ->
+              {:reply, :pass, state}
+
+            moved ->
+              if leash_ready?(state, moved) do
+                state = state |> releash(moved) |> knot_sound(pos, "minecraft:item.lead.tied")
+
+                {:reply, {:ok, %{hand: :keep, swing: false, others: nil}},
+                 free_knots(state, [pos])}
+              else
+                {:reply, :pass, state}
+              end
+          end
       end
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
@@ -5317,6 +5381,15 @@ defmodule Valimc.World.RegionData do
   rules' changes, entities it moved here, or a donor item to merge into
   `target` here. A move that cannot land goes back to `source` the same way.
   """
+  def apply_sibling(state, {:body_change, id, revision, body}) do
+    # Prepared from this group's authoritative store with no owner boundary.
+    ^revision = state.entities.store.entries[id].revision
+    put_entities(state, Store.change_body(state.entities.store, id, body, []))
+  end
+
+  def apply_sibling(state, {:mob_drops, drops}), do: mob_drops(state, drops)
+  def apply_sibling(state, {:free_knots, positions}), do: free_knots(state, positions)
+  def apply_sibling(state, {:make_knots, positions}), do: make_knots(state, positions)
   def apply_sibling(state, {:rules, part}), do: apply_rules(state, part)
   def apply_sibling(state, {:piston_pushes, pushes}), do: push_own(state, pushes)
   def apply_sibling(state, {:halo, message}), do: Valimc.World.LightHalo.handle(message, state)

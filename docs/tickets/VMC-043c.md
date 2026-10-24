@@ -229,3 +229,23 @@ showed wear, with the connection live throughout. Evidence:
 `.local/client-tests/M3-run-04/sheep-dye-trace.txt`,
 `sheep-dye-disconnect.png` and the run-03 evidence; this does not close the
 family's remaining gates.
+
+## Client lead boundary fix (October 24, 2026)
+
+Run-05 confirmed active cow following, two-cow breeding, a calf and gained
+experience. Lead attachment consumed one lead and showed the rope; walking
+back stretched it and the cow followed. Tying the cow across the section
+line failed, while moving the fence into the cow's section worked. The
+fence read only its section's mobs, and a mob likewise looked for knots
+only in its own section.
+
+Lead interactions now read the owning group's authoritative stores. Body
+changes, restored knots, empty-knot removal and snipped drops use the
+existing sibling effects before the group replies or cuts its frame. A
+held sibling store refuses the interaction. The group fixture binds two
+cows across a boundary to one knot, keeps the rope through an AI tick,
+checks a shared log frame, returns both cows to the player and snips them,
+with exactly one lead in each section. All 21 animal, animal socket and
+group checks pass in `.local/m3-leash-tests.log`. All seven selected vanilla
+stages pass in `.local/m3-leash-vanilla.log`. The graphical boundary
+retry remains pending; this does not close the animal family.

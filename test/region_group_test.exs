@@ -312,6 +312,118 @@ defmodule Valimc.RegionGroupTest do
     assert store(pc, ec).ledger.outgoing == nil and store(pc, ed).ledger.incoming == %{}
   end
 
+  test "a fence binds and snips cows across sections in one group frame", ctx do
+    alias Valimc.Entity.{Body, Store}
+    alias Valimc.Protocol.ItemStack
+    {cx, cz} = c_key(ctx)
+    x = (cx + 1) * 128
+    z = cz * 128 + 9
+    {:ok, body} = Body.new("minecraft:cow")
+    left = Store.body_record(body, <<71::128>>, {x - 1.5, 70.0, z + 0.5})
+    right = Store.body_record(body, <<72::128>>, {x + 1.5, 70.0, z + 0.5})
+
+    {c, d, pc, ec, ed} =
+      item_group(ctx, [{fn c, _ -> c end, [left]}, {fn _, d -> d end, [right]}])
+
+    fence = {x, 70, z + 2}
+    set({pc, ed}, fence, BlockRegistry.default_state("oak_fence"))
+
+    for px <- (x - 3)..(x + 3), pz <- (z - 1)..(z + 3) do
+      owner = if px < x, do: {pc, ec}, else: {pc, ed}
+      set(owner, {px, 69, pz}, BlockRegistry.default_state("grass_block"))
+    end
+
+    player = <<73::128>>
+
+    request = %{
+      item: ItemStack.new("lead"),
+      infinite: false,
+      player: player,
+      sneaking: false,
+      holder: %{id: 70, x: x * 1.0, y: 70.0, z: z + 0.5, width: 0.6, height: 1.8}
+    }
+
+    for {epoch, uuid} <- [{ec, left.uuid}, {ed, right.uuid}],
+        do: assert({:ok, %{hand: {:use, 1}}} = Region.interact_entity({pc, epoch}, uuid, request))
+
+    grant = %{
+      kind: :open,
+      mode: :survival,
+      eye: {x * 1.0, 71.62, z + 0.5},
+      expires: System.monotonic_time(:millisecond) + 5000,
+      hand: :main,
+      player: player,
+      secondary: false,
+      main: false,
+      off: false
+    }
+
+    assert Region.menu({pc, ed}, self(), fence, grant) == :swing
+
+    knot = fn ->
+      for {_, %{body: %{type: "minecraft:leash_knot"}} = entry} <- store(pc, ed).entries,
+          do: entry
+    end
+
+    [entry] = knot.()
+
+    cow = fn epoch, uuid ->
+      current = store(pc, epoch)
+      {:ok, {_, id, _}} = Store.find(current, uuid)
+      current.entries[id].body
+    end
+
+    for {epoch, uuid} <- [{ec, left.uuid}, {ed, right.uuid}] do
+      assert cow.(epoch, uuid).mob.leash.holder == {:knot, fence}
+      assert cow.(epoch, uuid).mob.leash.id == entry.entity.entity_id
+    end
+
+    # Its next AI tick must still find the knot in the neighbouring section.
+    Region.step({pc, ec}, 1)
+    assert cow.(ec, left.uuid).mob.leash.holder == {:knot, fence}
+    :ok = Region.flush(pc)
+    :ok = Log.sync(ctx.base, {:region, :overworld, c})
+
+    {:ok, %{frames: frames}} =
+      RegionLog.read(Log.dir(ctx.base, Log.stripe({:region, :overworld, c})))
+
+    owners = [{:region, :overworld, c}, {:region, :overworld, d}]
+
+    assert Enum.any?(frames, fn %{ops: ops} ->
+             in_frame = for {:frame, owner, _, _} <- ops, do: owner
+             Enum.all?(owners, &(&1 in in_frame))
+           end)
+
+    # Both cows return to the player before the now-empty knot disappears.
+    assert {:ok, _} = Region.interact_knot({pc, ed}, entry.entity.uuid, %{request | item: nil})
+    assert knot.() == []
+
+    for {epoch, uuid} <- [{ec, left.uuid}, {ed, right.uuid}],
+        do: assert(cow.(epoch, uuid).mob.leash.holder == {:player, player})
+
+    assert Region.menu({pc, ed}, self(), fence, grant) == :swing
+    [entry] = knot.()
+
+    assert {:ok, %{hand: {:wear, 1}}} =
+             Region.interact_knot({pc, ed}, entry.entity.uuid, %{
+               request
+               | item: ItemStack.new("shears")
+             })
+
+    assert knot.() == []
+
+    for {epoch, uuid} <- [{ec, left.uuid}, {ed, right.uuid}] do
+      assert cow.(epoch, uuid).mob.leash == nil
+
+      leads =
+        for {_, %{kind: :item, stack: stack}} <- store(pc, epoch).entries,
+            stack.item_id == Valimc.Protocol.ItemTypes.id("minecraft:lead"),
+            do: stack.count
+
+      assert leads == [1]
+    end
+  end
+
   defp c_key(ctx), do: {elem(ctx.b, 0) + 1, elem(ctx.b, 1)}
 
   test "a hand-over moves only the sections the group still holds", ctx do

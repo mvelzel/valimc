@@ -917,6 +917,7 @@ defmodule Valimc.World.Region do
     containers = resource.containers
     # The POI tickets its villagers hold (VMC-044a1).
     pois = resource.poi_claims
+    entities = resource.entities.store
 
     case peers do
       %{
@@ -925,7 +926,8 @@ defmodule Valimc.World.Region do
           busy: ^busy,
           comparators: ^comparators,
           containers: ^containers,
-          pois: ^pois
+          pois: ^pois,
+          entities: ^entities
         }
       } ->
         peers
@@ -938,7 +940,8 @@ defmodule Valimc.World.Region do
           busy: busy,
           comparators: comparators,
           containers: containers,
-          pois: pois
+          pois: pois,
+          entities: entities
         })
     end
   end
