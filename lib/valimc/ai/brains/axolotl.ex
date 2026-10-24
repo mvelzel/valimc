@@ -27,6 +27,9 @@ defmodule Valimc.AI.Brains.Axolotl do
   alias Valimc.AI.Behaviors.Fight
   alias Valimc.Data.Float32
 
+  @doc "The hunting cooldown kept by the native brain and a captured axolotl."
+  def saved, do: [:has_hunting_cooldown]
+
   @sensors [
     {Sensors.NearestLiving, 20},
     {__MODULE__.Adult, 20},
@@ -52,12 +55,12 @@ defmodule Valimc.AI.Brains.Axolotl do
       {3, try_find_liquid(6, Float32.round(0.15))},
       {4,
        Behavior.try_all_gate([walk_target: :absent], [
-          Behaviors.swim_stroll(Float32.round(0.5)),
-          Behaviors.stroll(Float32.round(0.15), 10, 7, &(not Self.in_water?(&1))),
-          Behaviors.walk_to_look_target(&walks_to_look?/1, &speed/1, 3),
-          Behavior.one_shot([], &{Self.in_water?(&1), &1}),
-          Behavior.one_shot([], &{&1.on_ground, &1})
-        ])}
+         Behaviors.swim_stroll(Float32.round(0.5)),
+         Behaviors.stroll(Float32.round(0.15), 10, 7, &(not Self.in_water?(&1))),
+         Behaviors.walk_to_look_target(&walks_to_look?/1, &speed/1, 3),
+         Behavior.one_shot([], &{Self.in_water?(&1), &1}),
+         Behavior.one_shot([], &{&1.on_ground, &1})
+       ])}
     ]
 
     fight = [

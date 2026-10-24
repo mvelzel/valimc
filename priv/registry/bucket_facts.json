@@ -1,0 +1,186 @@
+{
+  "version": "26.3",
+  "types": {
+    "minecraft:cod": {
+      "item": "minecraft:cod_bucket",
+      "pickup_sound": "minecraft:item.bucket.fill_fish"
+    },
+    "minecraft:salmon": {
+      "item": "minecraft:salmon_bucket",
+      "pickup_sound": "minecraft:item.bucket.fill_fish"
+    },
+    "minecraft:pufferfish": {
+      "item": "minecraft:pufferfish_bucket",
+      "pickup_sound": "minecraft:item.bucket.fill_fish"
+    },
+    "minecraft:tropical_fish": {
+      "item": "minecraft:tropical_fish_bucket",
+      "pickup_sound": "minecraft:item.bucket.fill_fish"
+    },
+    "minecraft:axolotl": {
+      "item": "minecraft:axolotl_bucket",
+      "pickup_sound": "minecraft:item.bucket.fill_axolotl"
+    }
+  },
+  "enums": {
+    "fish_pattern": [
+      [
+        0,
+        "kob"
+      ],
+      [
+        256,
+        "sunstreak"
+      ],
+      [
+        512,
+        "snooper"
+      ],
+      [
+        768,
+        "dasher"
+      ],
+      [
+        1024,
+        "brinely"
+      ],
+      [
+        1280,
+        "spotty"
+      ],
+      [
+        1,
+        "flopper"
+      ],
+      [
+        257,
+        "stripey"
+      ],
+      [
+        513,
+        "glitter"
+      ],
+      [
+        769,
+        "blockfish"
+      ],
+      [
+        1025,
+        "betty"
+      ],
+      [
+        1281,
+        "clayfish"
+      ]
+    ],
+    "salmon_size": [
+      [
+        0,
+        "small"
+      ],
+      [
+        1,
+        "medium"
+      ],
+      [
+        2,
+        "large"
+      ]
+    ],
+    "axolotl_variant": [
+      [
+        0,
+        "lucy"
+      ],
+      [
+        1,
+        "wild"
+      ],
+      [
+        2,
+        "gold"
+      ],
+      [
+        3,
+        "cyan"
+      ],
+      [
+        4,
+        "blue"
+      ]
+    ],
+    "dye_color": [
+      [
+        0,
+        "white"
+      ],
+      [
+        1,
+        "orange"
+      ],
+      [
+        2,
+        "magenta"
+      ],
+      [
+        3,
+        "light_blue"
+      ],
+      [
+        4,
+        "yellow"
+      ],
+      [
+        5,
+        "lime"
+      ],
+      [
+        6,
+        "pink"
+      ],
+      [
+        7,
+        "gray"
+      ],
+      [
+        8,
+        "light_gray"
+      ],
+      [
+        9,
+        "cyan"
+      ],
+      [
+        10,
+        "purple"
+      ],
+      [
+        11,
+        "blue"
+      ],
+      [
+        12,
+        "brown"
+      ],
+      [
+        13,
+        "green"
+      ],
+      [
+        14,
+        "red"
+      ],
+      [
+        15,
+        "black"
+      ]
+    ]
+  },
+  "components": {
+    "minecraft:salmon/size": "salmon_size",
+    "minecraft:axolotl/variant": "axolotl_variant",
+    "minecraft:tropical_fish/pattern": "fish_pattern",
+    "minecraft:tropical_fish/base_color": "dye_color",
+    "minecraft:tropical_fish/pattern_color": "dye_color"
+  }
+}

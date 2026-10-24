@@ -19,6 +19,16 @@ defmodule Valimc.Protocol.ItemStack do
   @max_bytes 65_536
   @codecs %{
     "minecraft:custom_data" => :nbt_compound,
+    "minecraft:bucket_entity_data" => :nbt_compound,
+    "minecraft:salmon/size" => {:enum, Valimc.Data.BucketFacts.enum("minecraft:salmon/size")},
+    "minecraft:axolotl/variant" =>
+      {:enum, Valimc.Data.BucketFacts.enum("minecraft:axolotl/variant")},
+    "minecraft:tropical_fish/pattern" =>
+      {:enum, Valimc.Data.BucketFacts.enum("minecraft:tropical_fish/pattern")},
+    "minecraft:tropical_fish/base_color" =>
+      {:enum, Valimc.Data.BucketFacts.enum("minecraft:tropical_fish/base_color")},
+    "minecraft:tropical_fish/pattern_color" =>
+      {:enum, Valimc.Data.BucketFacts.enum("minecraft:tropical_fish/pattern_color")},
     "minecraft:custom_name" => :text,
     "minecraft:item_name" => :text,
     "minecraft:lore" => :lore,
@@ -290,6 +300,12 @@ defmodule Valimc.Protocol.ItemStack do
     {value, rest}
   end
 
+  defp read_component({:enum, _} = codec, bytes) do
+    {value, rest} = Wire.take_varint(bytes)
+    check(valid_component?(codec, value), :invalid_component_value)
+    {value, rest}
+  end
+
   defp read_component(:unit, rest), do: {:unit, rest}
   defp read_component(:nbt_unit, <<10, 0, rest::binary>>), do: {:unit, rest}
   defp read_component(:text, bytes), do: Codec.take(bytes)
@@ -364,6 +380,7 @@ defmodule Valimc.Protocol.ItemStack do
   end
 
   defp valid_component?({:varint, min, max}, value), do: is_integer(value) and value in min..max
+  defp valid_component?({:enum, names}, value), do: is_integer(value) and is_map_key(names, value)
   defp valid_component?(:unit, value), do: value == :unit
   defp valid_component?(:nbt_unit, value), do: value == :unit
   defp valid_component?(:nbt_compound, {:compound, _} = value), do: NBT.valid?(value)
@@ -396,6 +413,7 @@ defmodule Valimc.Protocol.ItemStack do
         Regex.match?(~r/\A[a-z0-9_.-]+:[a-z0-9_\/.\-]+\z/, value)
 
   defp encode_component({:varint, _, _}, value), do: Wire.varint(value)
+  defp encode_component({:enum, _}, value), do: Wire.varint(value)
   defp encode_component(:unit, :unit), do: <<>>
   defp encode_component(:nbt_unit, :unit), do: <<10, 0>>
   defp encode_component(:nbt_compound, value), do: NBT.encode(value)

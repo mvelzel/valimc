@@ -28,6 +28,11 @@ defmodule Valimc.Entity.Animals.Axolotl do
   @impl true
   def defaults, do: %{variant: 0, playing_dead: false, from_bucket: false}
 
+  @doc "`Axolotl.finalizeSpawn` returns immediately for a bucket release."
+  @impl Valimc.AI.Kind
+  def finalize(self, :bucket), do: self
+  def finalize(self, reason), do: super(self, reason)
+
   @impl true
   def fields(data),
     do: [

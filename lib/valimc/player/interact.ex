@@ -152,6 +152,12 @@ defmodule Valimc.Player.Interact do
         | inventory: Buckets.filled(state.inventory, hand, stack, new)
       })
 
+  defp hand(state, hand, stack, {:capture, new}) do
+    {inventory, left} = Buckets.captured(state.inventory, hand, stack, new)
+    {:ok, state} = Valimc.Player.Items.drop(state, inventory, if(left, do: [left], else: []))
+    CreativeInventory.resync_inventory(state)
+  end
+
   # `hurtAndBreak`: the tool wears; broken, it goes with its sound and event.
   defp hand(state, hand, stack, {:wear, n}) do
     {after_wear, broken} = Durability.hurt_and_break(stack, n, state.inventory.infinite_materials)

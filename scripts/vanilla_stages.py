@@ -1184,6 +1184,15 @@ STAGES = [
         ('java', 'AnimalOracle', 'cases', '@animals.json'),
         ('check', 'check_animals.exs', '@animals.json'),
     ]),
+    ('bucket_mobs', [
+        ('regen', 'BucketMobOracle', 'facts', '@bucket-facts.json'),
+        ('same', '@bucket-facts.json', 'priv/registry/bucket_facts.json'),
+        ('java', 'BucketMobOracle', 'cases', '@bucket-mobs.json'),
+        ('java', 'BucketMobOracle', 'inventory', '@bucket-inventory.json'),
+        ('java', 'BucketMobOracle', 'positions', '@bucket-positions.json'),
+        ('java', 'BucketMobOracle', 'spawns', '@bucket-spawns.json'),
+        ('check', 'check_bucket_mobs.exs', '@bucket-mobs.json', '@bucket-inventory.json', '@bucket-positions.json', '@bucket-spawns.json'),
+    ]),
     ('entity_position', [
         ('java', 'EntityPositionOracle', 'generate', '@entity-position.json'),
         ('check', 'check_entity_position.exs', '@entity-position.json', '@entity-position-elixir.json'),

@@ -7,6 +7,7 @@ defmodule Valimc.Protocol.ItemData do
   alias Valimc.Data.NBT
 
   @colors ["white", "yellow", "aqua", "light_purple"]
+  @bucket_enums Valimc.Data.BucketFacts.enums()
   @transient ~w(minecraft:additional_trade_cost minecraft:creative_slot_lock minecraft:map_post_processing)
 
   def tag(%ItemStack{} = stack) do
@@ -97,6 +98,7 @@ defmodule Valimc.Protocol.ItemData do
     case ItemStack.codec(name) do
       nil -> :unsupported
       {:varint, min, max} when name != "minecraft:rarity" -> int(tag, min, max)
+      {:enum, names} -> enum_value(names, tag)
       kind when kind in [:unit, :nbt_unit] -> {:ok, :unit}
       :bool -> bool(tag)
       :nbt_compound -> if match?({:compound, _}, tag), do: {:ok, tag}, else: :unsupported
@@ -105,6 +107,15 @@ defmodule Valimc.Protocol.ItemData do
       _ -> structured(name, tag)
     end
   end
+
+  defp enum_value(names, {:string, value}) do
+    case Enum.find(names, fn {_id, name} -> name == value end) do
+      {id, _} -> {:ok, id}
+      nil -> {:error, "Unknown element name: #{value}"}
+    end
+  end
+
+  defp enum_value(_names, _), do: {:error, "Not a string"}
 
   # `Codec.INT` over `NbtOps` (any number, as Java's `intValue()`) within the
   # codec's range, with `ExtraCodecs`' messages.
@@ -214,8 +225,13 @@ defmodule Valimc.Protocol.ItemData do
   defp qualified(name), do: if(String.contains?(name, ":"), do: name, else: "minecraft:" <> name)
 
   defp from_tag(name, value)
-       when name in ~w(minecraft:custom_data minecraft:custom_name minecraft:item_name),
+       when name in ~w(minecraft:custom_data minecraft:bucket_entity_data minecraft:custom_name minecraft:item_name),
        do: value
+
+  defp from_tag(name, {:string, _} = tag) when is_map_key(@bucket_enums, name) do
+    {:ok, value} = enum_value(@bucket_enums[name], tag)
+    value
+  end
 
   defp from_tag("minecraft:lore", lines), do: elements(lines)
 
@@ -396,7 +412,11 @@ defmodule Valimc.Protocol.ItemData do
   end
 
   defp component(name, value)
-       when name in ~w(minecraft:custom_data minecraft:custom_name minecraft:item_name), do: value
+       when name in ~w(minecraft:custom_data minecraft:bucket_entity_data minecraft:custom_name minecraft:item_name),
+       do: value
+
+  defp component(name, value) when is_map_key(@bucket_enums, name),
+    do: {:string, @bucket_enums[name][value]}
 
   defp component("minecraft:lore", lines), do: NBT.list(lines)
 

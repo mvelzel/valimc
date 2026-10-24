@@ -198,17 +198,24 @@ defmodule Valimc.NaturalSpawningTest do
     far = place(owner, "minecraft:zombie", {x + 92, y, z + 92})
     cow = place(owner, "minecraft:cow", {x + 100, y, z + 100})
     named = place(owner, "minecraft:zombie", {x + 110, y, z + 80}, true)
+    wild_fish = place(owner, "minecraft:cod", {x + 100, y, z + 100})
+    {:ok, fish} = Valimc.Entity.Bucketable.release(Valimc.Protocol.ItemStack.new("cod_bucket"))
+    bucketed = :crypto.strong_rand_bytes(16)
+    :ok = Region.drop_items(owner, [Store.body_record(fish, bucketed, {x + 105, y, z + 100})])
     # No spawning: a day without monsters (a full sky; persistent categories wait).
     env = %{@night | darken: 0, difficulty: 2}
     {_, _} = tick(owner, [{x, y, z, false, false}], env, Spawning.new(), 3)
     assert alive?(owner, near) and alive?(owner, mid)
     refute alive?(owner, far)
+    refute alive?(owner, wild_fish)
+    assert alive?(owner, bucketed)
     assert alive?(owner, cow) and alive?(owner, named)
 
     # Peaceful: one tick discards every monster, named or not; the cow stays.
     {_, _} = tick(owner, [{x, y, z, false, false}], %{env | difficulty: 0}, Spawning.new(), 5)
     refute alive?(owner, near) or alive?(owner, mid) or alive?(owner, named)
     assert alive?(owner, cow)
+    assert alive?(owner, bucketed)
   end
 
   test "a name tag names a mob and makes it persistent, over a record", %{

@@ -49,8 +49,8 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Resume the stopped fresh-world client batch (078), including the ordinary dragon fight (045a).
-2. Finish outstanding family and ritual observations in the same batch; resolve findings.
+1. Finish the aquatic family's remaining implementation gaps; client testing is deferred.
+2. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
@@ -67,7 +67,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-045a](tickets/VMC-045a.md) | Ordinary survival fight, exit/reconnect and ritual beam/protection observations in the M3 route |
-| [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | Shulker range closure, survival hurt-teleport and shell; pearl-spawned endermite; fish flee/puff/flop and squid ink; elder ghost; bat wake/no-push; dolphin leap, feed, retaliation and land; turtles lay eggs and eggs break underfoot; axolotls hunt, play dead and return to water |
+| [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md), [043e8](tickets/VMC-043e8.md) | Shulker range closure, survival hurt-teleport and shell; pearl-spawned endermite; fish flee/puff/flop and squid ink; elder ghost; bat wake/no-push; dolphin leap, feed, retaliation and land; turtles lay eggs and eggs break underfoot; axolotls hunt, play dead and return to water; fish/axolotl bucket capture and release |
 | [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Baby zombies, husk Hunger/conversion and equipment pickup; drowned tridents/day return and zombie egg-stomping; stray/bogged effects and skeleton shade; creeper ignition and spider leap/climb; enderman pumpkin/projectile teleport/block handling; witch drinking, silverfish alarm, ordinary slime combat and open-sky/dawn phantoms |
 | [VMC-043d](tickets/VMC-043d.md) | Generated fortress blazes volley and drop rods; zombified piglins attack together; piglins attack without gold; return a ghast fireball; hoglin charge, ordinary magma-cube combat and wither skeletons |
 | [VMC-043c](tickets/VMC-043c.md) | Rabbits fleeing players and generated animals grazing/wandering; regrowth, laying, hopping and core interactions passed |

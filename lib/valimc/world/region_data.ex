@@ -1848,20 +1848,35 @@ defmodule Valimc.World.RegionData do
   defp interacted(state, id, revision, {x, y, z} = at, body, outcome) do
     store = state.entities.store
 
-    store =
-      case outcome.convert do
-        nil ->
-          Store.change_body(store, id, body, outcome.events)
+    {state, store} =
+      if Map.get(outcome, :discard, false) do
+        state =
+          Enum.reduce(outcome.events, state, fn
+            {:sound, name, source, volume, pitch, _seed}, state ->
+              projectile_effect(state, nil, {:sound, name, source, at, volume, pitch})
 
-        new ->
-          record = Store.body_record(new, :crypto.strong_rand_bytes(16), at)
+            _, state ->
+              state
+          end)
 
-          with {:ok, store} <- Store.remove(store, store.epoch, id, revision),
-               {:ok, store, {_, new_id, _}} <- Store.create_record(store, state.key, record) do
-            Store.change_body(store, new_id, new, outcome.events)
-          else
-            _ -> store
-          end
+        {:ok, store} = Store.remove(store, store.epoch, id, revision)
+        {state, store}
+      else
+        {state,
+         case outcome.convert do
+           nil ->
+             Store.change_body(store, id, body, outcome.events)
+
+           new ->
+             record = Store.body_record(new, :crypto.strong_rand_bytes(16), at)
+
+             with {:ok, store} <- Store.remove(store, store.epoch, id, revision),
+                  {:ok, store, {_, new_id, _}} <- Store.create_record(store, state.key, record) do
+               Store.change_body(store, new_id, new, outcome.events)
+             else
+               _ -> store
+             end
+         end}
       end
 
     state = publish_item_views(%{state | entities: %{state.entities | store: store}})
@@ -3472,6 +3487,7 @@ defmodule Valimc.World.RegionData do
       # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
       result =
         with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
+             :pass <- Valimc.Entity.Bucketable.interact(body, request),
              :pass <- Valimc.Entity.Animals.Interaction.interact(body, request),
              do: Valimc.AI.Mobs.interact(body, request)
 
@@ -4121,6 +4137,58 @@ defmodule Valimc.World.RegionData do
       not in_region?(state, cell) -> {:reply, :ok, state}
       busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> {:reply, :ok, crush_eggs(state, [{cell, odds}])}
+    end
+  end
+
+  def handle_call({:bucket, epoch, {:release, position, empty, stack}}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         true <- in_region?(state, position) or {:error, :invalid_bucket},
+         nil <- write_busy(state),
+         {:ok, body} <- Valimc.Entity.Bucketable.release(stack),
+         {:ok, point} <-
+           Valimc.Entity.Bucketable.spawn_point(
+             body.type,
+             position,
+             &local_or_sibling_block(state, &1)
+           ),
+         {:ok, id} <- Valimc.Entity.Ids.next(),
+         record =
+           Store.body_record(body, :crypto.strong_rand_bytes(16), point)
+           |> Map.put(:entity_id, id),
+         {:ok, _, _} <- Store.create_record(state.entities.store, state.key, record) do
+      case rule_run(state, %{actions: [empty]}) do
+        {next, %{results: [result]}} when result > 0 ->
+          # The preflight reserves only an id. Preserve all entity effects
+          # of the fluid operation, then admit the animal into that store.
+          {:ok, point} =
+            Valimc.Entity.Bucketable.spawn_point(
+              body.type,
+              position,
+              &local_or_sibling_block(next, &1)
+            )
+
+          world =
+            mob_world(
+              next,
+              Valimc.World.View.new(next.dimension),
+              Clock.border_snapshot(next.dimension)
+            )
+
+          {:ok, body, world} = Valimc.Entity.Bucketable.spawn(stack, record.uuid, point, world)
+          record = Store.body_record(body, record.uuid, point) |> Map.put(:entity_id, id)
+          {:ok, store, _} = Store.create_record(next.entities.store, next.key, record)
+          next = put_entities(%{next | ai_random: world.random}, store)
+          {:reply, {:ok, result}, next}
+
+        {next, %{results: [result]}} ->
+          {:reply, {:ok, result}, next}
+
+        {next, nil} ->
+          {:reply, Error.retry(:region_busy), next}
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 

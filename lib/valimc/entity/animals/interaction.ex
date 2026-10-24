@@ -11,11 +11,11 @@ defmodule Valimc.Entity.Animals.Interaction do
   player has infinite materials). The answer is `:pass`, `:consume` (the use
   is taken, nothing happens: shears on a sheep not ready) or `{:ok, body,
   outcome}`: `outcome` holds `hand` (`:keep`, `{:use, n}`, `{:fill, stack}`
-  or `{:wear, n}`), `swing` (the server swings the player's arm,
+  or `{:wear, n}`; bucket capture uses `{:capture, stack}`), `swing` (the server swings the player's arm,
   `SUCCESS_SERVER`), `events` (the animal's: sounds to everyone, entity
   events), `others` (a sound the player itself made, to the others, at the
   animal), `drops` (`[{stack, {x, y, z} offset from the animal, velocity}]`)
-  `convert` (the body it becomes, a new entity: a sheared mooshroom's
+  `discard` (a captured animal is removed without death drops), `convert` (the body it becomes, a new entity: a sheared mooshroom's
   cow) and `free` (the fence knots a lead it dropped was tied to,
   `Valimc.Entity.Leashes`). Draws on the animal's own random use its mind's.
   """
@@ -63,6 +63,7 @@ defmodule Valimc.Entity.Animals.Interaction do
           others: nil,
           drops: [],
           convert: nil,
+          discard: false,
           free: []
         },
         Map.new(fields)

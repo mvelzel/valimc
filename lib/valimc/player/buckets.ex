@@ -1,6 +1,6 @@
 defmodule Valimc.Player.Buckets do
   @moduledoc """
-  Buckets (VMC-031a), as vanilla's `BucketItem.use`: the server casts the
+  Buckets (VMC-031a, VMC-043e8), as vanilla's `BucketItem.use`: the server casts the
   player's own ray (`getPlayerPOVHitResult`, `Valimc.Physics.Clip`) over the
   blocks within reach, through sources for an empty bucket; an empty bucket
   picks up what it hits (`BucketPickup`), a full one pours into the hit
@@ -8,7 +8,8 @@ defmodule Valimc.Player.Buckets do
   beside it. The world changes in the hit cell's owner, the player's group,
   through the block rules (`Valimc.World.Region.bucket/2`); the held stack
   becomes the filled or empty bucket as `ItemUtils.createFilledResult` makes
-  it.
+  it. A mob bucket admits its saved animal after a successful pour in that
+  same hosted callback; capture is the entity interaction path.
 
   Not here: the pickup and pour sounds for other players, the evaporation's
   smoke, statistics and advancements. An empty bucket from a stack whose
@@ -16,6 +17,7 @@ defmodule Valimc.Player.Buckets do
   """
   alias Valimc.Blocks.Fluids
   alias Valimc.Data.{BlockFacts, Grid}
+  alias Valimc.Entity.Bucketable
   alias Valimc.Living.Interaction
   alias Valimc.Menus.Inventory
   alias Valimc.Physics.Clip
@@ -25,7 +27,7 @@ defmodule Valimc.Player.Buckets do
 
   @steps {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}}
 
-  @doc "Whether `stack` is a bucket this module uses: empty, water or lava."
+  @doc "Whether this item uses the bucket ray: empty, water, lava or an aquatic mob."
   def bucket?(%ItemStack{item_id: id}), do: content(id) != nil
   def bucket?(_), do: false
 
@@ -34,6 +36,7 @@ defmodule Valimc.Player.Buckets do
       id == ItemTypes.id("bucket") -> :empty
       id == ItemTypes.id("water_bucket") -> 2
       id == ItemTypes.id("lava_bucket") -> 4
+      Bucketable.type(id) != nil -> 2
       true -> nil
     end
   end
@@ -106,6 +109,9 @@ defmodule Valimc.Player.Buckets do
         secondary = Valimc.Player.Input.pressed?(state.player.input, :shift)
         action = {:empty, target, kind, adjacent, secondary}
 
+        action =
+          if Bucketable.type(stack.item_id), do: {:release, target, action, stack}, else: action
+
         case run(state, target, action) do
           {:ok, result} when result > 0 ->
             emptied =
@@ -167,6 +173,23 @@ defmodule Valimc.Player.Buckets do
         |> Inventory.put(slot, %{stack | count: stack.count - 1})
         |> Inventory.return_stack(new)
         |> elem(0)
+    end
+  end
+
+  @doc "Native capture's filled result; creative also adds a bucket, discarding overflow as native inventory does."
+  def captured(inventory, hand, stack, new) do
+    slot = if hand == :main, do: 36 + inventory.selected, else: 45
+
+    if not inventory.infinite_materials and stack.count == 1 do
+      {Inventory.put(inventory, slot, new), nil}
+    else
+      inventory =
+        if inventory.infinite_materials,
+          do: inventory,
+          else: Inventory.put(inventory, slot, %{stack | count: stack.count - 1})
+
+      {next, left} = Inventory.return_stack(inventory, new)
+      {next, if(inventory.infinite_materials, do: nil, else: left)}
     end
   end
 end

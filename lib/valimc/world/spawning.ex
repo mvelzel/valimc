@@ -267,7 +267,10 @@ defmodule Valimc.World.Spawning do
               alive = Valimc.Entity.Mob.alive?(mob)
 
               flags =
-                if(mob.persistent, do: 1, else: 0) +
+                if(mob.persistent or Map.get(entry.body.data, :from_bucket, false),
+                  do: 1,
+                  else: 0
+                ) +
                   if(alive and MapSet.member?(ticking, Grid.chunk_key(e.x, e.z)), do: 2, else: 0)
 
               idle = Map.get(entry, :idle, 0)

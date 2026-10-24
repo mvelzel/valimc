@@ -35,6 +35,8 @@ Slices, in order:
   hatched and crushed (Awaiting client).
 - [VMC-043e7](VMC-043e7.md) — axolotls: their brain, playing dead,
   hunting, mid-tick melee on mobs, mob effects (Awaiting client).
+- [VMC-043e8](VMC-043e8.md) — catching and releasing fish and axolotls
+  with their bucket data (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -48,7 +50,9 @@ Acceptance: behaviour fixtures match the oracle.
   same tick lands mid-tick in `MobTicks` (with `{:attack_extra, ...}`), mob
   effects tick only in `MobVitals.base_tick/2`, the MobAiOracle reports
   mob targets by entity id and stops ticking removed mobs.
-- Remains: picking axolotls and fish up in buckets, a spawn group's later
-  babies (axolotl variants, turtle packs), turtle eggs' `onPlace`
-  particles; the batched client handoff for 043e1–043e7. Then close
+- Bucket capture, release and saved variants are implemented in
+  [VMC-043e8](VMC-043e8.md), with its actual-client gate deferred.
+- Remains: a spawn group's later babies (axolotl variants, turtle packs),
+  turtle eggs' `onPlace` particles; the batched client handoff for
+  043e1–043e8. Then close
   VMC-043e (Status stays In progress until the client gate).
