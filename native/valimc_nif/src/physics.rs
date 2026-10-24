@@ -1155,6 +1155,33 @@ fn physics_mobs_displace<'a>(
     )
 }
 
+/// Pure observation of a goal's own move against this ticker's live colliders.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_goal_position<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    input: MobT,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let input = mob(&input)?;
+    let guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_ref().ok_or(invalid())?;
+    if index >= state.ticker.current.len() {
+        return Err(invalid());
+    }
+    let world = valimc_core::physics::player::World {
+        source: &state.view,
+        facts,
+        border: crate::player::border(state.border),
+        entities: &[],
+    };
+    Ok(match state.ticker.goal_position(&world, index, &input) {
+        Ok(at) => ok(env, t3(at)),
+        Err(f) => crate::player::fault(env, f),
+    })
+}
+
 /// A solid family's box and position as its owner just left them.
 #[rustler::nif]
 fn physics_mobs_collider(

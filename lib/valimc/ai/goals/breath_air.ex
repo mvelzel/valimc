@@ -29,46 +29,18 @@ defmodule Valimc.AI.Goals.BreathAir do
 
   @doc """
   Where the goal's own move takes the mob, as the rest of its AI reads it
-  (navigation and its controls): its motion past the dead zone plus the
-  input at 0.02, without collisions (the kernel makes the real move, from
-  where the tick began).
+  (navigation and its controls). The owner observes the same native movement
+  against its live block/entity colliders; the real tick still moves once.
   """
-  def predicted(%Self{mob: %{motion: %{pre_move: yaw} = motion}} = self) when is_float(yaw) do
-    f = &Valimc.Data.Float32.round/1
-
-    {vx, vy, vz} =
-      Enum.map(Tuple.to_list(self.velocity), &if(abs(&1) < 0.003, do: 0.0, else: &1))
-      |> List.to_tuple()
-
-    input = {f.(motion.strafe * f.(0.98)), motion.up, f.(motion.forward * f.(0.98))}
-    {ix, iy, iz} = input_vector(input, f.(0.02), yaw)
-    {self.x + vx + ix, self.y + vy + iy, self.z + vz + iz}
+  def predicted(%Self{mob: %{motion: %{pre_move: yaw}}, world: %{goal_position: preview}} = self)
+      when is_float(yaw) and is_function(preview, 1) do
+    case preview.(self) do
+      {:ok, position} -> position
+      _ -> nil
+    end
   end
 
   def predicted(_self), do: nil
-
-  # `Entity.getInputVector` (the kernel's `input_vector`).
-  defp input_vector({x, y, z} = input, speed, yaw) do
-    length = x * x + y * y + z * z
-
-    if length < 1.0e-7 do
-      {0.0, 0.0, 0.0}
-    else
-      {bx, by, bz} =
-        if length > 1.0 do
-          l = :math.sqrt(length)
-          if l < 1.0e-5, do: {0.0, 0.0, 0.0}, else: {x / l, y / l, z / l}
-        else
-          input
-        end
-
-      {mx, my, mz} = {bx * speed, by * speed, bz * speed}
-      f = &Valimc.Data.Float32.round/1
-      a = f.(f.(yaw) * f.(0.017453292))
-      {sin, cos} = {Valimc.Data.Mth.sin(a), Valimc.Data.Mth.cos(a)}
-      {mx * cos - mz * sin, my, mz * cos + mx * sin}
-    end
-  end
 
   # `findAirPosition`: `BlockPos.neighborColumn` up eight blocks.
   defp find_air(self) do

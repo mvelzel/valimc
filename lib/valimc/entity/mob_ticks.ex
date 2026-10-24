@@ -201,18 +201,39 @@ defmodule Valimc.Entity.MobTicks do
     }
   end
 
+  defp goal_position(ticker, i, entry, travel, self) do
+    body = %{
+      entry.body
+      | mob: %{self.mob | ai: self.mind},
+        data: self.data,
+        yaw: self.yaw,
+        pitch: self.pitch,
+        head_yaw: self.head,
+        velocity: self.velocity,
+        on_ground: self.on_ground
+    }
+
+    entry = %{entry | body: body, entity: %{entry.entity | x: self.x, y: self.y, z: self.z}}
+    {input, _} = input(entry, travel)
+    Kernel.mob_goal_position(ticker, i, input)
+  end
+
   defp ordinary_step(view, ticker, old, id, i, state) do
     entry = first_fluids(view, state.entries[id])
     # `baseTick`'s burning comes first (VMC-043b).
     {body, burnt} = MobVitals.base_tick(entry.body.type, entry.body)
     entry = %{entry | body: body}
 
-    world = %{state.world | melee: &kills?(state, id, entry, &1, &2)}
+    world = %{
+      state.world
+      | melee: &kills?(state, id, entry, &1, &2),
+        goal_position: &goal_position(ticker, i, entry, state.travel, &1)
+    }
 
     {{^id, body, {x, y, z}, effects}, ctx, world} =
       AI.think_mob(state.ctx, i, {id, entry}, world)
 
-    world = %{world | melee: nil}
+    world = %{world | melee: nil, goal_position: nil}
 
     entry = %{entry | body: body, entity: %{entry.entity | x: x, y: y, z: z}}
     state = %{state | ctx: ctx, world: world}

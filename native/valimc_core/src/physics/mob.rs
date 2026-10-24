@@ -673,11 +673,7 @@ fn currents(
     .ok_or(Fault::Limit("invalid_fluid_box"))
 }
 
-/// One tick of `mob` (its pushes from others are applied by `tick_all`).
-pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
-    if mob.fixed {
-        return fixed(w, mob);
-    }
+fn begin_motion(w: &World, mob: &Mob) -> Result<(Mob, Aabb, Depths), Fault> {
     let mut m = mob.clone();
     let start = m.position;
     let body = m.body(start)?;
@@ -712,23 +708,38 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     if m.rise {
         m.velocity[1] += (0.3_f32 as f64 - m.velocity[1]) * 0.3_f32 as f64;
     }
+    Ok((m, body, depths))
+}
+
+fn goal_move(w: &World, m: &mut Mob, body: &Aabb, depths: Depths) -> Result<Option<f32>, Fault> {
+    if let Some(yaw) = m.pre_move.take() {
+        let input = [m.strafe as f64, m.up as f64, m.forward as f64];
+        m.velocity = add(m.velocity, input_vector(input, 0.02, yaw));
+        let fall = m.fall_distance;
+        Ok(mob_move(w, m, body, fall, depths.water > 0.0, depths)?.swim)
+    } else {
+        Ok(None)
+    }
+}
+
+/// One tick of `mob` (its pushes from others are applied by `tick_all`).
+pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
+    if mob.fixed {
+        return fixed(w, mob);
+    }
+    let (mut m, body, depths) = begin_motion(w, mob)?;
+    let start = m.position;
+    let water = depths.water > 0.0;
+    let lava = depths.lava > 0.0;
     // LivingEntity.baseTick's air reads the eye's fluid where the tick began.
     let eye = [start[0], start[1] + m.size.eye, start[2]];
     let (eye_water, _) = w.eyes(&body, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
     // A goal's own move before the move control (`BreathAirGoal.tick`):
     // the rest of the tick travels from where it left the mob.
-    let mut pre_swim = None;
-    let (start, body) = if let Some(yaw) = m.pre_move.take() {
-        let input = [m.strafe as f64, m.up as f64, m.forward as f64];
-        m.velocity = add(m.velocity, input_vector(input, 0.02, yaw));
-        let fall = m.fall_distance;
-        pre_swim = mob_move(w, &mut m, &body, fall, water, depths)?.swim;
-        let moved = m.position;
-        (moved, m.body(moved)?)
-    } else {
-        (start, body)
-    };
+    let pre_swim = goal_move(w, &mut m, &body, depths)?;
+    let start = m.position;
+    let body = m.body(start)?;
     // The AI's move control (a fish's): its eyes in water lift it, then its
     // push toward its target.
     if let Control::Set { lift: true, .. } = m.control {
@@ -1436,7 +1447,10 @@ impl Ticker {
     }
 
     fn colliders(&self, i: usize, w: &World) -> Result<Vec<Aabb>, Fault> {
-        let mob = &self.current[i];
+        self.colliders_for(i, w, &self.current[i])
+    }
+
+    fn colliders_for(&self, i: usize, w: &World, mob: &Mob) -> Result<Vec<Aabb>, Fault> {
         if self.solid_count == 0 || mob.fixed {
             return Ok(w.entities.to_vec());
         }
@@ -1476,6 +1490,23 @@ impl Ticker {
             }
         }
         Ok(boxes)
+    }
+
+    /// Observe a goal's own movement without changing the ticker or consuming a turn.
+    pub fn goal_position(&self, w: &World, i: usize, mob: &Mob) -> Result<[f64; 3], Fault> {
+        if mob.fixed || mob.pre_move.is_none() {
+            return Ok(mob.position);
+        }
+        let boxes = self.colliders_for(i, w, mob)?;
+        let local = World {
+            source: w.source,
+            facts: w.facts,
+            border: w.border,
+            entities: &boxes,
+        };
+        let (mut m, body, depths) = begin_motion(&local, mob)?;
+        goal_move(&local, &mut m, &body, depths)?;
+        Ok(m.position)
     }
 
     /// A lid's external move, without consuming the target's own turn.

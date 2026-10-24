@@ -253,6 +253,9 @@ defmodule Valimc.Native do
   def physics_mobs_displace(_ticker, _index, _mob, _delta),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def physics_mobs_goal_position(_ticker, _index, _mob),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def physics_displace(_view, _body, _delta, _boxes, _border, _authoritative),
     do: :erlang.nif_error(:nif_not_loaded)
 

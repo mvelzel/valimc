@@ -50,7 +50,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. User trial of deployed Fly hosting and HTTPS diagnostic links ([056c](tickets/VMC-056c.md)).
-2. Continue the remaining dolphin follow-ups after item water state [043e24](tickets/VMC-043e24.md); client testing is deferred.
+2. Complete dolphin treasure guidance after the breathing collision repair [043e25](tickets/VMC-043e25.md); client testing is deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),

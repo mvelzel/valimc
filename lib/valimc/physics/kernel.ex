@@ -421,6 +421,10 @@ defmodule Valimc.Physics.Kernel do
   def mob_displace(ticker, index, mob, delta),
     do: Native.physics_mobs_displace(ticker, index, mob, floats(delta))
 
+  @doc "Observe a goal's own move with live collision, without advancing the ticker."
+  def mob_goal_position(ticker, index, mob),
+    do: Native.physics_mobs_goal_position(ticker, index, mob)
+
   @doc "An external move with ordinary collision, without piston limits or exemptions."
   def displace(
         view,

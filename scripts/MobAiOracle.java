@@ -1329,6 +1329,10 @@ public class MobAiOracle {
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 400));
     cases.add(run(level, "dolphin_breath", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 58, .5), 0, 112L, Map.of("air", 150))),
       List.of(new Stand(new Vec3(12.5, 65, .5), "creative", null)), List.of(), 200));
+    var breathRoof = new ArrayList<>(pool);
+    for (int x=-2;x<=2;x++) for (int z=-2;z<=2;z++) breathRoof.add(new Block(x,59,z,stone));
+    cases.add(run(level, "dolphin_breath_roof", breathRoof, List.of(new Spawn("minecraft:dolphin", new Vec3(.5,58,.5),0,185L,Map.of("air",150))),
+      List.of(new Stand(new Vec3(12.5,65,.5),"creative",null)),List.of(),200));
     cases.add(run(level, "dolphin_baby", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 181L, Map.of("baby", true))),
       List.of(new Stand(new Vec3(4.5, 60, .5), "survival:swimming", null)), List.of(new Hit(10, 0, 0, 1.0F)), 200));
     cases.add(run(level, "dolphin_baby_no_ai", pool, List.of(new Spawn("minecraft:dolphin", new Vec3(.5, 60, .5), 0, 183L, Map.of("baby", true, "no_ai", true, "air", 150))),

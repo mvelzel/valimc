@@ -92,6 +92,8 @@ defmodule Valimc.AI.World do
             # (VMC-043e: an axolotl's prey): `fn ref, effects -> killed?`, nil:
             # unknown.
             melee: nil,
+            # Read-only collision result for a goal's own move before its controls.
+            goal_position: nil,
             # What players did that mobs react to before thinking (VMC-043d):
             # `{:anger, player_ref, seen}` (opening or breaking what piglins guard).
             events: [],
