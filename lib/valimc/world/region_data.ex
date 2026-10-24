@@ -1358,7 +1358,8 @@ defmodule Valimc.World.RegionData do
       own = Valimc.AI.Pois.store_claims(mobs, state.dimension)
       world = %{mob_world(state, view, border) | paths: ready, pois: poi_claims(state, own)}
 
-      {steps, world} = Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border)
+      {steps, world} =
+        Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, group_entries(state))
 
       dragon_effects =
         for step <- steps,

@@ -382,7 +382,7 @@ defmodule Valimc.Physics.Kernel do
   The ticker keeps the view and the mobs' motion while the owner steps each
   mob (`mob_step/3`) and ends it (`mobs_finish/1`).
   """
-  def mobs_begin(view, mobs, players, border) do
+  def mobs_begin(view, mobs, players, border, colliders \\ []) do
     region =
       mobs
       |> Enum.map(fn %{position: {x, y, z}, size: {width, height, _}, velocity: velocity} ->
@@ -399,7 +399,7 @@ defmodule Valimc.Physics.Kernel do
 
     cells = native(view, region)
     units = if match?({:states, _}, cells), do: div(byte_size(elem(cells, 1)), 14), else: 0
-    Native.dispatch(:physics_mobs_begin, units, [cells, mobs, players, bounds])
+    Native.dispatch(:physics_mobs_begin, units, [cells, mobs, players, bounds, colliders])
   end
 
   @doc """
@@ -409,6 +409,10 @@ defmodule Valimc.Physics.Kernel do
   """
   def mob_step(ticker, index, %{velocity: velocity} = mob),
     do: Native.dispatch(:physics_mobs_step, 4 * scan_cells(velocity), [ticker, index, mob])
+
+  @doc "A solid family's box and position after its owner's changes in this tick."
+  def mob_collider(ticker, index, position, box),
+    do: Native.physics_mobs_collider(ticker, index, floats(position), box)
 
   @doc "Mob `index`'s motion as its tick ended (later pushes add to it)."
   def mob_velocity(ticker, index, velocity),

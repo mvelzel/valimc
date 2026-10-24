@@ -23,9 +23,11 @@ defmodule Valimc.Entity.MobTicks do
   `border`, with the AI's `world` (`Valimc.AI.World`: its players push the
   mobs they touch): `{steps, world}`, the world as the mobs left it.
   """
-  def steps(_view, [], world, _border), do: {[], world}
+  def steps(view, mobs, world, border, external \\ [])
+  def steps(_view, [], world, _border, _external), do: {[], world}
 
-  def steps(view, mobs, %AI.World{} = world, border) do
+  def steps(view, mobs, %AI.World{} = world, border, external) do
+    external = collider_neighbors(mobs, external)
     {mobs, world, ctx} = AI.prepare(mobs, world)
     old = Map.new(mobs)
     ids = mobs |> Enum.map(&elem(&1, 0)) |> List.to_tuple()
@@ -40,7 +42,27 @@ defmodule Valimc.Entity.MobTicks do
     {inputs, travel} =
       Enum.map_reduce(mobs, %{}, fn {_, entry}, travel -> input(entry, travel) end)
 
-    ticker = Kernel.mobs_begin(view, inputs, players, border)
+    # Other sections of the same group are stable while this section
+    # ticks. Their fixed solid families join the grid without being ticked.
+    {other_inputs, travel} =
+      Enum.map_reduce(external, travel, fn {_, entry}, travel ->
+        {input, travel} = input(entry, travel)
+
+        {Map.merge(input, %{
+           fixed: true,
+           pushable: false,
+           pushes: false,
+           velocity: {0.0, 0.0, 0.0}
+         }), travel}
+      end)
+
+    colliders =
+      for {{_, entry}, i} <- Enum.with_index(mobs ++ external),
+          box = collider_box(entry, :unsupported),
+          box != :unsupported,
+          do: {i, box}
+
+    ticker = Kernel.mobs_begin(view, inputs ++ other_inputs, players, border, colliders)
 
     state = %{
       entries: Map.new(mobs),
@@ -51,7 +73,8 @@ defmodule Valimc.Entity.MobTicks do
       world: world,
       travel: travel,
       steps: [],
-      pending: %{}
+      pending: %{},
+      solid: MapSet.new(colliders, &elem(&1, 0))
     }
 
     state =
@@ -83,6 +106,40 @@ defmodule Valimc.Entity.MobTicks do
       end)
 
     {steps, state.world}
+  end
+
+  defp collider_neighbors(_mobs, []), do: []
+
+  defp collider_neighbors(mobs, external) do
+    own = MapSet.new(mobs, &elem(&1, 0))
+    # No admitted move exceeds 64 per axis. Include a solid family's
+    # extent and step-up before restricting the extra snapshot rows.
+    {x0, y0, z0, x1, y1, z1} =
+      mobs
+      |> Enum.map(fn {_, %{entity: e, body: body}} ->
+        Valimc.Entity.Body.box(body, {e.x, e.y, e.z})
+      end)
+      |> Enum.reduce(fn {a, b, c, d, e, f}, {g, h, i, j, k, l} ->
+        {min(a, g), min(b, h), min(c, i), max(d, j), max(e, k), max(f, l)}
+      end)
+
+    reach = {x0 - 66, y0 - 66, z0 - 66, x1 + 66, y1 + 66, z1 + 66}
+
+    for {id, %{kind: :mob} = entry} <- external,
+        not MapSet.member?(own, id),
+        box = collider_box(entry, nil),
+        box != nil,
+        Valimc.Data.Box.intersects?(reach, box),
+        do: {id, entry}
+  end
+
+  defp collider_box(%{entity: e, body: body}, default) do
+    AI.Mobs.hook(body.type, :collider, [body, {e.x * 1.0, e.y * 1.0, e.z * 1.0}], default)
+  end
+
+  defp sync_collider(ticker, state, i, %{entity: e} = entry) do
+    if MapSet.member?(state.solid, i),
+      do: Kernel.mob_collider(ticker, i, {e.x, e.y, e.z}, collider_box(entry, nil))
   end
 
   defp input(%{entity: e, body: body}, travel) do
@@ -162,6 +219,7 @@ defmodule Valimc.Entity.MobTicks do
     {effects, state} = melee(ticker, id, entry, effects, state)
     {input, travel} = input(entry, state.travel)
     state = %{state | travel: travel}
+    sync_collider(ticker, state, i, entry)
     {result, pushed} = Kernel.mob_step(ticker, i, input)
 
     # The mobs it pushed carry their new motion into their own turns.
@@ -221,6 +279,7 @@ defmodule Valimc.Entity.MobTicks do
         {crack_sounds, cracks} = split(cracked)
         {px, py, pz} = position
         entry = %{entry | body: body, entity: %{entry.entity | x: px, y: py, z: pz}}
+        sync_collider(ticker, state, i, entry)
 
         step = %{
           id: id,
@@ -282,7 +341,7 @@ defmodule Valimc.Entity.MobTicks do
           if hurt and not Enum.any?(state.steps, &(&1.id == target)), do: timers(body), else: body
 
         Kernel.mob_velocity(ticker, index[target], body.velocity)
-        {[], hurt(state, target, %{target_entry | body: body}, events)}
+        {[], hurt(state, ticker, target, %{target_entry | body: body}, events)}
 
       {:attack, {:mob, uuid}} = effect, state when is_map_key(by_uuid, uuid) ->
         target = by_uuid[uuid]
@@ -305,7 +364,7 @@ defmodule Valimc.Entity.MobTicks do
                 else: body
 
             Kernel.mob_velocity(ticker, index[target], body.velocity)
-            {[], hurt(state, target, %{target_entry | body: body}, events)}
+            {[], hurt(state, ticker, target, %{target_entry | body: body}, events)}
 
           _ ->
             {[effect], state}
@@ -352,7 +411,9 @@ defmodule Valimc.Entity.MobTicks do
 
   # A hurt mob's entry, and its step if it already ticked (with the hit's
   # entity events), as others sense it.
-  defp hurt(state, id, entry, events) do
+  defp hurt(state, ticker, id, entry, events) do
+    sync_collider(ticker, state, state.index[id], entry)
+
     {steps, stepped} =
       Enum.map_reduce(state.steps, false, fn
         %{id: ^id} = step, _ -> {%{step | body: entry.body, events: step.events ++ events}, true}

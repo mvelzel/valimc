@@ -68,6 +68,32 @@ defmodule Valimc.GroupProjectileTest do
     %{arrow | data: %{arrow.data | damage: damage}}
   end
 
+  test "a mob collides with a neighboring-section shulker lid and crosses after its death", c do
+    TestScope.isolate([c.a, c.b], mob_goals: false)
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+    shell = body("minecraft:shulker")
+    shell = %{shell | data: %{shell.data | attach_face: 5, peek: 100, peek_amount: 1.0}}
+    :ok = Region.drop_items(b, [record(shell, 621, {c.edge + 0.5, 80.0, c.z + 20.5})])
+    {:ok, mover} = Body.new("minecraft:husk")
+    mover = %{mover | no_gravity: true, velocity: {4.0, 0.0, 0.0}}
+    :ok = Region.drop_items(a, [record(mover, 622, {c.edge - 2.0, 80.0, c.z + 20.5})])
+    {:ok, _} = Region.step(a, 1)
+    assert_in_delta entry(a, <<622::128>>).entity.x, c.edge - 1.3, 1.0e-7
+    {:ok, 1} = Region.kill_entities(b, [<<621::128>>])
+
+    Valimc.TestRegion.replace_section(a, fn section ->
+      {:ok, {_, id, _}} = Store.find(section.entities.store, <<622::128>>)
+      body = %{section.entities.store.entries[id].body | velocity: {4.0, 0.0, 0.0}}
+      put_in(section.entities.store, Store.change_body(section.entities.store, id, body))
+    end)
+
+    {:ok, _} = Region.step(a, 1)
+    assert entry(a, <<622::128>>) == nil
+    assert entry(b, <<622::128>>).entity.x > c.edge
+    # One movement per group tick across this adoption is VMC-043e18.
+  end
+
   test "an arrow hits an open shulker lid across the section edge, but misses its closed cube",
        c do
     a = {c.pa, c.ea}

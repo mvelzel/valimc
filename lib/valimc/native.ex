@@ -240,13 +240,19 @@ defmodule Valimc.Native do
   def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_dirty(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_mobs_begin(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_mobs_begin_dirty(_view, _mobs, _players, _border),
+  def physics_mobs_begin(_view, _mobs, _players, _border, _colliders \\ []),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_mobs_begin_dirty(_view, _mobs, _players, _border, _colliders \\ []),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_mobs_step(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_step_dirty(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_mobs_collider(_ticker, _index, _position, _box),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def physics_mobs_velocity(_ticker, _index, _velocity), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_finish(_ticker), do: :erlang.nif_error(:nif_not_loaded)
 

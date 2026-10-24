@@ -977,6 +977,7 @@ fn ticker_begin(
     mobs: Vec<MobT>,
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
+    colliders: Vec<(usize, Option<BoxT>)>,
 ) -> NifResult<rustler::ResourceArc<MobTicker>> {
     let facts = facts()?;
     let bodies = mobs.iter().map(mob).collect::<NifResult<Vec<_>>>()?;
@@ -997,12 +998,19 @@ fn ticker_begin(
     .ok_or(invalid())?;
     let view = owned_view(view_term, facts, &region)?;
     let players = players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
+    let mut ticker = valimc_core::physics::mob::Ticker::new(bodies);
+    for (index, bbox) in colliders {
+        if index >= ticker.current.len() {
+            return Err(invalid());
+        }
+        ticker.collider(index, ticker.current[index].position, bbox.map(aabb));
+    }
     Ok(rustler::ResourceArc::new(MobTicker(std::sync::Mutex::new(
         Some(TickerState {
             view,
             border,
             players,
-            ticker: valimc_core::physics::mob::Ticker::new(bodies),
+            ticker,
         }),
     ))))
 }
@@ -1015,8 +1023,9 @@ fn physics_mobs_begin(
     mobs: Vec<MobT>,
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
+    colliders: Vec<(usize, Option<BoxT>)>,
 ) -> NifResult<rustler::ResourceArc<MobTicker>> {
-    ticker_begin(view_term, mobs, players, border)
+    ticker_begin(view_term, mobs, players, border, colliders)
 }
 
 /// `physics_mobs_begin` for views past the normal scheduler's budget.
@@ -1026,8 +1035,9 @@ fn physics_mobs_begin_dirty(
     mobs: Vec<MobT>,
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
+    colliders: Vec<(usize, Option<BoxT>)>,
 ) -> NifResult<rustler::ResourceArc<MobTicker>> {
-    ticker_begin(view_term, mobs, players, border)
+    ticker_begin(view_term, mobs, players, border, colliders)
 }
 
 fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
@@ -1109,6 +1119,23 @@ fn ticker_step<'a>(
     };
     let pushed: Vec<(usize, Vec3)> = pushed.into_iter().map(|(j, v)| (j, t3(v))).collect();
     Ok((result, pushed).encode(env))
+}
+
+/// A solid family's box and position as its owner just left them.
+#[rustler::nif]
+fn physics_mobs_collider(
+    resource: rustler::ResourceArc<MobTicker>,
+    index: usize,
+    position: Vec3,
+    bbox: Option<BoxT>,
+) -> NifResult<Atom> {
+    let mut guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_mut().ok_or(invalid())?;
+    if index >= state.ticker.current.len() {
+        return Err(invalid());
+    }
+    state.ticker.collider(index, v3(position), bbox.map(aabb));
+    Ok(atoms::ok())
 }
 
 /// Mob `index`'s motion as its tick ended (a squid's stroke): later pushes

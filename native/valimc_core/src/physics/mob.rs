@@ -1198,7 +1198,7 @@ fn mob_move(
     }
     let ctx = m.context(fall, start[1]);
     let extra = Extra {
-        entities: Vec::new(),
+        entities: w.entities.to_vec(),
         border: w.border,
         subject: [start[0], start[2]],
     };
@@ -1378,16 +1378,21 @@ pub struct Ticker {
     cell: f64,
     grid: HashMap<(i64, i64), Vec<usize>>,
     cells: Vec<(i64, i64)>,
+    solid: Vec<Option<Aabb>>,
+    solid_count: usize,
 }
 
 impl Ticker {
     pub fn new(mobs: Vec<Mob>) -> Ticker {
         let cell = mobs.iter().map(|m| m.size.width).fold(2.0_f64, f64::max);
+        let solid = vec![None; mobs.len()];
         let mut t = Ticker {
             current: mobs,
             cell,
             grid: HashMap::new(),
             cells: Vec::new(),
+            solid,
+            solid_count: 0,
         };
         for i in 0..t.current.len() {
             let k = t.key(t.current[i].position);
@@ -1417,12 +1422,69 @@ impl Ticker {
         self.current[i] = mob;
     }
 
+    /// A family's solid box as its owner left it after thinking, settling or a hurt.
+    pub fn collider(&mut self, i: usize, position: [f64; 3], bbox: Option<Aabb>) {
+        let mut mob = self.current[i].clone();
+        mob.position = position;
+        self.place(i, mob);
+        match (self.solid[i].is_some(), bbox.is_some()) {
+            (false, true) => self.solid_count += 1,
+            (true, false) => self.solid_count -= 1,
+            _ => {}
+        }
+        self.solid[i] = bbox;
+    }
+
+    fn colliders(&self, i: usize, w: &World) -> Result<Vec<Aabb>, Fault> {
+        let mob = &self.current[i];
+        if self.solid_count == 0 || mob.fixed {
+            return Ok(w.entities.to_vec());
+        }
+        if !rules::bounded(mob.velocity, 64.0) {
+            return Err(Fault::Limit("kinetic_query_limit"));
+        }
+        // The controls, jumping, a pre-travel move and step-up stay in the
+        // same local halo as the tick's supplied block view.
+        let query = mob
+            .body(mob.position)?
+            .expand_towards(mob.velocity)
+            .inflate(2.0 + mob.attributes.step_height.max(0.0));
+        let (x0, z0) = self.key(query.min);
+        let (x1, z1) = self.key(query.max);
+        let mut boxes = w.entities.to_vec();
+        for x in x0..=x1 {
+            for z in z0..=z1 {
+                if let Some(near) = self.grid.get(&(x, z)) {
+                    for &j in near {
+                        if j != i {
+                            if let Some(b) = self.solid[j].filter(|b| b.intersects(&query)) {
+                                boxes.push(b);
+                                if boxes.len() > 256 {
+                                    return Err(Fault::Limit("entity_query_limit"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(boxes)
+    }
+
     /// Mob `i`'s tick with `mob` (its AI's input): its travel, then its
     /// pushes. The ticked mob carries its motion after its own pushes; the
     /// mobs it pushed come back with their new motion.
     pub fn step(&mut self, w: &World, i: usize, mob: Mob, players: &[([f64; 3], Aabb)]) -> Stepped {
         self.place(i, mob);
-        let mut result = tick(w, &self.current[i]);
+        let mut result = self.colliders(i, w).and_then(|boxes| {
+            let local = World {
+                source: w.source,
+                facts: w.facts,
+                border: w.border,
+                entities: &boxes,
+            };
+            tick(&local, &self.current[i])
+        });
         if let Ok(t) = &result {
             self.place(i, t.mob.clone());
         }
