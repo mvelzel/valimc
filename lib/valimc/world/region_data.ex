@@ -860,16 +860,15 @@ defmodule Valimc.World.RegionData do
             group_entries(state),
           body.mob != nil or type == "minecraft:end_crystal",
           Body.alive?(body) do
-        {w, h, _} = Body.dimensions(body)
-        {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
+        position = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
 
         target = %{
           id: e.entity_id,
           ref: {:mob, sid},
           uuid: e.uuid,
           type: type,
-          position: {x, y, z},
-          box: {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
+          position: position,
+          box: Body.box(body, position)
         }
 
         if multipart and type == "minecraft:ender_dragon" do

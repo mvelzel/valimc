@@ -46,9 +46,11 @@ Slices, in order:
   contact effects, including NoAI contact (Awaiting client).
 - [VMC-043e13](VMC-043e13.md) — collision displacement while puffing
   (Awaiting client).
-
 - [VMC-043e14](VMC-043e14.md) — guardian retaliation on refused hits
   (Awaiting client).
+
+- [VMC-043e15](VMC-043e15.md) — physical shulker lids in projectile and
+  player attack targeting (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -67,5 +69,5 @@ Acceptance: behaviour fixtures match the oracle.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
 - Remains: the documented contact/collision and other family gaps in the
-  individual tickets; the batched client handoff for 043e1–043e14. Then close
+  individual tickets; the batched client handoff for 043e1–043e15. Then close
   VMC-043e (Status stays In progress until the client gate).

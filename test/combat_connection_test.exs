@@ -129,6 +129,51 @@ defmodule Valimc.CombatConnectionTest do
     _ = client
   end
 
+  test "attack reach includes the open shulker lid beyond its closed cube", ctx do
+    save(ctx, 0.0, %Inventory{})
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, base} = Body.new("minecraft:shulker")
+    base = put_in(base.mob.no_ai, true)
+
+    for {open, n} <- [{true, 41}, {false, 42}] do
+      body = %{
+        base
+        | data: %{
+            base.data
+            | attach_face: 5,
+              peek: if(open, do: 100, else: 0),
+              peek_amount: if(open, do: 1.0, else: 0.0)
+          }
+      }
+
+      :ok =
+        Region.drop_items(owner, [
+          Store.body_record(body, <<n::128>>, {ctx.pose.x + 7.2, 64.0, ctx.pose.z})
+        ])
+    end
+
+    Valimc.TestWait.until(fn ->
+      views = Valimc.World.bodies(:overworld)
+
+      Enum.all?([<<41::128>>, <<42::128>>], fn uuid ->
+        Enum.any?(views, &(elem(&1, 1).uuid == uuid))
+      end)
+    end)
+
+    {open, _} = body(owner, <<41::128>>)
+    {closed, _} = body(owner, <<42::128>>)
+    TestPlayer.ticks(pid, 22)
+    Client.send_packet(client, :play, "attack", Wire.varint(closed))
+    _ = Client.barrier(client)
+    assert elem(body(owner, <<42::128>>), 1).body.mob.living.health.value == 30.0
+    Client.send_packet(client, :play, "attack", Wire.varint(open))
+
+    Valimc.TestWait.until(fn ->
+      elem(body(owner, <<41::128>>), 1).body.mob.living.health.value < 30.0
+    end)
+  end
+
   test "a guardian retaliates even when its hurt window refuses the next hit", ctx do
     save(ctx, 0.0, %Inventory{})
     {_client, pid} = TestPlayer.login(ctx)

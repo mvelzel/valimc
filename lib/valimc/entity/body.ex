@@ -518,6 +518,21 @@ defmodule Valimc.Entity.Body do
     end
   end
 
+  @doc "The body's physical bounding box, including a family's opening or offset geometry."
+  def box(%__MODULE__{type: @knot}, {x, y, z}),
+    do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
+
+  def box(%__MODULE__{type: type} = body, {x, y, z} = position) do
+    case Valimc.AI.Mobs.hook(type, :box, [body, position], nil) do
+      nil ->
+        {w, h, _} = dimensions(body)
+        {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
+
+      box ->
+        box
+    end
+  end
+
   # Vanilla's on-fire flag (bit 0) for a burning body that is not fire
   # immune, sprinting (bit 3: a cat, VMC-044a3), swimming (bit 4) and invisible (bit 5: a
   # wandering trader, VMC-044a4).

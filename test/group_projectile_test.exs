@@ -68,6 +68,36 @@ defmodule Valimc.GroupProjectileTest do
     %{arrow | data: %{arrow.data | damage: damage}}
   end
 
+  test "an arrow hits an open shulker lid across the section edge, but misses its closed cube",
+       c do
+    a = {c.pa, c.ea}
+    b = {c.pa, c.eb}
+
+    for {open, n, offset} <- [{true, 601, 20.5}, {false, 602, 40.5}] do
+      body = body("minecraft:shulker")
+
+      body = %{
+        body
+        | data: %{
+            body.data
+            | attach_face: 5,
+              peek: if(open, do: 100, else: 0),
+              peek_amount: if(open, do: 1.0, else: 0.0)
+          }
+      }
+
+      :ok = Region.drop_items(b, [record(body, n, {c.edge + 0.5, 80.0, c.z + offset})])
+      shot = %{arrow() | velocity: {0.0, 0.0, 3.0}}
+      :ok = Region.drop_items(a, [record(shot, n + 10, {c.edge - 0.5, 80.5, c.z + offset - 2.0})])
+    end
+
+    {:ok, _} = Region.step(a, 1)
+    assert entry(b, <<601::128>>).body.mob.living.health.value == 24.0
+    assert entry(a, <<611::128>>) == nil
+    assert entry(b, <<602::128>>).body.mob.living.health.value == 30.0
+    assert entry(a, <<612::128>>) != nil
+  end
+
   test "foreign dragon parts admit or reflect, clouds apply once, and one frame reloads both sides",
        c do
     a = {c.pa, c.ea}

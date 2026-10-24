@@ -151,6 +151,7 @@ defmodule Valimc.Entity.Tracking do
   defp body_fields(view) do
     view
     |> Map.take([:type, :yaw, :pitch, :alive])
+    |> Map.put(:box, Valimc.Entity.Body.box(view.body, view.at))
     |> Map.put(:range, Valimc.Data.EntityTypes.tracking_range(view.type))
     |> takeable(view)
     |> multipart(view)

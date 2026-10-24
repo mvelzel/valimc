@@ -153,6 +153,8 @@ defmodule Valimc.Player.Attack do
   defp box(%{at: {x, y, z}, type: "minecraft:leash_knot"}),
     do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
 
+  defp box(%{box: box}), do: box
+
   defp box(%{at: {x, y, z}} = view) do
     type =
       Map.get(view, :type) ||
