@@ -1,6 +1,6 @@
 # VMC-039b — The rest of a farm's growth
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-039a](VMC-039a.md).
 
@@ -110,9 +110,31 @@ water and a grass block's growth through the generator; berries picked from
 a bush and cave vines (a growing bush gives way to bone meal) and rooted
 dirt's hanging roots, through the owner; grass spreads in its owner.
 
-Client (pending, for the milestone's batched run): grass spreads onto a
+Client scenario: grass spreads onto a
 dirt patch in daylight and dies under a placed stone; bone meal on grass
 grows grass and flowers, on short grass a tall plant, on a sunflower a
 dropped sunflower; on water in a
 river seagrass; a sweet berry bush grows and picking it drops berries;
 cocoa on a jungle log ripens; kelp grows up to the surface.
+
+The October 24 M3 client batches complete this scenario. Run 4's actual
+bone meal grows grass and flowers, short grass into tall grass, a sunflower
+copy, ripe berries and cocoa, and kelp through a three-deep pool; an actual
+empty-hand use picks the berries with visible drops. Daylight grass spreads
+onto dirt and covered grass dies under disclosed accelerated random ticks.
+The finale adds actual bone meal on water in a verified river-biome basin,
+producing short and tall seagrass after the plants were reset to bare water.
+The primary reviewed its image and the earlier detailed report. Creative
+items, travel, the artificial basin, biome replacement, Night Vision and
+Water Breathing are disclosed; no natural-river discovery, survival item
+consumption or separate graphical random-growth claim for cocoa/berries/kelp
+is made. Their exact random-growth behavior remains covered by the native
+fixtures above.
+
+Private evidence: `.local/client-tests/M3-run-04/run-02-results.md` and
+`.local/client-tests/M3-finale/report.md`, `river-confirmed-grown.png` and
+`river-biome-corrected.txt`. The rejected oversized biome command and the
+preliminary plains growth remain distinguished from the corrected river
+result. The final merged runtime passes 561 fast checks and all 243 vanilla
+stages, including growth, in `.local/dragon-motion-build-fast.log` and
+`.local/dragon-motion-build-vanilla.log`.

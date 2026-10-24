@@ -53,7 +53,7 @@ Current order:
 2. Finish native build isolation (078b) and recheck ordinary dragon flight (045a).
 3. Complete the dragon fight (045a), then the fresh-world M3 gate (078).
 
-Done: [032b](tickets/VMC-032b.md), [039c](tickets/VMC-039c.md),
+Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [045a1](tickets/VMC-045a1.md), [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md).
 
 Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
@@ -68,7 +68,6 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 |---|---|
 | [VMC-037o1](tickets/VMC-037o1.md) | Shoot a dragon part across a section line |
 | [VMC-045a](tickets/VMC-045a.md) | Kill the dragon and exit; respawn it with four crystals; rewards survive reconnect |
-| [VMC-039b](tickets/VMC-039b.md) | Bone meal on grass and flowers; grass spreads; berries picked; kelp and cocoa grow |
 | [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md) | A shulker opens and shoots bullets that float the player, shrugs off arrows closed, teleports when hurt; an endermite bites; cod school and flee, a pufferfish stings, a squid inks; a guardian beams and pricks, an elder brings Mining Fatigue; a bat hangs and wakes; a dolphin leaps, bites and graces a swimmer; turtles lay eggs that hatch; an axolotl hunts and plays dead |
 | [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Drowned swim, throw tridents and come ashore; zombies stamp out turtle eggs; witches throw and drink potions, slimes split, silverfish swarm, phantoms swoop; endermen anger at a stare (not through a pumpkin) and teleport; creepers explode (and when lit), spiders leap and climb, cave spiders poison; skeletons circle and shoot, strays slow, bogged poison, a skeleton and a player shoot each other; zombies burn by day (not with a helmet), babies run, husks make the player hungry, a zombie takes a sword, a drowned husk becomes a zombie |
 | [VMC-043d](tickets/VMC-043d.md) | A fortress run: blazes volley and drop rods; zombified piglins turn as a group; a piglin barters gold and attacks without gold; a ghast's fireball hit back kills it; hoglins charge and shun warped fungus; magma cubes hop and split; striders walk on lava |

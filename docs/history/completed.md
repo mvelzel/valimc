@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-039b Remaining farm growth](../tickets/VMC-039b.md) | Actual grass/flower/berry/cocoa/kelp bone meal, berry picking, accelerated grass spread/death and verified river-water seagrass; M3 client batches, October 24 |
 | [VMC-032b Double chests](../tickets/VMC-032b.md) | Cross-section placement, menus, collect/shift, both-half split, hoppers/comparators and reconnect/restart; refresh retry repaired and rechecked in the M3 finale batch |
 | [VMC-045a1 End crystals](../tickets/VMC-045a1.md) | Survival placement and occupied-base refusal, actual melee and native-spike bow explosions; M3 finale client batch, October 24 |
 | [VMC-078a Natural-spawn tick headroom](../tickets/VMC-078a.md) | Reuse fixed mob-phase indexes; matched mob outcomes, one/eight-player natural-spawn p99 budget and affected vanilla checks |
