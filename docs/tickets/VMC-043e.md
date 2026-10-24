@@ -62,6 +62,9 @@ Slices, in order:
 - [VMC-043e19](VMC-043e19.md) — opening lids displace owned entities and
   hosted players (Awaiting client).
 
+- [VMC-043e20](VMC-043e20.md) — NoAI endermite lifetime and persistence
+  boundary (Awaiting client).
+
 Acceptance: behaviour fixtures match the oracle.
 
 ## Handoff (October 2026)
@@ -79,5 +82,5 @@ Acceptance: behaviour fixtures match the oracle.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
 - Remains: the documented contact/collision and other family gaps in the
-  individual tickets; the batched client handoff for 043e1–043e19. Then close
+  individual tickets; the batched client handoff for 043e1–043e20. Then close
   VMC-043e (Status stays In progress until the client gate).

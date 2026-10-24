@@ -1053,12 +1053,12 @@ defmodule Valimc.AI do
         else: "minecraft:entity.generic.swim"
       )
 
-  # Ageing and pufferfish contact still run without goals. The ocean
-  # ageables are not Animal subclasses; their own aiStep runs too.
+  # Family steps outside the goal selectors still run with NoAI: ageing,
+  # pufferfish contact, a shulker lid and an endermite lifetime.
   defp still({id, e}, %Body{mob: %Mob{ai: mind} = mob} = body, {x, y, z}, world) do
     if Mob.alive?(mob) and
          (Animal.animal?(body.type) or
-            body.type in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid minecraft:pufferfish minecraft:shulker)) do
+            body.type in ~w(minecraft:dolphin minecraft:squid minecraft:glow_squid minecraft:pufferfish minecraft:shulker minecraft:endermite)) do
       {width, height, eye} = Body.dimensions(body)
 
       self =

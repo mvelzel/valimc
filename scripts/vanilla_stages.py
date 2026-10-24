@@ -1139,6 +1139,10 @@ STAGES = [
         ('java', 'PufferResizeOracle', '@puffer-resize.json'),
         ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
     ]),
+    ('endermite_life', [
+        ('java', 'EndermiteLifeOracle', '@endermite-life.json'),
+        ('check', 'check_endermite_life.exs', '@endermite-life.json'),
+    ]),
     ('shulker_push', [
         ('java', 'ShulkerPushOracle', '@shulker-push.json'),
         ('check', 'check_shulker_push.exs', '@shulker-push.json'),

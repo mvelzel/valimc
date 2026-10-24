@@ -190,6 +190,47 @@ defmodule Valimc.MobTravelRegionTest do
     assert entry(ctx, <<8::128>>).body.data.life == 2398
   end
 
+  test "NoAI endermites retain saved lifetime, expire, and do not outlive the limit through persistence",
+       ctx do
+    {x, z} = ctx.at
+
+    for {n, life, persistent, offset} <- [
+          {871, 2398, false, 0.0},
+          {872, 2398, true, 2.0},
+          {873, 2400, true, 4.0}
+        ] do
+      {:ok, body} = Body.new("minecraft:endermite")
+
+      body = %{
+        body
+        | no_gravity: true,
+          data: %{life: life},
+          mob: %{body.mob | no_ai: true, persistent: persistent}
+      }
+
+      :ok =
+        Region.drop_items(ctx.owner, [Store.body_record(body, <<n::128>>, {x + offset, 64.0, z})])
+    end
+
+    step(ctx, 1)
+    assert entry(ctx, <<871::128>>).body.data.life == 2399
+    saved = Store.record(entry(ctx, <<871::128>>))
+    assert {:ok, reloaded} = Store.restore(ctx.key, [saved])
+    [{_, restored}] = Map.to_list(reloaded.entries)
+    assert restored.body.data.life == 2399
+    assert restored.body.mob.no_ai
+
+    assert {:error, _} =
+             Store.find(Valimc.TestRegion.section(ctx.owner).entities.store, <<873::128>>)
+
+    step(ctx, 1)
+
+    assert {:error, _} =
+             Store.find(Valimc.TestRegion.section(ctx.owner).entities.store, <<871::128>>)
+
+    assert entry(ctx, <<872::128>>).body.data.life == 2398
+  end
+
   @tag goals: true
   test "a guardian beams a squid: magic, then its bite (VMC-043e)", ctx do
     {x, z} = ctx.at
