@@ -213,6 +213,12 @@ defmodule Valimc.Physics.Kernel do
     Native.physics_obstructs(state, position, context(context), bodies)
   end
 
+  @doc "World-space collision cells from the movement kernel's generated shapes and entity context."
+  def collision_boxes(state, position, ctx) do
+    BlockFacts.install!()
+    Native.physics_collision_boxes(state, position, context(ctx))
+  end
+
   @doc """
   The velocity after a move that ended `moved_y` vertically (`Entity.move`
   restitution and the landing block's bounce): `%{velocity, bounced}`.

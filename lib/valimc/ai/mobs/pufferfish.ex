@@ -98,21 +98,41 @@ defmodule Valimc.AI.Mobs.Pufferfish do
     if state > old, do: fudge(self, old), else: self
   end
 
-  # `refreshDimensions` as it grows (`fudgePositionAfterSizeChange`): it
-  # keeps its centre where the grown box is free (no block in the way;
-  # where one is, it stays put).
+  # `refreshDimensions` searches around the old center, then with the old
+  # height when growing in both dimensions could not find a full-size fit.
   defp fudge(%Self{} = self, old) do
-    {_, old_height, _} = Fish.scaled(@type_name, elem({0.5, 0.7, 1.0}, old))
+    {old_width, old_height, _} = Fish.scaled(@type_name, elem({0.5, 0.7, 1.0}, old))
     {width, height, eye} = Fish.scaled(@type_name, elem({0.5, 0.7, 1.0}, self.data.puff))
-    center = self.y + old_height / 2.0
-    y = center - height / 2.0
-    half = width / 2.0
-    box = {self.x - half, y, self.z - half, self.x + half, y + height, self.z + half}
+    dx = max(0.0, Valimc.Data.Float32.round(width - old_width)) + 1.0e-6
+    dy = max(0.0, Valimc.Data.Float32.round(height - old_height)) + 1.0e-6
+    center = {self.x, self.y + old_height / 2, self.z}
+    self = %{self | width: width, height: height, eye: eye}
 
-    if Valimc.AI.Shapes.free?(self.world, box),
-      do: %{self | y: y, width: width, height: height, eye: eye},
-      else: %{self | width: width, height: height, eye: eye}
+    context =
+      Valimc.Physics.CollisionContext.entity(self.y)
+      |> Valimc.Physics.CollisionContext.with_entity(self.mob.motion.fall_distance, false, false)
+
+    case find(self.world, center, dx, dy, width, height, context) do
+      {x, y, z} ->
+        %{self | x: x, y: y - height / 2, z: z}
+
+      nil ->
+        case find(self.world, center, dx, 1.0e-6, width, old_height, context) do
+          {x, y, z} -> %{self | x: x, y: y - old_height / 2 + 1.0e-6, z: z}
+          nil -> self
+        end
+    end
   end
+
+  defp find(world, {x, y, z} = center, dx, dy, width, height, context),
+    do:
+      Valimc.AI.Shapes.free_position(
+        world,
+        {x - dx / 2, y - dy / 2, z - dx / 2, x + dx / 2, y + dy / 2, z + dx / 2},
+        center,
+        {width, height, width},
+        context
+      )
 
   @doc "Whether it fears `target` (`SCARY_MOB` over non-combat conditions)."
   def scary?(%{kind: :player} = target),

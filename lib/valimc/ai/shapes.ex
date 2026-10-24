@@ -62,6 +62,68 @@ defmodule Valimc.AI.Shapes do
       end) and x1 > x0 and y1 > y0 and z1 > z0
   end
 
+  @doc "Native findFreePosition over a mob's small local resize volume; unknown cells refuse it."
+  def free_position(
+        world,
+        {x0, y0, z0, x1, y1, z1} = space,
+        point,
+        {width, height, depth},
+        context
+      ) do
+    search = {x0 - width, y0 - height, z0 - depth, x1 + width, y1 + height, z1 + depth}
+    {a0, b0, c0, a1, b1, c1} = search
+
+    cells =
+      for x <- (floor(a0) - 1)..(floor(a1) + 1),
+          y <- (floor(b0) - 1)..(floor(b1) + 1),
+          z <- (floor(c0) - 1)..(floor(c1) + 1),
+          do: {x, y, z}
+
+    obstacles =
+      Enum.reduce_while(cells, [], fn cell, acc ->
+        case resize_boxes(world, cell, context) do
+          nil ->
+            {:halt, :unknown}
+
+          boxes ->
+            kept =
+              Enum.filter(boxes, &(World.intersects?(&1, search) and within_border?(world, &1)))
+
+            {:cont, kept ++ acc}
+        end
+      end)
+
+    if obstacles == :unknown do
+      nil
+    else
+      inflated =
+        for {a0, b0, c0, a1, b1, c1} <- obstacles,
+            do:
+              {a0 - width / 2, b0 - height / 2, c0 - depth / 2, a1 + width / 2, b1 + height / 2,
+               c1 + depth / 2}
+
+      Valimc.Physics.FreePosition.closest(space, point, inflated)
+    end
+  end
+
+  defp resize_boxes(world, cell, context) do
+    case World.block(world, cell) do
+      nil ->
+        nil
+
+      state ->
+        case Valimc.Data.BlockFacts.collision(state) do
+          {:context, _} -> Valimc.Physics.Kernel.collision_boxes(state, cell, context)
+          _ -> boxes(world, cell)
+        end
+    end
+  end
+
+  defp within_border?(%World{border: nil}, _box), do: true
+
+  defp within_border?(%World{border: {min_x, min_z, max_x, max_z}}, {x0, _, z0, x1, _, z1}),
+    do: x1 > min_x and x0 < max_x and z1 > min_z and z0 < max_z
+
   defp inside_border?(%World{border: nil}, _box), do: true
 
   defp inside_border?(%World{border: {min_x, min_z, max_x, max_z}}, {x0, _, z0, x1, _, z1}),

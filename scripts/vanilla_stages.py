@@ -1135,6 +1135,10 @@ STAGES = [
         ('java', 'PufferTouchOracle', '@puffer-touch.json'),
         ('check', 'check_puffer_touch.exs', '@puffer-touch.json'),
     ]),
+    ('puffer_resize', [
+        ('java', 'PufferResizeOracle', '@puffer-resize.json'),
+        ('check', 'check_puffer_resize.exs', '@puffer-resize.json'),
+    ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
         ('check', 'check_mob_travel.exs', '@mob-travel.json'),

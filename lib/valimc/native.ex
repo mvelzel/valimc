@@ -233,6 +233,9 @@ defmodule Valimc.Native do
   def physics_obstructs(_state, _position, _context, _bodies),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def physics_collision_boxes(_state, _position, _context),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def physics_items(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
   def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)

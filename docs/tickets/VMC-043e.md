@@ -44,6 +44,8 @@ Slices, in order:
 - [VMC-043e11](VMC-043e11.md) — turtle-egg placement events (Awaiting client).
 - [VMC-043e12](VMC-043e12.md) — pufferfish sting and damage-admitted
   contact effects, including NoAI contact (Awaiting client).
+- [VMC-043e13](VMC-043e13.md) — collision displacement while puffing
+  (Awaiting client).
 
 Acceptance: behaviour fixtures match the oracle.
 
@@ -62,5 +64,5 @@ Acceptance: behaviour fixtures match the oracle.
 - Aquatic packs now retain shared variants, ages and schools through
   admission ([VMC-043e9](VMC-043e9.md)); actual-client observations are deferred.
 - Remains: the documented contact/collision and other family gaps in the
-  individual tickets; the batched client handoff for 043e1–043e12. Then close
+  individual tickets; the batched client handoff for 043e1–043e13. Then close
   VMC-043e (Status stays In progress until the client gate).

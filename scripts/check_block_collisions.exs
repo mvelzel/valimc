@@ -3,6 +3,7 @@ alias Check.KernelShapes
 alias Valimc.Native
 alias Valimc.Physics.{BlockScan, Kernel}
 alias Valimc.Data.Box
+import Bitwise, only: [band: 2, bsl: 2]
 Valimc.Data.BlockFacts.install!()
 
 [file] = System.argv()
@@ -43,6 +44,21 @@ for {c, index} <- Enum.with_index(checked) do
       raise(
         "Native block collection differs at #{index}: #{inspect(c)} actual #{inspect(actual)}"
       )
+
+  for {position, state, {[xs, ys, zs], [nx, ny, nz], cells}} <- expected do
+    boxes =
+      for x <- 0..(nx - 1)//1,
+          y <- 0..(ny - 1)//1,
+          z <- 0..(nz - 1)//1,
+          i = (x * ny + y) * nz + z,
+          band(:binary.at(cells, div(i, 8)), bsl(1, rem(i, 8))) != 0 do
+        {Enum.at(xs, x), Enum.at(ys, y), Enum.at(zs, z), Enum.at(xs, x + 1), Enum.at(ys, y + 1),
+         Enum.at(zs, z + 1)}
+      end
+
+    unless Kernel.collision_boxes(state, position, KernelShapes.context(c["context"])) == boxes,
+      do: raise("Production contextual collision cells differ at native case #{index}")
+  end
 end
 
 IO.puts(

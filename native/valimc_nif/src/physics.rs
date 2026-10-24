@@ -28,6 +28,7 @@ use valimc_core::physics::facts::Facts;
 use valimc_core::physics::fluid;
 use valimc_core::physics::item::{self, ItemBody, ItemFault};
 use valimc_core::physics::orb::{self, OrbBody};
+use valimc_core::physics::shape::Place;
 use valimc_core::physics::source::{BlockSource, Rows, States};
 use valimc_core::physics::{Aabb, Context, Unreadable};
 
@@ -235,6 +236,43 @@ fn physics_obstructs(
         &context(ctx),
         &bodies,
     ))
+}
+
+/// Collision cells for the same entity context the movement kernel uses.
+/// Contextual shapes cannot be replaced by the empty ray-casting context.
+#[rustler::nif]
+fn physics_collision_boxes(
+    state: u16,
+    pos: (i32, i32, i32),
+    ctx: ContextT,
+) -> NifResult<Vec<BoxT>> {
+    let facts = facts()?;
+    let picked = facts
+        .shapes
+        .shape(state, [pos.0, pos.1, pos.2], &context(ctx));
+    let place = Place {
+        offset: (picked.offset != [0.0; 3]).then_some(picked.offset),
+        position: Some([pos.0 as f64, pos.1 as f64, pos.2 as f64]),
+    };
+    let s = picked.shape;
+    let mut boxes = Vec::new();
+    for x in 0..s.sizes[0] {
+        for y in 0..s.sizes[1] {
+            for z in 0..s.sizes[2] {
+                if s.full(x as isize, y as isize, z as isize) {
+                    boxes.push((
+                        place.coord(0, s.axes[0][x]),
+                        place.coord(1, s.axes[1][y]),
+                        place.coord(2, s.axes[2][z]),
+                        place.coord(0, s.axes[0][x + 1]),
+                        place.coord(1, s.axes[1][y + 1]),
+                        place.coord(2, s.axes[2][z + 1]),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(boxes)
 }
 
 /// Whether the stationary border `{min_x, min_z, max_x, max_z}` leaves `body`
