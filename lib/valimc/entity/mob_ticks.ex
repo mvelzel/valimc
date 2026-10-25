@@ -125,6 +125,8 @@ defmodule Valimc.Entity.MobTicks do
 
     reach = {x0 - 66, y0 - 66, z0 - 66, x1 + 66, y1 + 66, z1 + 66}
 
+    external = if is_function(external, 1), do: external.(reach), else: external
+
     for {id, %{kind: :mob} = entry} <- external,
         not MapSet.member?(own, id),
         box = collider_box(entry, nil),

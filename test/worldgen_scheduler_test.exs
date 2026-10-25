@@ -172,10 +172,11 @@ defmodule Valimc.WorldgenSchedulerTest do
     # it is on its way. A section loaded again (a new epoch) gets it again.
     {:ok, _} = Scheduler.want(base, :overworld, requester, 1, %{{3, 3} => false})
     assert Scheduler.stats(base, :overworld).wanted == 0
+    Scheduler.delivered(scheduler)
     {:ok, _} = Scheduler.want(base, :overworld, requester, 2, %{{3, 3} => false})
     assert_receive {:generated, ^scheduler, [{{0, 0}, 2, [%{x: 3, z: 3}]}]}, 60_000
 
-    # Two deliveries unacknowledged: what finishes next waits, and goes in
+    # One delivery unacknowledged: what finishes next waits, and goes in
     # one delivery, nearest first, once one is acknowledged (VMC-077w).
     :ok = Scheduler.focus(base, :overworld, self(), {6, 6}, nil)
     wanted = %{{9, 9} => false, {6, 6} => false, {7, 6} => false}
@@ -187,6 +188,25 @@ defmodule Valimc.WorldgenSchedulerTest do
     Scheduler.delivered(scheduler)
     assert_receive {:generated, ^scheduler, [{{0, 0}, 2, fulls}]}, 60_000
     assert Enum.map(fulls, &{&1.x, &1.z}) == [{6, 6}, {7, 6}, {9, 9}]
+
+    # An already-ready wide view still installs at most eight chunks per turn.
+    chunks = for x <- 0..4, z <- 0..3, do: {x, z}
+    _ = full(base, chunks)
+    {:ok, _} = Scheduler.want(base, :overworld, requester, 4, Map.new(chunks, &{&1, false}))
+    eventually(fn -> Scheduler.stats(base, :overworld).wanted == 0 end)
+    refute_received {:generated, _, _}
+
+    got =
+      Enum.reduce(1..3, [], fn _, got ->
+        Scheduler.delivered(scheduler)
+        assert_receive {:generated, ^scheduler, deliveries}, 60_000
+        fulls = Enum.flat_map(deliveries, fn {_, 4, list} -> list end)
+        assert length(fulls) <= 8
+        refute_received {:generated, _, _}
+        Enum.map(fulls, &{&1.x, &1.z}) ++ got
+      end)
+
+    assert Enum.sort(got) == Enum.sort(chunks)
   end
 
   defp eventually(check, tries \\ 600) do

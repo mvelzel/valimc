@@ -15,9 +15,9 @@ defmodule Valimc.Worldgen.Scheduler do
 
   Full chunks go in deliveries with credit (VMC-077w): a region group gets
   `{:generated, scheduler, [{key, epoch, fulls}]}`, the chunks of each of its
-  sections that wants them, only while fewer than #{2} of its deliveries are
+  sections that wants them, only while fewer than #{1} of its deliveries are
   unacknowledged (`delivered/1`). What finishes meanwhile waits here and goes
-  in its next delivery, at most #{64} chunks, the players' own and nearest
+  in its next delivery, at most #{8} chunks, the players' own and nearest
   chunks first, so a group installs what is ready in one pass per section and
   finished chunks never queue in its mailbox. One record per group holds its
   sections' epochs, the chunks ready for it (each with the epoch it was made
@@ -55,8 +55,8 @@ defmodule Valimc.Worldgen.Scheduler do
   @idle 60_000
   @gauges 5_000
   # Unacknowledged deliveries per group, and chunks per delivery.
-  @credit 2
-  @delivery 64
+  @credit 1
+  @delivery 8
   # Proto cells spilled per eviction pass.
   @spills 64
   # Messages handled at most between dispatches while more wait.

@@ -32,13 +32,11 @@ defmodule Valimc.Entity.Publication do
   Publish the observed `views` as of tracking tick `tick`, rewriting only
   changed chunk rows, then `frame`; `source` is the owner's full views.
   """
-  def publish(table, epoch, tick, views, frame \\ %{}, source \\ nil) do
-    :ets.insert(table, {{:entity_source, :items}, source || views})
+  def publish(table, epoch, tick, views, frame \\ %{}, source \\ nil, previous \\ nil) do
+    source = source || views
 
-    by_chunk =
-      for {id, view} <- views, reduce: %{} do
-        acc -> Map.update(acc, view.chunk, %{id => view}, &Map.put(&1, id, view))
-      end
+    if previous == nil or previous.source != source,
+      do: :ets.insert(table, {{:entity_source, :items}, source})
 
     {index, revision} =
       case :ets.lookup(table, :entity_index) do
@@ -46,20 +44,31 @@ defmodule Valimc.Entity.Publication do
         [] -> {%{}, 0}
       end
 
-    chunks = Enum.uniq(Map.keys(index) ++ Map.keys(by_chunk))
+    changed = changed_chunks(views, previous, index)
+
+    by_chunk =
+      if MapSet.size(changed) == 0 do
+        %{}
+      else
+        for {id, view} <- views, MapSet.member?(changed, view.chunk), reduce: %{} do
+          acc -> Map.update(acc, view.chunk, %{id => view}, &Map.put(&1, id, view))
+        end
+      end
 
     {index, revision} =
-      Enum.reduce(chunks, {index, revision}, fn chunk, {index, revision} ->
+      Enum.reduce(changed, {index, revision}, fn chunk, {index, revision} ->
         case Map.fetch(by_chunk, chunk) do
           :error ->
             :ets.delete(table, {:entities, chunk})
             :ets.delete(table, {:colliders, chunk})
-            {Map.delete(index, chunk), revision}
+            {Map.delete(index, chunk), revision + 1}
 
           {:ok, chunk_views} ->
+            # Compare actual views when a caller supplies its previous publication;
+            # generic callers retain the bounded per-chunk hash fast path.
             hash = :erlang.phash2(chunk_views)
 
-            if index[chunk] == hash do
+            if previous == nil and index[chunk] == hash do
               {index, revision}
             else
               stamped =
@@ -72,9 +81,12 @@ defmodule Valimc.Entity.Publication do
         end
       end)
 
-    :ets.insert(table, {:entity_index, index, revision})
+    if MapSet.size(changed) > 0 or previous == nil,
+      do: :ets.insert(table, {:entity_index, index, revision})
 
-    # Rows first: an observer that reads the new frame tick also reads its rows.
+    # Published after the rows: an unchanged section needs no chunk lookups.
+    :ets.insert(table, {:entity_revision, {epoch, revision}})
+
     if frame != %{} do
       :ets.insert(table, {{:frame, rem(tick, @ring)}, tick, frame})
       :ets.insert(table, {:frame_tick, tick})
@@ -82,6 +94,23 @@ defmodule Valimc.Entity.Publication do
 
     :ok
   end
+
+  defp changed_chunks(views, nil, index),
+    do: MapSet.new(Map.keys(index) ++ Enum.map(views, fn {_, view} -> view.chunk end))
+
+  defp changed_chunks(views, %{views: views}, _index), do: MapSet.new()
+
+  defp changed_chunks(views, %{views: old}, _index) do
+    changed =
+      for {id, view} <- old, views[id] != view, into: MapSet.new(), do: view.chunk
+
+    for {id, view} <- views, old[id] != view, reduce: changed do
+      acc -> MapSet.put(acc, view.chunk)
+    end
+  end
+
+  @doc "Section incarnation and publication revision; empty chunks need no rows."
+  def revision(table), do: :ets.lookup_element(table, :entity_revision, 2, nil)
 
   # Physics reads only solid boxes, without copying item or mob metadata.
   defp publish_colliders(table, chunk, stamp, views) do

@@ -56,6 +56,7 @@ defmodule Valimc.Net.Link do
     :view,
     :entity_replication,
     :entity_cache,
+    :entity_chunks_cache,
     :clock_version,
     :weather_view,
     :difficulty_view,
@@ -290,10 +291,12 @@ defmodule Valimc.Net.Link do
     # One tracker for every entity kind, players included (VMC-077i4);
     # unchanged chunks are not re-read. Only entities within vanilla's
     # tracking range of their type are seen.
+    {chunks, state} = Replication.cached_entity_chunks(state, @entity_range)
+
     {desired, cache} =
       World.visible_entities(
         state.regions,
-        Replication.entity_chunks(state, @entity_range),
+        chunks,
         state.entity_cache
       )
 

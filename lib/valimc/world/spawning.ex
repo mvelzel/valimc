@@ -254,42 +254,8 @@ defmodule Valimc.World.Spawning do
   def plan(group) do
     env = group.environment
 
-    {mobs, bodies, simulated} =
-      Enum.reduce(group.sections, {[], [], []}, fn {_key, resource}, {mobs, bodies, chunks} ->
-        ticking = resource.tickets.simulated
-
-        Enum.reduce(
-          resource.entities.store.entries,
-          {mobs, bodies, MapSet.to_list(ticking) ++ chunks},
-          fn
-            {id, %{kind: :mob, entity: e, body: %{type: type, mob: mob}} = entry},
-            {mobs, bodies, chunks} ->
-              alive = Valimc.Entity.Mob.alive?(mob)
-
-              flags =
-                if(mob.persistent or Map.get(entry.body.data, :from_bucket, false),
-                  do: 1,
-                  else: 0
-                ) +
-                  if(alive and MapSet.member?(ticking, Grid.chunk_key(e.x, e.z)), do: 2, else: 0)
-
-              idle = Map.get(entry, :idle, 0)
-              lived = Map.get(entry, :lived, 0)
-
-              {[
-                 {id, Valimc.Data.EntityTypes.id(type), {e.x, e.y, e.z}, flags, idle, lived}
-                 | mobs
-               ], [box(type, e) | bodies], chunks}
-
-            # Primed TNT and falling blocks block a spawn too (`blocksBuilding`).
-            {_, %{kind: :object, entity: e, body: %{type: type}}}, {mobs, bodies, chunks} ->
-              {mobs, [box(type, e) | bodies], chunks}
-
-            _, acc ->
-              acc
-          end
-        )
-      end)
+    {mobs, bodies, simulated, owners, prepared} =
+      Valimc.World.SpawnInputs.prepare(group.sections, Map.get(group.spawning, :prepared, %{}))
 
     bodies =
       bodies ++
@@ -338,18 +304,9 @@ defmodule Valimc.World.Spawning do
       end
 
     by_section =
-      Enum.reduce(group.sections, by_section, fn {key, resource}, acc ->
-        entries = resource.entities.store.entries
-        discards = for id <- discarded, Map.has_key?(entries, id), do: id
-        resets = for id <- reset, Map.has_key?(entries, id), do: id
-
-        if discards == [] and resets == [],
-          do: acc,
-          else:
-            Map.update(acc, key, {[], discards, resets, []}, fn {r, _, _, e} ->
-              {r, discards, resets, e}
-            end)
-      end)
+      by_section
+      |> Valimc.World.SpawnInputs.distribute(Enum.reverse(discarded), owners, 1)
+      |> Valimc.World.SpawnInputs.distribute(Enum.reverse(reset), owners, 2)
 
     cached =
       Enum.reduce(ticked, cached, fn {position, delay, _}, acc ->
@@ -388,6 +345,7 @@ defmodule Valimc.World.Spawning do
 
     spawning =
       group.spawning
+      |> Map.put(:prepared, prepared)
       |> Map.put(:cats, cats)
       |> Map.put(:traders, traders)
       |> Map.put(:phantoms, phantoms)
@@ -528,11 +486,6 @@ defmodule Valimc.World.Spawning do
         |> pack_record({chunk, pack}, {chunk, order}, school, :chunk_generation)
       end
     end
-  end
-
-  defp box(type, %{x: x, y: y, z: z}) do
-    %{width: w, height: h} = Valimc.Data.EntityTypes.fetch(type)
-    {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
   end
 
   defp respawn(dimension) do

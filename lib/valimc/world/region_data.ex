@@ -67,6 +67,8 @@ defmodule Valimc.World.RegionData do
     :cache,
     # Chunk packet encodes in flight, by chunk.
     :encodes,
+    {:light_pending, %{}},
+    {:light_retry, false},
     # Background work: one job per kind (`Valimc.World.Jobs`, VMC-077g).
     :jobs,
     :versions,
@@ -1375,8 +1377,7 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     mobs =
-      for {id, %{kind: :mob, entity: %{x: x, z: z}} = entry} <- store.entries,
-          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
+      for {id, entry} <- Store.in_chunks(store, state.tickets.simulated, :mob),
           not Store.simulated?(entry, state.game_tick),
           do: {id, entry}
 
@@ -1406,7 +1407,9 @@ defmodule Valimc.World.RegionData do
       }
 
       {steps, world} =
-        Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, group_entries(state))
+        Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, fn area ->
+          for {_, store} <- group_stores(state), row <- Store.colliders(store, area), do: row
+        end)
 
       state =
         put_in(
@@ -4525,6 +4528,9 @@ defmodule Valimc.World.RegionData do
     with %{token: token} <- state.entities.handoff,
          do: send_after(state, {:item_handoff_wake, token}, 0)
 
+    if state.light_pending != %{} and not Jobs.running?(state.jobs, :light_frames),
+      do: send_after(state, :light_retry, 0)
+
     %{
       state
       | tickets: Tickets.remonitor(state.tickets),
@@ -4673,14 +4679,21 @@ defmodule Valimc.World.RegionData do
         do: contact_entities(state),
         else: []
 
+    state =
+      if rule_due == [] and fluid_due == [] do
+        state
+      else
+        state
+        |> rule_run(%{
+          ticks: rule_due,
+          fluid_ticks: fluid_due,
+          redstone: redstone_context(state, [], entities),
+          handling_tick: true
+        })
+        |> elem(0)
+      end
+
     state
-    |> rule_run(%{
-      ticks: rule_due,
-      fluid_ticks: fluid_due,
-      redstone: redstone_context(state, [], entities),
-      handling_tick: true
-    })
-    |> elem(0)
     |> daylight_ticks(tick)
     |> rule_random_ticks(lava, growing)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
@@ -7011,10 +7024,18 @@ defmodule Valimc.World.RegionData do
         tracking.tick,
         views,
         %{},
-        store.views
+        store.views,
+        state.entities.published
       )
 
-    %{state | entities: %{state.entities | tracking: tracking}}
+    %{
+      state
+      | entities: %{
+          state.entities
+          | tracking: tracking,
+            published: %{views: views, source: store.views}
+        }
+    }
   end
 
   # The entities phase's end (VMC-077h): every tracker ticks once, and the frame
@@ -7048,7 +7069,8 @@ defmodule Valimc.World.RegionData do
         tracking.tick,
         views,
         frame,
-        store.views
+        store.views,
+        state.entities.published
       )
 
     Valimc.Data.Metrics.add(
@@ -7057,7 +7079,17 @@ defmodule Valimc.World.RegionData do
     )
 
     quiet = views == %{} and frame == %{}
-    %{state | entities: %{state.entities | tracking: tracking, quiet: quiet}, player_frame: %{}}
+
+    %{
+      state
+      | entities: %{
+          state.entities
+          | tracking: tracking,
+            quiet: quiet,
+            published: %{views: views, source: store.views}
+        },
+        player_frame: %{}
+    }
   end
 
   # Players' drops become entities here; a record that cannot (it left the
@@ -7810,6 +7842,9 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_handoff_wake, _}, state), do: {:noreply, state}
 
+  def handle_info(:light_retry, state),
+    do: {:noreply, Valimc.World.LightUpdates.start(%{state | light_retry: false})}
+
   def handle_info({:retry_encode, key}, state) do
     if Map.has_key?(state.encodes, key),
       do: {:noreply, start_encode(state, key)},
@@ -8534,6 +8569,9 @@ defmodule Valimc.World.RegionData do
   # Work that an unload would cut short: queued or planned writes, jobs,
   # generation, waiting calls, open containers and box edit locks.
   # A job's result (`Valimc.World.Jobs`), by kind.
+  defp job_done(:light_frames, job, frames, state),
+    do: {:noreply, Valimc.World.LightUpdates.done(state, job, frames)}
+
   defp job_done(:dragon_pillars, _job, {:ok, plans}, state),
     do: {:noreply, %{state | arena_pillars: plans}}
 
@@ -8658,6 +8696,9 @@ defmodule Valimc.World.RegionData do
   end
 
   # A job that overran its deadline (`:timeout`, killed) or died (`{:down, reason}`).
+  defp job_failed(:light_frames, job, _reason, state),
+    do: {:noreply, Valimc.World.LightUpdates.failed(state, job)}
+
   defp job_failed({:encode, key}, _job, reason, state) do
     {waiters, encodes} = Map.pop(state.encodes, key, [])
     for from <- waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})

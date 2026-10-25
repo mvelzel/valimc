@@ -23,5 +23,6 @@ defmodule Valimc.World.RegionEntities do
             dropped: [],
             # The last publish had no views and no frame: an idle section
             # skips the next (VMC-077w).
-            quiet: false
+            quiet: false,
+            published: nil
 end

@@ -238,7 +238,8 @@ defmodule Valimc.AI do
       | mobs: sensed,
         by_type: Enum.group_by(sensed, & &1.type),
         index: Map.new(sensed, &{&1.uuid, &1}),
-        moved: %{}
+        moved: %{},
+        spatial: Valimc.AI.Spatial.new(sensed)
     }
 
     order = mobs |> Enum.with_index() |> Map.new(fn {{_, e}, i} -> {e.entity.uuid, i} end)
@@ -319,7 +320,7 @@ defmodule Valimc.AI do
             target: mind && mind.target
         }
 
-        %{world | moved: Map.put(world.moved, e.uuid, Map.merge(fresh, sensed_state(body)))}
+        World.resense(world, e.uuid, fn _ -> Map.merge(fresh, sensed_state(body)) end)
     end
   end
 

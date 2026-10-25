@@ -24,7 +24,6 @@ defmodule Valimc.World.RegionGeneration do
   """
   alias Valimc.Data.Grid
   require Logger
-  alias Valimc.World
   alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, RegionData, Spec}
   alias Valimc.World.{RegionStorage, ScheduledTicks, Tickets}
   alias Valimc.Worldgen.{FullChunk, Scheduler}
@@ -343,12 +342,7 @@ defmodule Valimc.World.RegionGeneration do
           MapSet.member?(state.served, chunk) and chunk not in chunks,
           do: change
 
-    if served != [],
-      do:
-        World.publish(
-          RegionData.route_key(state),
-          {:block_batch, Valimc.World.LightHalo.frames(state, served, :all)}
-        )
+    state = Valimc.World.LightUpdates.queue(state, served, :all)
 
     state = Valimc.World.LightHalo.columns_changed(state, columns)
     state = RegionData.wait_durable(state, [{:effect, {:generation_handed_over, chunks}}])

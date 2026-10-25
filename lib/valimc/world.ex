@@ -176,48 +176,11 @@ defmodule Valimc.World do
   @doc """
   The entity views (every kind) an observer may see: at most 64 sections (by
   key, of one dimension) and `EntityReplication.max_visible/0` views, in chunk
-  order. `cache` maps a chunk to its last `{stamp, views}`; a chunk's views are
-  copied only when its stamp changed. Returns `{views, cache}`.
+  order. `cache` retains section revisions and populated chunk rows; unchanged
+  sections reuse their views, including empty ones. Returns `{views, cache}`.
   """
-  def visible_entities(regions, chunks, cache \\ %{}) do
-    limit = Valimc.Entity.Observer.max_visible()
-    regions = regions |> Enum.sort() |> Enum.take(64) |> MapSet.new()
-
-    tables =
-      Map.new(regions, fn key ->
-        {_, plain} = Grid.split_section(key)
-
-        case Directory.lookup(key) do
-          {_, _, %{publication: table}} -> {plain, table}
-          _ -> {plain, nil}
-        end
-      end)
-
-    chunks
-    |> Enum.sort()
-    |> Enum.take(4096)
-    |> Enum.reduce_while({%{}, %{}}, fn chunk, {acc, next_cache} ->
-      table = tables[Grid.region_key(chunk)]
-
-      cond do
-        map_size(acc) == limit ->
-          {:halt, {acc, next_cache}}
-
-        table == nil ->
-          {:cont, {acc, next_cache}}
-
-        true ->
-          {views, next_cache} = chunk_views(table, chunk, cache, next_cache)
-          visible = views |> Enum.sort_by(&elem(&1, 0)) |> Enum.take(limit - map_size(acc))
-          {:cont, {Map.merge(acc, Map.new(visible), &newer/3), next_cache}}
-      end
-    end)
-  end
-
-  # An entity keeps its id across a handoff, and its source keeps publishing it
-  # until the handoff clears: the newer owner (more hops) wins.
-  defp newer(_id, old, view),
-    do: if(view.ownership_generation > old.ownership_generation, do: view, else: old)
+  def visible_entities(regions, chunks, cache \\ %{}),
+    do: Valimc.World.EntityViews.read(regions, chunks, cache)
 
   @doc """
   The entity frames of section `key` after tick `last`
@@ -230,24 +193,6 @@ defmodule Valimc.World do
     end
   rescue
     ArgumentError -> {:ok, last || 0, []}
-  end
-
-  defp chunk_views(table, chunk, cache, next_cache) do
-    stamp = :ets.lookup_element(table, {:entities, chunk}, 2)
-
-    case cache do
-      %{^chunk => {^stamp, views}} ->
-        {views, Map.put(next_cache, chunk, {stamp, views})}
-
-      _ ->
-        case :ets.lookup(table, {:entities, chunk}) do
-          [{_, stamp, views}] -> {views, Map.put(next_cache, chunk, {stamp, views})}
-          [] -> {%{}, next_cache}
-        end
-    end
-  rescue
-    # No row (no entities) or the region table died after the directory lookup.
-    ArgumentError -> {%{}, next_cache}
   end
 
   @doc """

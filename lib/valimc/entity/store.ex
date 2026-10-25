@@ -22,7 +22,14 @@ defmodule Valimc.Entity.Store do
   @ledger %{sequence: 0, outgoing: nil, incoming: %{}}
   # `deaths`: bodies whose mob died with drops its owner has not dropped yet
   # (`take_deaths/1`, VMC-037n).
-  defstruct epoch: nil, entries: %{}, uuids: %{}, views: %{}, ledger: @ledger, deaths: []
+  defstruct epoch: nil,
+            entries: %{},
+            uuids: %{},
+            views: %{},
+            spatial: %Valimc.Entity.Spatial{},
+            ledger: @ledger,
+            deaths: []
+
   @max_steps 32
   @bodies [:mob, :object]
   # The entity events a view keeps for its tracker (each tick sends the new
@@ -59,6 +66,10 @@ defmodule Valimc.Entity.Store do
            current
            | entries: Map.merge(current.entries, added),
              uuids: Enum.into(added, current.uuids, fn {id, e} -> {e.entity.uuid, id} end),
+             spatial:
+               Enum.reduce(added, current.spatial, fn {id, _}, index ->
+                 Valimc.Entity.Spatial.put(index, id, nil, proposed.views[id])
+               end),
              views: Map.merge(current.views, Map.take(proposed.views, Map.keys(added)))
          }}
     end
@@ -435,12 +446,15 @@ defmodule Valimc.Entity.Store do
         hops: Map.get(record, :hops, 0)
       }
 
+      view = body_view(state.epoch, entry)
+
       {:ok,
        %{
          state
          | entries: Map.put(state.entries, id, entry),
            uuids: Map.put(state.uuids, uuid, id),
-           views: Map.put(state.views, id, body_view(state.epoch, entry))
+           spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+           views: Map.put(state.views, id, view)
        }, {state.epoch, id, 1}}
     end
   end
@@ -479,6 +493,7 @@ defmodule Valimc.Entity.Store do
        state
        | entries: Map.put(state.entries, id, entry),
          uuids: Map.put(state.uuids, uuid, id),
+         spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
          views: Map.put(state.views, id, view)
      }, {state.epoch, id, 1}}
   end
@@ -589,6 +604,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, id}
       end
@@ -628,6 +644,7 @@ defmodule Valimc.Entity.Store do
         next = %{
           state
           | entries: Map.put(state.entries, id, entry),
+            spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
             views: Map.put(state.views, id, view)
         }
 
@@ -643,6 +660,7 @@ defmodule Valimc.Entity.Store do
          state
          | entries: Map.delete(state.entries, id),
            uuids: Map.delete(state.uuids, entry.entity.uuid),
+           spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], nil),
            views: Map.delete(state.views, id)
        }}
     end
@@ -744,6 +762,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
       end
@@ -815,6 +834,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
       end
@@ -1050,12 +1070,24 @@ defmodule Valimc.Entity.Store do
     put_entry(state, id, entry)
   end
 
-  defp put_entry(state, id, entry),
-    do: %{
+  defp put_entry(state, id, entry) do
+    view = body_view(state.epoch, entry, state.views[id])
+
+    %{
       state
       | entries: Map.put(state.entries, id, entry),
-        views: Map.put(state.views, id, body_view(state.epoch, entry, state.views[id]))
+        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+        views: Map.put(state.views, id, view)
     }
+  end
+
+  @doc "Live authoritative entities of a kind in selected chunks."
+  def in_chunks(state, chunks, kind),
+    do: Valimc.Entity.Spatial.in_chunks(state.spatial, state.entries, chunks, kind)
+
+  @doc "Solid entity colliders intersecting an area, with their live entries."
+  def colliders(state, area),
+    do: Valimc.Entity.Spatial.colliders(state.spatial, state.entries, area)
 
   # A body's view: what every view has, the pairing packets as its metadata
   # (kept while what they show is unchanged), its type and rotation, its body
@@ -1158,6 +1190,7 @@ defmodule Valimc.Entity.Store do
       state
       | entries: Map.put(state.entries, id, entry),
         uuids: Map.put(state.uuids, uuid, id),
+        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
     }
 

@@ -46,6 +46,7 @@ defmodule Valimc.AI.World do
             players: [],
             mobs: [],
             by_type: %{},
+            spatial: nil,
             # The sensed mobs of `mobs` by uuid (nil: `entity/2` scans `mobs`).
             index: nil,
             # Mobs sensed again this tick (moved, or their own state
@@ -550,6 +551,17 @@ defmodule Valimc.AI.World do
   `getEntitiesOfClass`: the section's mobs of the types `select` names (a
   list, or a predicate on the type), meeting `box`, in the section's order.
   """
+  def mobs_in(%Self{world: %{spatial: index} = world}, select, box) when index != nil do
+    candidates =
+      case Valimc.AI.Spatial.candidates(index, box) do
+        :all -> world.mobs
+        mobs -> mobs
+      end
+
+    keep = if is_list(select), do: &(&1 in select), else: select
+    meeting(world, candidates, box, keep)
+  end
+
   def mobs_in(%Self{world: world}, types, box) when is_list(types) do
     case for(t <- types, list = Map.get(world.by_type, t), do: list) do
       [] -> []
@@ -596,8 +608,17 @@ defmodule Valimc.AI.World do
   @doc "The world with mob `uuid` sensed as `fun` changes it."
   def resense(%__MODULE__{} = world, uuid, fun) do
     case entity(world, {:mob, uuid}) do
-      nil -> world
-      mob -> %{world | moved: Map.put(world.moved, uuid, fun.(mob))}
+      nil ->
+        world
+
+      mob ->
+        fresh = fun.(mob)
+
+        %{
+          world
+          | moved: Map.put(world.moved, uuid, fresh),
+            spatial: Valimc.AI.Spatial.put(world.spatial, fresh)
+        }
     end
   end
 

@@ -26,7 +26,6 @@ defmodule Valimc.World.LightHalo do
   alias Valimc.Data.Grid
   alias Valimc.Native
   alias Valimc.Protocol.Packets
-  alias Valimc.World
   alias Valimc.World.{Blocks, RegionGeneration}
 
   def neighbours({rx, rz}),
@@ -142,18 +141,9 @@ defmodule Valimc.World.LightHalo do
   # Only chunks a client has asked for need a light update; neighbours loading
   # around fresh terrain relight many chunks nobody has yet (VMC-071).
   defp adopt(state, {:ok, changes}, scope) do
-    case Enum.filter(changes, &MapSet.member?(state.served, elem(&1, 0))) do
-      [] ->
-        :ok
-
-      served ->
-        World.publish(
-          Valimc.World.RegionData.route_key(state),
-          {:block_batch, frames(state, served, scope)}
-        )
-    end
-
-    Valimc.World.RegionData.light_changed(state, Blocks.changed_chunks(changes))
+    state
+    |> Valimc.World.RegionData.light_changed(Blocks.changed_chunks(changes))
+    |> Valimc.World.LightUpdates.queue(changes, scope)
   end
 
   defp adopt(state, {:error, _}, _scope), do: state
@@ -168,9 +158,14 @@ defmodule Valimc.World.LightHalo do
     threshold = Valimc.config(:compression_threshold)
 
     for {chunk, sky, block} <- changes,
+        MapSet.member?(state.served, chunk),
         image = Blocks.light_image(state.blocks, chunk, {sky, block}),
-        do: {target(scope, chunk), Packets.frame(light_update(chunk, image), threshold)}
+        do: frame(chunk, image, scope, threshold)
   end
+
+  @doc false
+  def frame(chunk, image, scope, threshold),
+    do: {target(scope, chunk), Packets.frame(light_update(chunk, image), threshold)}
 
   defp target(:border, chunk), do: {:light, chunk}
   defp target(:all, chunk), do: chunk

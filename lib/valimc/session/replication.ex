@@ -364,6 +364,20 @@ defmodule Valimc.Session.Replication do
 
   def entity_chunks(_state, _range), do: []
 
+  @doc "Reuse the candidate chunks while the player's position and sent view are unchanged."
+  def cached_entity_chunks(state, range) do
+    key = {state.view, state.chunks, state.player.x, state.player.z, range}
+
+    case Map.get(state, :entity_chunks_cache) do
+      {^key, chunks} ->
+        {chunks, state}
+
+      _ ->
+        chunks = entity_chunks(state, range)
+        {chunks, Map.put(state, :entity_chunks_cache, {key, chunks})}
+    end
+  end
+
   # From `{x, z}` to the nearest point of a chunk, squared.
   defp square_distance({x, z}, {cx, cz}) do
     dx = x - (x |> max(cx * 16) |> min(cx * 16 + 16))

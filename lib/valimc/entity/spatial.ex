@@ -1,0 +1,55 @@
+defmodule Valimc.Entity.Spatial do
+  @moduledoc "Owner-local chunk membership and exact solid boxes; queries fetch live store entries."
+  alias Valimc.Data.Box
+
+  defstruct chunks: %{}, solids: %{}
+
+  def put(index, id, old, view) do
+    before = if old, do: {old.chunk, old.kind}
+    after_key = if view, do: {view.chunk, view.kind}
+
+    chunks =
+      if before == after_key do
+        index.chunks
+      else
+        index.chunks |> delete(before, id) |> insert(after_key, id)
+      end
+
+    solids =
+      case view do
+        %{kind: :mob, body: body, at: at} ->
+          case Valimc.AI.Mobs.hook(body.type, :collider, [body, at], nil) do
+            nil -> Map.delete(index.solids, id)
+            box -> Map.put(index.solids, id, box)
+          end
+
+        _ ->
+          Map.delete(index.solids, id)
+      end
+
+    %{index | chunks: chunks, solids: solids}
+  end
+
+  defp insert(chunks, nil, _id), do: chunks
+  defp insert(chunks, key, id), do: Map.update(chunks, key, MapSet.new([id]), &MapSet.put(&1, id))
+  defp delete(chunks, nil, _id), do: chunks
+
+  defp delete(chunks, key, id) do
+    case MapSet.delete(Map.fetch!(chunks, key), id) do
+      set when map_size(set.map) == 0 -> Map.delete(chunks, key)
+      set -> Map.put(chunks, key, set)
+    end
+  end
+
+  def in_chunks(index, entries, chunks, kind) do
+    for chunk <- chunks,
+        id <- Map.get(index.chunks, {chunk, kind}, MapSet.new()),
+        do: {id, Map.fetch!(entries, id)}
+  end
+
+  def colliders(index, entries, area) do
+    for {id, box} <- index.solids,
+        Box.intersects?(area, box),
+        do: {id, Map.fetch!(entries, id)}
+  end
+end
