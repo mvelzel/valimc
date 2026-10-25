@@ -59,7 +59,8 @@ pass (5/5 stages). Formatting, exact diff checks and publication/docs/layer audi
 pass. No new native code belongs to this slice. Earlier 080f/g prototypes remain
 unchanged and uncommitted; their diff hash still matches the audit manifest.
 
-No new deployment or live gameplay check. Sampling overhead and production phase
-costs are not established by these functional tests. Next: combine these
-observations with the activity and entity-frame work before the user's next
-deployment/profile; do not claim this instrumentation solves the throughput gap.
+Deployed with [080j](VMC-080j.md) in `f1d9fa85` on October 25; JSON reports
+expose the complete-tick scope and owner work fields. Live gameplay validation
+remains with the user. Sampling overhead and production phase costs are not
+established by functional/readiness tests. Use the next profile to guide the
+entity-frame work; this instrumentation does not solve the throughput gap.

@@ -71,3 +71,12 @@ No new native code was needed for eligibility; the already verified native fluid
 read and rare-type guards (080f/g), plus owner timings (080i), accompany this
 deployment. User captures therefore compare the combined deployment, not just
 one isolated change. No GUI client, hosting stress test or flight benchmark ran.
+
+Deployed `f1d9fa85eb0292227b344bebce5d2ed17637138f` to the existing Hetzner
+host on October 25. The production build, image identity, current symlink,
+console RPC, persistent volume and 32/10 settings are verified. Minecraft TCP,
+readiness, dashboard, live JSON, export and WebSocket upgrade checks pass.
+No new player workload was driven; the user supplies the next gameplay profiles.
+MSPT now includes lifecycle/commit preparation (080i), so its scope differs from
+earlier captures. TPS, workload counts and the new owner/phase data guide the
+next shared-frame refactor. Deployment evidence is retained with the parent.

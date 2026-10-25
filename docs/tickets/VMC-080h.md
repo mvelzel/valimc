@@ -36,7 +36,8 @@ Runtime reference: deployed `95051f1755c8b7fdef0a0f43f6639db43d6e901d`.
 Local HEAD `24c47562` adds deployment documentation. Earlier uncommitted 080f/g
 prototypes are distinguished below; they have not been deployed. Runtime work
 paused for this audit. Following the user's clarification to take the appropriate
-Elixir/Rust direction, 080i begins the measurement step. Nothing new was deployed.
+Elixir/Rust direction, 080i begins the measurement step. The subsequent combined
+deployment and gameplay-profile handoff are recorded in [080j](VMC-080j.md).
 
 The review follows the world/owner clocks, regionizer, tick pipeline, tickets,
 entity ageing, mob AI, goals/brains, sensing, navigation, native ticker, movement
@@ -477,8 +478,8 @@ gameplay/profile remains the live check. No speedup is promised by this audit.
 
 ## Pending prototypes and verification status
 
-080f/g were started before the audit request and remain uncommitted and
-undeployed. Their already-running verification finished: 126 Rust tests,
+080f/g were started before the audit request and remained uncommitted and
+undeployed during this review. Their already-running verification finished: 126 Rust tests,
 641 fast checks, 45 owner/mob/dragon checks and 120 selected vanilla stages pass.
 The unchanged world-settings extraction has no cached regeneration and remains
 unverified. These results validate those prototypes, not the proposed refactors.

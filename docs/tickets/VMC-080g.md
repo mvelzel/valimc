@@ -26,3 +26,6 @@ Implementation, checks and the isolated absence-query measurement were retained
 during the audit; see [080h](VMC-080h.md). The user has now asked to take the next
 step and deploy for their profiler run. Include this verified slice with the
 eligibility and owner timing changes in that deployment.
+
+Deployed with [080j](VMC-080j.md) in `f1d9fa85` on October 25. The user's next
+profile evaluates the combined changes; no isolated production gain is claimed.
