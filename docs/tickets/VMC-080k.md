@@ -1,6 +1,6 @@
 # VMC-080k — Recover long write-ahead logs within the memory budget
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
@@ -49,6 +49,6 @@ The three selected vanilla stages (chunk sections, Anvil content and the
 plain/encrypted TCP session) pass. External Minecraft status returns protocol
 777; readiness, dashboard, live JSON and export return 200, and WebSocket
 upgrade returns 101. The image/current link, persistent volume and 32/10 settings
-are verified. Actual client reconnect and the next gameplay profiles remain
-pending with the user; no graphical tester or gameplay bot ran. Evidence stays
-under ignored `.local/hetzner/recovery*` and `deploy-recovery.log`.
+are verified. The user subsequently supplied live combat and exploration
+captures 8/9, confirming actual reconnect and play. No graphical tester or
+gameplay bot ran. Evidence stays under ignored `.local/hetzner/recovery*` and `deploy-recovery.log`.

@@ -49,11 +49,11 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Confirm restored saved-world login ([080k](tickets/VMC-080k.md)) and profile the first simulation-eligibility step ([080j](tickets/VMC-080j.md)) with complete owner timings ([080i](tickets/VMC-080i.md)), then continue the shared entity frame and measured Elixir/Rust boundaries from the audit ([080h](tickets/VMC-080h.md)).
+1. Continue the shared active-entity frame and measured Elixir/Rust boundaries from the audit ([080h](tickets/VMC-080h.md)), guided by the new owner timings and combat/exploration captures ([080](tickets/VMC-080.md)); address exploration's adoption and heap pressure alongside entity work.
 2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
-Done: [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
+Done: [080k](tickets/VMC-080k.md), [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
 [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [078e](tickets/VMC-078e.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
 

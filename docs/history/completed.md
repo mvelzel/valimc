@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-080k Bounded log recovery](../tickets/VMC-080k.md) | Frame-wise recovery preserves the existing world within the memory cap; production saved-player load, protocol checks and the user's subsequent combat/exploration captures confirm reconnect |
 | [VMC-078e Item merge planning fence](../tickets/VMC-078e.md) | Freeze movement markers while a merge job owns its copied store; durable cross-owner delivery, recovery and affected native checks |
 | [VMC-078d Roofed villager wandering](../tickets/VMC-078d.md) | Generated support fact, independent shuffle and native candidate order; fifteen village scenes, affected checks and same-world nighttime client recheck through 161 support calls |
 | [VMC-078c Milestone fixture boundaries](../tickets/VMC-078c.md) | Complete milestone fixtures; stop visited owners and detached writers; 845 full-suite checks with no checkpoint or traced WAL-read errors |
