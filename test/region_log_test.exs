@@ -7,7 +7,7 @@ defmodule Valimc.World.RegionLogTest do
 
   defp ops(log_frames), do: Enum.flat_map(log_frames, & &1.ops)
 
-  property "frames round-trip and any truncation of the tail is a clean prefix" do
+  property "frames round-trip and any truncation of the tail is a clean prefix", %{tmp_dir: dir} do
     check all(
             batches <-
               list_of(list_of(tuple({atom(:alphanumeric), integer()}), max_length: 4),
@@ -29,6 +29,9 @@ defmodule Valimc.World.RegionLogTest do
       assert {:ok, prefix, valid, _} = RegionLog.decode_frames(truncated)
       assert Enum.map(prefix, & &1.ops) == Enum.take(batches, length(prefix))
       assert valid <= byte_size(truncated)
+      File.write!(Path.join(dir, "log.00000000000000000001"), truncated)
+      assert {:ok, %{frames: streamed}} = RegionLog.read(dir)
+      assert Enum.map(streamed, & &1.ops) == Enum.map(prefix, & &1.ops)
     end
   end
 
@@ -61,6 +64,74 @@ defmodule Valimc.World.RegionLogTest do
     assert ops(recovered.frames) == [{:open, 1}, {:cells, 1}, {:item_put, 2}, {:open, 2}]
     assert log.incarnation == 2
     :ok = RegionLog.close(log)
+  end
+
+  test "fold recovery retains locations without retaining the historical payloads", %{
+    tmp_dir: dir
+  } do
+    {:ok, log, _} = RegionLog.open(dir)
+    blob = :binary.copy(<<7>>, 512 * 1024)
+
+    log =
+      Enum.reduce(1..4, log, fn batch, log ->
+        frames = for n <- 1..8, do: [{:blob, (batch - 1) * 8 + n, blob}]
+        {:ok, log, _} = RegionLog.append(log, frames)
+        log
+      end)
+
+    :ok = RegionLog.close(log)
+
+    # A separate process does not inherit the writer's fixture. Force collection
+    # while folding so this asserts payload reachability, not GC scheduling.
+    {log, count, locations, retained} =
+      Task.async(fn ->
+        fold = fn frame, {count, locations, retained} ->
+          :erlang.garbage_collect()
+          {:binary, binaries} = Process.info(self(), :binary)
+          bytes = Enum.reduce(binaries, 0, fn {_, size, _}, sum -> sum + size end)
+
+          case frame do
+            %{ops: [{:blob, _, payload}], at: at} ->
+              assert byte_size(payload) == 512 * 1024
+              {count + 1, [at | locations], max(retained, bytes)}
+
+            _ ->
+              {count, locations, max(retained, bytes)}
+          end
+        end
+
+        {:ok, log, %{acc: {count, locations, retained}}} =
+          RegionLog.open_fold(dir, {0, [], 0}, fold)
+
+        {log, count, locations, retained}
+      end)
+      |> Task.await(15_000)
+
+    assert count == 32
+    assert retained < 4 * 1024 * 1024
+    assert log.incarnation == 2
+    assert {:ok, frames} = RegionLog.read_at(Enum.reverse(locations))
+    assert Enum.map(frames, fn %{ops: [{:blob, n, _}]} -> n end) == Enum.to_list(1..32)
+    :ok = RegionLog.close(log)
+  end
+
+  test "a torn older segment and a decreasing cross-segment LSN refuse recovery", %{tmp_dir: dir} do
+    first = Path.join(dir, "log.00000000000000000001")
+    second = Path.join(dir, "log.00000000000000000002")
+    a = RegionLog.encode_frame(2, 1, [{:a, 1}])
+    b = RegionLog.encode_frame(3, 1, [{:b, 2}])
+    File.write!(first, a <> binary_part(b, 0, 10))
+    File.write!(second, b)
+
+    assert {:error, {:corrupt_segment, _, offset}} =
+             RegionLog.open_fold(dir, 0, fn _, n -> n + 1 end)
+
+    assert offset == byte_size(a)
+    assert File.read!(first) == a <> binary_part(b, 0, 10)
+
+    File.write!(first, b)
+    File.write!(second, a <> b)
+    assert {:error, {:corrupt_segment, _, 0}} = RegionLog.open(dir)
   end
 
   test "a torn final append is truncated and later appends follow it", %{tmp_dir: dir} do

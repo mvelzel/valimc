@@ -135,33 +135,39 @@ defmodule Valimc.Storage.RegionLog do
   after the checkpoint, ending with this incarnation's `{:open, n}` frame.
   """
   def open(dir) do
+    with {:ok, log, recovered} <- open_fold(dir, [], &[&1 | &2]) do
+      {:ok, log, %{checkpoint: recovered.checkpoint, frames: Enum.reverse(recovered.acc)}}
+    end
+  end
+
+  @doc """
+  Open and validate the log, folding each recovered frame through `fun.(frame,
+  acc)` instead of retaining its payload. Memory follows one capped frame plus
+  the accumulator, even across large segments and long checkpoint backlogs.
+  Includes the new incarnation's open frame, as `open/1` does.
+  """
+  def open_fold(dir, acc, fun) when is_function(fun, 2) do
     with :ok <- File.mkdir_p(dir),
          {:ok, checkpoint} <- newest_checkpoint(dir),
-         {:ok, frames, tail} <- read_segments(dir, checkpoint && checkpoint.lsn) do
-      base = if checkpoint, do: checkpoint.lsn, else: 0
-      last_lsn = Enum.reduce(frames, base, &max(&1.lsn, &2))
-
-      incarnation =
-        Enum.reduce(frames, (checkpoint && checkpoint.incarnation) || 0, &max(&1.incarnation, &2)) +
-          1
-
+         {:ok, acc, tail, last, incarnation} <-
+           fold_segments(dir, checkpoint && checkpoint.lsn, acc, fun) do
       log = %__MODULE__{
         dir: dir,
-        next_lsn: last_lsn + 1,
-        incarnation: incarnation,
-        checkpoint_lsn: base,
+        next_lsn: max(last, (checkpoint && checkpoint.lsn) || 0) + 1,
+        incarnation: max(incarnation, (checkpoint && checkpoint.incarnation) || 0) + 1,
+        checkpoint_lsn: (checkpoint && checkpoint.lsn) || 0,
         full_sync: Application.get_env(:valimc, :full_fsync, false)
       }
 
       with {:ok, log} <- open_segment(log, tail),
-           {:ok, log, _} <- append(log, [[{:open, incarnation}]]) do
+           {:ok, log, _} <- append(log, [[{:open, log.incarnation}]]) do
         open_frame = %{
           lsn: log.next_lsn - 1,
-          incarnation: incarnation,
-          ops: [{:open, incarnation}]
+          incarnation: log.incarnation,
+          ops: [{:open, log.incarnation}]
         }
 
-        {:ok, log, %{checkpoint: checkpoint && checkpoint.state, frames: frames ++ [open_frame]}}
+        {:ok, log, %{checkpoint: checkpoint && checkpoint.state, acc: fun.(open_frame, acc)}}
       end
     end
   rescue
@@ -329,50 +335,93 @@ defmodule Valimc.Storage.RegionLog do
   end
 
   defp read_segments(dir, checkpoint_lsn) do
+    with {:ok, frames, tail, _, _} <-
+           fold_segments(dir, checkpoint_lsn, [], &[&1 | &2]),
+         do: {:ok, Enum.reverse(frames), tail}
+  end
+
+  defp fold_segments(dir, checkpoint_lsn, acc, fun) do
     files = segments(dir)
     last_index = length(files) - 1
+    floor = checkpoint_lsn || -1
 
     files
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, [], nil, -1}, fn {{_base, file}, index}, {:ok, acc, _, last} ->
+    |> Enum.reduce_while({:ok, acc, nil, -1, 0}, fn {{_, file}, index},
+                                                    {:ok, acc, _, last, incarnation} ->
       path = Path.join(dir, file)
 
-      case decode_frames(read!(path), last) do
-        {:ok, frames, valid, tail} ->
-          frames =
-            Enum.map(frames, fn %{at: {offset, size}} = f -> %{f | at: {path, offset, size}} end)
+      result =
+        with_file(path, [:read, :binary, :raw], fn fd ->
+          size = File.stat!(path).size
+          fold_segment(fd, path, size, 0, last, incarnation, floor, acc, fun)
+        end)
 
-          {:ok, frames, valid, tail}
+      case result do
+        {:ok, acc, _, :clean, last, incarnation} ->
+          {:cont, {:ok, acc, {path, nil}, last, incarnation}}
 
-        other ->
-          other
-      end
-      |> case do
-        {:ok, frames, _, :clean} ->
-          {:cont, {:ok, acc ++ frames, {path, nil}, last_lsn(frames, last)}}
+        {:ok, acc, valid, :torn, last, incarnation} when index == last_index ->
+          {:cont, {:ok, acc, {path, valid}, last, incarnation}}
 
-        {:ok, frames, valid, :torn} when index == last_index ->
-          {:cont, {:ok, acc ++ frames, {path, valid}, last_lsn(frames, last)}}
-
-        {:ok, _, offset, :torn} ->
+        {:ok, _, offset, :torn, _, _} ->
           {:halt, {:error, {:corrupt_segment, file, offset}}}
 
         {:error, {:corrupt, offset}} ->
           {:halt, {:error, {:corrupt_segment, file, offset}}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:file, reason, path}}}
       end
     end)
-    |> case do
-      {:ok, frames, tail, _} ->
-        floor = checkpoint_lsn || -1
-        {:ok, Enum.filter(frames, &(&1.lsn > floor)), tail}
-
-      error ->
-        error
-    end
   end
 
-  defp last_lsn([], last), do: last
-  defp last_lsn(frames, _), do: List.last(frames).lsn
+  defp fold_segment(_fd, _path, size, size, last, incarnation, _floor, acc, _fun),
+    do: {:ok, acc, size, :clean, last, incarnation}
+
+  defp fold_segment(fd, path, size, offset, last, incarnation, floor, acc, fun) do
+    remaining = size - offset
+
+    with {:ok, header} <- :file.pread(fd, offset, min(remaining, 8)) do
+      case header do
+        <<len::32, _crc::32>> when len >= 12 and len <= @max_frame and remaining >= 8 + len ->
+          with {:ok, bytes} <- :file.pread(fd, offset, 8 + len) do
+            case decode_frames(bytes, last) do
+              {:ok, [frame], _, :clean} ->
+                frame = %{frame | at: {path, offset, 8 + len}}
+                acc = if frame.lsn > floor, do: fun.(frame, acc), else: acc
+
+                fold_segment(
+                  fd,
+                  path,
+                  size,
+                  offset + 8 + len,
+                  frame.lsn,
+                  max(incarnation, frame.incarnation),
+                  floor,
+                  acc,
+                  fun
+                )
+
+              _ when remaining == 8 + len ->
+                {:ok, acc, offset, :torn, last, incarnation}
+
+              _ ->
+                {:error, {:corrupt, offset}}
+            end
+          end
+
+        <<len::32, _::binary>> when (len < 12 or len > @max_frame) and remaining > 8 ->
+          {:error, {:corrupt, offset}}
+
+        _ ->
+          {:ok, acc, offset, :torn, last, incarnation}
+      end
+    else
+      :eof -> {:error, :unexpected_eof}
+      error -> error
+    end
+  end
 
   # Continue the last segment (truncating a torn tail) or start a new one.
   defp open_segment(log, {path, valid}) do

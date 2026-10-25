@@ -209,14 +209,7 @@ defmodule Valimc.Storage.Log do
     old = Path.wildcard(Path.join([state.base, "players", "wal.*"]))
 
     with :ok <- if(old == [], do: :ok, else: {:error, {:old_player_log, old}}),
-         {:ok, log, %{frames: frames}} <- RegionLog.open(dir) do
-      owners =
-        for %{lsn: lsn, ops: ops, at: at} <- frames,
-            {:frame, owner, seq, _} <- ops,
-            reduce: %{} do
-          acc -> Map.update(acc, owner, [{seq, lsn, at}], &[{seq, lsn, at} | &1])
-        end
-
+         {:ok, log, %{acc: owners}} <- RegionLog.open_fold(dir, %{}, &index_frame/2) do
       pending =
         for {owner, entries} <- owners,
             covered = checkpoint_seq(state.base, owner),
@@ -234,6 +227,20 @@ defmodule Valimc.Storage.Log do
   rescue
     error in [File.Error, ArgumentError] -> {:error, {:storage_log, Exception.message(error)}}
   end
+
+  # Keep only locations while scanning; retaining decoded payloads here can
+  # exhaust a small server before it can reach the checkpoints that cover them.
+  defp index_frame(%{lsn: lsn, ops: ops, at: at}, owners) do
+    Enum.reduce(ops, owners, fn
+      {:frame, owner, seq, _payload}, acc ->
+        Map.update(acc, owner, [{seq, lsn, at}], &[{seq, lsn, at} | &1])
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp index_frame(_open, owners), do: owners
 
   defp checkpoint_seq(base, owner) do
     case Checkpoint.seq(Checkpoint.path(base, owner)) do
