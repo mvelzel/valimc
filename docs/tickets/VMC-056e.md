@@ -68,3 +68,19 @@ Initial production verification exposes Erlang's raw JSON encoder serializing
 Elixir `nil` as the string `"nil"`. Report JSON routes and persisted captures
 now use Elixir's `JSON.encode!`, as HTML payloads already do, so unavailable rates
 are JSON `null`. Export and saved-report checks cover the missing-value case.
+
+Deployed and verified: production image
+`valimc:7c0ebbc598a3a489561f5d037054bc01f5e02a60` builds on the VPS, replaces the
+container and passes readiness. View 32, simulation 10, the public diagnostic
+origin and `valimc_data` are preserved. The console identifies both rates; public
+report HTML, data and JSON download return 200, and the public-origin WebSocket
+upgrade returns 101. Empty-server simulation TPS is JSON null/unavailable with
+zero owner rows, while the clock reports about 20; no fallback invents healthy
+simulation progress. Gameplay under load remains the user's validation.
+
+Private evidence: `.local/hetzner/deploy-simulation-tps-final.log`,
+`simulation-tps-runtime.log` and `simulation-tps-runtime-check.json`.
+An updated standalone view of the user's original capture is
+`.local/profiler-checks/valimc-profile-2-reviewed.html`; it adds the MSPT plot and
+clearly labels the unchanged legacy clock history. Checkpoints remain local
+pending the user's player-visible trial.
