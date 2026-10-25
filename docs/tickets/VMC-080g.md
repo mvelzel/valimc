@@ -1,6 +1,6 @@
 # VMC-080g — Skip absent rare entity scans
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
@@ -22,7 +22,7 @@ restore and worker-created merges. Group lead and dragon behavior remains live.
 Retain a matched wide-group absence measurement, run affected owner/entity and
 vanilla checks, then deploy with the parent for the user's next profile.
 
-The prototype is uncommitted and undeployed. The user requested a full audit
-before further fixes; see [080h](VMC-080h.md). Its checks and isolated absence-query
-measurement are recorded there. Deployment is held pending review of the larger
-simulation design.
+Implementation, checks and the isolated absence-query measurement were retained
+during the audit; see [080h](VMC-080h.md). The user has now asked to take the next
+step and deploy for their profiler run. Include this verified slice with the
+eligibility and owner timing changes in that deployment.

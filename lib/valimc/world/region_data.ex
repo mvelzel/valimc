@@ -1984,10 +1984,14 @@ defmodule Valimc.World.RegionData do
   @lead_item Valimc.Protocol.ItemTypes.id("minecraft:lead")
 
   defp knots(state) do
-    for {id, %{kind: :object, body: %Body{type: @knot}, entity: e}} <-
-          group_entries(state),
-        into: %{},
-        do: {{floor(e.x), floor(e.y), floor(e.z)}, id}
+    if group_has_type?(state, @knot) do
+      for {id, %{kind: :object, body: %Body{type: @knot}, entity: e}} <-
+            group_entries(state),
+          into: %{},
+          do: {{floor(e.x), floor(e.y), floor(e.z)}, id}
+    else
+      %{}
+    end
   end
 
   defp fence?(state, pos) do
@@ -2005,6 +2009,13 @@ defmodule Valimc.World.RegionData do
 
   defp group_entries(state),
     do: Enum.flat_map(group_stores(state), fn {_, store} -> Map.to_list(store.entries) end)
+
+  defp group_has_type?(state, type),
+    do:
+      Store.has_type?(state.entities.store, type) or
+        Enum.any?(state.siblings, fn {key, peer} ->
+          key != state.key and Store.has_type?(peer.entities, type)
+        end)
 
   defp group_entry(state, id, allow_busy \\ false) do
     Enum.find_value(group_stores(state), fn {key, store} ->
@@ -3125,9 +3136,7 @@ defmodule Valimc.World.RegionData do
 
   # Built only for a ticking dragon; every entity row comes from this owner.
   defp dragon_world(state, view) do
-    if Enum.any?(group_entries(state), fn {_, e} ->
-         match?(%{body: %Body{type: "minecraft:ender_dragon"}}, e)
-       end) do
+    if group_has_type?(state, "minecraft:ender_dragon") do
       {min_y, _} = Valimc.World.Dimension.bounds(state.dimension)
       height = fn x, z -> Valimc.World.Dragon.Arena.height(view, x, z, min_y) end
       arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])

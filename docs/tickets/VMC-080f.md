@@ -1,6 +1,6 @@
 # VMC-080f — Reuse native mob fluid observations
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
@@ -27,7 +27,7 @@ pass. Retain matched full-profile read and mob-phase measurements. Deploy to the
 same world at 32/10 for the user's own gameplay tests, with no GUI client driver
 or flight benchmark.
 
-The prototype is uncommitted and undeployed. The user requested a full audit
-before further fixes; see [080h](VMC-080h.md). Completed checks and the matched
-measurement (about 2% of the full mob phase) are recorded there. Deployment is
-held pending review of the larger simulation design.
+Implementation and the matched measurement (about 2% of the full mob phase)
+were retained during the audit; see [080h](VMC-080h.md). The user has now asked
+to take the next step and deploy for their profiler run. Include this verified
+slice with the eligibility and owner timing changes in that deployment.

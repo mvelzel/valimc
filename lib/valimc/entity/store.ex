@@ -1089,6 +1089,9 @@ defmodule Valimc.Entity.Store do
   def colliders(state, area),
     do: Valimc.Entity.Spatial.colliders(state.spatial, state.entries, area)
 
+  @doc "Whether this owner's store contains a body of `type`."
+  def has_type?(state, type), do: Valimc.Entity.Spatial.has_type?(state.spatial, type)
+
   # A body's view: what every view has, the pairing packets as its metadata
   # (kept while what they show is unchanged), its type and rotation, its body
   # (trackers send what changed) and its latest entity events.

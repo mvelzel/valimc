@@ -125,6 +125,17 @@ pub fn eyes(
     let Some(found) = contacts(source, facts, body)? else {
         return Ok(None);
     };
+    eyes_in(source, facts, &found, eye).map(Some)
+}
+
+/// Eye immersion from the body's already observed fluid contacts. A mob's
+/// pre-AI sample needs both depths and eyes over the same immutable view.
+pub fn eyes_in(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    found: &[Contact],
+    eye: [f64; 3],
+) -> Result<(bool, bool), Unreadable> {
     let column = (eye[0].floor() as i32, eye[2].floor() as i32);
     let (mut water, mut lava) = (false, false);
     for c in found {
@@ -144,7 +155,7 @@ pub fn eyes(
             _ => {}
         }
     }
-    Ok(Some((water, lava)))
+    Ok((water, lava))
 }
 
 /// Whether any cell of the body (no inset) holds fluid.

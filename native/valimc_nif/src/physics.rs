@@ -1041,6 +1041,55 @@ fn physics_mobs_begin_dirty(
     ticker_begin(view_term, mobs, players, border, colliders)
 }
 
+/// A mob's pre-AI fluid depths and eye state, reusing the ticker's view.
+#[rustler::nif]
+fn physics_mobs_sense<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    body: BoxT,
+    eye: Vec3,
+) -> NifResult<Term<'a>> {
+    ticker_sense(env, resource, body, eye)
+}
+
+/// The same read for a body past the normal scheduler's scan budget.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn physics_mobs_sense_dirty<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    body: BoxT,
+    eye: Vec3,
+) -> NifResult<Term<'a>> {
+    ticker_sense(env, resource, body, eye)
+}
+
+fn ticker_sense<'a>(
+    env: Env<'a>,
+    resource: rustler::ResourceArc<MobTicker>,
+    body: BoxT,
+    eye: Vec3,
+) -> NifResult<Term<'a>> {
+    let facts = facts()?;
+    let guard = resource.0.lock().map_err(|_| invalid())?;
+    let state = guard.as_ref().ok_or(invalid())?;
+    let eye = v3(eye);
+    let found = match fluid::contacts(&state.view, facts, &aabb(body)) {
+        Ok(Some(found)) => found,
+        Ok(None) => return Ok(ok(env, rustler::types::atom::nil())),
+        Err(u) => return Ok(unreadable(env, u)),
+    };
+    let depths = fluid::depths(&found);
+    let water = match fluid::eyes_in(&state.view, facts, &found, eye) {
+        Ok((water, _)) => water,
+        Err(u) => return Ok(unreadable(env, u)),
+    };
+    let p = eye.map(|v| v.floor() as i32);
+    Ok(match state.view.state(p[0], p[1], p[2]) {
+        Some(block) => ok(env, (depths.water, depths.lava, (water, block))),
+        None => rustler::types::atom::error().encode(env),
+    })
+}
+
 fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
     TickedT {
         mob: mob_t(&t.mob),

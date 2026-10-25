@@ -4,6 +4,15 @@ defmodule Valimc.EntitySpatialTest do
   alias Valimc.Data.{Box, Grid}
 
   defp check(store) do
+    types =
+      for {_, %{body: body}} <- store.entries, reduce: %{} do
+        counts -> Map.update(counts, body.type, 1, &(&1 + 1))
+      end
+
+    assert store.spatial.types == types
+    for type <- Map.keys(types), do: assert(Store.has_type?(store, type))
+    refute Store.has_type?(store, "minecraft:ender_dragon")
+
     for kind <- [:mob, :object, :item, :orb] do
       chunks = MapSet.new(store.views, fn {_, v} -> v.chunk end)
       actual = Store.in_chunks(store, chunks, kind) |> Map.new()
@@ -94,5 +103,37 @@ defmodule Valimc.EntitySpatialTest do
     {:ok, merged} = Store.merge_created(store, store, proposed)
     check(merged)
     assert [_] = Store.in_chunks(merged, [{0, 0}], :item)
+  end
+
+  test "type presence follows replacement and the last removal, including nonliving bodies" do
+    {:ok, cow} = Body.new("minecraft:cow")
+    {:ok, sheep} = Body.new("minecraft:sheep")
+    {:ok, knot} = Body.new("minecraft:leash_knot")
+
+    {store, ids} =
+      Enum.map_reduce(1..2, Store.new(), fn n, store ->
+        {:ok, store, {_, id, _}} =
+          Store.create_record(store, {0, 0}, Store.body_record(cow, <<n::128>>, {0.5, 64.0, 0.5}))
+
+        {id, store}
+      end)
+      |> then(fn {ids, store} -> {check(store), ids} end)
+
+    [first, last] = ids
+    store = Store.change_body(store, first, sheep)
+
+    {:ok, store, _} =
+      Store.create_record(store, {0, 0}, Store.body_record(knot, <<3::128>>, {1.5, 64.0, 0.5}))
+
+    assert Store.has_type?(store, "minecraft:leash_knot")
+    assert Store.has_type?(store, "minecraft:sheep")
+    assert Store.has_type?(store, "minecraft:cow")
+    assert store.spatial.types["minecraft:cow"] == 1
+    {:ok, store} = Store.remove(store, store.epoch, last, store.entries[last].revision)
+    refute Store.has_type?(store, "minecraft:cow")
+    assert Store.has_type?(store, "minecraft:leash_knot")
+    check(store)
+    {:ok, restored} = Store.restore({0, 0}, Store.records(store))
+    assert restored.spatial.types == store.spatial.types
   end
 end

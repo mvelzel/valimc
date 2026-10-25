@@ -413,6 +413,16 @@ defmodule Valimc.Physics.Kernel do
   def mob_step(ticker, index, %{velocity: velocity} = mob),
     do: Native.dispatch(:physics_mobs_step, 4 * scan_cells(velocity), [ticker, index, mob])
 
+  @doc "Fluid depths and eye state before AI, from the mob ticker's immutable view."
+  def mob_sense(ticker, {x0, y0, z0, x1, y1, z1} = body, eye) do
+    # Include the cells just above contacts and the eye's sturdy-face test.
+    cells =
+      (floor(x1) - floor(x0) + 2) * (floor(y1) - floor(y0) + 3) *
+        (floor(z1) - floor(z0) + 2)
+
+    Native.dispatch(:physics_mobs_sense, cells, [ticker, body, floats(eye)]) |> error()
+  end
+
   @doc "A solid family's box and position after its owner's changes in this tick."
   def mob_collider(ticker, index, position, box),
     do: Native.physics_mobs_collider(ticker, index, floats(position), box)

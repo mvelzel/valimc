@@ -59,6 +59,8 @@ defmodule Valimc.Native do
     physics_mobs_begin: {100, :physics_mobs_begin_dirty},
     # Per cell one mob's step scans, as `physics_mobs`.
     physics_mobs_step: {120, :physics_mobs_step_dirty},
+    # One fluid scan plus eye checks over the ticker's existing view.
+    physics_mobs_sense: {120, :physics_mobs_sense_dirty},
     # A primed TNT or falling block scans as an item does (VMC-050a).
     physics_block_bodies: {120, :physics_block_bodies_dirty},
     # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
@@ -249,6 +251,9 @@ defmodule Valimc.Native do
 
   def physics_mobs_step(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_step_dirty(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_mobs_sense(_ticker, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
+  def physics_mobs_sense_dirty(_ticker, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_mobs_displace(_ticker, _index, _mob, _delta),
     do: :erlang.nif_error(:nif_not_loaded)

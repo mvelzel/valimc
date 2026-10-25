@@ -2,7 +2,7 @@ defmodule Valimc.Entity.Spatial do
   @moduledoc "Owner-local chunk membership and exact solid boxes; queries fetch live store entries."
   alias Valimc.Data.Box
 
-  defstruct chunks: %{}, solids: %{}
+  defstruct chunks: %{}, solids: %{}, types: %{}
 
   def put(index, id, old, view) do
     before = if old, do: {old.chunk, old.kind}
@@ -27,8 +27,27 @@ defmodule Valimc.Entity.Spatial do
           Map.delete(index.solids, id)
       end
 
-    %{index | chunks: chunks, solids: solids}
+    types =
+      case {type(old), type(view)} do
+        {same, same} -> index.types
+        {before, after_type} -> index.types |> count(before, -1) |> count(after_type, 1)
+      end
+
+    %{index | chunks: chunks, solids: solids, types: types}
   end
+
+  defp type(%{body: %{type: type}}), do: type
+  defp type(_view), do: nil
+  defp count(types, nil, _delta), do: types
+
+  defp count(types, type, delta) do
+    case Map.get(types, type, 0) + delta do
+      0 -> Map.delete(types, type)
+      n -> Map.put(types, type, n)
+    end
+  end
+
+  def has_type?(index, type), do: Map.has_key?(index.types, type)
 
   defp insert(chunks, nil, _id), do: chunks
   defp insert(chunks, key, id), do: Map.update(chunks, key, MapSet.new([id]), &MapSet.put(&1, id))

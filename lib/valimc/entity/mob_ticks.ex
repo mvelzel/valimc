@@ -220,8 +220,8 @@ defmodule Valimc.Entity.MobTicks do
     Kernel.mob_goal_position(ticker, i, input)
   end
 
-  defp ordinary_step(view, ticker, old, id, i, state) do
-    entry = sense_fluids(view, state.entries[id])
+  defp ordinary_step(_view, ticker, old, id, i, state) do
+    entry = sense_fluids(ticker, state.entries[id])
     # `baseTick`'s burning comes first (VMC-043b).
     {body, burnt} = MobVitals.base_tick(entry.body.type, entry.body)
     entry = %{entry | body: body}
@@ -506,12 +506,12 @@ defmodule Valimc.Entity.MobTicks do
 
   # Entity.baseTick refreshes fluid observations before every AI turn. A
   # water move may retain its old flag until this refresh, including on exit.
-  defp sense_fluids(view, %{body: %{mob: %Valimc.Entity.Mob{} = mob} = body} = entry) do
+  defp sense_fluids(ticker, %{body: %{mob: %Valimc.Entity.Mob{} = mob} = body} = entry) do
     {_, _, eye} = Valimc.Entity.Body.dimensions(body)
     e = entry.entity
 
-    with {:ok, %{water: water, lava: lava}} <- Kernel.fluids(view, box(entry)),
-         {:ok, eye} <- Kernel.eye_block(view, box(entry), {e.x * 1.0, e.y + eye, e.z * 1.0}) do
+    with {:ok, {water, lava, eye}} <-
+           Kernel.mob_sense(ticker, box(entry), {e.x * 1.0, e.y + eye, e.z * 1.0}) do
       motion = %{mob.motion | water: water * 1.0, lava: lava * 1.0, eye: eye}
       %{entry | body: %{body | mob: %{mob | motion: motion}}}
     else
@@ -519,7 +519,7 @@ defmodule Valimc.Entity.MobTicks do
     end
   end
 
-  defp sense_fluids(_view, entry), do: entry
+  defp sense_fluids(_ticker, entry), do: entry
 
   defp box(%{entity: e, body: body}) do
     {width, height, _} = Valimc.Entity.Body.dimensions(body)
