@@ -1,6 +1,6 @@
 # VMC-080k — Recover long write-ahead logs within the memory budget
 
-Status: In progress
+Status: Awaiting client
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
@@ -30,12 +30,25 @@ rules. No native code or storage-format migration is needed.
 
 A stopped-volume copy of the complete 3.5 GiB data directory is retained on the
 host at `/opt/valimc/backups/pre-recovery-fix-20261025`, before recovery changes.
-The first focused run passes 30 checks across log, indexed restart, player
-storage, region loading and directory-loss/reconnect flows. The retention test
-folds 32 half-MiB payloads across oversized segments in a separate process,
+Focused checks pass across log, indexed restart, player storage, region loading
+and directory-loss/reconnect flows: 30 checks including one property. The
+retention test folds 32 half-MiB payloads across oversized segments in a separate process,
 forces collection and asserts less than 4 MiB of reachable binary data. This
 checks memory retention, not a throughput or production TPS claim. Truncation
 property cases also compare the streaming reader with the frame decoder.
 
-Production recovery, deployment verification and user reconnect remain pending.
-Evidence stays under ignored `.local/hetzner/recovery*`.
+Deployed `26af7804bdffb7848cf308639a2070566da1a0a3` to the existing host.
+The real saved-player load, which starts the world's log recovery, succeeds in
+6.313 seconds with its existing sequence/state. Covered log segments are pruned
+normally, leaving 12 MiB across the stripes. A 60-second cgroup observation has
+zero OOM events; total charged memory (including file cache) peaks at 1,644 MiB
+and ends at 240 MiB. Docker reports zero restarts. This is recovery verification,
+not a gameplay performance measurement.
+
+The three selected vanilla stages (chunk sections, Anvil content and the
+plain/encrypted TCP session) pass. External Minecraft status returns protocol
+777; readiness, dashboard, live JSON and export return 200, and WebSocket
+upgrade returns 101. The image/current link, persistent volume and 32/10 settings
+are verified. Actual client reconnect and the next gameplay profiles remain
+pending with the user; no graphical tester or gameplay bot ran. Evidence stays
+under ignored `.local/hetzner/recovery*` and `deploy-recovery.log`.
