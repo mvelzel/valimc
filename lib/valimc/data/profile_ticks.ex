@@ -36,6 +36,16 @@ defmodule Valimc.Data.ProfileTicks do
     :ok
   end
 
+  @doc "Withdraw a tick row when this owner no longer schedules simulation ticks."
+  def inactive do
+    case :ets.whereis(__MODULE__) do
+      :undefined -> :ok
+      table -> :ets.delete(table, self())
+    end
+
+    :ok
+  end
+
   def slow_since(sequence) do
     for {{:slow, _}, seq, pid, ns, late} <- :ets.tab2list(__MODULE__),
         seq > sequence,

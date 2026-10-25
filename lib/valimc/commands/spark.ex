@@ -302,8 +302,10 @@ defmodule Valimc.Commands.Spark do
 
   defp tps(source, h) do
     windows = h.windows
-    say(source, "TPS from last 5s, 10s, 1m, 5m, 15m:")
+    say(source, "Simulation TPS (slowest region), last 5s, 10s, 1m, 5m, 15m:")
     say(source, Style.values(Enum.map(windows, &Style.tps(&1.tps, h.tick_state.rate))))
+    say(source, "World clock TPS (separate):")
+    say(source, Style.values(Enum.map(windows, &Style.tps(&1.clock_tps, h.tick_state.rate))))
     say(source, "")
     say(source, "Region tick durations (min/med/95%ile/max ms), latest 100:")
 

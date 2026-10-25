@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. User trial of Ubuntu VPS hosting and diagnostic access ([056d](tickets/VMC-056d.md)).
+1. User trial of simulation TPS reporting ([056e](tickets/VMC-056e.md)) on Ubuntu VPS hosting ([056d](tickets/VMC-056d.md)).
 2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 

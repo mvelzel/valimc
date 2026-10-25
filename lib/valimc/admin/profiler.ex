@@ -231,7 +231,20 @@ defmodule Valimc.Admin.Profiler do
 
     history =
       Enum.take(
-        [Map.take(health, [:at, :tps, :memory, :run_queue, :scheduler, :mspt]) | state.history],
+        [
+          Map.take(health, [
+            :at,
+            :interval_ms,
+            :tps,
+            :clock_tps,
+            :tps_source,
+            :memory,
+            :run_queue,
+            :scheduler,
+            :mspt
+          ])
+          | state.history
+        ],
         900
       )
 
@@ -313,22 +326,8 @@ defmodule Valimc.Admin.Profiler do
     elapsed = max(time - state.at, 1)
     ticks = ProfileTicks.snapshot()
 
-    owners =
-      Enum.map(ticks, fn {pid, count, total, maximum, last, late, at} ->
-        {old_count, old_total} = Map.get(state.previous_ticks, pid, {count, total})
-        n = count - old_count
-
-        %{
-          pid: inspect(pid),
-          ticks: count,
-          tps: n * 1000.0 / elapsed,
-          mean_ms: if(n > 0, do: (total - old_total) / n / 1.0e6, else: 0.0),
-          last_ms: last / 1.0e6,
-          max_ms: maximum / 1.0e6,
-          late_ms: late,
-          age_ms: time - at
-        }
-      end)
+    owners = tick_rates(ticks, state.previous_ticks, time, elapsed)
+    tick_state = Map.take(Valimc.World.TickRate.published(), [:rate, :frozen, :sprinting])
 
     {samples, count} = Valimc.World.TickRate.samples()
 
@@ -339,9 +338,12 @@ defmodule Valimc.Admin.Profiler do
 
     health = %{
       at: System.system_time(:millisecond),
+      interval_ms: elapsed,
       clock_ticks: clock,
-      tps: max(0, clock - state.clock) * 1000.0 / elapsed,
-      tick_state: Map.take(Valimc.World.TickRate.published(), [:rate, :frozen, :sprinting]),
+      clock_tps: max(0, clock - state.clock) * 1000.0 / elapsed,
+      tps: simulation_tps(owners, tick_state),
+      tps_source: "simulation",
+      tick_state: tick_state,
       mspt: %{
         min: List.first(values) || 0.0,
         median: median(values),
@@ -366,6 +368,37 @@ defmodule Valimc.Admin.Profiler do
   end
 
   @doc false
+  def tick_rates(ticks, previous, time, elapsed) do
+    Enum.map(ticks, fn {pid, count, total, maximum, last, late, at} ->
+      baseline = Map.get(previous, pid)
+      {old_count, old_total} = baseline || {count, total}
+      n = max(0, count - old_count)
+
+      %{
+        pid: inspect(pid),
+        ticks: count,
+        tps: if(baseline, do: n * 1000.0 / max(elapsed, 1)),
+        mean_ms: if(n > 0, do: (total - old_total) / n / 1.0e6),
+        last_ms: last / 1.0e6,
+        max_ms: maximum / 1.0e6,
+        late_ms: late,
+        age_ms: max(0, time - at)
+      }
+    end)
+  end
+
+  @doc false
+  def simulation_tps(owners, tick_state) do
+    rates = for %{tps: rate} <- owners, is_number(rate), do: rate
+
+    case rates do
+      [] -> nil
+      _ when tick_state.sprinting -> Enum.min(rates)
+      _ -> min(Enum.min(rates), tick_state.rate)
+    end
+  end
+
+  @doc false
   def median([]), do: 0.0
 
   def median(sorted) do
@@ -386,12 +419,26 @@ defmodule Valimc.Admin.Profiler do
 
     for seconds <- [5, 10, 60, 300, 900] do
       points = Enum.take_while(history, &(&1.at > latest - seconds * 1000))
-      average = fn fun -> Enum.sum(Enum.map(points, fun)) / max(1, length(points)) end
+
+      average = fn fun ->
+        {total, weight} =
+          Enum.reduce(points, {0.0, 0}, fn point, {total, weight} ->
+            value = fun.(point)
+            ms = min(Map.get(point, :interval_ms, 1000), point.at - (latest - seconds * 1000))
+
+            if is_number(value) and ms > 0,
+              do: {total + value * ms, weight + ms},
+              else: {total, weight}
+          end)
+
+        if weight > 0, do: total / weight
+      end
 
       %{
         seconds: seconds,
         observations: length(points),
         tps: average.(& &1.tps),
+        clock_tps: average.(&Map.get(&1, :clock_tps)),
         scheduler:
           Map.new([:normal, :dirty_cpu, :dirty_io], fn key ->
             {key, average.(& &1.scheduler[key])}

@@ -113,8 +113,7 @@ defmodule Valimc.Net.Profiler.Live do
   defp schedule(socket) do
     if connected?(socket) and socket.assigns.report.status in ["running", "live"] and
          is_nil(socket.assigns.timer) do
-      ms = if socket.assigns.report.kind == "health", do: 10_000, else: 2000
-      assign(socket, :timer, Process.send_after(self(), :refresh, ms))
+      assign(socket, :timer, Process.send_after(self(), :refresh, 2000))
     else
       socket
     end
@@ -139,7 +138,10 @@ defmodule Valimc.Net.Profiler.Live do
       row_count: count,
       tree: tree,
       flame: flame,
-      chart: if(a.tab == "health", do: View.chart(a.report), else: "")
+      chart: if(a.tab == "health", do: View.chart(a.report), else: ""),
+      mspt_chart: if(a.tab == "health", do: View.chart(a.report, :mspt), else: ""),
+      tps_max: if(a.tab == "health", do: View.chart_max(a.report), else: 20),
+      mspt_max: if(a.tab == "health", do: View.chart_max(a.report, :mspt), else: 50)
     )
   end
 
@@ -161,7 +163,8 @@ defmodule Valimc.Net.Profiler.Live do
           <span class="muted" id="profile-status" role="status">{@report.status} · {View.format(Map.get(@report, :elapsed_ms, 0) / 1000, :number)}s · {Map.get(@report, :observations, 0)} stack observations</span>
         </div>
         <div class="stats" id="stats">
-          <.widget title="TPS" value={View.format(@report.health.tps, :number)} caption="World clock" />
+          <.widget title={View.tps_title(@report)} value={View.format(@report.health.tps, :number)} caption={View.tps_caption(@report)} />
+          <.widget :if={Map.has_key?(@report.health, :clock_tps)} title="Clock TPS" value={View.format(@report.health.clock_tps, :number)} caption="World clock · separate" />
           <.widget title="MSPT" value={View.format(@report.health.mspt.p95, :number)} caption="Region ticks · 95%ile" />
           <.widget title="Schedulers" value={View.format(@report.health.scheduler.normal, :percent)} caption="Normal · wall time" />
           <.widget title="Memory" value={View.format(@report.health.memory.total, :memory)} caption="BEAM total" />
@@ -217,9 +220,12 @@ defmodule Valimc.Net.Profiler.Live do
           <p :if={@tab == "memory"} class="note">BEAM rollups overlap. Process heaps exclude shared binaries and allocations inside native resources. ETS tables follow memory categories.</p>
           <p :if={@tab == "hot" and @row_count >= 8192} class="note">Function capacity reached (8,192). Narrow the process or search filter to include other functions.</p>
           <div :if={@tab == "health"} class="health-chart">
-            <h2>World clock TPS</h2>
-            <svg viewBox="0 0 1200 190" role="img" aria-label="Clock ticks per second over time"><path d={@chart} fill="none" stroke="var(--yellow)" stroke-width="2" /></svg>
-            <p class="note">Up to 15 minutes of observations. Scheduler utilization measures wall time; GC totals measure collections and reclaimed words.</p>
+            <h2>{View.tps_title(@report)} over time</h2>
+            <svg viewBox="0 0 1200 190" role="img" aria-label={View.tps_title(@report) <> " over time"}><path d={@chart} fill="none" stroke="var(--yellow)" stroke-width="2" /></svg>
+            <p class="note">0–{View.format(@tps_max, :number)} TPS · {View.tps_caption(@report)}. Missing observations leave gaps.</p>
+            <h2>Region p95 MSPT over time</h2>
+            <svg viewBox="0 0 1200 190" role="img" aria-label="Region p95 milliseconds per tick over time"><path d={@mspt_chart} fill="none" stroke="var(--yellow)" stroke-width="2" /></svg>
+            <p class="note">0–{View.format(@mspt_max, :number)} ms · latest 100 region ticks at each observation. Up to 15 minutes; horizontal position follows elapsed time.</p>
           </div>
           <table :if={@columns != []}>
             <thead><tr><th :for={{key, label, _} <- @columns}><button phx-click="sort" phx-value-key={key}>{label} <span :if={@sort == Atom.to_string(key)}>{if @direction == :desc, do: "↓", else: "↑"}</span></button></th></tr></thead>

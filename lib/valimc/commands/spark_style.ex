@@ -35,6 +35,8 @@ defmodule Valimc.Commands.SparkStyle do
     ])
   end
 
+  def tps(nil, _target), do: text("unavailable", "gray")
+
   def tps(n, target) do
     color =
       cond do

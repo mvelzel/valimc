@@ -23,6 +23,37 @@ defmodule Valimc.ProfilerLiveTest do
     id
   end
 
+  test "dashboard and exports distinguish slow simulation from a healthy world clock" do
+    id = capture()
+    assert {:ok, ^id} = Profiler.stop()
+    {:ok, data} = Profiler.report(id)
+
+    health = %{
+      data.health
+      | tps: 5.0,
+        clock_tps: 20.0,
+        tps_source: "simulation",
+        windows: [%{seconds: 5, tps: 5.0, clock_tps: 20.0, scheduler: data.health.scheduler}]
+    }
+
+    :sys.replace_state(Profiler, fn state ->
+      :ets.insert(Valimc.ProfileReports, {id, %{data | health: health}})
+      state
+    end)
+
+    {:ok, view, _} = live(build_conn(), "/r/" <> id)
+    assert has_element?(view, ".stat", "Simulation TPS")
+    assert render(view) =~ "Slowest region"
+    render_click(view, "tab", %{"tab" => "health"})
+    assert has_element?(view, "h2", "Simulation TPS over time")
+    assert has_element?(view, "h2", "Region p95 MSPT over time")
+    assert render(view) =~ "World clock TPS (separate)"
+    html = get(build_conn(), "/export/#{id}/html").resp_body
+    assert html =~ "Simulation TPS"
+    assert html =~ "Clock TPS (legacy)"
+    assert html =~ "Region p95 MSPT over time"
+  end
+
   test "real LiveView filters, expands, switches views, sorts, zooms and preserves state on refresh" do
     id = capture()
     {:ok, view, html} = live(build_conn(), "/r/" <> id)
@@ -307,6 +338,7 @@ defmodule Valimc.SparkStyleTest do
     end
 
     assert Text.plain(Style.tps(20.3, 20.0)) == "*20.0"
+    assert Text.plain(Style.tps(nil, 20.0)) == "unavailable"
     assert Text.to_json(Style.duration(50))["color"] == "red"
     assert Text.to_json(Style.utilization(70))["color"] == "yellow"
     assert Text.to_json(Style.url("http://localhost"))["color"] == "gray"

@@ -180,6 +180,7 @@ defmodule Valimc.Net.Profiler.View do
 
     {[{:name, "Metric", :text}, {:value, "Value", :number}],
      [
+       %{name: "World clock TPS (separate)", value: Map.get(h, :clock_tps, h.tps)},
        %{name: "Normal scheduler utilization (%)", value: h.scheduler.normal},
        %{name: "Dirty CPU scheduler utilization (%)", value: h.scheduler.dirty_cpu},
        %{name: "Dirty IO scheduler utilization (%)", value: h.scheduler.dirty_io},
@@ -239,14 +240,49 @@ defmodule Valimc.Net.Profiler.View do
   def format(n, :number) when is_float(n), do: :erlang.float_to_binary(n, decimals: 2)
   def format(n, _), do: to_string(n)
 
-  def chart(data) do
-    points = Map.get(data, :history, [])
-    maximum = Enum.reduce(points, 20.0, &max(&1.tps, &2))
+  def tps_title(%{health: %{tps_source: "simulation"}}), do: "Simulation TPS"
+  def tps_title(_), do: "Clock TPS (legacy)"
 
-    points
-    |> Enum.with_index()
-    |> Enum.map_join(" ", fn {p, i} ->
-      "#{if i == 0, do: "M", else: "L"}#{i * 1200 / max(length(points) - 1, 1)},#{170 - p.tps / maximum * 150}"
+  def tps_caption(%{health: %{tps_source: "simulation", tick_state: %{frozen: true}}}),
+    do: "Frozen · completed region ticks"
+
+  def tps_caption(%{health: %{tps_source: "simulation"}}),
+    do: "Slowest region · completed ticks"
+
+  def tps_caption(_), do: "Simulation history was not recorded"
+
+  def chart_max(data, metric \\ :tps) do
+    Enum.reduce(Map.get(data, :history, []), if(metric == :tps, do: 20.0, else: 50.0), fn p,
+                                                                                          max ->
+      case chart_value(p, metric) do
+        n when is_number(n) -> max(n, max)
+        _ -> max
+      end
     end)
   end
+
+  def chart(data, metric \\ :tps) do
+    points = Map.get(data, :history, [])
+    maximum = chart_max(data, metric)
+    first = if points == [], do: 0, else: hd(points).at
+    duration = if points == [], do: 1, else: max(List.last(points).at - first, 1)
+
+    points
+    |> Enum.map_reduce(false, fn p, drawing ->
+      case chart_value(p, metric) do
+        n when is_number(n) ->
+          {"#{if drawing, do: "L", else: "M"}#{(p.at - first) * 1200 / duration},#{170 - n / maximum * 150}",
+           true}
+
+        _ ->
+          {"", false}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
+  end
+
+  defp chart_value(p, :tps), do: Map.get(p, :tps)
+  defp chart_value(p, :mspt), do: get_in(p, [:mspt, :p95])
 end

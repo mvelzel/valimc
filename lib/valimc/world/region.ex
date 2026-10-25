@@ -1614,8 +1614,12 @@ defmodule Valimc.World.Region do
     if state.tick_timer, do: Process.cancel_timer(state.tick_timer)
 
     timer =
-      if not state.manual and (state.sections != %{} or state.players != %{}),
-        do: Process.send_after(self(), {:tick, clock.token}, delay)
+      if not state.manual and (state.sections != %{} or state.players != %{}) do
+        Process.send_after(self(), {:tick, clock.token}, delay)
+      else
+        Valimc.Data.ProfileTicks.inactive()
+        nil
+      end
 
     %{state | tick_clock: clock, tick_timer: timer}
   end

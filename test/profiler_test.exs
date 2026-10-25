@@ -71,6 +71,15 @@ defmodule Valimc.ProfilerTest do
     assert Profiler.info() == nil
   end
 
+  test "tps command identifies simulation progress and the separate clock" do
+    source = %{Source.parse_only(4) | sink: {:collect, self(), make_ref()}}
+    Valimc.Commands.run(source, "spark tps")
+    text = Source.collect(source)
+    assert text =~ "Simulation TPS (slowest region)"
+    assert text =~ "World clock TPS (separate)"
+    assert text =~ "Region tick durations"
+  end
+
   test "sampler sees a selected process, omits idle stacks by default and tolerates death" do
     pid =
       spawn(fn ->
@@ -243,7 +252,16 @@ defmodule Valimc.ProfilerTest do
         send(parent, :recorded)
 
         receive do
-          :stop -> :ok
+          :inactive ->
+            ProfileTicks.inactive()
+            send(parent, :inactive)
+
+            receive do
+              :stop -> :ok
+            end
+
+          :stop ->
+            :ok
         end
       end)
 
@@ -255,6 +273,11 @@ defmodule Valimc.ProfilerTest do
     assert notice =~ inspect(pid)
     assert notice =~ "3ms late"
     assert {:ok, false} = Profiler.monitor(self(), 9999, fn _ -> :ok end)
+    send(pid, :inactive)
+    assert_receive :inactive
+    assert Process.alive?(pid)
+    refute Enum.any?(ProfileTicks.snapshot(), &(elem(&1, 0) == pid))
+    assert ProfileTicks.pings()[pid] == 7
     Process.exit(pid, :kill)
     refute Map.has_key?(ProfileTicks.pings(), pid)
     refute Enum.any?(ProfileTicks.snapshot(), &(elem(&1, 0) == pid))
