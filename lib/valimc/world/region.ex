@@ -883,6 +883,10 @@ defmodule Valimc.World.Region do
   defp split_result({:stop, reason, resource}), do: {:stop, resource, reason}
 
   defp put_resource(state, key, resource) do
+    # Peers are a callback-local projection. Retaining them here roots old
+    # versions of every sibling store; enter/2 supplies current peers next time.
+    resource = %{resource | siblings: %{}}
+
     {section, sections} =
       Map.get_and_update!(state.sections, key, &{&1, %{&1 | resource: resource}})
 

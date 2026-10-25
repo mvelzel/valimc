@@ -104,6 +104,12 @@ defmodule Valimc.RegionGroupTest do
     # Only the adopting group may change the section's Rust store now.
     ref = Valimc.TestRegion.section(ctx.pa, ctx.b).blocks.ref
     assert Valimc.Native.region_give(ref, self()) == {:error, :not_owner}
+
+    # The group holds one current peer projection. Stored sections must not
+    # retain the projections of previous callbacks, with their old stores.
+    group = :sys.get_state(ctx.pa)
+    assert map_size(group.peers) == 2
+    assert Enum.all?(group.sections, fn {_, section} -> section.resource.siblings == %{} end)
   end
 
   test "a group's sections commit in one log record and reload after a crash", ctx do

@@ -38,11 +38,9 @@ impl BlockSource for Source<'_> {
     }
 }
 
-/// A chunk's heights for one heightmap (`Column::heights`).
-type Heights = [u16; 256];
-
-/// Heights computed this call, by chunk and heightmap.
-type HeightCache = RefCell<HashMap<((i32, i32), usize), Heights>>;
+/// Heights computed this call, by block column and heightmap. Spawning asks
+/// for a few random columns, not every column in each chunk it visits.
+type HeightCache = RefCell<HashMap<(i32, i32, usize), i32>>;
 
 /// A group's sections: the store holding each chunk, not the absent ones.
 pub struct Live<'s> {
@@ -52,6 +50,7 @@ pub struct Live<'s> {
     pub zoom_seed: i64,
     pub plains: u16,
     heights: HeightCache,
+    routes: RefCell<HashMap<(i32, i32), Option<usize>>>,
 }
 
 impl<'s> Live<'s> {
@@ -69,6 +68,7 @@ impl<'s> Live<'s> {
             zoom_seed,
             plains,
             heights: RefCell::new(HashMap::new()),
+            routes: RefCell::new(HashMap::new()),
         }
     }
 
@@ -76,10 +76,13 @@ impl<'s> Live<'s> {
         if self.absent.contains(&chunk) {
             return None;
         }
-        self.stores.iter().copied().find(|s| {
-            let (min, size) = (s.chunk_min, s.chunk_size);
-            (min.0..min.0 + size).contains(&chunk.0) && (min.1..min.1 + size).contains(&chunk.1)
-        })
+        let index = *self.routes.borrow_mut().entry(chunk).or_insert_with(|| {
+            self.stores.iter().position(|s| {
+                let (min, size) = (s.chunk_min, s.chunk_size);
+                (min.0..min.0 + size).contains(&chunk.0) && (min.1..min.1 + size).contains(&chunk.1)
+            })
+        });
+        index.map(|i| self.stores[i])
     }
 
     /// Whether a chunk is held (in a store, generated).
@@ -102,26 +105,30 @@ impl Level for Live<'_> {
     }
 
     fn height(&self, map: usize, x: i32, z: i32) -> i32 {
+        if let Some(&height) = self.heights.borrow().get(&(x, z, map)) {
+            return height;
+        }
         let chunk = (x >> 4, z >> 4);
         let Some(store) = self.store(chunk) else {
             return MIN_Y;
         };
         let mask = 1u8 << map;
-        let mut cache = self.heights.borrow_mut();
-        let heights =
-            cache
-                .entry((chunk, map))
-                .or_insert_with(|| match store.columns.get(&chunk) {
-                    Some(column) => column.heights(self.flags, mask),
-                    None => {
-                        let top = (0..HEIGHT)
-                            .rev()
-                            .find(|&y| self.flags.get(store.layers[y]) & mask != 0)
-                            .map_or(0, |y| y as u16 + 1);
-                        [top; 256]
-                    }
-                });
-        MIN_Y + heights[((z & 15) * 16 + (x & 15)) as usize] as i32
+        let height = MIN_Y
+            + match store.columns.get(&chunk) {
+                Some(column) => crate::column::height(
+                    &column.sections,
+                    (x & 15) as usize,
+                    (z & 15) as usize,
+                    self.flags,
+                    mask,
+                ) as i32,
+                None => (0..HEIGHT)
+                    .rev()
+                    .find(|&y| self.flags.get(store.layers[y]) & mask != 0)
+                    .map_or(0, |y| y as i32 + 1),
+            };
+        self.heights.borrow_mut().insert((x, z, map), height);
+        height
     }
 
     fn biome(&self, p: [i32; 3]) -> u16 {
@@ -221,5 +228,69 @@ impl Level for Scene<'_> {
 
     fn biome(&self, _p: [i32; 3]) -> u16 {
         self.biome
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::column::Column;
+    use crate::flags::{AIR, MOTION_BLOCKING as MOTION, WORLD_SURFACE as SURFACE};
+
+    #[test]
+    fn sparse_heights_match_every_column_and_keep_map_predicates_separate() {
+        let flags = BlockFlags::new(vec![AIR, MOTION | SURFACE, SURFACE]).unwrap();
+        let mut layers = Box::new([0; HEIGHT]);
+        layers[..128].fill(1);
+        let mut store = ColumnStore::new((-8, -8), 8, layers, 1 << 30);
+        let mut column = Column::from_layers(&store.layers);
+        for x in 0..16 {
+            for z in 0..16 {
+                column.set(-128 + x, 70 + (x + z) % 24, -128 + z, 1);
+                column.set(-128 + x, 100 + (x * z) % 24, -128 + z, 2);
+            }
+        }
+        store.columns.insert((-8, -8), column);
+        let stores = [&store];
+        let absent = HashSet::new();
+        let live = Live::new(&stores, &absent, &flags, 0, 0);
+        assert_eq!(live.height(WORLD_SURFACE, -128, -128), 101);
+        assert_eq!(live.heights.borrow().len(), 1);
+        assert_eq!(live.height(MOTION_BLOCKING, -128, -128), 71);
+        assert_eq!(live.heights.borrow().len(), 2);
+        for map in [WORLD_SURFACE, MOTION_BLOCKING] {
+            let expected = store.columns[&(-8, -8)].heights(&flags, 1 << map);
+            for x in 0..16 {
+                for z in 0..16 {
+                    let want = MIN_Y + expected[z * 16 + x] as i32;
+                    assert_eq!(live.height(map, -128 + x as i32, -128 + z as i32), want);
+                }
+            }
+            // Untouched chunks still read their layer profile.
+            assert_eq!(live.height(map, -100, -100), 64);
+        }
+    }
+
+    #[test]
+    fn routes_preserve_absence_missing_chunks_and_first_store_precedence() {
+        let flags = BlockFlags::new(vec![AIR, SURFACE]).unwrap();
+        let mut layers = Box::new([0; HEIGHT]);
+        layers[..128].fill(1);
+        let first = ColumnStore::new((0, 0), 1, layers, 1 << 30);
+        let second = ColumnStore::new((0, 0), 2, Box::new([0; HEIGHT]), 1 << 30);
+        let stores = [&first, &second];
+        let absent = HashSet::from([(1, 0)]);
+        let live = Live::new(&stores, &absent, &flags, 0, 0);
+        for _ in 0..2 {
+            assert!(std::ptr::eq(live.store((0, 0)).unwrap(), &first));
+            assert_eq!(live.height(WORLD_SURFACE, 0, 0), 64);
+            assert_eq!(live.state([0, 63, 0]), Some(1));
+            assert!(live.store((1, 0)).is_none());
+            assert!(live.store((-1, 0)).is_none());
+            assert!(live.store((3, 0)).is_none());
+            assert_eq!(live.height(WORLD_SURFACE, 16, 0), MIN_Y);
+        }
+        // Negative results are cached too; absent chunks are always rejected.
+        assert_eq!(live.routes.borrow().len(), 3);
     }
 }

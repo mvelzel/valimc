@@ -114,11 +114,25 @@ defmodule Valimc.Entity.Tracking do
   `pickup_delay` is 0 once it can be picked up, else 1, so a delay counting
   down does not rewrite its row every tick.
   """
-  def published(tracking, views) do
+  def published(tracking, views, previous \\ nil) do
+    old_source = if previous, do: previous.source, else: %{}
+    old_views = if previous, do: previous.views, else: %{}
+
     tracking.departing
     |> Map.merge(views)
     |> Map.new(fn {id, view} ->
-      {id, observed(view, tracking.spawns[id], tracking.trackers[id])}
+      spawn = tracking.spawns[id]
+      tracker = tracking.trackers[id]
+      base = tracker.base
+      incarnation = tracker.incarnation
+
+      published =
+        case {old_source[id], old_views[id]} do
+          {^view, %{spawn: ^spawn, base: ^base, tracker: ^incarnation} = cached} -> cached
+          _ -> observed(view, spawn, tracker)
+        end
+
+      {id, published}
     end)
   end
 

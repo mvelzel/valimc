@@ -7015,7 +7015,12 @@ defmodule Valimc.World.RegionData do
   defp publish_item_views(state) do
     store = state.entities.store
     tracking = Tracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
-    views = Map.merge(Tracking.published(tracking, store.views), state.player_views)
+
+    views =
+      Map.merge(
+        Tracking.published(tracking, store.views, state.entities.published),
+        state.player_views
+      )
 
     :ok =
       Publication.publish(
@@ -7059,7 +7064,12 @@ defmodule Valimc.World.RegionData do
         state.game_tick
       )
 
-    views = Map.merge(Tracking.published(tracking, store.views), state.player_views)
+    views =
+      Map.merge(
+        Tracking.published(tracking, store.views, state.entities.published),
+        state.player_views
+      )
+
     frame = Map.merge(frame, state.player_frame)
 
     :ok =

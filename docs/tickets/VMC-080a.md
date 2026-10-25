@@ -30,3 +30,19 @@ from 25.595 to 3.443 ms (7,588,647 to 632,056 reductions). Every sample retains
 the same 7,920 entity-count checksum. Raw script, before/after JSON and logs are
 in ignored `.local/wide-view-perf/observer*`; baseline `4049cd01`. This measures
 observer lookup/publication, not whole connection time or production TPS.
+
+The next user capture still samples rebuilding observed rows for frozen entities.
+Reuse an observed row only when its complete authoritative source view, pairing
+packet, tracking base and tracker incarnation are unchanged. Trackers and their
+frames continue ticking normally; changed bodies, shulker lids, metadata,
+ownership and handoff departures still rebuild immediately.
+
+Matched owner tracking plus publication with 1,000 unchanged cows, seven samples
+of 20 passes: median falls from 30.958 to 12.521 ms, reductions 3,828,413 to
+2,049,846. Both paths retain the 20,000-observation checksum; periodic tracker
+frames still advance. Dynamic movement, metadata, shulker collider, replacement
+tracker and departing/removed entity rows match the uncached implementation.
+This measures frozen-entity work, not the active AI phase. Raw inputs/results:
+`.local/wide-view-perf/profile5/owner_publication.exs` and `publication-*` there.
+The two new cache parity tests, fast suite, connection/handoff checks and selected
+vanilla stages pass; shared verification evidence is in the parent ticket.
