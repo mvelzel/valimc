@@ -79,12 +79,41 @@ have explicitly labeled clock history; past simulation rates cannot be inferred
 from their MSPT or last owner snapshot.
 
 Region MSPT is the min, median, p95 and maximum of the latest 100 completed
-region ticks across owners, also shown as a p95 history graph. These durations
-measure tick work; they exclude time awaiting the next tick or processing other
-mailbox work. A blocked tick cannot publish its duration until it completes;
+region ticks across owners, also shown as a p95 history graph. Captures with
+`mspt_scope: owner_tick_callback` include the simulation body, lifecycle, transfer
+checks and commit preparation. Older captures measured only the simulation body.
+Durations exclude time awaiting the next tick or processing other mailbox work.
+A blocked tick cannot publish its duration until it completes;
 its zero TPS and increasing sample age expose the stall meanwhile. These are
 region-duration statistics rather than Java's single global tick windows.
 Health history retains up to 15 minutes.
+
+The JSON export's `owner_work` records complete callback wall times by owner for
+the capture. Callback categories distinguish ticks, player input, generation,
+light, transfers, commit timers, calls, resource messages, explicit GC, loading
+and other messages. `completed_ticks` counts executed simulation turns; the tick
+callback count also includes early, stale and frozen timer callbacks. Wall time
+includes scheduler pauses, native waits and GC, so it is not exclusive CPU usage.
+Callbacks are accounted when they finish and can cross an observation boundary.
+
+Detailed `sampled_phases` partition the first and every twentieth executed tick
+into exclusive durations: tracking, spawning, arena, pipeline phases, lifecycle,
+transfers, commit preparation, workload counting and overhead. Nested work is
+subtracted from its enclosing phase. Read `sampled_ticks` and `sampled_ms` with
+those totals; they cover only sampled ticks and must not be extrapolated as exact
+costs of all turns. Phase call counts include the sections visited; their lifetime
+maximum is the largest phase total in a sampled callback. Latest values carry
+their age, and maxima are explicitly lifetime values.
+
+Sampled workload counts describe pre-tick sections, full chunks, ticket-active
+chunks, loaded entities, eligible mobs and hosted players, with the age of that
+observation. They do not count entities that completed a turn. Current health
+includes interval work on each ticking owner's row. History retains the eight
+owners with the most measured callback time in each interval. The capture-wide
+totals include owners still alive when exported; retired owners can remain in
+the bounded history. First health observations have no interval baseline and
+report unavailable deltas. These fields currently support JSON analysis rather
+than additional phase charts in the browser.
 
 Scheduler utilization is sampled wall-time utilization, not host CPU usage.
 Dirty scheduler utilization helps identify native work, but sampled stacks only

@@ -4,7 +4,8 @@ Status: Planned
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
-Audit completed October 25, 2026. Implementation of this plan has not started.
+Audit completed October 25, 2026. The first follow-up is complete owner timing
+observations ([080i](VMC-080i.md)); larger simulation refactors have not started.
 The user requested this review before further fixes or deployment. They explicitly
 asked for the strengths and costs of both BEAM/Elixir and Rust to be considered,
 without a preference that forces the wrong execution or state model.
@@ -33,8 +34,9 @@ AI in Elixir nor porting all families to Rust is a requirement.
 
 Runtime reference: deployed `95051f1755c8b7fdef0a0f43f6639db43d6e901d`.
 Local HEAD `24c47562` adds deployment documentation. Earlier uncommitted 080f/g
-prototypes are distinguished below; they have not been deployed. No runtime
-implementation or deployment was continued after the audit request.
+prototypes are distinguished below; they have not been deployed. Runtime work
+paused for this audit. Following the user's clarification to take the appropriate
+Elixir/Rust direction, 080i begins the measurement step. Nothing new was deployed.
 
 The review follows the world/owner clocks, regionizer, tick pipeline, tickets,
 entity ageing, mob AI, goals/brains, sensing, navigation, native ticker, movement

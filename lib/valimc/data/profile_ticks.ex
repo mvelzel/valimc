@@ -1,9 +1,18 @@
 defmodule Valimc.Data.ProfileTicks do
   @moduledoc """
-  Tick observations, written by each region to its own ETS row. No messages or
-  profiler calls on the simulation path. The observer removes dead owners.
+  Tick observations and `ProfileWork` summaries, written by each region to its
+  own ETS rows. No messages or profiler calls on the simulation path. The
+  observer removes dead owners.
   """
-  def init!, do: :ets.new(__MODULE__, [:named_table, :public, :set, read_concurrency: true])
+  def init!,
+    do:
+      :ets.new(__MODULE__, [
+        :named_table,
+        :public,
+        :set,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
 
   def record(nanoseconds, late) do
     table = :ets.whereis(__MODULE__)

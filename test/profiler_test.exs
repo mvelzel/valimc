@@ -4,7 +4,7 @@ defmodule Valimc.ProfilerTest do
   @moduletag :tmp_dir
   alias Valimc.Admin.{Profiler, ProfileSampler, ProfileReport}
   alias Valimc.Commands.Source
-  alias Valimc.Data.ProfileTicks
+  alias Valimc.Data.{ProfileTicks, ProfileWork}
 
   setup %{tmp_dir: directory} do
     old = Application.fetch_env(:valimc, :profiler_path)
@@ -146,6 +146,47 @@ defmodule Valimc.ProfilerTest do
     assert {:ok, %{rounds: rounds}} = Profiler.report(id)
     assert rounds > 0
     refute_receive {:done, _}, 30
+  end
+
+  test "capture exports measured owner work, including owners born during the capture", %{
+    tmp_dir: path
+  } do
+    {:ok, id} = Profiler.start(options())
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        ProfileWork.callback(:tick, fn ->
+          ProfileWork.tick(fn ->
+            ProfileWork.workload(fn -> %{active_mobs: 4, sections: 1} end)
+            ProfileWork.phase(:entities, fn -> Enum.sum(1..1000) end)
+          end)
+        end)
+
+        send(parent, :work_published)
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    assert_receive :work_published
+    send(Profiler, :health)
+    assert {:ok, ^id} = Profiler.stop()
+    json = File.read!(Path.join(path, id <> ".json")) |> JSON.decode!()
+    work = json["owner_work"][inspect(pid)]
+    assert work["completed_ticks"] == 1
+    assert work["sampled_ticks"] == 1
+    assert work["workload"]["active_mobs"] == 4
+    assert work["callbacks"]["tick"]["calls"] == 1
+
+    assert_in_delta Enum.sum(for {_, stats} <- work["sampled_phases"], do: stats["total_ms"]),
+                    work["sampled_ms"],
+                    0.000001
+
+    assert json["health"]["mspt_scope"] == "owner_tick_callback"
+    assert List.last(json["history"])["owner_work"]
   end
 
   test "running process reductions and stack capacity are measured independently" do

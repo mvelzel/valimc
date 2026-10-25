@@ -7,7 +7,7 @@ defmodule Valimc.Admin.Profiler do
   use GenServer
   require Logger
   alias Valimc.Admin.ProfileSampler
-  alias Valimc.Data.{Metrics, ProfileTicks}
+  alias Valimc.Data.{Metrics, ProfileTicks, ProfileWork}
   @reports Valimc.ProfileReports
   @view Valimc.ProfileHealth
 
@@ -107,6 +107,7 @@ defmodule Valimc.Admin.Profiler do
       clock: Metrics.get(:clock_ticks),
       at: now(),
       previous_ticks: %{},
+      previous_work: %{},
       monitors: %{},
       slow_sequence: 0
     }
@@ -144,6 +145,7 @@ defmodule Valimc.Admin.Profiler do
           started: now(),
           date: DateTime.to_iso8601(DateTime.utc_now()),
           sampler: ProfileSampler.new(validated),
+          owner_work: ProfileWork.snapshot(),
           notify: notify
         }
 
@@ -227,7 +229,7 @@ defmodule Valimc.Admin.Profiler do
 
   def handle_info(:health, state) do
     time = now()
-    {health, wall, ticks} = snapshot(state, time)
+    {health, wall, ticks, work} = snapshot(state, time)
 
     history =
       Enum.take(
@@ -241,7 +243,9 @@ defmodule Valimc.Admin.Profiler do
             :memory,
             :run_queue,
             :scheduler,
-            :mspt
+            :mspt,
+            :mspt_scope,
+            :owner_work
           ])
           | state.history
         ],
@@ -257,7 +261,8 @@ defmodule Valimc.Admin.Profiler do
         wall: wall,
         clock: health.clock_ticks,
         at: time,
-        previous_ticks: ticks
+        previous_ticks: ticks,
+        previous_work: work
     }
 
     slow = ProfileTicks.slow_since(state.slow_sequence)
@@ -325,8 +330,13 @@ defmodule Valimc.Admin.Profiler do
     clock = Metrics.get(:clock_ticks)
     elapsed = max(time - state.at, 1)
     ticks = ProfileTicks.snapshot()
+    work = ProfileWork.snapshot()
+    work_intervals = ProfileWork.intervals(work, state.previous_work, time)
 
-    owners = tick_rates(ticks, state.previous_ticks, time, elapsed)
+    owners =
+      tick_rates(ticks, state.previous_ticks, time, elapsed)
+      |> Enum.map(&Map.put(&1, :work, Map.get(work_intervals, &1.pid)))
+
     tick_state = Map.take(Valimc.World.TickRate.published(), [:rate, :frozen, :sprinting])
 
     {samples, count} = Valimc.World.TickRate.samples()
@@ -351,6 +361,7 @@ defmodule Valimc.Admin.Profiler do
         p95: Enum.at(values, max(0, ceil(length(values) * 0.95) - 1), 0.0),
         max: List.last(values) || 0.0
       },
+      mspt_scope: "owner_tick_callback",
       scheduler: utilization,
       memory: Map.new(:erlang.memory()),
       gc: %{collections: gc, reclaimed_words: words},
@@ -359,12 +370,21 @@ defmodule Valimc.Admin.Profiler do
       schedulers: System.schedulers_online(),
       counters: Metrics.counters(),
       owners: Enum.sort_by(owners, &(-&1.last_ms)),
+      owner_work:
+        work_intervals
+        |> Enum.sort_by(fn {_, value} ->
+          -Enum.reduce(value.callbacks, 0.0, fn {_, stats}, sum ->
+            sum + (stats.total_ms || 0.0)
+          end)
+        end)
+        |> Enum.take(8)
+        |> Enum.map(fn {pid, work} -> %{pid: pid, work: work} end),
       ets: ets_summary(),
       player_rtt_ms: ProfileTicks.pings() |> Map.values()
     }
 
     {health, wall,
-     Map.new(ticks, fn {pid, count, total, _, _, _, _} -> {pid, {count, total}} end)}
+     Map.new(ticks, fn {pid, count, total, _, _, _, _} -> {pid, {count, total}} end), work}
   end
 
   @doc false
@@ -480,6 +500,8 @@ defmodule Valimc.Admin.Profiler do
         elapsed_ms: now() - capture.started,
         options: capture.sampler.options,
         health: health(),
+        owner_work:
+          ProfileWork.intervals(ProfileWork.snapshot(), capture.owner_work, now(), :zero),
         history: Enum.reverse(state.history)
       }
     )

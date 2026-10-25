@@ -20,6 +20,7 @@ defmodule Valimc.RegionTickTest do
 
     # Hold the due time far ahead so ordinary scheduler timing cannot race assertions.
     state = hold_deadline(pid)
+    completed = Valimc.Data.ProfileWork.snapshot()[pid].completed_ticks
 
     token = state.tick_clock.token
     send(pid, :tick)
@@ -37,6 +38,57 @@ defmodule Valimc.RegionTickTest do
     send(pid, {:tick, token})
     assert {:ok, _} = Region.observe_blocks({pid, epoch}, [])
     assert Valimc.TestConn.state(pid).tick_clock == after_early.tick_clock
+    assert Valimc.Data.ProfileWork.snapshot()[pid].completed_ticks == completed
+  end
+
+  test "automatic tick duration includes lifecycle and its nested commit preparation" do
+    nonce = System.unique_integer([:positive])
+    key = {90_000 + nonce, 90_000}
+    base = Path.join(System.tmp_dir!(), "valimc-tick-work-#{nonce}")
+    Valimc.TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
+    {:ok, {pid, epoch} = owner} = Valimc.TestWorld.owner(key)
+
+    on_exit(fn ->
+      Valimc.TestScope.kill(pid)
+      File.rm_rf(base)
+    end)
+
+    span = Valimc.Data.Grid.region_size()
+    Region.ticket(owner, key, :forced, [{elem(key, 0) * span, elem(key, 1) * span}])
+    assert {:ok, _} = Region.observe_blocks({pid, epoch}, [])
+
+    token =
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | manual: false,
+            tick_clock: %{state.tick_clock | deadline: System.monotonic_time(:millisecond)}
+        }
+      end).tick_clock.token
+
+    send(pid, {:tick, token})
+
+    # Same-sender system message follows the tick before its next timer.
+    :sys.replace_state(pid, fn state ->
+      if state.tick_timer, do: Process.cancel_timer(state.tick_timer)
+      %{state | manual: true}
+    end)
+
+    totals = Valimc.Data.ProfileWork.snapshot()[pid]
+    assert totals.completed_ticks >= 1
+    assert totals.sampled_ticks >= 1
+    assert totals.workload.active_chunks == 1
+    assert totals.workload.sections == 1
+    assert totals.phases.lifecycle.ns > 0
+    assert totals.phases.commit_prepare.calls > 0
+    [{^pid, _, _, _, duration, _, _}] = :ets.lookup(Valimc.Data.ProfileTicks, pid)
+    assert duration <= totals.callbacks.tick.last
+
+    # The first detailed tick includes all explicit phases, not only run_tick.
+    if totals.completed_ticks == 1 do
+      measured = for {kind, stats} <- totals.phases, kind != :overhead, do: stats.ns
+      assert duration >= Enum.sum(measured)
+    end
   end
 
   # Hold the due time far ahead. The timer armed at load may already have fired, so
