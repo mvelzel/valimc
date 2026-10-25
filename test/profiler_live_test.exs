@@ -52,6 +52,17 @@ defmodule Valimc.ProfilerLiveTest do
     assert html =~ "Simulation TPS"
     assert html =~ "Clock TPS (legacy)"
     assert html =~ "Region p95 MSPT over time"
+
+    :sys.replace_state(Profiler, fn state ->
+      :ets.insert(Valimc.ProfileReports, {id, %{data | health: %{health | tps: nil}}})
+      state
+    end)
+
+    for path <- ["/data/#{id}", "/export/#{id}/json"] do
+      json = get(build_conn(), path).resp_body |> JSON.decode!()
+      assert json["health"]["tps"] == nil
+      assert json["health"]["clock_tps"] == 20.0
+    end
   end
 
   test "real LiveView filters, expands, switches views, sorts, zooms and preserves state on refresh" do

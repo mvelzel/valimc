@@ -500,7 +500,7 @@ defmodule Valimc.Admin.Profiler do
 
     result =
       with :ok <- File.mkdir_p(directory),
-           :ok <- File.write(Path.join(directory, id <> ".json"), :json.encode(data)),
+           :ok <- File.write(Path.join(directory, id <> ".json"), JSON.encode!(data)),
            :ok <-
              File.write(
                Path.join(directory, id <> ".html"),

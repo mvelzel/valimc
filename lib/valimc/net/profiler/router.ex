@@ -75,11 +75,11 @@ defmodule Valimc.Net.Profiler.Download do
     do:
       conn
       |> put_resp_content_type("application/json")
-      |> send_resp(200, :json.encode(conn.assigns.report))
+      |> send_resp(200, JSON.encode!(conn.assigns.report))
 
   def call(conn, :export) do
     case conn.path_params["format"] do
-      "json" -> attachment(conn, "application/json", "json", :json.encode(conn.assigns.report))
+      "json" -> attachment(conn, "application/json", "json", JSON.encode!(conn.assigns.report))
       "html" -> attachment(conn, "text/html", "html", ProfileReport.html(conn.assigns.report))
       _ -> send_resp(conn, 404, "Unknown export format")
     end

@@ -118,9 +118,10 @@ defmodule Valimc.ProfilerTest do
     assert {:error, _} = Profiler.stop()
     assert {:ok, id} = Profiler.start(options())
     assert {:ok, ^id} = Profiler.stop()
-    assert {:ok, %{status: "complete"}} = Profiler.report(id)
-    json = File.read!(Path.join(path, id <> ".json")) |> :json.decode()
+    assert {:ok, %{status: "complete"} = report} = Profiler.report(id)
+    json = File.read!(Path.join(path, id <> ".json")) |> JSON.decode!()
     assert json["kind"] == "profile"
+    assert json["health"]["tps"] == report.health.tps
     assert File.read!(Path.join(path, id <> ".html")) =~ "Call tree"
     assert :json.encode(Profiler.health())
 

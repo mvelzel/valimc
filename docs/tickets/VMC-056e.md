@@ -63,3 +63,8 @@ fixture checkpoint failure during cleanup, with no failing assertion.
 
 Client: the user checks the deployed health graph while playing at view 32 and
 simulation 10; no graphical client driver or benchmark is run for this slice.
+
+Initial production verification exposes Erlang's raw JSON encoder serializing
+Elixir `nil` as the string `"nil"`. Report JSON routes and persisted captures
+now use Elixir's `JSON.encode!`, as HTML payloads already do, so unavailable rates
+are JSON `null`. Export and saved-report checks cover the missing-value case.
