@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Validate wide-view performance on Hetzner from the user's next profile ([080](tickets/VMC-080.md)).
+1. Follow the simulation audit: complete owner timings, consistent activity and a shared entity frame with measured Elixir/Rust boundaries ([080h](tickets/VMC-080h.md)).
 2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
