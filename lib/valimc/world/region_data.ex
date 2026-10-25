@@ -320,21 +320,29 @@ defmodule Valimc.World.RegionData do
     # A planning worker's result replaces the item map, so ageing waits while one
     # runs; the skipped ticks are owed and applied at once, so despawn timing
     # never stalls.
-    ticks = state.entities.age_debt + 1
+    owed =
+      Enum.reduce(state.tickets.simulated, state.entities.age_debt, fn chunk, debt ->
+        Map.update(debt, chunk, 1, &min(&1 + 1, 6000))
+      end)
+
+    ready = Map.take(owed, MapSet.to_list(state.tickets.simulated))
 
     {items, expired} =
       if state.entities.simulate and not planning?(state),
         do:
-          Store.age(
+          Store.age_chunks(
             state.entities.store,
-            ticks,
+            ready,
             elem(Valimc.World.Dimension.bounds(state.dimension), 0),
             state.game_tick
           ),
         else: {nil, []}
 
     if items != nil and (expired == [] or write_busy(state) == nil) do
-      state = remember_item_counters(%{state | entities: %{state.entities | age_debt: 0}}, items)
+      debt = Map.drop(owed, Map.keys(ready))
+
+      state =
+        remember_item_counters(%{state | entities: %{state.entities | age_debt: debt}}, items)
 
       if expired == [] do
         state
@@ -368,7 +376,7 @@ defmodule Valimc.World.RegionData do
       end
     else
       if state.entities.simulate,
-        do: %{state | entities: %{state.entities | age_debt: min(ticks, 6000)}},
+        do: %{state | entities: %{state.entities | age_debt: owed}},
         else: state
     end
   end
@@ -382,7 +390,14 @@ defmodule Valimc.World.RegionData do
       is_integer(runtime.retry_at) and now < runtime.retry_at and runtime.seen == nil ->
         state
 
-      CookingRuntime.due?(runtime, state.containers, state.revision, state.entities.store, now) ->
+      CookingRuntime.due?(
+        runtime,
+        state.containers,
+        state.revision,
+        state.entities.store,
+        now,
+        state.tickets.simulated
+      ) ->
         start_cooking_plan(state, now)
 
       true ->
@@ -393,10 +408,25 @@ defmodule Valimc.World.RegionData do
   defp start_cooking_plan(state, now) do
     containers = state.containers
     items = state.entities.store
-    # Workers get values: the blocks under every cooking container, not the storage handle.
-    edits = Blocks.get_many(state.blocks, for({p, %{cooking: _}} <- containers.entries, do: p))
+    chunks = state.tickets.simulated
+
+    selection =
+      CookingRuntime.selection(state.cooking, containers, state.revision, items, now, chunks)
+
+    if selection == MapSet.new() do
+      %{
+        state
+        | cooking: CookingRuntime.observed(state.cooking, containers, state.revision, chunks)
+      }
+    else
+      start_selected_cooking(state, containers, items, selection, chunks, now)
+    end
+  end
+
+  defp start_selected_cooking(state, containers, items, selection, chunks, now) do
+    # Workers get values under selected processors, never the storage handle.
+    edits = Blocks.get_many(state.blocks, MapSet.to_list(selection))
     key = state.key
-    selection = CookingRuntime.selection(state.cooking, containers, state.revision, items, now)
     blocked = state.cooking.blocked
 
     case start_job(
@@ -405,7 +435,7 @@ defmodule Valimc.World.RegionData do
            fn -> CookingRuntime.plan(containers, items, key, edits, selection, blocked) end,
            supervisor: Valimc.ItemWorkers,
            deadline: 500,
-           data: %{containers: containers, items: items}
+           data: %{containers: containers, items: items, simulated: chunks}
          ) do
       {:ok, state} ->
         Valimc.Data.Metrics.add(:cooking_batches)
@@ -444,13 +474,16 @@ defmodule Valimc.World.RegionData do
   defp accept_cooking_plan(state, job, plan) do
     current =
       not planning?(state) and state.containers == job.containers and
+        Enum.all?(plan.expected, fn {position, _} ->
+          CookingRuntime.eligible?(position, state.tickets.simulated)
+        end) and
         Enum.all?(plan.expected, fn {position, block} ->
           Blocks.get(state.blocks, position) == block
         end)
 
     with true <- current,
          {:ok, items} <- Store.merge_created(state.entities.store, job.items, plan.items) do
-      plan = %{plan | items: items}
+      plan = Map.put(%{plan | items: items}, :simulated, job.simulated)
 
       if plan.changes == %{},
         do: finish_cooking(state, plan),
@@ -513,7 +546,8 @@ defmodule Valimc.World.RegionData do
         plan.containers,
         state.revision,
         plan.items,
-        now
+        now,
+        plan.simulated
       )
 
     state = publish_item_views(%{state | entities: %{state.entities | store: plan.items}})
@@ -2154,21 +2188,26 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  # `BlockAttachedEntity.tick`: every 101st tick of its life (counted from
-  # the game tick it was made at) a knot off its fence goes, with its sound.
+  # `BlockAttachedEntity.tick`: support checks count executed turns. Inactive
+  # gaps and global game-time jumps do not advance the 101-turn interval.
   defp tick_knots(state) do
-    tick = state.game_tick || 0
+    Enum.reduce(Store.in_chunks(state.entities.store, state.tickets.simulated, :object), state, fn
+      {id, %{body: %Body{type: @knot}, entity: e} = entry}, state ->
+        checks = div(Map.get(entry, :lived, 0), 101)
 
-    gone =
-      for {id, %{kind: :object, body: %Body{type: @knot} = body, entity: e}} <-
-            state.entities.store.entries,
-          tick - body.data.since > 0 and rem(tick - body.data.since, 101) == 0,
-          pos = {floor(e.x), floor(e.y), floor(e.z)},
-          not fence?(state, pos),
-          do: {id, pos}
+        if checks > Map.get(entry, :knot_checks, 0) do
+          state = put_in(state.entities.store.entries[id], Map.put(entry, :knot_checks, checks))
+          pos = {floor(e.x), floor(e.y), floor(e.z)}
 
-    Enum.reduce(gone, state, fn {id, pos}, state ->
-      state |> remove_entry(id) |> knot_sound(pos, "minecraft:item.lead.untied")
+          if fence?(state, pos),
+            do: state,
+            else: state |> remove_entry(id) |> knot_sound(pos, "minecraft:item.lead.untied")
+        else
+          state
+        end
+
+      _, state ->
+        state
     end)
   end
 
@@ -6565,7 +6604,7 @@ defmodule Valimc.World.RegionData do
             Map.put(
               record,
               :entity_counters,
-              Map.take(entry, [:idle, :lived, :aged_tick, :simulated_tick])
+              Map.take(entry, [:idle, :lived, :aged_tick, :simulated_tick, :knot_checks])
             )
 
           case entry do

@@ -41,4 +41,42 @@ defmodule Valimc.CookingRuntimeTest do
     assert CookingRuntime.selection(runtime, changed, edits, items, -900) == :all
     assert CookingRuntime.due?(runtime, changed, edits, items, -900)
   end
+
+  test "partial-section selection freezes processors and a ticket change wakes them" do
+    cooking = %Cooking{
+      slots: {ItemStack.new("raw_iron", 2), ItemStack.new("coal"), nil},
+      burn_left: 500,
+      burn_total: 1600,
+      progress: 10,
+      total: 200
+    }
+
+    {containers, edits} = seed(:furnace, cooking)
+    other = {20, 64, 4}
+    {:ok, containers, entry} = Containers.create_cooking(containers, @key, other, :furnace)
+
+    {:ok, containers, _} =
+      Containers.replace_cooking(containers, other, entry.revision, cooking, %{})
+
+    edits = Map.put(edits, other, edits[@pos])
+    items = Store.new()
+    first = MapSet.new([{0, 0}])
+    runtime = %CookingRuntime{}
+    selected = CookingRuntime.selection(runtime, containers, edits, items, -1000, first)
+    assert selected == MapSet.new([@pos])
+    {:ok, plan} = CookingRuntime.plan(containers, items, @key, edits, selected, MapSet.new())
+    assert plan.containers.entries[@pos].cooking.progress == 11
+    assert plan.containers.entries[other] == containers.entries[other]
+    assert Map.keys(plan.expected) == [@pos]
+    runtime = CookingRuntime.accepted(runtime, plan, plan.containers, edits, items, -1000, first)
+    second = MapSet.new([{1, 0}])
+    assert CookingRuntime.due?(runtime, plan.containers, edits, items, -950, second)
+
+    assert CookingRuntime.selection(runtime, plan.containers, edits, items, -950, second) ==
+             MapSet.new([other])
+
+    none = MapSet.new()
+    runtime = CookingRuntime.observed(runtime, plan.containers, edits, none)
+    refute CookingRuntime.due?(runtime, plan.containers, edits, items, -900, none)
+  end
 end

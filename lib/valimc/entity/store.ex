@@ -80,14 +80,49 @@ defmodule Valimc.Entity.Store do
   away (`merge_orbs/3`); removal waits for the owner's durable commit.
   """
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y(), game_tick \\ nil) do
-    {state, absorbed} = merge_orbs(state, ticks, game_tick)
+    ages = Map.new(state.entries, fn {id, _} -> {id, ticks} end)
+    age_selected(state, ages, minimum_y, game_tick)
+  end
 
-    {state, expired} = age_entries(state, ticks, minimum_y, game_tick)
+  @doc "Advance counters only in chunks with an eligible tick budget."
+  def age_chunks(state, chunk_ticks, minimum_y, game_tick) do
+    memberships =
+      for {chunk, ticks} <- chunk_ticks,
+          is_integer(ticks) and ticks > 0,
+          kind <- [:mob, :object, :item, :orb],
+          ids = Map.get(state.spatial.chunks, {chunk, kind}),
+          ids != nil,
+          do: {ids, ticks}
+
+    count = Enum.reduce(memberships, 0, fn {ids, _}, count -> count + MapSet.size(ids) end)
+
+    # Sparse tickets should not walk the render-loaded population. When most
+    # entries tick, a direct traversal avoids rebuilding a dense set through
+    # many small membership buckets; both paths select the same live entries.
+    ages =
+      if count * 2 >= map_size(state.entries) do
+        for {id, entry} <- state.entries,
+            ticks = Map.get(chunk_ticks, Grid.chunk_key(entry.entity.x, entry.entity.z)),
+            is_integer(ticks) and ticks > 0,
+            into: %{},
+            do: {id, ticks}
+      else
+        for {ids, ticks} <- memberships, id <- ids, into: %{}, do: {id, ticks}
+      end
+
+    age_selected(state, ages, minimum_y, game_tick)
+  end
+
+  defp age_selected(state, ages, minimum_y, game_tick) do
+    {state, absorbed} = merge_orbs(state, ages, game_tick)
+    {state, expired} = age_entries(state, ages, minimum_y, game_tick)
 
     state =
       if game_tick != nil do
         entries =
-          Map.new(state.entries, fn {id, entry} -> {id, Map.put(entry, :aged_tick, game_tick)} end)
+          Enum.reduce(ages, state.entries, fn {id, _}, entries ->
+            Map.update!(entries, id, &Map.put(&1, :aged_tick, game_tick))
+          end)
 
         %{state | entries: entries}
       else
@@ -97,14 +132,12 @@ defmodule Valimc.Entity.Store do
     {state, Enum.uniq(absorbed ++ expired)}
   end
 
-  # Orbs merge when they scan (VMC-034n4c): on their first tick and every
-  # twentieth after (`ExperienceOrb.tick` at `tickCount % 20 == 1`), in id
-  # order; `lived` counts an orb's ticks in this VM, as vanilla's `tickCount`.
-  defp merge_orbs(state, ticks, game_tick) do
-    orbs = for {id, %{kind: :orb} = entry} <- state.entries, do: {id, entry}
-
+  # Only eligible orbs start scans. Passive neighbours remain candidates for
+  # an active scan; ticket eligibility does not make them immune to merging.
+  defp merge_orbs(state, ages, game_tick) do
     scanning =
-      for {id, %{lived: lived} = entry} <- orbs,
+      for {id, ticks} <- ages,
+          %{kind: :orb, lived: lived} = entry <- [state.entries[id]],
           game_tick == nil or Map.get(entry, :aged_tick) != game_tick,
           lived + 1 + Integer.mod(-lived, 20) <= lived + ticks,
           do: id
@@ -112,6 +145,18 @@ defmodule Valimc.Entity.Store do
     if scanning == [] do
       {state, []}
     else
+      # An orb's expanded box reaches at most one adjacent chunk. Reuse the
+      # membership index rather than traversing render-only mobs and items.
+      chunks =
+        for id <- scanning,
+            {x, z} = Grid.chunk_key(state.entries[id].entity.x, state.entries[id].entity.z),
+            dx <- -1..1,
+            dz <- -1..1,
+            into: MapSet.new(),
+            do: {x + dx, z + dz}
+
+      orbs = in_chunks(state, chunks, :orb)
+
       before =
         Map.new(orbs, fn {id, %{entity: e} = entry} ->
           {id, %{value: entry.value, count: entry.count, age: entry.age, at: {e.x, e.y, e.z}}}
@@ -128,12 +173,7 @@ defmodule Valimc.Entity.Store do
             revision = entry.revision + 1
             entry = %{entry | count: orb.count, age: orb.age, revision: revision}
             view = %{acc.views[id] | count: orb.count, revision: revision}
-
-            %{
-              acc
-              | entries: Map.put(acc.entries, id, entry),
-                views: Map.put(acc.views, id, view)
-            }
+            %{acc | entries: Map.put(acc.entries, id, entry), views: Map.put(acc.views, id, view)}
           end
         end)
 
@@ -163,81 +203,83 @@ defmodule Valimc.Entity.Store do
     {body, events, done}
   end
 
-  defp age_entries(state, ticks, minimum_y, game_tick) do
-    Enum.reduce(state.entries, {state, []}, fn
-      {_id, %{aged_tick: tick}}, acc when tick != nil and tick == game_tick ->
-        acc
+  defp age_entries(state, ages, minimum_y, game_tick) do
+    Enum.reduce(ages, {state, []}, fn {id, ticks}, {items, expired} = acc ->
+      case items.entries[id] do
+        %{aged_tick: tick} when tick != nil and tick == game_tick ->
+          acc
 
-      {_id, %{simulated_tick: tick}}, acc when tick != nil and tick == game_tick ->
-        acc
+        %{simulated_tick: tick} when tick != nil and tick == game_tick ->
+          acc
 
-      {id, %{kind: kind} = entry}, {items, expired} when kind in @bodies ->
-        # A body can move between sibling sections during this group tick.
-        # Its living timers run only once, with its live state carried over.
-        {body, events, done} = age_body(entry.body, ticks, game_tick)
+        %{kind: kind} = entry when kind in @bodies ->
+          # A body can move between sibling sections during this group tick.
+          # Its living timers run only once, with its live state carried over.
+          {body, events, done} = age_body(entry.body, ticks, game_tick)
 
-        items =
-          if body == entry.body and events == [],
-            do: items,
-            else: put_body(items, id, body, events)
+          items =
+            if body == entry.body and events == [],
+              do: items,
+              else: put_body(items, id, body, events)
 
-        expired =
-          if done or entry.entity.y < minimum_y - 64,
-            do: [{items.epoch, id, items.entries[id].revision} | expired],
-            else: expired
+          expired =
+            if done or entry.entity.y < minimum_y - 64,
+              do: [{items.epoch, id, items.entries[id].revision} | expired],
+              else: expired
 
-        {idle(items, id, kind, ticks), expired}
+          {idle(items, id, kind, ticks), expired}
 
-      {id, %{kind: :orb} = entry}, {items, expired} ->
-        # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
-        # handles and view stay.
-        age = min(entry.age + ticks, 6000)
-        # Its portal cooldown runs down (VMC-026d).
-        motion = %{entry.motion | portal_cooldown: max(0, entry.motion.portal_cooldown - ticks)}
-        entry = %{entry | age: age, lived: entry.lived + ticks, motion: motion}
-        items = %{items | entries: Map.put(items.entries, id, entry)}
+        %{kind: :orb} = entry ->
+          # An orb's age is a counter (vanilla despawns it at 6000 ticks); its
+          # handles and view stay.
+          age = min(entry.age + ticks, 6000)
+          # Its portal cooldown runs down (VMC-026d).
+          motion = %{entry.motion | portal_cooldown: max(0, entry.motion.portal_cooldown - ticks)}
+          entry = %{entry | age: age, lived: entry.lived + ticks, motion: motion}
+          items = %{items | entries: Map.put(items.entries, id, entry)}
 
-        expired =
-          if age >= 6000 or entry.entity.y < minimum_y - 64,
-            do: [{items.epoch, id, entry.revision} | expired],
-            else: expired
+          expired =
+            if age >= 6000 or entry.entity.y < minimum_y - 64,
+              do: [{items.epoch, id, entry.revision} | expired],
+              else: expired
 
-        {items, expired}
+          {items, expired}
 
-      {id, entry}, {items, expired} ->
-        motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
-        next = ItemMotionState.advance(motion, ticks)
+        entry ->
+          motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
+          next = ItemMotionState.advance(motion, ticks)
 
-        items =
-          if Map.get(entry, :motion) == next do
-            items
-          else
-            revision = entry.revision + 1
-            entry = entry |> Map.put(:motion, next) |> Map.put(:revision, revision)
-
-            %{
+          items =
+            if Map.get(entry, :motion) == next do
               items
-              | entries: Map.put(items.entries, id, entry),
-                views:
-                  Map.update!(
-                    items.views,
-                    id,
-                    &%{
-                      &1
-                      | revision: revision,
-                        pickup_delay: next.pickup_delay,
-                        merge_open: merge_open?(entry.stack.count, &1.merge_max, next)
-                    }
-                  )
-            }
-          end
+            else
+              revision = entry.revision + 1
+              entry = entry |> Map.put(:motion, next) |> Map.put(:revision, revision)
 
-        expired =
-          if next.age >= 6000 or entry.entity.y < minimum_y - 64,
-            do: [{items.epoch, id, items.entries[id].revision} | expired],
-            else: expired
+              %{
+                items
+                | entries: Map.put(items.entries, id, entry),
+                  views:
+                    Map.update!(
+                      items.views,
+                      id,
+                      &%{
+                        &1
+                        | revision: revision,
+                          pickup_delay: next.pickup_delay,
+                          merge_open: merge_open?(entry.stack.count, &1.merge_max, next)
+                      }
+                    )
+              }
+            end
 
-        {items, expired}
+          expired =
+            if next.age >= 6000 or entry.entity.y < minimum_y - 64,
+              do: [{items.epoch, id, items.entries[id].revision} | expired],
+              else: expired
+
+          {items, expired}
+      end
     end)
   end
 
@@ -255,7 +297,19 @@ defmodule Valimc.Entity.Store do
     %{items | entries: Map.put(items.entries, id, entry)}
   end
 
-  defp idle(items, _id, _kind, _ticks), do: items
+  defp idle(items, id, :object, ticks) do
+    entry = items.entries[id]
+
+    if entry.body.type == "minecraft:leash_knot" do
+      %{
+        items
+        | entries:
+            Map.put(items.entries, id, Map.put(entry, :lived, Map.get(entry, :lived, 0) + ticks))
+      }
+    else
+      items
+    end
+  end
 
   @doc "Restart the idle time of mobs `ids` (a player came within 32 blocks)."
   def reset_idle(state, ids) do
@@ -944,7 +998,7 @@ defmodule Valimc.Entity.Store do
     entry =
       Map.merge(
         state.entries[id],
-        Map.take(counters, [:idle, :lived, :aged_tick, :simulated_tick])
+        Map.take(counters, [:idle, :lived, :aged_tick, :simulated_tick, :knot_checks])
       )
 
     %{state | entries: Map.put(state.entries, id, entry)}

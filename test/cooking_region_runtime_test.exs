@@ -44,7 +44,10 @@ defmodule Valimc.CookingRegionRuntimeTest do
       ctx.position => if(lit, do: ctx.lit, else: ctx.unlit)
     })
 
-    RegionData.load(:overworld, ctx.key)
+    state = RegionData.load(:overworld, ctx.key)
+    chunk = Valimc.Data.Grid.chunk_key(elem(ctx.position, 0), elem(ctx.position, 2))
+    {:noreply, state} = RegionData.handle_info({:ticket, self(), :forced, [chunk]}, state)
+    state
   end
 
   def progress,
@@ -82,6 +85,24 @@ defmodule Valimc.CookingRegionRuntimeTest do
     reloaded = RegionData.load(:overworld, ctx.key)
     assert reloaded.containers == expected
     RegionData.terminate(:shutdown, reloaded)
+  end
+
+  test "a worker cannot advance a processor whose chunk stopped ticking", ctx do
+    state = seed(ctx, progress())
+    original = state.containers
+    pending = start(state)
+    %{token: token} = Valimc.World.Jobs.get(pending.jobs, :cooking)
+    epoch = pending.epoch
+    assert_receive {:resource, ^epoch, {:job, :cooking, ^token, _} = message}
+    {:noreply, frozen} = RegionData.handle_info({:ticket, self(), :forced, []}, pending)
+    {:noreply, rejected} = RegionData.handle_info(message, frozen)
+    assert rejected.containers == original
+    chunk = Valimc.Data.Grid.chunk_key(elem(ctx.position, 0), elem(ctx.position, 2))
+    {:noreply, thawed} = RegionData.handle_info({:ticket, self(), :forced, [chunk]}, rejected)
+    finished = thawed |> start() |> result()
+    assert finished.containers.entries[ctx.position].cooking.progress == 11
+    assert finished.containers.entries[ctx.position].cooking.burn_left == 499
+    RegionData.terminate(:shutdown, finished)
   end
 
   def eventually(fun, _budget \\ nil) do

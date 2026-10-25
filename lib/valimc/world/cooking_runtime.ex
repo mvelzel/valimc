@@ -1,6 +1,7 @@
 defmodule Valimc.World.CookingRuntime do
   @moduledoc "Bounded cooking activity and proposals; simulation runs on workers, never the owner."
   alias Valimc.Blocks.CookingBlocks
+  alias Valimc.Data.Grid
   alias Valimc.World.{BlockBatch, Chunk, CookingBatch}
 
   defstruct enabled: false,
@@ -12,18 +13,40 @@ defmodule Valimc.World.CookingRuntime do
 
   def capacity(items), do: {map_size(items.entries), items.ledger.outgoing}
 
-  def due?(runtime, containers, edits, items, now) do
-    runtime.seen != {containers, edits} or MapSet.size(runtime.active) > 0 or
-      (MapSet.size(runtime.blocked) > 0 and retry?(runtime, items, now))
+  def due?(runtime, containers, edits, items, now, chunks \\ :all) do
+    runtime.seen != {containers, edits, chunks} or any_eligible?(runtime.active, chunks) or
+      (any_eligible?(runtime.blocked, chunks) and retry?(runtime, items, now))
   end
 
-  def selection(runtime, containers, edits, items, now) do
-    cond do
-      runtime.seen != {containers, edits} -> :all
-      retry?(runtime, items, now) -> MapSet.union(runtime.active, runtime.blocked)
-      true -> runtime.active
+  def selection(runtime, containers, edits, items, now, chunks \\ :all) do
+    selected =
+      cond do
+        runtime.seen != {containers, edits, chunks} -> :all
+        retry?(runtime, items, now) -> MapSet.union(runtime.active, runtime.blocked)
+        true -> runtime.active
+      end
+
+    case {selected, chunks} do
+      {:all, :all} ->
+        :all
+
+      {:all, _} ->
+        for {position, %{cooking: _}} <- containers.entries,
+            eligible?(position, chunks),
+            into: MapSet.new(),
+            do: position
+
+      {selected, _} ->
+        MapSet.filter(selected, &eligible?(&1, chunks))
     end
   end
+
+  def eligible?(_position, :all), do: true
+  def eligible?({x, _, z}, chunks), do: MapSet.member?(chunks, Grid.chunk_key(x, z))
+  defp any_eligible?(positions, chunks), do: Enum.any?(positions, &eligible?(&1, chunks))
+
+  def observed(runtime, containers, edits, chunks),
+    do: %{runtime | seen: {containers, edits, chunks}}
 
   defp retry?(runtime, items, now),
     do: runtime.retry_at == nil or now >= runtime.retry_at or capacity(items) != runtime.capacity
@@ -75,7 +98,7 @@ defmodule Valimc.World.CookingRuntime do
 
       {:ok,
        Map.merge(plan, %{
-         expected: blocks,
+         expected: selected,
          batch: batch,
          content: content,
          active: active,
@@ -84,10 +107,10 @@ defmodule Valimc.World.CookingRuntime do
     end
   end
 
-  def accepted(runtime, plan, containers, edits, items, now) do
+  def accepted(runtime, plan, containers, edits, items, now, chunks \\ :all) do
     %{
       runtime
-      | seen: {containers, edits},
+      | seen: {containers, edits, chunks},
         active: plan.active,
         blocked: plan.blocked,
         capacity: capacity(items),

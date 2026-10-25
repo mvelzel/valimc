@@ -4,7 +4,7 @@ defmodule Valimc.World.TickPipeline do
   scheduled block ticks, random ticks, block events (VMC-048b), entities
   (VMC-077h), moving pistons' block entities (VMC-048b), hoppers (VMC-049a),
   then cooking. Block ticks and item motion run only in chunks a simulation ticket
-  covers; cooking while any chunk does (VMC-077e). Phases never wait for
+  covers, including each cooking processor (VMC-080j). Phases never wait for
   storage (VMC-063); a full write queue defers their commits to a later tick.
   """
   alias Valimc.World.{RegionData, Tickets}
@@ -21,7 +21,7 @@ defmodule Valimc.World.TickPipeline do
   def run(resource, :cooking, _tick, now),
     do: simulated(resource, &RegionData.cooking_tick(&1, now))
 
-  # Cooking runs while any of the region's chunks ticks (VMC-077e).
+  # The runtime selects eligible processors within a partially active section.
   defp simulated(resource, phases),
     do: if(Tickets.simulating?(resource.tickets), do: phases.(resource), else: resource)
 end

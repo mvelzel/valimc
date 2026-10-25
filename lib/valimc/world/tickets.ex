@@ -7,7 +7,7 @@ defmodule Valimc.World.Tickets do
   until withdrawn or until its holder exits (the owner monitors it). Loading tickets want their chunks
   generated (`RegionGeneration`; the order is generation's, VMC-077x1);
   simulation tickets make their chunks tick: scheduled and random block ticks,
-  and the region's items, cooking and orbs while any chunk ticks. A fresh owner
+  and the entities and cooking processors in those chunks. A fresh owner
   holds a one-tick `:unknown` ticket of its own admission. A region without
   tickets and without work in flight unloads after a delay (`RegionData`).
 
