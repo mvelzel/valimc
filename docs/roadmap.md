@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Continue the shared active-entity frame and measured Elixir/Rust boundaries from the audit ([080h](tickets/VMC-080h.md)), guided by the new owner timings and combat/exploration captures ([080](tickets/VMC-080.md)); address exploration's adoption and heap pressure alongside entity work.
+1. Performance: a native simulation core with Elixir as control plane, plus constant-cost chunk adoption ([081](tickets/VMC-081.md)); its fixed-workload harness gates each slice.
 2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
 3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 

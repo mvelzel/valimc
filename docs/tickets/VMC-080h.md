@@ -1,6 +1,7 @@
 # VMC-080h — Simulation audit and refactoring plan
 
-Status: Planned
+Status: Parked
+Note: [VMC-081](VMC-081.md) decides the language boundary and replaces this sequence.
 Milestone: M3
 Parent: [VMC-080](VMC-080.md).
 
