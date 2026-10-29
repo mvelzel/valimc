@@ -29,6 +29,8 @@ mod fluid_parity;
 mod growth_parity;
 mod light;
 mod loot;
+mod mob_term;
+mod mobs;
 #[cfg(feature = "parity")]
 mod parity;
 mod path;

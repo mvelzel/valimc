@@ -271,6 +271,11 @@ defmodule Valimc.Native do
   def physics_mobs_velocity(_ticker, _index, _velocity), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_finish(_ticker), do: :erlang.nif_error(:nif_not_loaded)
 
+  ## Native mobs (VMC-081d)
+
+  def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_record_roundtrip(_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
+
   ## Path search (VMC-041b)
 
   def path_facts_init(_types, _flags), do: :erlang.nif_error(:nif_not_loaded)

@@ -2,5 +2,8 @@
 //! and tracking, owned per section by its group process. See
 //! `docs/tickets/VMC-081d.md`.
 
+pub mod model;
 pub mod mth;
 pub mod random;
+pub mod record;
+pub mod term;
