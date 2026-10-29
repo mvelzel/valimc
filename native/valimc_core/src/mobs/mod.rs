@@ -10,3 +10,4 @@ pub mod random;
 pub mod record;
 pub mod sensing;
 pub mod term;
+pub mod ai;

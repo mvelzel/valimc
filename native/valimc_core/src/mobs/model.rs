@@ -572,11 +572,10 @@ pub struct Mind {
 /// The live, unsaved part of `Valimc.AI.Mind` (tick and idle counters, the
 /// ambient timer, goal and target selectors, target and aggression, look,
 /// body rotation, navigation, hurt memory, the held gaussian, sight cache,
-/// brain, particle timers, disabled flags, `own`, pending reactions). The
-/// AI core fills it; a record never holds it, and a restored mob starts
-/// with none.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MindState {}
+/// brain, particle timers, disabled flags, `own`, pending reactions): the AI
+/// core's (`mobs::ai::mind`). A record never holds it, and a restored mob
+/// starts with none.
+pub use super::ai::mind::MindState;
 
 /// A family's atom-keyed data (`Body.data`), its key set fixed by type.
 #[derive(Clone, Debug, PartialEq)]
