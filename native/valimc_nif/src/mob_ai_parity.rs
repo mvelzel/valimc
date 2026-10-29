@@ -117,7 +117,7 @@ struct SceneT<'a> {
     hurt: Option<(i32, Binary<'a>, String)>,
 }
 
-fn difficulty(a: Atom) -> NifResult<Difficulty> {
+pub(crate) fn difficulty(a: Atom) -> NifResult<Difficulty> {
     Ok(match a {
         a if a == atoms::peaceful() => Difficulty::Peaceful,
         a if a == atoms::easy() => Difficulty::Easy,
@@ -127,7 +127,7 @@ fn difficulty(a: Atom) -> NifResult<Difficulty> {
     })
 }
 
-fn mode(a: Atom) -> NifResult<GameMode> {
+pub(crate) fn mode(a: Atom) -> NifResult<GameMode> {
     Ok(match a {
         a if a == atoms::survival() => GameMode::Survival,
         a if a == atoms::creative() => GameMode::Creative,
@@ -401,7 +401,7 @@ fn sensed(
 }
 
 /// A region's store as a level.
-fn over_region<T>(
+pub(crate) fn over_region<T>(
     region: &Region,
     zoom_seed: i64,
     f: impl FnOnce(&mut Level) -> NifResult<T>,

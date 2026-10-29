@@ -392,7 +392,7 @@ impl Species for Rabbit {
         let Some(raid) = goal
             .own
             .as_ref()
-            .and_then(|o| o.as_any().downcast_ref::<Raid>())
+            .and_then(|o| (**o).as_any().downcast_ref::<Raid>())
             .copied()
         else {
             return false;
@@ -513,7 +513,7 @@ impl RaidGarden {
         self.0
             .own
             .as_ref()
-            .and_then(|o| o.as_any().downcast_ref::<Raid>())
+            .and_then(|o| (**o).as_any().downcast_ref::<Raid>())
             .copied()
             .unwrap_or_default()
     }

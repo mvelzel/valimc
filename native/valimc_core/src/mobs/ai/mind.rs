@@ -69,11 +69,11 @@ impl Own {
 
     /// A family's own fields of type `T`.
     pub fn family<T: 'static>(&self) -> Option<&T> {
-        self.family.as_ref()?.as_any().downcast_ref()
+        self.family.as_deref()?.as_any().downcast_ref()
     }
 
     pub fn family_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        self.family.as_mut()?.as_any_mut().downcast_mut()
+        self.family.as_deref_mut()?.as_any_mut().downcast_mut()
     }
 }
 

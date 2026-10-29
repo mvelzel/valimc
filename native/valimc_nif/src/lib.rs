@@ -38,6 +38,8 @@ mod mob_living_parity;
 #[cfg(feature = "parity")]
 mod mob_parity;
 mod mob_term;
+#[cfg(feature = "parity")]
+mod mob_think_parity;
 mod mobs;
 #[cfg(feature = "parity")]
 mod parity;
