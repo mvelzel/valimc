@@ -47,6 +47,10 @@ defmodule Valimc.Storage.Log do
   alias Valimc.Storage.RegionLog
 
   @stripes 8
+  # Sections recovering at once across the stripes, and the counter of them
+  # (VMC-081c3).
+  @recovery_slots 8
+  @recovering {__MODULE__, :recovering}
   @index Valimc.Storage.LogIndex
   @started Valimc.Storage.LogStarted
   @idle_ms 15_000
@@ -71,6 +75,7 @@ defmodule Valimc.Storage.Log do
   def init! do
     :ets.new(@index, [:named_table, :public, :set, read_concurrency: true])
     :ets.new(@started, [:named_table, :public, :set])
+    :persistent_term.put(@recovering, :atomics.new(1, signed: true))
     :ok
   end
 
@@ -249,14 +254,66 @@ defmodule Valimc.Storage.Log do
     end
   end
 
+  # A section loads whole to replay its frames, so at most #{@recovery_slots}
+  # recover at once across the stripes, each until it unloaded again
+  # (VMC-081c3): admitting every section a long log names at once took more
+  # memory than a small server has, and each restart died recovering again.
   defp recover(_base, {:region, dimension, key}) do
-    Task.start(fn ->
-      Valimc.World.Directory.admit(Grid.section(dimension, key, :section))
-    end)
+    section = Grid.section(dimension, key, :section)
+    Task.start(fn -> with_recovery_slot(fn -> recover_section(section) end) end)
   end
 
   defp recover(base, {:player, uuid}), do: Valimc.Player.Storage.recover(base, uuid)
   defp recover(_base, _owner), do: :ok
+
+  defp with_recovery_slot(fun) do
+    case :persistent_term.get(@recovering, nil) do
+      nil ->
+        fun.()
+
+      slots ->
+        if :atomics.add_get(slots, 1, 1) <= @recovery_slots do
+          try do
+            fun.()
+          after
+            :atomics.sub(slots, 1, 1)
+          end
+        else
+          :atomics.sub(slots, 1, 1)
+          Process.sleep(100)
+          with_recovery_slot(fun)
+        end
+    end
+  end
+
+  # Admitted, it replays and checkpoints; the slot holds until it unloaded,
+  # following it into the group it may move to.
+  defp recover_section(section) do
+    case Valimc.World.Directory.admit(section) do
+      {:ok, pid} ->
+        await_unloaded(section, pid)
+
+      # The directory or the section is busy: its frames still need it.
+      {:error, {:retry, _}} ->
+        Process.sleep(1000)
+        recover_section(section)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp await_unloaded(section, pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, _, _} ->
+        case Valimc.World.Directory.lookup(section) do
+          {next, _, _} when next != pid -> await_unloaded(section, next)
+          _ -> :ok
+        end
+    end
+  end
 
   @impl true
   def handle_cast({:commit, _, _} = first, %{held: nil} = state),
