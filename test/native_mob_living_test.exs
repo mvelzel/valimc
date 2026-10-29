@@ -271,6 +271,23 @@ defmodule Valimc.NativeMobLivingTest do
       Mob.base(body.type, body.mob.attributes, name) * 1.0}}
   end
 
+  defp elixir(body, {:difficulty, difficulty, total, inhabited}) do
+    at = Valimc.Living.LocalDifficulty.at(difficulty, total, inhabited)
+    {body, [], {at.effective, Valimc.Living.LocalDifficulty.special(at)}}
+  end
+
+  defp elixir(body, {:explosion, radius, center, position, seen, resistance}) do
+    alias Valimc.Living.Explosions
+    distance = Explosions.distance(radius, center, position)
+
+    knockback =
+      distance && Explosions.knockback(center, position, distance, seen, resistance)
+
+    {body, [],
+     {Explosions.reach(radius, center), distance,
+      Explosions.damage(radius, center, position, seen), knockback}}
+  end
+
   defp elixir(body, {:synced}), do: {body, [], Mob.synced(body.type, body.mob.attributes)}
 
   # ------------------------------------------------------------------ cases
@@ -727,5 +744,26 @@ defmodule Valimc.NativeMobLivingTest do
 
       check(facts, body, {:hurt, [player_hit(amount, 77.0), player_hit(amount + 2.0, 77.0)]})
     end
+  end
+
+  test "local difficulty and explosions", %{facts: facts} do
+    difficulties =
+      for difficulty <- [:peaceful, :easy, :normal, :hard],
+          total <- [0, 72_000, 500_000, 1_512_000, 30_000_000],
+          inhabited <- [0, 1_000_000, 3_600_000, 9_000_000],
+          do: {:difficulty, difficulty, total, inhabited}
+
+    explosions =
+      for radius <- [1.0, 3.0, 4.0, 6.0],
+          position <- [
+            {64.5, 64.0, 61.5},
+            {66.25, 65.5, 60.0},
+            {70.0, 64.0, 61.5},
+            {64.5, 64.0, 61.5000001}
+          ],
+          seen <- [0.0, 0.25, 1.0],
+          do: {:explosion, radius, {64.5, 64.0, 61.5}, position, seen, 0.5}
+
+    check(facts, mob("zombie"), {:seq, difficulties ++ explosions})
   end
 end

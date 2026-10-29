@@ -530,6 +530,43 @@ fn run(rules: &Rules, mob: &mut NativeMob, op: &Value) -> NifResult<(Vec<Event>,
             }
             NIL
         }
+        // `LocalDifficulty.at/3`: `{effective, special}`.
+        "difficulty" => {
+            use valimc_core::mobs::level::Difficulty;
+            let difficulty = match atom_name(arg(1)?)? {
+                "peaceful" => Difficulty::Peaceful,
+                "easy" => Difficulty::Easy,
+                "normal" => Difficulty::Normal,
+                "hard" => Difficulty::Hard,
+                _ => return Err(bad()),
+            };
+            let at = valimc_core::mobs::living::difficulty::LocalDifficulty::at(
+                difficulty,
+                arg(2)?.as_int().ok_or_else(bad)?,
+                arg(3)?.as_int().ok_or_else(bad)?,
+            );
+            Value::tuple([Value::Float(at.effective), Value::Float(at.special())])
+        }
+        // `Explosions`: `{reach, distance, damage, knockback}` of an
+        // explosion of `radius` at `center` on `position`.
+        "explosion" => {
+            use valimc_core::mobs::living::explosions;
+            let radius = number(arg(1)?)?;
+            let center = vec3(arg(2)?)?;
+            let position = vec3(arg(3)?)?;
+            let seen = number(arg(4)?)?;
+            let resistance = number(arg(5)?)?;
+            let reach = explosions::reach(radius, center);
+            let distance = explosions::distance(radius, center, position);
+            Value::tuple([
+                Value::Tuple(reach.iter().map(|&v| Value::Float(v)).collect()),
+                distance.map_or(NIL, Value::Float),
+                Value::Float(explosions::damage(radius, center, position, seen)),
+                distance.map_or(NIL, |d| {
+                    Value::vec3(explosions::knockback(center, position, d, seen, resistance))
+                }),
+            ])
+        }
         // Operations in turn: their results.
         "seq" => {
             let mut results = Vec::new();
