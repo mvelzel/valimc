@@ -13,8 +13,8 @@ use valimc_core::mobs::facts::{MobFacts, Slot};
 use valimc_core::mobs::level::{self, Difficulty, FluidKind, Level, StoreBlocks};
 use valimc_core::mobs::random::LegacyRandom;
 use valimc_core::mobs::sensing::{
-    self, Conditions, Entity, GameMode, Kind, Ref, Seer, Select, SensedMob, SensedPlayer,
-    Sensing, SightCache, Uuid,
+    self, Conditions, Entity, GameMode, Kind, Ref, Seer, Select, SensedMob, SensedPlayer, Sensing,
+    SightCache, Uuid,
 };
 use valimc_core::physics::Aabb;
 
@@ -88,7 +88,14 @@ fn mob_parity_fact<'a>(env: Env<'a>, query: Term<'a>) -> NifResult<Term<'a>> {
         "entity_tag" => f.entity_tag(entity(1)?, &s(2)?).encode(env),
         "category" => {
             let c = f.entities.categories.get(&s(1)?).ok_or(bad())?;
-            (c.max, c.friendly, c.persistent, c.despawn_distance, c.no_despawn_distance).encode(env)
+            (
+                c.max,
+                c.friendly,
+                c.persistent,
+                c.despawn_distance,
+                c.no_despawn_distance,
+            )
+                .encode(env)
         }
         "attribute" => {
             let a = f.attributes.fetch(&s(1)?).ok_or(bad())?;
@@ -107,10 +114,7 @@ fn mob_parity_fact<'a>(env: Env<'a>, query: Term<'a>) -> NifResult<Term<'a>> {
                 .collect();
             (f.blocks.block_id(state), props).encode(env)
         }
-        "tag" => f
-            .tags
-            .has(&s(1)?, &s(2)?, n(3)? as i32)
-            .encode(env),
+        "tag" => f.tags.has(&s(1)?, &s(2)?, n(3)? as i32).encode(env),
         "sound" => f.sounds.id(&s(1)?).encode(env),
         "mob_sounds" => {
             let m = f.combat.mob_sounds(entity(1)?);
@@ -147,23 +151,20 @@ fn mob_parity_fact<'a>(env: Env<'a>, query: Term<'a>) -> NifResult<Term<'a>> {
             match f.ai.visibility.get(&item) {
                 None => nil,
                 Some(v) => {
-                    let types: Vec<&str> = v
-                        .types
-                        .iter()
-                        .filter_map(|&t| f.entities.name(t))
-                        .collect();
+                    let types: Vec<&str> =
+                        v.types.iter().filter_map(|&t| f.entities.name(t)).collect();
                     (v.visibility, slot_name(v.slot), types).encode(env)
                 }
             }
         }
-        "shulker_look" => f
-            .ai
-            .shulker_look
-            .get(n(1)? as usize)
-            .ok_or(bad())?
-            .map(|v| v as f64)
-            .to_vec()
-            .encode(env),
+        "shulker_look" => {
+            f.ai.shulker_look
+                .get(n(1)? as usize)
+                .ok_or(bad())?
+                .map(|v| v as f64)
+                .to_vec()
+                .encode(env)
+        }
         "swing" => {
             let fields = f.ai.swing_fields(q.get(1).ok_or(bad())?.decode::<bool>()?);
             crate::binary(env, &fields).encode(env)
@@ -466,7 +467,9 @@ fn player_row(env: Env, p: PlayerT) -> NifResult<SensedPlayer> {
 /// A sensed mob map (`AI.sensed/1`'s keys the sensing reads).
 fn mob_row(env: Env, f: &MobFacts, m: Term) -> NifResult<SensedMob> {
     let get = |key: Atom| m.map_get(key.to_term(env));
-    let kind: String = m.map_get(Atom::from_str(env, "type")?.to_term(env))?.decode()?;
+    let kind: String = m
+        .map_get(Atom::from_str(env, "type")?.to_term(env))?
+        .decode()?;
     Ok(SensedMob {
         uuid: uuid(&get(atoms::uuid())?.decode()?)?,
         id: get(atoms::id())?.decode()?,
@@ -620,8 +623,7 @@ fn mob_parity_sensing<'a>(
                     let s = select(q[1], f, &mut types)?;
                     let c = conditions(q[3].decode()?);
                     let b = aabb(q[2].decode()?);
-                    match sensing::nearest_mob(level, &sensing, &mut me, &s, &b, &c, point(q[4])?)
-                    {
+                    match sensing::nearest_mob(level, &sensing, &mut me, &s, &b, &c, point(q[4])?) {
                         Some(m) => crate::binary(env, &m.uuid).encode(env),
                         None => nil,
                     }
