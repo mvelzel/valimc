@@ -133,7 +133,7 @@ defmodule Valimc.Worldgen.Frontier.Memory do
 
       {locations, _} =
         Enum.map_reduce(spills, start, fn {chunk, cell}, offset ->
-          {:ok, bytes} = Native.gen_encode(cell)
+          {:ok, bytes} = Native.background(&Native.gen_encode_background(&1, cell))
           :ok = :file.write(file, bytes)
           {{chunk, offset, byte_size(bytes)}, offset + byte_size(bytes)}
         end)

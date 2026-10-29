@@ -10,14 +10,16 @@
 //! Scheduling: a NIF on a normal scheduler stays under about 1 ms for any input
 //! its caller may pass. Work that can take longer is a `DirtyCpu` NIF called
 //! from a bounded pool (`Valimc.Worldgen.Pool`), or a normal/dirty pair that
-//! `Valimc.Native.dispatch/3` picks by estimated cost.
+//! `Valimc.Native.dispatch/3` picks by estimated cost. Live generation jobs run
+//! on `background`'s low-priority threads instead and send their results.
 //!
 //! Results: a value as `{:ok, value}`, none as `:ok`; an expected failure as
 //! `{:error, atom}` from its domain's closed set. A broken invariant (a
 //! generator or loot table that cannot run what the facts say) raises.
 
-use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
+use rustler::{Atom, Binary, Encoder, Env, NewBinary, NifResult, ResourceArc, Term};
 
+mod background;
 mod climate;
 mod codec;
 mod facts;
@@ -90,6 +92,33 @@ fn bytes<'a>(env: Env<'a>, mut bytes: Vec<u8>) -> Binary<'a> {
     }
     bytes.shrink_to_fit();
     ResourceArc::new(Bytes(bytes)).make_binary(env, |b| &b.0)
+}
+
+/// Bytes made where no environment is (background jobs, VMC-081c): a binary
+/// over them once encoded, as `bytes/2` makes.
+pub(crate) struct Bin(ResourceArc<Bytes>);
+
+impl Bin {
+    pub(crate) fn new(mut bytes: Vec<u8>) -> Bin {
+        bytes.shrink_to_fit();
+        Bin(ResourceArc::new(Bytes(bytes)))
+    }
+}
+
+// Only results carry one (map derives want both directions).
+impl<'a> rustler::Decoder<'a> for Bin {
+    fn decode(_term: Term<'a>) -> NifResult<Self> {
+        Err(rustler::Error::BadArg)
+    }
+}
+
+impl Encoder for Bin {
+    fn encode<'a>(&self, env: Env<'a>) -> Term<'a> {
+        if self.0 .0.len() <= 64 {
+            return binary(env, &self.0 .0).encode(env);
+        }
+        self.0.make_binary(env, |b| &b.0).encode(env)
+    }
 }
 
 /// `:ok`, or `{:error, reason}`.

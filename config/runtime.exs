@@ -165,6 +165,13 @@ if cells = System.get_env("VALIMC_WORLDGEN_PROTO_CELLS") do
   end
 end
 
+if threads = System.get_env("VALIMC_WORLDGEN_THREADS") do
+  case Integer.parse(threads) do
+    {value, ""} when value > 0 -> config :valimc, worldgen_threads: value
+    _ -> raise "VALIMC_WORLDGEN_THREADS must be a positive integer"
+  end
+end
+
 if radius = System.get_env("VALIMC_RESPAWN_RADIUS") do
   case Integer.parse(radius) do
     {value, ""} when value in 0..2_147_483_647 -> config :valimc, respawn_radius: value

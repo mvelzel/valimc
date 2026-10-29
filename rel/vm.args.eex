@@ -1,0 +1,7 @@
+## VM flags for the release (VMC-081c).
+
+## Idle schedulers sleep instead of spinning: on a small host, spinning takes
+## the CPU the low-priority generation threads would use.
++sbwt none
++sbwtdcpu none
++sbwtdio none

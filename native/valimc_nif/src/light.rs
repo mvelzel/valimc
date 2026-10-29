@@ -94,13 +94,21 @@ fn light_image<'a>(
 /// region adopts when it installs or loads the column.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn light_column_image<'a>(env: Env<'a>, image: Binary<'a>, sky: bool) -> Result<Binary<'a>, Atom> {
+    Ok(match lit_alone(image.as_slice(), sky)? {
+        Some(lit) => bytes(env, lit),
+        None => image,
+    })
+}
+
+/// `image` with the light of its chunk lit alone, or None when it has light.
+pub(crate) fn lit_alone(image: &[u8], sky: bool) -> Result<Option<Vec<u8>>, Atom> {
     let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
-    let (column, light) = Column::read_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
+    let (column, light) = Column::read_image(image).ok_or(atoms::invalid_layers())?;
     if light.is_some() {
-        return Ok(image);
+        return Ok(None);
     }
     let light = light_alone(&column.sections, facts, sky);
-    Ok(bytes(env, with_light(image.as_slice(), &light)))
+    Ok(Some(with_light(image, &light)))
 }
 
 fn valid_column(bytes: &[u8]) -> Result<Column, Atom> {

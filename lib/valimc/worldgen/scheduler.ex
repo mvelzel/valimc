@@ -198,6 +198,14 @@ defmodule Valimc.Worldgen.Scheduler do
   @doc "Counts of the scheduler's chunks and work."
   def stats(world, dimension), do: call(world, dimension, :stats)
 
+  @doc """
+  Where `chunk` is on its way to a region (benches, VMC-081c): `:unwanted` (no
+  section wants it), `{:goal, rank, status}` (being made; status nil before
+  terrain), `:ready` (waiting for its group's credit), `:delivered` (sent, not
+  acknowledged) or `:persisting` (installed, its frame not durable yet).
+  """
+  def where(world, dimension, chunk), do: call(world, dimension, {:where, chunk})
+
   @doc "The cells of `chunks` as they are now (checks): `{:ok, [cell | nil]}`."
   def cells(world, dimension, chunks), do: call(world, dimension, {:cells, chunks})
 
@@ -425,6 +433,31 @@ defmodule Valimc.Worldgen.Scheduler do
     calls = Map.put(state.calls, ref, %{from: from, chunks: chunks, got: %{}})
     frontier = Frontier.want(state.frontier, {:call, ref}, Map.new(chunks, &{&1, true}))
     noreply(%{state | calls: calls, frontier: frontier, dirty: true})
+  end
+
+  def handle_call({:where, chunk}, _from, state) do
+    f = state.frontier
+    groups = Map.values(state.groups)
+
+    where =
+      cond do
+        Enum.any?(groups, fn g -> Enum.any?(g.ready, &match?({{_, ^chunk}, _}, &1)) end) ->
+          :ready
+
+        Enum.any?(groups, fn g -> Enum.any?(g.unacked, &has_chunk?(&1, chunk)) end) ->
+          :delivered
+
+        Map.has_key?(f.ranks, chunk) ->
+          {:goal, f.ranks[chunk], get_in(f.chunks, [chunk, :status])}
+
+        MapSet.member?(f.delivered, chunk) ->
+          :persisting
+
+        true ->
+          :unwanted
+      end
+
+    reply(where, state)
   end
 
   def handle_call(:order, _from, state),
@@ -727,6 +760,8 @@ defmodule Valimc.Worldgen.Scheduler do
       %{state | calls: Map.put(state.calls, ref, call)}
     end
   end
+
+  defp has_chunk?(delivery, chunk), do: Enum.any?(delivery, &match?({{_, ^chunk}, _}, &1))
 
   defp now, do: System.monotonic_time(:microsecond)
 

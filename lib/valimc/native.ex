@@ -11,8 +11,9 @@ defmodule Valimc.Native do
   as packed big-endian binaries (`native/valimc_nif/src/region.rs`).
 
   Scheduling: normal-scheduler NIFs stay under about 1 ms for any input; worldgen
-  NIFs are dirty and live callers make them from `Valimc.Worldgen.Pool`; a NIF with
-  a dirty twin is called through `dispatch/3`.
+  NIFs are dirty and live callers make them from `Valimc.Worldgen.Pool`, the
+  generation jobs through their low-priority background twins (VMC-081c); a NIF
+  with a dirty twin is called through `dispatch/3`.
   """
   use Rustler,
     otp_app: :valimc,
@@ -363,6 +364,39 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def gen_full(_state, _cell, _protocol_biomes), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Their background twins (VMC-081c): each sends `{tag, :ok, value}` or
+  # `{tag, :raise, reason}` to the caller; `background/1` waits for it.
+  def background_threads(_threads, _nice), do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_terrain_background(_tag, _state, _biome_source, _starts, _x, _z),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_decorate_background(_tag, _state, _biome_source, _starts, _center, _cells),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_encode_background(_tag, _cell), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_decode_background(_tag, _state, _encoded), do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_reference_background(_tag, _state, _source, _origin, _size, _order, _structures),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_full_background(_tag, _state, _cell, _protocol_biomes, _sky),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Run a background twin (`start` gets the tag to call it with) and wait for
+  `{:ok, value}`, as the dirty NIF returns it; a failure raises as it would.
+  """
+  def background(start) do
+    tag = make_ref()
+    :ok = start.(tag)
+
+    receive do
+      {^tag, :ok, value} -> {:ok, value}
+      {^tag, :raise, reason} -> :erlang.error(reason)
+    end
+  end
 
   def worldgen_structure_locate(_state, _biome_source, _structures, _pos, _radius),
     do: :erlang.nif_error(:nif_not_loaded)

@@ -1,10 +1,15 @@
 defmodule Valimc.Worldgen.Pool do
   @moduledoc """
   The one pool of generation jobs (VMC-077b): terrain, decoration and full
-  chunks, and the commands that run the generator (`/locate`, `/place`). Its
-  jobs make long dirty CPU NIF calls (tens of milliseconds to seconds), so it
-  runs two jobs fewer than the VM has dirty CPU schedulers (at least one): an
-  owner's own dirty calls never queue behind a full set of generation jobs.
+  chunks, and the commands that run the generator (`/locate`, `/place`).
+
+  Generation jobs do their native work on the background threads
+  (`Valimc.Native.background/1`, VMC-081c): one per core by default
+  (`:worldgen_threads`), at a lower OS priority than the schedulers, so
+  generation takes the CPU simulation leaves and no dirty scheduler an owner
+  calls into. The pool runs two jobs more than there are threads, so a thread
+  never idles while the scheduler starts the next; the threads take finishing
+  work before queued terrain. Commands still make dirty calls from their slot.
 
   Bulk jobs (terrain) leave the last slot to jobs that finish work already
   started (decoration, full chunks, commands a player waits for), so those
@@ -18,13 +23,21 @@ defmodule Valimc.Worldgen.Pool do
   """
 
   @slots {__MODULE__, :slots}
+  @size {__MODULE__, :size}
   @waiters Valimc.Worldgen.Pool.Waiters
+  # The background threads' nice value (Linux; macOS lowers their QoS class).
+  @nice 10
 
-  @doc "Jobs the pool runs at once: dirty CPU schedulers minus two, at least one."
-  def size, do: max(:erlang.system_info(:dirty_cpu_schedulers_online) - 2, 1)
+  @doc "Jobs the pool runs at once: the background threads plus two."
+  def size, do: :persistent_term.get(@size)
 
-  @doc "Create the slot counter and the waiter table; the application owns them."
+  @doc """
+  Start the background threads, and create the slot counter and the waiter
+  table; the application owns them.
+  """
   def init! do
+    threads = Valimc.Native.background_threads(Valimc.config(:worldgen_threads) || 0, @nice)
+    :persistent_term.put(@size, threads + 2)
     :ets.new(@waiters, [:named_table, :public, :duplicate_bag])
     :persistent_term.put(@slots, :atomics.new(1, signed: true))
     :ok
@@ -35,13 +48,12 @@ defmodule Valimc.Worldgen.Pool do
 
   @doc "Start bulk work: as `start/1`, but busy while at most one slot is free."
   def start_bulk(fun) do
-    limit = if size() > 1, do: size() - 1, else: 1
-    with {:ok, pid, _} <- start_within(limit, fun), do: {:ok, pid}
+    with {:ok, pid, _} <- start_within(size() - 1, fun), do: {:ok, pid}
   end
 
   @doc "Slots free now (for bulk work, one fewer)."
   def free(bulk \\ false) do
-    limit = if bulk and size() > 1, do: size() - 1, else: size()
+    limit = if bulk, do: size() - 1, else: size()
     max(limit - :atomics.get(:persistent_term.get(@slots), 1), 0)
   end
 

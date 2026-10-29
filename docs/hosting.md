@@ -56,6 +56,10 @@ VALIMC_SIMULATION_DISTANCE=10
 VALIMC_PROFILER_URL=http://localhost:8080
 ```
 
+Generation runs on one background thread per CPU at a lower priority than the
+game (`VALIMC_WORLDGEN_THREADS` overrides the count), so it uses whatever CPU
+the game leaves.
+
 Deploy again to apply changes; this restarts the server. A player's view distance
 is the smaller of their client setting and `VALIMC_VIEW_DISTANCE`. Simulation
 distance controls ticking independently of the client setting, up to the server's

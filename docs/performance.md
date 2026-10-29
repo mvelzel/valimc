@@ -170,6 +170,11 @@ hosting owner's tick and callback percentiles, phases, heap and scheduler use;
 Compare revisions on one host only: the development Mac is faster per core than
 the hosted VPS.
 
+`bench/tick_budget.Dockerfile` runs the same harness in a Linux container;
+pinned to two cores (`--cpuset-cpus=0,1`, not a `--cpus` quota, which throttles
+every thread alike) it stands in for the two-vCPU host, where OS priorities
+decide between the game and generation ([081c](tickets/VMC-081c.md)).
+
 [Owner-local block batches](tickets/VMC-011a3.md) now have a separate bounded
 commit/replication microbenchmark in `bench/block_batch.exs`. Its local subscriber
 workload measures batching, not network rendering or survival capacity.

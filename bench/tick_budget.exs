@@ -35,7 +35,7 @@ defmodule Bench.TickBudget do
           default_game_mode: :survival,
           view_distance: @distance,
           simulation_distance: 10,
-          worldgen_proto_cells: 128,
+          worldgen_proto_cells: String.to_integer(System.get_env("PROTO_CELLS", "512")),
           console: false,
           encrypt_login: false,
           online_mode: false,
@@ -108,7 +108,8 @@ defmodule Bench.TickBudget do
       position: nil,
       fly: nil,
       due: now_ms(),
-      missing_ms: 0
+      missing_ms: 0,
+      stuck: nil
     }
 
     loop(state)
@@ -144,8 +145,10 @@ defmodule Bench.TickBudget do
   defp tick(%{fly: nil} = state), do: %{state | due: state.due + 50}
 
   defp tick(%{position: {x, y, z}} = state) do
+    chunk = {floor(x / 16), floor(z / 16)}
+
     {x, missing} =
-      if MapSet.member?(state.have, {floor(x / 16), floor(z / 16)}),
+      if MapSet.member?(state.have, chunk),
         do: {x + state.fly, 0},
         else: {x, 50}
 
@@ -159,7 +162,8 @@ defmodule Bench.TickBudget do
       | client: client,
         position: {x, y, z},
         due: state.due + 50,
-        missing_ms: state.missing_ms + missing
+        missing_ms: state.missing_ms + missing,
+        stuck: if(missing > 0, do: chunk)
     }
   end
 
@@ -250,6 +254,56 @@ defmodule Bench.TickBudget do
       now_ms() > deadline -> raise "player did not join"
       true -> Process.sleep(20) && await_player(deadline)
     end
+  end
+
+  @doc """
+  While the flying client waits in a chunk it does not have, why it is not
+  there yet, sampled every 100 ms until told to stop: milliseconds per cause.
+  """
+  def stuck_causes(client) do
+    spawn_link(fn -> stuck_loop(client, %{}) end)
+  end
+
+  defp stuck_loop(client, causes) do
+    receive do
+      {:stop, from} -> send(from, {:causes, causes})
+    after
+      100 ->
+        causes =
+          case client_report(client) do
+            %{stuck: nil} -> causes
+            %{stuck: chunk} -> Map.update(causes, cause(chunk), 100, &(&1 + 100))
+          end
+
+        stuck_loop(client, causes)
+    end
+  end
+
+  # Not loaded (no section), not published yet (the scheduler's stage) or
+  # published and not sent yet.
+  defp cause(chunk) do
+    alias Valimc.World.Directory
+
+    case Directory.lookup(Valimc.Data.Grid.section(:overworld, chunk)) do
+      {_pid, _, %{publication: table}} ->
+        case :ets.lookup(table, {:chunk, chunk}) do
+          [{_, handle}] when is_reference(handle) ->
+            "published, not sent"
+
+          _ ->
+            world = Application.get_env(:valimc, :world_path)
+
+            case Valimc.Worldgen.Scheduler.where(world, :overworld, chunk) do
+              {:goal, _, status} -> "generating (#{status || "no terrain"})"
+              where -> Atom.to_string(where)
+            end
+        end
+
+      _ ->
+        "section not loaded"
+    end
+  catch
+    kind, reason -> "probe failed: #{inspect({kind, reason})}"
   end
 
   def client_report(client) do
@@ -694,7 +748,9 @@ case System.argv() do
     true = seconds in 10..600
     world = Path.expand(".local/tick-budget/runs/#{scenario}-#{System.os_time(:second)}")
     File.mkdir_p!(Path.dirname(world))
-    {_, 0} = System.cmd("cp", ["-cR", Path.expand(template), world])
+    # Clone the files where the file system can (macOS).
+    flags = if match?({:unix, :darwin}, :os.type()), do: "-cR", else: "-R"
+    {_, 0} = System.cmd("cp", [flags, Path.expand(template), world])
     TickBudget.configure(world)
     parent = self()
     started = TickBudget.now_ms()
@@ -717,13 +773,15 @@ case System.argv() do
           {x, _, z} = view.position
           TickBudget.op(player.pid, {:teleport, %{x: x, y: 160.0, z: z, yaw: 0.0, pitch: 0.0}})
           Process.sleep(2000)
-          send(client, {:fly, 20.0})
+          send(client, {:fly, String.to_float(System.get_env("FLY_SPEED", "20.0"))})
           5
       end
 
     warmup = String.to_integer(System.get_env("WARMUP", Integer.to_string(warmup)))
     Process.sleep(warmup * 1000)
     before = TickBudget.client_report(client)
+    counters_before = Valimc.Data.Metrics.counters()
+    stuck = if scenario == "explore", do: TickBudget.stuck_causes(client)
     # `PROFILE=stacks` also takes a built-in profile of the measured window
     # (the same report as a player's capture; sampling adds its own cost).
     profiling = System.get_env("PROFILE") == "stacks"
@@ -745,6 +803,14 @@ case System.argv() do
     gc = if gc_tracer, do: TickBudget.gc_report(gc_tracer)
     profile = if profiling, do: elem(Valimc.Admin.Profiler.stop(), 1)
     after_run = TickBudget.client_report(client)
+    counters_after = Valimc.Data.Metrics.counters()
+
+    stuck_causes =
+      if stuck do
+        send(stuck, {:stop, self()})
+        receive do: ({:causes, causes} -> causes)
+      end
+
     heap = if System.get_env("HEAP") == "1", do: TickBudget.heap(player.uuid)
 
     # The last 100 complete ticks in order (all owners' ring, one owner here),
@@ -753,8 +819,27 @@ case System.argv() do
     [{:slot, slot}] = :ets.lookup(Valimc.World.TickRate, :slot)
     {newer, older} = Enum.split(ring, slot + 1)
     last_ticks = for ns <- older ++ newer, ns > 0, do: Float.round(ns / 1.0e6, 2)
-    {revision, 0} = System.cmd("git", ["rev-parse", "HEAD"])
-    {dirty, 0} = System.cmd("git", ["status", "--porcelain", "--untracked-files=no"])
+    # A container build has no repository; it names the revision it copied.
+    {revision, dirty} =
+      case System.get_env("HARNESS_REVISION") do
+        nil ->
+          {revision, 0} = System.cmd("git", ["rev-parse", "HEAD"])
+          {dirty, 0} = System.cmd("git", ["status", "--porcelain", "--untracked-files=no"])
+          {revision, dirty}
+
+        revision ->
+          {revision, "unknown"}
+      end
+
+    # Generation and region counters over the window.
+    counters =
+      for {key, value} <- counters_after,
+          name = to_string(key),
+          String.starts_with?(name, ["worldgen_", "region_", "regionizer_", "chunks_"]),
+          delta = value - Map.get(counters_before, key, 0),
+          delta != 0,
+          into: %{},
+          do: {name, delta}
 
     result =
       Map.merge(TickBudget.summarize(samples, utilization), %{
@@ -773,10 +858,12 @@ case System.argv() do
         allocations: allocations,
         recent_sampled: TickBudget.recent(List.last(samples)),
         warmup_s: warmup,
+        counters: counters,
         client: %{
           deaths: after_run.deaths - before.deaths,
           chunks_received: after_run.chunks - before.chunks,
           own_chunk_missing_ms: after_run.missing_ms - before.missing_ms,
+          stuck_causes_ms: stuck_causes,
           moved_blocks:
             if(before.position && after_run.position,
               do: Float.round(elem(after_run.position, 0) - elem(before.position, 0), 1)

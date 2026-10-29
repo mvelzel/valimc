@@ -31,6 +31,8 @@ defmodule Valimc.Application do
     Valimc.World.Chunk.load!()
     Valimc.Data.BlockFacts.install!()
     Valimc.World.Spawning.install!()
+    # Generation threads first: a new world's spawn search generates.
+    Valimc.Worldgen.Pool.init!()
     Valimc.Worldgen.Generator.init!()
     Valimc.Net.LoginKeys.init!()
     Valimc.Commands.init!()
@@ -38,7 +40,6 @@ defmodule Valimc.Application do
     Valimc.Data.ProfileTicks.init!()
     Valimc.Entity.Ids.init!()
     Valimc.World.Saving.init!()
-    Valimc.Worldgen.Pool.init!()
     Valimc.World.GameTick.init!()
     Valimc.Storage.Log.init!()
 

@@ -1,7 +1,10 @@
 //! World generation for the live server. Every call but `worldgen_new` is a
-//! `DirtyCpu` NIF that live callers make from `Valimc.Worldgen.Pool`.
+//! `DirtyCpu` NIF that live callers make from `Valimc.Worldgen.Pool`; the
+//! generation jobs' calls have `_background` twins (VMC-081c) that run on
+//! `crate::background`'s threads and send their results.
 
-use crate::{bytes, raise, reply};
+use crate::background::submit;
+use crate::{bytes, raise, reply, Bin};
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
 use std::sync::Mutex;
 use valimc_core::worldgen::compiler::BiomeSource;
@@ -268,13 +271,37 @@ fn gen_terrain(
     x: i32,
     z: i32,
 ) -> NifResult<(Atom, ResourceArc<ProtoCell>)> {
-    reply((|| {
-        let mut state = state.lease()?;
-        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
-        let table = starts.as_ref().map(|s| &s.table);
-        let chunk = state.generation_terrain(x, z, &biome_source, table)?;
-        Ok(ProtoCell::new(chunk))
-    })())
+    reply(terrain(&state, &biome_source, starts.as_deref(), x, z))
+}
+
+/// `gen_terrain` as bulk background work.
+#[rustler::nif]
+fn gen_terrain_background<'a>(
+    env: Env<'a>,
+    tag: Term<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    starts: Option<ResourceArc<Starts>>,
+    x: i32,
+    z: i32,
+) -> Atom {
+    submit(env, tag, false, move || {
+        terrain(&state, &biome_source, starts.as_deref(), x, z)
+    })
+}
+
+fn terrain(
+    state: &WorldgenState,
+    biome_source: &str,
+    starts: Option<&Starts>,
+    x: i32,
+    z: i32,
+) -> Result<ResourceArc<ProtoCell>, String> {
+    let mut state = state.lease()?;
+    let biome_source = BiomeSource::parse(biome_source, state.registry())?;
+    let table = starts.map(|s| &s.table);
+    let chunk = state.generation_terrain(x, z, &biome_source, table)?;
+    Ok(ProtoCell::new(chunk))
 }
 
 /// Decorate chunk `center` (VMC-077n) over `cells`, its 3 × 3, lent to this
@@ -288,28 +315,58 @@ fn gen_decorate(
     center: (i32, i32),
     cells: Vec<ResourceArc<ProtoCell>>,
 ) -> NifResult<(Atom, u32)> {
-    reply((|| {
-        let mut state = state.lease()?;
-        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
-        let mut guards = Vec::with_capacity(cells.len());
-        for cell in &cells {
-            guards.push(cell.chunk.lock().map_err(|_| "proto cell poisoned")?);
-        }
-        let mut chunks = Vec::with_capacity(guards.len());
-        for guard in &mut guards {
-            chunks.push(guard.take().ok_or("a proto cell lent twice")?);
-        }
-        let positions: Vec<(i32, i32)> = chunks.iter().map(|c| (c.x, c.z)).collect();
-        let mut area = Area::of(chunks)?;
-        let table = starts.as_ref().map(|s| &s.table);
-        let result = state.generation_decorate(&biome_source, &mut area, center, table);
-        // The chunks go back to their cells whatever the decoration did.
-        for (guard, (x, z)) in guards.iter_mut().zip(positions) {
-            let slot = (z - area.z) * area.size + (x - area.x);
-            **guard = area.chunks[slot as usize].take();
-        }
-        result
-    })())
+    reply(decorate(
+        &state,
+        &biome_source,
+        starts.as_deref(),
+        center,
+        &cells,
+    ))
+}
+
+/// `gen_decorate` in the background, before queued bulk work.
+#[rustler::nif]
+fn gen_decorate_background<'a>(
+    env: Env<'a>,
+    tag: Term<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    starts: Option<ResourceArc<Starts>>,
+    center: (i32, i32),
+    cells: Vec<ResourceArc<ProtoCell>>,
+) -> Atom {
+    submit(env, tag, true, move || {
+        decorate(&state, &biome_source, starts.as_deref(), center, &cells)
+    })
+}
+
+fn decorate(
+    state: &WorldgenState,
+    biome_source: &str,
+    starts: Option<&Starts>,
+    center: (i32, i32),
+    cells: &[ResourceArc<ProtoCell>],
+) -> Result<u32, String> {
+    let mut state = state.lease()?;
+    let biome_source = BiomeSource::parse(biome_source, state.registry())?;
+    let mut guards = Vec::with_capacity(cells.len());
+    for cell in cells {
+        guards.push(cell.chunk.lock().map_err(|_| "proto cell poisoned")?);
+    }
+    let mut chunks = Vec::with_capacity(guards.len());
+    for guard in &mut guards {
+        chunks.push(guard.take().ok_or("a proto cell lent twice")?);
+    }
+    let positions: Vec<(i32, i32)> = chunks.iter().map(|c| (c.x, c.z)).collect();
+    let mut area = Area::of(chunks)?;
+    let table = starts.map(|s| &s.table);
+    let result = state.generation_decorate(&biome_source, &mut area, center, table);
+    // The chunks go back to their cells whatever the decoration did.
+    for (guard, (x, z)) in guards.iter_mut().zip(positions) {
+        let slot = (z - area.z) * area.size + (x - area.x);
+        **guard = area.chunks[slot as usize].take();
+    }
+    result
 }
 
 /// Approximate heap bytes of the proto chunks in `cells` (VMC-077q); a cell
@@ -329,11 +386,19 @@ fn gen_cells_bytes(cells: Vec<ResourceArc<ProtoCell>>) -> NifResult<(Atom, usize
 /// A proto chunk as `proto::encode` writes it (snapshots, parity).
 #[rustler::nif(schedule = "DirtyCpu")]
 fn gen_encode<'a>(env: Env<'a>, cell: ResourceArc<ProtoCell>) -> NifResult<(Atom, Binary<'a>)> {
-    reply((|| {
-        let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
-        let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
-        Ok(bytes(env, valimc_core::worldgen::proto::encode(chunk)))
-    })())
+    reply(encode(&cell).map(|b| bytes(env, b)))
+}
+
+/// `gen_encode` in the background (spills).
+#[rustler::nif]
+fn gen_encode_background<'a>(env: Env<'a>, tag: Term<'a>, cell: ResourceArc<ProtoCell>) -> Atom {
+    submit(env, tag, true, move || encode(&cell).map(Bin::new))
+}
+
+fn encode(cell: &ProtoCell) -> Result<Vec<u8>, String> {
+    let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+    let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
+    Ok(valimc_core::worldgen::proto::encode(chunk))
 }
 
 /// A proto cell from `gen_encode` output.
@@ -342,11 +407,25 @@ fn gen_decode(
     state: ResourceArc<WorldgenState>,
     encoded: Binary,
 ) -> NifResult<(Atom, ResourceArc<ProtoCell>)> {
-    reply((|| {
-        let state = state.lease()?;
-        let chunk = valimc_core::worldgen::proto::decode(encoded.as_slice(), state.block_table()?)?;
-        Ok(ProtoCell::new(chunk))
-    })())
+    reply(decode(&state, encoded.as_slice()))
+}
+
+/// `gen_decode` in the background (a spilled cell a job needs).
+#[rustler::nif]
+fn gen_decode_background<'a>(
+    env: Env<'a>,
+    tag: Term<'a>,
+    state: ResourceArc<WorldgenState>,
+    encoded: Binary<'a>,
+) -> Atom {
+    let encoded = encoded.as_slice().to_vec();
+    submit(env, tag, true, move || decode(&state, &encoded))
+}
+
+fn decode(state: &WorldgenState, encoded: &[u8]) -> Result<ResourceArc<ProtoCell>, String> {
+    let state = state.lease()?;
+    let chunk = valimc_core::worldgen::proto::decode(encoded, state.block_table()?)?;
+    Ok(ProtoCell::new(chunk))
 }
 
 /// What live generation makes of `order` decorated one after the other over
@@ -362,20 +441,54 @@ fn gen_reference(
     order: Vec<(i32, i32)>,
     structures: bool,
 ) -> NifResult<(Atom, Vec<ResourceArc<ProtoCell>>)> {
-    reply((|| {
-        if !(1..=64).contains(&size) {
-            return Err("an area of 1 to 64 chunks".to_string());
-        }
-        let mut state = state.lease()?;
-        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
-        let area = state.reference_area(&biome_source, origin, size, &order, structures)?;
-        Ok(area
-            .chunks
-            .into_iter()
-            .flatten()
-            .map(ProtoCell::new)
-            .collect())
-    })())
+    reply(reference(
+        &state,
+        &biome_source,
+        origin,
+        size,
+        &order,
+        structures,
+    ))
+}
+
+/// `gen_reference` in the background (a chunk made alone).
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn gen_reference_background<'a>(
+    env: Env<'a>,
+    tag: Term<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    origin: (i32, i32),
+    size: i32,
+    order: Vec<(i32, i32)>,
+    structures: bool,
+) -> Atom {
+    submit(env, tag, true, move || {
+        reference(&state, &biome_source, origin, size, &order, structures)
+    })
+}
+
+fn reference(
+    state: &WorldgenState,
+    biome_source: &str,
+    origin: (i32, i32),
+    size: i32,
+    order: &[(i32, i32)],
+    structures: bool,
+) -> Result<Vec<ResourceArc<ProtoCell>>, String> {
+    if !(1..=64).contains(&size) {
+        return Err("an area of 1 to 64 chunks".to_string());
+    }
+    let mut state = state.lease()?;
+    let biome_source = BiomeSource::parse(biome_source, state.registry())?;
+    let area = state.reference_area(&biome_source, origin, size, order, structures)?;
+    Ok(area
+        .chunks
+        .into_iter()
+        .flatten()
+        .map(ProtoCell::new)
+        .collect())
 }
 
 /// A block entity of a full chunk: created (with what decoration wrote into
@@ -427,10 +540,10 @@ impl From<&valimc_core::worldgen::region::Entity> for FullEntity {
 /// there, kept only where the block still matches), fluid ticks,
 /// post-processing marks and entities.
 #[derive(rustler::NifMap)]
-struct FullChunk<'a> {
+struct FullChunk {
     x: i32,
     z: i32,
-    image: Binary<'a>,
+    image: Bin,
     heights: Vec<i32>,
     block_entities: Vec<FullBlockEntity>,
     block_ticks: Vec<((i32, i32, i32), u16)>,
@@ -444,25 +557,47 @@ struct FullChunk<'a> {
 
 /// A final chunk made full (VMC-077n), from its proto cell.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn gen_full<'a>(
-    env: Env<'a>,
+fn gen_full(
     state: ResourceArc<WorldgenState>,
     cell: ResourceArc<ProtoCell>,
     protocol_biomes: Vec<u16>,
-) -> NifResult<(Atom, FullChunk<'a>)> {
-    reply((|| {
-        let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
-        let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
-        full_chunk(env, &state, chunk, &protocol_biomes)
-    })())
+) -> NifResult<(Atom, FullChunk)> {
+    reply(full(&state, &cell, &protocol_biomes, None))
 }
 
-fn full_chunk<'a>(
+/// `gen_full` in the background, its image lit alone as
+/// `light_column_image` lights it (`sky`), before queued bulk work.
+#[rustler::nif]
+fn gen_full_background<'a>(
     env: Env<'a>,
+    tag: Term<'a>,
+    state: ResourceArc<WorldgenState>,
+    cell: ResourceArc<ProtoCell>,
+    protocol_biomes: Vec<u16>,
+    sky: bool,
+) -> Atom {
+    submit(env, tag, true, move || {
+        full(&state, &cell, &protocol_biomes, Some(sky))
+    })
+}
+
+fn full(
+    state: &WorldgenState,
+    cell: &ProtoCell,
+    protocol_biomes: &[u16],
+    lit: Option<bool>,
+) -> Result<FullChunk, String> {
+    let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+    let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
+    full_chunk(state, chunk, protocol_biomes, lit)
+}
+
+fn full_chunk(
     state: &WorldgenState,
     chunk: &ProtoChunk,
     protocol_biomes: &[u16],
-) -> Result<FullChunk<'a>, String> {
+    lit: Option<bool>,
+) -> Result<FullChunk, String> {
     use valimc_core::worldgen::blocks::{Heightmap, BLOCK_ENTITY, FLUID_NAMES};
     let state = state.lease()?;
     let table = state.block_table()?;
@@ -492,7 +627,15 @@ fn full_chunk<'a>(
         Ok(FullChunk {
             x: chunk.x,
             z: chunk.z,
-            image: bytes(env, column.to_image()),
+            image: Bin::new(match lit {
+                Some(sky) => {
+                    let image = column.to_image();
+                    crate::light::lit_alone(&image, sky)
+                        .map_err(|e| format!("lighting a full chunk: {e:?}"))?
+                        .unwrap_or(image)
+                }
+                None => column.to_image(),
+            }),
             heights: (0..256)
                 .map(|c| chunk.height(Heightmap::MotionBlockingNoLeaves, c & 15, c >> 4))
                 .collect(),

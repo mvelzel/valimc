@@ -24,6 +24,8 @@ config :valimc,
   # 200 KB each in the overworld); past it, untouched terrain is dropped and
   # other proto chunks spill to a scratch file.
   worldgen_proto_cells: 1024,
+  # Background generation threads (VMC-081c); nil is one per core.
+  worldgen_threads: nil,
   # Sections whose loaded chunks come near share a group process (VMC-077j2).
   regionizer: true,
   item_simulation: true,

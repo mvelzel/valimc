@@ -531,8 +531,13 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
   position). A NIF whose cost grows with its input has a dirty twin, and
   `Valimc.Native.dispatch/3` picks one of the two from measured nanoseconds per
   unit. Long pure work (generation, `/locate`, `/place`) runs only as a job in
-  `Valimc.Worldgen.Pool`, which runs two jobs fewer than the VM has dirty CPU
-  schedulers, so an owner's own dirty call never waits behind generation.
+  `Valimc.Worldgen.Pool`. Generation jobs do their native work on background
+  threads, one per core and at a lower OS priority than the schedulers
+  (VMC-081c): a `_background` twin queues the work and sends
+  `{tag, :ok | :raise, value}` to its caller, so generation takes the CPU the
+  simulation leaves and no dirty scheduler an owner calls into. Finishing work
+  goes before queued terrain. The VM's idle schedulers sleep rather than
+  spin (`rel/vm.args.eex`), which would take that CPU.
 - Results: `{:ok, value}`, `:ok` without one, or `{:error, atom}` from the
   domain's closed set for an expected failure; a broken invariant raises. No
   string errors for machine use.
