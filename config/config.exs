@@ -45,6 +45,9 @@ config :valimc,
   max_mailbox: 256,
   # Overloaded connections stop gracefully; a stuck one is killed after this delay.
   overload_kill_ms: 5_000,
+  # The minimum heap in words of a region group hosting players (VMC-081b:
+  # 64 MB makes its collections rare); nil keeps the VM's default.
+  region_min_heap_words: 8_000_000,
   # Region tick behaviours (VMC-066) and whether owners tick on a timer or by `Region.step/2`.
   tick_behaviours: [],
   region_ticks: :timer,

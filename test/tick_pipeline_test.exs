@@ -55,6 +55,28 @@ defmodule Valimc.TickPipelineTest do
     assert {[{{0, 0, 0}, 1}], _} = ScheduledTicks.take_due(loaded, 101, chunks)
   end
 
+  test "frozen chunks keep their ticks off the heap and thaw in order when they tick or get one" do
+    {:ok, t} = ScheduledTicks.schedule(ScheduledTicks.new(), {0, 0, 0}, 1, 5, 0)
+    {:ok, t} = ScheduledTicks.schedule(t, {17, 0, 0}, 1, 3, 0)
+    {:ok, t} = ScheduledTicks.schedule(t, {18, 0, 0}, 1, 3, -1)
+    before = ScheduledTicks.record(t.containers[{1, 0}])
+    t = ScheduledTicks.freeze(t, MapSet.new([{0, 0}]))
+    assert ScheduledTicks.freeze(t, MapSet.new([{0, 0}])) === t
+    assert Map.keys(t.containers) == [{0, 0}] and ScheduledTicks.size(t) == 3
+    assert ScheduledTicks.scheduled?(t, {17, 0, 0}, 1)
+    refute ScheduledTicks.scheduled?(t, {17, 0, 0}, 2)
+    assert ScheduledTicks.record(ScheduledTicks.all_containers(t)[{1, 0}]) == before
+    # Scheduling the same pair into a frozen chunk thaws it and stays one tick.
+    {:ok, thawed} = ScheduledTicks.schedule(t, {17, 0, 0}, 1, 9, 0)
+    assert thawed.frozen == %{} and ScheduledTicks.size(thawed) == 3
+    assert {[], _} = ScheduledTicks.take_due(t, 4, [{0, 0}])
+
+    assert {[{{18, 0, 0}, 1}, {{17, 0, 0}, 1}], t} =
+             ScheduledTicks.take_due(t, 4, [{0, 0}, {1, 0}])
+
+    assert t.frozen == %{} and ScheduledTicks.size(t) == 1
+  end
+
   test "ticks of chunks that do not tick stay untouched until their chunk ticks; a rebase keeps delays" do
     t =
       Enum.reduce(0..999, ScheduledTicks.new(), fn n, acc ->

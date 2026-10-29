@@ -15,19 +15,20 @@ defmodule Valimc.SpawnInputsTest do
 
     section = %{entities: %{store: store}, tickets: %{simulated: MapSet.new([{0, 0}])}}
     sections = %{{0, 0} => section}
-    {mobs, bodies, chunks, owners, cache} = SpawnInputs.prepare(sections)
+    {mobs, bodies, chunks, cache} = SpawnInputs.prepare(sections)
     assert [{^id, _, {1.5, 64.0, 0.5}, 2, 0, 0}] = mobs
-    assert chunks == [{0, 0}] and owners == %{id => {0, 0}}
-    assert {^mobs, ^bodies, ^chunks, ^owners, ^cache} = SpawnInputs.prepare(sections, cache)
+    assert chunks == [{0, 0}] and SpawnInputs.owners(cache, [id]) == %{id => {0, 0}}
+    assert SpawnInputs.owners(cache, []) == %{}
+    assert {^mobs, ^bodies, ^chunks, ^cache} = SpawnInputs.prepare(sections, cache)
     {:ok, moved, _} = Store.step_body(store, {0, 0}, id, 1, {20.5, 64.0, 0.5}, body)
     moved = update_in(moved.entries[id], &Map.merge(&1, %{idle: 10, lived: 20}))
     section = put_in(section.entities.store, moved)
-    {[row], _, _, _, refreshed} = SpawnInputs.prepare(%{{0, 0} => section}, cache)
+    {[row], _, _, refreshed} = SpawnInputs.prepare(%{{0, 0} => section}, cache)
     assert {^id, _, {20.5, 64.0, 0.5}, 0, 10, 20} = row
     section = put_in(section.tickets.simulated, MapSet.new([{1, 0}]))
-    {[row], _, _, _, _} = SpawnInputs.prepare(%{{0, 0} => section}, refreshed)
+    {[row], _, _, _} = SpawnInputs.prepare(%{{0, 0} => section}, refreshed)
     assert elem(row, 3) == 2
-    assert {[], [], [], %{}, %{}} = SpawnInputs.prepare(%{}, cache)
+    assert {[], [], [], %{}} = SpawnInputs.prepare(%{}, cache)
   end
 
   test "discard/reset routing keeps result order without scanning every section per id" do

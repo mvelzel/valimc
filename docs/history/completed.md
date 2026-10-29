@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-081b Elixir tick quick wins](../tickets/VMC-081b.md) | Rendered chunks' generation ticks wait frozen off the heap and player groups get a large young heap, cutting collection cost; rule reach, spawning inputs, trackers and encoding stop walking every section; harness combat tick −29%, exploration −41% |
 | [VMC-080k Bounded log recovery](../tickets/VMC-080k.md) | Frame-wise recovery preserves the existing world within the memory cap; production saved-player load, protocol checks and the user's subsequent combat/exploration captures confirm reconnect |
 | [VMC-078e Item merge planning fence](../tickets/VMC-078e.md) | Freeze movement markers while a merge job owns its copied store; durable cross-owner delivery, recovery and affected native checks |
 | [VMC-078d Roofed villager wandering](../tickets/VMC-078d.md) | Generated support fact, independent shuffle and native candidate order; fifteen village scenes, affected checks and same-world nighttime client recheck through 161 support calls |

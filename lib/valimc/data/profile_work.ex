@@ -1,9 +1,11 @@
 defmodule Valimc.Data.ProfileWork do
   @moduledoc """
   Bounded owner wall-time observations. Every callback records its full duration;
-  the first and every twentieth executed tick also partitions time into exclusive
-  phases. Native waits and GC within a phase are included, not separate CPU time.
-  One ETS row per owner; no observer messages on the gameplay path.
+  the first and every twentieth executed tick (`:profile_sample_every`) also
+  partitions time into exclusive phases, keeping the last hundred such ticks. Native waits and GC within a phase are included, not separate CPU time.
+  Each callback kind also counts its durations in fixed buckets, so reports can
+  give per-owner percentiles. One ETS row per owner; no observer messages on the
+  gameplay path.
   """
   alias Valimc.Data.ProfileTicks
   @context {__MODULE__, :context}
@@ -46,11 +48,17 @@ defmodule Valimc.Data.ProfileWork do
     :active_mobs,
     :hosted_players
   ]
+  # Upper bounds (microseconds) of the duration buckets; the last is open.
+  @bounds {250, 500, 1000, 2000, 3000, 5000, 7500, 10_000, 15_000, 20_000, 30_000, 50_000, 75_000,
+           100_000, 150_000, 250_000, 500_000, 1_000_000}
+  @buckets tuple_size(@bounds) + 1
   @empty %{
     callbacks: %{},
     phases: %{},
     completed_ticks: 0,
     sampled_ticks: 0,
+    # The last sampled ticks, newest first: `{ms, %{phase => ms}}`.
+    recent: [],
     sampled_ns: 0,
     workload: nil,
     workload_at: nil
@@ -89,7 +97,8 @@ defmodule Valimc.Data.ProfileWork do
   def tick(fun) do
     count = Process.get(@ticks, 0) + 1
     Process.put(@ticks, count)
-    update(&%{&1 | sampled: rem(count - 1, 20) == 0})
+    every = Application.get_env(:valimc, :profile_sample_every, 20)
+    update(&%{&1 | sampled: rem(count - 1, every) == 0})
     result = fun.()
     update(&%{&1 | completed: true})
     result
@@ -184,8 +193,45 @@ defmodule Valimc.Data.ProfileWork do
          last_ms: stats.last / 1.0e6,
          last_age_ms: max(0, time - stats.at),
          lifetime_max_ms: stats.maximum / 1.0e6
-       }}
+       }
+       |> Map.merge(percentiles(Map.get(stats, :buckets), old && Map.get(old, :buckets)))}
     end)
+  end
+
+  @doc """
+  Estimated percentiles of the durations counted in `buckets` since `previous`
+  (nil: since the start): each is its bucket's upper bound in milliseconds,
+  nil above the last bound or without calls.
+  """
+  def percentiles(buckets, previous \\ nil)
+  def percentiles(nil, _previous), do: %{p50_ms: nil, p95_ms: nil, p99_ms: nil}
+
+  def percentiles(buckets, previous) do
+    counts =
+      for i <- 0..(@buckets - 1),
+          do: elem(buckets, i) - if(previous, do: elem(previous, i), else: 0)
+
+    total = Enum.sum(counts)
+
+    at = fn q ->
+      if total > 0 do
+        rank = q * total
+
+        counts
+        |> Enum.with_index()
+        |> Enum.reduce_while(0, fn {n, i}, seen ->
+          if seen + n >= rank,
+            do: {:halt, {:bucket, i}},
+            else: {:cont, seen + n}
+        end)
+        |> case do
+          {:bucket, i} when i < tuple_size(@bounds) -> elem(@bounds, i) / 1000
+          _ -> nil
+        end
+      end
+    end
+
+    %{p50_ms: at.(0.5), p95_ms: at.(0.95), p99_ms: at.(0.99)}
   end
 
   defp delta(_current, nil, _key), do: nil
@@ -221,6 +267,7 @@ defmodule Valimc.Data.ProfileWork do
     elapsed = time - context.started
     totals = Process.get(@totals, @empty)
     callbacks = add(totals.callbacks, context.kind, 1, elapsed)
+    callbacks = Map.update!(callbacks, context.kind, &count(&1, elapsed))
 
     totals = %{
       totals
@@ -237,9 +284,12 @@ defmodule Valimc.Data.ProfileWork do
             add(acc, kind, stats.calls, stats.ns)
           end)
 
+        recent = {elapsed / 1.0e6, Map.new(context.phases, fn {k, v} -> {k, v.ns / 1.0e6} end)}
+
         %{
           totals
           | phases: phases,
+            recent: Enum.take([recent | Map.get(totals, :recent, [])], 100),
             sampled_ticks: totals.sampled_ticks + 1,
             sampled_ns: totals.sampled_ns + elapsed,
             workload: context.workload,
@@ -260,14 +310,25 @@ defmodule Valimc.Data.ProfileWork do
 
     Map.update(stats, kind, %{calls: calls, ns: ns, last: ns, maximum: ns, at: at}, fn old ->
       %{
-        calls: old.calls + calls,
-        ns: old.ns + ns,
-        last: ns,
-        maximum: max(old.maximum, ns),
-        at: at
+        old
+        | calls: old.calls + calls,
+          ns: old.ns + ns,
+          last: ns,
+          maximum: max(old.maximum, ns),
+          at: at
       }
     end)
   end
+
+  defp count(stats, ns) do
+    buckets = Map.get(stats, :buckets) || Tuple.duplicate(0, @buckets)
+    i = bucket(div(ns, 1000), 0)
+    Map.put(stats, :buckets, put_elem(buckets, i, elem(buckets, i) + 1))
+  end
+
+  defp bucket(_us, i) when i == tuple_size(@bounds), do: i
+  defp bucket(us, i) when us <= elem(@bounds, i), do: i
+  defp bucket(us, i), do: bucket(us, i + 1)
 
   defp update(fun) do
     if context = Process.get(@context), do: Process.put(@context, fun.(context))

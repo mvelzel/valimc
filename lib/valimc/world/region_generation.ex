@@ -285,14 +285,16 @@ defmodule Valimc.World.RegionGeneration do
         {:error, reason} -> exit({:generated_install_failed, reason})
       end
 
+    # What generation leaves in chunks outside simulation waits frozen.
     ticks =
-      ScheduledTicks.schedule_all(
-        state.scheduled_ticks,
+      state.scheduled_ticks
+      |> ScheduledTicks.schedule_all(
         for(
           {position, block, delay, priority} <- parts.ticks,
           do: {position, block, state.game_tick + delay, priority}
         )
       )
+      |> ScheduledTicks.freeze(state.tickets.simulated)
 
     installed = MapSet.new(chunks)
     {deferred, waiting} = Map.split(gen.deferred, chunks)

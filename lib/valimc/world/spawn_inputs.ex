@@ -3,16 +3,31 @@ defmodule Valimc.World.SpawnInputs do
   alias Valimc.Data.{EntityTypes, Grid}
 
   def prepare(sections, previous \\ %{}) do
-    Enum.reduce(sections, {[], [], [], %{}, %{}}, fn {key, resource},
-                                                     {mobs, bodies, chunks, owners, cached} ->
+    Enum.reduce(sections, {[], [], [], %{}}, fn {key, resource}, {mobs, bodies, chunks, cached} ->
       entries = resource.entities.store.entries
       ticking = resource.tickets.simulated
       rows = section(entries, ticking, previous[key])
-      owners = Enum.reduce(rows.ids, owners, &Map.put(&2, &1, key))
 
-      {rows.mobs ++ mobs, rows.bodies ++ bodies, rows.chunks ++ chunks, owners,
+      {rows.mobs ++ mobs, rows.bodies ++ bodies, rows.chunks ++ chunks,
        Map.put(cached, key, rows)}
     end)
+  end
+
+  @doc """
+  The sections (`id => key`) of the entities `ids` in the `prepared` rows;
+  only a plan that discards or resets mobs needs them, so they are not kept
+  for every loaded entity each tick.
+  """
+  def owners(_prepared, []), do: %{}
+
+  def owners(prepared, ids) do
+    wanted = MapSet.new(ids)
+
+    for {key, rows} <- prepared,
+        id <- rows.ids,
+        MapSet.member?(wanted, id),
+        into: %{},
+        do: {id, key}
   end
 
   defp section(entries, ticking, %{entries: entries, ticking: ticking} = cached), do: cached

@@ -137,8 +137,11 @@ defmodule Valimc.World.BlockEntities do
 
   @doc "Positions of entries in chunk `{cx, cz}`."
   def in_chunk(%__MODULE__{entries: entries}, {cx, cz}) do
+    {x0, z0} = {cx * 16, cz * 16}
+    {x1, z1} = {x0 + 16, z0 + 16}
+
     for {{x, _, z} = position, _} <- entries,
-        Integer.floor_div(x, 16) == cx and Integer.floor_div(z, 16) == cz,
+        x >= x0 and x < x1 and z >= z0 and z < z1,
         do: position
   end
 
@@ -146,8 +149,12 @@ defmodule Valimc.World.BlockEntities do
   Chunk packet entries `{position, type_id, update}` for the live entries of a
   chunk; `blocks` maps their positions to current states.
   """
-  def chunk_entries(%__MODULE__{} = entities, chunk, blocks) do
-    for position <- in_chunk(entities, chunk),
+  def chunk_entries(%__MODULE__{} = entities, chunk, blocks),
+    do: chunk_entries(entities, chunk, in_chunk(entities, chunk), blocks)
+
+  @doc "`chunk_entries/3` of the chunk's `positions` (`in_chunk/2`), already known."
+  def chunk_entries(%__MODULE__{} = entities, _chunk, positions, blocks) do
+    for position <- positions,
         entry = live(entities, position, Map.fetch!(blocks, position)),
         entry != nil,
         do: {position, entry.type, entry.update}

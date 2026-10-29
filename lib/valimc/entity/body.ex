@@ -619,7 +619,9 @@ defmodule Valimc.Entity.Body do
     if shown(old) == shown(new), do: [], else: shown_changes(id, old, new)
   end
 
-  defp shown_changes(id, old, new) do
+  @doc false
+  # `changes/3` once the projections are known to differ.
+  def shown_changes(id, old, new) do
     old_values = values(old)
 
     data =

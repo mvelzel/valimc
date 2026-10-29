@@ -15,7 +15,9 @@ config :valimc,
   respawn_radius: 0,
   full_fsync: false,
   overload_kill_ms: 200,
-  operators: :all
+  operators: :all,
+  # Many concurrent test groups host players; the VM default heap suffices.
+  region_min_heap_words: nil
 
 config :logger, level: :warning
 config :stream_data, max_runs: String.to_integer(System.get_env("STREAM_RUNS", "100"))

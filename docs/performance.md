@@ -161,6 +161,15 @@ from dry results. [VMC-015d3](tickets/VMC-015d3.md) records its verification;
 
 The next useful performance work is sustained tests with larger view distances, adversarial input, edits during encoding, generation without a shared flat baseline, and finally matched vanilla survival workloads. Comparing the same behaviors, seed, dimensions, client positions and hardware is required before making claims against Paper/Folia, Pumpkin or SteelMC.
 
+Survival tick budgets use `bench/tick_budget.exs` ([VMC-081a](tickets/VMC-081a.md)):
+one loopback client in a generated vanilla world at view 32 and simulation 10,
+in a combat or an exploration scenario, with the VM limited to the host's two
+schedulers (`elixir --erl "+S 2:2 +SDcpu 2:2" -S mix run …`). It reports the
+hosting owner's tick and callback percentiles, phases, heap and scheduler use;
+`GCTRACE=1`, `HEAP=1`, `PROFILE=stacks` and `PROFILE_EVERY=1` add diagnostics.
+Compare revisions on one host only: the development Mac is faster per core than
+the hosted VPS.
+
 [Owner-local block batches](tickets/VMC-011a3.md) now have a separate bounded
 commit/replication microbenchmark in `bench/block_batch.exs`. Its local subscriber
 workload measures batching, not network rendering or survival capacity.

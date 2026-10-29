@@ -653,9 +653,9 @@ defmodule Valimc.World.RegionStorage do
       {%{sequence: sequence}, fn _, sequence -> {{:containers, :sequence}, sequence} end}
     ]
 
-  defp fields(:ticks, %ScheduledTicks{containers: containers, shift: shift}),
+  defp fields(:ticks, %ScheduledTicks{shift: shift} = ticks),
     do: [
-      {containers, &{{:ticks, &1}, ScheduledTicks.record(&2)}},
+      {ScheduledTicks.all_containers(ticks), &{{:ticks, &1}, ScheduledTicks.record(&2)}},
       {%{shift: shift}, fn _, shift -> {{:ticks, :shift}, shift} end}
     ]
 

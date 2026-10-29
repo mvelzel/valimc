@@ -255,10 +255,24 @@ defmodule Valimc.Entity.MobMotion do
   # travel its AI chose this tick; the kernel counts its steps unless its
   # movement emits nothing (a shulker's).
   defp kind_motion(type, motion) do
-    kind = Map.merge(@default_kind, Map.new(Valimc.AI.Mobs.hook(type, :motion, [], [])))
-    kind = if motion.travel, do: %{kind | travel: motion.travel}, else: kind
-    {emission, kind} = Map.pop(kind, :emission)
-    Map.put(kind, :emits, emission != :none)
+    kind = type_motion(type)
+    if motion.travel, do: %{kind | travel: motion.travel}, else: kind
+  end
+
+  # A type's motion is fixed by its family; each owner derives it once per
+  # type rather than for every mob input of every tick (VMC-081b).
+  defp type_motion(type) do
+    case Process.get({__MODULE__, type}) do
+      nil ->
+        kind = Map.merge(@default_kind, Map.new(Valimc.AI.Mobs.hook(type, :motion, [], [])))
+        {emission, kind} = Map.pop(kind, :emission)
+        kind = Map.put(kind, :emits, emission != :none)
+        Process.put({__MODULE__, type}, kind)
+        kind
+
+      kind ->
+        kind
+    end
   end
 
   @doc "Whether a mob of `type` makes sounds as it moves (`MovementEmission`)."

@@ -53,6 +53,19 @@ defmodule Valimc.ProfileWorkTest do
     assert Enum.sum(for {_, stats} <- totals.phases, do: stats.ns) == totals.sampled_ns
   end
 
+  test "callback durations fall into buckets that give interval percentiles" do
+    for ms <- [1, 1, 1, 1, 1, 1, 1, 1, 1, 12] do
+      ProfileWork.callback(:light, fn -> Process.sleep(ms) end)
+    end
+
+    stats = ProfileWork.snapshot()[self()].callbacks.light
+    assert Enum.sum(Tuple.to_list(stats.buckets)) == 10
+    assert %{p50_ms: p50, p99_ms: p99} = ProfileWork.percentiles(stats.buckets)
+    assert p50 in [2.0, 3.0]
+    assert p99 >= 15.0
+    assert ProfileWork.percentiles(stats.buckets, stats.buckets).p95_ms == nil
+  end
+
   test "exceptions and throws preserve behavior, restore phase context and do not complete ticks" do
     assert_raise ArgumentError, "fixture", fn ->
       ProfileWork.callback(:tick, fn ->

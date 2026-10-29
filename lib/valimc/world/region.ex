@@ -583,9 +583,27 @@ defmodule Valimc.World.Region do
     {:ok, new_state(dimension, key), {:continue, {:load, key, token}}}
   end
 
+  # A group hosting players allocates tens of megabytes a tick while its
+  # live state stays small: a large young heap makes its collections rare,
+  # and each copies only what is live (VMC-081b). Groups without players keep
+  # the VM's default, so idle groups reserve nothing.
+  defp heap(%{players: players, large_heap: large} = state) do
+    wanted = players != %{} and Valimc.config(:region_min_heap_words) != nil
+
+    if wanted == large do
+      state
+    else
+      {:min_heap_size, default} = :erlang.system_info(:min_heap_size)
+      words = if wanted, do: Valimc.config(:region_min_heap_words), else: default
+      Process.flag(:min_heap_size, words)
+      %{state | large_heap: wanted}
+    end
+  end
+
   defp new_state(dimension, anchor) do
     %{
       dimension: dimension,
+      large_heap: false,
       sections: %{},
       epochs: %{},
       owners: %{},
@@ -1569,10 +1587,22 @@ defmodule Valimc.World.Region do
       players ->
         resources = Map.new(state.sections, fn {key, s} -> {key, s.resource} end)
 
+        # Spawns land in simulated chunks; their placement reads at most the
+        # sections beside those. Every section's mobs still count for the caps.
+        active =
+          for {{sx, sz}, r} <- resources, MapSet.size(r.tickets.simulated) > 0, do: {sx, sz}
+
+        near =
+          for {{sx, sz} = key, r} <- resources,
+              Enum.any?(active, fn {ax, az} -> abs(ax - sx) <= 1 and abs(az - sz) <= 1 end),
+              do: {key, r}
+
+        near = if near == [], do: Enum.to_list(resources), else: near
+
         group = %{
           sections: resources,
-          stores: for({_, r} <- resources, do: r.blocks.ref),
-          absent: Enum.flat_map(resources, fn {_, r} -> MapSet.to_list(r.generation.absent) end),
+          stores: for({_, r} <- near, do: r.blocks.ref),
+          absent: Enum.flat_map(near, fn {_, r} -> MapSet.to_list(r.generation.absent) end),
           players: players,
           rest: Host.rest_players(state),
           spawning: state.spawning,
@@ -1662,7 +1692,14 @@ defmodule Valimc.World.Region do
       end)
       |> commit_frames()
 
-    state |> schedule_tick(state.tick_clock, delay) |> retire()
+    # The next tick is due at the clock's absolute deadline, counted from when
+    # this one's work ended, not from when it began.
+    remaining = ceil(state.tick_clock.deadline - System.monotonic_time(:millisecond))
+
+    state
+    |> heap()
+    |> schedule_tick(state.tick_clock, max(0, min(delay, remaining)))
+    |> retire()
   end
 
   defp unload(state, key) do

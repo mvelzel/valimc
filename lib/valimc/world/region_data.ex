@@ -4879,14 +4879,13 @@ defmodule Valimc.World.RegionData do
     }
   end
 
-  # The group's comparators' outputs, and the signals of the containers one
-  # or two cells beside them (VMC-048a: what a comparator reads, also through
-  # a conductor).
+  # The comparators' outputs within the rules' reach (this section and those
+  # beside it), and the signals of the containers one or two cells beside
+  # them (VMC-048a: what a comparator reads, also through a conductor).
   defp comparator_context(state) do
     sections =
       [{state.key, state.comparators, state.containers}] ++
-        for {key, peer} <- state.siblings,
-            key != state.key,
+        for {key, peer} <- neighbours(state),
             comparators = Map.get(peer, :comparators, %{}),
             containers = Map.get(peer, :containers, %Valimc.World.Containers{}),
             map_size(comparators) > 0 or map_size(containers.entries) > 0,
@@ -5267,6 +5266,9 @@ defmodule Valimc.World.RegionData do
   before the group's next cut. While a plan holds the item store the hoppers
   see no item entities.
   """
+  def hoppers(%{containers: %{entries: entries}} = state) when map_size(entries) == 0,
+    do: state
+
   def hoppers(state) do
     hoppers =
       for {{x, _, z} = position, %{kind: :hopper, order: order}} <- state.containers.entries,
@@ -6212,13 +6214,26 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  # What the block rules read beyond this section: the group's other
-  # sections' stores, and every chunk of the group not generated yet.
+  # What the block rules read beyond this section: the stores of the group's
+  # sections beside it (at least 128 blocks of reach on every side, beyond any
+  # one run's cascade), and their chunks not generated yet. Passing the whole
+  # group made every run lock and list every section of a wide view.
   defp rule_reach(state) do
-    siblings = Map.delete(state.siblings, state.key)
+    near = for {_, sibling} <- neighbours(state), do: sibling
     own = MapSet.to_list(state.generation.absent)
-    absent = Enum.reduce(siblings, own, fn {_, sibling}, acc -> sibling.absent ++ acc end)
-    {for({_, sibling} <- siblings, do: sibling.blocks), absent}
+    absent = Enum.reduce(near, own, fn sibling, acc -> sibling.absent ++ acc end)
+    {for(sibling <- near, do: sibling.blocks), absent}
+  end
+
+  # The group's other sections beside this one (`{key, peer}`), by key
+  # rather than by walking every section of the group.
+  defp neighbours(%{key: {sx, sz}, siblings: siblings}) do
+    for dx <- -1..1,
+        dz <- -1..1,
+        {dx, dz} != {0, 0},
+        key = {sx + dx, sz + dz},
+        {:ok, peer} <- [Map.fetch(siblings, key)],
+        do: {key, peer}
   end
 
   # The run's outcome split by the section of each cell; cells outside the
@@ -7615,6 +7630,7 @@ defmodule Valimc.World.RegionData do
           BlockEntities.chunk_entries(
             state.block_entities,
             chunk,
+            positions,
             Blocks.get_many(state.blocks, positions)
           )
       end
@@ -8607,6 +8623,15 @@ defmodule Valimc.World.RegionData do
   """
   def lifecycle(state, tick, now) do
     state = %{state | tickets: Tickets.expire(state.tickets, tick)}
+
+    # Every five seconds, the ticks of chunks that left simulation freeze.
+    state =
+      if rem(tick, 100) == 0,
+        do: %{
+          state
+          | scheduled_ticks: ScheduledTicks.freeze(state.scheduled_ticks, state.tickets.simulated)
+        },
+        else: state
 
     cond do
       not Tickets.empty?(state.tickets) or busy?(state) ->

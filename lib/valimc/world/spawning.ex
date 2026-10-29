@@ -254,7 +254,7 @@ defmodule Valimc.World.Spawning do
   def plan(group) do
     env = group.environment
 
-    {mobs, bodies, simulated, owners, prepared} =
+    {mobs, bodies, simulated, prepared} =
       Valimc.World.SpawnInputs.prepare(group.sections, Map.get(group.spawning, :prepared, %{}))
 
     bodies =
@@ -302,6 +302,8 @@ defmodule Valimc.World.Spawning do
             {r, d, s, [event | e]}
           end)
       end
+
+    owners = Valimc.World.SpawnInputs.owners(prepared, discarded ++ reset)
 
     by_section =
       by_section
@@ -356,6 +358,7 @@ defmodule Valimc.World.Spawning do
   # The simulated chunks' kept starts of structures that override spawns.
   defp kept_starts(group) do
     for {_key, resource} <- group.sections,
+        MapSet.size(resource.tickets.simulated) > 0,
         {chunk, kept} <- resource.structures,
         MapSet.member?(resource.tickets.simulated, chunk),
         do: {chunk, kept}
@@ -399,6 +402,7 @@ defmodule Valimc.World.Spawning do
 
     {cached, requested} =
       for {_key, resource} <- group.sections,
+          MapSet.size(resource.tickets.simulated) > 0,
           {{x, _, z} = position, %{type: @spawner, nbt: nbt}} <- resource.block_entities.entries,
           MapSet.member?(resource.tickets.simulated, Grid.chunk_key(x, z)),
           {_, config, delay} = entry <- [spawner_entry(previous[position], nbt)],

@@ -35,6 +35,9 @@ defmodule Valimc.Entity.Tracker do
     :rotation,
     :head,
     :body,
+    # What observers see of that body (`Body.shown/1`), kept so each tick
+    # projects only the new body.
+    :shown,
     event_seq: 0,
     track_deltas: true,
     tick: 0,
@@ -76,7 +79,7 @@ defmodule Valimc.Entity.Tracker do
   def tick_body(tracker, view) do
     id = view.entity_id
     events = for {seq, packet} <- view.events, seq > tracker.event_seq, do: packet
-    changes = Body.changes(id, tracker.body, view.body)
+    {shown, changes} = changes(tracker, id, view.body)
 
     # A projectile's `needsSync` (VMC-037o): shot, stuck or turned back.
     impulse = impulse(view.body) != impulse(tracker.body)
@@ -100,7 +103,16 @@ defmodule Valimc.Entity.Tracker do
         {tracker, []}
       end
 
-    {%{tracker | tick: tracker.tick + 1, event_seq: last_event(view)}, events ++ packets}
+    {%{tracker | tick: tracker.tick + 1, event_seq: last_event(view), shown: shown},
+     events ++ packets}
+  end
+
+  defp changes(%{body: same} = tracker, _id, same), do: {tracker.shown, []}
+
+  defp changes(tracker, id, body) do
+    shown = Body.shown(body)
+    old = tracker.shown || Body.shown(tracker.body)
+    if shown == old, do: {shown, []}, else: {shown, Body.shown_changes(id, tracker.body, body)}
   end
 
   defp impulse(%Body{data: %{impulse: n}}), do: n
