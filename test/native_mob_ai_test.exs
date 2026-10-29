@@ -179,6 +179,9 @@ defmodule Valimc.NativeMobAITest do
   defp goal({:climb_powder_snow}), do: {Goals.ClimbPowderSnow, %{}}
   defp goal({:ocelot_attack}), do: {Goals.OcelotAttack, Goals.OcelotAttack.new()}
 
+  defp goal({:swim, s, interval}),
+    do: {Goals.RandomStroll, Goals.RandomStroll.new(s, swim: true, interval: interval)}
+
   defp goal({:follow_parent, s}), do: {Goals.FollowParent, Goals.FollowParent.new(s)}
 
   defp goal({:look_at_mobs, d, p, types}),
@@ -387,6 +390,21 @@ defmodule Valimc.NativeMobAITest do
     |> Stream.filter(fn {x, y, z} -> World.fluid(world, {x, y - 1, z}) == :empty end)
     |> Enum.take(count)
     |> then(&{&1, :done})
+  end
+
+  # Water columns: a cell in the water below the surface, spread out.
+  defp wet(blocks, count) do
+    world = world(blocks, nil, [], [], 0, :normal)
+
+    spots =
+      for x <- 2..45,
+          z <- 2..45,
+          y = surface(blocks, x, z) - 2,
+          World.fluid(world, {x, y, z}) == :water,
+          do: {x, y, z}
+
+    assert length(spots) >= count
+    spots |> Enum.take_every(div(length(spots), count)) |> Enum.take(count)
   end
 
   # A column a few blocks off with the same surface height (in sight).
@@ -735,6 +753,37 @@ defmodule Valimc.NativeMobAITest do
     scene = %{scene | mob: zombie, others: [golem | scene.others], ticks: 60}
     observed = compare(blocks, view, scene)
     assert Enum.any?(observed, &match?({:mob, _}, elem(&1, 6)))
+  end
+
+  test "fish swim through water on a water navigation", %{blocks: blocks, view: view} do
+    spots = wet(blocks, 3)
+
+    for {spot, k} <- Enum.with_index(spots) do
+      cod =
+        mob(120 + k, "minecraft:cod", spot, [{4, [:move], {:swim, 1.0, 10}}], [],
+          dimensions: {0.5, 0.3, 0.195},
+          navigation: :water,
+          water: 1.0
+        )
+
+      scene = %{
+        mob: cod,
+        others: [],
+        players: [],
+        time: 700 + k,
+        ticks: 80,
+        step: 0.2,
+        difficulty: :normal,
+        bright: false,
+        hurt: nil
+      }
+
+      compare(blocks, view, scene)
+    end
+    |> List.flatten()
+    |> then(fn observed ->
+      assert Enum.any?(observed, &(elem(&1, 5) != nil))
+    end)
   end
 
   test "random walk targets draw as the Elixir's", %{blocks: blocks, view: view} do

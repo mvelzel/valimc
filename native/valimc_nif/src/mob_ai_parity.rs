@@ -194,6 +194,14 @@ fn goal(f: &MobFacts, spec: Term) -> NifResult<Box<dyn Goal>> {
         "ocelot_attack" => Box::new(OcelotAttack::new()),
         "bow" => Box::new(RangedBowAttack::new(n(1)?, i(2)?, n(3)?)),
         "follow_parent" => Box::new(FollowParent::new(n(1)?)),
+        "swim" => Box::new(RandomStroll::new(
+            n(1)?,
+            random_stroll::StrollOptions {
+                swim: true,
+                interval: i(2)?,
+                ..Default::default()
+            },
+        )),
         "look_at_mobs" => Box::new(LookAtPlayer::new(n(1)?, n(2)?, false, Some(types(3)?))),
         _ => return Err(bad()),
     })
