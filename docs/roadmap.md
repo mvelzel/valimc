@@ -50,8 +50,9 @@ code, so one session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. Performance: a native simulation core with Elixir as control plane, plus constant-cost chunk adoption ([081](tickets/VMC-081.md)); its fixed-workload harness gates each slice.
-2. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
-3. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
+2. Then SIMD where data-parallel work dominates, terrain noise first ([082](tickets/VMC-082.md)).
+3. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
+4. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
 
 Done: [081c](tickets/VMC-081c.md), [081b](tickets/VMC-081b.md), [080k](tickets/VMC-080k.md), [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
