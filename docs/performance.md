@@ -163,7 +163,7 @@ The next useful performance work is sustained tests with larger view distances, 
 
 Survival tick budgets use `bench/tick_budget.exs` ([VMC-081a](tickets/VMC-081a.md)):
 one loopback client in a generated vanilla world at view 32 and simulation 10,
-in a combat or an exploration scenario, with the VM limited to the host's two
+in a mobs (many simulated mobs) or an exploration scenario, with the VM limited to the host's two
 schedulers (`elixir --erl "+S 2:2 +SDcpu 2:2" -S mix run …`). It reports the
 hosting owner's tick and callback percentiles, phases, heap and scheduler use;
 `GCTRACE=1`, `HEAP=1`, `PROFILE=stacks` and `PROFILE_EVERY=1` add diagnostics.

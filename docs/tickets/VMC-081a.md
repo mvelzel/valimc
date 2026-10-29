@@ -14,7 +14,8 @@ generates a template world once: the player's whole view around the spawn,
 with the animals generation places. Each `run` copies the template, so terrain
 and the starting population are fixed.
 
-- `combat` (capture 8): survival at midnight with the daylight cycle paused.
+- `mobs` (capture 8; `combat` until 081d): survival at midnight with the
+  daylight cycle paused.
   Hostiles spawn to the caps and attack; the client respawns at once when
   killed. A minute of warm-up fills the caps before measuring.
 - `explore` (capture 9): a spectator at y 160 flies along +X at 20 blocks per
@@ -28,7 +29,7 @@ use. Diagnostics: `PROFILE=stacks` adds a built-in profiler report of the window
 (the same format as a user capture), `HEAP=1` the flat size of each section
 field, `GCTRACE=1` the owner's collections, `PROFILE_EVERY=1` the phases of each
 of the last hundred ticks and `PROFILE=memory` per-function allocation (too
-heavy for a full combat window). `MIN_HEAP` overrides the group heap minimum.
+heavy for a full mobs window). `MIN_HEAP` overrides the group heap minimum.
 
 `Valimc.Data.ProfileWork` now counts every callback's duration in fixed
 buckets per owner (250 µs to 1 s), so reports and the harness give interval

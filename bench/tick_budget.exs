@@ -11,10 +11,11 @@
 #
 #   MIX_ENV=bench mix run --no-start bench/tick_budget.exs prepare TEMPLATE
 #   MIX_ENV=bench elixir --erl "+S 2:2 +SDcpu 2:2" -S mix run --no-start \
-#     bench/tick_budget.exs run TEMPLATE OUTPUT combat|explore [SECONDS]
+#     bench/tick_budget.exs run TEMPLATE OUTPUT mobs|explore [SECONDS]
 #
-# `combat` (capture 8): survival at midnight with the daylight cycle paused, so
-# hostiles spawn to the cap and attack; the player respawns where it died.
+# `mobs` (capture 8, named `combat` before): survival at midnight with the
+# daylight cycle paused, so the generated animals and hostiles spawned to the
+# caps simulate around the player, attacking it; it respawns where it died.
 # A minute of warm-up fills the caps before measuring. `explore` (capture 9): a
 # spectator flies at 20 blocks/s along +X into terrain nothing generated,
 # moving only while its chunk is there, as the vanilla client does.
@@ -783,7 +784,7 @@ case System.argv() do
     Process.exit(client, :kill)
     Application.stop(:valimc)
 
-  ["run", template, output, scenario | rest] when scenario in ["combat", "explore"] ->
+  ["run", template, output, scenario | rest] when scenario in ["mobs", "explore"] ->
     seconds = String.to_integer(List.first(rest) || "60")
     true = seconds in 10..600
     world = Path.expand(".local/tick-budget/runs/#{scenario}-#{System.os_time(:second)}")
@@ -802,7 +803,7 @@ case System.argv() do
 
     warmup =
       case scenario do
-        "combat" ->
+        "mobs" ->
           :ok = Valimc.World.Clock.configure({"minecraft:overworld", :paused, true})
           :ok = Valimc.World.Clock.configure({"minecraft:overworld", :ticks, 18_000})
           :ok = Valimc.World.Clock.flush()
@@ -937,5 +938,5 @@ case System.argv() do
     File.rm_rf!(world)
 
   _ ->
-    raise "usage: prepare TEMPLATE | run TEMPLATE OUTPUT combat|explore [SECONDS]"
+    raise "usage: prepare TEMPLATE | run TEMPLATE OUTPUT mobs|explore [SECONDS]"
 end
