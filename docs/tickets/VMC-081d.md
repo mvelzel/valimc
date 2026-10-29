@@ -1,20 +1,23 @@
-# VMC-081d — Native mob state
+# VMC-081d — Native mobs
 
 Status: In progress
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081a](VMC-081a.md).
 
-Re-scoped from "native entity sections, items first". A survey of the entity
-path and a profile of the `mobs` scenario showed that items, orbs, falling
-blocks, TNT and projectiles are a small share of a tick with many mobs, while
-mob turns are most of it. Native storage starts with mobs; the other kinds
-follow once mobs use it.
+Mob simulation moves to Rust whole: state, AI, base tick, vitals, combat,
+records and tracking. Elixir keeps processes, sockets, players, commands,
+tickets, transfers and persistence orchestration. This replaces the earlier
+081d/081e/081f split (entity sections with items first, then a mob core,
+then families): a survey of the entity path showed items and the other
+non-living kinds are a small share of a tick with many mobs, and a Rust turn
+over Elixir state rebuilt each tick would keep the conversions that dominate
+today.
 
 ## Baseline
 
-`bench/tick_budget.exs` `mobs` (the scenario named `combat` before) at
-922cdd57, two pinned cores of the development Mac's Linux VM, 60 seconds:
+`bench/tick_budget.exs` `mobs` at 922cdd57, two pinned cores of the
+development Mac's Linux VM, 60 seconds:
 
 | | Run 1 | Run 2 |
 |---|---:|---:|
@@ -23,48 +26,92 @@ follow once mobs use it.
 | Entity phase (sampled) | 13.9 ms | 16.1 ms |
 | Active mobs / loaded entities | 164 / 764 | 161 / 762 |
 
-About 90 µs per active mob on these cores, about 300 on the VPS. A stack
-profile of the owner (inclusive shares of its samples): mob turns
-(`move_mobs`) 25%, of which the AI's thinking 8% and the per-mob glue around
-the physics kernel (input maps, settling, vitals, fluids, motion) about 12%;
-natural spawning 14% (mostly the native spawn kernel); building and diffing
-entity save records each 50 ms cut 12 to 15% (`Store.record`, `Body.record`,
-`Mob.record`, `Living.saved`, `keyed_changes`); tracking 6%.
+About 90 µs per active mob on these cores, about 300 on the VPS. Owner
+profile (inclusive shares): mob turns 25% (AI thinking 8%, per-mob glue
+around the physics kernel 12%), natural spawning 14% (mostly the native
+kernel), entity save records 12 to 15%, tracking 6%.
 
-## Where the per-mob cost is
+## What moves
 
-`MobTicks.steps/5` runs one section's mobs in id order. Each tick it rebuilds
-every mob's kernel input map (`MobTicks.input/2`, `MobMotion.kernel/4`), starts
-a native ticker over them (`Kernel.mobs_begin`), and per mob runs the AI
-(`AI.think_mob/4`), the kernel step, pushes, `AI.settle/5` and
-`MobVitals`, then turns each result back into a store step (`Store.step_body`,
-a view, the spatial index). The mob AI is about 31,000 lines of Elixir across
-30 families; the tick glue about 4,200. No single part reaches the budget:
-the 15 to 30 times VMC-081 asks for needs the whole per-mob loop native, the
-AI included, family by family.
+About 35,000 lines of Elixir: the AI core (`ai.ex`, `self.ex`, `world.ex`,
+`selector.ex`, `goal.ex`, `mind.ex`), 27 goals, the brain machinery and four
+brains, 30 mob families and the animal modules, navigation and its helpers
+(`random_pos`, `shapes`, `look`, `smooth_swimming`, `leash`, `pickup`,
+`daylight`, `neutral`, `consume`, `conversion`, `spawn`, `spawn_group`,
+`pois`, `sensors`), the tick glue (`mob_ticks`, `mob_motion`, `mob_vitals`),
+the body (`body`, `mob`, `living/*` for mobs, `combat`) and the dragon. The
+physics kernel (`physics::mob`, the mob ticker) and path finding
+(`valimc_core::path`) are Rust already and are called in process.
 
-## Plan
+## Design
 
-1. **Persistent native mob table.** Each section's mobs' kernel state
-   (position, velocity, rotation, box, travel attributes, flags) lives in a
-   native table owned by the section's group, moved with `region_give`, kept
-   across ticks and changed by deltas, instead of input maps rebuilt every
-   tick. The ticker steps it in place.
-2. **Native base tick.** Living and mob base ticks (fluids, fire, air, fall
-   damage, effects' timers, despawn checks, body rotation) run in the table;
-   Elixir keeps the AI's think and the effects that reach other owners.
-3. **Native AI, by family.** Goal selectors, controls and sensing in Rust
-   (081e), with the ordered fallback that yields an unported mob to Elixir.
-4. **Records from the table.** Save records and tracker packets come from the
-   table's dirty classes (with 081h).
+- **Ownership.** Each section's mobs live in a `MobSection` resource (NIF
+  `mobs.rs`, core `valimc_core::mobs`) owned by the section's group, given
+  with `region_give` on transfers. It holds every native mob whole: body,
+  living state, equipment, attributes, mind (random, selectors with goal
+  state, navigation, controls, brain), family data, in network-id order with
+  a chunk index. Nothing is rebuilt per tick.
+- **Types move whole.** A mob type is native or Elixir, never split. While
+  families move, a section's turn runs every mob in id order: native mobs in
+  Rust, an Elixir mob by yielding to `MobTicks` at its turn over the same
+  physics ticker, then resuming. Native mobs appear to Elixir AI as sensed
+  rows and Elixir mobs to native AI likewise, refreshed as each moves, as
+  `AI.World.resense` does today. When the last family is native the yield
+  and the Elixir path are deleted.
+- **The world a native AI reads** (`Level`): block states through the
+  published snapshots the ticker already holds, light, biome, sky, rain,
+  the border, knots, POIs, game rules, time and difficulty, the group's
+  players and items as sensed rows, path searches run synchronously in
+  process (`valimc_core::path`), and the section's level random.
+- **Effects** that leave a mob (attacks on players or other owners' mobs,
+  sounds, particles, spawns, conversions, block edits, drops, item pickups,
+  leads, alerts) come back as one typed list per tick, applied by the owner
+  as today's effect tuples are. Mob-on-mob changes inside a section apply
+  directly, in id order, as vanilla's do.
+- **Outside actions** on a native mob (player hits, projectile and
+  explosion hurts, effects, interactions: feeding, breeding, shearing,
+  milking, buckets, leads, names; kills, teleports, portals, despawn,
+  conversion, spawning and finalizeSpawn) are calls on the resource, on a
+  normal scheduler, each bounded.
+- **Records** are produced by the resource as the same terms `Body.record`
+  writes (atom-keyed family data, `%MobMotion{}`, `%ItemStack{}`), so the
+  log, checkpoints, handoff digests and exports are unchanged; only changed
+  mobs are recorded at a cut, by dirty class. **Tracking** reads native
+  views: position, rotations, metadata values and equipment changes, with
+  the tracker's packets encoded natively.
+- **Exactness.** Every draw in vanilla's order on the same streams (the
+  mob's LegacyRandomSource, the section's level random); Java float and
+  double typing per variable as the Elixir's `Float32` discipline encodes
+  it; integer wrapping as Java's; id order everywhere order matters. The
+  vanilla oracle stages that drive `MobTicks.steps` (`mob_ai`, `hostile_ai`,
+  `animals`, `village`, `nether_mobs`, `turtle_growth`, `endermite_life`,
+  `dolphin_*`, `combat`, `entity`, `bucket_mobs`, `aquatic_packs`,
+  `natural_spawning`) run unchanged against the native turn, and a
+  differential test runs Elixir and native turns on the same seeded scenes
+  while both exist.
 
-Each step: parity tests against the Elixir path over seeded scenes, the
-`mobs` scenario on two cores before and after, and the vanilla stages it
-touches.
+## Order
 
-Acceptance (for this ticket's steps 1 and 2):
+1. Core: random, Mth and facts, the mob data model and its record codec,
+   `Level`, sensing, selector and goal trait, look and body rotation
+   controls, navigation over the path crate, living base tick and vitals,
+   combat for mobs, the turn loop over the ticker with the Elixir yield, the
+   `MobSection` resource and its owner integration (store routing, effects,
+   records, tracking, transfers).
+2. Families by population: farm animals (cow, mooshroom, pig, sheep,
+   chicken, rabbit) with their goals; then zombie (husk, zombie villager),
+   skeleton (stray, bogged), creeper, spider (cave spider), enderman,
+   witch, slime and magma cube, drowned; then water, Nether, village and
+   brains, the rest, the dragon last.
+3. Delete the Elixir mob path.
 
-- The same mob behaviour: seeded replays equal the Elixir turn.
-- The `mobs` scenario's entity phase down by the glue's share at least.
+Each family: its oracle stages pass on the native turn, the differential
+test passes, then its type switches to native.
+
+Acceptance:
+
+- Every mob oracle stage passes with every type native.
+- The `mobs` scenario's entity phase at least 15 times faster than the
+  baseline on two cores, tick p95 well under 50 ms.
 
 Checks: pending.
