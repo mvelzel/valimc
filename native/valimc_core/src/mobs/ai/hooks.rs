@@ -98,13 +98,9 @@ pub trait Hooks: Send + Sync {
         1.0
     }
 
-    /// `Living.Effects.add/3` on the mob (the living rules': until they
-    /// land, an absent effect is added and a present one kept).
+    /// `Living.Effects.add/3` on the mob.
     fn add_effect(&self, t: &mut Turn, id: i32, rung: Rung) {
-        let effects = &mut t.mob.body.mob.living.effects.0;
-        if let Err(i) = effects.binary_search_by_key(&id, |(k, _)| *k) {
-            effects.insert(i, (id, vec![rung]));
-        }
+        crate::mobs::living::effects::add(&mut t.mob.body.mob.living.effects, id, rung);
     }
 
     /// `Animal.breed/2` (`Breeding::Animal`) or a family's breeding.
