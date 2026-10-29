@@ -11,3 +11,6 @@ pub mod record;
 pub mod sensing;
 pub mod term;
 pub mod ai;
+pub mod combat;
+pub mod living;
+pub mod vitals;

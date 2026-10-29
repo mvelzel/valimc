@@ -13,7 +13,7 @@ mod atoms {
 }
 
 /// What the record codec knows of entity types and effects.
-pub struct MobRecordFacts(RecordFacts);
+pub struct MobRecordFacts(pub(crate) RecordFacts);
 
 #[rustler::resource_impl]
 impl rustler::Resource for MobRecordFacts {}

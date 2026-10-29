@@ -326,6 +326,7 @@ defmodule Valimc.Native do
   ## Native mob facts (VMC-081d)
 
   def mob_facts_init(_facts), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_living_facts_init(_facts), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Codec
 
@@ -553,4 +554,10 @@ defmodule Valimc.Native do
 
   def mob_parity_sensing(_region, _difficulty, _seer, _players, _mobs, _queries),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_living(_record_facts, _record, _op), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_ai_think(_region, _zoom_seed, _scene), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_parity_ai_random(_region, _zoom_seed, _cases), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_parity_ai_controls(_region, _zoom_seed, _cases), do: :erlang.nif_error(:nif_not_loaded)
 end

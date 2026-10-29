@@ -30,6 +30,9 @@ mod growth_parity;
 mod light;
 mod loot;
 mod mob_facts;
+mod mob_living;
+#[cfg(feature = "parity")]
+mod mob_living_parity;
 #[cfg(feature = "parity")]
 mod mob_parity;
 mod mob_term;
