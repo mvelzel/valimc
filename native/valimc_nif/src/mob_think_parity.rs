@@ -459,6 +459,7 @@ fn interact_event<'a>(env: Env<'a>, e: &InteractEvent) -> Term<'a> {
 /// `:pass`, `:consume` or `{:done, hand, swing, events, others, drops,
 /// convert, free}` (a conversion's record); `loot` the stacks of each
 /// shearing table; `leash_id` holds a recorded lead now.
+#[allow(clippy::too_many_arguments)]
 #[rustler::nif]
 fn mob_parity_interact<'a>(
     env: Env<'a>,
