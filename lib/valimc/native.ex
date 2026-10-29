@@ -323,6 +323,10 @@ defmodule Valimc.Native do
   def spawn_generated(_region, _siblings, _absent, _environment, _chunks),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  ## Native mob facts (VMC-081d)
+
+  def mob_facts_init(_facts), do: :erlang.nif_error(:nif_not_loaded)
+
   ## Codec
 
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
@@ -538,5 +542,15 @@ defmodule Valimc.Native do
   def gen_inspect(_cells), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_structure_time(_state, _biome_source, _origin, _size),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_fact(_query), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_level(_region, _zoom_seed, _darken, _queries),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_sight(_region, _pairs), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_parity_sensing(_region, _difficulty, _seer, _players, _mobs, _queries),
     do: :erlang.nif_error(:nif_not_loaded)
 end

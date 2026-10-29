@@ -31,6 +31,7 @@ defmodule Valimc.Application do
     Valimc.World.Chunk.load!()
     Valimc.Data.BlockFacts.install!()
     Valimc.World.Spawning.install!()
+    Valimc.AI.NativeFacts.install!()
     # Generation threads first: a new world's spawn search generates.
     Valimc.Worldgen.Pool.init!()
     Valimc.Worldgen.Generator.init!()
