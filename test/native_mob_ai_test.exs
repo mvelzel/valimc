@@ -70,6 +70,8 @@ defmodule Valimc.NativeMobAITest do
     }
   end
 
+  defp lit(world, scene), do: %{world | bright: Map.get(scene, :bright, false)}
+
   defp sensed_player(p) do
     %{
       kind: :player,
@@ -177,6 +179,14 @@ defmodule Valimc.NativeMobAITest do
   defp goal({:climb_powder_snow}), do: {Goals.ClimbPowderSnow, %{}}
   defp goal({:ocelot_attack}), do: {Goals.OcelotAttack, Goals.OcelotAttack.new()}
 
+  defp goal({:follow_parent, s}), do: {Goals.FollowParent, Goals.FollowParent.new(s)}
+
+  defp goal({:look_at_mobs, d, p, types}),
+    do: {Goals.LookAtPlayer, Goals.LookAtPlayer.new(d, p, types: types)}
+
+  defp goal({:bow, s, interval, radius}),
+    do: {Goals.RangedBowAttack, Goals.RangedBowAttack.new(s, interval, radius)}
+
   defp selector(specs) do
     specs
     |> Enum.map(fn {priority, flags, spec} ->
@@ -199,7 +209,8 @@ defmodule Valimc.NativeMobAITest do
             air_supply: m.air
         },
         motion: %{mob.motion | water: m.water},
-        home: m.home
+        home: m.home,
+        equipment: if(m.mainhand, do: %{mainhand: m.mainhand}, else: %{})
     }
 
     navigation = Navigation.new(m.navigation, breaching: m.breaching, climber: m.climber)
@@ -237,7 +248,7 @@ defmodule Valimc.NativeMobAITest do
       height: h,
       eye: e,
       world: world,
-      data: %{}
+      data: if(m.age, do: %{age: m.age}, else: %{})
     }
   end
 
@@ -246,6 +257,7 @@ defmodule Valimc.NativeMobAITest do
   # control, a scripted move toward the wanted position and the body control.
   defp step(%Self{} = self, step) do
     self = Self.mind(self, &%{&1 | tick: &1.tick + 1})
+    self = using_item(self)
     self = Self.mind(self, &%{&1 | no_action: &1.no_action + 1, sight: %{}})
     tick = self.mind.tick
 
@@ -279,6 +291,17 @@ defmodule Valimc.NativeMobAITest do
     Look.body(self, {x, z})
   end
 
+  # `updatingUsingItem`'s count (the base tick's, before the AI step).
+  defp using_item(%Self{mob: %{using: {hand, ticks}} = mob} = self) do
+    slot = if hand == :off_hand, do: :offhand, else: :mainhand
+
+    if mob.equipment[slot] == nil,
+      do: Self.stop_using(self),
+      else: %{self | mob: %{mob | using: {hand, ticks + 1}}}
+  end
+
+  defp using_item(self), do: self
+
   defp look(nil), do: nil
   defp look(l), do: {l.x, l.y, l.z, l.y_max, l.x_max, l.cooldown}
 
@@ -308,12 +331,15 @@ defmodule Valimc.NativeMobAITest do
   defp think(blocks, view, scene) do
     m = scene.mob
     players = Enum.map(scene.players, &sensed_player/1)
-    me = sensed_mob(m.uuid, m.id, m.kind, m.position, m.dimensions)
+    me = %{sensed_mob(m.uuid, m.id, m.kind, m.position, m.dimensions) | age: m.age || 0}
 
     others =
-      for o <- scene.others, do: sensed_mob(o.uuid, o.id, o.kind, o.position, o.dimensions)
+      for o <- scene.others,
+          do: %{sensed_mob(o.uuid, o.id, o.kind, o.position, o.dimensions) | age: o.age}
 
-    world = world(blocks, view, players, [me | others], scene.time, scene.difficulty)
+    world =
+      blocks |> world(view, players, [me | others], scene.time, scene.difficulty) |> lit(scene)
+
     self = self_of(m, world)
 
     {observations, _} =
@@ -363,6 +389,13 @@ defmodule Valimc.NativeMobAITest do
     |> then(&{&1, :done})
   end
 
+  # A column a few blocks off with the same surface height (in sight).
+  defp near(blocks, {hx, hy, hz}) do
+    Enum.find_value(for(dx <- 2..6, dz <- -3..3, do: {dx, dz}), fn {dx, dz} ->
+      if surface(blocks, hx + dx, hz + dz) == hy, do: {hx + dx, hy, hz + dz}
+    end)
+  end
+
   defp mob(n, kind, {x, y, z}, goals, targets, opts \\ []) do
     %{
       uuid: uuid(n),
@@ -375,7 +408,7 @@ defmodule Valimc.NativeMobAITest do
       body_yaw: Keyword.get(opts, :yaw, 0.0),
       on_ground: true,
       health: Keyword.get(opts, :health, 20.0),
-      fire_ticks: 0,
+      fire_ticks: Keyword.get(opts, :fire_ticks, 0),
       air: Keyword.get(opts, :air, 300),
       water: Keyword.get(opts, :water, 0.0),
       random: Valimc.AI.Random.new(uuid(n)),
@@ -384,6 +417,8 @@ defmodule Valimc.NativeMobAITest do
       breaching: false,
       climber: Keyword.get(opts, :climber, false),
       home: Keyword.get(opts, :home),
+      mainhand: Keyword.get(opts, :mainhand),
+      age: Keyword.get(opts, :age),
       goals: goals,
       targets: targets
     }
@@ -441,6 +476,7 @@ defmodule Valimc.NativeMobAITest do
         ticks: 120,
         step: 0.2,
         difficulty: :normal,
+        bright: false,
         hurt: nil
       }
 
@@ -466,7 +502,8 @@ defmodule Valimc.NativeMobAITest do
       id: 8,
       kind: "minecraft:zombie",
       position: {ox + 0.5, oy * 1.0, oz + 0.5},
-      dimensions: {0.6, 1.95, 1.74}
+      dimensions: {0.6, 1.95, 1.74},
+      age: 0
     }
 
     hurter = player(3, there)
@@ -479,6 +516,7 @@ defmodule Valimc.NativeMobAITest do
       ticks: 60,
       step: 0.25,
       difficulty: :normal,
+      bright: false,
       hurt: {3, hurter.uuid, "minecraft:player_attack"}
     }
 
@@ -514,6 +552,7 @@ defmodule Valimc.NativeMobAITest do
         ticks: 100,
         step: 0.15,
         difficulty: :easy,
+        bright: false,
         hurt: if(k == 3, do: {5, uuid(1000 + k), "minecraft:player_attack"})
       }
 
@@ -529,12 +568,7 @@ defmodule Valimc.NativeMobAITest do
 
   test "a skittish mob avoids players and leaps at targets", %{blocks: blocks, view: view} do
     {[here, there], _} = land(blocks, 2, :rand.seed_s(:exsss, 84))
-    {hx, hy, hz} = here
-
-    third =
-      Enum.find_value(for(dx <- 2..4, dz <- -3..3, do: {dx, dz}), fn {dx, dz} ->
-        if surface(blocks, hx + dx, hz + dz) == hy, do: {hx + dx, hy, hz + dz}
-      end)
+    third = near(blocks, here)
 
     goals = [
       {1, [:move], {:avoid_players, 8.0, 1.0, 1.2}},
@@ -558,11 +592,149 @@ defmodule Valimc.NativeMobAITest do
       ticks: 80,
       step: 0.3,
       difficulty: :hard,
+      bright: false,
       hurt: nil
     }
 
     observed = compare(blocks, view, scene)
     assert Enum.any?(observed, &("Valimc.AI.Goals.AvoidEntity" in elem(&1, 9)))
+  end
+
+  test "a skeleton shoots by bow, keeps out of the sun and flees it", %{
+    blocks: blocks,
+    view: view
+  } do
+    {spots, _} = land(blocks, 6, :rand.seed_s(:exsss, 87))
+    bow = Valimc.Protocol.ItemStack.new("minecraft:bow")
+
+    goals = [
+      {2, [], {:restrict_sun}},
+      {3, [:move], {:flee_sun, 1.0}},
+      {4, [:move, :look], {:bow, 1.0, 20, 15.0}},
+      {5, [:move], {:stroll, 1.0, true, 10}},
+      {6, [:look], {:look_at_player, 8.0, 0.02}},
+      {6, [:move, :look], {:look_around}},
+      {1, [:move], {:breath_air}},
+      {8, [:move], {:try_find_liquid}}
+    ]
+
+    targets = [
+      {1, [:target], {:hurt_by, false, []}},
+      {2, [:target], {:nat_player, true, 10}}
+    ]
+
+    for {[here, there], k} <- Enum.with_index(Enum.chunk_every(spots, 2)) do
+      skeleton =
+        mob(80 + k, "minecraft:skeleton", here, goals, targets,
+          dimensions: {0.6, 1.99, 1.74},
+          mainhand: bow,
+          fire_ticks: if(k == 1, do: 40, else: 0),
+          air: if(k == 2, do: 100, else: 300)
+        )
+
+      players =
+        case {k, near(blocks, here)} do
+          {1, _} -> []
+          {_, nil} -> [player(k, there)]
+          {_, close} -> [player(k, close)]
+        end
+
+      scene = %{
+        mob: skeleton,
+        others: [],
+        players: players,
+        time: 3000 + k,
+        ticks: 100,
+        step: 0.2,
+        difficulty: :normal,
+        bright: k != 2,
+        hurt: nil
+      }
+
+      compare(blocks, view, scene)
+    end
+    |> List.flatten()
+    |> then(fn observed ->
+      assert Enum.any?(observed, &("Valimc.AI.Goals.RangedBowAttack" in elem(&1, 9)))
+
+      assert Enum.any?(
+               observed,
+               &Enum.any?(elem(&1, 11), fn e -> match?({:shoot, _, _, _}, e) end)
+             )
+
+      assert Enum.any?(observed, &("Valimc.AI.Goals.RestrictSun" in elem(&1, 9)))
+      assert Enum.any?(observed, &("Valimc.AI.Goals.BreathAir" in elem(&1, 9)))
+    end)
+  end
+
+  test "a calf follows its parents, a zombie goes for a golem", %{blocks: blocks, view: view} do
+    {[here, there], _} = land(blocks, 2, :rand.seed_s(:exsss, 88))
+    {nx, ny, nz} = near(blocks, here)
+    {tx, ty, tz} = there
+    cow = "minecraft:cow"
+
+    adult = fn n, {x, y, z}, age ->
+      %{
+        uuid: uuid(n),
+        id: n,
+        kind: cow,
+        position: {x + 0.5, y * 1.0, z + 0.5},
+        dimensions: {0.9, 1.4, 1.3},
+        age: age
+      }
+    end
+
+    calf =
+      mob(
+        90,
+        cow,
+        here,
+        [{4, [], {:follow_parent, 1.25}}, {7, [:move, :look], {:look_around}}],
+        [],
+        dimensions: {0.45, 0.7, 0.65},
+        age: -24_000
+      )
+
+    scene = %{
+      mob: calf,
+      others: [
+        adult.(91, {nx + 2, ny, nz}, 0),
+        adult.(92, {tx, ty, tz}, -10),
+        adult.(93, {nx + 9, ny, nz}, 4)
+      ],
+      players: [],
+      time: 400,
+      ticks: 80,
+      step: 0.2,
+      difficulty: :normal,
+      bright: false,
+      hurt: nil
+    }
+
+    observed = compare(blocks, view, scene)
+    assert Enum.any?(observed, &("Valimc.AI.Goals.FollowParent" in elem(&1, 9)))
+
+    golem = %{
+      uuid: uuid(95),
+      id: 95,
+      kind: "minecraft:iron_golem",
+      position: {nx + 0.5, ny * 1.0, nz + 0.5},
+      dimensions: {1.4, 2.7, 2.295},
+      age: 0
+    }
+
+    zombie =
+      mob(
+        94,
+        "minecraft:zombie",
+        here,
+        @zombie ++ [{9, [:look], {:look_at_mobs, 8.0, 0.5, [cow, "minecraft:iron_golem"]}}],
+        @zombie_targets
+      )
+
+    scene = %{scene | mob: zombie, others: [golem | scene.others], ticks: 60}
+    observed = compare(blocks, view, scene)
+    assert Enum.any?(observed, &match?({:mob, _}, elem(&1, 6)))
   end
 
   test "random walk targets draw as the Elixir's", %{blocks: blocks, view: view} do

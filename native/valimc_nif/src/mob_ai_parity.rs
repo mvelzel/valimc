@@ -73,6 +73,10 @@ struct MobT<'a> {
     breaching: bool,
     climber: bool,
     home: Option<((i32, i32, i32), i32)>,
+    /// An `%ItemStack{}` in its main hand.
+    mainhand: Option<Term<'a>>,
+    /// An ageable mob's `age` (its family data), else nil.
+    age: Option<i64>,
     goals: Vec<Term<'a>>,
     targets: Vec<Term<'a>>,
 }
@@ -95,6 +99,7 @@ struct OtherT<'a> {
     kind: String,
     position: V3,
     dimensions: V3,
+    age: i32,
 }
 
 #[derive(NifMap)]
@@ -106,6 +111,8 @@ struct SceneT<'a> {
     ticks: i32,
     step: f64,
     difficulty: Atom,
+    /// `isBrightOutside`.
+    bright: bool,
     /// `{tick, player uuid, damage type}`: a hurt before that tick's think.
     hurt: Option<(i32, Binary<'a>, String)>,
 }
@@ -185,6 +192,9 @@ fn goal(f: &MobFacts, spec: Term) -> NifResult<Box<dyn Goal>> {
         "try_find_liquid" => Box::new(TryFindLiquid::new()),
         "climb_powder_snow" => Box::new(ClimbPowderSnow::new()),
         "ocelot_attack" => Box::new(OcelotAttack::new()),
+        "bow" => Box::new(RangedBowAttack::new(n(1)?, i(2)?, n(3)?)),
+        "follow_parent" => Box::new(FollowParent::new(n(1)?)),
+        "look_at_mobs" => Box::new(LookAtPlayer::new(n(1)?, n(2)?, false, Some(types(3)?))),
         _ => return Err(bad()),
     })
 }
@@ -259,7 +269,14 @@ fn mob_of(f: &MobFacts, m: &MobT) -> NifResult<NativeMob> {
             velocity: [0.0; 3],
             on_ground: m.on_ground,
             no_gravity: false,
-            data: FamilyData::empty(),
+            data: match m.age {
+                None => FamilyData::empty(),
+                Some(age) => FamilyData::new(vec![(
+                    valimc_core::mobs::term::Atom::new("age"),
+                    valimc_core::mobs::term::Value::Int(age),
+                )])
+                .ok_or(bad())?,
+            },
             mob: Mob {
                 living: Living {
                     health: Health {
@@ -277,7 +294,13 @@ fn mob_of(f: &MobFacts, m: &MobT) -> NifResult<NativeMob> {
                     air_supply: m.air,
                     freezing: Freezing::default(),
                 },
-                equipment: Equipment::default(),
+                equipment: {
+                    let mut e = Equipment::default();
+                    if let Some(stack) = m.mainhand {
+                        e.set(Slot::Mainhand, Some(crate::mob_term::decode(stack)?));
+                    }
+                    e
+                },
                 attributes: Attributes::default(),
                 ai: Some(Mind {
                     random: LegacyRandom::from_state(m.random).ok_or(bad())?,
@@ -557,13 +580,27 @@ fn observe<'a>(env: Env<'a>, t: &Turn, effects: &[Effect]) -> Term<'a> {
     )
 }
 
-/// One AI step as the ExUnit test runs it: the tick count, idle time and
+/// One AI step as the ExUnit test runs it: the tick count, the item in use,
+/// idle time and
 /// sight cache, the target and goal selectors (a full update on alternate
 /// ticks by id), navigation and the look control, then a scripted move
 /// toward the wanted position by at most `step` (horizontally) and the body
 /// rotation control.
 fn step(t: &mut Turn, step: f64) {
     t.mind.tick += 1;
+    // `updatingUsingItem`'s count (the base tick's, before the AI step).
+    let mob = &mut t.mob.body.mob;
+    if let Some(u) = &mut mob.using {
+        let slot = match u.hand {
+            Hand::MainHand => Slot::Mainhand,
+            Hand::OffHand => Slot::Offhand,
+        };
+        if mob.equipment.get(slot).is_none() {
+            mob.using = None;
+        } else {
+            u.ticks += 1;
+        }
+    }
     t.mind.no_action += 1;
     t.mind.sight.clear();
     let tick = t.mind.tick;
@@ -605,16 +642,14 @@ fn mob_parity_ai_think<'a>(
         .iter()
         .map(player_of)
         .collect::<NifResult<Vec<_>>>()?;
-    let mut mobs = vec![sensed(mob.uuid, scene.mob.id, type_id, mob.position, dims)];
+    let mut me = sensed(mob.uuid, scene.mob.id, type_id, mob.position, dims);
+    me.age = scene.mob.age.unwrap_or(0) as i32;
+    let mut mobs = vec![me];
     for o in &scene.others {
         let ty = f.entities.id(&o.kind).ok_or(bad())?;
-        mobs.push(sensed(
-            uuid(&o.uuid)?,
-            o.id,
-            ty,
-            v3(o.position),
-            v3(o.dimensions),
-        ));
+        let mut row = sensed(uuid(&o.uuid)?, o.id, ty, v3(o.position), v3(o.dimensions));
+        row.age = o.age;
+        mobs.push(row);
     }
     let mut sensing = Sensing::new(players, vec![], mobs);
     let hurt_damage = match &scene.hurt {
@@ -625,6 +660,7 @@ fn mob_parity_ai_think<'a>(
     let mut out = Vec::new();
     over_region(&region, zoom_seed, |level| {
         level.difficulty = difficulty;
+        level.bright = scene.bright;
         for i in 0..scene.ticks {
             level.time = scene.time + i as i64;
             let obs = turn(&mut mob, scene.mob.id, dims, level, &mut sensing, |t| {
