@@ -20,12 +20,16 @@ pub mod fmath;
 pub mod goal;
 pub mod goals;
 pub mod hooks;
+pub mod leash;
 pub mod mind;
 pub mod navigation;
 pub mod paths;
+pub mod pickup;
 pub mod random_pos;
 pub mod selector;
 pub mod shapes;
+pub mod spawn;
+pub mod think;
 pub mod turn;
 
 pub use effect::Effect;
@@ -39,9 +43,14 @@ pub use turn::{Eyes, Seen, Turn};
 use std::any::Any;
 use std::fmt::Debug;
 
-/// What sensed mobs carry beyond the common part (`SensedMob<X>`): nothing
-/// yet; families that read each other's own state extend it.
-pub type Extra = ();
+/// What sensed mobs carry beyond the common part (`SensedMob<X>`): what
+/// families read of each other's own state (`AI.sensed/1`'s `data`: an
+/// animal's, whose partner's variant or colour its child takes). None where
+/// nothing reads it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Extra {
+    pub data: Option<crate::mobs::model::FamilyData>,
+}
 
 /// A value the core holds without interpreting it (a brain's state, a
 /// family's own fields, a family goal's state): cloned and compared through

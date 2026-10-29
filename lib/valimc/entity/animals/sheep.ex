@@ -41,6 +41,9 @@ defmodule Valimc.Entity.Animals.Sheep do
             {{i, j}, mixed}
           end)
 
+  @doc "The crafted mix of each pair of dye colours (nil: none), for the native facts."
+  def mix_table, do: for({{a, b}, mixed} <- @mixes, do: [a, b, mixed])
+
   @impl true
   def goals do
     {[

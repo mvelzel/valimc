@@ -396,7 +396,7 @@ fn sensed(
         invulnerable: false,
         killed_by: None,
         panicking: false,
-        extra: (),
+        extra: Extra::default(),
     }
 }
 

@@ -104,6 +104,9 @@ pub struct SensedItem {
     pub pickup_delay: i32,
     /// Its last physics observation.
     pub in_water: bool,
+    /// Its stack's components (`%ItemStack{}`'s map; None: empty), which a
+    /// mob picking it up keeps.
+    pub components: Option<super::term::Value>,
 }
 
 impl SensedItem {

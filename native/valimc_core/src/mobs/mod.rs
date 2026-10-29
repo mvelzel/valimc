@@ -2,7 +2,9 @@
 //! and tracking, owned per section by its group process. See
 //! `docs/tickets/VMC-081d.md`.
 
+pub mod animals;
 pub mod facts;
+pub mod kinds;
 pub mod level;
 pub mod model;
 pub mod mth;

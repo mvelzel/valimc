@@ -203,4 +203,7 @@ pub enum Effect {
     ShulkerPush(Value),
     /// `{:locate, uuid, request, query}`: a structure query.
     Locate(Value),
+    /// An event of the living rules the AI made happen to the mob (a
+    /// family's air drowning it), as its hurt path returns it.
+    Living(crate::mobs::combat::Event),
 }

@@ -333,6 +333,9 @@ pub struct AnimalFacts {
     pub variants: HashMap<String, Vec<Variant>>,
     /// By sound variant registry, then variant.
     pub sound_variants: HashMap<String, HashMap<String, SoundVariant>>,
+    /// The dye two dye colours craft (`Sheep`'s `findColorMixInRecipes`,
+    /// from the crafting recipes): `(colour, colour) => colour`.
+    pub sheep_mixes: HashMap<(i32, i32), i32>,
 }
 
 fn sound_set(json: &Json) -> Result<HashMap<String, String>, String> {
@@ -435,7 +438,22 @@ impl AnimalFacts {
                 }),
             })
         })?;
+        let mut sheep_mixes = HashMap::new();
+        if let Some(mixes) = json.get("sheep_mixes") {
+            for row in mixes.as_array()? {
+                match row.as_array()? {
+                    [a, b, Json::Null] => {
+                        let _ = (int(a)?, int(b)?);
+                    }
+                    [a, b, m] => {
+                        sheep_mixes.insert((int(a)?, int(b)?), int(m)?);
+                    }
+                    _ => return Err("bad sheep mix".into()),
+                }
+            }
+        }
         Ok(AnimalFacts {
+            sheep_mixes,
             group_baby_chance: float_bits(json.field("spawn_group_baby_chance")?)?,
             water_ageable,
             animals,

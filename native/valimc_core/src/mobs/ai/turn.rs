@@ -248,7 +248,27 @@ pub struct Turn<'t, 'w> {
     pub paths: &'w PathFacts,
     pub hooks: &'w dyn Hooks,
     pub effects: Vec<Effect>,
+    /// What the section gives the turn beyond the level and sensing (the
+    /// kernel's probe of a goal's own move, mid-tick melee hits); None: a
+    /// turn alone.
+    pub outside: Option<&'t mut (dyn Outside + 't)>,
     seed: u64,
+}
+
+/// What a section gives a mob's turn beyond the level and sensing
+/// (`world.goal_position` and `world.melee` in the Elixir).
+pub trait Outside {
+    /// Where a goal's own move (`MobMotion.pre_move`) takes the mob, as the
+    /// kernel would move it (`BreathAir.predicted`); None: unknown.
+    fn goal_position(&mut self, _t: &Turn) -> Option<[f64; 3]> {
+        None
+    }
+
+    /// A melee hit on a mob ticking with it, landed now; true when it
+    /// killed it (`MobTicks.kills?`).
+    fn melee(&mut self, _t: &mut Turn, _target: &Ref) -> bool {
+        false
+    }
 }
 
 impl Drop for Turn<'_, '_> {
@@ -306,8 +326,35 @@ impl<'t, 'w> Turn<'t, 'w> {
             paths,
             hooks,
             effects: Vec::new(),
+            outside: None,
             seed,
         }
+    }
+
+    /// The mob with its mind attached (`mob.ai` as a record holds it) while
+    /// `f` runs: the living rules draw on and change it there (a hurt's
+    /// voice, the idle reset).
+    pub fn attached<R>(&mut self, f: impl FnOnce(&mut NativeMob) -> R) -> R {
+        let state = std::mem::take(&mut **self.mind);
+        self.mob.body.mob.ai = Some(Mind {
+            random: self.random,
+            memories: self.memories.take(),
+            state: Some(Box::new(state)),
+        });
+        let result = f(self.mob);
+        if let Some(mind) = self.mob.body.mob.ai.take() {
+            self.random = mind.random;
+            self.memories = mind.memories;
+            if let Some(state) = mind.state {
+                **self.mind = *state;
+            }
+        }
+        result
+    }
+
+    /// The mob's saved memories (a brain's).
+    pub fn memories(&self) -> Option<&Value> {
+        self.memories.as_ref()
     }
 
     // ## The mob
@@ -821,8 +868,18 @@ impl<'t, 'w> Turn<'t, 'w> {
     /// owner lands now (`Hooks::melee`); a mob it killed is sensed dead.
     pub fn melee(&mut self, target: &Ref) {
         if target.kind == Kind::Mob {
-            let hooks = self.hooks;
-            if hooks.melee(self, target) {
+            let killed = match self.outside.take() {
+                Some(outside) => {
+                    let killed = outside.melee(self, target);
+                    self.outside = Some(outside);
+                    killed
+                }
+                None => {
+                    let hooks = self.hooks;
+                    hooks.melee(self, target)
+                }
+            };
+            if killed {
                 self.sensing.resense(&target.uuid, |m| m.alive = false);
             }
         }

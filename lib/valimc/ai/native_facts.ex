@@ -43,7 +43,12 @@ defmodule Valimc.AI.NativeFacts do
       "entities" => Map.take(entities, ~w(types categories fields)),
       "effects" => Facts.read!("protocol/status_effects.json")["effects"],
       "hostile" => Facts.read!("registry/hostile_facts.json"),
-      "animal" => Facts.read!("registry/animal_facts.json"),
+      "animal" =>
+        Map.put(
+          Facts.read!("registry/animal_facts.json"),
+          "sheep_mixes",
+          Valimc.Entity.Animals.Sheep.mix_table()
+        ),
       "village" => Facts.read!("registry/village_facts.json"),
       "combat" =>
         Map.take(

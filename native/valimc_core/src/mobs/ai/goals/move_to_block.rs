@@ -35,6 +35,8 @@ pub struct MoveToBlock {
     pub guard: Option<Tag>,
     /// `acceptedDistance`.
     pub accepted: f64,
+    /// A goal's own fields its block test reads and changes (`own:`).
+    pub own: Option<Box<dyn crate::mobs::ai::Opaque>>,
 }
 
 /// `MoveToBlock.new/4`'s options.
@@ -81,6 +83,7 @@ impl MoveToBlock {
             reached: false,
             guard: o.guard,
             accepted: o.accepted,
+            own: None,
         }
     }
 

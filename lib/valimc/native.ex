@@ -273,6 +273,7 @@ defmodule Valimc.Native do
 
   ## Native mobs (VMC-081d)
 
+  def mob_kinds, do: :erlang.nif_error(:nif_not_loaded)
   def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def mob_record_roundtrip(_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
 

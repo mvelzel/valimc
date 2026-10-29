@@ -79,3 +79,43 @@ pub fn put_component(stack: &mut Value, name: &str, value: Value) {
     components.insert(Value::Binary(name.as_bytes().to_vec()), value);
     map.insert_atom("components", Value::Map(components));
 }
+
+/// `%ItemStack{item_id: id, count: count, components: components}` with
+/// nothing removed (`ItemStack.new/2` where `components` is None).
+pub fn new_stack(item_id: i32, count: i32, components: Option<Value>) -> Value {
+    let removed = Value::Map(Map::from_atoms([
+        ("__struct__", Value::atom("Elixir.MapSet")),
+        ("map", Value::Map(Map::new())),
+    ]));
+    Value::Map(Map::from_atoms([
+        (
+            "__struct__",
+            Value::atom("Elixir.Valimc.Protocol.ItemStack"),
+        ),
+        ("item_id", Value::Int(item_id as i64)),
+        ("count", Value::Int(count as i64)),
+        (
+            "components",
+            components.unwrap_or_else(|| Value::Map(Map::new())),
+        ),
+        ("removed", removed),
+    ]))
+}
+
+/// `stack.count`.
+pub fn count(stack: &Value) -> i32 {
+    stack
+        .as_map()
+        .and_then(|m| m.get_atom("count"))
+        .and_then(Value::as_int)
+        .unwrap_or(1) as i32
+}
+
+/// The stack with `count`.
+pub fn with_count(stack: &Value, count: i32) -> Value {
+    let mut stack = stack.clone();
+    if let Value::Map(map) = &mut stack {
+        map.insert_atom("count", Value::Int(count as i64));
+    }
+    stack
+}
