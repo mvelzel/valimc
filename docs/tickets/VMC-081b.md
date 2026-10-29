@@ -93,3 +93,10 @@ block-entity, tracker, mob and region suites pass (60 region, storage,
 generation, light, handoff and group tests among them). `check_vanilla.py
 --changed` selects all 261 stages (a configuration change); all pass, with the
 unchanged world-settings extraction still not verified (no cached regeneration).
+
+Deployed `13373b2d6893776845d0d57348ed9a4622192e60` to the existing Hetzner host
+on October 29 with the same `valimc_data:/data` volume, view 32, simulation 10
+and public diagnostic origin. The image and release symlink match, the server
+listens on 25565 and readiness returns HTTP 200. This verifies deployment, not
+gameplay TPS; the user takes new combat and exploration profiles. The log is in
+ignored `.local/hetzner/deploy-081b.log`.
