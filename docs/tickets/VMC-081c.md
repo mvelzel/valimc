@@ -107,3 +107,11 @@ place, dragon, region and Anvil light and imported region tests pass; native
 builds and clippy add no warnings. `check_vanilla.py --changed` selects all
 261 stages (a configuration change); all pass, with world-settings
 extraction still not verified (no cached regeneration).
+
+Deployed `6b75bae680039e42227a2974825f97acd154d2ce` to the Hetzner host on
+October 29 with the same `valimc_data:/data` volume, view 32, simulation 10
+and public diagnostic origin. The running release has two generation threads
+at nice 10, the sleeping-scheduler flags and 512 proto cells; the server
+listens on 25565 and readiness returns HTTP 200. This verifies deployment,
+not gameplay; the user takes the exploration capture. The log is in ignored
+`.local/hetzner/deploy-081c.log`.
