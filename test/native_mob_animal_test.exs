@@ -404,7 +404,10 @@ defmodule Valimc.NativeMobAnimalTest do
 
     entries =
       for {{spot, type}, n} <- Enum.with_index(Enum.zip(rest, Stream.cycle(@types)), 1) do
-        animal(n, type, spot, age: if(rem(n, 4) == 0, do: -24_000, else: 0))
+        animal(n, type, spot,
+          age: if(rem(n, 4) == 0, do: -24_000, else: 0),
+          no_ai: n == 5
+        )
       end
 
     players = [player(0, here, mainhand: wheat), player(1, there)]
