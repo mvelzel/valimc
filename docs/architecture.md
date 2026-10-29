@@ -447,10 +447,10 @@ once its section made it durable), its proto chunk as a native cell, and the
 dimension's structure starts, which placement changes as vanilla changes its
 saved starts. Work runs on `Valimc.Worldgen.Pool` with explicit write areas:
 terrain holds its chunk, a decoration its 3 × 3, a full chunk its own cell.
-Decorations conflict within two chunks; each gets a number when a request
-first needs it (the request's chunks within one, Z outer and X inner), and
-conflicting decorations run in number order, so a chunk depends only on the
-order of requests.
+Decorations conflict within two chunks: a running one holds its 3 × 3, so
+conflicting decorations run one after the other in the order they start, as
+vanilla's features run in the order its chunks reach them (VMC-081c1). The
+order they ran in is what a reference replays.
 
 What is made in which order is one model (VMC-077x1, `Worldgen.Frontier`). The
 wanted chunks not sent yet are goals, kept in one ordered set: urgent ones
@@ -459,13 +459,13 @@ player's connection tells the scheduler which chunk the player entered and
 which way they move (`Scheduler.focus/5`), straight, not through the
 sections' tickets; the player's own chunk scores first, then the chunks ahead
 of them before those beside and behind, and a chunk crossed re-scores the
-goals once. Nothing else stores a priority. Each numbered decoration knows
-what it still waits for (earlier decorations within two, chunks of its 3 × 3
-without terrain) and how many goals reach it; a result updates only what it
-touches. Jobs start from the goals in order: final chunks and chunks made
-alone, then, walking each goal's dependencies (its decorations, the earlier
-ones they wait for, the terrain they lack), the decorations that can start and
-the terrain, until the pool's room is filled. Terrain never takes the pool's
+goals once. Nothing else stores a priority. Each needed decoration knows the
+chunks of its 3 × 3 without terrain and how many goals reach it, and gives its
+number up when none does; a result updates only what it touches. Jobs start
+in goal order whatever their kind: walking each goal's dependencies (its full
+chunk or chunk made alone, its decorations, the terrain they lack), the work
+of a nearer goal starts before a farther goal's, until the pool's room is
+filled. Terrain never takes the pool's
 last slot. Nothing answers busy or polls: a job's result starts the next job
 at once, and while work is left out for want of a slot, the next job to end
 anywhere in the pool wakes the scheduler. Terrain-only worlds are final after

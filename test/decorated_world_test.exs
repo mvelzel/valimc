@@ -41,6 +41,11 @@ defmodule Valimc.DecoratedWorldTest do
       File.rm_rf(base)
     end)
 
+    # The decorations' order, to replay (VMC-081c).
+    previous = Application.get_env(:valimc, :generation_order_log)
+    Application.put_env(:valimc, :generation_order_log, true)
+    on_exit(fn -> Application.put_env(:valimc, :generation_order_log, previous) end)
+
     {:ok, worldgen} = Generator.worldgen(@seed)
     %{base: base, keys: keys, worldgen: worldgen}
   end
@@ -51,23 +56,9 @@ defmodule Valimc.DecoratedWorldTest do
         do: TestScope.kill(pid)
   end
 
-  # The region's full chunks when one request wants all of them: its 10 × 10
-  # decorated Z outer, X inner over terrain.
-  defp expected(worldgen, key) do
-    case :persistent_term.get({__MODULE__, key}, nil) do
-      nil ->
-        full = compute_expected(worldgen, key)
-        :persistent_term.put({__MODULE__, key}, full)
-        full
-
-      full ->
-        full
-    end
-  end
-
-  defp compute_expected(worldgen, {rx, rz} = key) do
-    order = key |> RegionGeneration.chunks_of() |> Enum.flat_map(&around/1) |> Enum.uniq()
-    order = Enum.sort_by(order, fn {x, z} -> {z, x} end)
+  # The region's full chunks decorated in `order` (the order the scheduler's
+  # decorations ran, VMC-081c) over terrain.
+  defp expected(worldgen, {rx, rz} = key, order) do
     origin = {rx * 8 - 2, rz * 8 - 2}
     {:ok, cells} = Native.gen_reference(worldgen, @source, origin, 12, order, true)
 
@@ -78,8 +69,6 @@ defmodule Valimc.DecoratedWorldTest do
       %{full | image: Map.fetch!(World.Blocks.lit_images(%{{x, z} => full.image}, true), {x, z})}
     end
   end
-
-  defp around({x, z}), do: for(dz <- -1..1, dx <- -1..1, do: {x + dx, z + dz})
 
   # Under load a region's start can take longer than a call's default timeout.
   defp owner!(key, attempts \\ 600) do
@@ -122,10 +111,12 @@ defmodule Valimc.DecoratedWorldTest do
 
   test "a region stores its full chunks with block entities, ticks and post-processing and serves them after a restart",
        ctx do
-    full = expected(ctx.worldgen, @key)
+    generate_all(@key)
+    order = Scheduler.order(ctx.base, :overworld)
+    assert length(order) == 100
+    full = expected(ctx.worldgen, @key, order)
     {:ok, parts} = FullChunk.parts(full, %{}, [])
     assert map_size(parts.block_entities) > 0
-    generate_all(@key)
 
     stored = durable(ctx, @key)
     assert stored.columns == parts.columns

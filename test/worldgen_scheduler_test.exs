@@ -75,14 +75,14 @@ defmodule Valimc.WorldgenSchedulerTest do
     end
   end
 
-  test "requests one after the other equal one decoration in numbering order", ctx do
+  test "requests one after the other equal one decoration in the order they ran", ctx do
     first = [{-40, 12}, {-39, 12}]
     second = [{-36, 13}]
     ours = full(ctx.base, first) ++ full(ctx.base, second)
     order = Scheduler.order(ctx.base, :overworld)
-    # Each request numbered its own undecorated chunks within 1, Z outer and X inner.
-    numbered = first |> Enum.flat_map(&Frontier.around(&1, 1)) |> Enum.uniq()
-    assert Enum.take(order, 12) == Enum.sort_by(numbered, fn {x, z} -> {z, x} end)
+    # The first request's undecorated chunks within 1 ran before the second's.
+    decorated = first |> Enum.flat_map(&Frontier.around(&1, 1)) |> Enum.uniq()
+    assert Enum.sort(Enum.take(order, 12)) == Enum.sort(decorated)
     assert_same(ours, reference(ctx.worldgen, order, first ++ second))
   end
 

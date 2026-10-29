@@ -192,7 +192,7 @@ defmodule Valimc.Worldgen.Scheduler do
          do: GenServer.call(pid, {:full_chunks, chunks}, timeout)
   end
 
-  @doc "The chunks numbered for decoration, in order (with `:generation_order_log` on)."
+  @doc "The chunks decorated, in the order they ran (with `:generation_order_log` on)."
   def order(world, dimension), do: call(world, dimension, :order)
 
   @doc "Counts of the scheduler's chunks and work."
@@ -201,7 +201,7 @@ defmodule Valimc.Worldgen.Scheduler do
   @doc """
   Where `chunk` is on its way to a region (benches, VMC-081c): `:unwanted` (no
   section wants it), `{:goal, rank, status}` (being made; status nil before
-  terrain), `:ready` (waiting for its group's credit), `:delivered` (sent, not
+  terrain, and what it waits for), `:ready` (waiting for its group's credit), `:delivered` (sent, not
   acknowledged) or `:persisting` (installed, its frame not durable yet).
   """
   def where(world, dimension, chunk), do: call(world, dimension, {:where, chunk})
@@ -234,7 +234,8 @@ defmodule Valimc.Worldgen.Scheduler do
           Frontier.new(spec,
             decorated: Spec.decorated?(world, state.dimension),
             sky: Valimc.World.Dimension.facts(state.dimension).sky_light,
-            log: Application.get_env(:valimc, :generation_order_log, false)
+            log: Application.get_env(:valimc, :generation_order_log, false),
+            order: Application.get_env(:valimc, :generation_order, :started)
           )
 
         path = scratch_path(state)
@@ -448,7 +449,7 @@ defmodule Valimc.Worldgen.Scheduler do
           :delivered
 
         Map.has_key?(f.ranks, chunk) ->
-          {:goal, f.ranks[chunk], get_in(f.chunks, [chunk, :status])}
+          {:goal, f.ranks[chunk], get_in(f.chunks, [chunk, :status]), work_near(f, chunk)}
 
         MapSet.member?(f.delivered, chunk) ->
           :persisting
@@ -759,6 +760,38 @@ defmodule Valimc.Worldgen.Scheduler do
     else
       %{state | calls: Map.put(state.calls, ref, call)}
     end
+  end
+
+  # What `chunk` waits for (benches): its 3 × 3's undecorated chunks, the
+  # terrain its 5 × 5 lacks, and the running jobs by kind within 2 of it and
+  # farther.
+  defp work_near(f, {x, z} = chunk) do
+    status = &get_in(f.chunks, [&1, :status])
+    near = fn {cx, cz} -> max(abs(cx - x), abs(cz - z)) <= 2 end
+
+    %{
+      undecorated:
+        Enum.count(Frontier.around(chunk, 1), &(status.(&1) not in [:decorated, :handed])),
+      no_terrain: Enum.count(Frontier.around(chunk, 2), &(status.(&1) == nil)),
+      # Of those, the ones the decorations count as lacking, and how far the
+      # first terrain the next dispatch would pick is.
+      needed: Enum.count(Frontier.around(chunk, 2), &Map.has_key?(f.terrain, &1)),
+      pick:
+        case Frontier.Dependencies.resolve(f, 1, 1) do
+          {_, [{_, {cx, cz}} | _], _} -> max(abs(cx - x), abs(cz - z))
+          _ -> nil
+        end,
+      own_rank: Map.get(f.ranks, chunk),
+      top:
+        f.goals
+        |> :gb_sets.smallest()
+        |> elem(3)
+        |> then(fn {gx, gz} -> max(abs(gx - x), abs(gz - z)) end),
+      running:
+        Enum.frequencies_by(Map.values(f.jobs), fn job ->
+          {job.kind, if(is_tuple(job.chunk) and near.(job.chunk), do: :near, else: :far)}
+        end)
+    }
   end
 
   defp has_chunk?(delivery, chunk), do: Enum.any?(delivery, &match?({{_, ^chunk}, _}, &1))

@@ -109,6 +109,7 @@ defmodule Bench.TickBudget do
       fly: nil,
       due: now_ms(),
       missing_ms: 0,
+      flown_ms: nil,
       stuck: nil
     }
 
@@ -141,16 +142,18 @@ defmodule Bench.TickBudget do
     end
   end
 
-  # One client tick: a flying player moves along +X while its chunk is there.
+  # One client tick: a flying player moves while its chunk is there, along +X
+  # or, with `FLY_TURN` seconds, turning a quarter left after each of them.
   defp tick(%{fly: nil} = state), do: %{state | due: state.due + 50}
 
   defp tick(%{position: {x, y, z}} = state) do
     chunk = {floor(x / 16), floor(z / 16)}
+    {dx, dz} = heading(state)
 
-    {x, missing} =
+    {x, z, missing} =
       if MapSet.member?(state.have, chunk),
-        do: {x + state.fly, 0},
-        else: {x, 50}
+        do: {x + dx * state.fly, z + dz * state.fly, 0},
+        else: {x, z, 50}
 
     client =
       state.client
@@ -163,11 +166,24 @@ defmodule Bench.TickBudget do
         position: {x, y, z},
         due: state.due + 50,
         missing_ms: state.missing_ms + missing,
+        flown_ms: (state.flown_ms || 0) + 50 - missing,
         stuck: if(missing > 0, do: chunk)
     }
   end
 
   defp tick(state), do: %{state | due: state.due + 50}
+
+  defp heading(state) do
+    case System.get_env("FLY_TURN") do
+      nil ->
+        {1.0, 0.0}
+
+      seconds ->
+        flown = state.flown_ms || 0
+        turns = div(flown, String.to_integer(seconds) * 1000)
+        Enum.at([{1.0, 0.0}, {0.0, -1.0}, {-1.0, 0.0}, {0.0, 1.0}], rem(turns, 4))
+    end
+  end
 
   defp handle("level_chunk_with_light", <<x::signed-32, z::signed-32, _::binary>>, state),
     do: %{state | have: MapSet.put(state.have, {x, z}), chunks: state.chunks + 1}
@@ -271,8 +287,13 @@ defmodule Bench.TickBudget do
       100 ->
         causes =
           case client_report(client) do
-            %{stuck: nil} -> causes
-            %{stuck: chunk} -> Map.update(causes, cause(chunk), 100, &(&1 + 100))
+            %{stuck: nil} ->
+              causes
+
+            %{stuck: chunk} ->
+              Enum.reduce(cause(chunk), causes, fn key, causes ->
+                Map.update(causes, key, 100, &(&1 + 100))
+              end)
           end
 
         stuck_loop(client, causes)
@@ -288,22 +309,38 @@ defmodule Bench.TickBudget do
       {_pid, _, %{publication: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
           [{_, handle}] when is_reference(handle) ->
-            "published, not sent"
+            ["published, not sent"]
 
           _ ->
             world = Application.get_env(:valimc, :world_path)
 
             case Valimc.Worldgen.Scheduler.where(world, :overworld, chunk) do
-              {:goal, _, status} -> "generating (#{status || "no terrain"})"
-              where -> Atom.to_string(where)
+              {:goal, _, status, work} ->
+                # Also, per kind and place, the time a job ran meanwhile.
+                ["generating (#{status || "no terrain"})"] ++
+                  for(
+                    {{kind, place}, _} <- work.running,
+                    do: "running #{kind} #{place}"
+                  ) ++
+                  [
+                    "undecorated 3x3: #{work.undecorated}",
+                    "no terrain 5x5: #{work.no_terrain}",
+                    "needed terrain 5x5: #{work.needed}",
+                    "next terrain pick at distance: #{work.pick}",
+                    "own rank: #{work.own_rank}",
+                    "top goal at distance: #{work.top}"
+                  ]
+
+              where ->
+                [Atom.to_string(where)]
             end
         end
 
       _ ->
-        "section not loaded"
+        ["section not loaded"]
     end
   catch
-    kind, reason -> "probe failed: #{inspect({kind, reason})}"
+    kind, reason -> ["probe failed: #{inspect({kind, reason})}"]
   end
 
   def client_report(client) do

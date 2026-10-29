@@ -7,9 +7,11 @@ defmodule Valimc.Worldgen.Pool do
   (`Valimc.Native.background/1`, VMC-081c): one per core by default
   (`:worldgen_threads`), at a lower OS priority than the schedulers, so
   generation takes the CPU simulation leaves and no dirty scheduler an owner
-  calls into. The pool runs two jobs more than there are threads, so a thread
-  never idles while the scheduler starts the next; the threads take finishing
-  work before queued terrain. Commands still make dirty calls from their slot.
+  calls into. The pool runs one job more than there are threads, and terrain
+  at most one per thread: a job a nearer goal needs never waits behind queued
+  terrain for farther ones, and the extra slot keeps finishing work going
+  (the threads take it before queued terrain). Commands still make dirty calls
+  from their slot.
 
   Bulk jobs (terrain) leave the last slot to jobs that finish work already
   started (decoration, full chunks, commands a player waits for), so those
@@ -28,7 +30,7 @@ defmodule Valimc.Worldgen.Pool do
   # The background threads' nice value (Linux; macOS lowers their QoS class).
   @nice 10
 
-  @doc "Jobs the pool runs at once: the background threads plus two."
+  @doc "Jobs the pool runs at once: the background threads plus one."
   def size, do: :persistent_term.get(@size)
 
   @doc """
@@ -37,7 +39,7 @@ defmodule Valimc.Worldgen.Pool do
   """
   def init! do
     threads = Valimc.Native.background_threads(Valimc.config(:worldgen_threads) || 0, @nice)
-    :persistent_term.put(@size, threads + 2)
+    :persistent_term.put(@size, threads + 1)
     :ets.new(@waiters, [:named_table, :public, :duplicate_bag])
     :persistent_term.put(@slots, :atomics.new(1, signed: true))
     :ok

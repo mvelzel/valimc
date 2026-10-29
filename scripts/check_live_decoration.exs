@@ -2,7 +2,8 @@
 # the same order (DecorationOracle live). For each case ValiMC's generation
 # scheduler (VMC-077n) is asked for the same regions' chunks one region after
 # the other in a fresh decorated world of the case's seed, which numbers each
-# region's undecorated 10 × 10 Z outer and X inner as the oracle decorates it;
+# region's undecorated 10 × 10 Z outer and X inner as the oracle decorates it
+# and, in request order, runs them in that order;
 # every block, post-processing mark, scheduled tick, block entity and added
 # entity of each final chunk must equal vanilla's, and each block entity's NBT as the region
 # stores it (`Valimc.Worldgen.FullChunk`) must equal vanilla's full chunk save.
@@ -36,6 +37,8 @@ dimension =
     "end" -> :the_end
   end
 
+# The oracle decorates in request order (VMC-081c1).
+Application.put_env(:valimc, :generation_order, :requested)
 Valimc.World.Dimension.put(dimension)
 {min_y, height} = Valimc.World.Dimension.bounds()
 

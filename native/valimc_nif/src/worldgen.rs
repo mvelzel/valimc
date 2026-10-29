@@ -389,10 +389,10 @@ fn gen_encode<'a>(env: Env<'a>, cell: ResourceArc<ProtoCell>) -> NifResult<(Atom
     reply(encode(&cell).map(|b| bytes(env, b)))
 }
 
-/// `gen_encode` in the background (spills).
+/// `gen_encode` in the background (spills), after queued work.
 #[rustler::nif]
 fn gen_encode_background<'a>(env: Env<'a>, tag: Term<'a>, cell: ResourceArc<ProtoCell>) -> Atom {
-    submit(env, tag, true, move || encode(&cell).map(Bin::new))
+    submit(env, tag, false, move || encode(&cell).map(Bin::new))
 }
 
 fn encode(cell: &ProtoCell) -> Result<Vec<u8>, String> {

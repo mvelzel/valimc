@@ -5,22 +5,30 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   A chunk is absent, then `:terrain` (it has a proto cell), then `:decorated`
   (its own decoration ran over its 3 × 3), and final once its whole 3 × 3 is
   decorated; it is `:handed` once its region persisted it. Decorating a chunk
-  reads and writes its 3 × 3, so decorations within 2 conflict. A chunk gets a
-  decoration number when a goal first needs it (the goal's undecorated chunks
-  within 1, Z outer and X inner), and decorations that conflict run in number
-  order, so chunks depend only on the order of requests.
+  reads and writes its 3 × 3, so decorations within 2 conflict: a running
+  decoration holds its 3 × 3, so conflicting ones run one after the other.
+  Live generation runs them in the order they start (VMC-081c1), as vanilla's
+  features run in the order its chunks reach them; the order they ran in is
+  what a reference replays. In request order (`serial`, the oracle checks),
+  conflicting decorations run in number order instead, so chunks depend only
+  on the order of requests; live, that made the work beside a player wait for
+  a chain of earlier requested decorations along the view's edge.
 
-  Each numbered decoration knows what it still waits for: the earlier numbered
-  decorations within 2 (`waits`, all numbered within 2 when it got its number)
-  and the chunks of its 3 × 3 without a cell (`lacking`). It can start once
-  both are empty. Its `need` counts the goals within 1 of it and the needed
-  later decorations waiting for it, so it is needed while some goal reaches it;
-  membership changes keep the count, players' moves never touch it. `ready`
-  holds the needed decorations that can start and are not running, and
-  `terrain` counts, per chunk, the needed decorations that lack it. A result
-  updates only what it touches; `free/2` is the one way a number goes
-  (decorated, or blocked by a frozen chunk), and it re-checks the decorations
-  within 2 that waited for it.
+  A chunk gets a decoration number when a goal needs it and it has none (the
+  goal's undecorated chunks within 1, nearest a player first, then Z outer and
+  X inner). Each knows what it still waits for: in request order the earlier
+  numbered decorations within 2 (`waits`, all numbered within 2 when it got
+  its number; none live), and the chunks of its 3 × 3 without a cell
+  (`lacking`). It can start once both are empty and none of its 3 × 3 is held.
+  Its `need` counts the goals within 1 of it and the needed later decorations
+  waiting for it, so it is needed while some goal reaches it; membership
+  changes keep the count, players' moves never touch it. One nobody needs any
+  more, and not running, gives its number up. `ready` holds the needed
+  decorations that can start and are not running, and `terrain` counts, per
+  chunk, the needed decorations that lack it. A result updates only what it
+  touches; `free/2` is the one way a number goes (decorated, unneeded, or
+  blocked by a frozen chunk), and it re-checks the decorations within 2 that
+  waited for it.
 
   `resolve/3` finds the work to start from the goals in order. A chunk wanted
   again after it was handed over, or one that needs a decoration that can no
@@ -81,7 +89,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
     # Decorations numbered now count the goals around them as they start.
     f = Enum.reduce(gained, f, fn g, f -> Enum.reduce(around(g, 1), f, &need(&2, &1, 1)) end)
     f = Enum.reduce(lost, f, fn g, f -> Enum.reduce(around(g, 1), f, &need(&2, &1, -1)) end)
-    f = number(f, added)
+    f = number(f, Enum.uniq(added ++ gained))
 
     lost = MapSet.new(lost)
     f = %{f | finals: MapSet.difference(f.finals, lost), alone: MapSet.difference(f.alone, lost)}
@@ -89,26 +97,24 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
     Enum.reduce(gained, f, &check_final(&2, &1))
   end
 
-  # Decoration numbers for the undecorated chunks within 1 of `added` that have
-  # none, Z outer and X inner. Every numbered chunk within 2 is earlier; the
-  # goals within 1 need it.
-  defp number(f, added) do
-    added
+  # Decoration numbers for the undecorated chunks within 1 of `goals` that have
+  # none, nearest a player first, then Z outer and X inner. In request order
+  # every numbered chunk within 2 is earlier; the goals within 1 need it.
+  defp number(f, goals) do
+    goals
     |> Enum.flat_map(&around(&1, 1))
     |> Enum.uniq()
     |> Enum.reject(&(decorated?(f, &1) or Map.has_key?(f.seqs, &1) or blocked?(f, &1)))
-    |> Enum.sort_by(fn {x, z} -> {z, x} end)
+    |> Enum.sort_by(fn {x, z} = n -> {Goals.nearest(f, n), z, x} end)
     |> Enum.reduce(f, fn n, f ->
-      waits = for m <- around(n, 2), m != n, Map.has_key?(f.deps, m), do: m
+      waits = if f.serial, do: for(m <- around(n, 2), m != n, Map.has_key?(f.deps, m), do: m)
       lacking = Enum.reject(around(n, 1), &cell?(f, &1))
-      log = if f.log, do: [n | f.log]
 
       f = %{
         f
         | seqs: Map.put(f.seqs, n, f.next_seq),
           next_seq: f.next_seq + 1,
-          deps: Map.put(f.deps, n, %{waits: waits, lacking: lacking, need: 0}),
-          log: log
+          deps: Map.put(f.deps, n, %{waits: waits || [], lacking: lacking, need: 0})
       }
 
       need(f, n, Enum.count(around(n, 1), &Goals.goal?(f, &1)))
@@ -116,7 +122,8 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   end
 
   # `n`'s need changes by `delta`; when it starts or stops, the need of every
-  # earlier decoration it waits for goes up or down by one.
+  # earlier decoration it waits for goes up or down by one. One no longer
+  # needed and not running gives its number up.
   defp need(f, _n, 0), do: f
 
   defp need(f, n, delta) do
@@ -125,9 +132,15 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
         f = check(%{f | deps: Map.put(f.deps, n, %{deps | need: need + delta})}, n)
 
         cond do
-          need == 0 and delta > 0 -> starts(f, deps, 1)
-          need > 0 and need + delta == 0 -> starts(f, deps, -1)
-          true -> f
+          need == 0 and delta > 0 ->
+            starts(f, deps, 1)
+
+          need > 0 and need + delta == 0 ->
+            f = starts(f, deps, -1)
+            if running?(f, n), do: f, else: free(f, n)
+
+          true ->
+            f
         end
 
       _ ->
@@ -204,8 +217,8 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   def decorated(f, n), do: Enum.reduce(around(n, 1), free(f, n), &check_final(&2, &1))
 
   @doc """
-  `n`'s number goes (decorated, or blocked): it no longer needs what it waited
-  for, and the decorations within 2 waiting for it are checked again.
+  `n`'s number goes (decorated, unneeded or blocked): it no longer needs what
+  it waited for, and the decorations within 2 waiting for it are checked again.
   """
   def free(f, n) do
     case Map.pop(f.deps, n) do
@@ -216,7 +229,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
         f = %{f | deps: rest, seqs: Map.delete(f.seqs, n), ready: MapSet.delete(f.ready, n)}
         f = if deps.need > 0, do: starts(f, deps, -1), else: f
 
-        for m <- around(n, 2), Map.has_key?(f.deps, m), reduce: f do
+        for m <- around(n, 2), f.serial, Map.has_key?(f.deps, m), reduce: f do
           f ->
             deps = f.deps[m]
             check(%{f | deps: Map.put(f.deps, m, %{deps | waits: List.delete(deps.waits, n)})}, m)
@@ -255,7 +268,9 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   def rebuild(f) do
     deps =
       Map.new(f.seqs, fn {n, seq} ->
-        waits = for m <- around(n, 2), s = f.seqs[m], s != nil and s < seq, do: m
+        waits =
+          for m <- around(n, 2), f.serial, s = f.seqs[m], s != nil and s < seq, do: m
+
         {n, %{waits: waits, lacking: Enum.reject(around(n, 1), &cell?(f, &1)), need: 0}}
       end)
 
@@ -265,15 +280,17 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   ## Resolution
 
   @doc """
-  The work the goals need, in goal order (within a goal, the earliest
-  decorations it waits for first): up to `d` needed decorations that can
+  The work the goals need, in goal order: up to `d` needed decorations that can
   start (none of their chunks held) and up to `t` chunks of terrain
   (`{decorations, terrain, more}`; `more` when work that could start was left
-  out for want of room). The walk goes through each goal's decorations,
-  transitively the earlier ones they wait for, and the terrain those lack,
-  each once; it stops as soon as each kind fills its room or all of it that
-  can start was found, or after `@budget` steps. Room it leaves goes to the
-  other needed work.
+  out for want of room). Each comes as `{order, chunk}`: the goal it was found
+  for (`{0, rank, z, x}`, as the goals are ordered), or `{1, …}` for other
+  needed work, so jobs of every kind can start nearest goal first (VMC-081c).
+  The walk goes through each goal's decorations, transitively the earlier
+  ones they wait for (the earliest first), and the terrain those lack, each
+  once; it stops as soon as each kind fills its room or all of it that can
+  start was found, or after `@budget` steps. Room it leaves goes to the other
+  needed work.
   """
   # Flat worlds: the goals not held; worlds final after terrain: their terrain.
   def resolve(%Frontier{final_after_terrain: true} = f, d, t) do
@@ -291,6 +308,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
 
     walk = %{
       seen: %{},
+      goal: nil,
       budget: @budget,
       decorations: [],
       d: d,
@@ -309,8 +327,12 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
       |> Enum.reject(&(is_map_key(walk.seen, &1) or held?(f, &1)))
       |> Enum.sort_by(&f.seqs[&1])
       |> Enum.take(walk.d)
+      |> Enum.map(&{{1, f.seqs[&1], 0, 0}, &1})
 
-    terrain = other_terrain(:maps.next(:maps.iterator(f.terrain)), f, walk, walk.t, [])
+    terrain =
+      other_terrain(:maps.next(:maps.iterator(f.terrain)), f, walk, walk.t, [])
+      |> Enum.map(&{{2, 0, 0, 0}, &1})
+
     decorations = Enum.reverse(walk.decorations, decorations)
     terrain = Enum.reverse(walk.terrain, terrain)
 
@@ -332,7 +354,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
       else: other_terrain(:maps.next(next), f, walk, t - 1, [c | acc])
   end
 
-  # Up to `n` goals that pass `keep`, in goal order.
+  # Up to `n` goals that pass `keep`, in goal order, with their order.
   defp take(_goals, 0, _keep, acc), do: Enum.reverse(acc)
 
   defp take(goals, n, keep, acc) do
@@ -340,8 +362,10 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
       :none ->
         Enum.reverse(acc)
 
-      {{_, _, _, g}, goals} ->
-        if keep.(g), do: take(goals, n - 1, keep, [g | acc]), else: take(goals, n, keep, acc)
+      {{r, z, x, g}, goals} ->
+        if keep.(g),
+          do: take(goals, n - 1, keep, [{{0, r, z, x}, g} | acc]),
+          else: take(goals, n, keep, acc)
     end
   end
 
@@ -358,8 +382,9 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
         :none ->
           walk
 
-        {{_, _, _, g}, goals} ->
-          walk = Enum.reduce(around(g, 1), %{walk | budget: walk.budget - 1}, &visit(f, &1, &2))
+        {{r, z, x, g}, goals} ->
+          walk = %{walk | budget: walk.budget - 1, goal: {0, r, z, x}}
+          walk = Enum.reduce(around(g, 1), walk, &visit(f, &1, &2))
           goals_in_order(goals, f, walk)
       end
     end
@@ -377,7 +402,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
             walk = %{walk | found: walk.found + 1}
 
             if walk.d > 0 and not held?(f, n),
-              do: %{walk | decorations: [n | walk.decorations], d: walk.d - 1},
+              do: %{walk | decorations: [{walk.goal, n} | walk.decorations], d: walk.d - 1},
               else: walk
           else
             # The earliest first: a chain advances from its first decoration.
@@ -399,7 +424,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
        do: %{
          walk
          | seen: Map.put(walk.seen, key, true),
-           terrain: [c | walk.terrain],
+           terrain: [{walk.goal, c} | walk.terrain],
            t: walk.t - 1,
            taken: walk.taken + 1
        },

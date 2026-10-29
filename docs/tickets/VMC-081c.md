@@ -1,6 +1,6 @@
 # VMC-081c — Generation on every core, below the game
 
-Status: Awaiting client
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081a](VMC-081a.md).
@@ -19,9 +19,8 @@ the work and sends `{tag, :ok, value}` or `{tag, :raise, reason}` to the
 caller; `Valimc.Native.background/1` waits for it in the job's process, so the
 scheduler, its slots and its results are unchanged. Decoration, full chunks,
 decoding and spills go before queued terrain. A full chunk is lit alone in the
-same job. The pool runs two jobs more than there are threads, so a thread
-never waits for the scheduler to start the next; terrain leaves the last slot
-to finishing work. Commands (`/locate`, `/place`, growth) still make dirty
+same job. The pool ran two jobs more than there are threads (one since
+[081c1](VMC-081c1.md)); terrain leaves the last slot to finishing work. Commands (`/locate`, `/place`, growth) still make dirty
 calls from their slot.
 
 The release's idle schedulers sleep instead of spinning (`+sbwt none` and its
@@ -115,3 +114,6 @@ at nice 10, the sleeping-scheduler flags and 512 proto cells; the server
 listens on 25565 and readiness returns HTTP 200. This verifies deployment,
 not gameplay; the user takes the exploration capture. The log is in ignored
 `.local/hetzner/deploy-081c.log`.
+
+Capture 12 confirmed it on the VPS: faster, with stalls left that
+[081c1](VMC-081c1.md) traced to the generation order.

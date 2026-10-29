@@ -39,8 +39,8 @@ defmodule Valimc.Worldgen.Frontier do
     rescore: false,
     # Dependencies: decoration numbers, what each waits for, the needed ones
     # that can start, the terrain needed ones lack (`chunk => how many`),
-    # goals that are final, goals made alone, and the numbered chunks in
-    # order, newest first, when recorded (checks).
+    # goals that are final, goals made alone, and the decorated chunks in
+    # the order they ran, newest first, when recorded (checks).
     seqs: %{},
     next_seq: 0,
     deps: %{},
@@ -48,6 +48,9 @@ defmodule Valimc.Worldgen.Frontier do
     terrain: %{},
     finals: MapSet.new(),
     alone: MapSet.new(),
+    # Conflicting decorations run in request order (the oracle checks), not
+    # in the order they start (VMC-081c1).
+    serial: false,
     log: nil,
     # Jobs: the chunks they hold, by ref; chunks sent and not handed over
     # yet; chunks whose generation failed; attempts of jobs whose worker
@@ -76,8 +79,9 @@ defmodule Valimc.Worldgen.Frontier do
   @doc """
   The generation of `spec` (a `Generator.spec_of/2` spec of a dimension).
   Options: `decorated` (false: chunks are final after terrain), `sky` (the
-  dimension has sky light, stored in full chunks' images) and `log` (record
-  the decoration order).
+  dimension has sky light, stored in full chunks' images), `log` (record
+  the decoration order) and `order` (`:started`, the default, or
+  `:requested`: conflicting decorations run in request order).
   """
   def new(spec, opts \\ []) do
     decorated = Keyword.get(opts, :decorated, true)
@@ -96,7 +100,8 @@ defmodule Valimc.Worldgen.Frontier do
           starts: if(structures, do: Native.gen_starts_new()),
           final_after_terrain: not decorated,
           sky: sky,
-          log: log
+          log: log,
+          serial: Keyword.get(opts, :order, :started) == :requested
         }
 
       %{kind: :flat} ->
@@ -183,44 +188,53 @@ defmodule Valimc.Worldgen.Frontier do
 
   @doc """
   Up to `capacity` jobs that can start now, at most `bulk` of them terrain:
-  `%{ref, kind, chunk, bulk, run}`. Final chunks and chunks made alone go
-  first, then the decorations the goals need, then their terrain, each in
-  goal order.
+  `%{ref, kind, chunk, bulk, run}`. They start in goal order whatever their
+  kind (VMC-081c): the work of a nearer goal before a farther goal's, so a
+  backlog of work far away never holds up the player's own chunk. For one
+  goal, its full chunk or chunk made alone goes first, then the decorations it
+  needs (the earliest first), then their terrain; then other needed work.
   """
   def next(f, capacity, bulk \\ nil)
 
   def next(%__MODULE__{} = f, capacity, bulk) when capacity > 0 do
     f = Goals.rescore(f)
     bulk = bulk || capacity
-    acc = {[], f, {capacity, bulk, capacity - bulk}}
-
-    {jobs, f, {capacity, bulk, _} = room} =
-      acc
-      |> claim(:full, Goals.sort(f, f.finals))
-      |> claim(:alone, Goals.sort(f, f.alone))
-
+    room = {capacity, bulk, capacity - bulk}
     {decorations, terrain, left} = Dependencies.resolve(f, capacity, bulk)
     kind = if f.kind == :flat, do: :flat, else: :terrain
-    candidates = [{:decorate, decorations}, {kind, terrain}]
 
-    claimed = length(jobs)
+    candidates =
+      Enum.sort(
+        Enum.concat([
+          for(c <- f.finals, do: {goal_order(f, c), 0, 0, :full, c}),
+          for(c <- f.alone, do: {goal_order(f, c), 1, 0, :alone, c}),
+          for({{order, c}, i} <- Enum.with_index(decorations), do: {order, 2, i, :decorate, c}),
+          for({{order, c}, i} <- Enum.with_index(terrain), do: {order, 3, i, kind, c})
+        ])
+      )
 
     {jobs, f, _room} =
-      Enum.reduce(candidates, {jobs, f, room}, fn {kind, chunks}, acc ->
-        claim(acc, kind, chunks)
+      Enum.reduce(candidates, {[], f, room}, fn candidate, acc ->
+        {_, _, _, kind, chunk} = candidate
+        claim_one(acc, kind, chunk)
       end)
 
-    found = Enum.sum(for {_, chunks} <- candidates, do: length(chunks))
-    left = left or length(jobs) - claimed < found
+    left = left or length(jobs) < length(candidates)
     {Enum.reverse(jobs), %{f | left: left}}
   end
 
   def next(%__MODULE__{} = f, _capacity, _bulk), do: {[], f}
 
+  # A goal's place in the goal order, as `Dependencies.resolve/3` gives it.
+  defp goal_order(f, {x, z} = c) do
+    case f.ranks do
+      %{^c => rank} -> {0, rank, z, x}
+      _ -> {3, 0, z, x}
+    end
+  end
+
   # Room is `{jobs, terrain jobs, slots terrain leaves}`: as on the pool,
   # terrain never takes the last slots, whatever took the others.
-  defp claim(acc, kind, chunks), do: Enum.reduce(chunks, acc, &claim_one(&2, kind, &1))
-
   defp claim_one({_, _, {0, _, _}} = acc, _kind, _chunk), do: acc
   defp claim_one({_, _, {_, 0, _}} = acc, :terrain, _chunk), do: acc
 
@@ -306,6 +320,7 @@ defmodule Valimc.Worldgen.Frontier do
 
   defp apply_result(f, %{kind: :decorate, chunk: n}, :ok) do
     f = %{f | chunks: Map.update!(f.chunks, n, &%{&1 | status: :decorated})}
+    f = if f.log, do: %{f | log: [n | f.log]}, else: f
     {Dependencies.decorated(f, n), []}
   end
 
