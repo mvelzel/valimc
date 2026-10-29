@@ -278,7 +278,7 @@ defmodule Valimc.Native do
   def mob_parity_think(_region, _zoom_seed, _record_facts, _scene),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_parity_interact(_record_facts, _record, _item, _player, _loot),
+  def mob_parity_interact(_record_facts, _record, _item, _player, _infinite, _leash, _loot),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)

@@ -500,15 +500,56 @@ defmodule Valimc.NativeMobAnimalTest do
 
   ## Interactions
 
-  defp interact(ctx, body, item, loot \\ []) do
+  @holder {2.5, 64.0, 0.5}
+
+  # `{player uuid, at, id}` of the player using the item (a holder for leads).
+  defp interact(ctx, body, item, opts \\ []) do
     body = put_in(body.mob.ai, AI.mind(body.type, uuid(1), nil, body.data))
+    at = {0.5, 64.0, 0.5}
     record = entry_record(1, %{entity: %{uuid: uuid(1), x: 0.5, y: 64.0, z: 0.5}, body: body})
     {:ok, restored} = Body.restore(record)
+    player = uuid(2000)
+    infinite = Keyword.get(opts, :infinite, false)
+    leash_id = Keyword.get(opts, :held)
+
+    # A lead held now (a record's looks for its holder).
+    restored =
+      if leash_id,
+        do: update_in(restored.mob.leash, &%{&1 | restored: false, id: leash_id}),
+        else: restored
 
     {native, native_record} =
-      Native.mob_parity_interact(ctx.facts, record, item || nil, nil, loot)
+      Native.mob_parity_interact(
+        ctx.facts,
+        record,
+        item || nil,
+        {player, @holder, 2000},
+        infinite,
+        leash_id,
+        []
+      )
 
-    elixir = Interaction.interact(restored, %{item: item, infinite: false})
+    {hx, hy, hz} = @holder
+    w = Valimc.Data.Float32.round(0.6)
+    h = Valimc.Data.Float32.round(1.8)
+
+    request = %{
+      item: item,
+      infinite: infinite,
+      player: player,
+      holder: %{id: 2000, x: hx, y: hy, z: hz, width: w, height: h}
+    }
+
+    elixir =
+      with :pass <- Valimc.Entity.Leashes.interact(restored, at, request),
+           do: Interaction.interact(restored, request)
+
+    seedless = fn events ->
+      Enum.map(events, fn
+        {kind, id, source, volume, pitch, _seed} -> {kind, sound(id), source, volume, pitch}
+        e -> e
+      end)
+    end
 
     case {native, elixir} do
       {:pass, :pass} ->
@@ -517,18 +558,14 @@ defmodule Valimc.NativeMobAnimalTest do
       {:consume, :consume} ->
         :consume
 
-      {{:done, hand, swing, events, others, drops, convert}, {:ok, body, outcome}} ->
+      {{:done, hand, swing, events, others, drops, convert, free}, {:ok, body, outcome}} ->
         assert hand == outcome.hand
         assert swing == outcome.swing
-
-        assert events ==
-                 Enum.map(outcome.events, fn
-                   {kind, id, source, volume, pitch, _seed} -> {kind, id, source, volume, pitch}
-                   e -> e
-                 end)
-
+        assert events == seedless.(outcome.events)
         assert others == outcome.others
-        assert length(drops) == length(outcome.drops)
+        assert free == outcome.free
+
+        assert Enum.map(drops, &elem(&1, 0)) == Enum.map(outcome.drops, &elem(&1, 0))
 
         if convert != nil,
           do:
@@ -545,6 +582,40 @@ defmodule Valimc.NativeMobAnimalTest do
 
         :done
     end
+  end
+
+  defp sound(id) when is_integer(id), do: id
+  defp sound(name), do: Animal.sound_id(name)
+
+  test "leads tie, untie, snip and move from knots", ctx do
+    stack = &ItemStack.new/1
+    {:ok, cow} = Body.new("minecraft:cow")
+    lead = stack.("minecraft:lead")
+    assert interact(ctx, cow, lead) == :done
+
+    held =
+      put_in(cow.mob.leash, %{
+        holder: {:player, uuid(2000)},
+        id: 2000,
+        momentum: 0.25,
+        restored: false
+      })
+
+    assert interact(ctx, held, stack.("minecraft:stick"), held: 2000) == :done
+    assert interact(ctx, held, stack.("minecraft:stick"), held: 2000, infinite: true) == :done
+    assert interact(ctx, held, stack.("minecraft:shears"), held: 2000) == :done
+
+    knotted =
+      put_in(cow.mob.leash, %{holder: {:knot, {3, 64, 0}}, id: 9, momentum: 0.0, restored: false})
+
+    assert interact(ctx, knotted, lead, held: 9) == :done
+    assert interact(ctx, knotted, stack.("minecraft:shears"), held: 9) == :done
+
+    restored =
+      put_in(cow.mob.leash, %{holder: {:knot, {3, 64, 0}}, id: nil, momentum: 0.0, restored: true})
+
+    assert interact(ctx, restored, lead) == :done
+    assert interact(ctx, held, stack.("minecraft:stick")) == :pass
   end
 
   test "milk, stew, dye, food and the golden dandelion", ctx do

@@ -18,12 +18,14 @@ use crate::region::Region;
 use rustler::types::map::map_new;
 use rustler::{Atom, Binary, Encoder, Env, NifMap, NifResult, ResourceArc, Term};
 use valimc_core::mobs::ai::effect::{Eaten, Effect};
+use valimc_core::mobs::ai::leash::Holder;
 use valimc_core::mobs::ai::mind::MindState;
 use valimc_core::mobs::ai::think::{self, Ctx, Moves};
 use valimc_core::mobs::ai::Extra;
 use valimc_core::mobs::animals::rabbit::HopState;
 use valimc_core::mobs::combat::{AiMind, Rules};
 use valimc_core::mobs::kinds::interact::{At, Hand, InteractEvent, Interaction, Outcome, Request};
+use valimc_core::mobs::kinds::{self, leads};
 use valimc_core::mobs::model::{Control, NativeMob};
 use valimc_core::mobs::record;
 use valimc_core::mobs::sensing::{Kind, Ref, SensedPlayer, Sensing};
@@ -455,28 +457,50 @@ fn interact_event<'a>(env: Env<'a>, e: &InteractEvent) -> Term<'a> {
 
 /// One interaction on a mob of a record: `{outcome, record}`, the outcome
 /// `:pass`, `:consume` or `{:done, hand, swing, events, others, drops,
-/// convert}` (a conversion's record), shearing's loot the table's name.
+/// convert, free}` (a conversion's record); `loot` the stacks of each
+/// shearing table; `leash_id` holds a recorded lead now.
 #[rustler::nif]
 fn mob_parity_interact<'a>(
     env: Env<'a>,
     record_facts: ResourceArc<MobRecordFacts>,
     record: Term<'a>,
     item: Term<'a>,
-    player: Option<Binary<'a>>,
+    player: Option<(Binary<'a>, V3, i32)>,
+    infinite: bool,
+    leash_id: Option<i32>,
     loot: Vec<(String, Vec<Term<'a>>)>,
 ) -> NifResult<Term<'a>> {
     let rules = rules()?;
     let value = mob_term::decode(record)?;
     let mut mob = record::restore(&value, &record_facts.0).map_err(|_| bad())?;
+    // A lead held now (a record's looks for its holder).
+    if let (Some(id), Some(leash)) = (leash_id, mob.body.mob.leash.as_mut()) {
+        leash.restored = false;
+        leash.id = Some(id);
+    }
     let item = if item.is_atom() {
         None
     } else {
         Some(mob_term::decode(item)?)
     };
+    let player = match &player {
+        None => None,
+        Some((who, at, id)) => Some(leads::Player {
+            uuid: uuid(who)?,
+            holder: Holder {
+                position: [at.0, at.1, at.2],
+                width: 0.6f32 as f64,
+                height: 1.8f32 as f64,
+                yaw: 0.0,
+                movement: [0.0; 3],
+                id: Some(*id),
+            },
+        }),
+    };
     let request = Request {
         item,
-        infinite: false,
-        player: player.as_ref().map(uuid).transpose()?,
+        infinite,
+        player: player.map(|p| p.uuid),
     };
     let mut tables = Vec::new();
     for (name, stacks) in &loot {
@@ -503,7 +527,7 @@ fn mob_parity_interact<'a>(
             request: &request,
             loot: &mut roll,
         };
-        kind.interact(&mut i)
+        kinds::interact(&mut i, kind, player.as_ref())
     };
     let outcome = match outcome {
         Outcome::Pass => atoms::pass().encode(env),
@@ -561,6 +585,11 @@ fn mob_parity_interact<'a>(
                     others,
                     drops.encode(env),
                     convert,
+                    d.free
+                        .iter()
+                        .map(|c| cell(*c))
+                        .collect::<Vec<_>>()
+                        .encode(env),
                 ],
             )
         }

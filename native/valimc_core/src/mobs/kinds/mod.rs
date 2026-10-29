@@ -33,6 +33,7 @@ use crate::physics::mob::Ticked;
 use std::collections::HashMap;
 
 pub mod interact;
+pub mod leads;
 
 pub use interact::{Hand as HandUse, Interaction, Outcome, Request};
 
@@ -422,6 +423,19 @@ impl Families for Registry {
             None => &DefaultFamily,
         }
     }
+}
+
+/// A player's use of an item on a native mob (`RegionData`'s
+/// `{:interact_entity}` chain): its lead part (`leads::interact`, when the
+/// player is known as a holder), then its family's (`Kind::interact`).
+pub fn interact(i: &mut Interaction, kind: &dyn Kind, player: Option<&leads::Player>) -> Outcome {
+    if let Some(player) = player {
+        match leads::interact(i, kind, player) {
+            Outcome::Pass => {}
+            other => return other,
+        }
+    }
+    kind.interact(i)
 }
 
 /// `Mobs.selectors/1`: a fresh mind's goal and target selectors, and
