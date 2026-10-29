@@ -8,6 +8,7 @@ pub mod light;
 pub mod light_grid;
 pub mod loot;
 pub mod lz4;
+pub mod mobs;
 pub mod nbt;
 pub mod path;
 pub mod physics;
