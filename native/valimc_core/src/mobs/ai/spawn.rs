@@ -7,9 +7,13 @@
 
 use super::turn::Turn;
 use crate::mobs::ai::fmath::f;
-use crate::mobs::model::{Mob, Modifier, Number};
+use crate::mobs::facts::Slot as FactSlot;
+use crate::mobs::level::Difficulty;
+use crate::mobs::living::difficulty::LocalDifficulty;
+use crate::mobs::living::items;
+use crate::mobs::model::{Mob, Modifier, Number, Slot};
 use crate::mobs::random::LegacyRandom;
-use crate::mobs::term::Atom;
+use crate::mobs::term::{Atom, Map, Value};
 
 pub const FOLLOW: &str = "minecraft:follow_range";
 pub const BONUS: &str = "minecraft:random_spawn_bonus";
@@ -74,4 +78,131 @@ pub fn level_double(t: &mut Turn) -> f64 {
 /// `level.getRandom().nextBoolean()`.
 pub fn level_boolean(t: &mut Turn) -> bool {
     t.level.random.boolean()
+}
+
+/// `Spawn.local/1`: the local difficulty at the mob (`getCurrentDifficultyAt`;
+/// the level's own where it holds everywhere).
+pub fn local(t: &Turn) -> LocalDifficulty {
+    match t.level.local {
+        Some(effective) => LocalDifficulty {
+            difficulty: t.level.difficulty,
+            effective,
+        },
+        None => LocalDifficulty::at(t.level.difficulty, t.level.day, 0),
+    }
+}
+
+/// `getSpecialMultiplier` of the mob's local difficulty.
+pub fn special(t: &Turn) -> f64 {
+    local(t).special()
+}
+
+/// `setItemSlot`.
+pub fn equip(t: &mut Turn, slot: Slot, stack: Option<Value>) {
+    t.mob.body.mob.equipment.set(slot, stack);
+}
+
+/// `Mob.populateDefaultEquipmentSlots`: by chance (scaled by the special
+/// multiplier) a material, upgraded three times by chance, then a piece for
+/// each armour slot from the head down until a draw stops it (each after
+/// the first; more often on hard); an occupied slot keeps its item.
+pub fn armour(t: &mut Turn) {
+    let roll = level_float(t);
+    if roll >= f(f(0.15) * special(t)) {
+        return;
+    }
+    let mut material = level_int(t, 3);
+    for _ in 0..3 {
+        if level_float(t) < f(0.1087) {
+            material += 1;
+        }
+    }
+    let partial = f(if t.level.difficulty == Difficulty::Hard {
+        0.1
+    } else {
+        0.25
+    });
+    let slots = [
+        (Slot::Head, FactSlot::Head),
+        (Slot::Chest, FactSlot::Chest),
+        (Slot::Legs, FactSlot::Legs),
+        (Slot::Feet, FactSlot::Feet),
+    ];
+    for (i, (slot, fact)) in slots.into_iter().enumerate() {
+        if i > 0 && level_float(t) < partial {
+            break;
+        }
+        if t.mob.body.mob.equipment.get(slot).is_none() {
+            let item = t.level.facts.hostile.armour(fact, material as usize);
+            equip(t, slot, item.map(|id| items::new_stack(id, 1, None)));
+        }
+    }
+}
+
+/// `Mob.populateDefaultEquipmentEnchantments`: the main hand's item a
+/// quarter of the time and each armour piece half of it (scaled by the
+/// special multiplier), feet first, enchanted by cost
+/// (`EnchantmentsByCostWithDifficulty`) from the level's random.
+pub fn enchant_equipment(t: &mut Turn) {
+    let special = special(t);
+    for (slot, chance) in [
+        (Slot::Mainhand, 0.25),
+        (Slot::Feet, 0.5),
+        (Slot::Legs, 0.5),
+        (Slot::Chest, 0.5),
+        (Slot::Head, 0.5),
+    ] {
+        let Some(stack) = t.mob.body.mob.equipment.get(slot).cloned() else {
+            continue;
+        };
+        if level_float(t) < f(f(chance) * special) {
+            let stack = enchant(t, stack, special);
+            equip(t, slot, Some(stack));
+        }
+    }
+}
+
+// The level random's draws happen in the loot engine's enchanting.
+fn enchant(t: &mut Turn, stack: Value, special: f64) -> Value {
+    let Some(loot) = t.level.loot else {
+        return stack;
+    };
+    let facts = t.level.facts;
+    let (min, span, tag) = &facts.hostile.enchanting;
+    let Some(name) = items::item_id(&stack).and_then(|id| facts.items.name(id)) else {
+        return stack;
+    };
+    let current: Vec<(String, i32)> = items::enchantments(&stack)
+        .into_iter()
+        .map(|(n, l)| (n.to_owned(), l as i32))
+        .collect();
+    let mut random = crate::worldgen::random::Random::legacy_at(t.level.random.seed);
+    let Ok(enchantments) = loot.enchant_by_cost(
+        name,
+        &current,
+        *min,
+        *span,
+        special as f32,
+        tag,
+        &mut random,
+    ) else {
+        return stack;
+    };
+    if let Some(state) = random.legacy_state().and_then(LegacyRandom::from_state) {
+        t.level.random = state;
+    }
+    if enchantments.is_empty() {
+        return stack;
+    }
+    let map = Map::from_pairs(
+        enchantments
+            .into_iter()
+            .map(|(n, l)| (Value::Binary(n.into_bytes()), Value::Int(l as i64)))
+            .collect(),
+    );
+    let mut stack = stack;
+    if let Some(map) = map {
+        items::put_component(&mut stack, "minecraft:enchantments", Value::Map(map));
+    }
+    stack
 }

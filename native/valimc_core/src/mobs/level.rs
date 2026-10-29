@@ -175,6 +175,9 @@ pub struct Level<'a> {
     pub structures: HashMap<(i32, i32), Vec<StructureStart>>,
     /// The section's level random (`World.random`).
     pub random: LegacyRandom,
+    /// The loot registry (spawn equipment's enchanting), where the owner
+    /// gives one.
+    pub loot: Option<&'a crate::loot::Loot>,
 }
 
 impl<'a> Level<'a> {
@@ -210,6 +213,7 @@ impl<'a> Level<'a> {
             knots: HashMap::new(),
             structures: HashMap::new(),
             random,
+            loot: None,
         }
     }
 
