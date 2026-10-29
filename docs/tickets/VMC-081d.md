@@ -108,6 +108,43 @@ physics kernel (`physics::mob`, the mob ticker) and path finding
 Each family: its oracle stages pass on the native turn, the differential
 test passes, then its type switches to native.
 
+## Core, built
+
+Each piece is checked against the Elixir on the same inputs, random state
+included, through parity NIFs and differential ExUnit tests.
+
+- **Random and Mth** (`mobs::{random, mth}`): the mob's LegacyRandomSource
+  and the float angle and table arithmetic; draws equal the Elixir's.
+- **Model and records** (`mobs::{term, model, record}`): a native mob whole
+  (body, living, equipment, attributes, motion, mind, family data) and the
+  codec writing exactly `Store.body_record`'s terms: 37 types fresh, spawned
+  and generated, every saved option, migrations, refusals, and 22 mobs ticked
+  200 ticks, each tick equal as terms and as deterministic bytes
+  (`native_mob_record_test`).
+- **Facts, level and sensing** (`mobs::{facts, level, sensing}`): every fact
+  table the AI reads, installed from Elixir at start; the AI's world (blocks
+  through snapshots, light, sky, biome, rain, fits, the level random); sensed
+  players, mobs and items, targeting conditions, visibility, nearest searches
+  with the order-keeping grid and line of sight. About 3,000 cells, 602 lines
+  of sight and 1,000 sensing queries over generated terrain equal the Elixir
+  (`native_mob_facts_test`, `native_mob_level_test`).
+- **Living rules and combat** (`mobs::{living, combat, vitals}`): health,
+  effects, attributes, damage, armour, enchantments, burning, air, falls,
+  melee, durability, difficulty, explosions, body timers and metadata
+  values; hurts, knockback, deaths with drops and experience, mob hits; the
+  base tick, post-move vitals and daylight. 13 differential tests; the
+  vanilla `combat` stage's 400 player attacks and 240 zombie hits pass through
+  the native hurt and hit (`native_mob_living_test`). Where the Elixir drew
+  `:rand` (oxygen bonus, equipment experience, mind-less fallbacks, helmet
+  wear in daylight) the native draws the stream vanilla uses.
+- **AI machinery** (`mobs::ai`): the mind's transient state, the turn
+  context, the goal selector, all 27 goals with targeting and neutral
+  anger, look, body and smooth-swimming controls, navigation of every kind
+  over the path crate (searches synchronous, as vanilla's and the oracles'),
+  random positions and shapes. Nine differential scenes (zombies, cows,
+  spider, skeleton, calf, golem target, cod) equal the Elixir every tick
+  (`native_mob_ai_test`).
+
 Acceptance:
 
 - Every mob oracle stage passes with every type native.
