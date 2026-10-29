@@ -8833,6 +8833,45 @@ defmodule Valimc.World.RegionData do
     %{state | cooking: %{state.cooking | seen: nil, retry_at: retry_at}}
   end
 
+  @doc """
+  Why the section does not unload now (diagnostics, VMC-081c1): `"ticket
+  TYPES"`, the first work in flight that keeps it (`"busy …"`), or `"idle"`.
+  """
+  def unload_blocker(state) do
+    cond do
+      not Tickets.empty?(state.tickets) ->
+        types = state.tickets.entries |> Map.keys() |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+        "ticket " <> Enum.join(Enum.sort(types), "+")
+
+      RegionStorage.busy?(state.storage) ->
+        "busy storage"
+
+      Jobs.busy?(state.jobs) ->
+        kinds =
+          for {kind, _} <- state.jobs.entries,
+              do: if(is_tuple(kind), do: elem(kind, 0), else: kind)
+
+        "busy jobs " <> Enum.join(Enum.uniq(Enum.map(kinds, &to_string/1)), "+")
+
+      state.entities.handoff != nil or state.entities.portal != nil ->
+        "busy items"
+
+      map_size(state.encodes) > 0 ->
+        "busy encodes"
+
+      RegionGeneration.busy?(state.generation) ->
+        if state.generation.deferred_count > 0,
+          do: "busy generation calls",
+          else: "busy generation wants"
+
+      map_size(state.container_viewers.views) > 0 or map_size(state.permits.entries) > 0 ->
+        "busy containers"
+
+      true ->
+        "idle"
+    end
+  end
+
   defp busy?(state) do
     RegionStorage.busy?(state.storage) or Jobs.busy?(state.jobs) or
       state.entities.handoff != nil or state.entities.portal != nil or

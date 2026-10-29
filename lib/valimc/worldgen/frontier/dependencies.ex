@@ -55,22 +55,30 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   def handed?(f, chunk), do: status(f, chunk) == :handed
   def decorated?(f, chunk), do: status(f, chunk) in [:decorated, :handed]
   def cell?(f, chunk), do: status(f, chunk) in [:terrain, :decorated]
-  defp frozen?(f, chunk), do: handed?(f, chunk) or Map.has_key?(f.failed, chunk)
+  defp failed?(f, chunk), do: Map.has_key?(f.failed, chunk)
 
   def final?(%{final_after_terrain: true} = f, chunk), do: cell?(f, chunk)
   def final?(f, chunk), do: Enum.all?(around(chunk, 1), &decorated?(f, &1))
 
   # An undecorated chunk whose decoration cannot run: its 3 × 3 holds a chunk
-  # handed over (its region has it full) or failed.
-  defp blocked?(f, n), do: not decorated?(f, n) and Enum.any?(around(n, 1), &frozen?(f, &1))
+  # whose generation failed. One handed over (its region has it full) blocks
+  # nothing: the decoration runs over fresh terrain in its place and its writes
+  # there are lost, as vanilla's features beside a saved chunk (VMC-081c1).
+  # Blocking there made every chunk generated outward from a saved area alone,
+  # after any crash that lost the proto chunks around it.
+  defp blocked?(f, n), do: not decorated?(f, n) and Enum.any?(around(n, 1), &failed?(f, &1))
 
   # Made alone: lost after it was handed over, or needing a blocked decoration
-  # (only possible with a frozen chunk within 2, the cheaper test first).
+  # (only possible with a failed chunk within 2, the cheaper test first).
   def alone?(f, chunk) do
     handed?(f, chunk) or
-      (Enum.any?(around(chunk, 2), &frozen?(f, &1)) and
+      (Enum.any?(around(chunk, 2), &failed?(f, &1)) and
          Enum.any?(around(chunk, 1), &blocked?(f, &1)))
   end
+
+  # The chunks of `n`'s 3 × 3 its decoration waits for: those without a cell
+  # that are not handed over.
+  defp lacking(f, n), do: Enum.reject(around(n, 1), &(cell?(f, &1) or handed?(f, &1)))
 
   defp needs_terrain?(f, c),
     do: status(f, c) == nil and not Map.has_key?(f.busy, c) and not Map.has_key?(f.failed, c)
@@ -108,7 +116,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
     |> Enum.sort_by(fn {x, z} = n -> {Goals.nearest(f, n), z, x} end)
     |> Enum.reduce(f, fn n, f ->
       waits = if f.serial, do: for(m <- around(n, 2), m != n, Map.has_key?(f.deps, m), do: m)
-      lacking = Enum.reject(around(n, 1), &cell?(f, &1))
+      lacking = lacking(f, n)
 
       f = %{
         f
@@ -238,15 +246,15 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
   end
 
   @doc """
-  `chunk` is frozen (handed over or failed): the decorations whose 3 × 3
-  holds it can no longer run, so their numbers go, and the goals that needed
-  them are made alone. A chunk handed over with its 3 × 3 decorated blocks
-  nothing: only itself, if wanted again, is made alone.
+  `chunk` is frozen (handed over or failed). A failed one blocks the
+  decorations whose 3 × 3 holds it, so their numbers go and the goals that
+  needed them are made alone; one handed over blocks nothing: only itself, if
+  wanted again, is made alone.
   """
   def freeze(%Frontier{final_after_terrain: true} = f, _chunk), do: f
 
   def freeze(f, chunk) do
-    blocked = for n <- around(chunk, 1), not decorated?(f, n), do: n
+    blocked = for n <- around(chunk, 1), failed?(f, chunk), not decorated?(f, n), do: n
     near = if blocked == [], do: [chunk], else: around(chunk, 2)
     f = Enum.reduce(blocked, f, &free(&2, &1))
     find_alone(f, Enum.filter(near, &Goals.goal?(f, &1)))
@@ -271,7 +279,7 @@ defmodule Valimc.Worldgen.Frontier.Dependencies do
         waits =
           for m <- around(n, 2), f.serial, s = f.seqs[m], s != nil and s < seq, do: m
 
-        {n, %{waits: waits, lacking: Enum.reject(around(n, 1), &cell?(f, &1)), need: 0}}
+        {n, %{waits: waits, lacking: lacking(f, n), need: 0}}
       end)
 
     %{f | deps: deps}

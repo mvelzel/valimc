@@ -477,6 +477,9 @@ crash chunks that were not yet full generate again. A deterministic generation
 error leaves its chunk failed (`worldgen_errors`) and fails the wanted chunks
 that need it. A chunk wanted again after it was handed over is made alone over
 fresh terrain, as vanilla regenerates a chunk missing from its region file. A
+decoration beside a chunk handed over runs over fresh terrain in its place
+and drops its writes there, as vanilla's features are cut at a saved chunk's
+border (VMC-081c3), so chunks beside a saved area need no proto chunks of it. A
 new world's spawn search runs the same scheduler inline and leaves its state
 as the snapshot.
 

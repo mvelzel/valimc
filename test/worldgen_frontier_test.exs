@@ -153,4 +153,19 @@ defmodule Valimc.WorldgenFrontierTest do
     assert Enum.take(terrain, 9) == Frontier.around({-1, -1}, 1)
     assert List.last(terrain) == {6, 2}
   end
+
+  test "beside a saved area, chunks are decorated as usual, not made alone" do
+    # A region loaded these chunks full (as after a crash lost the proto
+    # chunks around them).
+    saved = for x <- -4..0, z <- -4..4, do: {x, z}
+    f = Frontier.present(%Frontier{kind: :noise}, saved)
+    f = Frontier.want(f, :near, %{{1, 0} => false, {2, 0} => false})
+
+    assert f.alone == MapSet.new()
+    # The decorations beside the saved chunks wait only for terrain outside it.
+    assert Enum.all?(f.deps, fn {_, deps} -> Enum.all?(deps.lacking, &(&1 not in saved)) end)
+    assert Map.has_key?(f.deps, {1, 0})
+    {jobs, _} = Frontier.next(f, 20)
+    assert jobs != [] and Enum.all?(jobs, &(&1.kind == :terrain))
+  end
 end

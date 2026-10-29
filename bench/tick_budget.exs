@@ -181,7 +181,10 @@ defmodule Bench.TickBudget do
       seconds ->
         flown = state.flown_ms || 0
         turns = div(flown, String.to_integer(seconds) * 1000)
-        Enum.at([{1.0, 0.0}, {0.0, -1.0}, {-1.0, 0.0}, {0.0, 1.0}], rem(turns, 4))
+        # `FLY_BACK=1`: out and back along X instead of a square.
+        if System.get_env("FLY_BACK") == "1",
+          do: Enum.at([{1.0, 0.0}, {-1.0, 0.0}], rem(turns, 2)),
+          else: Enum.at([{1.0, 0.0}, {0.0, -1.0}, {-1.0, 0.0}, {0.0, 1.0}], rem(turns, 4))
     end
   end
 

@@ -44,9 +44,8 @@ The first template had lost its generation snapshot (a killed `prepare`), so
 every chunk beside the saved area was made alone over fresh terrain and so was
 every chunk after it, about five times the work per chunk. A live server does
 this only after a crash (captures 10 and 11 had no alone jobs), but then for
-every chunk generated outward from the saved area, never recovering: a
-follow-up should let a blocked decoration run over fresh terrain for its
-frozen neighbours, so only one ring is made alone. The template
+every chunk generated outward from the saved area, never recovering
+([081c3](VMC-081c3.md) lets those decorations run over fresh terrain). The template
 was regenerated with its snapshot (`template-20261020b`); the harness defaults
 to the production proto cap and takes `FLY_SPEED` and `PROTO_CELLS`.
 

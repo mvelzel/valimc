@@ -1549,7 +1549,9 @@ defmodule Valimc.World.Region do
         active_chunks: 0,
         loaded_entities: 0,
         active_mobs: 0,
-        hosted_players: map_size(state.players)
+        hosted_players: map_size(state.players),
+        # Sections by why they do not unload (VMC-081c1).
+        unload: %{}
       },
       fn {_, section}, acc ->
         resource = section.resource
@@ -1568,7 +1570,8 @@ defmodule Valimc.World.Region do
                 MapSet.size(resource.generation.absent),
             active_chunks: acc.active_chunks + MapSet.size(active),
             loaded_entities: acc.loaded_entities + map_size(store.entries),
-            active_mobs: acc.active_mobs + mobs
+            active_mobs: acc.active_mobs + mobs,
+            unload: Map.update(acc.unload, RegionData.unload_blocker(resource), 1, &(&1 + 1))
         }
       end
     )

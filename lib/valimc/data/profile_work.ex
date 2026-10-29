@@ -46,7 +46,8 @@ defmodule Valimc.Data.ProfileWork do
     :active_chunks,
     :loaded_entities,
     :active_mobs,
-    :hosted_players
+    :hosted_players,
+    :unload
   ]
   # Upper bounds (microseconds) of the duration buckets; the last is open.
   @bounds {250, 500, 1000, 2000, 3000, 5000, 7500, 10_000, 15_000, 20_000, 30_000, 50_000, 75_000,

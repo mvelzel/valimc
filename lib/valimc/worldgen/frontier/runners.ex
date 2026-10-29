@@ -1,7 +1,8 @@
 defmodule Valimc.Worldgen.Frontier.Runners do
   @moduledoc """
   The closures generation jobs run, anywhere (VMC-077n): terrain makes a
-  chunk's cell, a decoration decorates its 3 × 3, a full job makes a final
+  chunk's cell, a decoration decorates its 3 × 3 (over fresh terrain where
+  a chunk of it was handed over), a full job makes a final
   cell full, an alone job makes a chunk over fresh terrain of its 3 × 3 with
   only its own decoration, a flat job a flat-layer column. Spilled cells are
   read back from the scratch file by the job that needs them, and a
@@ -24,13 +25,19 @@ defmodule Valimc.Worldgen.Frontier.Runners do
     end
   end
 
+  # A chunk of the 3 × 3 handed over (no cell) gets fresh terrain in its
+  # place, which the decoration writes into and the job then drops.
   def runner(f, %{kind: :decorate, chunk: center}) do
     {worldgen, source, starts, scratch} = {f.worldgen, f.source, f.starts, f.scratch}
-    cells = Enum.map(Dependencies.around(center, 1), &{&1, f.chunks[&1].cell})
+    cells = Enum.map(Dependencies.around(center, 1), &{&1, get_in(f.chunks, [&1, :cell])})
 
     fn ->
       with {:ok, restored} <- load(worldgen, scratch, cells),
-           cells = Enum.map(cells, fn {chunk, cell} -> Map.get(restored, chunk, cell) end),
+           {:ok, stand_ins} <- stand_ins(worldgen, source, starts, cells),
+           cells =
+             Enum.map(cells, fn {chunk, cell} ->
+               Map.get(restored, chunk) || Map.get(stand_ins, chunk, cell)
+             end),
            {:ok, _lenient} <-
              Native.background(
                &Native.gen_decorate_background(&1, worldgen, source, starts, center, cells)
@@ -89,6 +96,19 @@ defmodule Valimc.Worldgen.Frontier.Runners do
 
       {:ok, lit(full, sky)}
     end
+  end
+
+  # Fresh terrain for the chunks among `cells` without one (handed over).
+  defp stand_ins(worldgen, source, starts, cells) do
+    stand_ins =
+      for {{x, z} = chunk, nil} <- cells, into: %{} do
+        {:ok, cell} =
+          Native.background(&Native.gen_terrain_background(&1, worldgen, source, starts, x, z))
+
+        {chunk, cell}
+      end
+
+    {:ok, stand_ins}
   end
 
   # The spilled cells among `cells` (`{chunk, cell}`), decoded from the scratch

@@ -182,8 +182,10 @@ defmodule Valimc.Session.Replication do
               {{section, told}, Map.update(tickets, pid, entries, &(entries ++ &1))}
             end
 
+          # Not reachable now (admitting, or moving between groups): who was
+          # told last still holds the tickets, to withdraw them later.
           _ ->
-            {{section, nil}, tickets}
+            {{section, Map.get(state.wanted, section)}, tickets}
         end
       end)
 
@@ -191,14 +193,22 @@ defmodule Valimc.Session.Replication do
 
     # A section that moved to another group took the tickets with it
     # (VMC-077j): only sections the view left (or of the dimension the player
-    # left) are told to drop them.
+    # left) are told to drop them, at the group holding them now (the one told
+    # may have retired since).
     tickets =
-      for {section, {pid, _, _}} <- state.wanted,
+      for {section, {told, _, _}} <- state.wanted,
           not Map.has_key?(wanted, section),
           reduce: tickets do
         acc ->
           {_, key} = Grid.split_section(section)
           entries = [{key, :player_loading, []}, {key, :player_simulation, []}]
+
+          pid =
+            case World.Directory.lookup(section) do
+              {pid, _, _} -> pid
+              nil -> told
+            end
+
           Map.update(acc, pid, entries, &(&1 ++ entries))
       end
 

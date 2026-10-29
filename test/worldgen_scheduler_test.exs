@@ -139,6 +139,17 @@ defmodule Valimc.WorldgenSchedulerTest do
     assert again.image == Map.fetch!(Blocks.lit_images(%{chunk => want.image}, true), chunk)
   end
 
+  test "beside a saved chunk, a neighbour is decorated, not made alone", ctx do
+    # A region loaded it full; its proto chunks were lost (a crash).
+    {x, z} = saved = {-1_100, 400}
+    :ok = Scheduler.present(ctx.base, :overworld, [saved])
+    before = length(Scheduler.order(ctx.base, :overworld))
+    [next] = full(ctx.base, [{x + 1, z}])
+    assert {next.x, next.z} == {x + 1, z}
+    # Its own decoration ran, over fresh terrain where the saved chunk is.
+    assert {x + 1, z} in Enum.drop(Scheduler.order(ctx.base, :overworld), before)
+  end
+
   test "a terrain-only world's chunks are final after terrain", ctx do
     base = ctx.base <> "-terrain"
     :ok = Valimc.World.Spec.write(base, %{"type" => "vanilla", "seed" => @seed})
