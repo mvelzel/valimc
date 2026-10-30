@@ -387,15 +387,17 @@ defmodule Valimc.World.Blocks do
   end
 
   @doc """
-  Mark the states whose random ticks this region handles (VMC-066); the
-  sections count every randomly ticking state, as vanilla's do (VMC-081g1).
+  Mark the states whose random ticks the block rules run (`rules`) and those
+  the owner runs itself (`owner`, VMC-066); the sections count every
+  randomly ticking state, as vanilla's do (VMC-081g1).
   """
-  def random_ticking(%__MODULE__{} = blocks, handled) do
+  def random_ticking(%__MODULE__{} = blocks, rules, owner) do
     :ok =
       Native.set_random_ticking(
         blocks.ref,
         bitmap(Valimc.World.Growth.ticking_states()),
-        bitmap(handled)
+        bitmap(rules),
+        bitmap(owner)
       )
   end
 
@@ -409,24 +411,4 @@ defmodule Valimc.World.Blocks do
     size = div(Valimc.Protocol.Data.block_state_count() + 7, 8)
     for byte <- 0..(size - 1), into: <<>>, do: <<Map.get(bytes, byte, 0)>>
   end
-
-  @doc """
-  The random ticks of this tick (`randomTickSpeed` positions in each section
-  with randomly ticking cells) in the chunks of `mask` (bit `z * 8 + x` of
-  the region chunk, `Valimc.Entity.NativeMobs.simulated_mask/2`): the draws
-  that found a handled state, `{position, state}`.
-  """
-  def random_ticks(_blocks, _per_section, 0), do: []
-
-  def random_ticks(%__MODULE__{} = blocks, per_section, mask) do
-    chunks = popcount(mask)
-
-    {:ok, hits} =
-      Native.dispatch(:random_ticks, per_section * chunks * 24, [blocks.ref, per_section, mask])
-
-    for <<x::32-signed, y::32-signed, z::32-signed, state::16 <- hits>>, do: {{x, y, z}, state}
-  end
-
-  defp popcount(0), do: 0
-  defp popcount(mask), do: (mask &&& 1) + popcount(mask >>> 1)
 end

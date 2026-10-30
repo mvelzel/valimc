@@ -34,8 +34,8 @@ defmodule Valimc.Native do
 
   # NIFs with a dirty twin: worst-case nanoseconds per unit (VMC-077b) and the
   # twin. Disk NBT per input byte (terms included); LZ4 per output byte; block
-  # changes per change; random ticks per draw; block updates (VMC-077m) per
-  # change, action or due tick. Neither a light update's cost nor a block update
+  # changes per change; block updates (VMC-077m) per
+  # change, action or due tick (and per chunk a run's random phase draws in). Neither a light update's cost nor a block update
   # cascade's is bounded by its input: past 64 positions a light update runs
   # dirty, past 500 changes block updates do, and on a normal scheduler Rust
   # stops either at a budget of work and drops it (`{:error, :too_large}`) for
@@ -45,7 +45,6 @@ defmodule Valimc.Native do
     lz4_decode_stream: {0.5, :lz4_decode_stream_dirty},
     set_blocks: {40, :set_blocks_dirty},
     block_updates: {2_000, :block_updates_dirty},
-    random_ticks: {5, :random_ticks_dirty},
     light_update: {15_625, :light_update_dirty},
     # Per cell an item tick scans (`Physics.Kernel.items/3` estimates them):
     # 110 µs for a scan of 1,024 cells of fences, walls and stairs (VMC-077l).
@@ -115,9 +114,10 @@ defmodule Valimc.Native do
 
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def touched_chunks(_region), do: :erlang.nif_error(:nif_not_loaded)
-  def set_random_ticking(_region, _ticking, _handled), do: :erlang.nif_error(:nif_not_loaded)
-  def random_ticks(_region, _per_section, _mask), do: :erlang.nif_error(:nif_not_loaded)
-  def random_ticks_dirty(_region, _per_section, _mask), do: :erlang.nif_error(:nif_not_loaded)
+
+  def set_random_ticking(_region, _ticking, _rules, _owner),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
   def biome_zoom(_zoom_seed, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -171,7 +171,8 @@ defmodule Valimc.Native do
         _absent,
         _seed,
         _options,
-        _redstone
+        _redstone,
+        _random
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 
@@ -186,7 +187,8 @@ defmodule Valimc.Native do
         _absent,
         _seed,
         _options,
-        _redstone
+        _redstone,
+        _random
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 

@@ -92,6 +92,11 @@ defmodule Valimc.World.BlockRules do
   - `ticks`: due block ticks, `[{position, state}]` (a tick runs while the
     cell holds that state's block);
   - `fluid_ticks`: due fluid ticks, `[{position, fluid}]`;
+  - `random`: the tick's random ticks after the fluid ticks (VMC-081g1),
+    `%{speed:, mask:, radius:, wet:, players: [{x, y, z}]}`: `speed` draws
+    in each section with randomly ticking cells of this section's chunks in
+    `mask` (bit `z * 8 + x`); lava's fire spreads within `radius` of a
+    player (-1 anywhere); in `wet` weather farmland's draws go back too;
   - `options`: the level settings' bits (`Valimc.Blocks.Fluids.options/3`, and 16
     for the `tnt_explodes` game rule);
   - `redstone`: `%{time:, day: {ticks, rain, thunder}, toggles: [{position,
@@ -109,7 +114,9 @@ defmodule Valimc.World.BlockRules do
   [integer], sounds: [{{x, y, z}, sound, volume, pitch, actor?}],
   block_events: [{position, block, b0, b1}], primed: [position], dispensed:
   [position] (dispensers and droppers whose tick fired, VMC-049a), toggles:
-  [{position, when}], outputs: [{position, output}], stopped: n, skipped:
+  [{position, when}], outputs: [{position, output}], drawn: [{position,
+  state}] (the random draws the owner ticks), grown: [position] (plants
+  whose random tick grows what the generator grows), stopped: n, skipped:
   n, updates: n}` (`priority` a `TickPriority`, -3..3; `outputs` the
   comparators' outputs the run changed, nil for one gone; `effects?`: it
   breaks with particles and sound; `results`: one per action, see
@@ -122,7 +129,12 @@ defmodule Valimc.World.BlockRules do
     ticks = Map.get(input, :ticks, [])
     fluid_ticks = Map.get(input, :fluid_ticks, [])
     actions = Map.get(input, :actions, [])
-    units = map_size(changes) + length(ticks) + length(fluid_ticks) + length(actions)
+    random = Map.get(input, :random)
+
+    units =
+      map_size(changes) + length(ticks) + length(fluid_ticks) + length(actions) +
+        random_units(random)
+
     stores = for %Valimc.World.Blocks{ref: sibling} <- siblings, do: sibling
 
     args = [
@@ -140,13 +152,14 @@ defmodule Valimc.World.BlockRules do
       absent,
       :rand.uniform(1 <<< 62),
       Map.get(input, :options, 0),
-      pack_redstone(Map.get(input, :redstone))
+      pack_redstone(Map.get(input, :redstone)),
+      pack_random(random)
     ]
 
     {:ok,
      {{changed, destroyed, scheduled, fluid, events, results}, {stopped, skipped, updates},
       {sounds, block_events, primed, toggles, outputs, dispensed},
-      {kept, gone, pending, executed, pushes, hidden}}} =
+      {kept, gone, pending, executed, pushes, hidden}, {drawn, grown}}} =
       case Native.dispatch(:block_updates, units, args) do
         # A cascade past the normal scheduler's budget runs again, dirty.
         {:error, :too_large} -> apply(Native, :block_updates_dirty, args)
@@ -218,6 +231,9 @@ defmodule Valimc.World.BlockRules do
             )
         ),
       hidden: for(<<x::32-signed, y::32-signed, z::32-signed <- hidden>>, do: {x, y, z}),
+      drawn:
+        for(<<x::32-signed, y::32-signed, z::32-signed, s::16 <- drawn>>, do: {{x, y, z}, s}),
+      grown: for(<<x::32-signed, y::32-signed, z::32-signed <- grown>>, do: {x, y, z}),
       stopped: stopped,
       skipped: skipped,
       updates: updates
@@ -300,6 +316,22 @@ defmodule Valimc.World.BlockRules do
     do: <<17, pos(position)::binary, 0, 0, pos({0, 0, 0})::binary>>
 
   defp pos({x, y, z}), do: <<x::32-signed, y::32-signed, z::32-signed>>
+
+  # The tick's random phase (`rules.rs`'s `random_phase`); none packs empty.
+  defp pack_random(nil), do: <<>>
+
+  defp pack_random(%{speed: speed, mask: mask, radius: radius, wet: wet, players: players}) do
+    <<speed::32, mask::64, radius::32-signed, if(wet, do: 1, else: 0), length(players)::32,
+      for({x, y, z} <- players, into: <<>>, do: <<x::float-64, y::float-64, z::float-64>>)::binary>>
+  end
+
+  # A random phase's work: a unit per 200 draws a chunk may take (24
+  # sections), at least one per chunk.
+  defp random_units(nil), do: 0
+  defp random_units(%{mask: mask, speed: speed}), do: chunks(mask) * max(1, div(speed * 24, 200))
+
+  defp chunks(0), do: 0
+  defp chunks(mask), do: (mask &&& 1) + chunks(mask >>> 1)
 
   # The redstone context (`rules.rs`'s `context`); none packs empty.
   defp pack_redstone(nil), do: <<>>

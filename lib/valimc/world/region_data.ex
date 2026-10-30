@@ -45,8 +45,6 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Blocks.Redstone
   import Bitwise, only: [|||: 2, <<<: 2]
 
-  @lava_states Valimc.Data.Blocks.states("lava") |> Enum.to_list()
-
   defstruct [
     # The section's dimension and coordinates `{sx, sz}`; its routing key is
     # `{dimension, sx, sz}` (`route_key/1`, VMC-077j).
@@ -209,12 +207,13 @@ defmodule Valimc.World.RegionData do
     # Moving pistons' block entities go beside their cells before any snapshot.
     Blocks.put_pistons(blocks, loaded.pistons)
 
-    # The native sampler returns only states some behaviour handles randomly.
+    # Random draws of lava and growing plants run in the block rules, those
+    # of the behaviours' states here (VMC-081g1).
     :ok =
       Blocks.random_ticking(
         blocks,
-        for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state) ++
-          Enum.to_list(Valimc.Data.Blocks.states("lava")) ++ Valimc.World.Growth.states()
+        Enum.to_list(Valimc.Data.Blocks.states("lava")) ++ Valimc.World.Growth.states(),
+        for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state)
       )
 
     publication = :ets.new(:region_publication, [:set, :protected, read_concurrency: true])
@@ -5230,28 +5229,77 @@ defmodule Valimc.World.RegionData do
         do: contact_entities(state),
         else: []
 
-    state =
-      if rule_due == [] and fluid_due == [] do
-        state
+    # The block rules run the due ticks, then the fluid ticks, then the
+    # tick's random ticks (vanilla's `tickChunks` after `LevelTicks`) in one
+    # run (VMC-081g1): lava and growing plants tick there; the draws of the
+    # behaviours' states (and farmland's in wet weather) come back.
+    random = random_phase(state)
+
+    {state, outcome} =
+      if rule_due == [] and fluid_due == [] and random == nil do
+        {state, nil}
       else
-        state
-        |> rule_run(%{
-          ticks: rule_due,
-          fluid_ticks: fluid_due,
-          redstone: redstone_context(state, [], entities),
-          handling_tick: true
-        })
-        |> elem(0)
+        redstone = redstone_context(state, [], entities)
+
+        input =
+          %{ticks: rule_due, fluid_ticks: fluid_due, redstone: redstone, handling_tick: true}
+
+        input =
+          if random,
+            do: %{input | redstone: Map.put(redstone, :day, day())} |> Map.put(:random, random),
+            else: input
+
+        rule_run(state, input)
       end
 
-    # Random ticks read the cells as the block ticks left them (vanilla's
-    # `tickChunks` runs after `LevelTicks`).
-    {random_effects, lava, growing} = random_ticks(state, &read_block(state, &1))
+    drawn =
+      case outcome do
+        nil ->
+          []
+
+        %{drawn: drawn, grown: grown} ->
+          for position <- grown, do: Valimc.World.Growth.start(state.dimension, position)
+          drawn
+      end
+
+    # A behaviour claims its states before growth's rules do.
+    {behaviour, farmland} = Enum.split_with(drawn, &state.tick_index[elem(&1, 1)])
+    random_effects = owner_random_ticks(state, behaviour)
 
     state
     |> daylight_ticks(tick)
-    |> rule_random_ticks(lava, growing)
+    |> farmland_ticks(farmland)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
+  end
+
+  # The tick's random phase (`BlockRules.run/4`'s `random`): vanilla's
+  # `randomTickSpeed` (the game rule) draws in the simulated, generated
+  # chunks; lava's fire spreads only near a player (the
+  # `fire_spread_radius_around_player` game rule, `canSpreadFireAround`).
+  defp random_phase(%{random_tick_speed: speed}) when speed <= 0, do: nil
+
+  defp random_phase(state) do
+    mask =
+      Valimc.Entity.NativeMobs.simulated_mask(
+        state.key,
+        Enum.reject(state.tickets.simulated, &RegionGeneration.absent?(state.generation, &1))
+      )
+
+    if mask != 0 do
+      %{
+        speed: min(state.random_tick_speed, 4096),
+        mask: mask,
+        radius: Valimc.World.GameRules.get(:fire_spread_radius_around_player),
+        wet: Clock.weather().wet,
+        players: for({position, _} <- state.player_targets, do: position)
+      }
+    end
+  end
+
+  # The overworld clock and the weather, which saplings' growth reads.
+  defp day do
+    weather = Clock.weather()
+    {Clock.day_ticks(), weather.rain_level, weather.thunder_level}
   end
 
   # Containers whose signal changed since comparators last heard tell them
@@ -5455,32 +5503,14 @@ defmodule Valimc.World.RegionData do
         do: {position, block}
   end
 
-  # Lava's (VMC-031a) and growing plants' (VMC-039a) random ticks run in the
-  # block rules: fire spreads from lava only near a player (the
-  # `fire_spread_radius_around_player` game rule, `canSpreadFireAround`);
-  # saplings read the day's sky darkening.
-  defp rule_random_ticks(state, [], []), do: state
+  # Farmland's random draws in wet weather (VMC-039a): its tick reads the
+  # rain above it (`Growth.random_ticks/2`), so it runs here after the
+  # tick's run.
+  defp farmland_ticks(state, []), do: state
 
-  defp rule_random_ticks(state, lava, growing) do
-    radius = Valimc.World.GameRules.get(:fire_spread_radius_around_player)
-
-    near? = fn {x, y, z} ->
-      radius == -1 or
-        Enum.any?(state.player_targets, fn {{px, py, pz}, _} ->
-          :math.sqrt((px - x) ** 2 + (py - y) ** 2 + (pz - z) ** 2) < radius
-        end)
-    end
-
-    actions =
-      for(p <- lava, do: {:random_tick, p, near?.(p), false}) ++
-        Valimc.World.Growth.random_ticks(state.dimension, growing)
-
-    weather = Clock.weather()
-
-    context =
-      state
-      |> redstone_context([], [])
-      |> Map.put(:day, {Clock.day_ticks(), weather.rain_level, weather.thunder_level})
+  defp farmland_ticks(state, hits) do
+    actions = Valimc.World.Growth.random_ticks(state.dimension, hits)
+    context = state |> redstone_context([], []) |> Map.put(:day, day())
 
     {state, outcome} =
       rule_run(state, %{actions: actions, redstone: context, handling_tick: true})
@@ -5543,42 +5573,24 @@ defmodule Valimc.World.RegionData do
 
       cond do
         key == state.key -> not RegionGeneration.absent?(state.generation, chunk)
-        sibling = state.siblings[key] -> chunk not in sibling.absent
+        sibling = state.siblings[key] -> not MapSet.member?(sibling.absent_set, chunk)
         true -> false
       end
     end)
   end
 
-  # Vanilla picks `randomTickSpeed` positions (the game rule,
-  # `:random_tick_speed`) in each section with randomly ticking cells of the
-  # chunks that tick; the native sampler (VMC-081g1) draws them in the
-  # simulated, generated chunks and returns the handled states drawn.
-  # The sampled cells' behaviour effects, the lava cells among them and the
-  # growing plants.
-  defp random_ticks(state, read) do
-    mask =
-      Valimc.Entity.NativeMobs.simulated_mask(
-        state.key,
-        Enum.reject(state.tickets.simulated, &RegionGeneration.absent?(state.generation, &1))
-      )
+  # The behaviours' random ticks at the draws the run returned (turtle eggs,
+  # budding amethyst): their effects.
+  defp owner_random_ticks(_state, []), do: []
 
-    hits = Blocks.random_ticks(state.blocks, state.random_tick_speed, mask)
+  defp owner_random_ticks(state, hits) do
+    read = &read_block(state, &1)
+    context = tick_context(state)
 
-    {lava, others} = Enum.split_with(hits, fn {_, block} -> block in @lava_states end)
-
-    # A tick behaviour claims its states before growth's rules do.
-    {others, growing} = Enum.split_with(others, fn {_, block} -> state.tick_index[block] end)
-    growing = Enum.filter(growing, fn {_, block} -> Valimc.World.Growth.growing?(block) end)
-
-    context = tick_context(state, others)
-
-    effects =
-      for {position, block} <- others,
-          module = state.tick_index[block],
-          effect <- random_tick(module, position, block, read, context),
-          do: effect
-
-    {effects, for({position, _} <- lava, do: position), growing}
+    for {position, block} <- hits,
+        module = state.tick_index[block],
+        effect <- random_tick(module, position, block, read, context),
+        do: effect
   end
 
   defp random(bound), do: :rand.uniform(bound) - 1
@@ -5592,9 +5604,7 @@ defmodule Valimc.World.RegionData do
 
   # What behaviours' random ticks read of the world (VMC-043e: the turtle
   # egg hatch chance of this dimension's clock now).
-  defp tick_context(_state, []), do: %{}
-
-  defp tick_context(state, _hits) do
+  defp tick_context(state) do
     dimension = Valimc.World.Dimension.name(state.dimension)
 
     %{
@@ -5699,8 +5709,9 @@ defmodule Valimc.World.RegionData do
         busy and Map.get(input, :actions, []) != [] ->
           {state, nil}
 
+        # A random phase is not retried: its draws are this tick's.
         busy ->
-          {%{state | rule_backlog: [input | state.rule_backlog]}, nil}
+          {%{state | rule_backlog: [Map.delete(input, :random) | state.rule_backlog]}, nil}
 
         true ->
           {own, theirs} = Map.pop(parts, state.key)

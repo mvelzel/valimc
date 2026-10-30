@@ -1160,9 +1160,10 @@ impl ColumnStore {
     }
 
     /// Install the randomly ticking states (`isRandomlyTicking`) and those the
-    /// owner handles, by state id, and count every section's ticking cells.
-    pub fn set_random_ticking(&mut self, ticking: Vec<bool>, handled: Vec<bool>) {
-        self.random.set_states(ticking, handled);
+    /// block rules and the owner tick, by state id, and count every section's
+    /// ticking cells.
+    pub fn set_random_ticking(&mut self, ticking: &[bool], rules: &[bool], owner: &[bool]) {
+        self.random.set_states(ticking, rules, owner);
         let (mx, mz) = self.chunk_min;
         for dz in 0..self.chunk_size {
             for dx in 0..self.chunk_size {
@@ -1174,43 +1175,10 @@ impl ColumnStore {
         }
     }
 
-    /// Vanilla's random ticks in the chunks of `mask` (bit `z * 8 + x` of the
-    /// region chunk; regions of at most 8 × 8 chunks), in bit order: each
-    /// section with ticking cells takes `per_section` positions from the
-    /// level's generator (`random_tick`). The draws that found a handled
-    /// state, `(x, y, z, state)`.
-    pub fn random_ticks(&mut self, per_section: u32, mask: u64) -> Vec<(i32, i32, i32, u16)> {
-        let mut hits = Vec::new();
-        if per_section == 0 {
-            return hits;
-        }
-        let (mx, mz) = self.chunk_min;
-        let mut bits = mask;
-        while bits != 0 {
-            let bit = bits.trailing_zeros() as i32;
-            bits &= bits - 1;
-            let (dx, dz) = (bit & 7, bit >> 3);
-            if dx >= self.chunk_size || dz >= self.chunk_size {
-                continue;
-            }
-            let chunk = (mx + dx, mz + dz);
-            let local = self.local(chunk);
-            if self.random.counts(local).iter().all(|&c| c == 0) {
-                continue;
-            }
-            let column = self.columns.get(&chunk).unwrap_or(&self.flat);
-            let (bx, bz) = (chunk.0 * 16, chunk.1 * 16);
-            self.random
-                .tick_chunk(local, &column.sections, per_section, |s, x, y, z, state| {
-                    hits.push((
-                        bx + x as i32,
-                        MIN_Y + (s * 16 + y) as i32,
-                        bz + z as i32,
-                        state,
-                    ))
-                });
-        }
-        hits
+    /// Region chunk `chunk`'s index in per-chunk tables and its column (the
+    /// base profile's while untouched), for random ticks.
+    pub fn random_column(&self, chunk: (i32, i32)) -> (usize, &Column) {
+        (self.local(chunk), self.column(chunk))
     }
 
     pub fn heap_bytes(&self) -> usize {
@@ -1505,17 +1473,18 @@ mod tests {
     }
 
     #[test]
-    fn random_ticks_draw_in_ticking_sections_of_the_masked_chunks() {
+    fn sections_count_their_randomly_ticking_cells() {
         let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
-        assert!(store.random_ticks(3, u64::MAX).is_empty());
-        // State 4 (the surface layer, y = 63, section 7) ticks and is
-        // handled; state 2 (y 60..62, section 7 too) ticks unhandled.
+        // States 2 (y 60..62) and 4 (the surface layer, y 63), both in section
+        // 7, tick.
         store.set_random_ticking(
-            vec![false, false, true, false, true],
-            vec![false, false, false, false, true],
+            &[false, false, true],
+            &[false, false, false, false, true],
+            &[],
         );
         let flags = flags();
         assert_eq!(store.random.counts(0)[7], 4 * 256);
+        assert_eq!(store.random.counts(9)[7], 4 * 256);
         // A state 2 cell in section 5 of chunk (1, 0) counts there; stone
         // (state 1) replaces a surface cell of chunk (0, 0).
         store
@@ -1523,32 +1492,13 @@ mod tests {
             .unwrap();
         assert_eq!(store.random.counts(1)[5], 1);
         assert_eq!(store.random.counts(0)[7], 4 * 256 - 1);
-        let mut total = 0;
-        for _ in 0..200 {
-            // Chunks (0, 0) and (2, 1) only.
-            let hits = store.random_ticks(3, 1 | 1 << 10);
-            total += hits.len();
-            for (x, y, z, state) in hits {
-                assert_eq!(state, 4);
-                assert_eq!(y, 63);
-                assert_eq!(store.get(x, y, z), Ok(4));
-                assert!(
-                    (0..16).contains(&x) && (0..16).contains(&z)
-                        || (32..48).contains(&x) && (16..32).contains(&z)
-                );
-            }
-        }
-        // Two chunks x 3 draws hit the surface layer with probability 1/16.
-        let expected = 200 * 2 * 3 / 16;
-        assert!(total > expected / 2 && total < expected * 2, "{total}");
-        // Every ticking section draws: two chunks' section 7, and chunk (1, 0)'s
-        // section 5 too, so the generator moves 3 more times per tick.
-        let mut alone = store.random.clone();
-        store.random_ticks(3, 1 | 1 << 1);
-        for _ in 0..9 {
-            alone.next_position();
-        }
-        assert_eq!(store.random.next_position(), alone.next_position());
+        // An installed column counts again, and a new table recounts all.
+        let column = Column::from_layers(&[1; HEIGHT]);
+        store.put_column((2, 0), column, &flags).unwrap();
+        assert_eq!(store.random.counts(2), &[0; SECTIONS]);
+        store.set_random_ticking(&[], &[], &[]);
+        assert_eq!(store.random.counts(0)[7], 0);
+        assert_eq!(store.random_column((3, 1)).0, 11);
     }
 
     #[test]

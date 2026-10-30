@@ -223,10 +223,12 @@ was sent to.
 - **Tick pipeline.** Each group tick runs `TickPipeline` phases on each of its
   sections at the group's game tick: scheduled block ticks, random ticks,
   block events, entities, moving pistons' block entities, cooking. Random
-  ticks draw natively as vanilla's `tickChunk` does, in the simulated chunks
-  the owner names by mask, only in sections whose randomly ticking count
-  (kept in the store as cells change) is above zero, and return the drawn
-  cells the owner handles. Block ticks and item motion
+  ticks draw as vanilla's `tickChunk` does, in the simulated chunks the
+  owner names by mask, only in sections whose randomly ticking count (kept
+  in the store as cells change) is above zero; they run in the same Rust
+  rules run as the tick's due block and fluid ticks, after them, so lava and
+  growing plants are decided there and only the draws of the owner's tick
+  behaviours come back. Block ticks and item motion
   run only in chunks a simulation ticket covers; cooking while any chunk of
   the section does (VMC-077e). Scheduled ticks sit in per-chunk containers, as
   vanilla's `LevelTicks`: a tick visits only the containers of simulated

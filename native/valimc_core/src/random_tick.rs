@@ -7,10 +7,16 @@
 //! section takes `randomTickSpeed` positions from the level's position
 //! generator (`Level.getBlockRandomPos`: `randValue = randValue * 3 +
 //! 1013904223`, its bits from `>> 2`), in vanilla's order: chunk by chunk,
-//! sections bottom first.
+//! sections bottom first. The block rules run the draws
+//! (`rules::live::RandomPhase`).
 
 use crate::column::SECTIONS;
-use crate::section::{index, Storage};
+use crate::section::Storage;
+
+/// A drawn state the block rules tick (lava, growing plants).
+pub const RULES: u8 = 1;
+/// A drawn state the owner ticks itself (its tick behaviours).
+pub const OWNER: u8 = 2;
 
 /// The region's random tick state: which states tick, which the owner
 /// handles, every section's count and the position generator.
@@ -18,9 +24,9 @@ use crate::section::{index, Storage};
 pub struct RandomTicks {
     /// `BlockState.isRandomlyTicking` by state id (the counted states).
     ticking: Vec<bool>,
-    /// The states whose ticks the owner runs; a draw at any other state
+    /// Who ticks a drawn state (`RULES`, `OWNER`); 0: nobody, the draw
     /// does nothing.
-    handled: Vec<bool>,
+    handled: Vec<u8>,
     /// Ticking cells per section, per local chunk `z * size + x`.
     counts: Vec<[u16; SECTIONS]>,
     /// `Level.randValue`.
@@ -42,21 +48,32 @@ impl RandomTicks {
         self.ticking.get(state as usize).copied().unwrap_or(false)
     }
 
+    /// Who ticks `state` when it is drawn: `RULES`, `OWNER` or 0.
     #[inline]
-    pub fn handled(&self, state: u16) -> bool {
-        self.handled.get(state as usize).copied().unwrap_or(false)
+    pub fn handled(&self, state: u16) -> u8 {
+        self.handled.get(state as usize).copied().unwrap_or(0)
     }
 
-    /// Install the ticking and handled states; the caller recounts every
-    /// section (`recount`). A handled state always counts.
-    pub fn set_states(&mut self, ticking: Vec<bool>, handled: Vec<bool>) {
-        let n = ticking.len().max(handled.len());
-        self.ticking = (0..n)
+    /// Install the ticking states and those the rules and the owner tick (the
+    /// owner's first); the caller recounts every section (`recount`). A
+    /// handled state always counts.
+    pub fn set_states(&mut self, ticking: &[bool], rules: &[bool], owner: &[bool]) {
+        let n = ticking.len().max(rules.len()).max(owner.len());
+        let at = |bits: &[bool], s: usize| bits.get(s).copied().unwrap_or(false);
+        self.handled = (0..n)
             .map(|s| {
-                ticking.get(s).copied().unwrap_or(false) || handled.get(s).copied().unwrap_or(false)
+                if at(owner, s) {
+                    OWNER
+                } else if at(rules, s) {
+                    RULES
+                } else {
+                    0
+                }
             })
             .collect();
-        self.handled = handled;
+        self.ticking = (0..n)
+            .map(|s| at(ticking, s) || self.handled[s] != 0)
+            .collect();
     }
 
     /// `recalcBlockCounts` for one chunk's sections.
@@ -122,30 +139,13 @@ impl RandomTicks {
         )
     }
 
-    /// One chunk's random ticks (`tickChunk`'s block part): `per_section`
-    /// draws in each section that counts ticking cells, bottom first; the
-    /// handled states drawn go to `hit(section, x, y, z, state)`.
-    pub fn tick_chunk(
-        &mut self,
-        chunk: usize,
-        sections: &[std::sync::Arc<Storage>],
-        per_section: u32,
-        mut hit: impl FnMut(usize, usize, usize, usize, u16),
-    ) {
-        let counts = self.counts[chunk];
-        for (s, &count) in counts.iter().enumerate() {
-            if count == 0 {
-                continue;
-            }
-            let storage = &*sections[s];
-            for _ in 0..per_section {
-                let (x, y, z) = self.next_position();
-                let state = storage.get(index(x, y, z));
-                if self.handled(state) {
-                    hit(s, x, y, z, state);
-                }
-            }
-        }
+    /// The generator's state, to roll a run's draws back (`set_generator`).
+    pub fn generator(&self) -> i32 {
+        self.rand_value
+    }
+
+    pub fn set_generator(&mut self, value: i32) {
+        self.rand_value = value;
     }
 }
 
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn counts_follow_cell_changes() {
         let mut ticks = RandomTicks::new(1, 0);
-        ticks.set_states(vec![false, true], vec![]);
+        ticks.set_states(&[false, true], &[], &[]);
         let mut storage = Storage::Single(0);
         storage.set(5, 1);
         storage.set(9, 1);

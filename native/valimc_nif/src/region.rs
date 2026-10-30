@@ -376,15 +376,16 @@ fn touched_chunks(region: ResourceArc<Region>) -> Result<Vec<(i32, i32)>, Atom> 
     with_store(&region, |store| Ok(store.columns.keys().copied().collect()))
 }
 
-/// Install the randomly ticking states (`isRandomlyTicking`) and those the
-/// region handles: one bit per state id each (LSB first). Every section's
-/// ticking cells are counted again.
+/// Install the randomly ticking states (`isRandomlyTicking`), those the
+/// block rules tick and those the owner ticks itself: one bit per state id
+/// each (LSB first). Every section's ticking cells are counted again.
 #[rustler::nif]
 fn set_random_ticking(
     env: Env,
     region: ResourceArc<Region>,
     ticking: Binary,
-    handled: Binary,
+    rules: Binary,
+    owner: Binary,
 ) -> NifResult<Atom> {
     let bits = |bitmap: &Binary| -> Vec<bool> {
         let bytes = bitmap.as_slice();
@@ -392,51 +393,11 @@ fn set_random_ticking(
             .map(|i| bytes[i / 8] & (1 << (i % 8)) != 0)
             .collect()
     };
-    let (ticking, handled) = (bits(&ticking), bits(&handled));
+    let (ticking, rules, owner) = (bits(&ticking), bits(&rules), bits(&owner));
     done(with_owned(env, &region, |store| {
-        store.set_random_ticking(ticking, handled);
+        store.set_random_ticking(&ticking, &rules, &owner);
         Ok(())
     }))
-}
-
-/// One tick's random ticks in the chunks of `mask` (bit `z * 8 + x` of the
-/// region chunk), packed `{x, y, z, state}` records of the handled states
-/// drawn (the draws advance the region's position generator;
-/// `Valimc.Native.dispatch/3` picks this or the dirty twin).
-#[rustler::nif]
-fn random_ticks<'a>(
-    env: Env<'a>,
-    region: ResourceArc<Region>,
-    per_section: u32,
-    mask: u64,
-) -> Result<Binary<'a>, Atom> {
-    sample_ticks(env, &region, per_section, mask)
-}
-
-/// `random_ticks` on a dirty CPU scheduler.
-#[rustler::nif(schedule = "DirtyCpu")]
-fn random_ticks_dirty<'a>(
-    env: Env<'a>,
-    region: ResourceArc<Region>,
-    per_section: u32,
-    mask: u64,
-) -> Result<Binary<'a>, Atom> {
-    sample_ticks(env, &region, per_section, mask)
-}
-
-fn sample_ticks<'a>(
-    env: Env<'a>,
-    region: &Region,
-    per_section: u32,
-    mask: u64,
-) -> Result<Binary<'a>, Atom> {
-    if per_section > 4096 {
-        return Err(atoms::invalid_state());
-    }
-    let hits = with_owned(env, region, |store| {
-        Ok(store.random_ticks(per_section, mask))
-    })?;
-    Ok(packed_blocks(env, &hits))
 }
 
 /// A chunk's states and biomes as big-endian u16 binaries (section index order).

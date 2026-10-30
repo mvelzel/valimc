@@ -42,6 +42,10 @@
 //! `<<x, y, z as float-64, sound::16, volume::float-32, pitch::float-32,
 //! actor::8>>`, `block_events` `<<x, y, z, block::16, b0::32, b1::32>>`,
 //! `primed` and `dispensed` (VMC-049a) `<<x, y, z>>` and `toggles` as given.
+//! `random` (VMC-081g1, `random_phase`) adds the tick's random ticks after
+//! the fluid ticks; the reply's last pair packs the draws the owner ticks
+//! (`<<x, y, z, state::16>>`) and the plants that grow what the generator
+//! grows (`<<x, y, z>>`).
 
 use crate::region::Region;
 use crate::{atoms, binary, reply};
@@ -50,9 +54,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::MutexGuard;
 use valimc_core::column::ColumnStore;
+use valimc_core::random_tick::RandomTicks;
 use valimc_core::rules::components::{EntityBox, EntityKind};
 use valimc_core::rules::fluid::Options;
-use valimc_core::rules::live::{Action, Input};
+use valimc_core::rules::live::{Action, Input, RandomPhase};
 use valimc_core::rules::Rules;
 use valimc_core::worldgen::random::Random;
 
@@ -217,6 +222,7 @@ type Updated<'a> = (
         Binary<'a>,
         Binary<'a>,
     ),
+    (Binary<'a>, Binary<'a>),
 );
 
 /// A run's packed inputs.
@@ -227,6 +233,35 @@ pub(crate) struct Packed<'a> {
     actions: Binary<'a>,
     options: u32,
     redstone: Binary<'a>,
+    random: Binary<'a>,
+}
+
+/// The tick's random phase (VMC-081g1): `<<per_section::32, mask::64,
+/// radius::32, wet::8, n::32, players (x, y, z as float-64)...>>`, none when
+/// empty.
+fn random_phase(packed: &[u8]) -> Result<Option<RandomPhase>, Atom> {
+    if packed.is_empty() {
+        return Ok(None);
+    }
+    let mut r = Reader(packed);
+    let per_section = r.i32()?;
+    let mask = r.i64()? as u64;
+    let radius = r.i32()?;
+    let wet = r.take::<1>()?[0] != 0;
+    let mut players = Vec::new();
+    for _ in 0..r.count(24)? {
+        players.push([r.f64()?, r.f64()?, r.f64()?]);
+    }
+    if !r.0.is_empty() || !(0..=4096).contains(&per_section) {
+        return Err(atoms::invalid_positions());
+    }
+    Ok(Some(RandomPhase {
+        per_section: per_section as u32,
+        mask,
+        players,
+        radius,
+        wet,
+    }))
 }
 
 /// The redstone context of a run (VMC-047a), unpacked.
@@ -428,6 +463,7 @@ fn block_updates<'a>(
     seed: i64,
     options: u32,
     redstone: Binary<'a>,
+    random: Binary<'a>,
 ) -> Result<Updated<'a>, Atom> {
     let packed = Packed {
         changes,
@@ -436,6 +472,7 @@ fn block_updates<'a>(
         actions,
         options,
         redstone,
+        random,
     };
     updates(
         env,
@@ -464,6 +501,7 @@ fn block_updates_dirty<'a>(
     seed: i64,
     options: u32,
     redstone: Binary<'a>,
+    random: Binary<'a>,
 ) -> Result<Updated<'a>, Atom> {
     let packed = Packed {
         changes,
@@ -472,6 +510,7 @@ fn block_updates_dirty<'a>(
         actions,
         options,
         redstone,
+        random,
     };
     updates(
         env,
@@ -496,12 +535,43 @@ fn updates<'a>(
     seed: i64,
     budget: Option<u64>,
 ) -> Result<Updated<'a>, Atom> {
+    let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
+    let phase = random_phase(packed.random.as_slice())?;
+    let mut guards = lock_group(region, siblings)?;
+    // The random phase draws with the own section's random tick state, out
+    // of the store for the run.
+    let mut ticks = phase
+        .as_ref()
+        .map(|_| std::mem::replace(&mut guards[0].random, RandomTicks::new(0, 0)));
+    let outcome = run_locked(
+        &guards,
+        rules,
+        packed,
+        &absent,
+        seed,
+        budget,
+        phase.as_ref().zip(ticks.as_mut()),
+    );
+    if let Some(ticks) = ticks {
+        guards[0].random = ticks;
+    }
+    Ok(encode(env, &outcome?))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_locked(
+    guards: &[MutexGuard<'_, ColumnStore>],
+    rules: &Rules,
+    packed: &Packed,
+    absent: &HashSet<(i32, i32)>,
+    seed: i64,
+    budget: Option<u64>,
+    phase: Option<(&RandomPhase, &mut RandomTicks)>,
+) -> Result<valimc_core::rules::live::Outcome, Atom> {
     let changes = records(packed.changes.as_slice())?;
     let ticks = records(packed.ticks.as_slice())?;
     let fluid_ticks = fluid_records(packed.fluid_ticks.as_slice())?;
     let actions = actions(packed.actions.as_slice())?;
-    let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
-    let guards = lock_group(region, siblings)?;
     let stores: Vec<&ColumnStore> = guards.iter().map(|guard| &**guard).collect();
     let context = context(packed.redstone.as_slice())?;
     let (sky_darken, sun_angle) = match &rules.power {
@@ -536,11 +606,17 @@ fn updates<'a>(
         build: context.build,
     };
     let mut random = Random::legacy(seed);
-    let outcome =
-        valimc_core::rules::live::run(rules, &stores, &absent, &input, &mut random, budget)
-            .map_err(|_| atoms::invalid_state())?
-            .ok_or(atoms::too_large())?;
-    Ok(encode(env, &outcome))
+    valimc_core::rules::live::run_ticking(
+        rules,
+        &stores,
+        absent,
+        &input,
+        &mut random,
+        budget,
+        phase,
+    )
+    .map_err(|_| atoms::invalid_state())?
+    .ok_or(atoms::too_large())
 }
 
 /// A run's outcome as the reply packs it.
@@ -637,6 +713,15 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
     for pos in &outcome.hidden {
         put_position(&mut hidden, *pos);
     }
+    let mut drawn = Vec::with_capacity(outcome.drawn.len() * 14);
+    for (pos, state) in &outcome.drawn {
+        put_position(&mut drawn, *pos);
+        drawn.extend_from_slice(&state.to_be_bytes());
+    }
+    let mut grown = Vec::with_capacity(outcome.grown.len() * 12);
+    for pos in &outcome.grown {
+        put_position(&mut grown, *pos);
+    }
     let mut pushes = Vec::new();
     for push in &outcome.report.pushes {
         push.moving.pack(push.pos, &mut pushes);
@@ -674,5 +759,6 @@ pub(crate) fn encode<'a>(env: Env<'a>, outcome: &valimc_core::rules::live::Outco
             binary(env, &pushes),
             binary(env, &hidden),
         ),
+        (binary(env, &drawn), binary(env, &grown)),
     )
 }

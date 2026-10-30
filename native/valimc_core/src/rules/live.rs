@@ -9,11 +9,13 @@ use std::collections::{HashMap, HashSet};
 
 use super::components::{EntityBox, Used};
 use super::fluid::{Emptied, Options};
+use super::growth::GROW_TREE;
 use super::piston::Event;
 use super::updater::{Engine, Report, World, ALL, UPDATE_LIMIT};
 use super::{BlockAccess, Rules};
 use crate::column::{ColumnStore, HEIGHT, MIN_Y};
 use crate::piston::Moving;
+use crate::random_tick::{RandomTicks, OWNER, RULES};
 use crate::worldgen::random::Random;
 
 /// A block change the owner already made: the position and its old state.
@@ -50,7 +52,33 @@ pub struct Outcome {
     /// Changed cells no write told clients of (VMC-048b: a moving piston's
     /// cells, which a client's own piston makes).
     pub hidden: Vec<[i32; 3]>,
+    /// The random phase's draws the owner ticks itself (`RandomPhase`):
+    /// position and state.
+    pub drawn: Vec<([i32; 3], u16)>,
+    /// The random phase's growing plants whose tick grows what the generator
+    /// grows (a sapling's tree, `GROW_TREE`).
+    pub grown: Vec<[i32; 3]>,
     pub report: Report,
+}
+
+/// The tick's random ticks in a run (VMC-081g1, `ServerLevel.tickChunk`),
+/// after its due block and fluid ticks: `per_section` draws in each section
+/// with randomly ticking cells of the own section's chunks in `mask` (bit
+/// `z * 8 + x` of the region chunk), chunk by chunk in bit order, sections
+/// bottom first. A draw reads the cell as the run left it so far; lava and
+/// growing plants tick here, the owner's states come back in
+/// `Outcome::drawn`.
+#[derive(Clone, Debug, Default)]
+pub struct RandomPhase {
+    pub per_section: u32,
+    pub mask: u64,
+    /// Where lava's fire may spread (`canSpreadFireAround`): within `radius`
+    /// of a player's position, anywhere at -1.
+    pub players: Vec<[f64; 3]>,
+    pub radius: i32,
+    /// Wet weather: a farmland's tick reads the rain above it, which the
+    /// owner knows, so its draws go back to the owner.
+    pub wet: bool,
 }
 
 /// What a run does besides updates and ticks.
@@ -405,6 +433,22 @@ pub fn run(
     random: &mut Random,
     budget: Option<u64>,
 ) -> Result<Option<Outcome>, String> {
+    run_ticking(rules, stores, absent, input, random, budget, None)
+}
+
+/// `run` with the tick's random phase (`RandomPhase`) over the own
+/// section's (`stores[0]`) random tick state `ticks`, after the fluid ticks
+/// and before the block events. A run past its budget leaves the generator
+/// where it was.
+pub fn run_ticking(
+    rules: &Rules,
+    stores: &[&ColumnStore],
+    absent: &HashSet<(i32, i32)>,
+    input: &Input,
+    random: &mut Random,
+    budget: Option<u64>,
+    phase: Option<(&RandomPhase, &mut RandomTicks)>,
+) -> Result<Option<Outcome>, String> {
     let world = Live {
         stores,
         absent,
@@ -537,10 +581,20 @@ pub fn run(
             engine.fluid_tick(pos, kind);
         }
     }
+    let (mut drawn, mut grown) = (Vec::new(), Vec::new());
+    let mut generator = None;
+    if let Some((phase, ticks)) = phase.filter(|_| !engine.report.over_budget) {
+        generator = Some((ticks.generator(), &mut *ticks));
+        let ticks = &mut *generator.as_mut().unwrap().1;
+        random_phase(&mut engine, phase, ticks, &mut drawn, &mut grown)?;
+    }
     if input.run_events {
         engine.run_block_events();
     }
     if engine.report.over_budget {
+        if let Some((value, ticks)) = generator {
+            ticks.set_generator(value);
+        }
         return Ok(None);
     }
     let Engine {
@@ -579,8 +633,110 @@ pub fn run(
         pistons: moved,
         events: pistons.events.into_iter().collect(),
         hidden,
+        drawn,
+        grown,
         report,
     }))
+}
+
+/// The random phase of a run (`RandomPhase`).
+fn random_phase(
+    engine: &mut Engine<Live>,
+    phase: &RandomPhase,
+    ticks: &mut RandomTicks,
+    drawn: &mut Vec<([i32; 3], u16)>,
+    grown: &mut Vec<[i32; 3]>,
+) -> Result<(), String> {
+    if phase.per_section == 0 || phase.mask == 0 {
+        return Ok(());
+    }
+    let store = engine.world.stores[0];
+    let (mx, mz) = store.chunk_min;
+    let size = store.chunk_size;
+    let farmland = engine.rules.table.block("farmland")?;
+    // The run's writes so far change the counts as `setBlock` would.
+    let mut deltas: HashMap<(usize, usize), i32> = HashMap::new();
+    for &pos in &engine.world.order {
+        let (cx, cz) = (pos[0] >> 4, pos[2] >> 4);
+        if !(mx..mx + size).contains(&cx) || !(mz..mz + size).contains(&cz) {
+            continue;
+        }
+        let (old, new) = (engine.world.base(pos), engine.world.overlay[&pos]);
+        let delta = i32::from(ticks.ticks(new)) - i32::from(ticks.ticks(old));
+        if delta != 0 {
+            let (local, _) = store.random_column((cx, cz));
+            *deltas
+                .entry((local, ((pos[1] - MIN_Y) >> 4) as usize))
+                .or_default() += delta;
+        }
+    }
+    let mut bits = phase.mask;
+    while bits != 0 {
+        let bit = bits.trailing_zeros() as i32;
+        bits &= bits - 1;
+        let (dx, dz) = (bit & 7, bit >> 3);
+        if dx >= size || dz >= size {
+            continue;
+        }
+        let chunk = (mx + dx, mz + dz);
+        if engine.world.absent.contains(&chunk) {
+            continue;
+        }
+        let (local, column) = store.random_column(chunk);
+        let counts = *ticks.counts(local);
+        for (s, &count) in counts.iter().enumerate() {
+            let count = i32::from(count) + deltas.get(&(local, s)).copied().unwrap_or(0);
+            if count <= 0 {
+                continue;
+            }
+            let storage = &*column.sections[s];
+            let y0 = MIN_Y + s as i32 * 16;
+            for _ in 0..phase.per_section {
+                let (x, y, z) = ticks.next_position();
+                let pos = [
+                    chunk.0 * 16 + x as i32,
+                    y0 + y as i32,
+                    chunk.1 * 16 + z as i32,
+                ];
+                let mut state = storage.get(crate::section::index(x, y, z));
+                if !engine.world.overlay.is_empty() {
+                    if let Some(&written) = engine.world.overlay.get(&pos) {
+                        state = written;
+                    }
+                }
+                match ticks.handled(state) {
+                    OWNER => drawn.push((pos, state)),
+                    RULES if engine.growth_kind(state).is_some() => {
+                        if phase.wet && engine.rules.table.block_of(state) == farmland {
+                            drawn.push((pos, state));
+                        } else if engine.growth_random_tick(pos, false) == GROW_TREE {
+                            grown.push(pos);
+                        }
+                    }
+                    // Lava, whose tick does something only where fire may spread.
+                    RULES if engine.rules.fluids.is_some() && fire(phase, pos) => {
+                        engine.lava_random_tick(pos, true);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether lava's fire may spread at `pos` (`canSpreadFireAround`): the
+/// game rule's radius is -1 or a player is closer than it.
+fn fire(phase: &RandomPhase, pos: [i32; 3]) -> bool {
+    phase.radius == -1
+        || phase.players.iter().any(|p| {
+            let d = [
+                p[0] - pos[0] as f64,
+                p[1] - pos[1] as f64,
+                p[2] - pos[2] as f64,
+            ];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() < phase.radius as f64
+        })
 }
 
 /// The run's changed cells that no write sent to clients.
