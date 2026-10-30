@@ -24,7 +24,7 @@ defmodule Valimc.NativeMobMonsterTest do
   test "these families are native, their goals vanilla's" do
     assert {:ok, types} = Native.mob_kinds()
 
-    for type <- ~w(minecraft:endermite minecraft:silverfish),
+    for type <- ~w(minecraft:endermite minecraft:silverfish minecraft:phantom),
         do: assert(type in types)
   end
 
@@ -111,5 +111,42 @@ defmodule Valimc.NativeMobMonsterTest do
         assert Enum.any?(effects, &match?({:discard}, &1))
       end
     end
+  end
+
+  ## Phantoms
+
+  test "phantoms circle their anchor, hunt the highest player, swoop and bite", ctx do
+    spots = land(ctx.blocks, 8, :rand.seed_s(:exsss, 321))
+    {[here, cat], rest} = Enum.split(spots, 2)
+    {hx, hy, hz} = here
+
+    entries =
+      for {{x, y, z}, n} <- Enum.with_index(rest, 1),
+          do: mob(n, "minecraft:phantom", {x, y + 12 + n, z}, finalize: :natural)
+
+    # One on the higher player (it bites as it swoops), one by a cat.
+    {cx, cy, cz} = cat
+    biting = mob(20, "minecraft:phantom", {hx + 3, hy + 2, hz}, finalize: :natural)
+    scared = mob(21, "minecraft:phantom", {cx + 2, cy + 3, cz})
+    collide = for t <- 0..399, do: if(rem(div(t, 9), 4) == 0, do: [1, 4], else: [])
+
+    scene =
+      scene([player(0, here), player(1, {hx + 3, hy + 2, hz})],
+        ticks: 400,
+        bright: false,
+        darken: 11,
+        statues: [mob(90, "minecraft:cat", cat, no_ai: true)],
+        collide: collide,
+        acts: [{50, 0, :hurt}],
+        post: true,
+        level: 111
+      )
+
+    observed = compare(ctx, scene, entries ++ [biting, scared])
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:level_event, _, 1039, 0}, &1))
+    assert Enum.any?(effects, &match?({:attack, _}, &1))
+    assert running?(observed, "Valimc.AI.Mobs.Phantom.Sweep")
+    assert running?(observed, "Valimc.AI.Mobs.Phantom.Circle")
   end
 end
