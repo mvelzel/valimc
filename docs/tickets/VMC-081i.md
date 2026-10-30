@@ -71,6 +71,36 @@ stack codec in Rust. Items keep Elixir trackers: after this slice their
 tracking is the trackers of items in simulated chunks, at a 20-tick
 interval.
 
+## Which trackers tick: the pinned jar
+
+Before this slice every tracker ticked every tick, so an entity outside
+simulated chunks sent its 60-tick position resend and its 400-update sync.
+Vanilla does not. `javap -c -p` of the pinned server jar (SHA-1
+`33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`, `versions/26.3/server-26.3.jar`
+of the bundle, JDK 25):
+
+- `ChunkMap.tick()` walks `entityMap.values()`. For each `TrackedEntity` it
+  compares `lastSectionPos` with `SectionPos.of(entity)`; when they differ
+  it calls `updatePlayers` and stores the new section. It then calls
+  `serverEntity.sendChanges()` only if the section changed, or
+  `entity.needsSync` is set, or
+  `distanceManager.inEntityTickingRange(sectionPos.chunk().pack())` is
+  true (offsets 170 to 209); otherwise it skips the entity.
+- `DistanceManager.inEntityTickingRange(long)` is
+  `ChunkLevel.isEntityTicking(simulationChunkTracker.getLevel(chunk))`: the
+  simulation-distance level, not the loading one.
+- `ServerEntity.sendChanges` has no other caller (only `ChunkMap` and
+  `ServerEntity` name it), and its `tickCount` advances only inside it.
+
+ValiMC's simulated chunks (`Tickets`: player simulation, forced, portal
+and post-teleport tickets) are the chunks whose entities tick, vanilla's
+entity-ticking range. A section change, a `needsSync` (a teleport, a
+sharp motion change) or anything else that changes the entity changes its
+view, so "in a simulated chunk or its view changed" includes every case
+vanilla ticks a tracker. It is wider by views that change for other
+reasons (a portal cooldown, an item's counters) outside simulated chunks,
+which tick their tracker once where vanilla would not.
+
 ## Acceptance
 
 - The native tracker sends what `Tracker.tick_body/2` sends, tick for tick:
