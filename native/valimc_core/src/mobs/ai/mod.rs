@@ -46,11 +46,13 @@ use std::fmt::Debug;
 
 /// What sensed mobs carry beyond the common part (`SensedMob<X>`): what
 /// families read of each other's own state (`AI.sensed/1`'s `data`: an
-/// animal's, whose partner's variant or colour its child takes). None where
-/// nothing reads it.
+/// animal's, whose partner's variant or colour its child takes; `own`: a
+/// family's own fields of its mind others read, a fish's school). None
+/// where nothing reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Extra {
     pub data: Option<crate::mobs::model::FamilyData>,
+    pub own: Option<Box<dyn Opaque>>,
 }
 
 /// A value the core holds without interpreting it (a brain's state, a

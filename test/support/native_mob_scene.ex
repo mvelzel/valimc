@@ -343,6 +343,8 @@ defmodule Valimc.NativeMobScene do
       do: e
 
   def effect({:eat_block, _, _} = e), do: e
+  def effect({:hurt, _, _, _, _} = e), do: e
+  def effect({:effect, _, _} = e), do: e
   def effect({:orb, _, _} = e), do: e
   def effect({:alert, _, _} = e), do: e
   def effect({:attack_extra, _, _} = e), do: e

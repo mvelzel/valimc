@@ -168,6 +168,12 @@ pub trait Kind: Hooks + Family {
         false
     }
 
+    /// Whether others sense its own fields (`AI.sensed/1`'s `own`: a fish's
+    /// school).
+    fn sensed_own(&self) -> bool {
+        false
+    }
+
     /// `finalize/2`: its `finalizeSpawn` for `reason`; by default `Mob`'s
     /// own (`Spawn.mob/2`).
     fn finalize(&self, t: &mut Turn, reason: &Atom) {
@@ -396,6 +402,7 @@ impl Registry {
     pub fn new(facts: &MobFacts) -> Result<Registry, String> {
         let mut kinds = crate::mobs::animals::kinds(facts)?;
         kinds.extend(crate::mobs::monsters::kinds(facts)?);
+        kinds.extend(crate::mobs::water::kinds(facts)?);
         Registry::of(facts, kinds)
     }
 

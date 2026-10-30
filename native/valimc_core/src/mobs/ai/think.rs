@@ -185,6 +185,7 @@ pub fn sensed(ctx: &Ctx, id: i32, mob: &NativeMob) -> Option<SensedMob<Extra>> {
         panicking: running_panic(mob),
         extra: Extra {
             data: animal.then(|| body.data.clone()),
+            own: own_sensed(kind, mob),
         },
     })
 }
@@ -213,11 +214,32 @@ pub fn resensed(ctx: &Ctx, mob: &NativeMob, sensing: &mut Sensing<Extra>) {
     resense_state(ctx, mob, sensing);
 }
 
+/// What others read of a mob's own fields (`own`), for a family whose
+/// others read them (`Kind::sensed_own`).
+fn own_sensed(kind: Option<&dyn Kind>, mob: &NativeMob) -> Option<Box<dyn super::Opaque>> {
+    if !kind.is_some_and(|k| k.sensed_own()) {
+        return None;
+    }
+    let state = mob.body.mob.ai.as_ref()?.state.as_ref()?;
+    state.own.family.clone()
+}
+
 /// `sensed_state/1`: what others sense of its own state (an animal's love,
-/// age and data).
+/// age and data; a family's own fields others read).
 pub fn resense_state(ctx: &Ctx, mob: &NativeMob, sensing: &mut Sensing<Extra>) {
     let Some(ty) = ctx.ty(mob) else { return };
-    if !ctx.kinds.kind(ty.id).is_some_and(|k| k.animal()) {
+    let Some(kind) = ctx.kinds.kind(ty.id) else {
+        return;
+    };
+    if kind.sensed_own() {
+        let own = own_sensed(Some(kind), mob);
+        sensing.resense(&mob.uuid, |row| {
+            if row.extra.own != own {
+                row.extra.own = own;
+            }
+        });
+    }
+    if !kind.animal() {
         return;
     }
     let data = &mob.body.data;
@@ -286,6 +308,7 @@ pub fn change_other<'w>(
             ) {
                 kind.own_change(&mut state.own, change.as_ref());
             }
+            resense_state(ctx, target, sensing);
         }
         Effect::Remote { change, .. } => {
             if let (Some(kind), Some(state)) = (
@@ -475,7 +498,8 @@ fn base_tick(ctx: &Ctx, kind: &dyn Kind, t: &mut Turn) {
 /// `AI.make_sound/2`: a sound at the mob's volume and voice pitch.
 pub fn make_sound(t: &mut Turn, sound: i32) {
     let base = t.hooks.voice(t.type_id, &t.mob.body.data);
-    let pitch = t.random.voice_pitch(base) as f64;
+    let scale = t.hooks.voice_scale(t.type_id);
+    let pitch = (t.random.voice_pitch(base) * scale) as f64;
     let volume = t.facts.volume;
     t.sound_id(sound, volume, pitch);
 }
@@ -768,11 +792,29 @@ pub fn settle<'t, 'w>(
         }
         std::mem::take(&mut t.effects)
     } else if alive && kind.still() {
+        // `still/4` keeps what its hooks did to its mind, data, living state
+        // and motion, not to its place or rotations.
+        let body = &mob.body;
+        let kept = (
+            mob.position,
+            body.yaw,
+            body.pitch,
+            body.head_yaw,
+            body.on_ground,
+        );
         let mut t = Turn::new(mob, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
         t.ctx = Some(*ctx);
         t.outside = outside;
         kind.after_ai(&mut t);
         kind.after_tick(&mut t);
+        let m = &mut *t.mob;
+        (
+            m.position,
+            m.body.yaw,
+            m.body.pitch,
+            m.body.head_yaw,
+            m.body.on_ground,
+        ) = kept;
         std::mem::take(&mut t.effects)
     } else {
         Vec::new()

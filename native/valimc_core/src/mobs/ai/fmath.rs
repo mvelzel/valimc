@@ -99,6 +99,16 @@ pub fn rotlerp(from: f64, to: f64, max: f64) -> f64 {
     }
 }
 
+/// `Mth.lerp(delta, from, to)` of floats.
+pub fn lerp(delta: f64, from: f64, to: f64) -> f64 {
+    f(from + f(delta * f(to - from)))
+}
+
+/// `Mth.rotLerp(delta, from, to)`: from toward to the short way round.
+pub fn rot_lerp(delta: f64, from: f64, to: f64) -> f64 {
+    f(from + f(delta * wrap(f(to - from))))
+}
+
 /// `Mth.positiveCeilDiv`.
 pub fn ceil_div(input: i64, divisor: i64) -> i64 {
     -((-input).div_euclid(divisor))

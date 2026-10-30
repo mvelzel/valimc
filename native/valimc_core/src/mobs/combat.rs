@@ -218,6 +218,11 @@ pub trait Family: Sync {
         1.0
     }
 
+    /// The scale of its voice pitch (`voice/2`'s `{base, scale}`: a bat's).
+    fn voice_scale(&self, _body: &Body) -> f32 {
+        1.0
+    }
+
     /// `death_drops/1`: what it drops of its own (an enderman's block).
     fn death_drops(&self, _body: &Body) -> Vec<Value> {
         Vec::new()
@@ -661,7 +666,8 @@ fn sound(
     which: SoundKind,
 ) -> Option<Event> {
     let base = family.voice(body);
-    let pitch = random(&mut body.mob, uuid).voice_pitch(base);
+    let scale = family.voice_scale(body);
+    let pitch = random(&mut body.mob, uuid).voice_pitch(base) * scale;
     if which == SoundKind::Hurt {
         if let Some(interval) = rules.facts.ai.mob(ty.id).map(|m| m.ambient_interval) {
             if let Some(mind) = body.mob.ai.as_mut() {

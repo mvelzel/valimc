@@ -19,3 +19,4 @@ pub mod ai;
 pub mod combat;
 pub mod living;
 pub mod vitals;
+pub mod water;

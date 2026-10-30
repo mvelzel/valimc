@@ -41,7 +41,7 @@ mod atoms {
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
-        away, maybe, shot, poked, y_rot, aggressive, wanted
+        away, maybe, shot, poked, y_rot, aggressive, wanted, effect
     }
 }
 
@@ -312,6 +312,25 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
         }
         Effect::RemoveBlock(c) => (atoms::remove_block(), cell(*c)).encode(env),
         Effect::Discard => (atoms::discard(),).encode(env),
+        Effect::Hurt {
+            target,
+            kind,
+            amount,
+            actions,
+        } => (
+            atoms::hurt(),
+            reference(env, target),
+            mob_term::encode(env, kind)?,
+            *amount,
+            mob_term::encode(env, actions)?,
+        )
+            .encode(env),
+        Effect::GiveEffect { target, actions } => (
+            atoms::effect(),
+            reference(env, target),
+            mob_term::encode(env, actions)?,
+        )
+            .encode(env),
         _ => (atoms::other(),).encode(env),
     })
 }
@@ -386,7 +405,23 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
         opt("first_sound", o.first_sound);
         opt("next_alert", o.next_alert);
     }
+    water_own(own, &mut out);
     out
+}
+
+/// The water families' own fields (`Mobs.Fish`' school, a pufferfish's
+/// counters).
+fn water_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static str, Value)>) {
+    use valimc_core::mobs::water::fish::{PuffCounters, School};
+    if let Some(o) = own.family::<School>() {
+        let leader = o.leader.map_or(Value::atom("nil"), |u| Value::Binary(u.to_vec()));
+        out.push(("leader", leader));
+        out.push(("school", Value::Int(o.school)));
+    }
+    if let Some(o) = own.family::<PuffCounters>() {
+        out.push(("inflate", Value::Int(o.inflate)));
+        out.push(("deflate", Value::Int(o.deflate)));
+    }
 }
 
 /// What the record leaves out of a mind: `{tick, no_action, ambient,

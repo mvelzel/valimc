@@ -29,6 +29,23 @@ pub const INVISIBLE: u32 = 51;
 /// `Heightmap.Types.MOTION_BLOCKING`'s bit.
 pub const MOTION_BLOCKING: u8 = 1 << 4;
 
+/// A structure query (`World.locate/2`'s request): the nearest structure of
+/// a structure tag within a radius of chunks around a block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Query {
+    pub tag: &'static str,
+    pub position: [i32; 3],
+    pub radius: i32,
+}
+
+/// What answers structure queries at once (`world.locate` a function:
+/// fixtures and oracles); without one they are deferred to the owner, whose
+/// results reach the mob by `Level::located`.
+pub trait Locator: Sync {
+    /// The structure's position, None where there is none.
+    fn locate(&self, query: &Query) -> Option<[i32; 3]>;
+}
+
 /// `Difficulty`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Difficulty {
@@ -178,6 +195,11 @@ pub struct Level<'a> {
     /// The loot registry (spawn equipment's enchanting), where the owner
     /// gives one.
     pub loot: Option<&'a crate::loot::Loot>,
+    /// Structure queries answered at once (`world.locate`); None: deferred.
+    pub locator: Option<&'a dyn Locator>,
+    /// Results of deferred structure queries by mob and request
+    /// (`world.located`), taken by the mob that asked.
+    pub located: HashMap<([u8; 16], u64), Option<[i32; 3]>>,
 }
 
 impl<'a> Level<'a> {
@@ -214,6 +236,8 @@ impl<'a> Level<'a> {
             structures: HashMap::new(),
             random,
             loot: None,
+            locator: None,
+            located: HashMap::new(),
         }
     }
 
@@ -451,6 +475,12 @@ impl<'a> Level<'a> {
                         })
                 })
             })
+    }
+
+    /// `World.locate/2`: a query's answer at once (`Some`), else deferred
+    /// (`None`).
+    pub fn locate(&self, query: &Query) -> Option<Option<[i32; 3]>> {
+        self.locator.map(|l| l.locate(query))
     }
 
     /// The knot tied at a block (`World.knots`).

@@ -98,6 +98,11 @@ pub trait Hooks: Send + Sync {
         1.0
     }
 
+    /// The scale of its voice pitch (`voice/2`'s `{base, scale}`: a bat's).
+    fn voice_scale(&self, _type_id: u16) -> f32 {
+        1.0
+    }
+
     /// `Living.Effects.add/3` on the mob.
     fn add_effect(&self, t: &mut Turn, id: i32, rung: Rung) {
         crate::mobs::living::effects::add(&mut t.mob.body.mob.living.effects, id, rung);
