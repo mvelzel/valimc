@@ -118,9 +118,8 @@ pub struct MindState {
     pub damage: Option<Damage>,
     /// Lines of sight tested this tick.
     pub sight: SightCache,
-    /// A brain mob's brain (memories, sensors, activities): its machinery
-    /// moves with the brain families.
-    pub brain: Option<Box<dyn Opaque>>,
+    /// A brain mob's brain (memories, sensors, activities, behaviours).
+    pub brain: Option<Box<super::brain::Brain>>,
     /// The second of a pair of gaussian draws.
     pub gaussian: Option<f64>,
     /// An animal's particle timers.
@@ -130,6 +129,9 @@ pub struct MindState {
     pub disabled: u8,
     pub own: Own,
     pub pending: Vec<Pending>,
+    /// What its reactions made before its section thought, which its think
+    /// gives first (`AI.react`'s early effects).
+    pub reacted: Vec<super::effect::Effect>,
 }
 
 impl Default for MindState {
@@ -163,6 +165,7 @@ impl Default for MindState {
             disabled: 0,
             own: Own::default(),
             pending: Vec::new(),
+            reacted: Vec::new(),
         }
     }
 }

@@ -3,6 +3,7 @@
 //! `docs/tickets/VMC-081d.md`.
 
 pub mod animals;
+pub mod brains;
 pub mod facts;
 pub mod kinds;
 pub mod level;

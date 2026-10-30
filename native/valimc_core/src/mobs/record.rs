@@ -341,11 +341,17 @@ fn attributes_record(attributes: &Attributes) -> Value {
     Value::Map(Map::from_pairs(pairs).expect("attribute ids are distinct"))
 }
 
-/// `Mind.record/1`.
+/// `Mind.record/1`: its random, and a live brain's saved memories (what a
+/// record gave while it has none).
 fn mind_record(mind: &Mind) -> Value {
     let mut record = Map::from_atoms([("random", Value::Int(mind.random.seed as i64))]);
-    if let Some(memories) = &mind.memories {
-        record.insert_atom("memories", memories.clone());
+    let brain = mind.state.as_ref().and_then(|s| s.brain.as_deref());
+    let memories = match brain {
+        Some(brain) => brain.saved_record(None),
+        None => mind.memories.clone(),
+    };
+    if let Some(memories) = memories {
+        record.insert_atom("memories", memories);
     }
     record.into()
 }

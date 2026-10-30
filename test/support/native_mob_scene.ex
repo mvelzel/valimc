@@ -23,8 +23,15 @@ defmodule Valimc.NativeMobScene do
   @zoom_seed -4_172_144_997_902_289_642
   @chunks for cx <- 0..2, cz <- 0..2, do: {cx, cz}
 
-  @doc "The generated terrain, its path view and the record facts (`setup_all`)."
-  def setup do
+  @doc """
+  The generated terrain, its path view and the record facts (`setup_all`).
+  `edit` gives the blocks a scene builds on the terrain before its views are
+  published: `{%{position => state}, info}`, `info` kept as `:info`.
+  """
+  def setup, do: setup_with(fn _blocks -> {%{}, nil} end)
+
+  @doc "`setup/0` with the blocks `edit` gives the terrain (see `setup/0`)."
+  def setup_with(edit) do
     Valimc.AI.NativeFacts.install!()
     Valimc.Entity.NativeLiving.install!()
     Valimc.AI.Paths.install!()
@@ -32,7 +39,23 @@ defmodule Valimc.NativeMobScene do
     size = Valimc.Data.Grid.region_size()
     absent = for cx <- 0..(size - 1), cz <- 0..(size - 1), {cx, cz} not in @chunks, do: {cx, cz}
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, images, MapSet.new(absent))
+    {edits, info} = edit.(blocks)
+    _ = Valimc.World.Blocks.put(blocks, edits)
     view = view(blocks, 1)
+
+    # `World.find` over the region's store, as the native side's finder
+    # reads it (the owner's `find_blocks` reads its published snapshots of
+    # the same blocks).
+    finder = fn {x0, y0, z0, x1, y1, z1}, states ->
+      list = Enum.to_list(states)
+
+      for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
+          cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
+          {:ok, found} <- [Native.chunk_find(blocks.ref, cx, cz, list)],
+          <<x::32-signed, y::32-signed, z::32-signed, state::16 <- found>>,
+          x in x0..x1 and y in y0..y1 and z in z0..z1,
+          do: {{x, y, z}, state}
+    end
 
     types =
       for name <- EntityTypes.names(), EntityTypes.living?(name) do
@@ -48,7 +71,7 @@ defmodule Valimc.NativeMobScene do
         types: types
       })
 
-    %{blocks: blocks, view: view, facts: facts}
+    %{blocks: blocks, view: view, facts: facts, finder: finder, info: info}
   end
 
   @doc """
@@ -70,6 +93,7 @@ defmodule Valimc.NativeMobScene do
   defp world(blocks, view, players, time, scene) do
     %World{
       read: &read(blocks, &1),
+      find: scene[:finder],
       light: &Valimc.World.Blocks.light(blocks, &1),
       biome: &Valimc.World.Blocks.biome(blocks, @zoom_seed, &1),
       search: fn request ->
@@ -276,6 +300,21 @@ defmodule Valimc.NativeMobScene do
     end)
   end
 
+  # The POI tickets the scene's villagers hold (the owner's `store_claims`).
+  defp claims(entries) do
+    entries
+    |> Enum.map(fn {id, e} -> {id, Map.put(e, :kind, :mob)} end)
+    |> Valimc.AI.Pois.store_claims(:overworld)
+  end
+
+  # What players did this tick that brain mobs react to:
+  # `{tick, player index, seen}` angers piglins near the player.
+  defp events(scene, players, t) do
+    for {^t, i, seen} <- scene.events,
+        p = Enum.at(players, i),
+        do: {:anger, {:player, p.uuid}, seen}
+  end
+
   defp run(blocks, view, scene, entries) do
     {ticks, _} =
       Enum.map_reduce(0..(scene.ticks - 1), {entries, scene.level_seed}, fn t, {entries, level} ->
@@ -294,6 +333,9 @@ defmodule Valimc.NativeMobScene do
           blocks
           |> world(view, Enum.map(players, &sensed_player/1), scene.time + t, scene)
           |> Map.put(:random, level)
+          |> Map.put(:pois, claims(entries))
+          |> Map.put(:loot_seeds, scene.loot_seeds)
+          |> Map.put(:events, events(scene, players, t))
 
         {entries, world, made} = tick(entries, world, scene, t)
 
@@ -323,10 +365,26 @@ defmodule Valimc.NativeMobScene do
     disabled = if :move in m.disabled, do: 1, else: 0
 
     {m.tick, m.no_action, m.ambient, running, m.target, look, m.body_yaw, path, m.own,
-     m.forced_age_timer, m.age_lock_timer, disabled, m.wet, mob.motion.control}
+     m.forced_age_timer, m.age_lock_timer, disabled, m.wet, mob.motion.control, brain(m)}
   end
 
   def mind(_body), do: nil
+
+  # A brain's memories (by name, a path as `{:path, index, nodes}`), its
+  # active activities, running behaviours and sensors' countdowns.
+  defp brain(%Mind{brain: %Valimc.AI.Brain{} = b} = m) do
+    memories =
+      b.memories
+      |> Enum.map(fn {k, {v, ttl}} -> {Atom.to_string(k), memory(v), ttl} end)
+      |> Enum.sort()
+
+    {memories, b.active, Valimc.AI.Brain.running(%Self{mind: m}), Enum.map(b.sensors, & &1.time)}
+  end
+
+  defp brain(_mind), do: nil
+
+  defp memory(%{nodes: nodes, index: index}), do: {:path, index, Tuple.to_list(nodes)}
+  defp memory(v), do: v
 
   @doc "A sound's id (the Elixir's effects may name it)."
   def sound_id(id) when is_integer(id), do: id
@@ -431,7 +489,7 @@ defmodule Valimc.NativeMobScene do
   def effect(_), do: {:other}
 
   @doc "The Elixir side's ticks of `scene` over `entries` (for a look at a difference)."
-  def elixir(%{blocks: blocks, view: view}, scene, entries) do
+  def elixir(%{blocks: blocks, view: view} = ctx, scene, entries) do
     restore = fn entries ->
       for {id, e} <- entries do
         {:ok, body} = Body.restore(entry_record(id, e))
@@ -439,7 +497,8 @@ defmodule Valimc.NativeMobScene do
       end
     end
 
-    run(blocks, view, %{scene | statues: restore.(scene.statues)}, restore.(entries))
+    scene = Map.put(%{scene | statues: restore.(scene.statues)}, :finder, ctx[:finder])
+    run(blocks, view, scene, restore.(entries))
   end
 
   @doc """
@@ -447,7 +506,7 @@ defmodule Valimc.NativeMobScene do
   every mob's mind, effects and record and the level random. The ticks the
   Elixir observed.
   """
-  def compare(%{blocks: blocks, view: view, facts: facts}, scene, entries) do
+  def compare(%{blocks: blocks, view: view, facts: facts} = ctx, scene, entries) do
     records = for {id, e} <- entries, do: {id, entry_record(id, e)}
     statues = for {id, e} <- scene.statues, do: {id, entry_record(id, e)}
 
@@ -461,13 +520,14 @@ defmodule Valimc.NativeMobScene do
 
     entries = restore.(entries)
     scene = %{scene | statues: restore.(scene.statues)}
-    expected = run(blocks, view, scene, entries)
+    expected = run(blocks, view, Map.put(scene, :finder, ctx[:finder]), entries)
 
     native =
       Native.mob_parity_think(blocks.ref, @zoom_seed, facts, %{
         scene
         | mobs: records,
-          statues: statues
+          statues: statues,
+          events: for({t, i, seen} <- scene.events, do: {t, i, seen})
       })
 
     assert length(native) == scene.ticks
@@ -630,7 +690,9 @@ defmodule Valimc.NativeMobScene do
   `:post`, `:collide`, `:loot`, `:griefing` (`mobGriefing`),
   `:universal_anger`, `:items` (sensed item rows, `item/4`), `:treasure`
   (where structure queries find it at once), `:villages` (the sections
-  holding an occupied village POI).
+  holding an occupied village POI), `:events` (`{tick, player index,
+  seen}`: a player angering piglins), `:loot_seeds` (each tick's loot
+  rolls).
   """
   def scene(players, opts) do
     %{
@@ -661,7 +723,9 @@ defmodule Valimc.NativeMobScene do
       loot: Keyword.get(opts, :loot),
       items: Keyword.get(opts, :items, []),
       treasure: Keyword.get(opts, :treasure),
-      villages: Keyword.get(opts, :villages)
+      villages: Keyword.get(opts, :villages),
+      events: Keyword.get(opts, :events, []),
+      loot_seeds: Keyword.get(opts, :loot_seeds, [])
     }
   end
 end

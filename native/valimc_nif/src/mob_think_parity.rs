@@ -136,6 +136,10 @@ struct SceneT<'a> {
     treasure: Option<(i32, i32, i32)>,
     /// The sections holding an occupied village POI (`World.villages`).
     villages: Option<Vec<(i32, i32, i32)>>,
+    /// `{tick, player index, seen}`: a player angering piglins.
+    events: Vec<(i32, usize, bool)>,
+    /// Each tick's loot roll seeds, in turn.
+    loot_seeds: Vec<i64>,
 }
 
 fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
@@ -611,8 +615,51 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
             (s.disabled as i32).encode(env),
             s.wet.encode(env),
             control(env, &mob.body.mob.motion.control),
+            brain(env, s.brain.as_deref())?,
         ],
     ))
+}
+
+/// A brain as the harness views it: `{[{name, value, ttl}], active,
+/// running, sensor countdowns}`, the memories by name.
+fn brain<'a>(
+    env: Env<'a>,
+    brain: Option<&valimc_core::mobs::ai::brain::Brain>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::ai::brain;
+    let Some(b) = brain else {
+        return Ok(atoms::nil().encode(env));
+    };
+    let facts = crate::mob_facts::facts()?;
+    let mut memories = b
+        .memories
+        .0
+        .iter()
+        .map(|(m, slot)| (m.name(), slot))
+        .collect::<Vec<_>>();
+    memories.sort_by_key(|(name, _)| *name);
+    let memories = memories
+        .into_iter()
+        .map(|(name, (value, ttl))| {
+            let ttl = match ttl {
+                None => rustler::Atom::from_str(env, "never")?.encode(env),
+                Some(t) => t.encode(env),
+            };
+            Ok((
+                name,
+                mob_term::encode(env, &brain::value(value, Some(facts)))?,
+                ttl,
+            )
+                .encode(env))
+        })
+        .collect::<NifResult<Vec<Term>>>()?;
+    let active = b
+        .active
+        .iter()
+        .map(|a| rustler::Atom::from_str(env, a.name()))
+        .collect::<NifResult<Vec<_>>>()?;
+    let sensors: Vec<i32> = b.sensors.iter().map(|s| s.time).collect();
+    Ok((memories, active, b.running(), sensors).encode(env))
 }
 
 /// What `MobTicks` runs after the settle that a scene can (the harness's
@@ -822,6 +869,29 @@ fn mob_parity_think<'a>(
                     }
                 }
             }
+            // The owner's claims, events and loot seeds this tick.
+            level.pois = valimc_core::mobs::ai::pois::store_claims(
+                crate::mob_facts::facts()?,
+                mobs.iter(),
+                &level.dimension.clone(),
+            );
+            level.loot_seeds = scene.loot_seeds.iter().copied().collect();
+            level.events = scene
+                .events
+                .iter()
+                .filter(|(at, _, _)| *at == tick)
+                .filter_map(|&(_, i, seen)| {
+                    players
+                        .get(i)
+                        .map(|p| valimc_core::mobs::ai::brain::Reaction::Anger {
+                            player: Ref {
+                                kind: Kind::Player,
+                                uuid: p.uuid,
+                            },
+                            seen,
+                        })
+                })
+                .collect();
             let others: Vec<_> = statues
                 .iter()
                 .filter_map(|(id, m)| think::sensed(&ctx, *id, m))

@@ -151,12 +151,6 @@ pub trait Kind: Hooks + Family {
         NavSpec::default()
     }
 
-    /// `brain/0`: whether its mobs think with a brain (the brain families
-    /// are not native yet).
-    fn brain(&self) -> bool {
-        false
-    }
-
     /// `motion/0`.
     fn kernel_motion(&self) -> KindMotion {
         KindMotion::default()
@@ -404,6 +398,7 @@ impl Registry {
         kinds.extend(crate::mobs::monsters::kinds(facts)?);
         kinds.extend(crate::mobs::water::kinds(facts)?);
         kinds.extend(crate::mobs::village::kinds(facts)?);
+        kinds.extend(crate::mobs::brains::kinds(facts)?);
         Registry::of(facts, kinds)
     }
 

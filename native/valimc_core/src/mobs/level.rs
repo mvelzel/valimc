@@ -112,6 +112,18 @@ pub trait Environment {
     fn chunk_loaded(&self, _chunk: (i32, i32)) -> Option<bool> {
         None
     }
+    /// The blocks of a chunk whose state is one of `states` (`World.find`'s
+    /// snapshot search, `View.find`); None: the world has no finder (it
+    /// finds nothing).
+    fn find(&self, _chunk: (i32, i32), _states: &[u16]) -> Option<Vec<(i32, i32, i32, u16)>> {
+        None
+    }
+    /// Where a mob of `type_id` getting up from the bed at `head` (facing
+    /// `facing`, an index of north, south, west, east) stands
+    /// (`world.stand_up`, `StandUp.bed`); None: above the bed.
+    fn stand_up(&self, _type_id: u16, _head: [i32; 3], _facing: u8, _yaw: f64) -> Option<[f64; 3]> {
+        None
+    }
 }
 
 /// No light, biome or rain known (tests and oracles that give none).
@@ -145,6 +157,10 @@ impl Environment for Store<'_> {
     fn biome(&self, p: [i32; 3]) -> Option<u16> {
         let quart = crate::worldgen::surface::zoom(self.zoom_seed, p[0], p[1], p[2]);
         self.store.noise_biome(quart, self.plains)
+    }
+
+    fn find(&self, chunk: (i32, i32), states: &[u16]) -> Option<Vec<(i32, i32, i32, u16)>> {
+        Some(self.store.find(chunk, states).unwrap_or_default())
     }
 }
 
@@ -194,7 +210,8 @@ pub struct Level<'a> {
     /// Kept structure starts by chunk.
     pub structures: HashMap<(i32, i32), Vec<StructureStart>>,
     /// The POI tickets taken by block (`World.pois`, the living villagers'
-    /// claims): `mobs::ai::pois` reads them.
+    /// claims): `mobs::ai::pois` reads them; a claim made or given back in
+    /// a tick counts for the mobs after.
     pub pois: HashMap<[i32; 3], i32>,
     /// The 16-block sections holding an occupied village POI where the
     /// owner gives them (`World.villages`); None: from `pois`.
@@ -209,6 +226,15 @@ pub struct Level<'a> {
     /// Results of deferred structure queries by mob and request
     /// (`world.located`), taken by the mob that asked.
     pub located: HashMap<([u8; 16], u64), Option<[i32; 3]>>,
+    /// The dimension (`World.dimension`: a POI memory's `GlobalPos`).
+    pub dimension: crate::mobs::term::Atom,
+    /// What players did that brain mobs react to before thinking
+    /// (`World.events`: piglins angered by a player opening or breaking
+    /// what they guard).
+    pub events: Vec<crate::mobs::ai::brain::Reaction>,
+    /// The seeds mobs' loot rolls take in turn (`World.loot_seeds`, a
+    /// piglin's barter); empty: fresh ones.
+    pub loot_seeds: std::collections::VecDeque<i64>,
 }
 
 impl<'a> Level<'a> {
@@ -250,7 +276,36 @@ impl<'a> Level<'a> {
             loot: None,
             locator: None,
             located: HashMap::new(),
+            dimension: crate::mobs::term::Atom::from_static("overworld"),
+            events: Vec::new(),
+            loot_seeds: std::collections::VecDeque::new(),
         }
+    }
+
+    /// `World.find/3` through the world's finder: the cells of `states` in
+    /// an inclusive box, chunk by chunk (x then z), each chunk's in its
+    /// finder's order; nothing without one.
+    pub fn find_blocks(
+        &self,
+        min: [i32; 3],
+        max: [i32; 3],
+        states: &[u16],
+    ) -> Vec<([i32; 3], u16)> {
+        let mut out = Vec::new();
+        for cx in min[0].div_euclid(16)..=max[0].div_euclid(16) {
+            for cz in min[2].div_euclid(16)..=max[2].div_euclid(16) {
+                let Some(found) = self.environment.find((cx, cz), states) else {
+                    return Vec::new();
+                };
+                for (x, y, z, state) in found {
+                    let p = [x, y, z];
+                    if (0..3).all(|a| min[a] <= p[a] && p[a] <= max[a]) {
+                        out.push((p, state));
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// `World.block/2`: the state at a position, None where unreadable.

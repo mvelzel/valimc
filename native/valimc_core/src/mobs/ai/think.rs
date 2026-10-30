@@ -18,6 +18,7 @@
 //! changes (a target, an age and love, a family's own state), so both give
 //! the same bodies. Its sensed row changes at once in both.
 
+use super::brain::{Reaction, Remember};
 use super::control::look;
 use super::effect::Effect;
 use super::fmath::{self, emax, emin, f};
@@ -104,9 +105,18 @@ pub fn mind_state(
     MindState::new(goals, targets, nav)
 }
 
-/// `AI.ensure/2`: a mob of a thinking type thinks with a mind, its random
-/// the record's (else one seeded from its uuid).
+/// `AI.ensure/2` outside a level: `ensure_in` without the start a brain
+/// mob's constructor makes in a world (a villager's schedule).
 pub fn ensure(ctx: &Ctx, mob: &mut NativeMob) {
+    ensure_in(ctx, mob, None);
+}
+
+/// `AI.ensure/2`: a mob of a thinking type thinks with a mind, its random
+/// the record's (else one seeded from its uuid). A brain mob's brain is made
+/// for its body's data, its sensors' countdowns drawn from that random, and
+/// gets its saved memories back; made in a level, it starts as its
+/// constructor does (`started/1`).
+pub fn ensure_in<'w>(ctx: &Ctx<'w>, mob: &mut NativeMob, level: Option<&mut Level<'w>>) {
     if live(mob) {
         return;
     }
@@ -114,17 +124,45 @@ pub fn ensure(ctx: &Ctx, mob: &mut NativeMob) {
     let Some(kind) = ctx.kinds.kind(ty.id) else {
         return;
     };
-    if ctx.rules.facts.ai.mob(ty.id).is_none() {
+    let facts = ctx.rules.facts;
+    if facts.ai.mob(ty.id).is_none() {
         return;
     }
-    let state = mind_state(kind, ctx.rules.facts, ty.id);
+    let mut state = mind_state(kind, facts, ty.id);
     let uuid = mob.uuid;
+    let data = mob.body.data.clone();
     let mind = mob.body.mob.ai.get_or_insert_with(|| Mind {
         random: LegacyRandom::from_uuid(&uuid),
         memories: None,
         state: None,
     });
+    let family = kind.brain();
+    if let Some(family) = family {
+        let mut brain = family.brain(facts, &uuid, &data, &mut mind.random);
+        if let Some(kept) = &mind.memories {
+            brain.memories = super::brain::restore_memories(kept);
+        }
+        state.brain = Some(Box::new(brain));
+    }
     mind.state = Some(Box::new(state));
+    if let (Some(family), Some(level)) = (family, level) {
+        let ai = facts.ai.mob(ty.id).unwrap_or_else(|| blank());
+        let dims = living_body::dimensions(ctx.rules, ty, &mob.body);
+        let mut sensing = Sensing::new(Vec::new(), Vec::new(), Vec::new());
+        let mut t = Turn::new(
+            mob,
+            0,
+            ty.id,
+            ai,
+            dims,
+            level,
+            &mut sensing,
+            ctx.paths,
+            kind,
+        );
+        t.ctx = Some(*ctx);
+        family.started(&mut t);
+    }
 }
 
 // ## Sensing
@@ -146,6 +184,7 @@ pub fn sensed(ctx: &Ctx, id: i32, mob: &NativeMob) -> Option<SensedMob<Extra>> {
     let [width, height, eye] = living_body::dimensions(ctx.rules, ty, body);
     let animal = kind.is_some_and(|k| k.animal());
     let state = mob.body.mob.ai.as_ref().and_then(|m| m.state.as_ref());
+    let brain = state.and_then(|s| s.brain.as_deref());
     let own_box = ctx
         .rules
         .family(ty)
@@ -184,11 +223,37 @@ pub fn sensed(ctx: &Ctx, id: i32, mob: &NativeMob) -> Option<SensedMob<Extra>> {
         killed_by: body.mob.hurt_by_player,
         panicking: running_panic(mob),
         extra: Extra {
-            data: animal.then(|| body.data.clone()),
+            data: (animal || brain.is_some()).then(|| body.data.clone()),
             own: own_sensed(kind, mob),
-            memories: None,
+            memories: brain.and_then(super::brain::shared_value),
+            path_step: brain
+                .and(state)
+                .and_then(|s| path_step(s.navigation.path.as_ref())),
+            start: Some(super::Start {
+                bbox: own_box.unwrap_or_else(|| {
+                    let half = width / 2.0;
+                    let [x, y, z] = mob.position;
+                    crate::physics::Aabb::new(
+                        [x - half, y, z - half],
+                        [x + half, y + height, z + half],
+                    )
+                }),
+                alive: living_mob::alive(&body.mob),
+                sleeping: sleeping(body),
+            }),
         },
     })
+}
+
+/// Whether a body lies in a bed (`data.sleeping`).
+fn sleeping(body: &crate::mobs::model::Body) -> bool {
+    body.data.get("sleeping").is_some_and(|v| !v.is_nil())
+}
+
+/// Where a path leads now: the node before its next and its next.
+fn path_step(path: Option<&super::paths::NavPath>) -> Option<([i32; 3], [i32; 3])> {
+    let p = path?;
+    (p.index > 0 && p.index < p.nodes.len()).then(|| (p.nodes[p.index - 1], p.nodes[p.index]))
 }
 
 /// `AI.resense_entry/3`: a mob sensed again after it moved (its place,
@@ -226,7 +291,8 @@ fn own_sensed(kind: Option<&dyn Kind>, mob: &NativeMob) -> Option<Box<dyn super:
 }
 
 /// `sensed_state/1`: what others sense of its own state (an animal's love,
-/// age and data; a family's own fields others read).
+/// age and data; a family's own fields others read; a brain mob's data and
+/// shared memories).
 pub fn resense_state(ctx: &Ctx, mob: &NativeMob, sensing: &mut Sensing<Extra>) {
     let Some(ty) = ctx.ty(mob) else { return };
     let Some(kind) = ctx.kinds.kind(ty.id) else {
@@ -240,15 +306,28 @@ pub fn resense_state(ctx: &Ctx, mob: &NativeMob, sensing: &mut Sensing<Extra>) {
             }
         });
     }
-    if !kind.animal() {
+    let animal = kind.animal();
+    let brain = mob
+        .body
+        .mob
+        .ai
+        .as_ref()
+        .and_then(|m| m.state.as_ref())
+        .and_then(|s| s.brain.as_deref());
+    if !animal && brain.is_none() {
         return;
     }
     let data = &mob.body.data;
     sensing.resense(&mob.uuid, |row| {
-        row.in_love = data.in_love().unwrap_or(0) as i32;
-        row.age = data.age().unwrap_or(0) as i32;
+        if animal {
+            row.in_love = data.in_love().unwrap_or(0) as i32;
+            row.age = data.age().unwrap_or(0) as i32;
+        }
         if row.extra.data.as_ref() != Some(data) {
             row.extra.data = Some(data.clone());
+        }
+        if let Some(memories) = brain.and_then(super::brain::shared_value) {
+            row.extra.memories = Some(memories);
         }
     });
 }
@@ -312,10 +391,12 @@ pub fn change_other<'w>(
             resense_state(ctx, target, sensing);
         }
         Effect::Remote { change, .. } => {
-            if let (Some(kind), Some(state)) = (
-                kind,
-                target.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()),
-            ) {
+            let Some(state) = target.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) else {
+                return;
+            };
+            if let Some(remember) = change.as_any().downcast_ref::<Remember>() {
+                remember.apply(state);
+            } else if let Some(kind) = kind {
                 kind.remote_change(state, change.as_ref());
             }
         }
@@ -346,7 +427,16 @@ pub fn think<'t, 'w>(
     };
     let kinds: &'w Registry = ctx.kinds;
     let kind = kinds.kind(ty.id);
-    let mut made = finalize(ctx, ty, kind, mob, id, level, sensing);
+    // What its reactions made before the section thought comes first.
+    let mut made = mob
+        .body
+        .mob
+        .ai
+        .as_mut()
+        .and_then(|m| m.state.as_mut())
+        .map(|s| std::mem::take(&mut s.reacted))
+        .unwrap_or_default();
+    made.extend(finalize(ctx, ty, kind, mob, id, level, sensing));
     let Some(kind) = kind else { return made };
     let facts = level.facts;
     let Some(ai) = facts.ai.mob(ty.id) else {
@@ -490,7 +580,12 @@ fn base_tick(ctx: &Ctx, kind: &dyn Kind, t: &mut Turn) {
     t.mind.ambient = ambient + 1;
     if n < ambient {
         t.mind.ambient = -(t.facts.ambient_interval as i64);
-        if let Some(sound) = kind.ambient_sound(t) {
+        // `Mob.playAmbientSound`: a brain mob's depends on what it is doing.
+        let sound = match t.family().filter(|_| t.mind.brain.is_some()) {
+            Some(family) => family.ambient_sound(t),
+            None => kind.ambient_sound(t),
+        };
+        if let Some(sound) = sound {
             make_sound(t, sound);
         }
     }
@@ -660,6 +755,11 @@ fn ai_step(_ctx: &Ctx, kind: &dyn Kind, t: &mut Turn) {
     // was.
     let at = predicted(t).map(|p| std::mem::replace(&mut t.mob.position, p));
     navigation::tick(t);
+    // `customServerAiStep`: a brain ticks, then its mob picks its activity.
+    if let Some(family) = t.family().filter(|_| t.mind.brain.is_some()) {
+        super::brain::tick(t, family);
+        family.update_activity(t);
+    }
     kind.custom_step(t);
     kind.move_control(t);
     strafe(t);
@@ -787,6 +887,9 @@ pub fn settle<'t, 'w>(
             t.mind.snapped = None;
             kind.after_tick(&mut t);
             leash::control_flags(&mut t);
+            if let Some(family) = t.family().filter(|_| t.mind.brain.is_some()) {
+                family.pick_up(&mut t);
+            }
         } else {
             kind.after_ai(&mut t);
             kind.after_tick(&mut t);
@@ -947,20 +1050,136 @@ impl<'s, 'w> SectionAi<'s, 'w> {
         mobs: impl IntoIterator<Item = (i32, &'m mut NativeMob)>,
         others: Vec<(usize, SensedMob<Extra>)>,
     ) -> SectionAi<'s, 'w> {
+        let mut mobs: Vec<(i32, &'m mut NativeMob)> = mobs.into_iter().collect();
         let mut rows = Vec::new();
-        for (id, mob) in mobs {
-            ensure(&ctx, mob);
-            if let Some(row) = sensed(&ctx, id, mob) {
+        for (id, mob) in mobs.iter_mut() {
+            ensure_in(&ctx, mob, Some(&mut *level));
+            if let Some(row) = sensed(&ctx, *id, mob) {
                 rows.push(row);
             }
         }
         for (index, row) in others {
             rows.insert(index.min(rows.len()), row);
         }
-        SectionAi {
+        let mut ai = SectionAi {
             ctx,
             sensing: Sensing::new(players, items, rows),
             level,
+        };
+        ai.react(&mut mobs);
+        ai
+    }
+
+    /// `AI.react/3`: each brain mob, in id order, reacts to the entities
+    /// that hurt it since it last thought (`wasHurtBy`, which vanilla runs
+    /// as the hurt lands) and to what players did; what its reactions ask
+    /// of other brain mobs (`Effect::Brain`) runs on them at once, through
+    /// its family, and what they make is theirs. Each mob's own effects
+    /// wait for its think.
+    pub fn react(&mut self, mobs: &mut [(i32, &mut NativeMob)]) {
+        let events = std::mem::take(&mut self.level.events);
+        for index in 0..mobs.len() {
+            let (id, mob) = &mut mobs[index];
+            let id = *id;
+            let Some(ty) = self.ctx.ty(mob) else { continue };
+            let Some(kind) = self.ctx.kinds.kind(ty.id) else {
+                continue;
+            };
+            let Some(family) = kind.brain() else { continue };
+            if !living_mob::alive(&mob.body.mob) {
+                continue;
+            }
+            let Some(state) = mob.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) else {
+                continue;
+            };
+            if state.brain.is_none() {
+                continue;
+            }
+            if !family.reacts() {
+                // Nothing reads what it would react to.
+                state.pending.clear();
+                continue;
+            }
+            let pending: Vec<Reaction> = state
+                .pending
+                .drain(..)
+                .map(|super::mind::Pending::HurtBy(r)| Reaction::HurtBy(r))
+                .chain(events.iter().copied())
+                .collect();
+            if pending.is_empty() {
+                continue;
+            }
+            let made = {
+                let facts = self.level.facts;
+                let ai = facts.ai.mob(ty.id).unwrap_or_else(|| blank());
+                let dims = living_body::dimensions(self.ctx.rules, ty, &mob.body);
+                let mut t = Turn::new(
+                    mob,
+                    id,
+                    ty.id,
+                    ai,
+                    dims,
+                    self.level,
+                    &mut self.sensing,
+                    self.ctx.paths,
+                    kind,
+                );
+                t.ctx = Some(self.ctx);
+                for event in pending {
+                    family.react(&mut t, event);
+                }
+                std::mem::take(&mut t.effects)
+            };
+            let (others, own): (Vec<Effect>, Vec<Effect>) = made
+                .into_iter()
+                .partition(|e| matches!(e, Effect::Brain { .. }));
+            reacted(mob, own);
+            for effect in others {
+                let Effect::Brain { mob: uuid, change } = effect else {
+                    continue;
+                };
+                let Some(other) = mobs.iter().position(|(_, m)| m.uuid == uuid) else {
+                    continue;
+                };
+                let (other_id, target) = &mut mobs[other];
+                let other_id = *other_id;
+                let Some(oty) = self.ctx.ty(target) else {
+                    continue;
+                };
+                let Some(okind) = self.ctx.kinds.kind(oty.id) else {
+                    continue;
+                };
+                if !target
+                    .body
+                    .mob
+                    .ai
+                    .as_ref()
+                    .and_then(|m| m.state.as_ref())
+                    .is_some_and(|s| s.brain.is_some())
+                {
+                    continue;
+                }
+                let made = {
+                    let facts = self.level.facts;
+                    let ai = facts.ai.mob(oty.id).unwrap_or_else(|| blank());
+                    let dims = living_body::dimensions(self.ctx.rules, oty, &target.body);
+                    let mut t = Turn::new(
+                        target,
+                        other_id,
+                        oty.id,
+                        ai,
+                        dims,
+                        self.level,
+                        &mut self.sensing,
+                        self.ctx.paths,
+                        okind,
+                    );
+                    t.ctx = Some(self.ctx);
+                    family.brain_change(&mut t, change.as_ref());
+                    std::mem::take(&mut t.effects)
+                };
+                reacted(target, made);
+            }
         }
     }
 
@@ -1020,9 +1239,25 @@ impl<'s, 'w> SectionAi<'s, 'w> {
         resensed(&self.ctx, mob, &mut self.sensing);
     }
 
-    /// An Elixir mob sensed again (its owner's row after its turn).
-    pub fn resense(&mut self, row: SensedMob<Extra>) {
+    /// An Elixir mob sensed again (its owner's row after its turn), as the
+    /// tick began kept.
+    pub fn resense(&mut self, mut row: SensedMob<Extra>) {
         let uuid = row.uuid;
-        self.sensing.resense(&uuid, |r| *r = row);
+        self.sensing.resense(&uuid, |r| {
+            if r.extra.start.is_some() {
+                row.extra.start = r.extra.start;
+            }
+            *r = row
+        });
+    }
+}
+
+/// Effects a brain mob's reaction made, for its think to give first.
+fn reacted(mob: &mut NativeMob, effects: Vec<Effect>) {
+    if effects.is_empty() {
+        return;
+    }
+    if let Some(s) = mob.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) {
+        s.reacted.extend(effects);
     }
 }

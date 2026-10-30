@@ -172,6 +172,12 @@ pub trait Hooks: Send + Sync {
         out
     }
 
+    /// `brain/0`: a brain mob's brain family (its brain, activities and
+    /// behaviours' tests); None: it thinks with goals.
+    fn brain(&self) -> Option<&dyn super::brain::BrainFamily> {
+        None
+    }
+
     /// A family's block test of a move-to-block goal (`isValidTarget`).
     fn block(&self, _t: &mut Turn, _tag: Tag, _cell: [i32; 3], _goal: &mut MoveToBlock) -> bool {
         false

@@ -521,6 +521,8 @@ pub struct VillageFacts {
     pub by_biome: HashMap<String, String>,
     pub adult: Schedule,
     pub baby: Schedule,
+    /// Each POI block state's type (`Pois.of_state/1`).
+    pub by_state: HashMap<u16, String>,
 }
 
 impl VillageFacts {
@@ -576,7 +578,14 @@ impl VillageFacts {
                 })
                 .collect()
         };
+        let by_state = poi_types
+            .iter()
+            .flat_map(|(name, t): (&String, &PoiType)| {
+                t.states.iter().map(move |&s| (s, name.clone()))
+            })
+            .collect();
         Ok(VillageFacts {
+            by_state,
             poi_types,
             professions,
             types,
@@ -584,6 +593,11 @@ impl VillageFacts {
             adult: runs("adult")?,
             baby: runs("baby")?,
         })
+    }
+
+    /// `Pois.of_state/1`: the POI type of a block state.
+    pub fn poi_of_state(&self, state: u16) -> Option<&str> {
+        self.by_state.get(&state).map(String::as_str)
     }
 
     /// `Villagers.profession/1`.

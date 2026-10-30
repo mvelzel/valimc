@@ -5,7 +5,9 @@
 //! rotation and smooth swimming controls (`control`), navigation over the
 //! path crate run synchronously in process (`navigation`, `paths`), random
 //! walk targets and block shapes (`random_pos`, `shapes`), the goals of
-//! `Valimc.AI.Goals` (`goals`) and the hooks families give (`hooks`).
+//! `Valimc.AI.Goals` (`goals`), the hooks families give (`hooks`) and the
+//! brain machinery of brain mobs (`brain`: memories, sensors, activities,
+//! behaviours and points of interest).
 //!
 //! Exactness: every draw happens in the Elixir's order on the same stream
 //! (the mob's `LegacyRandom`, the section's level random); numbers keep the
@@ -14,6 +16,7 @@
 //! bits the Elixir gives. Erlang's `min` and `max` answer their first
 //! argument on a tie (`fmath::emin`, `emax`), which decides signed zeros.
 
+pub mod brain;
 pub mod consume;
 pub mod control;
 pub mod effect;
@@ -47,8 +50,11 @@ use std::fmt::Debug;
 
 /// What sensed mobs carry beyond the common part (`SensedMob<X>`): what
 /// families read of each other's own state (`AI.sensed/1`'s `data`: an
-/// animal's, whose partner's variant or colour its child takes; `own`: a
-/// family's own fields of its mind others read, a fish's school). None
+/// animal's, whose partner's variant or colour its child takes; a brain
+/// mob's, its profession and age; `own`: a family's own fields of its mind
+/// others read, a fish's school), what brain mobs read of each other
+/// (`memories`, `path_step`: where its path leads), and how it was sensed
+/// as the tick began (`start`: `World.mobs` before any mob moved). None
 /// where nothing reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Extra {
@@ -58,6 +64,35 @@ pub struct Extra {
     /// `memories`: a villager's last sleep an iron golem reads); None for a
     /// mob without a brain. The owner gives an Elixir brain mob's.
     pub memories: Option<crate::mobs::term::Value>,
+    /// Where a brain mob's path leads as the tick began: the node before
+    /// its next and its next (doors others pass).
+    pub path_step: Option<([i32; 3], [i32; 3])>,
+    pub start: Option<Start>,
+}
+
+/// A sensed mob as the tick began: its box, whether it lived and slept.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Start {
+    pub bbox: crate::physics::Aabb,
+    pub alive: bool,
+    pub sleeping: bool,
+}
+
+impl Start {
+    /// How a row was sensed as the tick began: what it kept, else (a row
+    /// its owner gives without it) the row as it is.
+    pub fn of(row: &crate::mobs::sensing::SensedMob<Extra>) -> Start {
+        row.extra.start.unwrap_or_else(|| Start {
+            bbox: row.bounding_box(),
+            alive: row.alive,
+            sleeping: row
+                .extra
+                .data
+                .as_ref()
+                .and_then(|d| d.get("sleeping"))
+                .is_some_and(|v| !v.is_nil()),
+        })
+    }
 }
 
 /// A value the core holds without interpreting it (a brain's state, a
