@@ -1660,3 +1660,42 @@ pub fn portal_touch(
 pub fn alive(slot: &Slot) -> bool {
     living_mob::alive(&slot.mob.body.mob)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mobs::term::Map;
+
+    #[test]
+    fn a_hit_takes_its_attackers_extras_for_its_target_only() {
+        let golem_target = Ref {
+            kind: RefKind::Mob,
+            uuid: [3; 16],
+        };
+        let other = Ref {
+            kind: RefKind::Mob,
+            uuid: [4; 16],
+        };
+        let made = vec![
+            AiEffect::Attack(golem_target),
+            AiEffect::AttackExtra(
+                other,
+                Value::Map(Map::from_atoms([("amount", Value::Float(1.0))])),
+            ),
+            AiEffect::AttackExtra(
+                golem_target,
+                Value::Map(Map::from_atoms([
+                    ("amount", Value::Float(12.5)),
+                    ("lift", Value::Float(0.4)),
+                    ("extra_knockback", Value::atom("nil")),
+                ])),
+            ),
+        ];
+        let hit = with_extras(combat::Hit::new(0, 7.5), &made, &golem_target);
+        assert_eq!(hit.amount, 12.5);
+        assert_eq!(hit.lift, Some(0.4));
+        assert_eq!(hit.extra_knockback, None);
+        let plain = with_extras(combat::Hit::new(0, 7.5), &made[..1], &golem_target);
+        assert_eq!((plain.amount, plain.lift), (7.5, None));
+    }
+}

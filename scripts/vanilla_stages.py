@@ -1157,6 +1157,7 @@ STAGES = [
     ('turtle_growth', [
         ('java', 'TurtleGrowthOracle', '@turtle-growth.json'),
         ('check', 'check_turtle_growth.exs', '@turtle-growth.json'),
+        ('check', 'check_turtle_growth.exs', '@turtle-growth.json', '--native'),
     ]),
     ('piston_player', [
         ('java', 'PistonPlayerOracle', '@piston-player.json'),
@@ -1173,6 +1174,7 @@ STAGES = [
     ('endermite_life', [
         ('java', 'EndermiteLifeOracle', '@endermite-life.json'),
         ('check', 'check_endermite_life.exs', '@endermite-life.json'),
+        ('check', 'check_endermite_life.exs', '@endermite-life.json', '--native'),
     ]),
     ('shulker_push', [
         ('java', 'ShulkerPushOracle', '@shulker-push.json'),
@@ -1193,6 +1195,7 @@ STAGES = [
     ('guardian_hurt', [
         ('java', 'GuardianHurtOracle', '@guardian-hurt.json'),
         ('check', 'check_guardian_hurt.exs', '@guardian-hurt.json'),
+        ('check', 'check_guardian_hurt.exs', '@guardian-hurt.json', '--native'),
     ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),

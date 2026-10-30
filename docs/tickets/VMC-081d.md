@@ -430,9 +430,8 @@ from `SleepFacts`; `native_mob_stand_up_test` compares 400 scenes); a
 piglin's barter is rolled from its seed and thrown by the owner.
 
 Every family `mobs::kinds` ports is native, the dragon too
-(`:native_mob_types`). The oracle stages' native modes run every family
-but the brain mobs, whose brains the harness seeds only in Elixir (their
-think parity compares them).
+(`:native_mob_types`). The oracle stages' native modes run every family;
+see "Native oracle coverage".
 
 ## Measurements
 
@@ -484,6 +483,60 @@ natural_spawning, mob_travel, hostile_spawns, aquatic_packs, bucket_mobs,
 water_age, the shulker, puffer, turtle, endermite, guardian and dolphin
 breath stages.
 
-Left: the oracle harness seeding brains natively; a
-cheaper test than the stationary record for a touched mob's persistent
-change.
+Left: a cheaper test than the stationary record for a touched mob's
+persistent change.
+
+## Native oracle coverage
+
+Every mob stage runs a second check against vanilla with its mobs native
+(`--native`), before the Elixir mob path goes.
+
+- **Brain mobs.** The harnesses seed a native brain as the oracle seeds
+  one: `mob_section_oracle_brain` sets its mind's random, its gates'
+  randoms and its sensors' countdowns; `mob_section_oracle_villager`
+  builds a villager's brain with the oracle's gates, activity order
+  (vanilla's hash order, `Brain::ordered`) and the gates each remade brain
+  takes (`Brain.refresh`), started by its schedule. The checks read
+  behaviours, activity, gates and memories through
+  `mob_section_oracle_brain_view`. A scene's supplied blocks answer block
+  searches (a piglin's repellents) and stand villagers up; native pickups
+  leave the scene's items and barters are rolled and thrown as the owner
+  does.
+- **The dragon stages** drive the native dragon over their hand-built
+  envs (`dragon_oracle_flight`, `_paths`, `_phases`, `_actor`): its
+  flight, part boxes, graph and paths; phase sequences with their
+  players, sight, ground and collisions; whole actor runs in a native
+  section (timers, tick, a destroyed crystal); multipart damage and
+  arrow ignition; the phase metadata. `end_crystal` takes a dragon's hits
+  from a native dragon and `dragon_arena` the bar's progress from a native
+  dragon's row.
+- **Fixes the native runs found:** a native melee hit on a section's mob
+  now takes what its attacker's family adds (an iron golem's damage and
+  throw), as the Elixir tick merged it; the phases retarget on a
+  collision as vanilla's do; a NoAI mob's structure answer stays with its
+  section until it takes it; native villagers' POI tickets reach the
+  owner's claims (trader and cat spawners, siblings).
+
+Native checks per stage (every one native): mob_ai 18,263 ticks, nether_mobs
+7,940, hostile_ai 10,182, animals 11,948, village 6,069, dolphin_treasure 720;
+dragon_actor 15,585 ticks, dragon_phases 56,184, dragon_flight 5,280 ticks and
+10,368 paths, dragon_damage 12,320 hits, end_crystal 48 damage cases,
+dragon_arena 54 boss packets; endermite_life 10, turtle_growth 32 and
+guardian_hurt 36 traces. The 33 mob stages pass (entity, combat,
+natural_spawning, mob_travel and the others start owners, whose mobs are all
+native).
+
+The region tests that read brains or set body fields run native mobs
+(villager, piglin, hoglin, iron golem, cat, wandering trader, guardian,
+zombie, husk, dolphin): `Valimc.TestBodies` reads activity, memories and
+paths and changes NoAI, cooldowns and move targets through the section
+(`mob_section_oracle_set`, `_put`). No test keeps `:elixir_mobs`.
+
+Still on the Elixir mob path, to retire with it: the parity suites
+(`native_mob_*_test`, `native_plain_mobs_test`, `NativeMobScene`) and the
+unit tests of Elixir AI modules (`ai_move_sink`, `ai_spatial`,
+`aquatic_age`, `dolphin_treasure`, `enderman`, `item_step`, `mob_sense`,
+`puffer_resize`, `silverfish`, `shulker_mob_collision`); tests building a
+dragon's brain as Elixir structs for its record (`dragon_actor`,
+`dragon`, `group_projectile`); and the stages' Elixir modes beside their
+native ones.
