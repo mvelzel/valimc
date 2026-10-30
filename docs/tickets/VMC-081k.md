@@ -69,6 +69,16 @@ Acceptance:
   batch reaches them (`World.stream_source/1`), and a superset of the
   sections the old walk reached is visited.
 
+- **Owners without liveness round trips.** `World.region/1` asks a
+  group whether it lives (`is_process_alive/1` on another process is a
+  signal and its answer), twice per call, and `want_chunks/1` called it for
+  every wanted section on every view change: about 160 synchronous round
+  trips to a busy group per chunk step, which the profile's sampling (no
+  waiting processes) could not show beyond 39 samples in `Owners.ensure`. A
+  section whose route still names the group told and whose monitor has not
+  reported it down (`owner_down/2`) now costs one Directory read; any other
+  goes through `World.region/1` as before.
+
 ## Work removed
 
 Deterministic counts (reductions, `Process.info/2`) of a scripted walk at
@@ -99,6 +109,8 @@ suites that stream or travel (`view_distance_connection`,
 generated chunk's own block update arriving first), which also fails one
 run in six at 284c7eae; `check_vanilla.py --changed` through `heavy.py`
 (`chunk_view`, `game_mode` and `tcp`: 3 of 3 passed).
+
+Owner lookups: the streaming and connection suites above (42 tests passed).
 
 Next: the region side of exploring in the same profile (222 group
 collections in 60 s, `post_process` of arriving chunks,

@@ -131,8 +131,8 @@ defmodule Valimc.Session.Replication do
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
   # The sets come from `ViewWants`, which visits only the chunks a change
-  # moved (VMC-081k); each section's owner is still looked up, so a section
-  # whose group changed or stopped is told again as before.
+  # moved (VMC-081k); each section's owner is still looked up (`owner/2`),
+  # so a section whose group changed or stopped is told again as before.
   defp want_chunks(%{view: {{cx, cz} = center, _} = view} = state) do
     reach = min(Valimc.config(:simulation_distance), ChunkView.server_distance())
 
@@ -152,7 +152,7 @@ defmodule Valimc.Session.Replication do
       |> Enum.map_reduce(%{}, fn {key, {chunks, simulated}}, tickets ->
         section = Grid.section(state.player.dimension, key, :section)
 
-        case World.region(section) do
+        case owner(state, section) do
           {:ok, pid} ->
             told = {pid, chunks, simulated}
 
@@ -204,6 +204,20 @@ defmodule Valimc.Session.Replication do
     for {pid, entries} <- tickets, do: Region.tickets(pid, Enum.reverse(entries))
 
     watch_owners(%{state | wanted: wanted, view_wants: wants})
+  end
+
+  # A section's owner: the one told before while the section's route still
+  # names it and its monitor has not reported it down (`owner_down/2`), else
+  # found or started (`World.region/1`, which asks the group whether it is
+  # alive: a signal and its answer, twice, per section).
+  defp owner(state, section) do
+    with {pid, _, _} <- World.Directory.lookup(section),
+         {^pid, _, _} <- Map.get(state.wanted, section),
+         true <- Map.has_key?(state.wanted_owners, pid) do
+      {:ok, pid}
+    else
+      _ -> World.region(section)
+    end
   end
 
   # The groups told the view's wants are watched (VMC-077y): one that stops
