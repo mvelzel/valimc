@@ -490,7 +490,7 @@ fn mob_section_take(
             slot.start = None;
             slot.pending = false;
             slot.written = None;
-            out.push((id, Box::new(slot)));
+            out.push((id, slot));
         }
     }
     Ok((atoms::ok(), ResourceArc::new(MobParcel(Mutex::new(out)))))

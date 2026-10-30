@@ -158,12 +158,43 @@ holds as before; `deadline_ageing_counts_and_times_as_every_tick_would`
 checks the counts and timers against every-tick ageing over moves between
 chunks and such an arrival.
 
-Not done: native turns' 10 to 15% gap to a75a314c stays unexplained.
+## Native turns' gap, read
+
+The probe put native turns 10 to 15% above a75a314c's, with the kernel,
+sensing and thinking alike. Read for its cause, a75a314c..86a7e77c:
+
+- **The turn itself** gained no work: `Tick::run` and `turn` lost the
+  Elixir yield's bookkeeping (the moved list, the pushes for Elixir mobs)
+  and nothing was added; the physics kernel, sensing and the AI are
+  unchanged but for 081d's vanilla fixes (a farmer's secondary POIs, a
+  spear's melee test, an animal's death experience draw), which add no
+  per-turn work.
+- **081g2's census marks** are one flag test per mutable access (the
+  first marks the mob for the spawning phase's refresh), not turn work.
+- **081h's record hashing** runs in the cut, once per touched mob per cut,
+  outside the turn; it replaced building each touched mob's stationary
+  record.
+- **Test-only checks** are not in the bench or release builds: one
+  `debug_assert!` (compiled out, `opt-level` 3 with LTO), `cfg(test)`
+  modules, and the `parity` feature only adds the oracle NIFs.
+
+None of these explains a uniform 10 to 15%, which also showed in the
+pure-Rust kernel step; on a host whose runs vary by more than that, the
+gap is not established. What reading did find, at a75a314c as now: a
+section's slots (1,424 bytes each: the mob inline with its bookkeeping)
+sat inline in its `BTreeMap`, so each turn's `take` and `put` moved the
+slot and shifted its node's later slots (up to 10 of them) both ways.
+Slots are boxed now: those moves are a pointer each.
 
 The harness's view load stalled intermittently (the group kept ticking,
 the client's view never completed), on images before and after 081h.
 
 ## Checks
+
+Boxed slots: `cargo test -p valimc_core` (211) and clippy (no new
+warnings); the region, entity, tracking, storage, spawning and mob suites
+(301); `check_vanilla.py --changed` through `heavy.py` (43 of 43, the mob
+stages among them).
 
 Deadline-based ageing: `cargo test -p valimc_core` (211) and clippy (no
 new warnings); the region, entity, tracking, storage, spawning and mob

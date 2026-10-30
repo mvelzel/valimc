@@ -193,7 +193,7 @@ pub struct Cut {
 pub struct MobSection {
     /// The section's key `{sx, sz}`.
     pub section: (i32, i32),
-    slots: BTreeMap<i32, Slot>,
+    slots: BTreeMap<i32, Box<Slot>>,
     uuids: HashMap<[u8; 16], i32>,
     chunks: BTreeMap<(i32, i32), BTreeSet<i32>>,
     /// Mobs gone since a frame wrote them, with what it wrote.
@@ -346,7 +346,7 @@ impl MobSection {
     }
 
     pub fn slots(&self) -> impl Iterator<Item = (i32, &Slot)> {
-        self.slots.iter().map(|(&id, s)| (id, s))
+        self.slots.iter().map(|(&id, s)| (id, &**s))
     }
 
     /// The mobs in id order that `keep` admits, to change.
@@ -374,7 +374,7 @@ impl MobSection {
     }
 
     pub fn get(&self, id: i32) -> Option<&Slot> {
-        self.slots.get(&id)
+        self.slots.get(&id).map(|s| &**s)
     }
 
     /// Slot `id` for a change: it is touched, and its timers may be due.
@@ -420,7 +420,7 @@ impl MobSection {
         }
         let written = written.or_else(|| self.removed.remove(&mob.uuid));
         self.removed.remove(&mob.uuid);
-        let mut slot = Slot::new(mob, written);
+        let mut slot = Box::new(Slot::new(mob, written));
         slot.touched = true;
         slot.clock = self.clocks.get(&slot.chunk).map_or(0, |c| c.total);
         let limit = self.note_limit();
@@ -436,7 +436,7 @@ impl MobSection {
 
     /// Takes mob `id` out: its record is deleted at the next cut if a frame
     /// wrote it.
-    pub fn remove(&mut self, id: i32) -> Option<Slot> {
+    pub fn remove(&mut self, id: i32) -> Option<Box<Slot>> {
         let mut slot = self.slots.remove(&id)?;
         Self::settle_counters(&self.clocks, &mut slot);
         self.timed.remove(&id);
@@ -458,12 +458,14 @@ impl MobSection {
     }
 
     /// Mob `id` out of the section for its turn (its indexes kept), so its
-    /// AI reads the others while it changes; `put` brings it back.
-    pub fn take(&mut self, id: i32) -> Option<Slot> {
+    /// AI reads the others while it changes; `put` brings it back. Slots
+    /// are boxed (VMC-081j): the map's nodes move a pointer, not a whole
+    /// slot and its neighbours, when one goes out and back.
+    pub fn take(&mut self, id: i32) -> Option<Box<Slot>> {
         self.slots.remove(&id)
     }
 
-    pub fn put(&mut self, id: i32, mut slot: Slot) {
+    pub fn put(&mut self, id: i32, mut slot: Box<Slot>) {
         self.revision += 1;
         let limit = self.note_limit();
         note(&mut self.census, id, &mut slot, limit);
