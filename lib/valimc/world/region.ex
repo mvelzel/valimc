@@ -1914,6 +1914,7 @@ defmodule Valimc.World.Region do
       for key <- keys do
         %{resource: resource, admission: token} = state.sections[key]
         :ok = Native.region_give(resource.blocks.ref, target)
+        :ok = Valimc.Entity.NativeMobs.give(resource.entities.store.native, target)
         true = :ets.give_away(resource.publication, target, {:section, key})
         Registry.unregister(Valimc.RegionRegistry, section(state, key))
         {key, token, %{resource | siblings: %{}}}

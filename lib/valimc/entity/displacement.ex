@@ -20,6 +20,9 @@ defmodule Valimc.Entity.Displacement do
   @doc "The external mover's box, preserving current age and family dimensions."
   def box(%{entity: e, body: %Body{} = body}), do: Body.box(body, {e.x, e.y, e.z})
 
+  def box(%{entity: e, body: %Valimc.Entity.NativeBody{} = row}),
+    do: Valimc.Entity.NativeBody.box(row, {e.x, e.y, e.z})
+
   def box(entry) do
     {{x, y, z}, {w, h}, _, _, _} = input(entry)
     {x - w, y, z - w, x + w, y + h, z + w}
@@ -43,6 +46,15 @@ defmodule Valimc.Entity.Displacement do
 
     {{e.x * 1.0, e.y * 1.0, e.z * 1.0}, {width / 2, height}, body.velocity,
      {body.on_ground, step * 1.0, true, false}, {0.0, false, living, gravity * 1.0, 0.98}}
+  end
+
+  # A native mob (VMC-081d) from its row.
+  def input(%{kind: :mob, entity: e, body: %Valimc.Entity.NativeBody{} = row}) do
+    {width, height, _} = row.dimensions
+    gravity = if row.no_gravity, do: 0.0, else: row.gravity
+
+    {{e.x * 1.0, e.y * 1.0, e.z * 1.0}, {width / 2, height}, row.velocity,
+     {row.on_ground, row.step_height * 1.0, true, false}, {0.0, false, true, gravity * 1.0, 0.98}}
   end
 
   def input(_), do: nil

@@ -504,7 +504,7 @@ mod mob_atoms {
 /// step_height, water_efficiency, friction_modifier, air_drag_modifier}` and
 /// its travel effects.
 #[derive(rustler::NifMap)]
-struct MobT {
+pub(crate) struct MobT {
     position: Vec3,
     yaw: f64,
     head_yaw: f64,
@@ -607,7 +607,7 @@ struct TickedT {
     splash: Option<(f64, f64, f64)>,
 }
 
-fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
+pub(crate) fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
     use valimc_core::physics::mob::{Attributes, Control, Mob, Travel};
     let (op, target, speed) = m.control;
     let control = if op == mob_atoms::wait() {
@@ -964,10 +964,17 @@ fn owned_view(term: Term, facts: &Facts, region: &Aabb) -> NifResult<View<Snapsh
 pub struct MobTicker(std::sync::Mutex<Option<TickerState>>);
 
 pub(crate) struct TickerState {
-    view: View<SnapshotArc>,
-    border: Option<(f64, f64, f64, f64)>,
-    players: Vec<([f64; 3], Aabb)>,
-    ticker: valimc_core::physics::mob::Ticker,
+    pub(crate) view: View<SnapshotArc>,
+    pub(crate) border: Option<(f64, f64, f64, f64)>,
+    pub(crate) players: Vec<([f64; 3], Aabb)>,
+    pub(crate) ticker: valimc_core::physics::mob::Ticker,
+}
+
+impl MobTicker {
+    /// The tick's state, for a section's native turns (VMC-081d).
+    pub(crate) fn state(&self) -> NifResult<std::sync::MutexGuard<'_, Option<TickerState>>> {
+        self.0.lock().map_err(|_| invalid())
+    }
 }
 
 #[rustler::resource_impl]
@@ -980,8 +987,20 @@ fn ticker_begin(
     border: Option<(f64, f64, f64, f64)>,
     colliders: Vec<(usize, Option<BoxT>)>,
 ) -> NifResult<rustler::ResourceArc<MobTicker>> {
-    let facts = facts()?;
     let bodies = mobs.iter().map(mob).collect::<NifResult<Vec<_>>>()?;
+    ticker_of(view_term, bodies, players, border, colliders)
+}
+
+/// A mob ticker over `view_term` for `bodies` in ticker order (a section's
+/// native and Elixir mobs together, VMC-081d).
+pub(crate) fn ticker_of(
+    view_term: Term,
+    bodies: Vec<valimc_core::physics::mob::Mob>,
+    players: Vec<(Vec3, BoxT)>,
+    border: Option<(f64, f64, f64, f64)>,
+    colliders: Vec<(usize, Option<BoxT>)>,
+) -> NifResult<rustler::ResourceArc<MobTicker>> {
+    let facts = facts()?;
     let region = union(
         &bodies
             .iter()

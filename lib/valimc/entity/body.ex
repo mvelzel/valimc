@@ -183,6 +183,7 @@ defmodule Valimc.Entity.Body do
   The type's spawn data (`getAddEntityPacket`): a falling block's state, a
   frame's facing, a projectile's owner, else 0.
   """
+  def spawn_data(%Valimc.Entity.NativeBody{}), do: 0
   def spawn_data(%__MODULE__{type: @falling, data: %{block_state: state}}), do: state
 
   # A hanging frame's facing (its 3D value) from its yaw, `get2DDataValue * 90`.
@@ -321,6 +322,7 @@ defmodule Valimc.Entity.Body do
   defp restore_mob(type, record), do: if(kind(type) == :mob, do: Mob.restore(type, record))
 
   @doc "Whether the body is alive (a mob with health, or any other body)."
+  def alive?(%Valimc.Entity.NativeBody{alive: alive}), do: alive
   def alive?(%__MODULE__{mob: nil}), do: true
   def alive?(%__MODULE__{mob: mob}), do: Mob.alive?(mob)
 
@@ -505,6 +507,8 @@ defmodule Valimc.Entity.Body do
   (`getDimensions`): its type's, or what its family changes (a baby's,
   VMC-043b).
   """
+  def dimensions(%Valimc.Entity.NativeBody{dimensions: dimensions}), do: dimensions
+
   def dimensions(%__MODULE__{type: type} = body) do
     case Valimc.AI.Mobs.dimensions(body) do
       nil ->
@@ -519,6 +523,9 @@ defmodule Valimc.Entity.Body do
   end
 
   @doc "The body's physical bounding box, including a family's opening or offset geometry."
+  def box(%Valimc.Entity.NativeBody{} = body, position),
+    do: Valimc.Entity.NativeBody.box(body, position)
+
   def box(%__MODULE__{type: @knot}, {x, y, z}),
     do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
 
@@ -570,6 +577,7 @@ defmodule Valimc.Entity.Body do
   values, a mob's attribute overrides and equipment. Equal shown parts send
   equal packets, so a body that only moved keeps its encoded ones.
   """
+  def shown(%Valimc.Entity.NativeBody{shown: shown}), do: shown
   def shown(%__MODULE__{mob: nil} = body), do: {values(body), nil, nil, nil}
 
   def shown(%__MODULE__{mob: mob} = body),
@@ -584,6 +592,9 @@ defmodule Valimc.Entity.Body do
   (`ServerEntity.sendPairingData`): its non-default entity data, a mob's
   synced attributes and its equipment.
   """
+  def pairing(id, %Valimc.Entity.NativeBody{} = body),
+    do: Valimc.Entity.NativeBody.pairing(id, body)
+
   def pairing(id, %__MODULE__{} = body) do
     data =
       for {field, value, default} <- values(body), value != default, do: {field, value}
@@ -613,7 +624,11 @@ defmodule Valimc.Entity.Body do
   The packets of what changed from `old` to `new` (entity data, attributes,
   equipment), for observers already tracking entity `id`.
   """
-  def changes(_id, %__MODULE__{} = same, %__MODULE__{} = same), do: []
+  def changes(_id, same, same), do: []
+
+  def changes(id, %Valimc.Entity.NativeBody{} = old, %Valimc.Entity.NativeBody{} = new) do
+    if old.shown == new.shown, do: [], else: shown_changes(id, old, new)
+  end
 
   def changes(id, %__MODULE__{} = old, %__MODULE__{} = new) do
     if shown(old) == shown(new), do: [], else: shown_changes(id, old, new)
@@ -621,6 +636,9 @@ defmodule Valimc.Entity.Body do
 
   @doc false
   # `changes/3` once the projections are known to differ.
+  def shown_changes(id, %Valimc.Entity.NativeBody{} = old, %Valimc.Entity.NativeBody{} = new),
+    do: Valimc.Entity.NativeBody.shown_changes(id, old, new)
+
   def shown_changes(id, old, new) do
     old_values = values(old)
 

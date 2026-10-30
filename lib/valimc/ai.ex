@@ -143,6 +143,43 @@ defmodule Valimc.AI do
   What others read of a mob of a section (`Valimc.AI.World`'s sensed mob):
   `{id, entry}` of the store.
   """
+  # A native mob (VMC-081d): what its section's row publishes.
+  def sensed({id, %{entity: e, body: %Valimc.Entity.NativeBody{} = row}}) do
+    {width, height, eye} = row.dimensions
+
+    %{
+      kind: :mob,
+      uuid: e.uuid,
+      id: id,
+      type: row.type,
+      x: e.x * 1.0,
+      y: e.y * 1.0,
+      z: e.z * 1.0,
+      yaw: row.yaw,
+      pitch: row.pitch,
+      eye: eye,
+      width: width,
+      height: height,
+      box: nil,
+      alive: row.alive,
+      recent_mob_hurt: row.recent,
+      baby: Map.get(row.data, :baby, false),
+      huntable: not Map.get(row.data, :cannot_be_hunted, false),
+      target: row.target,
+      in_love: 0,
+      age: 0,
+      data: row.data,
+      own: nil,
+      in_water: row.in_water,
+      invulnerable: false,
+      killed_by: row.killed_by,
+      panicking: false,
+      memories: nil,
+      sleeping: Map.get(row.data, :sleeping),
+      path_step: nil
+    }
+  end
+
   def sensed({id, %{entity: e, body: %Body{type: type, mob: mob} = body}}) do
     {width, height, eye} = Body.dimensions(body)
     mind = match_mind(mob.ai)
@@ -300,6 +337,13 @@ defmodule Valimc.AI do
   end
 
   @doc "The world with mob `uuid` sensed again from its `entry` (after it moved)."
+  def resense_entry(%World{} = world, id, %{entity: e, body: %Valimc.Entity.NativeBody{}} = entry) do
+    case World.entity(world, {:mob, e.uuid}) do
+      nil -> world
+      _sensed -> World.resense(world, e.uuid, fn _ -> sensed({id, entry}) end)
+    end
+  end
+
   def resense_entry(%World{} = world, _id, %{entity: e, body: body}) do
     case World.entity(world, {:mob, e.uuid}) do
       nil ->
@@ -480,7 +524,10 @@ defmodule Valimc.AI do
 
   defp own_body(body, _change), do: body
 
-  # A mob of a type with an AI thinks with a mind (from its record, or new).
+  # A mob of a type with an AI thinks with a mind (from its record, or new);
+  # a native mob's mind is its section's (VMC-081d).
+  defp ensure(%{body: %Valimc.Entity.NativeBody{}} = entry, _world), do: entry
+
   defp ensure(
          %{entity: e, body: %Body{type: type, mob: %Mob{ai: ai} = mob} = body} = entry,
          world

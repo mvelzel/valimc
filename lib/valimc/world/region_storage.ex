@@ -55,7 +55,7 @@ defmodule Valimc.World.RegionStorage do
   require Logger
   alias Valimc.Storage.{Checkpoint, Log}
   alias Valimc.World.{BlockEntities, Blocks, Containers, ScheduledTicks}
-  alias Valimc.Entity.Store
+  alias Valimc.Entity.{NativeMobs, Store}
 
   @commit_ms 50
   @checkpoint_bytes 1024 * 1024
@@ -592,9 +592,21 @@ defmodule Valimc.World.RegionStorage do
         end
       end)
 
+    # Native mobs' records come from their section (VMC-081d), which
+    # decides what a frame writes as `settle/4` would.
+    changes =
+      if Enum.any?(changes, &native_change?/1),
+        do: Map.reject(changes, &native_change?/1),
+        else: changes
+
+    {native, native_waiting} = NativeMobs.cut(parts.items.native, full)
+
     # A motion pass writes what waited and has not changed again since.
     changes = if full, do: Map.merge(storage.deferred, changes), else: changes
     {pending, deferred, waits} = settle(storage.pending, storage.deferred, changes, full)
+    pending = Map.merge(pending, native)
+    deferred = Map.drop(deferred, Map.keys(native))
+    waits = if native_waiting, do: Enum.uniq([:motion | waits]), else: waits
 
     storage = %{
       storage
@@ -617,6 +629,8 @@ defmodule Valimc.World.RegionStorage do
 
   @doc "Take `parts` as what the log and checkpoint hold (after a load or a checkpoint)."
   def baseline(storage, parts) do
+    NativeMobs.baseline(parts.items.native)
+
     %{
       storage
       | committed: Map.new(@parts, &{&1, Map.fetch!(parts, &1)}),
@@ -630,7 +644,12 @@ defmodule Valimc.World.RegionStorage do
   # becomes `{record key, record}`.
   defp fields(:items, %Store{entries: entries, ledger: ledger}),
     do: [
-      {entries, fn _id, entry -> {{:entity, entry.entity.uuid}, Store.record(entry)} end},
+      {entries,
+       fn
+         # A native mob's record is its section's (`NativeMobs.cut/2`).
+         _id, %{native: ref} = entry when ref != nil -> {{:entity, entry.entity.uuid}, :native}
+         _id, entry -> {{:entity, entry.entity.uuid}, Store.record(entry)}
+       end},
       {ledger.incoming, &{{:handoff_in, &1}, &2}},
       # Network ids are the VM's: a recovered intent delivers without them.
       {%{sequence: ledger.sequence, outgoing: ledger.outgoing},
@@ -812,6 +831,20 @@ defmodule Valimc.World.RegionStorage do
   defp records(parts), do: Enum.reduce(@parts, %{}, &Map.merge(&2, part_records(&1, parts[&1])))
 
   @doc false
+  def part_records(:items, %Store{native: native} = value) when native != nil do
+    natives =
+      for record <- NativeMobs.records(native), into: %{}, do: {{:entity, record.uuid}, record}
+
+    for(
+      {entries, record} <- fields(:items, value),
+      {key, entry} <- entries,
+      {record_key, record} = record.(key, entry),
+      record != :native,
+      into: natives,
+      do: {record_key, record}
+    )
+  end
+
   def part_records(part, value),
     do:
       for(
@@ -820,6 +853,8 @@ defmodule Valimc.World.RegionStorage do
         into: %{},
         do: record.(key, entry)
       )
+
+  defp native_change?({_key, {before, value}}), do: before == :native or value == :native
 
   # Decoded frames (`[{seq, frame}]`), in order.
   defp ops(frames), do: Enum.map(frames, &:erlang.binary_to_term(elem(&1, 1), [:safe]))

@@ -74,6 +74,11 @@ impl<S: Deref<Target = ChunkSnapshot>> Rows<S> {
     pub fn contains(&self, chunk: (i32, i32)) -> bool {
         self.chunks.contains_key(&chunk)
     }
+
+    /// The snapshot of a chunk (its column and biomes, VMC-081d's rain).
+    pub fn snapshot(&self, chunk: (i32, i32)) -> Option<&S> {
+        self.chunks.get(&chunk).map(|(s, _)| s)
+    }
 }
 
 fn local(y: i32) -> Option<usize> {

@@ -73,7 +73,15 @@ defmodule Valimc.Native do
     # Per node a path search may visit (`Valimc.AI.Paths`, VMC-041b): its
     # neighbours' path types over the mob's box, each a few block reads; a
     # zombie's search that visits all 560 took at most 0.86 ms.
-    path_find: {2_500, :path_find_dirty}
+    path_find: {2_500, :path_find_dirty},
+    # Per native mob turn of a section's run (VMC-081d): its sense, vitals,
+    # kernel step and pushes.
+    mob_section_run: {8_000, :mob_section_run_dirty},
+    # Per mob a section's ticker begins with: its kernel input, or per
+    # supplied cell of the view (oracles and tests) to decode.
+    mob_section_begin: {500, :mob_section_begin_dirty},
+    # Per native mob the tick ends: its comparison and, changed, its row.
+    mob_section_finish: {4_000, :mob_section_finish_dirty}
   }
 
   @doc """
@@ -286,6 +294,64 @@ defmodule Valimc.Native do
 
   def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def mob_record_roundtrip(_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
+
+  # A section's native mobs (`Valimc.Entity.NativeMobs`).
+  def mob_section_install(_facts), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_new(_sx, _sz), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_give(_section, _to), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_info(_section), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_insert(_section, _entries, _written), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_row(_record), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_records(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_withdraw(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_take(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_put(_section, _parcel, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_remove(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_cut(_section, _full), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_baseline(_section), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_in_chunks(_section, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_begin(_section, _view, _order, _players, _border, _colliders, _env),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_begin_dirty(_section, _view, _order, _players, _border, _colliders, _env),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_run(_section, _ticker, _from, _random), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_run_dirty(_section, _ticker, _from, _random),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_finish(_section, _ticker), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_finish_dirty(_section, _ticker), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_settle(_section, _kept), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_hurt(_section, _ticker, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_hit(_section, _ticker, _id, _hit, _push),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_kills(_section, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_kill(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_push(_section, _ticker, _id, _impulse), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_blast(_section, _id, _source, _amount, _impulse),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_name(_section, _id, _name), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_motion(_section, _ticker, _id, _position, _velocity, _on_ground, _rotation),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_sync(_section, _id, _position, _rotation, _velocity, _on_ground, _cooldown),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_displace(_section, _ticker, _id, _delta), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_cooldown(_section, _id, _ticks), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_effect(_section, _id, _action), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_deaths(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_age(_section, _ages, _commit), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_mobs(_section), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Path search (VMC-041b)
 

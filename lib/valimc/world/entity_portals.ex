@@ -61,6 +61,12 @@ defmodule Valimc.World.EntityPortals do
   defp size(%{kind: :item}), do: {0.25, 0.25}
   defp size(%{kind: :orb}), do: {0.5, 0.5}
 
+  defp size(%{kind: :mob, body: %Valimc.Entity.NativeBody{type: type, alive: true}})
+       when type not in @bosses do
+    %{width: width, height: height} = EntityTypes.fetch(type)
+    {width, height}
+  end
+
   defp size(%{kind: :mob, body: %Body{type: type} = body}) when type not in @bosses do
     if Body.alive?(body) do
       %{width: width, height: height} = EntityTypes.fetch(type)
@@ -71,11 +77,16 @@ defmodule Valimc.World.EntityPortals do
   defp size(_entry), do: nil
 
   defp cooldown(%{body: %Body{portal_cooldown: cooldown}}), do: cooldown
+  defp cooldown(%{body: %Valimc.Entity.NativeBody{portal_cooldown: cooldown}}), do: cooldown
   defp cooldown(%{motion: %{portal_cooldown: cooldown}}), do: cooldown
 
   @doc "A step with the portal cooldown started (`setPortalCooldown`)."
   def renew(%{body: %Body{} = body} = step),
     do: %{step | body: %{body | portal_cooldown: @cooldown}}
+
+  # A native mob's (VMC-081d): its section takes the cooldown with the step.
+  def renew(%{body: %Valimc.Entity.NativeBody{} = row} = step),
+    do: Map.delete(%{step | body: %{row | portal_cooldown: @cooldown}}, :native)
 
   def renew(step), do: %{step | motion: %{step.motion | portal_cooldown: @cooldown}}
 
@@ -131,6 +142,19 @@ defmodule Valimc.World.EntityPortals do
       _ ->
         :gone
     end
+  end
+
+  defp moved(%{body: %Valimc.Entity.NativeBody{} = row}, target) do
+    %{
+      body: %{
+        row
+        | velocity: target.velocity,
+          yaw: target.yaw,
+          head_yaw: target.yaw,
+          pitch: target.pitch,
+          portal_cooldown: @cooldown
+      }
+    }
   end
 
   defp moved(%{body: %Body{} = body}, target) do

@@ -27,7 +27,7 @@ fn mob_record_facts(facts: Term) -> NifResult<(Atom, ResourceArc<MobRecordFacts>
     Ok((atoms::ok(), ResourceArc::new(MobRecordFacts(parsed))))
 }
 
-fn parse_facts(facts: &Value) -> Option<RecordFacts> {
+pub(crate) fn parse_facts(facts: &Value) -> Option<RecordFacts> {
     let map = facts.as_map()?;
     let int = |key| i32::try_from(map.get_atom(key)?.as_int()?).ok();
     let mut out = RecordFacts::new(

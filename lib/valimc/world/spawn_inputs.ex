@@ -35,6 +35,19 @@ defmodule Valimc.World.SpawnInputs do
   defp section(entries, ticking, _previous) do
     {mobs, bodies} =
       Enum.reduce(entries, {[], []}, fn
+        # A native mob (VMC-081d): its row says as much.
+        {id, %{kind: :mob, entity: e, body: %Valimc.Entity.NativeBody{type: type} = row} = entry},
+        {mobs, bodies} ->
+          flags =
+            if(row.persistent or row.from_bucket, do: 1, else: 0) +
+              if(row.alive and MapSet.member?(ticking, Grid.chunk_key(e.x, e.z)), do: 2, else: 0)
+
+          row =
+            {id, EntityTypes.id(type), {e.x, e.y, e.z}, flags, Map.get(entry, :idle, 0),
+             Map.get(entry, :lived, 0)}
+
+          {[row | mobs], [box(type, e) | bodies]}
+
         {id, %{kind: :mob, entity: e, body: %{type: type, mob: mob}} = entry}, {mobs, bodies} ->
           alive = Valimc.Entity.Mob.alive?(mob)
 

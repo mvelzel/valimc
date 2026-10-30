@@ -178,6 +178,11 @@ defmodule Valimc.Player.Sleep do
         found =
           Enum.any?(group.sections, fn {_key, %{resource: resource}} ->
             Enum.any?(resource.entities.store.entries, fn
+              {_id,
+               %{kind: :mob, body: %Valimc.Entity.NativeBody{type: type, alive: alive}} = entry} ->
+                SleepFacts.rest_preventing?(type) and alive and
+                  Valimc.World.Explosion.box_hit?(entry, box)
+
               {_id, %{kind: :mob, body: %{type: type, mob: mob}} = entry} ->
                 SleepFacts.rest_preventing?(type) and Valimc.Entity.Mob.alive?(mob) and
                   Valimc.World.Explosion.box_hit?(entry, box)

@@ -15,20 +15,25 @@ defmodule Valimc.Entity.Store do
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemData, ItemStack, ItemTypes}
-  alias Valimc.Entity.{Body, ExperienceOrbs, Ids, View}
+  alias Valimc.Entity.{Body, ExperienceOrbs, Ids, NativeBody, NativeMobs, View}
+  alias Valimc.Native
 
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
   # the receipts of incoming handoffs by source.
   @ledger %{sequence: 0, outgoing: nil, incoming: %{}}
   # `deaths`: bodies whose mob died with drops its owner has not dropped yet
-  # (`take_deaths/1`, VMC-037n).
+  # (`take_deaths/1`, VMC-037n). `native`: the section's native mobs
+  # (`Valimc.Entity.NativeMobs`, VMC-081d), nil when none of its types is
+  # native; an entry of a native mob holds its resource as `native` and a
+  # `NativeBody` row as its body.
   defstruct epoch: nil,
             entries: %{},
             uuids: %{},
             views: %{},
             spatial: %Valimc.Entity.Spatial{},
             ledger: @ledger,
-            deaths: []
+            deaths: [],
+            native: nil
 
   @max_steps 32
   @bodies [:mob, :object]
@@ -203,6 +208,18 @@ defmodule Valimc.Entity.Store do
     {body, events, done}
   end
 
+  defp age_entries(
+         %__MODULE__{native: %NativeMobs{} = native} = state,
+         ages,
+         minimum_y,
+         game_tick
+       ) do
+    {natives, others} = Map.split_with(ages, fn {id, _} -> native_entry?(state.entries[id]) end)
+    {state, expired} = age_entries(%{state | native: nil}, others, minimum_y, game_tick)
+    {state, more} = age_native(%{state | native: native}, natives, minimum_y, game_tick)
+    {state, expired ++ more}
+  end
+
   defp age_entries(state, ages, minimum_y, game_tick) do
     Enum.reduce(ages, {state, []}, fn {id, ticks}, {items, expired} = acc ->
       case items.entries[id] do
@@ -328,6 +345,209 @@ defmodule Valimc.Entity.Store do
   def records(state),
     do: state.entries |> Enum.map(fn {_, entry} -> record(entry) end) |> Enum.sort_by(& &1.uuid)
 
+  ## Native mobs (VMC-081d)
+
+  @doc """
+  The native mobs of `ids` leaving whole for a sibling section of the
+  group: a parcel each, by id (VMC-081d).
+  """
+  def native_parcels(%__MODULE__{native: nil}, _ids), do: %{}
+
+  def native_parcels(%__MODULE__{native: native}, ids) do
+    for id <- ids, into: %{} do
+      {:ok, parcel} = Native.mob_section_take(native.ref, [id])
+      {id, parcel}
+    end
+  end
+
+  @doc "Whether `entry` is a native mob's."
+  def native_entry?(%{native: ref}) when ref != nil, do: true
+  def native_entry?(_entry), do: false
+
+  # A store built without native mobs given them back.
+  defp renative({:ok, state, handle}, native), do: {:ok, %{state | native: native}, handle}
+  defp renative(other, _native), do: other
+
+  # A native mob's entry from its row.
+  defp put_native(state, id, uuid, {x, y, z}, row, hops) do
+    entry = %{
+      kind: :mob,
+      native: state.native.ref,
+      entity: %{entity_id: id, uuid: uuid, x: x, y: y, z: z},
+      body: row,
+      events: [],
+      event_seq: 0,
+      revision: 1,
+      physical_revision: 1,
+      hops: hops
+    }
+
+    view = body_view(state.epoch, entry)
+
+    %{
+      state
+      | entries: Map.put(state.entries, id, entry),
+        uuids: Map.put(state.uuids, uuid, id),
+        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+        views: Map.put(state.views, id, view)
+    }
+  end
+
+  # A mob from a sibling section of the group comes whole.
+  defp build_native(state, id, %{uuid: uuid, native_parcel: parcel} = record) do
+    case Native.mob_section_put(state.native.ref, parcel, id) do
+      {:ok, {^id, position, row}} ->
+        {:ok, put_native(state, id, uuid, position, row, Map.get(record, :hops, 0)),
+         {state.epoch, id, 1}}
+
+      {:error, _} ->
+        build_native(state, id, Map.delete(record, :native_parcel))
+    end
+  end
+
+  # A record of a native type joins the native mobs: in the owner at once;
+  # in a plan's worker as a pending entry its owner adds when it adopts the
+  # plan (`sync_native/1`).
+  defp build_native(state, id, %{uuid: uuid} = record) do
+    record =
+      Map.drop(record, [:entity_id, :entity_counters, :spawn_body, :native_parcel, :on_fire])
+
+    case Native.mob_section_insert(state.native.ref, [{id, record}], false) do
+      {:ok, [{^id, position, row}]} ->
+        {:ok, put_native(state, id, uuid, position, row, Map.get(record, :hops, 0)),
+         {state.epoch, id, 1}}
+
+      {:error, :not_owner} ->
+        case Native.mob_section_row(record) do
+          {:ok, {position, row, normal}} ->
+            state = put_native(state, id, uuid, position, row, Map.get(record, :hops, 0))
+            entry = Map.put(state.entries[id], :native_pending, normal)
+            {:ok, %{state | entries: Map.put(state.entries, id, entry)}, {state.epoch, id, 1}}
+
+          _ ->
+            {:error, :invalid_item}
+        end
+
+      {:error, _} ->
+        {:error, :invalid_item}
+    end
+  end
+
+  @doc """
+  A plan's store adopted (VMC-081d): the native mobs it added in its worker
+  join the section's native mobs, and those it withdrew leave them.
+  """
+  def sync_native(%__MODULE__{native: nil} = state), do: state
+
+  def sync_native(%__MODULE__{native: native} = state) do
+    pending = for {id, %{native_pending: record}} <- state.entries, do: {id, record}
+
+    state =
+      case pending do
+        [] ->
+          state
+
+        pending ->
+          {:ok, rows} = Native.mob_section_insert(native.ref, pending, false)
+
+          Enum.reduce(rows, state, fn {id, _position, row}, acc ->
+            entry = Map.delete(acc.entries[id], :native_pending)
+            entry = %{entry | body: NativeBody.merge(row, entry.body)}
+            %{acc | entries: Map.put(acc.entries, id, entry)}
+          end)
+      end
+
+    present =
+      for {id, %{native: ref}} <- state.entries, ref != nil, into: MapSet.new(), do: id
+
+    gone =
+      for {id, _type, _position, _persistent, _alive} <- Native.mob_section_mobs(native.ref),
+          not MapSet.member?(present, id),
+          do: id
+
+    if gone != [], do: Native.mob_section_remove(native.ref, gone)
+    state
+  end
+
+  @doc "Native mob `id` changed (`native_change/5`'s result of a section call)."
+  def native_change(state, id, {x, y, z}, row, events) do
+    case state.entries[id] do
+      %{native: _, entity: entity} = entry ->
+        moved = {entity.x, entity.y, entity.z} != {x, y, z}
+
+        entry = %{
+          entry
+          | entity: %{entity | x: x, y: y, z: z},
+            physical_revision: entry.physical_revision + if(moved, do: 1, else: 0)
+        }
+
+        state
+        |> put_entry(id, entry)
+        |> change_body(id, row, events)
+
+      _ ->
+        state
+    end
+  end
+
+  # An outside step of a native mob (a teleport, a portal, a piston): its
+  # section takes the entry's place, rotation, motion and portal cooldown
+  # (one leaving the section too, which its owner moves on at once); in a
+  # plan's worker the row keeps them and the plan's record carries them
+  # (`record/1`).
+  defp native_sync(%{native: ref, native_pending: _}, _id, _position, row) when ref != nil,
+    do: row
+
+  defp native_sync(%{native: ref}, id, position, %NativeBody{} = row) do
+    case Native.mob_section_sync(
+           ref,
+           id,
+           position,
+           {row.yaw, row.pitch, row.head_yaw},
+           row.velocity,
+           row.on_ground,
+           row.portal_cooldown
+         ) do
+      {:ok, {_, _, {_, new}}} -> NativeBody.merge(new, row)
+      {:error, _} -> row
+    end
+  end
+
+  # The native mobs' timers (`age_body/3` of each, in one call).
+  defp age_native(state, ages, minimum_y, game_tick) do
+    eligible =
+      for {id, ticks} <- ages,
+          entry = state.entries[id],
+          not (game_tick != nil and Map.get(entry, :aged_tick) == game_tick),
+          not (game_tick != nil and Map.get(entry, :simulated_tick) == game_tick),
+          do: {id, min(ticks, 40)}
+
+    case eligible do
+      [] ->
+        {state, []}
+
+      eligible ->
+        results = Native.mob_section_age(state.native.ref, Enum.sort(eligible), true)
+        ticks = Map.new(eligible)
+
+        Enum.reduce(results, {state, []}, fn {id, changed, row, events, done}, {items, expired} ->
+          entry = items.entries[id]
+
+          items =
+            if changed or events != [],
+              do: put_body(items, id, NativeBody.merge(row, entry.body), events),
+              else: items
+
+          expired =
+            if done or entry.entity.y < minimum_y - 64,
+              do: [{items.epoch, id, items.entries[id].revision} | expired],
+              else: expired
+
+          {idle(items, id, :mob, ticks[id]), expired}
+        end)
+    end
+  end
+
   def record(%{kind: :orb, entity: entity} = entry) do
     record =
       entity
@@ -343,6 +563,41 @@ defmodule Valimc.Entity.Store do
     # An imported orb's saved motion, kept for export.
     record = if entry.saved, do: Map.put(record, :saved, entry.saved), else: record
     if entry.hops > 0, do: Map.put(record, :hops, entry.hops), else: record
+  end
+
+  def record(%{native: ref, entity: entity, body: %NativeBody{} = row} = entry)
+      when ref != nil do
+    record =
+      case entry do
+        %{native_pending: pending} ->
+          pending
+
+        _ ->
+          case Native.mob_section_records(ref, [entity.entity_id]) do
+            [record] -> record
+            [] -> raise ArgumentError, "native mob #{entity.entity_id} is missing"
+          end
+      end
+
+    # The entry's place, motion and portal cooldown, which a plan's step may
+    # have moved on.
+    %{
+      record
+      | x: entity.x,
+        y: entity.y,
+        z: entity.z,
+        rotation: {row.yaw, row.pitch, row.head_yaw},
+        velocity: row.velocity,
+        on_ground: row.on_ground
+    }
+    |> then(
+      &if(row.portal_cooldown > 0,
+        do: Map.put(&1, :portal_cooldown, row.portal_cooldown),
+        else: Map.delete(&1, :portal_cooldown)
+      )
+    )
+    |> Map.delete(:hops)
+    |> then(&if(entry.hops > 0, do: Map.put(&1, :hops, entry.hops), else: &1))
   end
 
   def record(%{kind: kind, entity: entity, body: body} = entry) when kind in @bodies do
@@ -378,8 +633,10 @@ defmodule Valimc.Entity.Store do
   """
   def withdraw(state, handles) do
     Enum.reduce_while(handles, {:ok, state, []}, fn {epoch, id, revision}, {:ok, current, acc} ->
+      # A native mob's section keeps it: its caller takes it whole (a
+      # sibling's parcel) or its plan's adoption lets it go (`sync_native/1`).
       with {:ok, entry} <- current(current, epoch, id, revision),
-           {:ok, next} <- remove(current, epoch, id, revision) do
+           {:ok, next} <- remove(current, epoch, id, revision, false) do
         record = entry |> record() |> Map.merge(%{entity_id: id, hops: entry.hops + 1})
         # The on-fire flag its observers were shown travels with it (VMC-034n4e).
         record =
@@ -396,24 +653,59 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  def restore(key, records, ledger \\ @ledger)
+  def restore(key, records, ledger \\ @ledger, native \\ nil)
 
-  def restore(key, records, %{sequence: _, outgoing: _, incoming: _} = ledger)
+  def restore(key, records, %{sequence: _, outgoing: _, incoming: _} = ledger, native)
       when is_list(records) do
     begin(fn ->
-      Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}}, fn record, {:ok, state} ->
+      # A native type's mobs join the section's native mobs together, as
+      # written (the log and checkpoint hold their records).
+      Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}, []}, fn record,
+                                                                          {:ok, state, mobs} ->
         with true <- valid_record?(key, record) and not Map.has_key?(state.uuids, record.uuid),
-             {:ok, id} <- next_id(record),
-             {:ok, next, _} <- build_record(state, id, record) do
-          {:cont, {:ok, next}}
+             {:ok, id} <- next_id(record) do
+          if NativeMobs.native?(native, Map.get(record, :type)) do
+            {:cont,
+             {:ok, %{state | uuids: Map.put(state.uuids, record.uuid, id)}, [{id, record} | mobs]}}
+          else
+            case build_record(state, id, record) do
+              {:ok, next, _} -> {:cont, {:ok, next, mobs}}
+              _ -> {:halt, {:error, :invalid_item_file}}
+            end
+          end
         else
           _ -> {:halt, {:error, :invalid_item_file}}
         end
       end)
+      |> case do
+        {:ok, state, []} ->
+          {:ok, %{state | native: native}}
+
+        {:ok, state, mobs} ->
+          state = %{state | native: native}
+          mobs = Enum.reverse(mobs)
+
+          case Native.mob_section_insert(native.ref, mobs, true) do
+            {:ok, rows} ->
+              records = Map.new(mobs)
+
+              {:ok,
+               Enum.reduce(rows, state, fn {id, position, row}, acc ->
+                 record = records[id]
+                 put_native(acc, id, record.uuid, position, row, Map.get(record, :hops, 0))
+               end)}
+
+            {:error, _} ->
+              {:error, :invalid_item_file}
+          end
+
+        error ->
+          error
+      end
     end)
   end
 
-  def restore(_, _, _), do: {:error, :invalid_item_file}
+  def restore(_, _, _, _), do: {:error, :invalid_item_file}
 
   @doc "Whether `record` is an entity record this store would hold in region `key`."
   def valid_record?(key, %{kind: :orb, uuid: <<_::128>>, x: x, y: y, z: z} = record) do
@@ -484,6 +776,17 @@ defmodule Valimc.Entity.Store do
       | entries: Map.put(state.entries, id, Map.put(entry, :on_fire, on_fire)),
         views: Map.update!(state.views, id, &%{&1 | metadata: metadata})
     }
+  end
+
+  defp build_record(
+         %{native: %NativeMobs{} = native} = state,
+         id,
+         %{kind: :mob, type: type} = record
+       )
+       when is_binary(type) do
+    if NativeMobs.native?(native, type),
+      do: build_native(state, id, record),
+      else: build_record(%{state | native: nil}, id, record) |> renative(native)
   end
 
   defp build_record(state, id, %{kind: kind, uuid: uuid, x: x, y: y, z: z} = record)
@@ -707,8 +1010,13 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  def remove(state, epoch, id, revision) do
+  def remove(state, epoch, id, revision, native \\ true) do
     with {:ok, entry} <- current(state, epoch, id, revision) do
+      # In a plan's worker the native mob stays until the plan is adopted
+      # (`sync_native/1`).
+      if native and native_entry?(entry) and not Map.has_key?(entry, :native_pending),
+        do: Native.mob_section_remove(entry.native, [id])
+
       {:ok,
        %{
          state
@@ -905,9 +1213,32 @@ defmodule Valimc.Entity.Store do
          true <- valid_position?({x, y, z}) and Grid.region_key(Grid.chunk_key(x, z)) == key do
       body =
         case step do
-          %{body: %Body{} = body} -> body
-          %{rotation: {yaw, pitch}} -> %{entry.body | yaw: yaw, pitch: pitch, head_yaw: yaw}
-          _ -> entry.body
+          %{body: %Body{} = body} ->
+            body
+
+          # A native mob's own tick: its section holds the step already.
+          %{native: true, body: %NativeBody{} = row} ->
+            NativeBody.merge(row, entry.body)
+
+          %{body: %NativeBody{} = row} ->
+            native_sync(entry, id, {x, y, z}, NativeBody.merge(row, entry.body))
+
+          %{rotation: {yaw, pitch}} when is_map_key(entry, :native) ->
+            native_sync(entry, id, {x, y, z}, %{
+              entry.body
+              | yaw: yaw,
+                pitch: pitch,
+                head_yaw: yaw
+            })
+
+          %{rotation: {yaw, pitch}} ->
+            %{entry.body | yaw: yaw, pitch: pitch, head_yaw: yaw}
+
+          _ when is_map_key(entry, :native) ->
+            native_sync(entry, id, {x, y, z}, entry.body)
+
+          _ ->
+            entry.body
         end
 
       moved = {x, y, z} != {entry.entity.x, entry.entity.y, entry.entity.z}
@@ -993,7 +1324,10 @@ defmodule Valimc.Entity.Store do
 
   @doc "Restore same-process live state and unsaved lifecycle counters after adoption."
   def restore_live(state, id, body, counters \\ %{}) do
-    state = if match?(%Body{}, body), do: change_body(state, id, body), else: state
+    state =
+      if match?(%Body{}, body) and not native_entry?(state.entries[id]),
+        do: change_body(state, id, body),
+        else: state
 
     entry =
       Map.merge(
@@ -1005,7 +1339,20 @@ defmodule Valimc.Entity.Store do
   end
 
   @doc "Entity `id`'s body changes to `body` with `events` (a hit, a push): the new state."
-  def change_body(state, id, %Body{} = body, events \\ []) do
+  def change_body(state, id, body, events \\ [])
+
+  def change_body(state, id, %NativeBody{} = row, events) do
+    case state.entries[id] do
+      %{kind: :mob, native: _} = entry ->
+        state = put_body(state, id, NativeBody.merge(row, entry.body), events)
+        if row.death, do: %{state | deaths: [id | state.deaths]}, else: state
+
+      _ ->
+        state
+    end
+  end
+
+  def change_body(state, id, %Body{} = body, events) do
     case state.entries[id] do
       %{kind: kind} when kind in @bodies ->
         state = put_body(state, id, body, events)
@@ -1033,6 +1380,9 @@ defmodule Valimc.Entity.Store do
         {:body, %Body{} = body, events} ->
           {:ok, change_body(state, id, body, events)}
 
+        {:native, position, row, events} ->
+          {:ok, native_change(state, id, position, row, events)}
+
         {:motion, %ItemMotionState{} = motion} ->
           %{entity: %{x: x, y: y, z: z}} = entry
           step = %{id: id, revision: revision, position: {x, y, z}, motion: motion}
@@ -1056,6 +1406,16 @@ defmodule Valimc.Entity.Store do
       |> Enum.uniq()
       |> Enum.reduce({state, []}, fn id, {acc, deaths} ->
         case acc.entries[id] do
+          %{native: ref, body: %NativeBody{death: true} = row} ->
+            case Native.mob_section_deaths(ref, [id]) do
+              [{^id, death, position}] ->
+                acc = put_body(acc, id, %{row | death: false}, [])
+                {acc, [{death, position} | deaths]}
+
+              _ ->
+                {acc, deaths}
+            end
+
           %{body: %Body{mob: %{death: death} = mob} = body, entity: entity} when death != nil ->
             acc = put_body(acc, id, %{body | mob: %{mob | death: nil}}, [])
             {acc, [{death, {entity.x, entity.y, entity.z}} | deaths]}
@@ -1082,6 +1442,18 @@ defmodule Valimc.Entity.Store do
   """
   def kill(state, id) do
     case state.entries[id] do
+      %{native: ref} ->
+        case Native.mob_section_kill(ref, id) do
+          {:ok, {true, events, {position, row}}} ->
+            {:ok, native_change(state, id, position, row, events)}
+
+          {:ok, {false, _, _}} ->
+            {:ok, state}
+
+          {:error, _} ->
+            {:error, :missing_item}
+        end
+
       %{kind: kind, body: body, revision: revision} when kind in @bodies ->
         case Body.kill(body) do
           :remove ->

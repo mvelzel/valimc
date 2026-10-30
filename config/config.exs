@@ -29,6 +29,9 @@ config :valimc,
   # Sections whose loaded chunks come near share a group process (VMC-077j2).
   regionizer: true,
   item_simulation: true,
+  # Mob types simulated whole in Rust (VMC-081d, `Valimc.Entity.NativeMobs`):
+  # a list of type names, or :plain (the living types without Elixir AI).
+  native_mob_types: :plain,
   cooking_simulation: true,
   world_path: "world",
   # Terrain of new worlds (VMC-024d): :flat or :vanilla (overworld noise terrain

@@ -15,7 +15,8 @@ defmodule Valimc.Entity.MobTicks do
   """
   alias Valimc.AI
   alias Valimc.Data.Float32
-  alias Valimc.Entity.{MobMotion, MobVitals}
+  alias Valimc.Entity.{MobMotion, MobVitals, NativeMobs, Store}
+  alias Valimc.Native
   alias Valimc.Physics.Kernel
 
   @doc """
@@ -106,6 +107,225 @@ defmodule Valimc.Entity.MobTicks do
       end)
 
     {steps, state.world}
+  end
+
+  @doc """
+  The steps of a section whose mobs (`[{id, entry}]`, in id order) include
+  native ones (VMC-081d): one ticker over all of them, the native mobs'
+  turns run by their section (`native`, a `Valimc.Entity.NativeMobs`)
+  and each Elixir mob's by yielding to its turn here at its index, so every
+  mob takes its turn in id order. `env` is what native turns read beyond
+  the ticker (`Native.mob_section_begin/7`'s). `{steps, world}` as
+  `steps/5`; a native mob's step body is its `NativeBody` row (`native:
+  true`, `outside` when it left the section), and one whose state did not
+  change has its entry's.
+  """
+  def native_steps(view, mobs, world, border, external, native, env) do
+    external = collider_neighbors(mobs, external)
+    elixir? = Enum.any?(mobs, fn {_, entry} -> not Store.native_entry?(entry) end)
+    {mobs, world, ctx} = if elixir?, do: AI.prepare(mobs, world), else: {mobs, world, nil}
+    old = Map.new(mobs)
+    ids = mobs |> Enum.map(&elem(&1, 0)) |> List.to_tuple()
+    index = Map.new(Enum.with_index(Tuple.to_list(ids)))
+
+    players =
+      for %{x: x, y: y, z: z} <- world.players,
+          do: {{x, y, z}, {x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3}}
+
+    {order, travel} =
+      Enum.map_reduce(mobs, %{}, fn {id, entry}, travel ->
+        if Store.native_entry?(entry) do
+          {{:native, id}, travel}
+        else
+          {input, travel} = input(entry, travel)
+          {{:elixir, input}, travel}
+        end
+      end)
+
+    {fixed, travel} =
+      Enum.map_reduce(external, travel, fn {_, entry}, travel ->
+        {input, travel} = input(entry, travel)
+
+        {{:fixed,
+          Map.merge(input, %{
+            fixed: true,
+            pushable: false,
+            pushes: false,
+            velocity: {0.0, 0.0, 0.0}
+          })}, travel}
+      end)
+
+    colliders =
+      for {{_, entry}, i} <- Enum.with_index(mobs ++ external),
+          box = collider_box(entry, :unsupported),
+          box != :unsupported,
+          do: {i, box}
+
+    region =
+      (mobs ++ external)
+      |> Enum.map(fn {_, %{entity: e, body: body}} ->
+        {width, height, _} = Valimc.Entity.Body.dimensions(body)
+        half = width / 2 + 2.0
+        {vx, vy, vz} = body.velocity
+
+        {e.x - half + min(vx, 0), e.y - 2.0 + min(vy, 0), e.z - half + min(vz, 0),
+         e.x + half + max(vx, 0), e.y + height + 2.0 + max(vy, 0), e.z + half + max(vz, 0)}
+      end)
+      |> Enum.reduce(fn {a0, b0, c0, d0, e0, f0}, {a1, b1, c1, d1, e1, f1} ->
+        {min(a0, a1), min(b0, b1), min(c0, c1), max(d0, d1), max(e0, e1), max(f0, f1)}
+      end)
+
+    bounds = if border, do: elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
+    cells = Kernel.native(view, region)
+    supplied = if match?({:states, _}, cells), do: div(byte_size(elem(cells, 1)), 14), else: 0
+
+    {:ok, ticker} =
+      Native.dispatch(:mob_section_begin, supplied + length(order), [
+        native.ref,
+        cells,
+        order ++ fixed,
+        players,
+        bounds,
+        colliders,
+        env
+      ])
+
+    state = %{
+      entries: Map.new(mobs),
+      ids: ids,
+      index: index,
+      by_uuid: Map.new(mobs, fn {id, entry} -> {entry.entity.uuid, id} end),
+      ctx: ctx,
+      world: world,
+      travel: travel,
+      steps: [],
+      pending: %{},
+      solid: MapSet.new(colliders, &elem(&1, 0)),
+      native: native,
+      ticker: ticker,
+      natives:
+        for({_, %{native: ref} = e} <- mobs, ref != nil, into: %{}, do: {e.entity.uuid, true})
+    }
+
+    state = run_native(view, ticker, old, 0, state)
+    {elixir, stepped, native_steps} =
+      Native.dispatch(:mob_section_finish, map_size(state.natives), [native.ref, ticker])
+    velocities = Map.new(elixir)
+    steps = Enum.reverse(state.steps)
+
+    steps =
+      case state.ctx do
+        nil ->
+          steps
+
+        ctx ->
+          ctx
+          |> AI.finish(
+            Enum.map(steps, &{&1.id, &1.body}),
+            Enum.map(steps, &{&1.id, old[&1.id]})
+          )
+          |> Enum.zip(steps)
+          |> Enum.map(fn {{id, body}, step} ->
+            body =
+              if body.type == "minecraft:ender_dragon",
+                do: body,
+                else: %{body | velocity: Map.fetch!(velocities, index[id])}
+
+            %{step | body: body}
+          end)
+      end
+
+    changed =
+      Map.new(native_steps, fn {id, position, row, events, effects, outside} ->
+        {id, {position, row, events, effects, outside}}
+      end)
+
+    native =
+      for id <- stepped, entry = old[id] do
+        case changed do
+          %{^id => {position, row, events, effects, outside}} ->
+            step = %{
+              id: id,
+              revision: entry.revision,
+              position: position,
+              body: NativeMobs.merge(row, entry.body),
+              events: events,
+              effects: effects,
+              native: true,
+              outside: outside
+            }
+
+            if row.idle != nil, do: Map.put(step, :idle, row.idle), else: step
+
+          _ ->
+            %{
+              id: id,
+              revision: entry.revision,
+              position: {entry.entity.x, entry.entity.y, entry.entity.z},
+              body: entry.body,
+              events: [],
+              effects: [],
+              native: true,
+              outside: false
+            }
+        end
+      end
+
+    {Enum.sort_by(steps ++ native, & &1.id), state.world}
+  end
+
+  # Native turns from `from` on; at an Elixir mob's index it takes its turn
+  # here, then the native turns go on after it.
+  defp run_native(view, ticker, old, from, state) do
+    case Native.dispatch(:mob_section_run, segment(state, from, 0), [
+           state.native.ref,
+           ticker,
+           from,
+           state.world.random
+         ]) do
+      {:yield, i, random, moved, pushed} ->
+        state = native_moved(state, random, moved, pushed)
+        state = step(view, ticker, old, elem(state.ids, i), i, state)
+        run_native(view, ticker, old, i + 1, state)
+
+      {:done, random, moved, pushed} ->
+        native_moved(state, random, moved, pushed)
+    end
+  end
+
+  # The native turns a run from index `i` takes before it yields.
+  defp segment(state, i, n) do
+    if i < tuple_size(state.ids) and Store.native_entry?(state.entries[elem(state.ids, i)]),
+      do: segment(state, i + 1, n + 1),
+      else: n
+  end
+
+  # The level random after the native turns, the Elixir mobs they pushed and
+  # what the Elixir AI senses of the native mobs that moved.
+  defp native_moved(state, random, moved, pushed) do
+    entries =
+      Enum.reduce(pushed, state.entries, fn {j, velocity}, entries ->
+        other = elem(state.ids, j)
+        e = entries[other]
+        Map.put(entries, other, %{e | body: %{e.body | velocity: velocity}})
+      end)
+
+    {entries, world} =
+      Enum.reduce(moved, {entries, %{state.world | random: random}}, fn
+        {id, {x, y, z}, yaw, pitch, alive}, {entries, world} ->
+          e = entries[id]
+
+          e = %{
+            e
+            | entity: %{e.entity | x: x, y: y, z: z},
+              body: %{e.body | yaw: yaw, pitch: pitch, alive: alive}
+          }
+
+          world = if state.ctx, do: AI.resense_entry(world, id, e), else: world
+          {Map.put(entries, id, e), world}
+      end)
+
+    %{state | entries: entries, world: world}
   end
 
   defp collider_neighbors(_mobs, []), do: []
@@ -344,33 +564,38 @@ defmodule Valimc.Entity.MobTicks do
           Enum.reduce(state.entries, state, fn {id, _}, state ->
             entry = state.entries[id]
 
-            if Valimc.Entity.Displacement.meets?(entry, area) do
-              {input, travel} = input(entry, state.travel)
+            cond do
+              Store.native_entry?(entry) ->
+                native_displace(state, id, entry, area, delta)
 
-              case Kernel.mob_displace(ticker, state.index[id], input, delta) do
-                {:ok, result} ->
-                  entry = Valimc.Entity.Displacement.apply(entry, result)
-                  {x, y, z} = result |> elem(0)
+              Valimc.Entity.Displacement.meets?(entry, area) ->
+                {input, travel} = input(entry, state.travel)
 
-                  steps =
-                    Enum.map(state.steps, fn
-                      %{id: ^id} = step -> %{step | body: entry.body, position: {x, y, z}}
-                      step -> step
-                    end)
+                case Kernel.mob_displace(ticker, state.index[id], input, delta) do
+                  {:ok, result} ->
+                    entry = Valimc.Entity.Displacement.apply(entry, result)
+                    {x, y, z} = result |> elem(0)
 
-                  %{
+                    steps =
+                      Enum.map(state.steps, fn
+                        %{id: ^id} = step -> %{step | body: entry.body, position: {x, y, z}}
+                        step -> step
+                      end)
+
+                    %{
+                      state
+                      | entries: Map.put(state.entries, id, entry),
+                        steps: steps,
+                        travel: travel,
+                        world: AI.resense_entry(state.world, id, entry)
+                    }
+
+                  _ ->
                     state
-                    | entries: Map.put(state.entries, id, entry),
-                      steps: steps,
-                      travel: travel,
-                      world: AI.resense_entry(state.world, id, entry)
-                  }
+                end
 
-                _ ->
-                  state
-              end
-            else
-              state
+              true ->
+                state
             end
           end)
 
@@ -391,8 +616,34 @@ defmodule Valimc.Entity.MobTicks do
     # move and are hurt. Reuse their indexes for every mob's effects.
     index = state.index
     by_uuid = state.by_uuid
+    # The native mobs of this tick (VMC-081d) take their hits in their section.
+    natives = Map.get(state, :natives, %{})
 
     Enum.flat_map_reduce(effects, state, fn
+      {:dragon_contact, {:mob, uuid}, push, amount, wing}, state
+      when is_map_key(natives, uuid) ->
+        target = by_uuid[uuid]
+        target_entry = state.entries[target]
+        recent = wing and target_entry.body.recent
+        amount = if amount > 0.0 and not recent, do: amount, else: 0.0
+        hit = Valimc.AI.Dragon.Actor.hit(entry.entity, amount)
+        {[], native_hit(state, target, target_entry, hit, push)}
+
+      {:attack, {:mob, uuid}} = effect, state
+      when is_map_key(natives, uuid) ->
+        target = by_uuid[uuid]
+        target_entry = state.entries[target]
+        store = %{entries: %{id => attacker(id, entry)}}
+
+        case Valimc.Entity.Combat.mob_hit(store, id, target_entry.body.type) do
+          {:ok, hit} ->
+            hit = Map.merge(hit, extras(effects, uuid))
+            {[], native_hit(state, target, target_entry, hit, nil)}
+
+          _ ->
+            {[effect], state}
+        end
+
       {:dragon_contact, {:mob, uuid}, push, amount, wing}, state when is_map_key(by_uuid, uuid) ->
         target = by_uuid[uuid]
         target_entry = state.entries[target]
@@ -448,7 +699,31 @@ defmodule Valimc.Entity.MobTicks do
   end
 
   # Whether mob `id`'s melee hit on `ref` kills it, for the rest of its think.
-  defp kills?(state, id, entry, {:mob, uuid}, effects) do
+  defp kills?(state, id, entry, {:mob, uuid} = ref, effects) do
+    if Map.has_key?(Map.get(state, :natives, %{}), uuid),
+      do: native_kills?(state, id, entry, uuid, effects),
+      else: elixir_kills?(state, id, entry, ref, effects)
+  end
+
+  defp native_kills?(state, id, entry, uuid, effects) do
+    target_id = state.by_uuid[uuid]
+    target = state.entries[target_id]
+
+    case Valimc.Entity.Combat.mob_hit(
+           %{entries: %{id => attacker(id, entry)}},
+           id,
+           target.body.type
+         ) do
+      {:ok, hit} ->
+        hit = Map.merge(hit, extras(effects, uuid))
+        Native.mob_section_kills(state.native.ref, target_id, hit)
+
+      _ ->
+        false
+    end
+  end
+
+  defp elixir_kills?(state, id, entry, {:mob, uuid}, effects) do
     with target_id when target_id != nil <- state.by_uuid[uuid],
          target = state.entries[target_id],
          {:ok, hit} <-
@@ -474,6 +749,53 @@ defmodule Valimc.Entity.MobTicks do
       {:attack_extra, {:mob, ^uuid}, extras} -> extras
       _ -> nil
     end)
+  end
+
+  # A hit (and push) on a native mob mid-tick: its section applies it,
+  # with the ticker's motion, its hurt timers when it still has its turn and
+  # the events joining its turn's.
+  defp native_hit(state, target, entry, hit, push) do
+    case Native.mob_section_hit(state.native.ref, state.ticker, target, hit, push) do
+      {:ok, {_, _, {{x, y, z}, row}}} ->
+        entry = %{
+          entry
+          | entity: %{entry.entity | x: x, y: y, z: z},
+            body: NativeMobs.merge(row, entry.body)
+        }
+
+        %{
+          state
+          | entries: Map.put(state.entries, target, entry),
+            world: AI.resense_entry(state.world, target, entry)
+        }
+
+      _ ->
+        state
+    end
+  end
+
+  defp native_displace(state, id, entry, area, delta) do
+    if Valimc.Entity.Displacement.meets?(entry, area) do
+      case Native.mob_section_displace(state.native.ref, state.ticker, id, delta) do
+        {:ok, {_, _, {{x, y, z}, row}}} ->
+          entry = %{
+            entry
+            | entity: %{entry.entity | x: x, y: y, z: z},
+              body: NativeMobs.merge(row, entry.body)
+          }
+
+          %{
+            state
+            | entries: Map.put(state.entries, id, entry),
+              world: AI.resense_entry(state.world, id, entry)
+          }
+
+        _ ->
+          state
+      end
+    else
+      state
+    end
   end
 
   defp timers(%{mob: mob} = body) do

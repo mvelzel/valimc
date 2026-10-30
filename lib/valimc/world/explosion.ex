@@ -181,6 +181,13 @@ defmodule Valimc.World.Explosion do
   @doc "A resolved, revision-fenced store change for one authoritative explosion target."
   def change(_entry, :destroy), do: :remove
 
+  # A native mob (VMC-081d): its section hurts and pushes it now.
+  def change(%{native: ref, entity: e}, {:hurt, amount, impulse, source}) when ref != nil,
+    do: native(Valimc.Native.mob_section_blast(ref, e.entity_id, source, amount, impulse))
+
+  def change(%{native: ref, entity: e}, {:push, impulse}) when ref != nil,
+    do: native(Valimc.Native.mob_section_push(ref, nil, e.entity_id, impulse))
+
   def change(%{body: body}, {:hurt, amount, impulse, source}) do
     {hurt, events} = Body.hurt(body, source, amount)
     {:body, Body.push(hurt, impulse), events}
@@ -191,6 +198,9 @@ defmodule Valimc.World.Explosion do
 
   def change(entry, {:push, impulse}), do: motion(entry, impulse, nil)
   def change(entry, {:push, impulse, health}), do: motion(entry, impulse, health)
+
+  defp native({:ok, {_, events, {position, row}}}), do: {:native, position, row, events}
+  defp native(_), do: :keep
 
   # An item or orb pushed, with the health the explosion left it.
   defp motion(entry, impulse, health) do
@@ -225,6 +235,7 @@ defmodule Valimc.World.Explosion do
 
   defp size(:item, _), do: fact_size("minecraft:item")
   defp size(:orb, _), do: fact_size("minecraft:experience_orb")
+  defp size(_, %{body: %Valimc.Entity.NativeBody{dimensions: {w, h, _}}}), do: {w, h}
   defp size(_, %{body: %Body{mob: nil, type: type}}), do: fact_size(type)
 
   defp size(_, %{body: %Body{} = body}) do
@@ -238,6 +249,12 @@ defmodule Valimc.World.Explosion do
   end
 
   defp origin(%{entity: %{x: x, y: y, z: z}, body: %Body{type: "minecraft:tnt"}}), do: {x, y, z}
+
+  defp origin(%{
+         entity: %{x: x, y: y, z: z},
+         body: %Valimc.Entity.NativeBody{dimensions: {_, _, eye}}
+       }),
+       do: {x, y + eye, z}
 
   defp origin(%{entity: %{x: x, y: y, z: z}, body: %Body{mob: %{}} = body}) do
     {_, _, eye} = Body.dimensions(body)
@@ -257,6 +274,9 @@ defmodule Valimc.World.Explosion do
 
   defp knockback_resistance(%{body: %Body{type: type, mob: %{attributes: attributes}}}),
     do: Valimc.Entity.Mob.base(type, attributes, "minecraft:explosion_knockback_resistance")
+
+  defp knockback_resistance(%{body: %Valimc.Entity.NativeBody{explosion_resistance: resistance}}),
+    do: resistance
 
   defp knockback_resistance(_entry), do: 0.0
 

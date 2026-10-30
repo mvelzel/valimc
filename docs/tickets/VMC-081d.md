@@ -145,6 +145,95 @@ included, through parity NIFs and differential ExUnit tests.
   spider, skeleton, calf, golem target, cod) equal the Elixir every tick
   (`native_mob_ai_test`).
 
+## Native plain mobs
+
+The plain mobs (living types of a spawning category without Elixir AI:
+wolf, fox, goat, horse and the other horses, llama, camel, panda, parrot,
+polar bear, frog, armadillo, sniffer, bee, allay, the illagers, ravager,
+breeze, warden and the rest `Body`'s plain list holds, the dragon apart) are
+simulated whole in Rust, behind `config :valimc, :native_mob_types` (a list
+of type names, or `:plain`, the default).
+
+- **Section** (`mobs::section`, NIF `mob_section`): a section's native mobs
+  in network-id order with a uuid and a chunk index, owned by the group
+  beside the Region resource and handed on with it (`mob_section_give` in
+  `Region.transfer`). A load inserts the records its log holds; spawns,
+  summons, handoffs and adoptions insert theirs; a sibling section of the
+  group receives a mob whole (a parcel, so its unsaved state survives the
+  move).
+- **Records** come from the section and are `Store.record/1`'s terms. A
+  cut writes a mob whose record differs (as Elixir's `==` compares) from
+  the one its last frame wrote, and lets one that only travelled wait for
+  the motion pass, as `RegionStorage` settles an Elixir record; the section
+  keeps hashes of what was written instead of the terms. Checkpoints take
+  every record; a gone mob's record is deleted once.
+- **The store** keeps for a native mob its routing and publication (ids,
+  position, revisions, events, view) with a `NativeBody` row the section
+  publishes when the mob changes: type, rotations, motion, dimensions, what
+  observers are shown (`Body.shown/1`'s projection), what other mobs sense
+  and what pushes and explosions read. Every change is a call on the
+  section: hits (`Combat.resolve/2`), explosions and falling anvils,
+  effects and ignition, names, `/kill`, pushes, pistons and lids,
+  teleports, portals, timers (`Store.age`) and deaths' drops.
+- **The tick** (`mobs::tick`): one ticker per section tick holds every mob
+  in id order (`mob_section_begin`). `mob_section_run` runs native turns
+  from an index on and returns `{:yield, index, ...}` at an Elixir mob's,
+  whose `MobTicks` turn runs over the same ticker before the next run
+  resumes after it, so the order across both kinds is id order; the level
+  random, the pushes native steps gave Elixir mobs and the sensed rows of
+  native mobs that moved cross with each yield. Elixir melee and lid
+  pushes on a native mob mid-tick are section calls with the ticker
+  (`mob_section_hit`, `mob_section_displace`). A native turn is
+  `MobTicks.ordered_step`'s: fluids sensed, `base_tick`, the think step
+  (`Thinker`: a pending `finalizeSpawn` today, the family AI's hook), the
+  kernel's step from `MobMotion.kernel`'s input, `MobMotion.apply`, the
+  splash, farmland and turtle eggs, `settle`, `MobVitals.apply` and
+  daylight. `mob_section_finish` ends the ticker; a mob the kernel refused
+  keeps its state from before the tick, and one whose move out of the
+  section its owner cannot carry out yet takes it back
+  (`mob_section_settle`, after the outgoing handoff's plan when one carries
+  it).
+- **Plans** run on a store copy in a worker, which reads native records but
+  never changes the section: mobs a plan withdraws leave, and mobs it adopts
+  join, when its owner adopts the plan (`Store.sync_native/1`).
+
+Where the Elixir draws `:rand` for a mind-less mob (hurt sounds, death
+drops, the sun's roll) or skips the draw (a splash, the hiss of a fire put
+out), the native mob draws its own random, as vanilla's entity random.
+
+Tests: `native_plain_mobs_test` runs three scenes (falls, water, lava,
+fire, effects, pushes and a death for 200 ticks; mind-less mobs pushed by a
+player for 120; plain mobs among zombies, a husk and a cow, whose turns
+yield, for 120) through an Elixir store and a native one, with the owner's
+ageing between ticks, and compares every record after every tick, random
+states included where neither side draws, and the level random;
+`native_mob_section_test` covers the region paths (fall and landing
+damage, hit, name, `/kill` and removal, reload from the log, a teleport to
+a sibling section, a push across the section line, a handoff to another
+group, an explosion). The entity, region, storage, handoff, portal,
+explosion, spawning and native mob suites pass (157 tests), with the
+`entity`, `natural_spawning`, `mob_travel` and `combat` stages.
+
+Measured (`mobs` scenario, two pinned cores of the development Mac's Linux
+VM, 60 s, `before` at 40f34a8c; raw results in `.local/tick-budget/results/
+docker-{preplain,nativeplain}-*-mobs.json`):
+
+| | before 1 | before 2 | native 5 | native 6 |
+|---|---:|---:|---:|---:|
+| TPS (mean / lowest) | 19.98 / 18.92 | 20.00 / 18.98 | 20.01 / 18.79 | 19.99 / 18.94 |
+| Entity phase (sampled) | 13.19 ms | 13.09 ms | 13.91 ms | 14.09 ms |
+| Tick mean / p95 (last 100) | 17.2 / 20.1 ms | 17.2 / 20.0 ms | 18.3 / 29.9 ms | 18.0 / 29.9 ms |
+| Active mobs / loaded entities | 162 / 762 | 161 / 762 | 161 / 761 | 162 / 763 |
+
+The scenario's population is nearly all farm animals and hostiles, so few
+plain mobs take native turns: the change is in the noise for the mean.
+Every fifth or sixth tick the group's owner collects its 70 to 120 MB heap
+(8 to 10 million words reclaimed) inside its mob phase, about 11 ms, which
+the p95 shows; the collection count and total (about 107 major ones, 1.1 s
+a minute) equal the run before, which places them outside the measured
+ticks. On a scene of 200 plain mobs (`MobTicks` over a supplied view) a
+native turn takes 7 µs, the Elixir one 29 µs.
+
 Acceptance:
 
 - Every mob oracle stage passes with every type native.

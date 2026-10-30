@@ -512,6 +512,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Pistons (VMC-048b): block events, the structure resolver, moving pistons' block entities (read from the stores, their changes returned) and their ticks, which report the pushes they make. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. A moving piston collides as its block entity's shape (VMC-048b, vanilla's `Shapes.or` grid included), and a tick's moving blocks push and carry bodies with the piston mover. Effects on living state (burning, landing damage, air, rain) come back as observations |
 | Path search (VMC-041b) | Vanilla's `PathFinder` with the walk, amphibious, swim and fly node evaluators (`valimc_core::path`) over published chunk snapshots read as `PathNavigation`'s region reads a level, with path types from `ai_facts.json` and shapes from the kernel's facts: a section's batch of searches is one call in its path job, each search bounded by the mob's visited-node limit (a zombie's 560 nodes take at most about 0.9 ms) |
+| Native mobs (VMC-081d) | A section's mobs of the native types (`:native_mob_types`; today the plain mobs, those without Elixir AI) live whole in a `MobSection` resource (`valimc_core::mobs::section`) its group owns beside the Region resource and hands on with it. The section's store keeps for each only its routing and publication, with a row the resource publishes when the mob changes. One ticker per section tick holds every mob in id order: the resource runs the native turns (fluids, base tick, thinking, the kernel's step, vitals, daylight) and yields at each Elixir mob, whose `MobTicks` turn runs over the same ticker before the native turns go on. Records at a commit come from the resource (only changed mobs, deferred to the motion pass as `RegionStorage` defers an Elixir one), identical to `Store.record`'s; outside actions (hits, explosions, names, `/kill`, pushes, teleports, portals, effects, timers) are bounded calls on it |
 | Natural spawning (VMC-042a) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test: one call over the group's stores, about 0.3 ms a tick for a player's nine sections; the caps, despawn bookkeeping and the records stay in Elixir |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
@@ -525,7 +526,7 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
 - The shim has one module per domain (`facts`, `region`, `snapshot`, `rules`,
   `light`, `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`,
-  `path`); oracle
+  `path`, `mob_section`); oracle
   and benchmark NIFs live in `parity` (the physics kernel's pieces in
   `physics_checks` and `player_parity`), built only with the `parity` cargo
   feature (dev, test and bench builds, not releases). One arity per NIF.
@@ -545,8 +546,11 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
   domain's closed set for an expected failure; a broken invariant raises. No
   string errors for machine use.
 - Mutable state is a `ResourceArc` owned by one process: the Region resource
-  refuses changes from any other (`{:error, :not_owner}`) and changes owner
-  only by a handoff its owner makes (`region_give`).
+  and a section's native mobs refuse changes from any other (`{:error,
+  :not_owner}`) and change owner only by a handoff their owner makes
+  (`region_give`, `mob_section_give`). A plan's worker reads native mobs'
+  records but never changes them: what its store adds or withdraws reaches
+  them when the owner adopts the plan.
   Shared Rust state is immutable and shared through an `Arc` (a seed's
   generation context, with bounded caches of pure values), or lent to one
   job at a time by its owner (the scheduler's proto cells and start table,

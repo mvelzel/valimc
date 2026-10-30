@@ -48,6 +48,22 @@ defmodule Valimc.Entity.Combat do
   siblings project the same result and deliver that fenced change before the
   group cuts its frame. No sound/random draw or hurt is repeated on delivery.
   """
+  # A native mob (VMC-081d): its section resolves the hit now; the change
+  # carries its new row and events.
+  def resolve(%{kind: :mob, native: ref, entity: entity}, hit) when ref != nil do
+    case Valimc.Native.mob_section_hurt(ref, nil, entity.entity_id, hit) do
+      {:ok, {{true, full, died, previous, health}, events, {position, row}}} ->
+        {{:native, position, row, events},
+         %{hurt: true, full: full, died: died, previous: previous, health: health}}
+
+      {:ok, {{false, _, _, _, _}, events, {position, row}}} ->
+        {{:native, position, row, events}, %{hurt: false}}
+
+      {:error, _} ->
+        {:keep, %{hurt: false}}
+    end
+  end
+
   def resolve(%{kind: :mob, body: body, entity: entity}, hit) do
     before = body.mob.living.health.value
 
