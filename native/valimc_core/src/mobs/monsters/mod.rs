@@ -9,6 +9,8 @@
 //! Halloween head, the drop chance of a slot and the protocol ids they
 //! look up once.
 
+pub mod creeper;
+pub mod skeleton;
 pub mod zombie;
 
 use crate::mobs::ai::fmath::f;
@@ -22,7 +24,11 @@ use crate::mobs::term::{Atom, Value};
 
 /// Every ported hostile family.
 pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
-    Ok(vec![Box::new(zombie::Zombie::new(facts)?)])
+    Ok(vec![
+        Box::new(zombie::Zombie::new(facts)?),
+        Box::new(skeleton::Skeleton::new(facts)?),
+        Box::new(creeper::Creeper::new(facts)?),
+    ])
 }
 
 /// An entity type's id, which the families' facts must hold.

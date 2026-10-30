@@ -17,7 +17,7 @@ use crate::mobs::ai::spawn;
 use crate::mobs::ai::turn::Turn;
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::interact::{
-    At, Done, Drop, Hand, InteractEvent, Interaction, Other, Outcome,
+    At, Done, Drop, Hand, InteractEvent, Interaction, Other, Outcome, Source,
 };
 use crate::mobs::kinds::{Registered, Registration};
 use crate::mobs::living::items;
@@ -309,7 +309,7 @@ impl Species for Sheep {
             hand: Some(Hand::Use(1)),
             others: Some(Other {
                 sound: self.dye_sound,
-                source: "player",
+                source: Source::Named("player"),
                 volume: 1.0,
                 pitch: 1.0,
                 at: At::Animal,

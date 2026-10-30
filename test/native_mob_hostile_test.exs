@@ -24,7 +24,9 @@ defmodule Valimc.NativeMobHostileTest do
   test "the hostile families are native, their goals vanilla's" do
     assert {:ok, types} = Native.mob_kinds()
 
-    for type <- ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager),
+    for type <-
+          ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager minecraft:skeleton
+             minecraft:stray minecraft:bogged minecraft:creeper),
         do: assert(type in types)
   end
 
@@ -161,6 +163,156 @@ defmodule Valimc.NativeMobHostileTest do
     assert Enum.any?(effects, &match?({:attack_extra, _, _}, &1))
   end
 
+  ## Skeletons
+
+  @skeletons ~w(minecraft:skeleton minecraft:stray minecraft:bogged)
+
+  test "skeletons spawn with bows, strafe and shoot, and flee wolves", ctx do
+    spots = land(ctx.blocks, 14, :rand.seed_s(:exsss, 111))
+    {[here, wolf, golem], rest} = Enum.split(spots, 3)
+
+    entries =
+      for {{spot, type}, n} <- Enum.with_index(Enum.zip(rest, Stream.cycle(@skeletons)), 1) do
+        # Every fourth keeps no bow: melee, its weapon goal's other half.
+        mob(n, type, spot, finalize: if(rem(n, 4) != 0, do: :natural))
+      end
+
+    statues = [
+      mob(90, "minecraft:wolf", wolf, no_ai: true),
+      mob(91, "minecraft:iron_golem", golem, no_ai: true)
+    ]
+
+    for difficulty <- [:normal, :hard] do
+      scene =
+        scene([player(0, here)],
+          ticks: 240,
+          time: 18_000,
+          day: 900_000,
+          bright: false,
+          difficulty: difficulty,
+          halloween: true,
+          statues: statues,
+          acts: [{5, 3, :hurt}],
+          post: true,
+          loot: loot(),
+          level: 23
+        )
+
+      observed = compare(ctx, scene, entries)
+      assert Enum.any?(effects(observed), &match?({:shoot, _}, &1))
+      assert running?(observed, "Valimc.AI.Mobs.Skeleton.Weapon")
+    end
+  end
+
+  test "skeletons keep out of the sun, flee it burning, and freeze into strays", ctx do
+    spots = land(ctx.blocks, 9, :rand.seed_s(:exsss, 112))
+    {[here, snow], rest} = Enum.split(spots, 2)
+
+    entries =
+      for {{spot, type}, n} <- Enum.with_index(Enum.zip(rest, Stream.cycle(@skeletons)), 1),
+          do: mob(n, type, spot, fire: if(rem(n, 2) == 0, do: 200, else: 0))
+
+    frozen =
+      mob(30, "minecraft:skeleton", snow,
+        data: [in_snow: 138],
+        motion: [powder_snow: true]
+      )
+
+    scene =
+      scene([player(0, here, mode: :creative)],
+        ticks: 320,
+        bright: true,
+        monsters_burn: true,
+        acts: [{60, 0, :fire}, {61, 1, :fire}],
+        post: true,
+        level: 29
+      )
+
+    observed = compare(ctx, scene, entries ++ [frozen])
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:convert, "minecraft:stray"}, &1))
+    assert running?(observed, "Valimc.AI.Goals.FleeSun")
+  end
+
+  ## Creepers
+
+  test "creepers chase, swell, explode, and flee cats", ctx do
+    spots = land(ctx.blocks, 12, :rand.seed_s(:exsss, 121))
+    {[here, cat], rest} = Enum.split(spots, 2)
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1) do
+        data =
+          cond do
+            n == 3 -> [ignited: true]
+            n == 4 -> [powered: true]
+            true -> []
+          end
+
+        mob(n, "minecraft:creeper", spot, data: data, finalize: :natural)
+      end
+
+    {hx, hy, hz} = here
+    near = mob(20, "minecraft:creeper", {hx + 2, hy, hz + 1})
+
+    scene =
+      scene([player(0, here)],
+        ticks: 240,
+        bright: false,
+        statues: [mob(90, "minecraft:cat", cat, no_ai: true)],
+        acts: [{30, 5, :hurt}],
+        post: true,
+        level: 31
+      )
+
+    observed = compare(ctx, scene, entries ++ [near])
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:explode, %{powered: false}}, &1))
+    assert Enum.any?(effects, &match?({:discard}, &1))
+    assert running?(observed, "Valimc.AI.Mobs.Creeper.Swell")
+  end
+
+  defp interact(ctx, body, item) do
+    body = put_in(body.mob.ai, Valimc.AI.mind(body.type, uuid(1), nil, body.data))
+    record = entry_record(1, %{entity: %{uuid: uuid(1), x: 0.5, y: 64.0, z: 0.5}, body: body})
+    {:ok, restored} = Body.restore(record)
+    player = uuid(2000)
+
+    {native, native_record} =
+      Native.mob_parity_interact(
+        ctx.facts,
+        record,
+        item,
+        {player, {2.5, 64.0, 0.5}, 2000},
+        false,
+        nil,
+        []
+      )
+
+    request = %{item: item, infinite: false, player: player}
+
+    case {native, Valimc.AI.Mobs.interact(restored, request)} do
+      {:pass, :pass} ->
+        :pass
+
+      {{:done, hand, swing, [], others, [], nil, []}, {:ok, body, outcome}} ->
+        assert {hand, swing, others} == {outcome.hand, outcome.swing, outcome.others}
+
+        assert native_record ==
+                 entry_record(1, %{entity: %{uuid: uuid(1), x: 0.5, y: 64.0, z: 0.5}, body: body})
+
+        :done
+    end
+  end
+
+  test "flint and steel or a fire charge lights a creeper", ctx do
+    {:ok, creeper} = Body.new("minecraft:creeper")
+    stack = &Valimc.Protocol.ItemStack.new/1
+    assert interact(ctx, creeper, stack.("minecraft:flint_and_steel")) == :done
+    assert interact(ctx, creeper, stack.("minecraft:fire_charge")) == :done
+    assert interact(ctx, creeper, stack.("minecraft:stick")) == :pass
+  end
+
   ## Conversions
 
   defp convert(ctx, body, to, special) do
@@ -180,11 +332,13 @@ defmodule Valimc.NativeMobHostileTest do
     baby = put_in(baby.mob.living.fire_ticks, 40)
     baby = put_in(baby.mob.equipment, %{head: Valimc.Protocol.ItemStack.new("iron_helmet")})
     {:ok, husk} = Body.new("minecraft:husk")
+    {:ok, skeleton} = Body.new("minecraft:skeleton")
 
     for special <- [0.0, 0.5, 1.0] do
       convert(ctx, zombie, "minecraft:husk", special)
       convert(ctx, baby, "minecraft:zombie_villager", special)
       convert(ctx, husk, "minecraft:zombie", special)
+      convert(ctx, skeleton, "minecraft:stray", special)
     end
   end
 end

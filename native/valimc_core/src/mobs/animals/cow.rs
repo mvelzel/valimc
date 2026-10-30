@@ -12,7 +12,7 @@ use crate::mobs::ai::goals::{
 use crate::mobs::ai::turn::Turn;
 use crate::mobs::combat::{SoundKind, SoundRef};
 use crate::mobs::facts::MobFacts;
-use crate::mobs::kinds::interact::{At, Done, Hand, Interaction, Other, Outcome};
+use crate::mobs::kinds::interact::{At, Done, Hand, Interaction, Other, Outcome, Source};
 use crate::mobs::kinds::{Registered, Registration};
 use crate::mobs::living::items;
 use crate::mobs::model::{Body, FamilyData};
@@ -87,7 +87,7 @@ impl Milk {
                 hand: Some(Hand::Fill(items::new_stack(milk, 1, None))),
                 others: Some(Other {
                     sound: self.sound,
-                    source: "player",
+                    source: Source::Named("player"),
                     volume: 1.0,
                     pitch: 1.0,
                     at: At::Player,

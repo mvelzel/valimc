@@ -220,7 +220,7 @@ defmodule Valimc.NativeMobScene do
               put_in(e.body.mob.ai, AI.hurt(e.body.mob.ai, {:player, p.uuid}, :player_attack)).body
 
             :fire ->
-              put_in(e.body.mob.living.fire_ticks, 160)
+              put_in(e.body.mob.living.fire_ticks, 160).body
           end
 
         List.replace_at(entries, i, {id, %{e | body: body}})

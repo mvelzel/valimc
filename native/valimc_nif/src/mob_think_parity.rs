@@ -23,7 +23,9 @@ use valimc_core::mobs::ai::mind::MindState;
 use valimc_core::mobs::ai::think::{self, Ctx, Moves, SectionAi};
 use valimc_core::mobs::animals::rabbit::HopState;
 use valimc_core::mobs::combat::{AiMind, Rules};
-use valimc_core::mobs::kinds::interact::{At, Hand, InteractEvent, Interaction, Outcome, Request};
+use valimc_core::mobs::kinds::interact::{
+    At, Hand, InteractEvent, Interaction, Outcome, Request, Source,
+};
 use valimc_core::mobs::kinds::{self, leads};
 use valimc_core::mobs::model::{Control, NativeMob};
 use valimc_core::mobs::record;
@@ -684,7 +686,10 @@ fn mob_parity_interact<'a>(
                 None => atoms::nil().encode(env),
                 Some(o) => (
                     o.sound,
-                    o.source,
+                    match o.source {
+                        Source::Named(name) => name.encode(env),
+                        Source::Id(id) => id.encode(env),
+                    },
                     o.volume,
                     o.pitch,
                     match o.at {

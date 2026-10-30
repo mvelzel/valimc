@@ -59,11 +59,19 @@ pub enum At {
     Animal,
 }
 
+/// A sound's source as a family names it: by name (`"player"`) or by the
+/// id its type's sounds use (`mob_sounds(type)["sound_source"]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Named(&'static str),
+    Id(i32),
+}
+
 /// A sound for the others (`{id, source, volume, pitch, at}`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Other {
     pub sound: i32,
-    pub source: &'static str,
+    pub source: Source,
     pub volume: f64,
     pub pitch: f64,
     pub at: At,
