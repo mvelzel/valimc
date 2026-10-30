@@ -20,15 +20,14 @@ use rustler::{Atom, Binary, Encoder, Env, NifMap, NifResult, ResourceArc, Term};
 use valimc_core::mobs::ai::effect::{Eaten, Effect};
 use valimc_core::mobs::ai::leash::Holder;
 use valimc_core::mobs::ai::mind::MindState;
-use valimc_core::mobs::ai::think::{self, Ctx, Moves};
-use valimc_core::mobs::ai::Extra;
+use valimc_core::mobs::ai::think::{self, Ctx, Moves, SectionAi};
 use valimc_core::mobs::animals::rabbit::HopState;
 use valimc_core::mobs::combat::{AiMind, Rules};
 use valimc_core::mobs::kinds::interact::{At, Hand, InteractEvent, Interaction, Outcome, Request};
 use valimc_core::mobs::kinds::{self, leads};
 use valimc_core::mobs::model::{Control, NativeMob};
 use valimc_core::mobs::record;
-use valimc_core::mobs::sensing::{Kind, Ref, SensedPlayer, Sensing};
+use valimc_core::mobs::sensing::{Kind, Ref, SensedPlayer};
 use valimc_core::mobs::term::Value;
 
 mod atoms {
@@ -365,27 +364,25 @@ fn mob_parity_think<'a>(
                     }
                 }
             }
-            for mob in mobs.iter_mut() {
-                think::ensure(&ctx, mob);
-            }
-            let rows = mobs
-                .iter()
-                .zip(&ids)
-                .map(|(m, &id)| think::sensed(&ctx, id, m).ok_or(bad()))
-                .collect::<NifResult<Vec<_>>>()?;
-            let mut sensing: Sensing<Extra> = Sensing::new(players.clone(), vec![], rows);
+            let mut ai = SectionAi::begin(
+                ctx,
+                level,
+                players.clone(),
+                vec![],
+                ids.iter().copied().zip(mobs.iter_mut()),
+                vec![],
+            );
             let mut made = Vec::new();
             for i in 0..mobs.len() {
                 let id = ids[i];
-                let mut effects = think::think(&ctx, &mut mobs[i], id, level, &mut sensing, None);
+                let mut effects = ai.think(&mut mobs[i], id, None);
                 for e in &effects {
                     if let Some(other) = think::other(e) {
                         if let Some(j) = mobs.iter().position(|m| m.uuid == other) {
-                            think::change_other(&ctx, e, &mut mobs[j], ids[j], level, &mut sensing);
+                            ai.change_other(e, &mut mobs[j], ids[j]);
                         }
                     }
                 }
-                think::resense_state(&ctx, &mobs[i], &mut sensing);
                 let [x, y, z] = mobs[i].position;
                 if let Control::MoveTo { target, .. } = mobs[i].body.mob.motion.control {
                     let d = [target[0] - x, target[2] - z];
@@ -395,20 +392,12 @@ fn mob_parity_think<'a>(
                         mobs[i].position = [x + d[0] / l * s, y, z + d[1] / l * s];
                     }
                 }
-                let settled = think::settle(
-                    &ctx,
-                    &mut mobs[i],
-                    id,
-                    [x, z],
-                    level,
-                    &mut sensing,
-                    Moves::default(),
-                    None,
-                );
-                think::resensed(&ctx, &mobs[i], &mut sensing);
+                let settled = ai.settle(&mut mobs[i], id, [x, z], Moves::default(), None);
+                ai.moved(&mobs[i]);
                 effects.extend(settled);
                 made.push(effects);
             }
+            drop(ai);
             let records = mobs
                 .iter()
                 .map(|m| mob_term::encode(env, &record::record(m)))

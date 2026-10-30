@@ -862,3 +862,118 @@ pub fn hurt(mob: &mut NativeMob, attacker: Option<Ref>, source: u16) {
         s.hurt(attacker, source);
     }
 }
+
+// ## A section's AI
+
+/// The AI side of a section's tick (`AI.prepare/2`'s world and what
+/// `MobTicks` threads through its turns): the level the mobs read, the
+/// section's sensing, and the families, held for the whole tick so the
+/// section's turn loop calls it at each native mob's turn.
+///
+/// Per tick: `begin` with every mob of the section in id order (native
+/// mobs get their minds, `ensure`, and every mob its sensed row; an Elixir
+/// mob's row is the owner's); per native turn `think` before the kernel
+/// moves it, `settle` after (with its position before the move and what
+/// the move made), `moved` once its turn is over (and after a hit moves or
+/// kills it); `changes` lists, for the turn loop to apply with
+/// `change_other`, the mobs a think changed. The level random is
+/// `level.random`: a section whose other parts draw it (eggs, trample)
+/// keeps one stream by handing it over around each call.
+pub struct SectionAi<'s, 'w> {
+    pub ctx: Ctx<'w>,
+    pub level: &'s mut Level<'w>,
+    pub sensing: Sensing<Extra>,
+}
+
+impl<'s, 'w> SectionAi<'s, 'w> {
+    /// `AI.prepare/2`: the minds of `mobs` (native, in id order with their
+    /// network ids) made, the sensing of them and of `others` (sensed rows
+    /// of the section's Elixir mobs, in their places of the id order:
+    /// `others` holds `(index, row)` pairs), the group's players and items.
+    pub fn begin<'m>(
+        ctx: Ctx<'w>,
+        level: &'s mut Level<'w>,
+        players: Vec<crate::mobs::sensing::SensedPlayer>,
+        items: Vec<crate::mobs::sensing::SensedItem>,
+        mobs: impl IntoIterator<Item = (i32, &'m mut NativeMob)>,
+        others: Vec<(usize, SensedMob<Extra>)>,
+    ) -> SectionAi<'s, 'w> {
+        let mut rows = Vec::new();
+        for (id, mob) in mobs {
+            ensure(&ctx, mob);
+            if let Some(row) = sensed(&ctx, id, mob) {
+                rows.push(row);
+            }
+        }
+        for (index, row) in others {
+            rows.insert(index.min(rows.len()), row);
+        }
+        SectionAi {
+            ctx,
+            sensing: Sensing::new(players, items, rows),
+            level,
+        }
+    }
+
+    /// The think of a native mob's turn (`think/6`), its own state sensed
+    /// again after it. The mobs it changed are `other` of its effects.
+    pub fn think(
+        &mut self,
+        mob: &mut NativeMob,
+        id: i32,
+        outside: Option<&mut dyn Outside>,
+    ) -> Vec<Effect> {
+        let effects = think(
+            &self.ctx,
+            mob,
+            id,
+            self.level,
+            &mut self.sensing,
+            outside.map(|o| o as &mut dyn Outside),
+        );
+        resense_state(&self.ctx, mob, &mut self.sensing);
+        effects
+    }
+
+    /// `change_other/6` of `effect` on mob `target` (network id `id`).
+    pub fn change_other(&mut self, effect: &Effect, target: &mut NativeMob, id: i32) {
+        change_other(&self.ctx, effect, target, id, self.level, &mut self.sensing);
+    }
+
+    /// The settle of a native mob's turn (`settle/8`).
+    pub fn settle(
+        &mut self,
+        mob: &mut NativeMob,
+        id: i32,
+        from: [f64; 2],
+        moves: Moves,
+        outside: Option<&mut dyn Outside>,
+    ) -> Vec<Effect> {
+        settle(
+            &self.ctx,
+            mob,
+            id,
+            from,
+            self.level,
+            &mut self.sensing,
+            moves,
+            outside.map(|o| o as &mut dyn Outside),
+        )
+    }
+
+    /// The move's splash (`move_sounds/3`).
+    pub fn move_sounds(&self, mob: &mut NativeMob, splash: Option<[f64; 3]>) -> Vec<Effect> {
+        move_sounds(&self.ctx, mob, splash)
+    }
+
+    /// `AI.resense_entry/3`: a native mob sensed again where it is now.
+    pub fn moved(&mut self, mob: &NativeMob) {
+        resensed(&self.ctx, mob, &mut self.sensing);
+    }
+
+    /// An Elixir mob sensed again (its owner's row after its turn).
+    pub fn resense(&mut self, row: SensedMob<Extra>) {
+        let uuid = row.uuid;
+        self.sensing.resense(&uuid, |r| *r = row);
+    }
+}
