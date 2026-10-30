@@ -2,12 +2,12 @@
 //!
 //! The group's `MobWorld` keeps, per section, what spawning reads beside
 //! the blocks: the Region resource and native mob section, the simulated
-//! and absent chunks (as masks), the owner's own mobs and living bodies, its
+//! and absent chunks (as masks), the boxes of its bodies that are not mobs, its
 //! spawner blocks with their countdowns, and the kept starts of structures
 //! that override spawns. The owner pushes a part only when its source
 //! changed (`mob_world_spawn_set`). The counts toward the caps are the
 //! native sections' censuses (`valimc_core::spawning::census`), refreshed
-//! from the mobs that changed since the last tick, plus the owner's mobs.
+//! from the mobs that changed since the last tick.
 //! A tick (`mob_world_spawn`) reads blocks through each section's store,
 //! locked when first read, and gathers the potential charges only when a
 //! spawn's biome has spawn costs.
@@ -40,13 +40,9 @@ use valimc_core::worldgen::random::Random;
 
 mod atoms {
     rustler::atoms! {
-        ok, drop, region, native, simulated, absent, elixir, spawners, structures, not_owner,
+        ok, drop, region, native, simulated, absent, bodies, spawners, structures, not_owner,
     }
 }
-
-/// An owner's mob row: `{id, type, {x, y, z}, flags, idle, lived}` (flags:
-/// 1 persistent, 2 alive in a simulated chunk).
-type Row = (u32, u16, (f64, f64, f64), u8, i32, i32);
 
 type Box6 = (f64, f64, f64, f64, f64, f64);
 
@@ -83,7 +79,6 @@ struct Section {
     native: Option<ResourceArc<MobSectionRes>>,
     simulated: u64,
     absent: u64,
-    elixir: Vec<Row>,
     bodies: Vec<Aabb>,
     spawners: Vec<Spawner>,
     areas: Areas,
@@ -146,7 +141,7 @@ fn spawner_of(p: PushedSpawner, before: Option<&Spawner>) -> Spawner {
 
 /// Changes the group's resident spawning inputs: per section key `:drop`
 /// or a map of any of `region`, `native` (nil for none), `simulated` and
-/// `absent` (masks), `elixir` (`{rows, boxes}`), `spawners` and
+/// `absent` (masks), `bodies` (the boxes of its bodies that are not mobs), `spawners` and
 /// `structures` (`[{chunk, kept}]`). A new section names its region. With
 /// `reset`, the sections `changes` does not name are dropped first.
 #[rustler::nif]
@@ -180,7 +175,6 @@ fn mob_world_spawn_set<'a>(
                 native: None,
                 simulated: 0,
                 absent: 0,
-                elixir: Vec::new(),
                 bodies: Vec::new(),
                 spawners: Vec::new(),
                 areas: Areas::new(),
@@ -198,9 +192,8 @@ fn mob_world_spawn_set<'a>(
         if let Some(t) = get(atoms::absent()) {
             section.absent = t.decode()?;
         }
-        if let Some(t) = get(atoms::elixir()) {
-            let (rows, boxes): (Vec<Row>, Vec<Box6>) = t.decode()?;
-            section.elixir = rows;
+        if let Some(t) = get(atoms::bodies()) {
+            let boxes: Vec<Box6> = t.decode()?;
             section.bodies = boxes
                 .into_iter()
                 .map(|(a, b, c, d, e, f)| Aabb::from_array([a, b, c, d, e, f]))
@@ -614,22 +607,6 @@ fn natural(env: Env, world: &MobWorldRes, request: Request) -> Result<Natural, S
             }
         }
     };
-    for (_, s) in &sections {
-        for row in &s.elixir {
-            let Some(kind) = facts.kind(row.1) else {
-                continue;
-            };
-            let p = block(row.2);
-            if row.3 & 1 == 0
-                && kind.category != Category::Misc
-                && level.holds((p[0] >> 4, p[2] >> 4))
-            {
-                let mut one = [0; 8];
-                one[kind.category.index()] = 1;
-                add((p[0] >> 4, p[2] >> 4), &one);
-            }
-        }
-    }
     for guard in guards.iter().flatten() {
         for (chunk, n) in guard.section.census_read().by_chunk() {
             if level.holds(chunk) {
@@ -650,16 +627,6 @@ fn natural(env: Env, world: &MobWorldRes, request: Request) -> Result<Natural, S
                 }
             }
         };
-        for (_, s) in &sections {
-            for row in &s.elixir {
-                let counted = facts
-                    .kind(row.1)
-                    .is_some_and(|k| k.category != Category::Misc);
-                if row.3 & 1 == 0 && counted {
-                    charge(row.1, block(row.2));
-                }
-            }
-        }
         for guard in guards.iter().flatten() {
             let section = &guard.section;
             let mut ids: Vec<(i32, u16)> = section
@@ -744,13 +711,6 @@ fn natural(env: Env, world: &MobWorldRes, request: Request) -> Result<Natural, S
             _ => {}
         }
     };
-    for (key, s) in &sections {
-        for &(id, kind, (x, y, z), flags, idle, lived) in &s.elixir {
-            if flags & 2 != 0 {
-                check(*key, id, kind, [x, y, z], flags & 1 != 0, idle, lived);
-            }
-        }
-    }
     let clamp = |v: i64| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     for ((key, s), guard) in sections.iter().zip(&guards) {
         let Some(guard) = guard else {
@@ -815,13 +775,6 @@ fn natural(env: Env, world: &MobWorldRes, request: Request) -> Result<Natural, S
                 mobs.push((kind, World::body(t, x, y, z)));
             }
         };
-        for (key, s) in &sections {
-            for row in &s.elixir {
-                if !gone.contains(&(*key, row.0)) {
-                    push(row.1, row.2);
-                }
-            }
-        }
         for ((key, _), guard) in sections.iter().zip(&guards) {
             let Some(guard) = guard else {
                 continue;

@@ -318,7 +318,7 @@ was sent to.
   simulated chunks) over the group's `MobWorld`, which keeps what spawning
   reads beside the blocks resident (VMC-081g2): per section its Region and
   mob section resources, its simulated and absent chunks as masks, the
-  rows and boxes of its Elixir mobs and objects, its spawner blocks with
+  boxes of its objects, its spawner blocks with
   their countdowns and its kept structure starts. The owner pushes a
   section's part only when its source term changed
   (`World.SpawnInputs.sync/3`). Each native mob section keeps a census of

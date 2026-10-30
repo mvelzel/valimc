@@ -12,7 +12,7 @@ defmodule Valimc.World.SpawnInputs do
   whose terms did not change costs a few comparisons; one whose entries
   changed recomputes its rows and pushes them only when they differ.
   """
-  alias Valimc.Data.{EntityTypes, Grid}
+  alias Valimc.Data.EntityTypes
   alias Valimc.Entity.NativeMobs
 
   @spawner Valimc.Blocks.BlockEntityTypes.type_named("minecraft:mob_spawner")
@@ -93,11 +93,11 @@ defmodule Valimc.World.SpawnInputs do
       if same?(seen, :entries, entries) and same?(seen, :simulated, simulated) do
         {change, Map.put(kept, :rows, seen.rows)}
       else
-        rows = rows(entries, simulated)
+        rows = bodies(entries)
 
         if Map.get(seen, :rows) == rows,
           do: {change, Map.put(kept, :rows, rows)},
-          else: {Map.put(change, :elixir, rows), Map.put(kept, :rows, rows)}
+          else: {Map.put(change, :bodies, rows), Map.put(kept, :rows, rows)}
       end
 
     # The spawner blocks, parsed once per compound.
@@ -123,36 +123,11 @@ defmodule Valimc.World.SpawnInputs do
   defp native(_store), do: nil
 
   @doc """
-  The rows of a section's own mobs (`{id, type, {x, y, z}, flags, idle,
-  lived}`, flags 1 persistent or from a bucket, 2 alive in a simulated
-  chunk) and the boxes of its living bodies other than native mobs.
+  The boxes of a section's bodies that are not mobs (a mob's section's
+  census counts it, VMC-081d).
   """
-  def rows(entries, simulated) do
-    Enum.reduce(entries, {[], []}, fn
-      # A native mob (VMC-081d): its section's census counts it.
-      {_, %{native: ref}}, acc when ref != nil ->
-        acc
-
-      {id, %{kind: :mob, entity: e, body: %{type: type, mob: mob}} = entry}, {mobs, bodies} ->
-        alive = Valimc.Entity.Mob.alive?(mob)
-
-        flags =
-          if(mob.persistent or Map.get(entry.body.data, :from_bucket, false), do: 1, else: 0) +
-            if(alive and MapSet.member?(simulated, Grid.chunk_key(e.x, e.z)), do: 2, else: 0)
-
-        row =
-          {id, EntityTypes.id(type), {e.x, e.y, e.z}, flags, Map.get(entry, :idle, 0),
-           Map.get(entry, :lived, 0)}
-
-        {[row | mobs], [box(type, e) | bodies]}
-
-      {_, %{kind: :object, entity: e, body: %{type: type}}}, {mobs, bodies} ->
-        {mobs, [box(type, e) | bodies]}
-
-      _, acc ->
-        acc
-    end)
-  end
+  def bodies(entries),
+    do: for({_, %{kind: :object, entity: e, body: %{type: type}}} <- entries, do: box(type, e))
 
   defp box(type, %{x: x, y: y, z: z}) do
     %{width: w, height: h} = EntityTypes.fetch(type)
