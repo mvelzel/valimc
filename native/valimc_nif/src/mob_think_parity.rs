@@ -42,7 +42,7 @@ mod atoms {
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
         away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
-        magic, projectile, lay_eggs, gift, throw
+        magic, projectile, lay_eggs, gift, throw, shoot_bullet, spawn_mob, shulker_push, bullet
     }
 }
 
@@ -362,6 +362,9 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
         Effect::Infest { cell: c, state } => (atoms::infest(), cell(*c), *state).encode(env),
         Effect::WakeInfested(v) => tagged(env, atoms::wake_infested(), v)?,
         Effect::Projectile(v) => tagged(env, atoms::projectile(), v)?,
+        Effect::ShootBullet(v) => tagged(env, atoms::shoot_bullet(), v)?,
+        Effect::SpawnMob(v) => tagged(env, atoms::spawn_mob(), v)?,
+        Effect::ShulkerPush(v) => tagged(env, atoms::shulker_push(), v)?,
         Effect::Discard => (atoms::discard(),).encode(env),
         Effect::Hurt {
             target,
@@ -479,6 +482,7 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
 /// `(key, value)` (an absent key is one the Elixir map lacks).
 fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Value)> {
     use valimc_core::mobs::monsters::blaze::BlazeOwn;
+    use valimc_core::mobs::monsters::shulker::{Reaction, ShulkerOwn};
     use valimc_core::mobs::monsters::silverfish::SilverfishOwn;
     use valimc_core::mobs::monsters::zombified_piglin::PiglinOwn;
     let mut out = Vec::new();
@@ -493,6 +497,15 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
     }
     if let Some(o) = own.family::<SilverfishOwn>() {
         opt("friends", o.friends);
+    }
+    if let Some(o) = own.family::<ShulkerOwn>() {
+        if let Some(r) = o.hurt {
+            let r = match r {
+                Reaction::Teleport => "teleport",
+                Reaction::Bullet => "bullet",
+            };
+            out.push(("hurt", Value::atom(r)));
+        }
     }
     if let Some(o) = own.family::<BlazeOwn>() {
         out.push(("offset", Value::Float(o.offset)));
@@ -743,6 +756,24 @@ fn mob_parity_think<'a>(
                         valimc_core::mobs::animals::feed_baby(mob);
                     } else if what == atoms::fire() {
                         mob.body.mob.living.fire_ticks = 160;
+                    } else if what == atoms::bullet() {
+                        // A shulker bullet's hit, as its family takes it.
+                        let facts = crate::mob_facts::facts()?;
+                        let type_id = facts.entities.id(&mob.body.entity_type).ok_or(bad())?;
+                        let kind = kinds.kind(type_id).ok_or(bad())?;
+                        let source = facts
+                            .damage_types
+                            .id("minecraft:mob_projectile")
+                            .ok_or(bad())?;
+                        let mut hit = Hit::new(source, 4.0);
+                        hit.direct = Some(valimc_core::mobs::combat::Attacker {
+                            uuid: [0; 16],
+                            entity_id: 0,
+                            player: false,
+                            entity_type: "minecraft:shulker_bullet".to_owned(),
+                            mainhand: None,
+                        });
+                        kind.hurt_with(rules, &mut mob.body, &hit, &mut Vec::new());
                     } else if what == atoms::shot()
                         || what == atoms::poked()
                         || what == atoms::magic()
@@ -763,7 +794,8 @@ fn mob_parity_think<'a>(
                                 "minecraft:cactus"
                             };
                             let source = facts.damage_types.id(name).ok_or(bad())?;
-                            kind.hurt(&mut mob.body, &Hit::new(source, 1.0), &mut Vec::new());
+                            let hit = Hit::new(source, 1.0);
+                            kind.hurt_with(rules, &mut mob.body, &hit, &mut Vec::new());
                         }
                     } else if what == atoms::hurt() {
                         let facts = crate::mob_facts::facts()?;

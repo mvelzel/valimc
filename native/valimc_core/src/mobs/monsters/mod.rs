@@ -17,6 +17,7 @@ pub mod enderman;
 pub mod endermite;
 pub mod ghast;
 pub mod phantom;
+pub mod shulker;
 pub mod silverfish;
 pub mod skeleton;
 pub mod spider;
@@ -53,6 +54,7 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(blaze::Blaze::new(facts)?),
         Box::new(ghast::Ghast::new(facts)?),
         Box::new(phantom::Phantom::new(facts)?),
+        Box::new(shulker::Shulker::new(facts)?),
     ])
 }
 

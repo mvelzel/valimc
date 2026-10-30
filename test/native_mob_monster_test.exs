@@ -24,7 +24,7 @@ defmodule Valimc.NativeMobMonsterTest do
   test "these families are native, their goals vanilla's" do
     assert {:ok, types} = Native.mob_kinds()
 
-    for type <- ~w(minecraft:endermite minecraft:silverfish minecraft:phantom),
+    for type <- ~w(minecraft:endermite minecraft:silverfish minecraft:phantom minecraft:shulker),
         do: assert(type in types)
   end
 
@@ -148,5 +148,48 @@ defmodule Valimc.NativeMobMonsterTest do
     assert Enum.any?(effects, &match?({:attack, _}, &1))
     assert running?(observed, "Valimc.AI.Mobs.Phantom.Sweep")
     assert running?(observed, "Valimc.AI.Mobs.Phantom.Circle")
+  end
+
+  ## Shulkers
+
+  test "shulkers peek, open and shoot, find a face and teleport", ctx do
+    spots = land(ctx.blocks, 12, :rand.seed_s(:exsss, 331))
+    {[here], rest} = Enum.split(spots, 1)
+
+    entries =
+      for {{x, y, z} = spot, n} <- Enum.with_index(rest, 1) do
+        cond do
+          # In the air: no face holds it.
+          n == 1 -> mob(n, "minecraft:shulker", {x, y + 3, z})
+          # Hurt below half health, or open when a bullet hits it.
+          n in [2, 3, 4] -> mob(n, "minecraft:shulker", spot, health: 10.0)
+          n == 5 -> mob(n, "minecraft:shulker", spot, data: [peek: 100, peek_amount: 1.0])
+          true -> mob(n, "minecraft:shulker", spot, data: [color: rem(n, 16)])
+        end
+      end
+
+    acts = [{3, 1, :magic}, {4, 2, :magic}, {5, 3, :magic}, {6, 4, :bullet}, {12, 6, :hurt}]
+
+    observed =
+      for {mode, level} <- [{:survival, 121}, {:creative, 122}] do
+        scene =
+          scene([player(0, here, mode: mode)],
+            ticks: 240,
+            bright: false,
+            acts: acts,
+            post: true,
+            level: level
+          )
+
+        compare(ctx, scene, entries)
+      end
+
+    ticks = Enum.concat(observed)
+    effects = effects(ticks)
+    assert Enum.any?(effects, &match?({:shoot_bullet, _, _, _}, &1))
+    assert Enum.any?(effects, &match?({:shulker_push, _, _}, &1))
+    assert Enum.any?(effects, &match?({:level_event, _, 2016, _}, &1))
+    assert running?(ticks, "Valimc.AI.Mobs.Shulker.Peek")
+    assert running?(ticks, "Valimc.AI.Mobs.Shulker.Attack")
   end
 end

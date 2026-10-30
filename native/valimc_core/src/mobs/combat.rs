@@ -199,6 +199,19 @@ pub trait Family: Sync {
         Vec::new()
     }
 
+    /// `hurt/2` of a family whose part reads the living rules (a shulker's
+    /// maximum health); by default `hurt`. The hurt path calls this one.
+    fn hurt_with(&self, _rules: &Rules, body: &mut Body, hit: &Hit, events: &mut Vec<Event>) {
+        self.hurt(body, hit, events);
+    }
+
+    /// `hurt_events/2` of a family whose part reads the living rules (a
+    /// golem's maximum health); by default `hurt_events`. The hurt path
+    /// calls this one.
+    fn hurt_events_with(&self, _rules: &Rules, body: &Body, health_before: f64) -> Vec<Event> {
+        self.hurt_events(body, health_before)
+    }
+
     /// `repelled/2`: its part after turning a hurt away (an enderman
     /// teleporting from a projectile).
     fn repelled(&self, _body: &mut Body, _hit: &Hit) {}
@@ -548,8 +561,8 @@ pub fn hurt_body(
     if outcome.died {
         died(rules, ty, family, body, &uuid, Some(hit));
     }
-    family.hurt(body, hit, &mut events);
-    events.extend(family.hurt_events(body, health_before));
+    family.hurt_with(rules, body, hit, &mut events);
+    events.extend(family.hurt_events_with(rules, body, health_before));
     if let Some(b) = replaced {
         mob.body = b;
     }

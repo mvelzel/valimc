@@ -256,6 +256,16 @@ defmodule Valimc.NativeMobScene do
             :magic ->
               hit = %{source: :magic, amount: 1.0}
               AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
+
+            # A shulker bullet's hit, as its family takes it.
+            :bullet ->
+              hit = %{
+                source: :mob_projectile,
+                amount: 4.0,
+                direct: %{type: "minecraft:shulker_bullet"}
+              }
+
+              AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
           end
 
         List.replace_at(entries, i, {id, %{e | body: body}})
@@ -350,6 +360,10 @@ defmodule Valimc.NativeMobScene do
   end
 
   @doc "An effect as both sides answer it (sound seeds and bodies left out)."
+  # A source by name (a shulker's) as its id, which the owner's packet reads.
+  def effect({:sound, id, source, volume, pitch, seed}) when is_binary(source),
+    do: effect({:sound, id, Valimc.Protocol.CombatPackets.source(source), volume, pitch, seed})
+
   def effect({:sound, id, source, volume, pitch, _seed}),
     do: {:sound, sound_id(id), source, volume, pitch}
 
@@ -400,6 +414,9 @@ defmodule Valimc.NativeMobScene do
   def effect({:infest, _, _} = e), do: e
   def effect({:wake_infested, _, _, _} = e), do: e
   def effect({:projectile, _, _, _, _} = e), do: e
+  def effect({:shoot_bullet, _, _, _} = e), do: e
+  def effect({:spawn_mob, _, _, _} = e), do: e
+  def effect({:shulker_push, _, _} = e), do: e
 
   def effect({:touch, ref, amount, {id, volume, pitch}}),
     do: {:touch, ref, amount, {id, volume, pitch}}
@@ -516,8 +533,9 @@ defmodule Valimc.NativeMobScene do
   @doc """
   An entry of mob `n` of `type` at a spot: options `:data`, `:age` (an
   animal's), `:yaw`, `:no_ai`, `:leash`, `:finalize` (a spawn reason),
-  `:fire` (fire ticks), `:equipment` (`slot => stack`), `:motion` (fields of
-  its motion), `:target`, `:pick_up` (`canPickUpLoot`), `:air` (its air supply).
+  `:fire` (fire ticks), `:health`, `:equipment` (`slot => stack`), `:motion`
+  (fields of its motion), `:target`, `:pick_up` (`canPickUpLoot`), `:air` (its
+  air supply).
   """
   def mob(n, type, {x, y, z}, opts \\ []) do
     {:ok, body} = Body.new(type)
@@ -535,6 +553,12 @@ defmodule Valimc.NativeMobScene do
     body = %{body | mob: %{body.mob | can_pick_up_loot: loot}}
     body = put_in(body.mob.living.fire_ticks, Keyword.get(opts, :fire, 0))
     body = put_in(body.mob.living.air_supply, Keyword.get(opts, :air, body.mob.living.air_supply))
+
+    body =
+      case Keyword.get(opts, :health) do
+        nil -> body
+        health -> put_in(body.mob.living.health.value, health * 1.0)
+      end
 
     body =
       update_in(body.mob.equipment, &Map.merge(&1, Map.new(Keyword.get(opts, :equipment, []))))
