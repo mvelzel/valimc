@@ -22,6 +22,18 @@ pub struct Area {
 /// The kept starts by chunk.
 pub type Areas = HashMap<(i32, i32), Vec<Area>>;
 
+/// Where the kept starts of a chunk are read from: one map, or a group's
+/// sections' (VMC-081g2).
+pub trait Kept {
+    fn kept(&self, chunk: (i32, i32)) -> &[Area];
+}
+
+impl Kept for Areas {
+    fn kept(&self, chunk: (i32, i32)) -> &[Area] {
+        self.get(&chunk).map_or(&[], Vec::as_slice)
+    }
+}
+
 fn inside(b: &[i32; 6], p: [i32; 3]) -> bool {
     (b[0]..=b[3]).contains(&p[0]) && (b[1]..=b[4]).contains(&p[1]) && (b[2]..=b[5]).contains(&p[2])
 }
@@ -30,11 +42,14 @@ fn inside(b: &[i32; 6], p: [i32; 3]) -> bool {
 /// `category`, with their total weight; None for the biome's.
 pub fn mobs_at<'w>(
     world: &'w World,
-    areas: &Areas,
+    areas: &dyn Kept,
     category: Category,
     pos: [i32; 3],
 ) -> Option<(&'w [Spawner], i32)> {
-    let areas = areas.get(&(pos[0] >> 4, pos[2] >> 4))?;
+    let areas = areas.kept((pos[0] >> 4, pos[2] >> 4));
+    if areas.is_empty() {
+        return None;
+    }
     let facts = world.facts;
     let category_index = category.index();
     // `isInNetherFortressBounds`: on nether bricks, inside a fortress's box.

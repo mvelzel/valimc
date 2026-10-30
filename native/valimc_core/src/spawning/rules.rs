@@ -48,6 +48,9 @@ pub struct World<'a> {
     /// Boxes of the living entities (`blocksBuilding`) a new mob must not
     /// overlap, the tick's new mobs added as they spawn; none at generation.
     pub bodies: std::cell::RefCell<Vec<Aabb>>,
+    /// Whether a box overlaps one of the bodies a group keeps resident
+    /// (VMC-081g2), beside `bodies`.
+    pub resident: Option<&'a dyn Fn(&Aabb) -> bool>,
 }
 
 impl World<'_> {
@@ -475,11 +478,7 @@ impl World<'_> {
 
     /// `isUnobstructed(mob)`: no living entity's box overlaps the mob's.
     fn unobstructed(&self, b: &Aabb) -> bool {
-        let [ax0, ay0, az0, ax1, ay1, az1] = b.to_array();
-        !self.bodies.borrow().iter().any(|o| {
-            let [bx0, by0, bz0, bx1, by1, bz1] = o.to_array();
-            ax0 < bx1 && ax1 > bx0 && ay0 < by1 && ay1 > by0 && az0 < bz1 && az1 > bz0
-        })
+        !self.bodies.borrow().iter().any(|o| overlaps(b, o)) && !self.resident.is_some_and(|f| f(b))
     }
 
     /// A fresh mob's `checkSpawnObstruction` at `(x, y, z)`.
@@ -533,6 +532,13 @@ impl World<'_> {
         }
         (best >= 0.0).then_some(best)
     }
+}
+
+/// Whether two boxes overlap (strictly, as `AABB.intersects`).
+pub fn overlaps(a: &Aabb, b: &Aabb) -> bool {
+    let [ax0, ay0, az0, ax1, ay1, az1] = a.to_array();
+    let [bx0, by0, bz0, bx1, by1, bz1] = b.to_array();
+    ax0 < bx1 && ax1 > bx0 && ay0 < by1 && ay1 > by0 && az0 < bz1 && az1 > bz0
 }
 
 pub fn distance_sqr(a: [f64; 3], b: [f64; 3]) -> f64 {

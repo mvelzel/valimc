@@ -54,13 +54,13 @@ defmodule Valimc.World.CatSpawner do
   end
 
   defp spawn(group, {x, _, z} = pos) do
-    [region | siblings] = group.stores
+    {region, siblings, absent} = Valimc.World.Spawning.stores(group)
     kind = EntityTypes.id(@cat)
 
     case Valimc.Native.spawn_position_ok(
            region,
            siblings,
-           group.absent,
+           absent,
            group.environment,
            kind,
            pos,

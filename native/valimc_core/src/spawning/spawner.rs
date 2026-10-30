@@ -30,12 +30,18 @@ pub struct Counted {
     pub block: [i32; 3],
 }
 
+/// The potential charges (`PotentialCalculator`): built when the tick
+/// starts, or by `load` when a spawn first needs them (a group's are
+/// gathered only where a biome's spawn costs apply, VMC-081g2).
+pub type Charges = Vec<([i32; 3], f64)>;
+
 /// `NaturalSpawner.SpawnState` with its `LocalMobCapCalculator`, for the
 /// players of one group.
-pub struct SpawnState {
+pub struct SpawnState<'l> {
     pub spawnable: i32,
     pub counts: [i32; 8],
-    pub charges: Vec<([i32; 3], f64)>,
+    charges: Option<Charges>,
+    load: Option<&'l dyn Fn() -> Charges>,
     /// Per player (by index into the world's players), per category.
     pub local: Vec<[i32; 8]>,
 }
@@ -53,22 +59,24 @@ fn near_spawn_tracker(world: &World, chunk: (i32, i32)) -> bool {
 }
 
 /// `getPlayersCloseForSpawning`: players that are not spectators within 128
-/// blocks of the chunk's centre (horizontally).
-pub fn players_near(world: &World, chunk: (i32, i32)) -> Vec<usize> {
-    if !near_spawn_tracker(world, chunk) {
-        return Vec::new();
-    }
+/// blocks of the chunk's centre (horizontally), by index.
+pub fn near<'w>(world: &'w World, chunk: (i32, i32)) -> impl Iterator<Item = usize> + 'w {
+    let tracked = near_spawn_tracker(world, chunk);
     let (x, z) = ((chunk.0 * 16 + 8) as f64, (chunk.1 * 16 + 8) as f64);
     world
         .players
         .iter()
         .enumerate()
-        .filter(|(_, p)| {
+        .filter(move |(_, p)| {
             let (dx, dz) = (x - p.pos[0], z - p.pos[2]);
-            !p.spectator && dx * dx + dz * dz < 16384.0
+            tracked && !p.spectator && dx * dx + dz * dz < 16384.0
         })
         .map(|(i, _)| i)
-        .collect()
+}
+
+/// `getPlayersCloseForSpawning` as a list.
+pub fn players_near(world: &World, chunk: (i32, i32)) -> Vec<usize> {
+    near(world, chunk).collect()
 }
 
 /// The number of chunks within eight (chessboard) of any player's chunk
@@ -89,13 +97,14 @@ pub fn spawnable_chunks(world: &World) -> i32 {
     chunks.len() as i32
 }
 
-impl SpawnState {
+impl<'l> SpawnState<'l> {
     /// `createState` over the counted mobs.
-    pub fn new(world: &World, spawnable: i32, mobs: &[Counted]) -> SpawnState {
+    pub fn new(world: &World, spawnable: i32, mobs: &[Counted]) -> SpawnState<'l> {
         let mut state = SpawnState {
             spawnable,
             counts: [0; 8],
-            charges: Vec::new(),
+            charges: Some(Vec::new()),
+            load: None,
             local: vec![[0; 8]; world.players.len()],
         };
         for mob in mobs {
@@ -119,14 +128,38 @@ impl SpawnState {
         state
     }
 
+    /// `createState` from counts kept elsewhere: the categories' counts,
+    /// each player's local counts and the charges `load` gathers when a
+    /// spawn first needs them.
+    pub fn resident(
+        spawnable: i32,
+        counts: [i32; 8],
+        local: Vec<[i32; 8]>,
+        load: &'l dyn Fn() -> Charges,
+    ) -> SpawnState<'l> {
+        SpawnState {
+            spawnable,
+            counts,
+            charges: None,
+            load: Some(load),
+            local,
+        }
+    }
+
+    fn charges(&mut self) -> &mut Charges {
+        let load = self.load;
+        self.charges
+            .get_or_insert_with(|| load.map_or_else(Vec::new, |f| f()))
+    }
+
     fn add_charge(&mut self, pos: [i32; 3], charge: f64) {
         if charge != 0.0 {
-            self.charges.push((pos, charge));
+            self.charges().push((pos, charge));
         }
     }
 
     fn add_local(&mut self, world: &World, block: [i32; 3], category: Category) {
-        for i in players_near(world, (block[0] >> 4, block[2] >> 4)) {
+        for i in near(world, (block[0] >> 4, block[2] >> 4)) {
             self.local[i][category.index()] += 1;
         }
     }
@@ -140,18 +173,16 @@ impl SpawnState {
     /// `canSpawnForCategoryLocal`.
     pub fn local(&self, world: &World, category: Category, chunk: (i32, i32)) -> bool {
         let max = world.facts.category(category).max;
-        players_near(world, chunk)
-            .into_iter()
-            .any(|i| self.local[i][category.index()] < max)
+        near(world, chunk).any(|i| self.local[i][category.index()] < max)
     }
 
     /// `canSpawn`: the potential's energy change within the type's budget.
-    fn potential(&self, world: &World, kind: u16, pos: [i32; 3]) -> (bool, f64) {
+    fn potential(&mut self, world: &World, kind: u16, pos: [i32; 3]) -> (bool, f64) {
         match world.facts.biome(world.level.biome(pos)).costs.get(&kind) {
             None => (true, 0.0),
             Some(&(budget, charge)) => {
                 let mut change = 0.0f64;
-                for (at, c) in &self.charges {
+                for (at, c) in self.charges().iter() {
                     let d = (0..3)
                         .map(|a| ((at[a] - pos[a]) as f64).powi(2))
                         .sum::<f64>();
@@ -253,7 +284,7 @@ impl Finalize for Recorded {
 /// The spawning of one tick in one group.
 pub struct Tick<'w, 'a> {
     pub world: &'w World<'a>,
-    pub state: SpawnState,
+    pub state: SpawnState<'w>,
     pub random: Random,
     pub spawned: Vec<Spawned>,
     /// Chunks whose entities tick (`canSpawnEntitiesInChunk`).
@@ -264,10 +295,10 @@ pub struct Tick<'w, 'a> {
     /// every category).
     pub caps: bool,
     /// The starts the chunks reference whose structures override spawns.
-    pub structures: &'w super::structures::Areas,
+    pub structures: &'w dyn super::structures::Kept,
 }
 
-impl Tick<'_, '_> {
+impl<'w> Tick<'w, '_> {
     /// `spawnForChunk`.
     pub fn chunk(
         &mut self,
@@ -319,15 +350,8 @@ impl Tick<'_, '_> {
     }
 
     /// `mobsAt`: a structure's override there, else the biome's spawners.
-    fn list(&self, category: Category, pos: [i32; 3]) -> (&[Spawner], i32) {
-        if let Some(list) = super::structures::mobs_at(self.world, self.structures, category, pos) {
-            return list;
-        }
-        let biome = self.world.facts.biome(self.world.level.biome(pos));
-        (
-            &biome.spawns[category.index()],
-            biome.totals[category.index()],
-        )
+    fn list(&self, category: Category, pos: [i32; 3]) -> (&'w [Spawner], i32) {
+        list_at(self.world, self.structures, category, pos)
     }
 
     /// `spawnCategoryForPosition`: three packs from `start`.
@@ -372,8 +396,7 @@ impl Tick<'_, '_> {
                         break;
                     }
                     let (list, total) = self.list(category, pos);
-                    let list = list.to_vec();
-                    match pick(&list, total, &mut self.random) {
+                    match pick(list, total, &mut self.random) {
                         None => break,
                         Some(s) => {
                             current = Some(s);
@@ -475,6 +498,23 @@ impl Tick<'_, '_> {
         }
         world.mob_spawn_rules(kind, pos) && world.obstruction(kind, x, pos[1] as f64, z)
     }
+}
+
+/// `mobsAt` over `world` and the kept starts `structures`.
+fn list_at<'w>(
+    world: &'w World,
+    structures: &dyn super::structures::Kept,
+    category: Category,
+    pos: [i32; 3],
+) -> (&'w [Spawner], i32) {
+    if let Some(list) = super::structures::mobs_at(world, structures, category, pos) {
+        return list;
+    }
+    let biome = world.facts.biome(world.level.biome(pos));
+    (
+        &biome.spawns[category.index()],
+        biome.totals[category.index()],
+    )
 }
 
 /// `removeWhenFarAway` of a mob that has just spawned.

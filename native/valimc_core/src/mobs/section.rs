@@ -25,6 +25,7 @@ use super::living::body::Shown;
 use super::model::NativeMob;
 use super::record;
 use super::term::Value;
+use crate::spawning::census::{Census, Counted};
 
 /// The hashes of the record a frame last wrote (or a load or checkpoint
 /// holds): the whole record's and its non-travel part's.
@@ -96,6 +97,8 @@ pub struct Slot {
     /// What its owner's observers were last sent of it (`crate::tracker`),
     /// None until its owner starts tracking it here.
     pub tracker: Option<crate::tracker::Tracker>,
+    /// Noted for the spawn census since its last refresh.
+    noted: bool,
 }
 
 impl Slot {
@@ -117,6 +120,7 @@ impl Slot {
             lived: 0,
             row: None,
             tracker: None,
+            noted: false,
         }
     }
 }
@@ -132,6 +136,14 @@ pub fn chunk_of(position: [f64; 3]) -> (i32, i32) {
 /// The section of a chunk (`Grid.region_key/1`).
 pub fn section_of(chunk: (i32, i32)) -> (i32, i32) {
     (chunk.0 >> 3, chunk.1 >> 3)
+}
+
+/// Notes slot `id` for the census once until its next refresh.
+fn note(census: &mut Census, id: i32, slot: &mut Slot, limit: usize) {
+    if !slot.noted && !census.stale {
+        slot.noted = true;
+        census.note(id, limit);
+    }
 }
 
 /// Why a mob cannot join the section.
@@ -169,6 +181,8 @@ pub struct MobSection {
     pub anywhere: bool,
     /// How many of its mobs are of a solid type (`SOLID`).
     solids: usize,
+    /// What its mobs count as toward natural spawning's caps (VMC-081g2).
+    census: Census,
 }
 
 /// The types whose family gives them a collider other bodies meet
@@ -190,6 +204,7 @@ impl MobSection {
             revision: 0,
             anywhere: false,
             solids: 0,
+            census: Census::default(),
         }
     }
 
@@ -216,9 +231,20 @@ impl MobSection {
         self.slots.iter().map(|(&id, s)| (id, s))
     }
 
-    /// The mobs in id order, to change.
-    pub fn mobs_mut(&mut self) -> impl Iterator<Item = (i32, &mut NativeMob)> {
-        self.slots.iter_mut().map(|(&id, s)| (id, &mut s.mob))
+    /// The mobs in id order that `keep` admits, to change.
+    pub fn mobs_mut<'s>(
+        &'s mut self,
+        keep: impl Fn(i32) -> bool + 's,
+    ) -> impl Iterator<Item = (i32, &'s mut NativeMob)> + 's {
+        let limit = self.note_limit();
+        let census = &mut self.census;
+        self.slots
+            .iter_mut()
+            .filter(move |(&id, _)| keep(id))
+            .map(move |(&id, s)| {
+                note(census, id, s, limit);
+                (id, &mut s.mob)
+            })
     }
 
     pub fn contains(&self, id: i32) -> bool {
@@ -235,15 +261,20 @@ impl MobSection {
 
     /// Slot `id` for a change: it is touched.
     pub fn get_mut(&mut self, id: i32) -> Option<&mut Slot> {
+        let limit = self.note_limit();
         let slot = self.slots.get_mut(&id)?;
         slot.touched = true;
+        note(&mut self.census, id, slot, limit);
         self.revision += 1;
         Some(slot)
     }
 
     /// Slot `id` without marking a change (bookkeeping only).
     pub fn peek_mut(&mut self, id: i32) -> Option<&mut Slot> {
-        self.slots.get_mut(&id)
+        let limit = self.note_limit();
+        let slot = self.slots.get_mut(&id)?;
+        note(&mut self.census, id, slot, limit);
+        Some(slot)
     }
 
     /// Adds mob `id`. `written`: the record a load or checkpoint holds of it
@@ -268,6 +299,8 @@ impl MobSection {
         self.removed.remove(&mob.uuid);
         let mut slot = Slot::new(mob, written);
         slot.touched = true;
+        let limit = self.note_limit();
+        note(&mut self.census, id, &mut slot, limit);
         self.solids += usize::from(solid(&slot.mob));
         self.uuids.insert(slot.mob.uuid, id);
         self.chunks.entry(slot.chunk).or_default().insert(id);
@@ -291,6 +324,8 @@ impl MobSection {
         if let Some(written) = slot.written {
             self.removed.insert(slot.mob.uuid, written);
         }
+        let limit = self.note_limit();
+        self.census.note(id, limit);
         self.revision += 1;
         Some(slot)
     }
@@ -301,13 +336,16 @@ impl MobSection {
         self.slots.remove(&id)
     }
 
-    pub fn put(&mut self, id: i32, slot: Slot) {
+    pub fn put(&mut self, id: i32, mut slot: Slot) {
         self.revision += 1;
+        let limit = self.note_limit();
+        note(&mut self.census, id, &mut slot, limit);
         self.slots.insert(id, slot);
     }
 
     /// Mob `id`'s chunk after its position changed.
     pub fn relocate(&mut self, id: i32) {
+        let limit = self.note_limit();
         let Some(slot) = self.slots.get_mut(&id) else {
             return;
         };
@@ -315,6 +353,7 @@ impl MobSection {
         if chunk == slot.chunk {
             return;
         }
+        note(&mut self.census, id, slot, limit);
         if let Some(ids) = self.chunks.get_mut(&slot.chunk) {
             ids.remove(&id);
             if ids.is_empty() {
@@ -323,6 +362,47 @@ impl MobSection {
         }
         slot.chunk = chunk;
         self.chunks.entry(chunk).or_default().insert(id);
+    }
+
+    /// The spawn census (VMC-081g2) after refreshing the mobs noted since the
+    /// last refresh (every mob when it is to be rebuilt): `count` says what
+    /// a mob counts as, given what it counted as before.
+    pub fn census(
+        &mut self,
+        count: impl Fn(i32, &Slot, Option<&Counted>) -> Option<Counted>,
+    ) -> &Census {
+        let census = &mut self.census;
+        if census.stale {
+            census.clear();
+            for (&id, slot) in self.slots.iter_mut() {
+                slot.noted = false;
+                let now = count(id, slot, None);
+                census.set(id, now);
+            }
+        } else {
+            for id in std::mem::take(&mut census.dirty) {
+                let now = match self.slots.get_mut(&id) {
+                    Some(slot) => {
+                        slot.noted = false;
+                        count(id, slot, census.get(id))
+                    }
+                    None => None,
+                };
+                census.set(id, now);
+            }
+        }
+        census
+    }
+
+    /// The census as of its last refresh.
+    pub fn census_read(&self) -> &Census {
+        &self.census
+    }
+
+    /// The most noted ids the census keeps before it forgets them for a
+    /// rebuild (a section whose spawning does not run keeps none).
+    fn note_limit(&self) -> usize {
+        2 * self.slots.len() + 256
     }
 
     /// The ids of the mobs in `chunks`, in order.
@@ -678,5 +758,65 @@ mod tests {
     fn chunks_and_sections() {
         assert_eq!(chunk_of([-0.5, 0.0, 15.9]), (-1, 0));
         assert_eq!(section_of((-1, 8)), (-1, 1));
+    }
+
+    /// The census as a refresh over every mob would give it.
+    fn census(s: &mut MobSection) -> Vec<((i32, i32), [u32; 8])> {
+        let count = |_: i32, slot: &Slot, _: Option<&Counted>| {
+            Some(Counted {
+                kind: 1,
+                category: (!slot.mob.body.mob.persistent).then_some(2),
+                chunk: chunk_of(slot.mob.position),
+                persistent: slot.mob.body.mob.persistent,
+                bucketable: false,
+            })
+        };
+        let refreshed: Vec<_> = s.census(count).by_chunk().map(|(c, n)| (c, *n)).collect();
+        let mut whole = MobSection::new(s.section);
+        for (id, slot) in s.slots() {
+            whole.insert(id, slot.mob.clone(), None).unwrap();
+        }
+        let rebuilt: Vec<_> = whole
+            .census(count)
+            .by_chunk()
+            .map(|(c, n)| (c, *n))
+            .collect();
+        assert_eq!(refreshed, rebuilt);
+        refreshed
+    }
+
+    #[test]
+    fn the_census_follows_every_change_since_its_last_refresh() {
+        let mut s = MobSection::new((0, 0));
+        s.insert(1, mob(1, [8.5, 64.0, 8.5]), None).unwrap();
+        s.insert(2, mob(2, [24.5, 64.0, 8.5]), None).unwrap();
+        s.insert(3, mob(3, [24.5, 64.0, 9.5]), None).unwrap();
+        let mut two = [0; 8];
+        two[2] = 2;
+        let mut one = [0; 8];
+        one[2] = 1;
+        assert_eq!(census(&mut s), [((0, 0), one), ((1, 0), two)]);
+        // A turn's move (take, put, relocate), a persistence change, a
+        // bookkeeping change and a removal.
+        let mut slot = s.take(1).unwrap();
+        slot.mob.position = [40.5, 64.0, 8.5];
+        s.put(1, slot);
+        s.relocate(1);
+        s.get_mut(2).unwrap().mob.body.mob.persistent = true;
+        s.peek_mut(3).unwrap().mob.position = [56.5, 64.0, 8.5];
+        assert_eq!(census(&mut s), [((2, 0), one), ((3, 0), one)]);
+        s.remove(1);
+        assert_eq!(census(&mut s), [((3, 0), one)]);
+        // Changes past the noted limit rebuild it whole.
+        for n in 0..400 {
+            s.insert(10 + n, mob(20 + (n % 200) as u8, [8.5, 64.0, 8.5]), None)
+                .unwrap();
+            s.remove(10 + n);
+        }
+        let mine = s.take(3).unwrap();
+        s.put(3, mine);
+        assert!(s.census_read().stale);
+        assert_eq!(census(&mut s), [((3, 0), one)]);
+        assert!(!s.census_read().stale);
     }
 }

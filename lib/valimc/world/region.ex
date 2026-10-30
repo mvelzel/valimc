@@ -1597,22 +1597,11 @@ defmodule Valimc.World.Region do
       players ->
         resources = Map.new(state.sections, fn {key, s} -> {key, s.resource} end)
 
-        # Spawns land in simulated chunks; their placement reads at most the
-        # sections beside those. Every section's mobs still count for the caps.
-        active =
-          for {{sx, sz}, r} <- resources, MapSet.size(r.tickets.simulated) > 0, do: {sx, sz}
-
-        near =
-          for {{sx, sz} = key, r} <- resources,
-              Enum.any?(active, fn {ax, az} -> abs(ax - sx) <= 1 and abs(az - sz) <= 1 end),
-              do: {key, r}
-
-        near = if near == [], do: Enum.to_list(resources), else: near
-
+        # Every section's inputs stay resident in the group's MobWorld
+        # (VMC-081g2); every section's mobs count for the caps.
         group = %{
+          world: state.mob_world,
           sections: resources,
-          stores: for({_, r} <- near, do: r.blocks.ref),
-          absent: Enum.flat_map(near, fn {_, r} -> MapSet.to_list(r.generation.absent) end),
           players: players,
           rest: Host.rest_players(state),
           spawning: state.spawning,

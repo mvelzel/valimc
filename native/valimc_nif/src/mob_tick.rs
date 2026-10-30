@@ -66,7 +66,7 @@ fn bad() -> rustler::Error {
 /// A group's level, players and sections, owned by the group process and
 /// read by its sections' ticks.
 pub struct MobWorldRes {
-    owner: Mutex<LocalPid>,
+    pub(crate) owner: Mutex<LocalPid>,
     pub(crate) inner: Mutex<WorldState>,
 }
 
@@ -81,6 +81,8 @@ pub(crate) struct WorldState {
     pub(crate) pushers: Vec<([f64; 3], Aabb)>,
     pub(crate) sections: Vec<WorldSection>,
     pub(crate) loot: Option<Arc<valimc_core::loot::Loot>>,
+    /// Natural spawning's resident inputs (VMC-081g2).
+    pub(crate) spawn: crate::spawn_world::Resident,
 }
 
 #[derive(Clone)]
@@ -982,10 +984,7 @@ fn tick_section<'a>(
         .collect();
     let mut ai = {
         let turning = &state.turns;
-        let mobs = inner
-            .section
-            .mobs_mut()
-            .filter(|(id, _)| turning.contains_key(id));
+        let mobs = inner.section.mobs_mut(|id| turning.contains_key(&id));
         SectionAi::begin(
             ms::ctx(&rules)?,
             &mut level,
@@ -1411,45 +1410,6 @@ fn mob_section_age_tick<'a>(
         );
     }
     Ok(out.encode(env))
-}
-
-/// A spawning row of a native mob and its box.
-pub(crate) type SpawnRow = (i32, u16, [f64; 3], u8, i64, i64, [f64; 6]);
-
-/// The native mobs whose despawning and the spawn caps read them, as the
-/// spawning rows of `Valimc.World.SpawnInputs`: `{id, type, {x, y, z},
-/// flags, idle, lived}` (flags: 1 persistent or from a bucket, 2 alive in a
-/// chunk of `mask`, the simulated ones), and their boxes.
-pub(crate) fn spawn_rows(rules: &Rules, section: &MobSection, mask: u64) -> Vec<SpawnRow> {
-    let key = section.section;
-    section
-        .slots()
-        .filter_map(|(id, s)| {
-            let ty = rules.of(&s.mob.body.entity_type)?;
-            let m = &s.mob.body.mob;
-            let (lx, lz) = (s.chunk.0 - key.0 * 8, s.chunk.1 - key.1 * 8);
-            let ticking =
-                (0..8).contains(&lx) && (0..8).contains(&lz) && mask & (1u64 << (lz * 8 + lx)) != 0;
-            let bucket = s.mob.body.data.get("from_bucket").and_then(|v| v.as_bool()) == Some(true);
-            let flags = u8::from(m.persistent || bucket)
-                + if valimc_core::mobs::living::mob::alive(m) && ticking {
-                    2
-                } else {
-                    0
-                };
-            let [x, y, z] = s.mob.position;
-            let (w, h) = (ty.facts.width, ty.facts.height);
-            Some((
-                id,
-                ty.id,
-                s.mob.position,
-                flags,
-                s.idle,
-                s.lived,
-                [x - w / 2.0, y, z - w / 2.0, x + w / 2.0, y + h, z + w / 2.0],
-            ))
-        })
-        .collect()
 }
 
 /// The section's mobs as redstone's entity contacts see them

@@ -118,13 +118,13 @@ defmodule Valimc.World.TraderSpawner do
     {b, own} = JavaRandom.next_int(own, radius * 2)
     state = %{state | random: own}
     {x, z} = {rx + a - radius, rz + b - radius}
-    [region | siblings] = group.stores
+    {region, siblings, absent} = Valimc.World.Spawning.stores(group)
     kind = EntityTypes.id(@trader)
 
     case Valimc.Native.spawn_position_ok(
            region,
            siblings,
-           group.absent,
+           absent,
            group.environment,
            kind,
            {x, nil, z},

@@ -30,6 +30,8 @@ defmodule Valimc.NaturalSpawningTest do
 
   setup do
     Spawning.install!()
+    # The group's MobWorld, owned by the test process that plans its ticks.
+    Process.put(:spawn_world, Valimc.Native.mob_world_new())
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-spawning-#{nonce}")
     # Two sections far enough apart for separate groups.
@@ -87,9 +89,8 @@ defmodule Valimc.NaturalSpawningTest do
       end
 
     %{
+      world: Process.get(:spawn_world),
       sections: sections,
-      stores: for({_, r} <- sections, do: r.blocks.ref),
-      absent: [],
       players: players,
       spawning: spawning,
       environment: env,
@@ -288,11 +289,15 @@ defmodule Valimc.NaturalSpawningTest do
            end)
 
     # The countdown restarted after the spawns, and stops with no player in range.
-    {_nbt, _config, delay} = spawning.spawners[spawner]
-    assert delay in 0..800
+    delay = fn ->
+      Map.new(Valimc.Native.mob_world_spawners(Process.get(:spawn_world)))[spawner]
+    end
+
+    before = delay.()
+    assert before in 0..800
     far = [{x - 40, y, z, false, false}]
-    {spawning, _} = tick(owner, far, env, spawning, 399)
-    assert elem(spawning.spawners[spawner], 2) == delay
+    {_spawning, _} = tick(owner, far, env, spawning, 399)
+    assert delay.() == before
   end
 
   test "inside a swamp hut's piece the monsters are witches", %{owners: [{key, owner} | _]} do

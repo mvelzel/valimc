@@ -66,10 +66,9 @@ defmodule Valimc.Native do
     physics_block_bodies: {120, :physics_block_bodies_dirty},
     # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
     physics_projectiles: {120, :physics_projectiles_dirty},
-    # Per simulated chunk and category: a start and up to three packs, with
-    # the despawn checks (`World.Spawning`, VMC-042a; nine sections' 4,032
-    # units took at most 0.7 ms, under 200 ns a unit).
-    natural_spawn: {500, :natural_spawn_dirty},
+    # Per simulated chunk: its categories' starts and packs, with the
+    # despawn checks over resident inputs (`World.Spawning`, VMC-081g2).
+    mob_world_spawn: {2_000, :mob_world_spawn_dirty},
     # Per node a path search may visit (`Valimc.AI.Paths`, VMC-041b): its
     # neighbours' path types over the mob's box, each a few block reads; a
     # zombie's search that visits all 560 took at most 0.86 ms.
@@ -469,12 +468,12 @@ defmodule Valimc.Native do
   ## Natural spawning (VMC-042a)
 
   def spawn_facts_install(_facts), do: :erlang.nif_error(:nif_not_loaded)
-  def natural_spawn(_region, _siblings, _absent, _request), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_world_spawn(_world, _request), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_world_spawn_dirty(_world, _request), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_world_spawn_set(_world, _reset, _changes), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_world_spawners(_world), do: :erlang.nif_error(:nif_not_loaded)
 
   def spawn_position_ok(_region, _siblings, _absent, _environment, _kind, _pos, _reach),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def natural_spawn_dirty(_region, _siblings, _absent, _request),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def spawn_generated(_region, _siblings, _absent, _environment, _chunks),

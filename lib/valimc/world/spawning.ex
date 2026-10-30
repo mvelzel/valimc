@@ -29,12 +29,17 @@ defmodule Valimc.World.Spawning do
   Spawner blocks (VMC-042b) tick in the same kernel call, after the
   natural spawns and despawns: each spawner block entity in a simulated
   chunk with a player in range counts down and spawns its type. Its
-  countdown is the group's (`spawners`, by position), starting from the
-  `Delay` its block entity saved; a restart or another group starts it
-  there again. Its spawn potentials, a spawn data's own position and
-  entity data are not modelled: it spawns the type its spawn data names.
+  countdown is kept in the group's MobWorld by position, starting from the
+  `Delay` its block entity saved; a restart, another group, a new compound
+  or a chunk that stops simulating starts it there again. Its spawn
+  potentials, a spawn data's own position and entity data are not
+  modelled: it spawns the type its spawn data names.
+
+  The kernel's inputs stay resident in the group's MobWorld
+  (`Valimc.World.SpawnInputs`, VMC-081g2): the native sections' censuses
+  give the counts toward the caps, and the owner pushes a section's inputs
+  only when they change.
   """
-  alias Valimc.Blocks.BlockEntityTypes
   alias Valimc.Data.{Float32, Grid, JavaRandom, SpawnFacts}
   alias Valimc.Entity.{Body, Store}
   alias Valimc.Native
@@ -87,17 +92,17 @@ defmodule Valimc.World.Spawning do
   end
 
   @doc """
-  A group's spawning state: its level random, its mobs' random, its
-  spawner blocks' countdowns (`position => {nbt, config, delay}`), its cat
-  spawner's (`Valimc.World.CatSpawner`), its trader spawner's
+  A group's spawning state: its level random, its mobs' random, its cat
+  spawner's countdown (`Valimc.World.CatSpawner`), its trader spawner's
   (`Valimc.World.TraderSpawner`) and its phantom spawner's countdown
-  (`Valimc.World.PhantomSpawner`).
+  (`Valimc.World.PhantomSpawner`); `seen` is what its MobWorld holds of
+  its sections (`Valimc.World.SpawnInputs.sync/3`).
   """
   def new,
     do: %{
       random: JavaRandom.create(),
       mobs: JavaRandom.create(),
-      spawners: %{},
+      seen: nil,
       cats: 0,
       phantoms: 0,
       traders: Valimc.World.TraderSpawner.new()
@@ -243,50 +248,38 @@ defmodule Valimc.World.Spawning do
 
   @doc """
   One tick of spawning and despawning for a group: `group` holds its
-  `sections` (`%{key => resource}`), its `stores` (the first section's region
-  handle and the others'), `absent` chunks, `players` (`{x, y, z, spectator,
-  creative}`), its `spawning` state and the tick's `environment`. Returns
-  `{spawning, %{key => {records, discards, resets, events}}}`, the events
-  the level events of the section's spawner blocks.
+  MobWorld (`world`), its `sections` (`%{key => resource}`), `players`
+  (`{x, y, z, spectator, creative}`), its `spawning` state and the tick's
+  `environment`. Its sections' inputs stay resident in the world
+  (`Valimc.World.SpawnInputs`, VMC-081g2). Returns `{spawning, %{key =>
+  {records, discards, resets, events}}}`, the events the level events of
+  the section's spawner blocks.
   """
   def plan(%{players: []} = group), do: {group.spawning, %{}}
 
   def plan(group) do
     env = group.environment
 
-    {mobs, bodies, simulated, prepared} =
-      Valimc.World.SpawnInputs.prepare(group.sections, Map.get(group.spawning, :prepared, %{}))
-
-    bodies =
-      bodies ++
-        for {x, y, z, _, _} <- group.players, do: {x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3}
-
-    rules = GameRules.get(:spawn_mobs)
-    {cached, spawners} = spawner_blocks(group)
+    {seen, simulated} =
+      Valimc.World.SpawnInputs.sync(group.world, group.sections, Map.get(group.spawning, :seen))
 
     request = %{
       environment: env,
       players: group.players,
-      bodies: bodies,
-      mobs: mobs,
-      chunks: if(rules, do: Enum.uniq(simulated), else: []),
       respawn: respawn(env.dimension),
+      spawn_mobs: GameRules.get(:spawn_mobs),
       enemies: env.difficulty != 0 and GameRules.get(:spawn_monsters),
       persistent: rem(group.game_time, 400) == 0,
       random: group.spawning.random,
       finalize: group.spawning.mobs,
-      spawners: spawners,
-      structures: kept_starts(group),
-      natives: Valimc.World.SpawnInputs.natives(group.sections)
+      spawners: GameRules.get(:spawner_blocks_work),
+      spawner_state: spawner_state()
     }
 
-    [region | siblings] = group.stores
-    units = max(1, length(request.chunks)) * 7 + length(spawners) * 2
-
     {:ok, {spawned, discarded, reset, random, finalize, ticked}} =
-      Native.dispatch(:natural_spawn, units, [region, siblings, group.absent, request])
+      Native.dispatch(:mob_world_spawn, simulated, [group.world, request])
 
-    from_spawners = for {_, _, list} <- ticked, spawn <- list, do: spawn
+    from_spawners = for {_, list} <- ticked, spawn <- list, do: spawn
     by_section = spawned |> Enum.with_index() |> Enum.reduce(%{}, &add_spawn(&1, &2, :natural))
 
     by_section =
@@ -294,7 +287,7 @@ defmodule Valimc.World.Spawning do
 
     # Each spawn of a spawner block is a level event (2004) at the block.
     by_section =
-      for {{x, _, z} = position, _, list} <- ticked, _ <- list, reduce: by_section do
+      for {{x, _, z} = position, list} <- ticked, _ <- list, reduce: by_section do
         acc ->
           key = Grid.region_key(Grid.chunk_key(x, z))
           event = {position, 2004, 0}
@@ -304,21 +297,10 @@ defmodule Valimc.World.Spawning do
           end)
       end
 
-    owners =
-      Map.merge(
-        Valimc.World.SpawnInputs.owners(prepared, discarded ++ reset),
-        native_owners(group.sections, discarded ++ reset)
-      )
-
     by_section =
       by_section
-      |> Valimc.World.SpawnInputs.distribute(Enum.reverse(discarded), owners, 1)
-      |> Valimc.World.SpawnInputs.distribute(Enum.reverse(reset), owners, 2)
-
-    cached =
-      Enum.reduce(ticked, cached, fn {position, delay, _}, acc ->
-        Map.update!(acc, position, fn {nbt, config, _} -> {nbt, config, delay} end)
-      end)
+      |> distribute(Enum.reverse(discarded), 1)
+      |> distribute(Enum.reverse(reset), 2)
 
     # The village's cats (`CatSpawner`, VMC-044a3), after the chunks' spawns.
     {cats, random, made} = Valimc.World.CatSpawner.tick(group, random)
@@ -352,33 +334,55 @@ defmodule Valimc.World.Spawning do
 
     spawning =
       group.spawning
-      |> Map.put(:prepared, prepared)
+      |> Map.put(:seen, seen)
       |> Map.put(:cats, cats)
       |> Map.put(:traders, traders)
       |> Map.put(:phantoms, phantoms)
 
-    {%{spawning | random: random, mobs: finalize, spawners: cached}, by_section}
+    {%{spawning | random: random, mobs: finalize}, by_section}
   end
 
-  # The sections of the native mobs among `ids` (VMC-081d).
-  defp native_owners(_sections, []), do: %{}
-
-  defp native_owners(sections, ids) do
-    for {key, resource} <- sections,
-        resource.entities.store.native != nil,
-        id <- ids,
-        Valimc.Entity.Store.native_entry?(Map.get(resource.entities.store.entries, id, %{})),
-        into: %{},
-        do: {id, key}
+  # The mobs `{key, id}` that despawn (`field` 1) or whose idle time
+  # restarts (2), into their sections' plans in the kernel's order.
+  defp distribute(plan, ids, field) do
+    Enum.reduce(ids, plan, fn {key, id}, acc ->
+      Map.update(acc, key, put_elem({[], [], [], []}, field, [id]), fn row ->
+        put_elem(row, field, [id | elem(row, field)])
+      end)
+    end)
   end
 
-  # The simulated chunks' kept starts of structures that override spawns.
-  defp kept_starts(group) do
-    for {_key, resource} <- group.sections,
-        MapSet.size(resource.tickets.simulated) > 0,
-        {chunk, kept} <- resource.structures,
-        MapSet.member?(resource.tickets.simulated, chunk),
-        do: {chunk, kept}
+  @doc """
+  The stores a custom spawner's position checks read (cats, traders): the
+  first section's region handle and the others' of the sections beside the
+  simulated ones (every section when none simulates), with their absent
+  chunks: `{region, siblings, absent}`.
+  """
+  def stores(group) do
+    active =
+      for {{sx, sz}, r} <- group.sections, MapSet.size(r.tickets.simulated) > 0, do: {sx, sz}
+
+    near =
+      for {{sx, sz}, r} <- group.sections,
+          Enum.any?(active, fn {ax, az} -> abs(ax - sx) <= 1 and abs(az - sz) <= 1 end),
+          do: r
+
+    near = if near == [], do: Map.values(group.sections), else: near
+    [region | siblings] = for r <- near, do: r.blocks.ref
+    {region, siblings, Enum.flat_map(near, &MapSet.to_list(&1.generation.absent))}
+  end
+
+  # The spawner block's state (it has no properties).
+  defp spawner_state do
+    case :persistent_term.get({__MODULE__, :spawner_state}, nil) do
+      nil ->
+        state = Valimc.Data.Blocks.default_state("spawner")
+        :persistent_term.put({__MODULE__, :spawner_state}, state)
+        state
+
+      state ->
+        state
+    end
   end
 
   defp add_spawn({{kind, x, y, z, yaw, school, pack}, order}, acc, reason) do
@@ -403,83 +407,6 @@ defmodule Valimc.World.Spawning do
       do:
         Map.merge(record, %{spawn_pack: {reason, pack}, spawn_order: order, spawn_school: school}),
       else: record
-  end
-
-  ## Spawner blocks
-
-  @spawner Valimc.Blocks.BlockEntityTypes.type_named("minecraft:mob_spawner")
-
-  # The group's spawner block entities in simulated chunks, by position with
-  # their parsed configuration and countdown (kept while their compound is
-  # the same), and the request's spawners: those whose block is still a
-  # spawner with a player that is not a spectator in range, when spawner
-  # blocks work.
-  defp spawner_blocks(group) do
-    previous = Map.get(group.spawning, :spawners, %{})
-
-    {cached, requested} =
-      for {_key, resource} <- group.sections,
-          MapSet.size(resource.tickets.simulated) > 0,
-          {{x, _, z} = position, %{type: @spawner, nbt: nbt}} <- resource.block_entities.entries,
-          MapSet.member?(resource.tickets.simulated, Grid.chunk_key(x, z)),
-          {_, config, delay} = entry <- [spawner_entry(previous[position], nbt)],
-          reduce: {%{}, []} do
-        {cached, requested} ->
-          cached = Map.put(cached, position, entry)
-
-          if near?(group.players, position, config.player_range) and
-               BlockEntityTypes.type_id(Valimc.World.Blocks.get(resource.blocks, position)) ==
-                 @spawner,
-             do: {cached, [Map.merge(config, %{position: position, delay: delay}) | requested]},
-             else: {cached, requested}
-      end
-
-    if GameRules.get(:spawner_blocks_work),
-      do: {cached, Enum.sort_by(requested, & &1.position)},
-      else: {cached, []}
-  end
-
-  defp spawner_entry({nbt, _, _} = entry, nbt), do: entry
-
-  defp spawner_entry(_previous, nbt) do
-    case Valimc.Data.NBT.read(nbt) do
-      {:ok, {:compound, fields}} ->
-        short = fn name, default ->
-          case fields[name] do
-            {type, v} when type in [:short, :int] -> v
-            _ -> default
-          end
-        end
-
-        config = %{
-          kind: spawner_kind(fields["SpawnData"]),
-          min_delay: short.("MinSpawnDelay", 200),
-          max_delay: short.("MaxSpawnDelay", 800),
-          count: short.("SpawnCount", 4),
-          max_nearby: short.("MaxNearbyEntities", 6),
-          player_range: short.("RequiredPlayerRange", 16),
-          spawn_range: short.("SpawnRange", 4)
-        }
-
-        {nbt, config, short.("Delay", 20)}
-
-      _ ->
-        nil
-    end
-  end
-
-  # The type a spawn data's entity names, if ValiMC knows it.
-  defp spawner_kind({:compound, %{"entity" => {:compound, %{"id" => {:string, id}}}}}) do
-    if Valimc.Data.EntityTypes.fetch(id), do: Valimc.Data.EntityTypes.id(id)
-  end
-
-  defp spawner_kind(_data), do: nil
-
-  defp near?(players, {x, y, z}, range) do
-    Enum.any?(players, fn {px, py, pz, spectator, _} ->
-      not spectator and
-        (px - x - 0.5) ** 2 + (py - y - 0.5) ** 2 + (pz - z - 0.5) ** 2 < range * range
-    end)
   end
 
   @doc """

@@ -65,6 +65,7 @@ mod region;
 mod rules;
 mod snapshot;
 mod spawn;
+mod spawn_world;
 mod sys;
 mod worldgen;
 

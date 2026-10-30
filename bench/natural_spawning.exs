@@ -52,7 +52,15 @@ sections =
           into: MapSet.new(),
           do: {rx * size + x, rz * size + z}
 
-    {key, %{ref: ref, tickets: %{simulated: chunks}, entities: %{store: Store.new()}}}
+    {key,
+     %{
+       blocks: %{ref: ref},
+       tickets: %{simulated: chunks},
+       entities: %{store: Store.new()},
+       generation: %{absent: MapSet.new()},
+       block_entities: %{entries: %{}},
+       structures: %{}
+     }}
   end)
 
 # Zombies on the surface, spread over the nine sections.
@@ -85,21 +93,23 @@ env = %{
 
 players = [{64.5, 64.0, 64.5, false, false}]
 
+world = Native.mob_world_new()
+
 step = fn sections, spawning, t ->
   group = %{
+    world: world,
     sections: sections,
-    stores: for({_, s} <- sections, do: s.ref),
-    absent: [],
     players: players,
     spawning: spawning,
     environment: env,
-    game_time: t
+    game_time: t,
+    dimension: :overworld
   }
 
   {time, {spawning, plan}} = :timer.tc(fn -> Spawning.plan(group) end)
 
   sections =
-    Enum.reduce(plan, sections, fn {key, {records, discards, _}}, acc ->
+    Enum.reduce(plan, sections, fn {key, {records, discards, _, _}}, acc ->
       Map.update!(acc, key, fn s ->
         store =
           Enum.reduce(records, s.entities.store, fn r, st ->
@@ -123,7 +133,10 @@ step = fn sections, spawning, t ->
 end
 
 {sections, _, samples} =
-  Enum.reduce(1..ticks, {sections, Spawning.new(), []}, fn t, {sections, spawning, acc} ->
+  Enum.reduce(1..ticks, {sections, %{Spawning.new() | cats: 1_000_000_000}, []}, fn t,
+                                                                                    {sections,
+                                                                                     spawning,
+                                                                                     acc} ->
     {sections, spawning, time} = step.(sections, spawning, t)
     {sections, spawning, [time | acc]}
   end)

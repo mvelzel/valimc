@@ -151,9 +151,8 @@ defmodule Valimc.DragonLiveTest do
 
     {_spawning, plan} =
       Valimc.World.Spawning.plan(%{
+        world: Valimc.Native.mob_world_new(),
         sections: resources,
-        stores: for({_, r} <- resources, do: r.blocks.ref),
-        absent: [],
         players: [{180.5, 128.0, 0.5, false, true}],
         rest: [],
         spawning: Valimc.World.Spawning.new(),

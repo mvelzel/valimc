@@ -1,10 +1,9 @@
 //! Natural spawning (VMC-042a) over the Region resource: `spawn_facts_install`
-//! parses the spawn facts once; `natural_spawn` (a normal NIF and its dirty
-//! twin) runs one tick's spawning for a group's sections, `spawn_generated`
-//! the creatures new chunks get. Both read the section's store and its
-//! group's others without changing them, and draw from the random states
-//! the caller passes in and gets back. `spawn_scene` (parity builds) replays
-//! an oracle scene.
+//! parses the spawn facts once; `spawn_generated` gives the creatures new
+//! chunks get, reading the section's store and its group's others without
+//! changing them. A group's tick of natural spawning runs over its resident
+//! inputs (`spawn_world`, VMC-081g2). `spawn_scene` (parity builds) replays an
+//! oracle scene.
 
 use crate::region::Region;
 use rustler::{NifMap, NifResult, ResourceArc};
@@ -12,11 +11,10 @@ use std::collections::HashSet;
 use std::sync::{MutexGuard, OnceLock};
 use valimc_core::column::ColumnStore;
 use valimc_core::physics::Aabb;
-use valimc_core::spawning::block_spawner;
 use valimc_core::spawning::facts::Facts;
 use valimc_core::spawning::level::{Level, Live};
 use valimc_core::spawning::rules::{Player, World};
-use valimc_core::spawning::spawner::{self, Counted, Despawn, Drawn, SpawnState, Spawned, Tick};
+use valimc_core::spawning::spawner::{self, Spawned};
 use valimc_core::spawning::structures::{Area, Areas};
 use valimc_core::worldgen::random::Random;
 
@@ -35,55 +33,22 @@ fn spawn_facts_install(facts: rustler::Term) -> NifResult<(rustler::Atom, bool)>
     })())
 }
 
-/// A mob of the group: `{id, type, {x, y, z}, flags, idle, lived}`.
-type Mob = (u32, u16, (f64, f64, f64), u8, i32, i32);
-
 /// A chunk's generated creatures.
 type Generated = Vec<((i32, i32), Vec<Out>)>;
 
 /// The tick's environment as the group sends it.
 #[derive(NifMap)]
 pub(crate) struct Environment {
-    dimension: String,
-    zoom_seed: i64,
-    seed: i64,
-    sea_level: i32,
-    max_y: i32,
-    darken: i32,
-    thundering: bool,
-    difficulty: i32,
-    slime_chance: f64,
-    border: (f64, f64, f64, f64),
-}
-
-/// One tick's spawning and despawning: the group's players `{x, y, z,
-/// spectator, creative}`, its living entities' boxes, its mobs `{id, type,
-/// {x, y, z}, flags, idle, lived}` (flags: 1 persistent, 2 in a simulated
-/// chunk, so its despawn is checked), its simulated chunks, the world spawn
-/// here, whether monsters and persistent categories spawn, and the level
-/// random's and the mobs' random's states.
-#[derive(NifMap)]
-pub(crate) struct Request {
-    environment: Environment,
-    players: Vec<(f64, f64, f64, bool, bool)>,
-    bodies: Vec<(f64, f64, f64, f64, f64, f64)>,
-    mobs: Vec<Mob>,
-    chunks: Vec<(i32, i32)>,
-    respawn: Option<(i32, i32, i32)>,
-    enemies: bool,
-    persistent: bool,
-    random: u64,
-    finalize: u64,
-    /// The spawner blocks near the group's players, when spawner blocks
-    /// work (VMC-042b).
-    spawners: Vec<SpawnerBlock>,
-    /// The simulated chunks' kept starts of structures that override spawns
-    /// (VMC-042b): per chunk `{structure, box, pieces}`, boxes as six ints.
-    structures: Vec<((i32, i32), Vec<Kept>)>,
-    /// The group's native mob sections with their simulated chunks' masks
-    /// (VMC-081d): their mobs' rows and boxes are read from them, after the
-    /// owner's own.
-    natives: Vec<(ResourceArc<crate::mob_section::MobSectionRes>, u64)>,
+    pub(crate) dimension: String,
+    pub(crate) zoom_seed: i64,
+    pub(crate) seed: i64,
+    pub(crate) sea_level: i32,
+    pub(crate) max_y: i32,
+    pub(crate) darken: i32,
+    pub(crate) thundering: bool,
+    pub(crate) difficulty: i32,
+    pub(crate) slime_chance: f64,
+    pub(crate) border: (f64, f64, f64, f64),
 }
 
 /// A kept start: its structure, box and pieces in the chunk.
@@ -91,7 +56,7 @@ pub(crate) type Kept = (String, Vec<i32>, Vec<Vec<i32>>);
 
 /// The kept starts as the kernel reads them; structures without overrides
 /// in the facts are left out.
-fn areas(facts: &Facts, chunks: &[((i32, i32), Vec<Kept>)]) -> Result<Areas, String> {
+pub(crate) fn areas(facts: &Facts, chunks: &[((i32, i32), Vec<Kept>)]) -> Result<Areas, String> {
     let corners = |v: &[i32]| -> Result<[i32; 6], String> {
         v.try_into().map_err(|_| "a box of six ints".to_string())
     };
@@ -118,56 +83,21 @@ fn areas(facts: &Facts, chunks: &[((i32, i32), Vec<Kept>)]) -> Result<Areas, Str
     Ok(out)
 }
 
-/// A spawner block (`BaseSpawner`): its position and countdown, the type
-/// it spawns (nil when empty) and its saved configuration.
-#[derive(NifMap)]
-pub(crate) struct SpawnerBlock {
-    position: (i32, i32, i32),
-    delay: i32,
-    kind: Option<u16>,
-    min_delay: i32,
-    max_delay: i32,
-    count: i32,
-    max_nearby: i32,
-    player_range: i32,
-    spawn_range: i32,
-}
+/// A spawn: its type, position, yaw, school and pack.
+pub(crate) type Out = (u16, f64, f64, f64, f32, bool, Option<usize>);
 
-impl SpawnerBlock {
-    fn spawner(&self) -> block_spawner::Spawner {
-        let (x, y, z) = self.position;
-        block_spawner::Spawner {
-            pos: [x, y, z],
-            delay: self.delay,
-            config: block_spawner::Config {
-                kind: self.kind,
-                min_delay: self.min_delay,
-                max_delay: self.max_delay,
-                count: self.count,
-                max_nearby: self.max_nearby,
-                player_range: self.player_range,
-                spawn_range: self.spawn_range,
-            },
-        }
-    }
-}
-
-/// A spawner's tick: its position, its countdown after it and its spawns.
-type SpawnerOut = ((i32, i32, i32), i32, Vec<Out>);
-
-type Out = (u16, f64, f64, f64, f32, bool, Option<usize>);
-
-fn out(s: &Spawned) -> Out {
+pub(crate) fn out(s: &Spawned) -> Out {
     (
         s.kind, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.school, s.pack,
     )
 }
 
-fn world<'a>(
+pub(crate) fn world<'a>(
     level: &'a dyn Level,
     env: &Environment,
     players: Vec<Player>,
     bodies: Vec<Aabb>,
+    resident: Option<&'a dyn Fn(&Aabb) -> bool>,
 ) -> Result<World<'a>, String> {
     let facts = SPAWN.get().ok_or("spawn facts not installed")?;
     let states = crate::facts::STATES
@@ -196,6 +126,7 @@ fn world<'a>(
         border: [env.border.0, env.border.1, env.border.2, env.border.3],
         players,
         bodies: std::cell::RefCell::new(bodies),
+        resident,
     })
 }
 
@@ -213,199 +144,6 @@ fn lock<'r>(
         .iter()
         .map(|r| r.store.lock().map_err(|_| "poisoned region".to_string()))
         .collect()
-}
-
-/// The tick's spawns, the mobs it discards and those whose idle time
-/// restarts, the two randoms' states after it and its spawners' ticks.
-type Natural = (Vec<Out>, Vec<u32>, Vec<u32>, u64, u64, Vec<SpawnerOut>);
-
-fn natural(
-    region: &Region,
-    siblings: &[ResourceArc<Region>],
-    absent: Vec<(i32, i32)>,
-    mut request: Request,
-) -> Result<Natural, String> {
-    if !request.natives.is_empty() {
-        let rules = crate::mob_section::rules().map_err(|_| "mob facts not installed")?;
-        for (native, mask) in std::mem::take(&mut request.natives) {
-            let inner = crate::mob_section::read(&native).map_err(|_| "poisoned mobs")?;
-            for (id, ty, p, flags, idle, lived, b) in
-                crate::mob_tick::spawn_rows(&rules, &inner.section, mask)
-            {
-                request.mobs.push((
-                    id as u32,
-                    ty,
-                    (p[0], p[1], p[2]),
-                    flags,
-                    idle.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
-                    lived.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
-                ));
-                request.bodies.push((b[0], b[1], b[2], b[3], b[4], b[5]));
-            }
-        }
-    }
-    let guards = lock(region, siblings)?;
-    let stores: Vec<&ColumnStore> = guards.iter().map(|g| &**g).collect();
-    let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
-    let flags = crate::facts::FLAGS
-        .get()
-        .ok_or("block facts not installed")?;
-    let facts = SPAWN.get().ok_or("spawn facts not installed")?;
-    let live = Live::new(
-        &stores,
-        &absent,
-        flags,
-        request.environment.zoom_seed,
-        facts.plains,
-    );
-    let players = request
-        .players
-        .iter()
-        .map(|&(x, y, z, spectator, creative)| Player {
-            pos: [x, y, z],
-            spectator,
-            creative,
-        })
-        .collect();
-    let bodies = request
-        .bodies
-        .iter()
-        .map(|&(a, b, c, d, e, f)| Aabb::from_array([a, b, c, d, e, f]))
-        .collect();
-    let world = world(&live, &request.environment, players, bodies)?;
-    let block = |p: (f64, f64, f64)| [p.0.floor() as i32, p.1.floor() as i32, p.2.floor() as i32];
-    let mobs: Vec<Counted> = request
-        .mobs
-        .iter()
-        .filter(|m| m.3 & 1 == 0)
-        .map(|m| Counted {
-            kind: m.1,
-            block: block(m.2),
-        })
-        .filter(|m| live.holds((m.block[0] >> 4, m.block[2] >> 4)))
-        .collect();
-    let simulated: HashSet<(i32, i32)> = request
-        .chunks
-        .iter()
-        .copied()
-        .filter(|&c| live.holds(c))
-        .collect();
-    let ticking = |c: (i32, i32)| {
-        simulated.contains(&c)
-            && world.within_border((c.0 * 16) as f64, (c.1 * 16) as f64)
-            && world.within_border((c.0 * 16 + 15) as f64, (c.1 * 16 + 15) as f64)
-    };
-    let state = SpawnState::new(&world, spawner::spawnable_chunks(&world), &mobs);
-    let categories = spawner::categories(&world, &state, request.enemies, request.persistent);
-    let structures = areas(facts, &request.structures)?;
-    let mut tick = Tick {
-        world: &world,
-        state,
-        random: Random::legacy_at(request.random),
-        spawned: Vec::new(),
-        ticking: &ticking,
-        respawn: request.respawn.map(|(x, y, z)| [x, y, z]),
-        caps: true,
-        structures: &structures,
-    };
-    // `collectSpawningChunks` then `Util.shuffle` with the level random.
-    let mut chunks: Vec<(i32, i32)> = request
-        .chunks
-        .iter()
-        .copied()
-        .filter(|&c| simulated.contains(&c) && !spawner::players_near(&world, c).is_empty())
-        .collect();
-    chunks.sort();
-    spawner::shuffle(&mut chunks, &mut tick.random);
-    let mut finalize = Random::legacy_at(request.finalize);
-    if !categories.is_empty() {
-        for chunk in chunks {
-            if ticking(chunk) {
-                tick.chunk(chunk, &categories, &mut Drawn(&mut finalize));
-            }
-        }
-    }
-    // `checkDespawn`, after the spawning as vanilla's entity tick.
-    let (mut discarded, mut reset) = (Vec::new(), Vec::new());
-    for &(id, kind, (x, y, z), flags, idle, lived) in &request.mobs {
-        let Some(kind) = facts.kind(kind) else {
-            continue;
-        };
-        if flags & 2 == 0 {
-            continue;
-        }
-        match spawner::despawn(
-            &world,
-            kind,
-            [x, y, z],
-            flags & 1 != 0,
-            idle,
-            lived,
-            &mut finalize,
-        ) {
-            Despawn::Discard => discarded.push(id),
-            Despawn::Reset if idle > 0 => reset.push(id),
-            _ => {}
-        }
-    }
-    // Spawner blocks tick after the entities (`tickBlockEntities`): they
-    // count the mobs left and the tick's natural spawns.
-    let mut random = tick.random;
-    let spawned: Vec<Out> = tick.spawned.iter().map(out).collect();
-    let mut mobs: block_spawner::Mobs = request
-        .mobs
-        .iter()
-        .filter(|m| !discarded.contains(&m.0))
-        .map(|m| (m.1, m.2))
-        .chain(
-            tick.spawned
-                .iter()
-                .map(|s| (s.kind, (s.pos[0], s.pos[1], s.pos[2]))),
-        )
-        .filter_map(|(kind, (x, y, z))| Some((kind, World::body(facts.kind(kind)?, x, y, z))))
-        .collect();
-    let spawners = request
-        .spawners
-        .iter()
-        .map(|block| {
-            let mut spawner = block.spawner();
-            let ticked =
-                block_spawner::tick(&world, &mut spawner, &mut mobs, &mut random, &mut |_, _| {});
-            (
-                block.position,
-                spawner.delay,
-                ticked.spawned.iter().map(out).collect(),
-            )
-        })
-        .collect();
-    Ok((
-        spawned,
-        discarded,
-        reset,
-        random.legacy_state().unwrap_or(0),
-        finalize.legacy_state().unwrap_or(0),
-        spawners,
-    ))
-}
-
-#[rustler::nif]
-fn natural_spawn(
-    region: ResourceArc<Region>,
-    siblings: Vec<ResourceArc<Region>>,
-    absent: Vec<(i32, i32)>,
-    request: Request,
-) -> NifResult<(rustler::Atom, Natural)> {
-    crate::reply(natural(&region, &siblings, absent, request))
-}
-
-#[rustler::nif(schedule = "DirtyCpu")]
-fn natural_spawn_dirty(
-    region: ResourceArc<Region>,
-    siblings: Vec<ResourceArc<Region>>,
-    absent: Vec<(i32, i32)>,
-    request: Request,
-) -> NifResult<(rustler::Atom, Natural)> {
-    crate::reply(natural(&region, &siblings, absent, request))
 }
 
 /// A custom spawner's checks (VMC-044a3: a village's cat; VMC-044a4: a
@@ -438,7 +176,7 @@ fn spawn_position_ok(
         if !loaded {
             return Ok((false, false, y.unwrap_or(0)));
         }
-        let world = world(&live, &environment, Vec::new(), Vec::new())?;
+        let world = world(&live, &environment, Vec::new(), Vec::new(), None)?;
         let kind = facts.kind(kind).ok_or("no spawn facts for the type")?;
         let y = y.unwrap_or_else(|| world.level.height(kind.heightmap, x, z));
         Ok((true, world.position_ok(kind, [x, y, z]), y))
@@ -468,7 +206,7 @@ fn spawn_generated(
         let live = Live::new(&stores, &absent, flags, environment.zoom_seed, facts.plains);
         let mut env = environment;
         env.darken = 0;
-        let world = world(&live, &env, Vec::new(), Vec::new())?;
+        let world = world(&live, &env, Vec::new(), Vec::new(), None)?;
         let mut rules = Random::legacy(0);
         Ok(chunks
             .into_iter()
@@ -491,6 +229,8 @@ fn spawn_generated(
 #[cfg(feature = "parity")]
 pub(crate) mod parity {
     use super::*;
+    use valimc_core::spawning::block_spawner;
+    use valimc_core::spawning::spawner::{Counted, Despawn, SpawnState, Tick};
 
     /// `checkDespawn` of a fresh mob of type `kind` at `distance` east of a
     /// player at the origin (idle 100 ticks): `{discarded, idle after}`.
@@ -524,7 +264,7 @@ pub(crate) mod parity {
                 spectator: false,
                 creative: false,
             };
-            let world = world(&scene, &env, vec![player], Vec::new())?;
+            let world = world(&scene, &env, vec![player], Vec::new(), None)?;
             let kind = facts.kind(kind).ok_or("unknown type")?;
             let mut random = Random::legacy(0);
             Ok(
@@ -584,7 +324,7 @@ pub(crate) mod parity {
             for run in case.field("runs")?.as_array()? {
                 let run = run.as_array()?;
                 let mut random = Random::legacy_at(run[0].as_f64()? as u64);
-                let world = world(&scene, &env, players.clone(), player_boxes(&players))?;
+                let world = world(&scene, &env, players.clone(), player_boxes(&players), None)?;
                 let mut spawner = block_spawner::Spawner {
                     pos: [at[0], at[1], at[2]],
                     delay: 20,
@@ -754,7 +494,7 @@ pub(crate) mod parity {
                 "generation" => {
                     let mut env = env;
                     env.darken = 0;
-                    let world = world(&scene, &env, Vec::new(), Vec::new())?;
+                    let world = world(&scene, &env, Vec::new(), Vec::new(), None)?;
                     let mut random = Random::legacy(0);
                     random.set_decoration_seed(world.seed, chunk.0 * 16, chunk.1 * 16);
                     let mut rules = Random::legacy(0);
@@ -777,7 +517,7 @@ pub(crate) mod parity {
                             .iter()
                             .map(|s| s.as_array().and_then(|s| s[5].as_bool()))
                             .collect::<Result<_, String>>()?;
-                        let world = world(&scene, &env, players.clone(), bodies.clone())?;
+                        let world = world(&scene, &env, players.clone(), bodies.clone(), None)?;
                         let state = SpawnState::new(&world, 289, &mobs);
                         let filtered = spawner::categories(
                             &world,
