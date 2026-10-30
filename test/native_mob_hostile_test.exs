@@ -27,7 +27,8 @@ defmodule Valimc.NativeMobHostileTest do
     for type <-
           ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager minecraft:skeleton
              minecraft:stray minecraft:bogged minecraft:creeper minecraft:spider
-             minecraft:cave_spider minecraft:enderman minecraft:witch),
+             minecraft:cave_spider minecraft:enderman minecraft:witch minecraft:slime
+             minecraft:magma_cube),
         do: assert(type in types)
   end
 
@@ -539,6 +540,94 @@ defmodule Valimc.NativeMobHostileTest do
           do: contents.potion
 
     assert MapSet.size(drunk) >= 3
+  end
+
+  ## Cubes
+
+  test "slimes and magma cubes hop, turn on their target, touch and float", ctx do
+    spots = land(ctx.blocks, 12, :rand.seed_s(:exsss, 161))
+    pools = water(ctx.blocks, 2, :rand.seed_s(:exsss, 162))
+    {[here, golem], rest} = Enum.split(spots, 2)
+    {hx, hy, hz} = here
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1) do
+        type = if rem(n, 2) == 0, do: "minecraft:magma_cube", else: "minecraft:slime"
+        mob(n, type, spot, finalize: :natural)
+      end
+
+    # Sized ones beside the player (a tiny slime too), and floating ones.
+    sized = fn n, type, size, spot ->
+      {n, e} = mob(n, type, spot)
+      body = e.body
+
+      {mob, data} =
+        case type do
+          "minecraft:slime" -> Valimc.AI.Mobs.Slime.set_size(body.mob, body.data, size)
+          _ -> Valimc.AI.Mobs.MagmaCube.set_size(body.mob, body.data, size)
+        end
+
+      {n, %{e | body: %{body | mob: mob, data: data}}}
+    end
+
+    beside = [
+      sized.(20, "minecraft:slime", 2, {hx + 1, hy, hz}),
+      sized.(21, "minecraft:slime", 1, {hx - 1, hy, hz}),
+      sized.(22, "minecraft:magma_cube", 1, {hx, hy, hz + 1})
+    ]
+
+    floating =
+      for {{x, y, z}, n} <- Enum.with_index(pools, 23) do
+        {n, e} = sized.(n, "minecraft:slime", 2, {x, y - 1, z})
+        {n, put_in(e.body.mob.motion.water, 1.0)}
+      end
+
+    for {difficulty, level} <- [normal: 81, hard: 82] do
+      scene =
+        scene([player(0, here)],
+          ticks: 200,
+          bright: false,
+          difficulty: difficulty,
+          day: 2_000_000,
+          statues: [mob(90, "minecraft:iron_golem", golem, no_ai: true)],
+          post: true,
+          level: level
+        )
+
+      observed = compare(ctx, scene, entries ++ beside ++ floating)
+      effects = effects(observed)
+      assert Enum.any?(effects, &match?({:touch, _, _, _}, &1))
+      assert running?(observed, "Valimc.AI.Mobs.Cube.Attack")
+      assert running?(observed, "Valimc.AI.Mobs.Cube.Float")
+    end
+  end
+
+  test "a dead cube splits in halves", ctx do
+    for {type, module} <- [
+          {"minecraft:slime", Valimc.AI.Mobs.Slime},
+          {"minecraft:magma_cube", Valimc.AI.Mobs.MagmaCube}
+        ],
+        size <- [1, 2, 4],
+        seed <- 1..4 do
+      {:ok, body} = Body.new(type)
+      {mob, data} = module.set_size(body.mob, body.data, size)
+      body = %{body | mob: mob, data: data, yaw: 30.0, custom_name: if(seed == 2, do: "Cube")}
+      body = put_in(body.mob.ai, Valimc.AI.mind(type, uuid(seed), nil, body.data))
+      body = put_in(body.mob.living.health.value, 0.0)
+
+      record =
+        entry_record(1, %{entity: %{uuid: uuid(seed), x: 3.5, y: 64.0, z: 2.5}, body: body})
+
+      {:ok, restored} = Body.restore(record)
+      uuids = for k <- 1..4, do: uuid(100 + k)
+      native = Native.mob_parity_split(ctx.facts, record, uuids)
+
+      elixir =
+        for {{child, {x, y, z}}, id} <- Enum.zip(module.split(restored, {3.5, 64.0, 2.5}), uuids),
+            do: entry_record(1, %{entity: %{uuid: id, x: x, y: y, z: z}, body: child})
+
+      assert {type, size, seed, native} == {type, size, seed, elixir}
+    end
   end
 
   ## Conversions

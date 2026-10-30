@@ -248,8 +248,9 @@ pub trait Kind: Hooks + Family {
         None
     }
 
-    /// `jump/1`: a cube's `{bonus, lava}`.
-    fn jump(&self, _body: &Body) -> Option<(f64, bool)> {
+    /// `jump/1`: a cube's `{bonus, lava}`: what its jump from the ground
+    /// adds, and its jump power in lava (a magma cube's).
+    fn jump(&self, _body: &Body) -> Option<(f64, Option<f64>)> {
         None
     }
 
@@ -308,12 +309,7 @@ pub trait Kind: Hooks + Family {
 
     /// `split/2`: the mobs a dead one becomes as it is removed, `(body,
     /// position)` (a cube's halves), from its own random.
-    fn split(
-        &self,
-        _rules: &Rules,
-        _body: &mut Body,
-        _position: [f64; 3],
-    ) -> Vec<(Body, [f64; 3])> {
+    fn split(&self, _rules: &Rules, _body: &Body, _position: [f64; 3]) -> Vec<(Body, [f64; 3])> {
         Vec::new()
     }
 

@@ -293,6 +293,7 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_parity_death_drops(_record_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_parity_split(_record_facts, _record, _uuids), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def mob_record_roundtrip(_facts, _record), do: :erlang.nif_error(:nif_not_loaded)

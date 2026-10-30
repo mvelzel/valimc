@@ -41,7 +41,7 @@ mod atoms {
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
-        away, maybe, shot, poked
+        away, maybe, shot, poked, y_rot, aggressive, wanted
     }
 }
 
@@ -332,6 +332,7 @@ fn control<'a>(env: Env<'a>, c: &Control) -> Term<'a> {
 /// kept; a neutral mob's anger (`anger_end`, `anger_target`) and a family's
 /// own fields.
 fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::monsters::cube::CubeOwn;
     use valimc_core::mobs::monsters::enderman::{EndermanOwn, Reaction};
     if own.is_empty() {
         return Ok(atoms::nil().encode(env));
@@ -344,6 +345,13 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
             .map_or(atoms::nil().encode(env), |r| reference(env, r));
         map = map.map_put(atoms::anger_end(), anger.end)?;
         map = map.map_put(atoms::anger_target(), target)?;
+    }
+    if let Some(o) = own.family::<CubeOwn>() {
+        map = map.map_put(atoms::y_rot(), o.y_rot)?;
+        map = map.map_put(atoms::jump_delay(), o.jump_delay)?;
+        map = map.map_put(atoms::aggressive(), o.aggressive)?;
+        let wanted = o.wanted.map_or(atoms::nil().encode(env), |w| w.encode(env));
+        map = map.map_put(atoms::wanted(), wanted)?;
     }
     if let Some(o) = own.family::<EndermanOwn>() {
         if let Some(reaction) = o.hurt {
@@ -858,5 +866,38 @@ fn mob_parity_death_drops<'a>(
     kind.death_drops(&mob.body)
         .iter()
         .map(|stack| mob_term::encode(env, stack))
+        .collect()
+}
+
+/// `split/2` of a dead mob of a record at its position: the records of the
+/// mobs it becomes, each given the uuid `uuids` holds in turn.
+#[rustler::nif]
+fn mob_parity_split<'a>(
+    env: Env<'a>,
+    record_facts: ResourceArc<MobRecordFacts>,
+    record: Term<'a>,
+    uuids: Vec<Binary<'a>>,
+) -> NifResult<Vec<Term<'a>>> {
+    let rules = rules()?;
+    let value = mob_term::decode(record)?;
+    let mob = record::restore(&value, &record_facts.0).map_err(|_| bad())?;
+    let type_id = rules
+        .facts
+        .entities
+        .id(&mob.body.entity_type)
+        .ok_or(bad())?;
+    let kind = crate::mob_facts::kinds()?.kind(type_id).ok_or(bad())?;
+    kind.split(rules, &mob.body, mob.position)
+        .into_iter()
+        .zip(&uuids)
+        .map(|((body, position), id)| {
+            let child = NativeMob {
+                uuid: uuid(id)?,
+                position,
+                hops: 0,
+                body,
+            };
+            mob_term::encode(env, &record::record(&child))
+        })
         .collect()
 }

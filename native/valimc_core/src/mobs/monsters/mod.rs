@@ -10,6 +10,7 @@
 //! look up once.
 
 pub mod creeper;
+pub mod cube;
 pub mod enderman;
 pub mod skeleton;
 pub mod spider;
@@ -34,6 +35,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(spider::Spider::new(facts)?),
         Box::new(enderman::Enderman::new(facts)?),
         Box::new(witch::Witch::new(facts)?),
+        Box::new(cube::Cube::new(facts, cube::CubeKind::Slime)?),
+        Box::new(cube::Cube::new(facts, cube::CubeKind::MagmaCube)?),
     ])
 }
 
