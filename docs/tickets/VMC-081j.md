@@ -28,9 +28,9 @@ the mean of 60 sampled ticks, the callbacks are every tick's):
 | 07bac9c4 (Elixir path deleted) | 7.32, 7.84 | 11.36, 11.41 | 0.68, 0.79 | 12.22, 12.54 |
 | 75cad9d1 (HEAD) | 7.63, 7.90 | 11.23, 11.06 | 0.71, 0.86 | 12.17, 12.23 |
 
-The sampled phase steps at f6f1c203, with 474ff28e between; but the same
-commit took 1.2 ms out of the commit callback and about 0.8 ms out of each
-tick's total. The whole-tick probe (`mkprobe081x.py`, adapted per revision;
+The sampled phase seems to step at f6f1c203, with 474ff28e between, while
+the same commit took about 1.2 ms out of the commit callback; on this host
+these differences are within run-to-run noise (see Measurements). The whole-tick probe (`mkprobe081x.py`, adapted per revision;
 scratch only) of a75a314c, e75bc9d2, 474ff28e and HEAD in matched pairs
 splits the entity phase:
 
@@ -91,8 +91,30 @@ splits the entity phase:
 
 ## Measurements
 
-Pending.
+The matched runs on the development Mac are inside its run-to-run noise:
+the a75a314c baseline's entity phase alone spans 4.8 to 6.3 ms across
+runs (tick callback 9.8 to 11.9 ms) with the host never quiet, so no
+sub-millisecond gain or regression is claimed here, the bisect's step
+included. What stands is deterministic: idle sections compared copied
+views every tick (seen inside the group process at a75a314c and HEAD), 63
+of 79 sections entered six phases that changed nothing, a chicken's egg
+timer sent its row every tick (row changes fell from about 19 to 2 a tick
+in the probe), and contacts and portal sweeps ran without any such block.
+Raw results: `.local/tick-budget/results/x081-*.json`.
+
+Not done: the per-mob bookkeeping left in the section tick (the fallback
+clone near section edges, kernel inputs computed for the ticker and again
+at the turn, sensing begun from every mob) and deadline-based native
+ageing; native turns' 10 to 15% gap to a75a314c stays unexplained.
+
+The harness's view load stalled intermittently (the group kept ticking,
+the client's view never completed), on images before and after 081h.
 
 ## Checks
 
-Pending.
+`mix compile --warnings-as-errors`; `cargo test` of `valimc_core` (the
+cell counts, the row data) and clippy of both crates (no new warnings);
+the region, entity, tracking, storage, item, portal, redstone, hopper,
+spawning and mob suites (301 tests); `check_vanilla.py --changed`: 127 of
+127 stages passed, the mob stages (mob_ai, hostile_ai, animals, village,
+nether_mobs, natural_spawning, combat) and redstone among them.
