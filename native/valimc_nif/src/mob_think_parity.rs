@@ -42,7 +42,7 @@ mod atoms {
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
         away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
-        magic, projectile
+        magic, projectile, lay_eggs, gift
     }
 }
 
@@ -329,6 +329,23 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             mob_term::encode(env, actions)?,
         )
             .encode(env),
+        Effect::SoundBlock(Value::Tuple(v)) if v.len() >= 4 => (
+            atoms::sound_block(),
+            mob_term::encode(env, &v[0])?,
+            mob_term::encode(env, &v[1])?,
+            mob_term::encode(env, &v[2])?,
+            mob_term::encode(env, &v[3])?,
+        )
+            .encode(env),
+        Effect::LayEggs(Value::Tuple(v)) if v.len() == 2 => (
+            atoms::lay_eggs(),
+            mob_term::encode(env, &v[0])?,
+            mob_term::encode(env, &v[1])?,
+        )
+            .encode(env),
+        Effect::Gift { table, velocity } => {
+            (atoms::gift(), table.as_str(), v3(*velocity)).encode(env)
+        }
         Effect::GiveEffect { target, actions } => (
             atoms::effect(),
             reference(env, target),
@@ -429,7 +446,21 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
         out.push(("charged", Value::bool(o.charged)));
     }
     water_own(own, &mut out);
+    animal_own(own, &mut out);
     out
+}
+
+/// The animals' own fields beyond the shared ones (a turtle's).
+fn animal_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static str, Value)>) {
+    use valimc_core::mobs::animals::turtle::TurtleOwn;
+    if let Some(o) = own.family::<TurtleOwn>() {
+        out.push(("going_home", Value::bool(o.going_home)));
+        let travel = o.travel.map_or(Value::atom("nil"), |[x, y, z]| {
+            Value::ivec3([x as i64, y as i64, z as i64])
+        });
+        out.push(("travel", travel));
+        out.push(("lay", Value::Int(o.lay)));
+    }
 }
 
 /// The water families' own fields (`Mobs.Fish`' school, a pufferfish's

@@ -18,6 +18,7 @@
 //! `feed_love` and `feed_baby` are the scene's acts (`Animal.fall_in_love`,
 //! `Animal.feed_baby`).
 
+pub mod cat;
 pub mod chicken;
 pub mod cow;
 pub mod mooshroom;
@@ -25,6 +26,7 @@ pub mod pig;
 pub mod rabbit;
 pub mod sheep;
 pub mod strider;
+pub mod turtle;
 pub mod variants;
 
 use crate::mobs::ai::effect::Effect;
@@ -35,7 +37,7 @@ use crate::mobs::combat::{Event, Family, Hit, SoundKind, SoundRef};
 use crate::mobs::facts::families::AnimalFact;
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::interact::{Done, Hand, InteractEvent, Interaction, Outcome};
-use crate::mobs::kinds::{Kind, KindMotion, Registered};
+use crate::mobs::kinds::{Kind, KindMotion, NavSpec, Registered};
 use crate::mobs::living::mob as living_mob;
 use crate::mobs::model::{Body, FamilyData, MobMotion, NativeMob};
 use crate::mobs::sensing::Uuid;
@@ -149,6 +151,68 @@ pub trait Species: Send + Sync + Sized + 'static {
     ) -> bool {
         false
     }
+
+    // The `Valimc.AI.Kind` hooks an animal module overrides beyond the
+    // shared ones (a turtle's, a cat's); each default is the shared
+    // animal's.
+
+    /// `navigation/0`.
+    fn navigation(&self) -> NavSpec {
+        NavSpec::default()
+    }
+
+    /// `finalize/2`: its own `finalizeSpawn` in place of the shared one
+    /// (`Animal.finalize`: its own part, then `Mob`'s).
+    fn finalize(&self, a: &Animal<Self>, t: &mut Turn, reason: &Atom) {
+        self.spawn_part(a, t, reason);
+        crate::mobs::ai::spawn::mob(t, reason);
+    }
+
+    /// `move_control/1`.
+    fn move_control(&self, _a: &Animal<Self>, _t: &mut Turn) {}
+
+    /// `after_ai/1`: its `aiStep` after its super, in place of the shared
+    /// one (`Animal.settle`) it wraps.
+    fn after_ai(&self, a: &Animal<Self>, t: &mut Turn) {
+        a.settle(t);
+    }
+
+    /// `after_tick/1`.
+    fn after_tick(&self, _a: &Animal<Self>, _t: &mut Turn) {}
+
+    /// `step_sound/1`.
+    fn step_sound(&self, _a: &Animal<Self>, _t: &mut Turn) {}
+
+    /// `swim_sound/0`, `swim_volume/0`.
+    fn swim_sound(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn swim_volume(&self) -> f64 {
+        1.0
+    }
+
+    /// `stable_destination?/2`.
+    fn stable_destination(&self, _a: &Animal<Self>, _t: &Turn, _pos: [i32; 3]) -> Option<bool> {
+        None
+    }
+
+    /// Its own test of the mob (a goal's guard, `Hooks::test`).
+    fn test(&self, _a: &Animal<Self>, _t: &mut Turn, _tag: Tag) -> bool {
+        false
+    }
+
+    /// `can_fall_in_love?/1`: whether it may fall in love beyond the shared
+    /// rule (a turtle carrying an egg may not).
+    fn can_fall_in_love(&self, _data: &FamilyData) -> bool {
+        true
+    }
+
+    /// A breeding of its own (`Goals.Breed`'s `breed:`, a turtle's egg);
+    /// by default `Animal.breed`.
+    fn breed(&self, a: &Animal<Self>, t: &mut Turn, _breeding: Option<Tag>, partner: &Seen) {
+        a.breed(t, partner);
+    }
 }
 
 /// An animal family over species `S`.
@@ -211,6 +275,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(Animal::new(facts, chicken::Chicken::new(facts)?)?),
         Box::new(Animal::new(facts, rabbit::Rabbit::new(facts)?)?),
         Box::new(Animal::new(facts, strider::Strider::new(facts)?)?),
+        Box::new(Animal::new(facts, turtle::Turtle::new(facts)?)?),
+        Box::new(Animal::new(facts, cat::Cat::new(facts)?)?),
     ])
 }
 
@@ -350,7 +416,7 @@ impl<S: Species> Animal<S> {
 
     /// `Animal.settle/1`: `AgeableMob.aiStep` and `Animal.aiStep` after the
     /// move, then the species' own part.
-    fn settle(&self, t: &mut Turn) {
+    pub fn settle(&self, t: &mut Turn) {
         settle_ageable(t);
         if age(t.data()) != 0 {
             t.mob.body.data.set_in_love(0);
@@ -369,7 +435,7 @@ impl<S: Species> Animal<S> {
     /// `Animal.breed/2`: the child's data from the parent's random (a baby
     /// where the parent stands), both parents' age 6,000 and love gone, the
     /// hearts event, and an orb of 1 to 7 while mobs drop loot.
-    fn breed(&self, t: &mut Turn, partner: &Seen) {
+    pub fn breed(&self, t: &mut Turn, partner: &Seen) {
         let partner_data = t
             .sensing
             .mob(&partner.uuid())
@@ -469,8 +535,20 @@ impl<S: Species> Hooks for Animal<S> {
         }
     }
 
-    fn breed(&self, t: &mut Turn, _breeding: Option<Tag>, partner: &Seen) {
-        Animal::breed(self, t, partner);
+    fn breed(&self, t: &mut Turn, breeding: Option<Tag>, partner: &Seen) {
+        self.species.breed(self, t, breeding, partner);
+    }
+
+    fn test(&self, t: &mut Turn, tag: Tag) -> bool {
+        self.species.test(self, t, tag)
+    }
+
+    fn stable_destination(&self, t: &Turn, pos: [i32; 3]) -> Option<bool> {
+        self.species.stable_destination(self, t, pos)
+    }
+
+    fn walk_value(&self, t: &mut Turn, pos: [i32; 3]) -> Option<f64> {
+        self.species.walk_value(self, t, pos)
     }
 
     fn ate(&self, t: &mut Turn) {
@@ -479,10 +557,6 @@ impl<S: Species> Hooks for Animal<S> {
 
     fn block(&self, t: &mut Turn, tag: Tag, cell: [i32; 3], goal: &mut MoveToBlock) -> bool {
         self.species.block(self, t, tag, cell, goal)
-    }
-
-    fn walk_value(&self, t: &mut Turn, pos: [i32; 3]) -> Option<f64> {
-        self.species.walk_value(self, t, pos)
     }
 }
 
@@ -559,13 +633,16 @@ impl<S: Species> Kind for Animal<S> {
         true
     }
 
-    fn finalize(&self, t: &mut Turn, reason: &Atom) {
-        self.species.spawn_part(self, t, reason);
-        crate::mobs::ai::spawn::mob(t, reason);
+    fn navigation(&self, _type_id: u16) -> NavSpec {
+        self.species.navigation()
     }
 
     fn kernel_motion(&self) -> KindMotion {
         self.species.kernel_motion()
+    }
+
+    fn finalize(&self, t: &mut Turn, reason: &Atom) {
+        self.species.finalize(self, t, reason);
     }
 
     fn tick_start(&self, t: &mut Turn) {
@@ -576,8 +653,28 @@ impl<S: Species> Kind for Animal<S> {
         self.ai_step(t);
     }
 
+    fn move_control(&self, t: &mut Turn) {
+        self.species.move_control(self, t);
+    }
+
     fn after_ai(&self, t: &mut Turn) {
-        self.settle(t);
+        self.species.after_ai(self, t);
+    }
+
+    fn after_tick(&self, t: &mut Turn) {
+        self.species.after_tick(self, t);
+    }
+
+    fn step_sound(&self, t: &mut Turn) {
+        self.species.step_sound(self, t);
+    }
+
+    fn swim_sound(&self) -> Option<&'static str> {
+        self.species.swim_sound()
+    }
+
+    fn swim_volume(&self) -> f64 {
+        self.species.swim_volume()
     }
 
     fn ambient_sound(&self, t: &mut Turn) -> Option<i32> {
@@ -627,7 +724,7 @@ impl<S: Species> Animal<S> {
             return Outcome::Pass;
         }
         let data = &i.mob.body.data;
-        if age(data) == 0 && can_fall_in_love(data) {
+        if age(data) == 0 && can_fall_in_love(data) && self.species.can_fall_in_love(data) {
             let player = i.request.player;
             let mut events = feed_love(i.mob, player);
             events.extend(self.eating_sound(i));

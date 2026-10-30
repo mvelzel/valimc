@@ -357,6 +357,12 @@ defmodule Valimc.NativeMobScene do
 
   def effect({:eat_block, _, _} = e), do: e
   def effect({:hurt, _, _, _, _} = e), do: e
+  def effect({:lay_eggs, _, _} = e), do: e
+  def effect({:gift, _, _} = e), do: e
+
+  def effect({:sound_block, id, source, volume, pitch, _seed}),
+    do: {:sound_block, sound_id(id), source, volume, pitch}
+
   def effect({:effect, _, _} = e), do: e
   def effect({:orb, _, _} = e), do: e
   def effect({:alert, _, _} = e), do: e

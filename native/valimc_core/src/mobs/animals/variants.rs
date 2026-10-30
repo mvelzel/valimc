@@ -92,6 +92,16 @@ impl Variants {
         })
     }
 
+    /// A variant's network id (`Animal.variant_id/2`).
+    pub fn variant_id(&self, name: &str) -> Option<i64> {
+        self.variants.get(name).copied()
+    }
+
+    /// A sound variant's network id.
+    pub fn sound_variant_id(&self, name: &str) -> Option<i64> {
+        self.sounds.get(name).copied()
+    }
+
     /// `Variants.values/2`.
     pub fn values(&self, data: &FamilyData) -> Vec<(Atom, Value, Value)> {
         let id = |table: &HashMap<String, i64>, name: &str| {
