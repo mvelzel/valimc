@@ -6,7 +6,6 @@ defmodule Valimc.VillagerRegionTest do
   iron golem kills a zombie that hunts a villager (VMC-044a2).
   """
   use ExUnit.Case, async: false
-  alias Valimc.AI.Brain
   alias Valimc.Data.Blocks
   alias Valimc.Entity.{Body, Store}
   alias Valimc.TestScope
@@ -21,12 +20,7 @@ defmodule Valimc.VillagerRegionTest do
     TestScope.isolate(TestScope.neighborhood(key),
       world_path: base,
       item_simulation: true,
-      region_ticks: :manual,
-      # These read Elixir brains (activities, memories): their mobs stay
-      # Elixir (VMC-081d; the native brains' think parity compares them).
-      native_mob_types:
-        Application.get_env(:valimc, :native_mob_types) --
-          ~w(minecraft:piglin minecraft:hoglin minecraft:villager minecraft:iron_golem minecraft:wandering_trader minecraft:cat)
+      region_ticks: :manual
     )
 
     File.mkdir_p!(base)
@@ -79,18 +73,19 @@ defmodule Valimc.VillagerRegionTest do
     for _ <- 1..ticks, do: Region.step({pid, nil}, 1)
   end
 
-  defp villager(ctx), do: body(ctx, 31)
+  defp villager(ctx), do: entry(ctx, 31)
 
-  defp body(ctx, n) do
+  defp entry(ctx, n) do
     store = Valimc.TestRegion.section(ctx.owner).entities.store
 
     case Store.find(store, <<n::128>>) do
-      {:ok, {_, id, _}} -> store.entries[id].body
+      {:ok, {_, id, _}} -> store.entries[id]
       _ -> nil
     end
   end
 
-  defp memory(body, name), do: Brain.get(%Valimc.AI.Self{mind: body.mob.ai}, name)
+  defp body(ctx, n), do: (e = entry(ctx, n)) && Valimc.TestBodies.body(e)
+  defp memory(entry, name), do: Valimc.TestBodies.memory(entry, name)
 
   test "a villager takes the trade of its lectern, claims its bed and sleeps in it at night",
        ctx do
@@ -102,13 +97,13 @@ defmodule Valimc.VillagerRegionTest do
 
     Valimc.TestWait.until(fn ->
       step(ctx, 10)
-      body = villager(ctx)
-      body.data.profession == "minecraft:librarian" and memory(body, :home) != nil
+      entry = villager(ctx)
+      entry.body.data.profession == "minecraft:librarian" and memory(entry, :home) != nil
     end)
 
-    body = villager(ctx)
-    assert {:overworld, {x0 - 1, 64, z0}} == memory(body, :job_site)
-    assert {:overworld, {x0 + 3, 64, z0}} == memory(body, :home)
+    entry = villager(ctx)
+    assert {:overworld, {x0 - 1, 64, z0}} == memory(entry, :job_site)
+    assert {:overworld, {x0 + 3, 64, z0}} == memory(entry, :home)
 
     assert Valimc.TestRegion.section(ctx.owner).poi_claims == %{
              {x0 - 1, 64, z0} => 1,
@@ -119,7 +114,7 @@ defmodule Valimc.VillagerRegionTest do
 
     Valimc.TestWait.until(fn ->
       step(ctx, 10)
-      villager(ctx).data.sleeping == {x0 + 3, 64, z0}
+      villager(ctx).body.data.sleeping == {x0 + 3, 64, z0}
     end)
 
     step(ctx, 1)
@@ -128,8 +123,8 @@ defmodule Valimc.VillagerRegionTest do
     assert {"occupied", "true"} in Blocks.properties(Valimc.TestBlocks.get({x0 + 2, 64, z0}))
 
     # Its record keeps what it claimed.
-    record = Valimc.AI.Mind.record(villager(ctx).mob.ai)
-    assert %{home: {{:overworld, {_, 64, _}}, :never}} = record.memories
+    record = Store.record(villager(ctx))
+    assert %{home: {{:overworld, {_, 64, _}}, :never}} = record.mob.ai.memories
   end
 
   test "an iron golem kills the zombie hunting a villager", ctx do

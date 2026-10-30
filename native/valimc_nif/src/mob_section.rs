@@ -95,6 +95,9 @@ pub(crate) struct Inner {
     pub(crate) resident: Resident,
     /// The POI claims its villagers hold, as of its last tick.
     pub(crate) claims: std::collections::HashMap<[i32; 3], i32>,
+    /// Structure queries answered that the mob that asked has not taken
+    /// yet (one whose goals did not run: NoAI), kept for its next ticks.
+    pub(crate) located: std::collections::HashMap<([u8; 16], u64), Option<[i32; 3]>>,
 }
 
 impl Inner {
@@ -104,6 +107,7 @@ impl Inner {
             running: None,
             resident: Resident::default(),
             claims: Default::default(),
+            located: Default::default(),
         }
     }
 }
@@ -1798,6 +1802,178 @@ mod oracle {
         let row = row(&rules, slot, false);
         inner.section.relocate(id);
         Ok(((p[0], p[1], p[2]), mob_term::encode(env, &row)?).encode(env))
+    }
+
+    /// A brain mob `id` as an oracle seeded it after making its mind
+    /// (`mob_section_oracle_prepare`): its mind's random the state `random`,
+    /// its gates' (`RunOne`'s) randoms the states `gates` in their order, its
+    /// sensors' countdowns `sensors` in theirs.
+    #[rustler::nif]
+    fn mob_section_oracle_brain(
+        env: Env,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        random: u64,
+        gates: Vec<u64>,
+        sensors: Vec<i32>,
+    ) -> NifResult<Atom> {
+        use valimc_core::mobs::ai::brain::behavior::Gate;
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let mind = slot
+            .mob
+            .body
+            .mob
+            .ai
+            .as_mut()
+            .ok_or_else(|| fail(atoms::missing()))?;
+        mind.random = valimc_core::mobs::random::LegacyRandom::from_state(random)
+            .ok_or(rustler::Error::BadArg)?;
+        let brain = mind
+            .state
+            .as_mut()
+            .and_then(|s| s.brain.as_deref_mut())
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let mut seeds = gates.into_iter();
+        for entry in &mut brain.behaviors {
+            let Some(b) = entry.behavior.as_mut() else {
+                continue;
+            };
+            if let Some(gate) = b.as_any_mut().downcast_mut::<Gate>() {
+                match seeds.next() {
+                    Some(seed) => {
+                        gate.random = valimc_core::mobs::random::LegacyRandom::from_state(seed)
+                            .ok_or(rustler::Error::BadArg)?
+                    }
+                    None => break,
+                }
+            }
+        }
+        for (slot, time) in brain.sensors.iter_mut().zip(sensors) {
+            slot.time = time;
+        }
+        Ok(atoms::ok())
+    }
+
+    /// What the AI stages compare of brain mob `id`'s brain: `{running,
+    /// activity | nil, gate seeds, memories}` (`Brain.running/1`'s
+    /// `"priority:activity"`, the first active activity not core, each
+    /// gate's random state, `[{name, value, ttl | :never}]`), nil without a
+    /// brain.
+    #[rustler::nif]
+    fn mob_section_oracle_brain_view<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+    ) -> NifResult<Term<'a>> {
+        use valimc_core::mobs::ai::brain::behavior::Gate;
+        let inner = read(&res)?;
+        let slot = inner
+            .section
+            .get(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let Some(brain) = slot
+            .mob
+            .body
+            .mob
+            .ai
+            .as_ref()
+            .and_then(|m| m.state.as_ref())
+            .and_then(|s| s.brain.as_deref())
+        else {
+            return Ok(rustler::types::atom::nil().encode(env));
+        };
+        let gates: Vec<u64> = brain
+            .behaviors
+            .iter()
+            .filter_map(|e| e.behavior.as_ref())
+            .filter_map(|b| b.as_any().downcast_ref::<Gate>())
+            .map(|g| g.random.seed)
+            .collect();
+        let activity = brain
+            .activity()
+            .map(|a| rustler::Atom::from_str(env, a.name()))
+            .transpose()?;
+        let view = crate::mob_think_parity::brain(env, Some(brain))?;
+        let memories = rustler::types::tuple::get_tuple(view)?[0];
+        Ok((brain.running(), activity, gates, memories).encode(env))
+    }
+
+    /// A test's change of mob `id` beside its record: `{:no_ai, flag}`,
+    /// `{:cooldown, ticks}` (its hurt cooldown) or
+    /// `{:move_to, {x, y, z}, speed}` (`MobMotion.move_to/3`: its move
+    /// control's wanted position). `{position, row}`.
+    #[rustler::nif]
+    fn mob_section_oracle_set<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        change: Term<'a>,
+    ) -> NifResult<Term<'a>> {
+        use valimc_core::mobs::model::Control;
+        let rules = rules()?;
+        let change = mob_term::decode(change)?;
+        let items = change.as_tuple().ok_or(rustler::Error::BadArg)?;
+        let tag = items
+            .first()
+            .and_then(Value::as_atom)
+            .ok_or(rustler::Error::BadArg)?;
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let motion = &mut slot.mob.body.mob.motion;
+        match (tag.as_str(), &items[1..]) {
+            ("no_ai", [flag]) => {
+                slot.mob.body.mob.no_ai = flag.as_bool().ok_or(rustler::Error::BadArg)?;
+            }
+            ("cooldown", [ticks]) => {
+                slot.mob.body.mob.living.health.cooldown =
+                    ticks.as_int().ok_or(rustler::Error::BadArg)? as i32;
+            }
+            ("move_to", [target, speed]) => {
+                let speed = number(speed)?;
+                motion.control = match motion.control {
+                    Control::Jumping { .. } => Control::Jumping { speed },
+                    _ => Control::MoveTo {
+                        target: vec3(target)?,
+                        speed,
+                    },
+                };
+            }
+            _ => return Err(rustler::Error::BadArg),
+        }
+        slot.touched = true;
+        let p = slot.mob.position;
+        let row = row(&rules, slot, false);
+        Ok(((p[0], p[1], p[2]), mob_term::encode(env, &row)?).encode(env))
+    }
+
+    /// The nodes of mob `id`'s navigation path (`[{x, y, z}]`), nil without
+    /// one.
+    #[rustler::nif]
+    fn mob_section_oracle_path(
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+    ) -> NifResult<Option<Vec<(i32, i32, i32)>>> {
+        let inner = read(&res)?;
+        let slot = inner
+            .section
+            .get(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        Ok(slot
+            .mob
+            .body
+            .mob
+            .ai
+            .as_ref()
+            .and_then(|m| m.state.as_ref())
+            .and_then(|s| s.navigation.path.as_ref())
+            .map(|p| p.nodes.iter().map(|n| (n[0], n[1], n[2])).collect()))
     }
 
     /// A section holding mobs anywhere (a scene around the origin), owned by

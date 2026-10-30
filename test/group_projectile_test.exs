@@ -6,7 +6,7 @@ defmodule Valimc.GroupProjectileTest do
   alias Valimc.TestScope
   alias Valimc.World.Region
 
-  setup ctx do
+  setup _ctx do
     nonce = System.unique_integer([:positive])
     a = {119_000 + rem(nonce, 3333) * 3, 2400}
     b = {elem(a, 0) + 1, elem(a, 1)}
@@ -17,10 +17,7 @@ defmodule Valimc.GroupProjectileTest do
       region_ticks: :manual,
       region_commit_ms: 600_000,
       regionizer: false,
-      item_simulation: true,
-      # Tests that set an Elixir body's own fields keep their mobs in Elixir.
-      native_mob_types:
-        if(ctx[:elixir_mobs], do: :plain, else: Application.get_env(:valimc, :native_mob_types))
+      item_simulation: true
     )
 
     on_exit(fn ->
@@ -71,7 +68,6 @@ defmodule Valimc.GroupProjectileTest do
     %{arrow | data: %{arrow.data | damage: damage}}
   end
 
-  @tag :elixir_mobs
   test "mob travel and living timers run once across either section direction", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}
@@ -86,14 +82,15 @@ defmodule Valimc.GroupProjectileTest do
       body = %{body | no_gravity: true, velocity: {vx, 0.0, 0.0}}
       :ok = Region.drop_items(owner, [record(body, n, {x, 80.0, z})])
 
+      # Its hurt cooldown lives beside its record: a section carries it on.
       Valimc.TestRegion.replace_section(owner, fn section ->
         {:ok, {_, id, _}} = Store.find(section.entities.store, <<n::128>>)
-        live = section.entities.store.entries[id].body
-        mind = Valimc.AI.mind(live.type, <<n::128>>, nil)
-        mind = %{mind | own: Map.put(mind.own || %{}, :carry_marker, n)}
-        live = %{live | mob: %{live.mob | ai: mind}}
-        live = put_in(live.mob.living.health.cooldown, 20)
-        put_in(section.entities.store, Store.change_body(section.entities.store, id, live))
+        cooling = &put_in(&1.mob.living.health.cooldown, 20)
+
+        put_in(
+          section.entities.store,
+          Valimc.TestBodies.replace(section.entities.store, id, cooling)
+        )
       end)
     end
 
@@ -107,7 +104,6 @@ defmodule Valimc.GroupProjectileTest do
     assert east.body.velocity == same.body.velocity
     assert elem(west.body.velocity, 0) == -elem(same.body.velocity, 0)
     assert Enum.all?([east, west, same], &(&1.body.mob.living.health.cooldown == 19))
-    assert Enum.map([east, west, same], & &1.body.mob.ai.own.carry_marker) == [631, 632, 633]
     assert Enum.all?([east, west, same], &(&1.lived == 1))
     {:ok, _} = Region.step(a, 1)
     east2 = entry(b, <<631::128>>)
@@ -121,7 +117,8 @@ defmodule Valimc.GroupProjectileTest do
     refute Map.has_key?(record, :spawn_body) or Map.has_key?(record, :entity_counters)
     {:ok, reloaded} = Store.restore(c.b, [record])
     {:ok, {_, id, _}} = Store.find(reloaded, <<631::128>>)
-    refute Store.simulated?(reloaded.entries[id], east2.simulated_tick)
+    # A native mob (VMC-081d) keeps its tick in its section, not its entry.
+    refute Store.simulated?(reloaded.entries[id], Map.get(east2, :simulated_tick))
     assert Map.get(reloaded.entries[id], :aged_tick) == nil
   end
 
@@ -289,7 +286,6 @@ defmodule Valimc.GroupProjectileTest do
     end
   end
 
-  @tag :elixir_mobs
   test "a mob collides with a neighboring-section shulker lid and crosses after its death", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}
@@ -306,8 +302,8 @@ defmodule Valimc.GroupProjectileTest do
 
     Valimc.TestRegion.replace_section(a, fn section ->
       {:ok, {_, id, _}} = Store.find(section.entities.store, <<622::128>>)
-      body = %{section.entities.store.entries[id].body | velocity: {4.0, 0.0, 0.0}}
-      put_in(section.entities.store, Store.change_body(section.entities.store, id, body))
+      push = &%{&1 | velocity: {4.0, 0.0, 0.0}}
+      put_in(section.entities.store, Valimc.TestBodies.replace(section.entities.store, id, push))
     end)
 
     {:ok, _} = Region.step(a, 1)

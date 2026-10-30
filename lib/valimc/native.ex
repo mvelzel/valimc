@@ -346,6 +346,7 @@ defmodule Valimc.Native do
   def mob_section_school(_section, _id, _leader, _school), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_body(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_contacts(_section), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_claims(_section), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_track(_section, _mask, _fresh, _run, _ids),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -410,6 +411,13 @@ defmodule Valimc.Native do
 
   def mob_section_oracle_put(_section, _id, _record, _health),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_brain(_section, _id, _random, _gates, _sensors),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_brain_view(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_path(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_set(_section, _id, _change), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_oracle_prepare(_section, _id, _body_yaw, _leash),
     do: :erlang.nif_error(:nif_not_loaded)

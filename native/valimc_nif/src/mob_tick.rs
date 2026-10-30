@@ -514,6 +514,14 @@ impl Moving {
     }
 }
 
+/// The structure queries answered this tick that no mob took: kept for
+/// their mobs' next ticks where they are still the section's.
+fn keep_located(inner: &mut ms::Inner, moving: &mut Moving) {
+    let mut left = std::mem::take(&mut moving.located);
+    left.retain(|(uuid, _), _| inner.section.id_of(uuid).is_some());
+    inner.located = left;
+}
+
 /// The types whose AI moves them far within a turn (a teleport).
 const TELEPORTERS: [&str; 2] = ["minecraft:enderman", "minecraft:shulker"];
 
@@ -910,7 +918,11 @@ fn tick_section<'a>(
         moving: Moving {
             events: extras.events,
             pois,
-            located: extras.located,
+            located: {
+                let mut kept = std::mem::take(&mut inner.located);
+                kept.extend(extras.located);
+                kept
+            },
             loot_seeds: extras.loot_seeds.into_iter().collect(),
         },
         loot,
@@ -995,6 +1007,7 @@ fn tick_section<'a>(
     let travel = tw.travel.into_inner();
     match ran {
         Ran::Done => {
+            keep_located(inner, &mut parts.moving);
             let velocities = ticker.finish(&pushers);
             let out = finish_out(
                 env,
@@ -1192,6 +1205,7 @@ fn resume<'a>(
             Ok((atoms::r#yield(), nil, nil, i, random, moved, pushed).encode(env))
         }
         Ran::Done => {
+            keep_located(inner, &mut running.parts.moving);
             let state = ticker_guard
                 .take()
                 .ok_or_else(|| rustler::Error::Term(Box::new(atoms::no_tick())))?;
@@ -1619,4 +1633,19 @@ fn mob_section_dragon_crystal<'a>(
         ),
     )
         .encode(env))
+}
+
+/// A POI ticket count: `{{x, y, z}, n}`.
+type Claim = ((i32, i32, i32), i32);
+
+/// The POI tickets the section's villagers hold as of its last tick
+/// (`Pois.store_claims/2` of its native mobs): `[{{x, y, z}, n}]`.
+#[rustler::nif]
+fn mob_section_claims(res: ResourceArc<MobSectionRes>) -> NifResult<Vec<Claim>> {
+    let inner = ms::read(&res)?;
+    Ok(inner
+        .claims
+        .iter()
+        .map(|(p, n)| ((p[0], p[1], p[2]), *n))
+        .collect())
 }

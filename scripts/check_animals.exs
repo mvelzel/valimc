@@ -13,8 +13,8 @@ alias Valimc.AI
 alias Valimc.Entity.{Animal, Body, MobTicks, NativeMobs, Store}
 alias Valimc.Native
 
-# `--native` (VMC-081d): the farm animals take their turns in a native
-# section (`MobTicks.native_steps/7`), the others as before.
+# `--native` (VMC-081d): every mob takes its turns in a native section
+# (`MobTicks.native_steps/7`).
 {path, native?} =
   case System.argv() do
     [path] -> {path, false}
@@ -23,19 +23,14 @@ alias Valimc.Native
 
 if native?, do: NativeMobs.install!()
 
-# Every type whose family is native (`mobs::kinds`) but the brain mobs,
-# whose brains this harness seeds only in Elixir (the think parity tests
-# compare those), unless the run names some (`VALIMC_NATIVE_TYPES`,
+# Every type whose family is native (`mobs::kinds`; the oracle's scenes
+# hold no brain mob), unless the run names some (`VALIMC_NATIVE_TYPES`,
 # comma-separated, without the namespace).
 native_types =
   case System.get_env("VALIMC_NATIVE_TYPES") do
     nil when native? ->
       {:ok, types} = Native.mob_kinds()
-
-      brains =
-        ~w(minecraft:axolotl minecraft:hoglin minecraft:piglin minecraft:villager minecraft:ender_dragon)
-
-      MapSet.new(types -- brains)
+      MapSet.new(types)
 
     nil ->
       MapSet.new()

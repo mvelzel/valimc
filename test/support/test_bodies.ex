@@ -93,6 +93,80 @@ defmodule Valimc.TestBodies do
 
   def running?(_entry, _module), do: false
 
+  @doc """
+  The store with entry `id` changed beside its record, in the owner's
+  process: `{:no_ai, flag}`, `{:cooldown, ticks}` (its hurt cooldown) or
+  `{:move_to, {x, y, z}, speed}` (its move control's wanted position,
+  `MobMotion.move_to/3`); a native mob's in its section (its mind kept), its
+  row the store's.
+  """
+  def set(store, id, change) do
+    case {store.entries[id], change} do
+      {%{body: %NativeBody{}, native: ref}, _} ->
+        {_, row} = Native.mob_section_oracle_set(ref, id, change)
+        Store.change_body(store, id, row)
+
+      {%{body: body}, {:no_ai, flag}} ->
+        Store.change_body(store, id, put_in(body.mob.no_ai, flag))
+
+      {%{body: body}, {:cooldown, ticks}} ->
+        Store.change_body(store, id, put_in(body.mob.living.health.cooldown, ticks))
+
+      {%{body: body}, {:move_to, target, speed}} ->
+        motion = Valimc.Entity.MobMotion.move_to(body.mob.motion, target, speed)
+        Store.change_body(store, id, put_in(body.mob.motion, motion))
+    end
+  end
+
+  @doc """
+  The entry's brain memories, `%{name => {value, ttl}}` as the Elixir brain
+  keeps them (a native brain's from its section); nil without a brain.
+  """
+  def memories(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
+    case Native.mob_section_oracle_brain_view(ref, id) do
+      {_, _, _, memories} ->
+        Map.new(memories, fn {name, value, ttl} -> {String.to_atom(name), {value, ttl}} end)
+
+      nil ->
+        nil
+    end
+  end
+
+  def memories(%{body: %{mob: %{ai: %Valimc.AI.Mind{brain: %{memories: memories}}}}}),
+    do: memories
+
+  def memories(_entry), do: nil
+
+  @doc "The value of the entry's brain memory `name`, nil where it has none."
+  def memory(entry, name) do
+    case memories(entry) do
+      %{^name => {value, _}} -> value
+      _ -> nil
+    end
+  end
+
+  @doc "The entry's brain's activity (`Brain.activity/1`; a native brain's from its section)."
+  def activity(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
+    case Native.mob_section_oracle_brain_view(ref, id) do
+      {_, activity, _, _} -> activity
+      nil -> nil
+    end
+  end
+
+  def activity(%{body: %{mob: %{ai: %Valimc.AI.Mind{brain: brain} = mind}}}) when brain != nil,
+    do: Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
+
+  def activity(_entry), do: nil
+
+  @doc "The nodes of the entry's navigation path, nil without one (a native mind's from its section)."
+  def path(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}),
+    do: Native.mob_section_oracle_path(ref, id)
+
+  def path(%{body: %{mob: %{ai: %Valimc.AI.Mind{navigation: %{path: %{nodes: nodes}}}}}}),
+    do: Tuple.to_list(nodes)
+
+  def path(_entry), do: nil
+
   @doc "The entry's mind's target (a native mind's from its section)."
   def target(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
     case Native.mob_section_oracle_mind(ref, id) do

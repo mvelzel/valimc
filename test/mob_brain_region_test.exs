@@ -19,12 +19,7 @@ defmodule Valimc.MobBrainRegionTest do
     TestScope.isolate(TestScope.neighborhood(key),
       world_path: base,
       item_simulation: true,
-      region_ticks: :manual,
-      # These read Elixir brains (activities, memories): their mobs stay
-      # Elixir (VMC-081d; the native brains' think parity compares them).
-      native_mob_types:
-        Application.get_env(:valimc, :native_mob_types) --
-          ~w(minecraft:piglin minecraft:hoglin minecraft:villager minecraft:iron_golem minecraft:wandering_trader minecraft:cat)
+      region_ticks: :manual
     )
 
     File.mkdir_p!(base)
@@ -81,13 +76,12 @@ defmodule Valimc.MobBrainRegionTest do
     Valimc.TestWait.until(fn ->
       step(ctx, 5)
       {:ok, {_, id, _}} = Store.find(store(ctx), <<21::128>>)
-      offhand = store(ctx).entries[id].body.mob.equipment[:offhand]
+      offhand = Valimc.TestBodies.body(store(ctx).entries[id]).mob.equipment[:offhand]
       offhand != nil and offhand.item_id == Valimc.Protocol.ItemTypes.id("gold_ingot")
     end)
 
     {:ok, {_, id, _}} = Store.find(store(ctx), <<21::128>>)
-    mind = store(ctx).entries[id].body.mob.ai
-    assert Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind}) == :admire_item
+    assert Valimc.TestBodies.activity(store(ctx).entries[id]) == :admire_item
     assert {:error, _} = Store.find(store(ctx), <<22::128>>)
 
     # Admired for 119 ticks, the ingot becomes its barter.
@@ -102,6 +96,6 @@ defmodule Valimc.MobBrainRegionTest do
     end)
 
     {:ok, {_, id, _}} = Store.find(store(ctx), <<21::128>>)
-    assert store(ctx).entries[id].body.mob.equipment[:offhand] == nil
+    assert Valimc.TestBodies.body(store(ctx).entries[id]).mob.equipment[:offhand] == nil
   end
 end

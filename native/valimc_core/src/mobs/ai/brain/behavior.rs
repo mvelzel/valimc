@@ -40,6 +40,7 @@ pub trait BehaviorBox: Any {
     fn clone_behavior(&self) -> Box<dyn Behavior>;
     fn eq_behavior(&self, other: &dyn Behavior) -> bool;
     fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 impl<T: Behavior + Clone + PartialEq> BehaviorBox for T {
@@ -52,6 +53,10 @@ impl<T: Behavior + Clone + PartialEq> BehaviorBox for T {
     }
 
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

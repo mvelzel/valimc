@@ -321,11 +321,6 @@ defmodule Valimc.CombatConnectionTest do
   end
 
   test "a guardian retaliates even when its hurt window refuses the next hit", ctx do
-    # It sets an Elixir guardian's hurt window: its guardian stays Elixir.
-    Valimc.TestScope.isolate(Valimc.TestScope.neighborhood(ctx.key),
-      native_mob_types: Application.get_env(:valimc, :native_mob_types) -- ["minecraft:guardian"]
-    )
-
     save(ctx, 0.0, %Inventory{})
     {_client, pid} = TestPlayer.login(ctx)
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
@@ -335,10 +330,20 @@ defmodule Valimc.CombatConnectionTest do
     record = Store.body_record(body, uuid, {ctx.pose.x + 2.0, 64.0, ctx.pose.z})
     :ok = Region.drop_items(owner, [record])
 
+    # Its mind made (a native one in its section, VMC-081d).
     Valimc.TestWait.until(fn ->
       case Store.find(store(owner), uuid) do
-        {:ok, {_, id, _}} -> match?(%Valimc.AI.Mind{}, store(owner).entries[id].body.mob.ai)
-        _ -> false
+        {:ok, {_, id, _}} ->
+          case store(owner).entries[id] do
+            %{native: ref} when ref != nil ->
+              Valimc.Native.mob_section_oracle_mind(ref, id) != nil
+
+            entry ->
+              match?(%Valimc.AI.Mind{}, entry.body.mob.ai)
+          end
+
+        _ ->
+          false
       end
     end)
 
@@ -366,15 +371,14 @@ defmodule Valimc.CombatConnectionTest do
 
     Valimc.TestRegion.replace_section(owner, fn section ->
       {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
-      body = section.entities.store.entries[id].body
-      body = put_in(body.mob.living.health.cooldown, 20)
-      put_in(section.entities.store, Store.change_body(section.entities.store, id, body))
+      store = Valimc.TestBodies.set(section.entities.store, id, {:cooldown, 20})
+      put_in(section.entities.store, store)
     end)
 
     assert {:ok, %{hurt: false}} = Region.hurt_entity(owner, uuid, hit)
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 16.0 end)
     {:ok, {_, id, _}} = Store.find(store(owner), uuid)
-    assert store(owner).entries[id].body.mob.living.health.value == 29.0
+    assert Valimc.TestBodies.body(store(owner).entries[id]).mob.living.health.value == 29.0
   end
 
   test "pufferfish post-hit poison and sting follow damage admission, shields and immunity",

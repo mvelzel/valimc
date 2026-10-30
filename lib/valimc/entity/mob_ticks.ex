@@ -118,6 +118,11 @@ defmodule Valimc.Entity.MobTicks do
        env.region}
 
     extra = %{items: Map.get(env, :items, []), only: natives}
+
+    # The loot seeds a scene gives its tick (a piglin's barter).
+    extra =
+      if is_list(world.loot_seeds), do: Map.put(extra, :loot_seeds, world.loot_seeds), else: extra
+
     random = world.random
     elixir = Enum.reject(mobs, fn {_, entry} -> Store.native_entry?(entry) end)
     all = if elixir == [], do: [], else: mobs
@@ -148,6 +153,19 @@ defmodule Valimc.Entity.MobTicks do
 
         if row.idle != nil, do: Map.put(step, :idle, idle), else: step
       end
+
+    # The items native mobs took have fewer for the next tick, as the
+    # Elixir AI's world keeps them (`Pickup.remove/3`).
+    taken =
+      Enum.reduce(native_steps, %{}, fn step, acc ->
+        Enum.reduce(step.effects, acc, fn
+          {:pickup, {:item, uuid}, n}, acc -> Map.update(acc, uuid, n, &(&1 + n))
+          _, acc -> acc
+        end)
+      end)
+
+    items = for i <- world.items, do: %{i | count: i.count - Map.get(taken, i.uuid, 0)}
+    world = %{world | items: items}
 
     {Enum.sort_by(steps ++ native_steps, & &1.id), world}
   end

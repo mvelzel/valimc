@@ -276,16 +276,27 @@ impl Environment for SectionEnv<'_> {
     }
 
     /// `View.find/3` over the tick's snapshots: a chunk it cannot read
-    /// holds none; an oracle scene has no finder.
+    /// holds none; an oracle scene's supplied states are searched as its
+    /// `find` searches its blocks (in no particular order: its searches pick
+    /// by distance).
     fn find(&self, chunk: (i32, i32), states: &[u16]) -> Option<Vec<(i32, i32, i32, u16)>> {
-        let physics_nif::View::Rows(rows) = self.view else {
-            return None;
-        };
-        Some(
-            rows.snapshot(chunk)
-                .map(|s| s.find(states))
-                .unwrap_or_default(),
-        )
+        match self.view {
+            physics_nif::View::Rows(rows) => Some(
+                rows.snapshot(chunk)
+                    .map(|s| s.find(states))
+                    .unwrap_or_default(),
+            ),
+            physics_nif::View::States(supplied) => {
+                let mut found: Vec<(i32, i32, i32, u16)> = supplied
+                    .0
+                    .iter()
+                    .filter(|(p, s)| (p[0] >> 4, p[2] >> 4) == chunk && states.contains(s))
+                    .map(|(p, s)| (p[0], p[1], p[2], *s))
+                    .collect();
+                found.sort_unstable();
+                Some(found)
+            }
+        }
     }
 
     fn biome(&self, p: [i32; 3]) -> Option<u16> {

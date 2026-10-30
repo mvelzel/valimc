@@ -24,12 +24,7 @@ defmodule Valimc.MobPathRegionTest do
       TestScope.isolate(TestScope.neighborhood(key),
         world_path: base,
         item_simulation: true,
-        region_ticks: :manual,
-        # These read Elixir brains (activities, memories): their mobs stay
-        # Elixir (VMC-081d; the native brains' think parity compares them).
-        native_mob_types:
-          Application.get_env(:valimc, :native_mob_types) --
-            ~w(minecraft:piglin minecraft:hoglin minecraft:villager minecraft:iron_golem minecraft:wandering_trader minecraft:cat)
+        region_ticks: :manual
       )
 
       File.mkdir_p!(base)
@@ -99,11 +94,12 @@ defmodule Valimc.MobPathRegionTest do
 
         case Store.find(store(ctx), <<31::128>>) do
           {:ok, {_, id, _}} ->
-            body = store(ctx).entries[id].body
+            entry = store(ctx).entries[id]
+            body = Valimc.TestBodies.body(entry)
 
-            case {body.mob.equipment[:offhand], body.mob.ai.navigation.path} do
+            case {body.mob.equipment[:offhand], Valimc.TestBodies.path(entry)} do
               {%{item_id: ^gold}, _} -> :took
-              {_, %{nodes: nodes}} -> Tuple.to_list(nodes)
+              {_, nodes} when is_list(nodes) -> nodes
               _ -> []
             end
 

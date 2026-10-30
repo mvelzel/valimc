@@ -670,7 +670,7 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
 
 /// A brain as the harness views it: `{[{name, value, ttl}], active,
 /// running, sensor countdowns}`, the memories by name.
-fn brain<'a>(
+pub(crate) fn brain<'a>(
     env: Env<'a>,
     brain: Option<&valimc_core::mobs::ai::brain::Brain>,
 ) -> NifResult<Term<'a>> {

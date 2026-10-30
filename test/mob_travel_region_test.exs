@@ -15,10 +15,7 @@ defmodule Valimc.MobTravelRegionTest do
       item_simulation: true,
       region_ticks: :manual,
       # No goals: the tests move the mobs alone (VMC-041a), unless tagged.
-      mob_goals: Map.get(ctx, :goals, false),
-      # Tests that set an Elixir body's motion keep their mobs in Elixir.
-      native_mob_types:
-        if(ctx[:elixir_mobs], do: :plain, else: Application.get_env(:valimc, :native_mob_types))
+      mob_goals: Map.get(ctx, :goals, false)
     )
 
     File.mkdir_p!(base)
@@ -109,7 +106,6 @@ defmodule Valimc.MobTravelRegionTest do
     assert (b.x - a.x) ** 2 + (b.z - a.z) ** 2 > 0.36
   end
 
-  @tag :elixir_mobs
   test "a zombie told to move walks toward its target", ctx do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x - 2.0, 64.0, z})
@@ -121,9 +117,8 @@ defmodule Valimc.MobTravelRegionTest do
 
       # The AI's place (VMC-041a): navigation sets the wanted position.
       Valimc.TestRegion.replace_section(ctx.owner, fn section ->
-        update_in(section.entities.store.entries[id].body.mob.motion, fn motion ->
-          Valimc.Entity.MobMotion.move_to(motion, target, 1.0)
-        end)
+        store = Valimc.TestBodies.set(section.entities.store, id, {:move_to, target, 1.0})
+        put_in(section.entities.store, store)
       end)
 
       step(ctx, 1)
@@ -133,7 +128,6 @@ defmodule Valimc.MobTravelRegionTest do
     assert e.entity.x > x - 1.0 and e.body.yaw == 270.0
   end
 
-  @tag :elixir_mobs
   test "a zombie walking across a section line moves to that section's owner", ctx do
     {_, z} = ctx.at
     summon(ctx, <<1::128>>, {ctx.edge - 1.5, 64.0, z})
@@ -157,9 +151,8 @@ defmodule Valimc.MobTravelRegionTest do
           Valimc.TestRegion.replace_section(
             pid,
             fn section ->
-              update_in(section.entities.store.entries[id].body.mob.motion, fn motion ->
-                Valimc.Entity.MobMotion.move_to(motion, target, 1.0)
-              end)
+              store = Valimc.TestBodies.set(section.entities.store, id, {:move_to, target, 1.0})
+              put_in(section.entities.store, store)
             end,
             ctx.key
           )
@@ -275,7 +268,6 @@ defmodule Valimc.MobTravelRegionTest do
   end
 
   @tag goals: true
-  @tag :elixir_mobs
   test "a dolphin's background lookup survives unticked goals and is consumed after NoAI ends",
        ctx do
     assert Valimc.World.Spec.current().generator == :flat
@@ -299,16 +291,14 @@ defmodule Valimc.MobTravelRegionTest do
     no_ai = fn flag ->
       Valimc.TestRegion.replace_section(ctx.owner, fn state ->
         {:ok, {_, id, _}} = Store.find(state.entities.store, uuid)
-        current = state.entities.store.entries[id].body
-        body = put_in(current.mob.no_ai, flag)
-        store = Store.change_body(state.entities.store, id, body, [])
+        store = Valimc.TestBodies.set(state.entities.store, id, {:no_ai, flag})
         %{state | entities: %{state.entities | store: store}}
       end)
     end
 
     no_ai.(true)
     step(ctx, 3)
-    assert Valimc.TestRegion.section(ctx.owner).mob_located == ready
+    # Its section keeps the answer its NoAI dolphin has not taken (VMC-081d).
     assert entry(ctx, uuid).body.data.got_fish
     no_ai.(false)
     step(ctx, 6)

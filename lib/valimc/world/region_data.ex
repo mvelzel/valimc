@@ -1845,10 +1845,18 @@ defmodule Valimc.World.RegionData do
       # Beds villagers lie in or leave and doors they open and close (VMC-044a1).
       state = mob_blocks(state, steps)
 
-      state = %{
-        state
-        | poi_claims: Valimc.AI.Pois.store_claims(state.entities.store.entries, state.dimension)
-      }
+      # The tickets its villagers hold: its Elixir ones' and, as its last
+      # tick left them, its native ones' (VMC-081d).
+      native_claims =
+        case store.native do
+          nil -> %{}
+          %{ref: ref} -> Map.new(Native.mob_section_claims(ref))
+        end
+
+      elixir_claims =
+        Valimc.AI.Pois.store_claims(state.entities.store.entries, state.dimension)
+
+      state = %{state | poi_claims: Valimc.AI.Pois.merge([elixir_claims, native_claims])}
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,

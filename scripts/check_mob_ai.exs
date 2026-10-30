@@ -32,19 +32,15 @@ alias Valimc.Native
 
 if native?, do: NativeMobs.install!()
 
-# Every type whose family is native (`mobs::kinds`) but the brain mobs,
-# whose brains this harness seeds only in Elixir (the think parity tests
-# compare those), unless the run names some (`VALIMC_NATIVE_TYPES`,
-# comma-separated, without the namespace).
+# Every type whose family is native (`mobs::kinds`), brain mobs included
+# (their brains seeded natively as the oracle seeds them,
+# `mob_section_oracle_brain`), unless the run names some
+# (`VALIMC_NATIVE_TYPES`, comma-separated, without the namespace).
 native_types =
   case System.get_env("VALIMC_NATIVE_TYPES") do
     nil when native? ->
       {:ok, types} = Native.mob_kinds()
-
-      brains =
-        ~w(minecraft:axolotl minecraft:hoglin minecraft:piglin minecraft:villager minecraft:ender_dragon)
-
-      MapSet.new(types -- brains)
+      MapSet.new(types)
 
     nil ->
       MapSet.new()
@@ -756,6 +752,27 @@ checked =
             {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
             :ok = Native.mob_section_oracle_prepare(native.ref, id, e.body.mob.ai.body_yaw, nil)
 
+            # A brain as the oracle seeded it: its mind's random, its gates'
+            # and its sensors' countdowns.
+            case e.body.mob.ai do
+              %{brain: %{behaviors: behaviors, sensors: sensors}, random: random} ->
+                gates =
+                  for %{kind: Valimc.AI.Behavior.Gate} = b <- Tuple.to_list(behaviors),
+                      do: b.random
+
+                :ok =
+                  Native.mob_section_oracle_brain(
+                    native.ref,
+                    id,
+                    random,
+                    gates,
+                    Enum.map(sensors, & &1.time)
+                  )
+
+              _ ->
+                :ok
+            end
+
             # A squid's tentacle speed as vanilla drew it (`own_start`).
             case e.body.mob.ai.own do
               %{tentacle_speed: speed} ->
@@ -807,7 +824,25 @@ checked =
           # A family's own state and a brain as its record keeps them (a
           # squid's tentacle, a bat's target, a brain's memories).
           own: m.own,
-          brain: nil
+          # A brain as the checks read it: its running behaviours,
+          # activity, gates' randoms and memories.
+          brain:
+            case Native.mob_section_oracle_brain_view(native.ref, id) do
+              {running, activity, gates, memories} ->
+                %{
+                  native: true,
+                  running: running,
+                  activity: activity && Atom.to_string(activity),
+                  gate_seeds: gates,
+                  memories:
+                    Map.new(memories, fn {name, value, ttl} ->
+                      {String.to_atom(name), {value, ttl}}
+                    end)
+                }
+
+              nil ->
+                nil
+            end
         }
 
         put_in(body.mob.ai, mind)
@@ -956,7 +991,29 @@ checked =
                 end
 
               env = %{region: nil, level: level, players: players, items: world.items, reach: 0}
-              MobTicks.native_steps(native_view, live, world, nil, [], native, env)
+
+              {steps, world} =
+                MobTicks.native_steps(native_view, live, world, nil, [], native, env)
+
+              # A native piglin's barter: its table rolled with its seed and
+              # thrown, as its owner throws it.
+              steps =
+                for step <- steps do
+                  effects =
+                    Enum.flat_map(step.effects, fn
+                      {:barter, seed, from, velocity} ->
+                        {:ok, items} = Valimc.Blocks.Loot.barter(seed)
+                        for stack <- items, do: {:throw, stack, from, velocity}
+
+                      effect ->
+                        [effect]
+                    end)
+
+                  %{step | effects: effects}
+                end
+
+              # The loot seeds the tick's barters took.
+              {steps, %{world | loot_seeds: []}}
             else
               MobTicks.steps(kernel_view, live, world, nil)
             end
@@ -1265,22 +1322,33 @@ checked =
                   data: kind_data.(body)
                 }
 
+                {behaviors, activity, gate_seeds} =
+                  case mind.brain do
+                    nil ->
+                      {nil, nil, nil}
+
+                    %{native: true} = b ->
+                      {b.running, b.activity, b.gate_seeds}
+
+                    brain ->
+                      {Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
+                       Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
+                       |> then(&(&1 && Atom.to_string(&1))),
+                       for(
+                         %{kind: Valimc.AI.Behavior.Gate} = b <- Tuple.to_list(brain.behaviors),
+                         do: b.random
+                       )}
+                  end
+
                 got =
                   if mind.brain,
                     do:
                       Map.merge(got, %{
-                        behaviors: Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
-                        activity:
-                          Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
-                          |> then(&(&1 && Atom.to_string(&1))),
+                        behaviors: behaviors,
+                        activity: activity,
                         offhand: offhand.(body.mob.equipment[:offhand]),
                         admiring: admiring.(mind),
-                        gate_seeds:
-                          for(
-                            %{kind: Valimc.AI.Behavior.Gate} = b <-
-                              Tuple.to_list(mind.brain.behaviors),
-                            do: b.random
-                          )
+                        gate_seeds: gate_seeds
                       }),
                     else: got
 
