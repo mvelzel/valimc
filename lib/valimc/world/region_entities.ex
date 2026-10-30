@@ -20,5 +20,8 @@ defmodule Valimc.World.RegionEntities do
             cross_next: nil,
             cross_stamp: nil,
             age_debt: %{},
-            dropped: []
+            dropped: [],
+            # What mobs sense of the items, with the spatial index's change
+            # count it was built at (VMC-081l).
+            sensed: nil
 end

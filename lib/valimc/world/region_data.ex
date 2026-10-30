@@ -1561,6 +1561,7 @@ defmodule Valimc.World.RegionData do
          dragon_waits do
       state
     else
+      {sensed, state} = sensed_items(state)
       # A lazy view: what effects read (eaten and placed blocks).
       view = Valimc.World.View.new(state.dimension)
       random = state.ai_random || Valimc.Data.JavaRandom.create()
@@ -1572,7 +1573,7 @@ defmodule Valimc.World.RegionData do
           state.game_tick,
           Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
           random,
-          native_extra(state, count)
+          native_extra(state, count, sensed)
         )
 
       {ticked, steps} = Store.native_tick(store, moved, changes)
@@ -3039,15 +3040,10 @@ defmodule Valimc.World.RegionData do
   # the items its mobs sense, the knots where the group holds any, whether
   # goals run (tests turn them off per scope), the players' anger events,
   # the dragon's arena and an answered structure query.
-  defp native_extra(state, units) do
+  defp native_extra(state, units, sensed) do
     # Its mobs (the turns the call takes) choose its scheduler.
     extra = %{units: units}
-
-    extra =
-      case sensed_items(state) do
-        [] -> extra
-        items -> Map.put(extra, :items, items)
-      end
+    extra = if sensed == [], do: extra, else: Map.put(extra, :items, sensed)
 
     extra =
       if group_knots?(state),
@@ -3076,17 +3072,32 @@ defmodule Valimc.World.RegionData do
   # What mobs' AI senses of the section's items, packed
   # (`mob_section_level::compact_item`): `{uuid, x, y, z, item, count,
   # pickup_delay, in_water, components}`, components nil when empty.
+  # Built again only when a simulated chunk holds an awake item or the
+  # spatial index counted a change of one (added or gone, moved, its stack
+  # changed): a resting item's place, stack, pickup delay and water flag
+  # stay, and an item outside the simulated chunks neither moves nor ages
+  # (VMC-081l).
   defp sensed_items(state) do
     store = state.entities.store
+    stamp = {store.epoch, store.spatial.items}
 
-    for {{_, :item}, ids} <- store.spatial.chunks,
-        id <- ids,
-        %{kind: :item, entity: e, stack: stack} = entry <- [store.entries[id]] do
-      motion = Map.get(entry, :motion)
+    with {^stamp, items} <- state.entities.sensed,
+         [] <- Valimc.Entity.Spatial.awake(store.spatial, state.tickets.simulated) do
+      {items, state}
+    else
+      _ ->
+        items =
+          for {{_, :item}, ids} <- store.spatial.chunks,
+              id <- ids,
+              %{kind: :item, entity: e, stack: stack} = entry <- [store.entries[id]] do
+            motion = Map.get(entry, :motion)
 
-      {e.uuid, e.x * 1.0, e.y * 1.0, e.z * 1.0, stack.item_id, stack.count,
-       if(motion, do: motion.pickup_delay, else: 0), motion != nil and motion.in_water,
-       if(stack.components == %{}, do: nil, else: stack.components)}
+            {e.uuid, e.x * 1.0, e.y * 1.0, e.z * 1.0, stack.item_id, stack.count,
+             if(motion, do: motion.pickup_delay, else: 0), motion != nil and motion.in_water,
+             if(stack.components == %{}, do: nil, else: stack.components)}
+          end
+
+        {items, %{state | entities: %{state.entities | sensed: {stamp, items}}}}
     end
   end
 
@@ -6335,9 +6346,18 @@ defmodule Valimc.World.RegionData do
       columns = MapSet.new(hoppers, fn {x, _, z} -> {x, z} end)
       corners = [{-0.125, -0.125}, {-0.125, 0.125}, {0.125, -0.125}, {0.125, 0.125}]
 
+      # An item over a column stands within a block of it: the chunks
+      # around the columns hold every candidate (VMC-081l).
+      chunks =
+        for {x, z} <- columns,
+            dx <- [-1, 1],
+            dz <- [-1, 1],
+            uniq: true,
+            do: Grid.chunk_key(x + dx, z + dz)
+
       near =
-        for {id, %{kind: :item, entity: %{x: x, y: y, z: z}, stack: stack}} <-
-              state.entities.store.entries,
+        for {id, %{entity: %{x: x, y: y, z: z}, stack: stack}} <-
+              Store.in_chunks(state.entities.store, chunks, :item),
             Enum.any?(corners, fn {dx, dz} ->
               MapSet.member?(columns, {floor(x + dx), floor(z + dz)})
             end),

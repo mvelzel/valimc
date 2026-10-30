@@ -33,9 +33,22 @@ Per section tick, for every item in a simulated chunk:
   about 1,400 ticks for a typical drop), which bumps its physical
   revision, so the stamp changed every tick and a merge plan (a copy of
   the whole store to a worker) started every 200 ms.
-- **Primed TNT and falling blocks** were selected by walking every entity.
+- **Primed TNT and falling blocks**, and the items over hoppers, were
+  selected by walking every entity, and what mobs sense of the items was
+  built item by item every tick.
 
 ## Design
+
+081d moved mobs into a resident Rust section because a mob's turn is
+heavy work and every reader of a mob could go through that resource. An
+item's own work is one kernel step, already native and one call per
+section, and a few counters; the time went into the Elixir work around
+items whose tick changed nothing. Resting removes that work without a
+second home for item state: stepping, merges, pickups, hoppers,
+handoffs, commands and records keep reading one Elixir entry (about 200
+places read entries), and a moving item still takes the kernel's one
+call. Resident native items would have to answer all of those readers to
+remove the same work.
 
 - **Event-driven merging.** Which items merge depends only on which items
   there are, where they stand, their stacks and whether they may merge.
@@ -46,7 +59,8 @@ Per section tick, for every item in a simulated chunk:
 - **Selection by the spatial index.** The items phase visits the awake
   items of the simulated chunks (`Spatial.awake/2`) and their orbs, the
   block bodies phase the simulated chunks' objects (in id order, as a small
-  store's map walk gave them), never every entity of the section.
+  store's map walk gave them), and the hoppers the items of the chunks
+  around their columns, never every entity of the section.
 
 ## Resting items
 
@@ -103,7 +117,55 @@ section, that resting items' entries and views stay the same terms over
 twenty ticks while their age runs, that a checkpoint saves that age, and
 that removing the block under one wakes it and it falls.
 
+## What mobs sense of the items
+
+Every section tick with mobs built one tuple per item of the section
+(position, stack, its components, pickup delay, water flag) for the mob
+call (`sensed_items/1`). The list is now kept with the spatial index's
+change count it was built at and built again only when a simulated chunk
+holds an awake item or that count moved (an item added or gone, moved,
+its stack changed): the tuple of a resting item, or of one outside the
+simulated chunks, cannot change. With every item at rest, a tick builds
+no tuple; the call still decodes the list.
+
+## Open
+
+- **The decay before rest.** A grounded item's horizontal velocity shrinks
+  by its block's factors every tick and reaches its floating-point fixed
+  point only after about 1,400 ticks from a typical drop; until then it is
+  stepped and aged every tick. Resting it as soon as its place and flags
+  stop changing needs its velocity on the chunk clock too: the kernel
+  reporting the step's horizontal factors, settling the velocity where the
+  age settles, the piston and explosion pushes reading settled entries,
+  and observers' packets provably the same. While it rests that holds
+  below 1/32766 per component, where the spawn and motion packets encode
+  no velocity, if its tracker would send nothing over the whole decay (its
+  last sent movement within 1e-7 of every velocity the decay passes) and
+  the factors cannot reach an exact zero (soul sand's and honey's speed
+  factors can). It fails at the wake: the tracker's `previous` velocity
+  (vanilla's `needsSync` test against 0.01) would be the one the item
+  rested with, not the last tick's, so a push of about 0.1 could sync on
+  one side and not the other. Exactness needs `Tracking` to read a
+  decaying item's velocity through the chunk's step clock (or the store
+  to correct `previous` at every wake, including the store paths'), which
+  this slice does not do; published rows carry the velocity too.
+- **Trackers of resting items** still tick with every tracker of a
+  simulated chunk (`Tracking`'s pass).
+- **The mob call decodes the sensed items** every tick; keeping them
+  resident beside the mob sections and sending changes would remove that.
+- **Wakes are per chunk publication**: a crop growing in a chunk wakes the
+  items resting on it (each wake is one step, after which it rests again).
+- **Orbs and objects** still age every tick (few in a village).
+
 ## Checks
+
+Sensed items and hoppers: the hopper, villager, mob brain, mob travel,
+native mob section, hostile, redstone, rest and item simulation suites;
+`check_vanilla.py --changed` through `heavy.py` (14 of 14 for the final
+state, the village, mob and `tcp` stages among them; a first run of the
+sensed list alone passed 20 of 21, its one failure a live-generation
+stage that failed in 0.9 s while a second run shared the worktree, and
+passed in the second run).
 
 Resting items: the rest, item, merge, spatial, membership, bodies,
 explosion, hopper, despawn, portal, void, handoff, checkpoint, journal,
