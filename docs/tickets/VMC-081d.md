@@ -488,8 +488,9 @@ persistent change.
 
 ## Native oracle coverage
 
-Every mob stage runs a second check against vanilla with its mobs native
-(`--native`), before the Elixir mob path goes.
+Every mob stage checked its mobs native beside its Elixir mode before the
+Elixir mob path went; the native mode is now each stage's only one (see
+"The Elixir mob path deleted").
 
 - **Brain mobs.** The harnesses seed a native brain as the oracle seeds
   one: `mob_section_oracle_brain` sets its mind's random, its gates'
@@ -532,11 +533,73 @@ zombie, husk, dolphin): `Valimc.TestBodies` reads activity, memories and
 paths and changes NoAI, cooldowns and move targets through the section
 (`mob_section_oracle_set`, `_put`). No test keeps `:elixir_mobs`.
 
-Still on the Elixir mob path, to retire with it: the parity suites
-(`native_mob_*_test`, `native_plain_mobs_test`, `NativeMobScene`) and the
-unit tests of Elixir AI modules (`ai_move_sink`, `ai_spatial`,
-`aquatic_age`, `dolphin_treasure`, `enderman`, `item_step`, `mob_sense`,
-`puffer_resize`, `silverfish`, `shulker_mob_collision`); tests building a
-dragon's brain as Elixir structs for its record (`dragon_actor`,
-`dragon`, `group_projectile`); and the stages' Elixir modes beside their
-native ones.
+## The Elixir mob path deleted
+
+Every mob runs natively, so the Elixir simulation is gone (about 47,000
+lines deleted, 5,000 added, Rust included): `lib/valimc/ai/**` (the AI
+core, goals, brains, behaviours, sensors, navigation, paths, the 30
+families and the dragon's actor, phases and flight), `Entity.Animal` and
+`Animals.*`, `MobVitals`, `World.MobPaths`, `NativeLiving`, the Elixir
+halves of `Combat`, `Mob`, `MobMotion`, `Body` and `Dragon`, the
+`:native_mob_types` switch, and the yield and resume of the section tick
+(`mob_section_resume`, the Elixir entrants and sensed rows, the mid-tick
+ticker of `mob_section_hurt`, `_hit`, `_push`; `mob_section_motion` and
+`_displace`). `MobTicks` is the section's one call (`native_tick/6`) and
+the oracles' scene tick (`native_steps/4`).
+
+What stays, at its owner:
+
+- **Records.** `Body`, `Mob` and `MobMotion` build and read mob records;
+  a fresh mob is its native family's (`mob_section_fresh`, which also
+  gives the record codec its types' data keys), so family data has one
+  source. A squid's fresh data dropped the love fields its records never
+  held.
+- **Facts.** `Entity.MobFacts` installs every native fact from the
+  generated files (it absorbed `AI.NativeFacts`, `NativeLiving` and the
+  path facts); `Data.AiFacts` keeps `Mth.atan2`'s tables and the swing
+  packet's fields, `Data.VillageFacts` the POI types and villager names
+  the spawners and generated villagers read; `Data.Mth` took `atan2` and
+  `wrap`.
+- **Spawning.** The aquatic packs of natural spawning finish as groups
+  natively (`mobs::ai::spawn_group`, `mob_finalize`), and so does a
+  bucket's release (its family's `finalizeSpawn`); the cat and trader
+  spawners read POIs through `World.Pois`.
+- **Owner reads.** Loot properties of a mob (shearing, laying, gifts) come
+  from its section (`mob_section_properties`), which families take a lead
+  from `mob_section_leashable`, a shulker's box and collider from its row
+  (`NativeBody`), `canBeAffected` from the section's `mob_section_effect`.
+
+The oracle stages that called Elixir families now drive native code
+through parity NIFs (`mob_oracle_ai`, `mob_oracle_body`): `hostile_spawns`
+checks the native `finalizeSpawn`, `aquatic_packs` the native spawn
+groups, the puffer, water age, shulker, dolphin breath, mob travel, bucket
+and item travel stages native hooks and kernel inputs. The kernel's mob
+ticker NIFs serve only these oracles and build only with `parity`. The
+parity suites and their NIFs (`mob_parity_*`), `NativeMobScene` and the
+tests of Elixir AI modules are deleted; what no stage covered (feeding,
+milking, stews, dyes, the golden dandelion, leads, lighting a creeper,
+refused hurts, death drops, conversions, a cube's split, effect ticking)
+is pinned natively in `native_mob_regression_test`.
+
+Fixes against vanilla (26.3's classes in `research/decompiled`):
+
+- `SecondaryPoiSensor` compared unprefixed block names with the
+  profession's prefixed ones and found nothing; it now matches by block
+  and erases the memory when none is near
+  (`villager_region_test`: a farmer senses its farmland).
+- `MeleeAttack`'s `isHoldingUsableNonMeleeWeapon` never counted a spear:
+  a piglin's `canUseNonMeleeWeapon` is a crossbow or a kinetic weapon (the
+  stack's component or its item's stock one, `kinetic_defaults`), other
+  mobs use none (`ai::tests`).
+- An animal's death experience (`1 + random.nextInt(3)`) now keeps its
+  draw on the mob's random.
+- A dispenser's equipment looked its item up without its namespace and
+  never dressed a mob; it now dresses the first mob in front that picks
+  up loot, through its section (`mob_section_equip`; `hopper_region_test`).
+
+Checks: `mix compile --warnings-as-errors`; `cargo test -p valimc_core`
+and clippy of both crates (no new warnings); `mix test.fast` (675 passed)
+and the full `mix test`; `check_vanilla.py --changed` ran every stage (the
+config changed), 261 of 261 passed, the mob stages among them with every
+mob native at the tick counts above. The `mobs` scenario was not measured
+in this slice, so the entity-phase acceptance stays open.

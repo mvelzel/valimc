@@ -18,7 +18,7 @@ depends only on its own rank and the ranks below it:
 | 1 | Data | Generated facts and their loader (`Data.Facts`, `Data.Version`), the block registry and fact table, entity, effect and potion types, NBT, UUIDs, Java floats, the world grid (`Data.Grid`), metrics |
 | 2 | Protocol, Text | Wire formats, packets, item stacks and their data components, the codec and the hosted session's outbox; text components, SNBT, the string reader and selector syntax |
 | 3 | Physics, Living, Blocks, Menus, Txn | The physics kernel (it reads the world through `Physics.Cells`), living entities' rules, block behaviours, cooking and mining, menus and inventories, transfer permits and receipts |
-| 4 | Entity, AI | The entity store, views, publication, trackers, handoffs and item physics; mob AI (goal selectors, brains, sensing, navigation, the goal library) |
+| 4 | Entity | The entity store, views, publication, trackers, handoffs and item physics; mobs' records, rows and their sections' calls (the mobs themselves run in Rust) |
 | 5 | World, Player, Admin, Storage, Worldgen | Groups and sections, chunk lifecycle, portals and the environment; players and their hosted sessions; admin lists and permissions; the log, checkpoints and Anvil; generation |
 | 6 | Session, Commands | The connection's view, streaming and replication; the command catalog, parser and builtins |
 | 7 | Net | The connection shell, login, authentication, the listener, the console and RCON |
@@ -274,40 +274,33 @@ was sent to.
   one record per entity with no count or size cap. Items and XP orbs have
   their own records; every other type is a body (`Entity.Body`, VMC-043a), one
   schema for living types (`:mob`, whose `Entity.Mob` holds its
-  `Valimc.Living` state, equipment, attribute overrides, AI slot and travel
-  state) and the rest (`:object`). Mobs tick in the entity phase one at a
-  time in id order, as vanilla's level ticks them (`Entity.MobTicks`): each
-  thinks, travels and pushes in the section's kernel ticker (one resource
-  holding the view, the mobs' motion and the push grid for the tick) and
-  runs its living rules (`Entity.MobVitals`, the player's) before the next
-  thinks, so a later mob reads earlier ones where they moved (the AI
-  world's moved overlay). Its think (`Valimc.AI`, VMC-041a) is its part of
-  vanilla's tick: its goal and target selectors, navigation, a brain mob's brain (memories,
-  sensors, activities, behaviours) and look control, over what the owner
-  hands it (the group's players, the section's mobs and items, published
-  blocks, the section's level random); the kernel runs the move and jump
-  controls it set, and a looting mob picks items up after the move. Paths
-  come from vanilla's search (VMC-041b) in Rust, never in the owner: a
-  mob's request leaves its tick as an effect, the section runs its
-  requests as one job (`World.MobPaths`, at most one batch at a time)
-  over the published snapshots of the chunks the searches' regions cover,
-  whichever section or group owns them, and the next tick installs each
-  result unless a chunk it read was published again since (stale: the mob
-  recomputes). Until then the mob's path is pending and it holds still.
-  Each mob draws
-  from its own saved random, so it draws what vanilla's would; what it
+  `Valimc.Living` state, equipment, attribute overrides, what it keeps of
+  its AI and its travel state) and the rest (`:object`). A mob's body is
+  only the record it starts from (a fresh one is its family's,
+  `Native.mob_section_fresh/1`): once stored it lives whole in its section's
+  `MobSection` resource, and the store keeps its routing, publication and a
+  `NativeBody` row (see "Elixir and Rust"). Mobs tick in the entity phase
+  one at a time in id order, as vanilla's level ticks them
+  (`Entity.MobTicks`, one call per section): each thinks (its family's goal
+  and target selectors, navigation with vanilla's path search run in place,
+  a brain mob's brain, look control), travels and pushes in the section's
+  kernel ticker and runs its living rules before the next thinks, so a later
+  mob reads earlier ones where they moved. Each mob draws from its own saved
+  random, so it draws what vanilla's would; what it
   decides beyond itself (a melee hit, an alert) comes back as effects. Every hurt of a mob (melee, explosions, falling
   blocks, its own falls, fire and drowning, `/kill`) goes through one path,
-  `Entity.Combat` (VMC-037n); a death leaves its loot and experience on the
-  mob, and the owner drops them when it stores its entities. A player's
+  its section's (`Entity.Combat` calls it, VMC-037n); a death leaves its
+  loot and experience on the mob, and the owner drops them when it stores
+  its entities. A player's
   attack runs in the group hosting the player; a mob's hit on a player goes
   to the player's session (`Player.Hurt`). Projectiles (VMC-037o) are bodies
   too: one kernel call per section moves them and finds their hits
   (`World.Projectiles` plans what each hit does), they hurt through the same
   path and travel between owners as mobs do; what reaches a player (a hit,
   an ender pearl's landing, a splash) goes to its session. Only modelled types are made: their entity data is known
-  field by field (every living type of a spawning category is a plain mob,
-  its own data at vanilla's defaults, until its family models it), and each
+  field by field (every living type of a spawning category is modelled; a
+  type without a family of its own is a plain mob, its data at vanilla's
+  defaults), and each
   type's facts (size, attributes, loot, spawning, tracking) come from
   `Data.EntityTypes`. Network ids come from one `:atomics`
   counter (`Entity.Ids`) for players and every kind, and an entity keeps its id
@@ -350,13 +343,13 @@ was sent to.
   `ServerEntity`): at the type's update interval, or when its data changed,
   it encodes once for every observer the packets of what changed (motion,
   relative moves with the rotation or absolute syncs, entity data,
-  attributes, equipment and entity events, then the head's yaw). A native
-  mob's tracker lives on its section's slot (`valimc_core::tracker`) and one
-  call per section tick writes every native mob's packets; the owner's
-  `Entity.Tracking` keeps the trackers of items, orbs, objects and Elixir
-  mobs, and of a native mob only the base observers were sent, its
-  incarnation and the data and events already sent, and hands the section
-  the data changes and events it encodes. Each pass works on what changed:
+  attributes, equipment and entity events, then the head's yaw). A mob's
+  tracker lives on its section's slot (`valimc_core::tracker`) and one call
+  per section tick writes every mob's packets; the owner's
+  `Entity.Tracking` keeps the trackers of items, orbs and objects, and of a
+  mob only the base observers were sent, its incarnation and the data and
+  events already sent, and hands the section the data changes and events it
+  encodes. Each pass works on what changed:
   the store's views are compared with the last pass's, so a section whose
   store and players did not change and that simulates nothing costs one
   comparison; only the trackers of entities in simulated chunks (vanilla's
@@ -571,7 +564,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. What a placement writes (VMC-029d), from the placement facts and the cells around it. Redstone's sources and consumers (VMC-047a), repeaters, comparators and observers (VMC-048a): their signals, reactions, prioritised ticks and the uses, entity contacts and detector updates that start them; comparators' outputs and containers' signals come from the owner and their changes go back to it. Pistons (VMC-048b): block events, the structure resolver, moving pistons' block entities (read from the stores, their changes returned) and their ticks, which report the pushes they make. Effects that leave the owner (drops, events, sounds, primed TNT) return to Elixir |
 | Entity physics (VMC-077l, VMC-077l2, VMC-015i) | One kernel (`valimc_core::physics`) for players, items and mobs: block scans over published chunk snapshots, read in place, with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block, a whole item or orb tick with its fire, lava and cactus contacts, and the player's travel rules (jumps, air and fluid travel, climbing, swimming, sneaking at edges, slowing blocks, poses, contacts). A move packet or a resting player's tick is one call from the player's session; a region owner's items one call per tick, and its mobs another: `LivingEntity.aiStep` with `MoveControl` and `JumpControl`, `travel` with relative input, the type's size and step height, and pushing among the mobs and by players; its projectiles another (VMC-037o): arrows, thrown items, fireballs and eyes of ender with the collider ray, its border stop and the entity hit tests. A moving piston collides as its block entity's shape (VMC-048b, vanilla's `Shapes.or` grid included), and a tick's moving blocks push and carry bodies with the piston mover. Effects on living state (burning, landing damage, air, rain) come back as observations |
 | Path search (VMC-041b) | Vanilla's `PathFinder` with the walk, amphibious, swim and fly node evaluators (`valimc_core::path`) over published chunk snapshots read as `PathNavigation`'s region reads a level, with path types from `ai_facts.json` and shapes from the kernel's facts: a section's batch of searches is one call in its path job, each search bounded by the mob's visited-node limit (a zombie's 560 nodes take at most about 0.9 ms) |
-| Native mobs (VMC-081d) | A section's mobs of the native types (`:native_mob_types`: every family `mobs::kinds` ports but the dragon) live whole in a `MobSection` resource (`valimc_core::mobs::section`) its group owns beside the Region resource and hands on with it. What their turns read stays resident: the group's `MobWorld` resource holds the level (set once per group tick), its sensed players and their push boxes, the loot registry and its sections' Region and mob section resources; each Region keeps the chunk snapshots it last published, and a section's block view over its own and its neighbours' publications is synced by their counters. Kernel inputs, the turn order, solid colliders and the POI claims come from the mobs the sections hold. The owner names per tick only the game tick, its simulated chunks as a mask, the level random, its Elixir mobs and rare extras (items, knots, anger events), and one call runs every turn (fluids, the timers' base tick, the family AI's think over the section's `SectionAi`, the kernel's step, vitals, daylight, portal contacts); an Elixir mob among them takes its turn in id order by a yield to `MobTicks` over the same ticker. What comes back is what changed: the moved mobs' physical states as one packed binary, which the store mirrors into each entry and view without rebuilding either, and for a mob with a new row (its fields beside the physical ones, or what observers see), events, effects or a move out of the section, one change; the store's entry is otherwise only its routing and publication. A mob keeps its state before the tick only where its turn may leave the section or meet a chunk the view cannot read. Their trackers live on their slots and one call per section tick encodes their packets into the section's frame (see Replication). Ageing is one call, natural spawning reads each section's census of its mobs, and records at a commit come from the resource (a touched mob's stationary part decides whether its change waits for the motion pass), identical to `Store.record`'s; outside actions (hits, explosions, names, `/kill`, pushes, teleports, portals, effects, a player's interaction, a lead's change) are bounded calls on it, and readers that need a mob's body read it from the resource |
+| Mobs (VMC-081d) | Every mob lives whole in its section's `MobSection` resource (`valimc_core::mobs::section`), which its group owns beside the Region resource and hands on with it: body, living state, equipment, attributes, mind and family data, each family's AI (`mobs::kinds`, a type without one a plain mob) and the dragon's actor. What their turns read stays resident: the group's `MobWorld` resource holds the level (set once per group tick), its sensed players and their push boxes, the loot registry and its sections' Region and mob section resources; each Region keeps the chunk snapshots it last published, and a section's block view over its own and its neighbours' publications is synced by their counters. Kernel inputs, the turn order, solid colliders and the POI claims come from the mobs the sections hold. The owner names per tick only the game tick, its simulated chunks as a mask, the level random and rare extras (items, knots, anger events, a dragon's arena, an answered structure query), and one call runs every turn (fluids, the timers' base tick, the family AI's think over the section's `SectionAi`, the kernel's step, vitals, daylight, portal contacts). What comes back is what changed: the moved mobs' physical states as one packed binary, which the store mirrors into each entry and view without rebuilding either, and for a mob with a new row (its fields beside the physical ones, or what observers see), events, effects or a move out of the section, one change; the store's entry is otherwise only its routing and publication. A mob keeps its state before the tick only where its turn may leave the section or meet a chunk the view cannot read. Their trackers live on their slots and one call per section tick encodes their packets into the section's frame (see Replication). Ageing is one call, natural spawning reads each section's census of its mobs, mobs that finish their spawn as they are made (a natural spawn's aquatic packs as groups, a bucket's release) do so in one call (`mob_finalize`), and records at a commit come from the resource (a touched mob's stationary part decides whether its change waits for the motion pass), the same terms `Store.record` writes; outside actions (hits, explosions, names, `/kill`, pushes, teleports, portals, effects, a player's interaction, a lead's change, a dispenser's equipment) are bounded calls on it, and readers that need a mob's body read it from the resource. The facts it reads are installed once from the generated files (`Entity.MobFacts`) |
 | Natural spawning (VMC-042a, VMC-081g2) | A tick's spawn attempts read blocks, light, heightmaps and biomes at every position of every pack and run each type's rules and a collision test; the caps come from the mob sections' resident censuses and the despawn checks read the mobs where they live: one normal-scheduler call over the group's `MobWorld`. The records of the spawned mobs and the spawn packs' finalization stay in Elixir |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
@@ -587,8 +580,9 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
   `light`, `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`, `player`,
   `path`, `mob_section`, `mob_tick`); oracle
   and benchmark NIFs live in `parity` (the physics kernel's pieces in
-  `physics_checks` and `player_parity`), built only with the `parity` cargo
-  feature (dev, test and bench builds, not releases). One arity per NIF.
+  `physics_checks` and `player_parity`, the mob stages' in `mob_oracle*` and
+  `mob_dragon_oracle`), built only with the `parity` cargo feature (dev,
+  test and bench builds, not releases). One arity per NIF.
 - Scheduling by bounded worst-case cost. A NIF on a normal scheduler stays under
   about 1 ms for any input its callers can pass (batch, never one call per
   position). A NIF whose cost grows with its input has a dirty twin, and
