@@ -63,8 +63,7 @@ pub struct Shared {
     type_id: u16,
     /// Its type's width, height and eye height.
     dimensions: [f32; 3],
-    /// The tag's entries, which the Elixir compares with the state of the
-    /// block it would teleport onto (`MapSet.member?(@no_teleport, onto)`).
+    /// `BlockTags.SHULKER_DOES_NOT_TELEPORT_TO`: block registry ids.
     no_teleport: Vec<i32>,
     moving_piston: u16,
     hostile: i32,
@@ -344,8 +343,10 @@ impl Shared {
             return None;
         }
         let face = self.surface(t, target)?;
+        // `getBlockState(target.relative(face)).is(SHULKER_DOES_NOT_TELEPORT_TO)`.
         let onto = level.block(shapes::relative(target, face))?;
-        (!self.no_teleport.contains(&(onto as i32))).then_some(face)
+        let block = level.facts.blocks.block_id(onto)? as i32;
+        (!self.no_teleport.contains(&block)).then_some(face)
     }
 
     // It plays the teleport sound where it was, moves, and the level shows

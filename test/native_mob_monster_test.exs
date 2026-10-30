@@ -15,9 +15,11 @@ defmodule Valimc.NativeMobMonsterTest do
 
   setup_all do
     ctx = setup()
-    # The region's owner edits it: the silverfish's burrows.
+    # The region's owner edits it: the silverfish's burrows and the
+    # shulkers' pockets.
     silverfish = land(ctx.blocks, 10, :rand.seed_s(:exsss, 311))
     burrows(ctx, tl(silverfish))
+    pockets(ctx)
     %{ctx | view: view(ctx.blocks, 2)} |> Map.put(:silverfish, silverfish)
   end
 
@@ -191,5 +193,46 @@ defmodule Valimc.NativeMobMonsterTest do
     assert Enum.any?(effects, &match?({:level_event, _, 2016, _}, &1))
     assert running?(ticks, "Valimc.AI.Mobs.Shulker.Peek")
     assert running?(ticks, "Valimc.AI.Mobs.Shulker.Attack")
+  end
+
+  # Deep underground, a 13-block cube of air in a two-block shell of a block
+  # (every cell a shulker at its middle may teleport to): bedrock
+  # (`shulker_does_not_teleport_to`) and stone.
+  @pockets [{{20, -40, 20}, "bedrock"}, {{38, -40, 38}, "stone"}]
+
+  defp pockets(ctx) do
+    air = Data.block("air")
+
+    changes =
+      for {{cx, cy, cz}, shell} <- @pockets,
+          block = Data.block(shell),
+          dx <- -8..8,
+          dy <- -8..8,
+          dz <- -8..8,
+          into: %{} do
+        inside = abs(dx) <= 6 and abs(dy) <= 6 and abs(dz) <= 6
+        {{cx + dx, cy + dy, cz + dz}, if(inside, do: air, else: block)}
+      end
+
+    :ok = Valimc.World.Blocks.put(ctx.blocks, changes)
+  end
+
+  test "a shulker never teleports onto a block it may not teleport to", ctx do
+    # The same shulker in the middle of each pocket, where it cannot stay,
+    # and hurt below half health again and again (one hurt in four
+    # teleports it): within the stone pocket it moves, within the bedrock
+    # one it never finds a place.
+    acts = for t <- 2..200//6, do: {t, 0, :magic}
+    scene = scene([], ticks: 210, bright: false, acts: acts, post: true, level: 123)
+
+    [bedrock, stone] =
+      for {{cx, cy, cz}, _} <- @pockets do
+        shulker = mob(1, "minecraft:shulker", {cx, cy, cz}, health: 10.0)
+        observed = compare(ctx, scene, [shulker])
+        Enum.count(effects(observed), &match?({:level_event, _, 2016, _}, &1))
+      end
+
+    assert bedrock == 0
+    assert stone > 0
   end
 end

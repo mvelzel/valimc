@@ -19,6 +19,7 @@ defmodule Valimc.AI.Mobs.Shulker do
   @type_name "minecraft:shulker"
   @covered {"minecraft:covered", 20.0, 0}
   @arrows ["minecraft:arrow", "minecraft:spectral_arrow", "minecraft:trident"]
+  # `BlockTags.SHULKER_DOES_NOT_TELEPORT_TO`, as block registry ids.
   @no_teleport MapSet.new(
                  Valimc.Protocol.Data.tags()["minecraft:block"][
                    "minecraft:shulker_does_not_teleport_to"
@@ -324,7 +325,7 @@ defmodule Valimc.AI.Mobs.Shulker do
          true <- free?(self, deflate(cube(target))),
          face when face != nil <- surface(self, target),
          onto when is_integer(onto) <- World.block(self.world, Shapes.relative(target, face)),
-         false <- MapSet.member?(@no_teleport, onto) do
+         false <- MapSet.member?(@no_teleport, Blocks.block_id(onto)) do
       {true, moved(self, old, target, face)}
     else
       _ -> try_teleport(self, old, tries - 1)
