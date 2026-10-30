@@ -169,20 +169,21 @@ rabbit) are native too, by name; see below.
   keeps hashes of what was written instead of the terms. Checkpoints take
   every record; a gone mob's record is deleted once.
 - **The store** keeps for a native mob its routing and publication (ids,
-  position, revisions, events, view) with a `NativeBody` row the section
-  publishes when the mob changes: type, rotations, motion, dimensions, what
-  observers are shown (`Body.shown/1`'s projection), what other mobs sense
-  and what pushes and explosions read. Every change is a call on the
-  section: hits (`Combat.resolve/2`), explosions and falling anvils,
-  effects and ignition, names, `/kill`, pushes, pistons and lids,
-  teleports, portals, timers (`Store.age`) and deaths' drops.
+  position, revisions, events, view) with a `NativeBody` row: type,
+  rotations, motion, dimensions, what observers are shown (`Body.shown/1`'s
+  projection), what other mobs sense and what pushes and explosions read.
+  Its physical fields follow each move; the others change only when the
+  section reports a new row (see "Resident ticks" below). Every change is a
+  call on the section: hits (`Combat.resolve/2`), explosions and falling
+  anvils, effects and ignition, names, `/kill`, pushes, pistons and lids,
+  teleports, portals, timers and deaths' drops.
 - **The tick** (`mobs::tick`): one ticker per section tick holds every mob
-  in id order (`mob_section_begin`). `mob_section_run` runs native turns
-  from an index on and returns `{:yield, index, ...}` at an Elixir mob's,
-  whose `MobTicks` turn runs over the same ticker before the next run
-  resumes after it, so the order across both kinds is id order; the level
-  random, the pushes native steps gave Elixir mobs and the sensed rows of
-  native mobs that moved cross with each yield. Elixir melee and lid
+  in id order (`mob_section_tick`, see "Resident ticks"). At an Elixir
+  mob's index it returns `{:yield, ...}`; its `MobTicks` turn runs over the
+  same ticker before `mob_section_resume` goes on after it, so the order
+  across both kinds is id order; the level random, the pushes native steps
+  gave Elixir mobs and the sensed rows of native mobs that moved cross with
+  each yield. Elixir melee and lid
   pushes on a native mob mid-tick are section calls with the ticker
   (`mob_section_hit`, `mob_section_displace`). A native turn is
   `MobTicks.ordered_step`'s: fluids sensed, `base_tick`, the think step
@@ -190,9 +191,9 @@ rabbit) are native too, by name; see below.
   kernel's step from `MobMotion.kernel`'s input, `MobMotion.apply`, the
   splash, farmland and turtle eggs, `settle`, `MobVitals.apply` and
   daylight. The think step is the family AI's (next section); a plain
-  mob has none. `mob_section_finish` ends the ticker; a mob the kernel refused
-  keeps its state from before the tick, and one whose move out of the
-  section its owner cannot carry out yet takes it back
+  mob has none. The tick's end settles every mob's motion; a mob the kernel
+  refused keeps its state from before the tick, and one whose move out of
+  the section its owner cannot carry out yet takes it back
   (`mob_section_settle`, after the outgoing handoff's plan when one carries
   it).
 - **Plans** run on a store copy in a worker, which reads native records but
@@ -342,3 +343,129 @@ Acceptance:
   baseline on two cores, tick p95 well under 50 ms.
 
 Checks: pending.
+
+## Resident ticks, changes out
+
+A survey of the `mobs` scenario's entity phase (below) found native turns
+a ninth of it: the rest built inputs in Elixir every tick, decoded them,
+cloned every mob as a fallback, and encoded and merged a 29-key row for
+nearly every mob. The boundary now carries changes, not state.
+
+- **Resident inputs.** The group's `MobWorld` (`mob_tick`, owned by the
+  group process) holds the level, set once per group tick
+  (`RegionData.native_level/2`), the sensed players and their push boxes
+  (set when they change), the loot registry, and the group's sections: each
+  Region resource and mob section. A Region keeps the chunk snapshots it last
+  published (`snapshot_publish` records them beside the ETS rows); a
+  section's resident view holds those of its own and its neighbouring
+  regions and resyncs a region only when its publication counter moved.
+  Groups keep their loaded chunks 24 apart, so the group's regions are every
+  chunk a mob can read. Light and biomes come from the section's own Region
+  as before. Kernel inputs (travel attributes shared per type), the turn
+  order, solid colliders (the group's native shulkers, from sections that
+  count one) and the POI claims (each section keeps its villagers' as of its
+  last tick) come from the sections' mobs. The owner names per tick only the
+  game tick, its simulated chunks as a 64-bit mask, the level random, its
+  Elixir mobs with their kernel maps and rare extras: items, knots, scoped
+  goals, anger events, Elixir POI claims, an answered structure query.
+- **One call.** `mob_section_tick` runs every turn when the section has no
+  Elixir mob; with one (the dragon, test scopes) it yields at its index with
+  a ticker and `mob_section_resume` goes on. The group's phases run section
+  by section (blocks, events, entities, pistons, hoppers, cooking for each),
+  so one call per group tick would reorder mob turns against other
+  sections' block ticks; a section's call carries no state, so the call
+  count costs microseconds.
+- **Changes out.** The tick reports the moved mobs' physical states
+  (position, rotations, motion, ground) as one packed binary, which
+  `Store.native_tick/3` mirrors into each entry, row and view without
+  rebuilding the view; a chunk change updates the index. A mob with a new
+  row (its fields beside the physical ones, `publish::RowKey`, or what
+  observers see), events, effects or a move out of the section comes back
+  as a change; only those rows are encoded. Gone: the per-tick row build and
+  encode, `NativeBody.merge` and `Store.advance` for native turns, the
+  reject pass, and the Elixir order, external and collider lists.
+- **No clone per tick.** A mob keeps its state before the tick only where
+  its turn may leave the section or meet a chunk the view cannot read (its
+  box widened by 8 blocks and its speed, or a teleporting family); the
+  others keep only where they began, which a refused move out restores.
+- **Ageing, spawning, portals, redstone.** Ageing is one call
+  (`mob_section_age_tick`); idle and lived counts live on the slot.
+  Natural spawning reads the native mobs' rows and boxes from their
+  sections and resets their idle times there. A turn's portal sweep reads
+  the section's own blocks: a touch renews the cooldown or, off cooldown,
+  comes back as `{:portal, kind, cell}`. Redstone's contacts take the
+  native mobs' boxes as one binary their section packs.
+- **Records.** A cut builds a touched mob's stationary record (its record
+  without travel fields and mind) to learn whether its change waits for the
+  motion pass; only a changed stationary part builds the whole record.
+- **Locks.** A tick holds its own section and only tries its siblings'
+  locks: one a group took since the world's list was set is left out
+  rather than risk two owners waiting on each other.
+
+The brain wiring rides the same tick: the level random reaches the AI's
+start and keeps its draws; the level carries the dimension, its fixed
+time, the players' anger events, the POI claims, answered queries and the
+loot registry; the AI's block finder reads the tick's snapshots; a
+villager gets up where `StandUp.bed` puts it (native, with the sleep facts
+from `SleepFacts`; `native_mob_stand_up_test` compares 400 scenes); a
+piglin's barter is rolled from its seed and thrown by the owner.
+
+Every family `mobs::kinds` ports but the dragon is native
+(`:native_mob_types`). The oracle stages' native modes run every family
+but the brain mobs, whose brains the harness seeds only in Elixir (their
+think parity compares them).
+
+## Measurements
+
+The `mobs` scenario (`bench/tick_budget.exs`, two pinned cores of the
+development Mac's Linux VM, 60 s, about 160 active mobs in 11 of 79
+sections). Probe of the boundary at cc304f37 (`docker-probe-{1,2,3}`,
+ms per tick): entity phase 13.5; native turns (think, kernel, settle)
+1.49; building NIF inputs in Elixir 1.67 (view cells, AI world, native
+env, kernel inputs, colliders, region; about 8.5 KB a section);
+`mob_section_begin` 1.62 (view 0.54, env decode 0.40, the fallback clone
+0.36, kernel inputs 0.21); the Elixir mobs' yields 1.85;
+`mob_section_finish` 1.17 (rows 0.37, encode 0.57, compare 0.13);
+`Store.advance` and the effect scans 0.82; portal contacts 0.61; ageing
+0.60; redstone contacts 0.41; tracking 2.25; the native cut 0.66 (of 0.89);
+`SpawnInputs.prepare` 0.32; collections about 2.1 with 30 ms spikes every
+7 to 8 ticks.
+
+Before (aadfe6c4, the boundary above) and after (4e4426d3), matched
+workloads:
+
+| | before 1 | before 2 | after 1 | after 2 |
+|---|---:|---:|---:|---:|
+| TPS (mean / lowest second) | 19.99 / 18.79 | 20.00 / 18.81 | 19.99 / 18.98 | 19.99 / 18.98 |
+| Entity phase (sampled) | 12.94 ms | 12.87 ms | 7.75 ms | 7.35 ms |
+| Spawning phase | 1.84 ms | 1.56 ms | 1.83 ms | 1.96 ms |
+| Tick mean / p95 (last 100) | 16.9 / 30.8 ms | 16.6 / 30.4 ms | 12.2 / 16.1 ms | 12.6 / 14.9 ms |
+| Active mobs / loaded entities | 163 / 763 | 160 / 761 | 162 / 763 | 162 / 763 |
+
+The p95 lost the collection spikes. The spawning phase now reads the
+native mobs from their sections where it built rows in Elixir (its inputs
+0.32 to 0.11 ms); the phase stays within its noise.
+
+Probe after (`docker-resident3probe-1`, ms per tick): entity phase 7.45;
+the tick call 3.16, of it native turns 1.18, kernel inputs and order 0.22,
+solids 0.60 (since counted per section), fallbacks and the tick's start
+0.21, the AI's start 0.12, row checks 0.25, the report 0.28, portal
+sweeps 0.09; the owner's extras 0.18, applying the report 0.11; ageing
+0.09 natively plus 0.03; redstone contacts 0.34; tracking 2.41 (out of
+scope); the native cut 0.54 plus 0.25 encoding (20 cuts a tick);
+spawning inputs 0.11. Raw results in `.local/tick-budget/results/
+docker-{before081d,after081d}-*-mobs.json` and `docker-resident3probe-1`.
+
+Checks: the region, entity, combat, projectile, portal, explosion,
+spawning, travel, redstone and native mob suites (364 tests, connection suites
+included); `cargo test` of the core; the 26 mob stages: mob_ai (16,263 of
+18,263 ticks native), nether_mobs (5,000 of 7,940), dolphin_treasure,
+animals and hostile_ai (all native), village, entity, combat,
+natural_spawning, mob_travel, hostile_spawns, aquatic_packs, bucket_mobs,
+water_age, the shulker, puffer, turtle, endermite, guardian and dolphin
+breath stages.
+
+Left: tracking still walks every view (its own ticket makes it native);
+the dragon's section turn; the oracle harness seeding brains natively; a
+cheaper test than the stationary record for a touched mob's persistent
+change.
