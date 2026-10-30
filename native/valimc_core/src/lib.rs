@@ -1,6 +1,7 @@
 //! Pure world data structures for ValiMC. Nothing here depends on the BEAM; the
 //! `valimc_nif` crate exposes it to Elixir owners.
 
+pub mod cell_count;
 pub mod column;
 pub mod facts;
 pub mod flags;

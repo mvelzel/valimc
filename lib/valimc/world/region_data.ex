@@ -104,6 +104,9 @@ defmodule Valimc.World.RegionData do
     # each; and what this section's call did to them (block-rule changes,
     # entities moved there), which the group applies once the call returns.
     {:siblings, %{}},
+    # The group's sections whose stores hold a leash knot, as the group
+    # hands them in (VMC-081j); nil outside a group's call.
+    {:knotted, nil},
     {:sibling_effects, []},
     # The group's native mob world (VMC-081d, `Native.mob_world_set/2`): its
     # level, players and sections, as the group hands it in.
@@ -212,6 +215,18 @@ defmodule Valimc.World.RegionData do
         blocks,
         Enum.to_list(Valimc.Data.Blocks.states("lava")) ++ Valimc.World.Growth.states(),
         for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state)
+      )
+
+    # Entities' redstone contacts and mobs' portal sweeps run only where
+    # their blocks are (VMC-081j).
+    :ok =
+      Blocks.counted_states(
+        blocks,
+        Redstone.contact_states(),
+        Enum.flat_map(
+          ~w(nether_portal end_portal end_gateway),
+          &Enum.to_list(Valimc.Data.Blocks.states(&1))
+        )
       )
 
     publication = :ets.new(:region_publication, [:set, :protected, read_concurrency: true])
@@ -337,16 +352,43 @@ defmodule Valimc.World.RegionData do
     track_entities(state)
   end
 
+  @doc """
+  Whether the entity phase (`item_tick/2`) would change nothing: the section
+  simulates nothing, no drop or portal arrival waits, and its tracking is
+  idle over the very terms it last passed (`Tracking.same/3`).
+  """
+  def entities_idle?(state) do
+    store = state.entities.store
+    tracking = state.entities.tracking
+
+    not Tickets.simulating?(state.tickets) and state.entities.dropped == [] and
+      state.entities.portal == nil and
+      Tracking.same(tracking, store.views, state.player_views) == :same and
+      Tracking.idle?(
+        tracking,
+        store.views,
+        {state.player_views, state.player_frame},
+        MapSet.new()
+      )
+  end
+
   defp simulate_items(state, now) do
     # A planning worker's result replaces the item map, so ageing waits while one
     # runs; the skipped ticks are owed and applied at once, so despawn timing
     # never stalls.
-    owed =
-      Enum.reduce(state.tickets.simulated, state.entities.age_debt, fn chunk, debt ->
-        Map.update(debt, chunk, 1, &min(&1 + 1, 6000))
-      end)
+    # Without debts (most ticks) every simulated chunk owes this tick alone.
+    {owed, ready} =
+      if state.entities.age_debt == %{} do
+        ready = Map.new(state.tickets.simulated, &{&1, 1})
+        {ready, ready}
+      else
+        owed =
+          Enum.reduce(state.tickets.simulated, state.entities.age_debt, fn chunk, debt ->
+            Map.update(debt, chunk, 1, &min(&1 + 1, 6000))
+          end)
 
-    ready = Map.take(owed, MapSet.to_list(state.tickets.simulated))
+        {owed, Map.take(owed, MapSet.to_list(state.tickets.simulated))}
+      end
 
     {items, expired} =
       if state.entities.simulate and not planning?(state),
@@ -360,7 +402,7 @@ defmodule Valimc.World.RegionData do
         else: {nil, []}
 
     if items != nil and (expired == [] or write_busy(state) == nil) do
-      debt = Map.drop(owed, Map.keys(ready))
+      debt = if owed === ready, do: %{}, else: Map.drop(owed, Map.keys(ready))
 
       state =
         remember_item_counters(%{state | entities: %{state.entities | age_debt: debt}}, items)
@@ -1446,16 +1488,18 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
     native = store.native
 
-    mobs =
-      store
-      |> Store.in_chunks(state.tickets.simulated, :mob)
-      |> Enum.reject(fn {_, entry} -> Store.simulated?(entry, state.game_tick) end)
+    # The section picks its mobs itself; the owner counts them by the chunk
+    # index only to choose the call's scheduler.
+    count = Store.count_in_chunks(store, state.tickets.simulated, :mob)
 
     dragon_waits =
-      Enum.any?(mobs, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
-        Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end)
+      count > 0 and Store.has_type?(store, "minecraft:ender_dragon") and
+        Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end) and
+        store
+        |> Store.in_chunks(state.tickets.simulated, :mob)
+        |> Enum.any?(fn {_, e} -> e.body.type == "minecraft:ender_dragon" end)
 
-    if mobs == [] or native == nil or state.mob_world == nil or write_busy(state) != nil or
+    if count == 0 or native == nil or state.mob_world == nil or write_busy(state) != nil or
          dragon_waits do
       state
     else
@@ -1470,7 +1514,7 @@ defmodule Valimc.World.RegionData do
           state.game_tick,
           Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
           random,
-          native_extra(state, length(mobs))
+          native_extra(state, count)
         )
 
       {ticked, steps} = Store.native_tick(store, moved, changes)
@@ -1740,8 +1784,10 @@ defmodule Valimc.World.RegionData do
       # Beds villagers lie in or leave and doors they open and close (VMC-044a1).
       state = mob_blocks(state, steps)
 
-      # The tickets its villagers hold, as this tick left them.
-      state = %{state | poi_claims: Map.new(Native.mob_section_claims(native.ref))}
+      # The tickets its villagers hold, as this tick left them (the same
+      # term while unchanged, so its siblings' peers stay as they are).
+      claims = Map.new(Native.mob_section_claims(native.ref))
+      state = if claims == state.poi_claims, do: state, else: %{state | poi_claims: claims}
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,
@@ -2127,7 +2173,7 @@ defmodule Valimc.World.RegionData do
   @lead_item Valimc.Protocol.ItemTypes.id("minecraft:lead")
 
   defp knots(state) do
-    if group_has_type?(state, @knot) do
+    if group_knots?(state) do
       for {id, %{kind: :object, body: %Body{type: @knot}, entity: e}} <-
             group_entries(state),
           into: %{},
@@ -2152,6 +2198,15 @@ defmodule Valimc.World.RegionData do
 
   defp group_entries(state),
     do: Enum.flat_map(group_stores(state), fn {_, store} -> Map.to_list(store.entries) end)
+
+  # Whether the group may hold a knot: this store's, or a sibling's as the
+  # group handed in which do (`knotted`) without asking each sibling.
+  defp group_knots?(%{knotted: %MapSet{} = knotted} = state),
+    do:
+      Store.has_type?(state.entities.store, @knot) or
+        Enum.any?(knotted, &(&1 != state.key and Map.has_key?(state.siblings, &1)))
+
+  defp group_knots?(state), do: group_has_type?(state, @knot)
 
   defp group_has_type?(state, type),
     do:
@@ -2306,6 +2361,12 @@ defmodule Valimc.World.RegionData do
   # `BlockAttachedEntity.tick`: support checks count executed turns. Inactive
   # gaps and global game-time jumps do not advance the 101-turn interval.
   defp tick_knots(state) do
+    if Store.has_type?(state.entities.store, @knot),
+      do: tick_knot_checks(state),
+      else: state
+  end
+
+  defp tick_knot_checks(state) do
     Enum.reduce(Store.in_chunks(state.entities.store, state.tickets.simulated, :object), state, fn
       {id, %{body: %Body{type: @knot}, entity: e} = entry}, state ->
         checks = div(Map.get(entry, :lived, 0), 101)
@@ -2931,7 +2992,7 @@ defmodule Valimc.World.RegionData do
       end
 
     extra =
-      if group_has_type?(state, @knot),
+      if group_knots?(state),
         do: Map.put(extra, :knots, Enum.to_list(knots(state))),
         else: extra
 
@@ -2954,29 +3015,21 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # What mobs' AI senses of the section's items.
+  # What mobs' AI senses of the section's items, packed
+  # (`mob_section_level::compact_item`): `{uuid, x, y, z, item, count,
+  # pickup_delay, in_water, components}`, components nil when empty.
   defp sensed_items(state) do
     store = state.entities.store
 
     for {{_, :item}, ids} <- store.spatial.chunks,
         id <- ids,
-        %{kind: :item, entity: e, stack: stack} = entry <- [store.entries[id]],
-        do: %{
-          kind: :item,
-          uuid: e.uuid,
-          x: e.x * 1.0,
-          y: e.y * 1.0,
-          z: e.z * 1.0,
-          width: 0.25,
-          height: 0.25,
-          eye: 0.2125000059604645,
-          item: stack.item_id,
-          count: stack.count,
-          components: stack.components,
-          pickup_delay: Map.get(entry, :motion, %{pickup_delay: 0}).pickup_delay,
-          in_water: Map.get(entry, :motion, %Valimc.Entity.ItemMotionState{}).in_water,
-          alive: true
-        }
+        %{kind: :item, entity: e, stack: stack} = entry <- [store.entries[id]] do
+      motion = Map.get(entry, :motion)
+
+      {e.uuid, e.x * 1.0, e.y * 1.0, e.z * 1.0, stack.item_id, stack.count,
+       if(motion, do: motion.pickup_delay, else: 0), motion != nil and motion.in_water,
+       if(stack.components == %{}, do: nil, else: stack.components)}
+    end
   end
 
   # Mobs whose steps left the section and did not go (a handoff that could
@@ -5120,25 +5173,40 @@ defmodule Valimc.World.RegionData do
   # The entities' contacts with plates, buttons and tripwire (VMC-047a), once
   # a tick after they moved: vanilla checks them as an entity moves
   # (`checkInsideBlocks`), along its path.
+  # Only an entity whose cells reach a chunk holding a contact block can
+  # touch one, in this section or the siblings beside it its run reaches
+  # (VMC-081j): the others are left out, and with none the run is skipped,
+  # as a run with no work is.
   defp redstone_contacts(state) do
-    case contact_entities(state) do
+    reach = [state.blocks | for({_, sibling} <- neighbours(state), do: sibling.blocks)]
+
+    case Blocks.contact_chunks(reach) do
       [] ->
         state
 
-      entities ->
-        input = %{actions: [:contacts], redstone: redstone_context(state, [], entities)}
-        elem(rule_run(state, input), 0)
+      chunks ->
+        case contact_entities(state, if(chunks == :all, do: :all, else: MapSet.new(chunks))) do
+          [] ->
+            state
+
+          entities ->
+            input = %{actions: [:contacts], redstone: redstone_context(state, [], entities)}
+            elem(rule_run(state, input), 0)
+        end
     end
   end
 
   # What redstone sees of the section's entities and the players standing in
-  # it: their boxes (players standing, 0.6 by 1.8) and kinds. Spectators are
-  # not among the targets.
-  defp contact_entities(state) do
+  # it: their boxes (players standing, 0.6 by 1.8) and kinds, in that order.
+  # Spectators are not among the targets. `chunks`: `:all`, or the chunks
+  # an entity's cells must reach to be seen.
+  defp contact_entities(state, chunks \\ :all) do
     players =
       for {{x, y, z}, _} <- state.player_targets,
           Grid.region_key(Grid.chunk_key(floor(x), floor(z))) == state.key,
-          do: {{x - 0.3, y, z - 0.3}, {x + 0.3, y + 1.8, z + 0.3}, :living}
+          box = {{x - 0.3, y, z - 0.3}, {x + 0.3, y + 1.8, z + 0.3}, :living},
+          reaches?(box, chunks),
+          do: box
 
     store = state.entities.store
 
@@ -5146,13 +5214,17 @@ defmodule Valimc.World.RegionData do
       for {_, entry} <- store.entries,
           not Store.native_entry?(entry),
           box = Redstone.entity_box(entry),
+          reaches?(box, chunks),
           do: box
 
     # The native mobs' boxes, packed by their section (VMC-081d).
     natives =
       case store.native do
         %{ref: ref} ->
-          case Native.mob_section_contacts(ref) do
+          case Native.mob_section_contacts(
+                 ref,
+                 if(chunks == :all, do: :all, else: MapSet.to_list(chunks))
+               ) do
             {0, _} -> []
             {n, packed} -> [{:packed, n, packed}]
           end
@@ -5162,6 +5234,17 @@ defmodule Valimc.World.RegionData do
       end
 
     players ++ others ++ natives
+  end
+
+  # Whether the cells a box touches (less 1e-5 each way, as the contacts
+  # read them) reach one of `chunks`.
+  defp reaches?(_box, :all), do: true
+
+  defp reaches?({{x0, _, z0}, {x1, _, z1}, _}, chunks) do
+    chunk = fn v -> Bitwise.bsr(floor(v), 4) end
+    {cx0, cx1} = {chunk.(x0 + 1.0e-5), chunk.(x1 - 1.0e-5)}
+    {cz0, cz1} = {chunk.(z0 + 1.0e-5), chunk.(z1 - 1.0e-5)}
+    Enum.any?(cx0..cx1//1, fn cx -> Enum.any?(cz0..cz1//1, &MapSet.member?(chunks, {cx, &1})) end)
   end
 
   # The redstone context of a run (`BlockRules.run/4`): the game time, the
@@ -7408,7 +7491,13 @@ defmodule Valimc.World.RegionData do
     players = {state.player_views, state.player_frame}
 
     if Tracking.idle?(tracking, store.views, players, simulated) do
-      state
+      # Equal views may be another term (a state copied in by message):
+      # the pass keeps these, so the next check compares by identity
+      # (VMC-081j).
+      case Tracking.same(tracking, store.views, state.player_views) do
+        :same -> state
+        {:rebased, tracking} -> %{state | entities: %{state.entities | tracking: tracking}}
+      end
     else
       native = store.native
 

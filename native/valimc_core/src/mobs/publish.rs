@@ -180,13 +180,35 @@ impl RowKey {
             && self.recent == recent(mob)
             && self.target == target(mob)
             && self.custom_name == body.custom_name
-            && self.data == body.data
+            && settled_eq(&self.data, &body.data)
             && self.from_bucket == from_bucket(&body.data)
             && self.leash.as_ref().map(|(h, i, r)| (h, *i, *r))
                 == m.leash.as_ref().map(|l| (&l.holder, l.id, l.restored))
             && self.dimensions == living_body::dimensions(rules, ty, body)
             && self.attributes == attributes(rules, ty, mob)
     }
+}
+
+/// Family data as its owner's row needs it (VMC-081j): equal but for the
+/// tick counters (`record::COUNTERS`: an age, an egg timer, a creeper's
+/// swell), which count only by their sign. The owner never reads a
+/// counter's value from a row (records and what observers see come from
+/// the section), so a counter counting on sends no row; one crossing zero
+/// (a baby grown up) does.
+fn settled_eq(row: &FamilyData, now: &FamilyData) -> bool {
+    let (a, b) = (row.fields(), now.fields());
+    a.len() == b.len()
+        && a.iter().zip(b).all(|((ka, va), (kb, vb))| {
+            ka == kb
+                && match (va, vb) {
+                    (Value::Int(x), Value::Int(y))
+                        if super::record::COUNTERS.contains(&ka.as_str()) =>
+                    {
+                        x.signum() == y.signum()
+                    }
+                    _ => va == vb,
+                }
+        })
 }
 
 /// Whether observers were last shown `shown` of the mob (`Body.shown/1`
@@ -197,4 +219,26 @@ pub fn shows(rules: &Rules, ty: Type, mob: &NativeMob, shown: &living_body::Show
         && shown.attributes == body.mob.attributes
         && shown.equipment == body.mob.equipment
         && shown.values == living_body::values(rules, ty, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mobs::term::Atom;
+
+    fn data(egg: i64, variant: i64) -> FamilyData {
+        FamilyData::new(vec![
+            (Atom::new("egg_time"), Value::Int(egg)),
+            (Atom::new("variant"), Value::Int(variant)),
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    fn a_row_keeps_its_data_while_counters_only_count_on() {
+        assert!(settled_eq(&data(100, 2), &data(99, 2)));
+        // Crossing zero, or a field that is no counter: a new row.
+        assert!(!settled_eq(&data(100, 2), &data(0, 2)));
+        assert!(!settled_eq(&data(100, 2), &data(100, 3)));
+    }
 }

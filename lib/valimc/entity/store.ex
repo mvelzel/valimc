@@ -139,10 +139,12 @@ defmodule Valimc.Entity.Store do
 
   @doc "Advance counters only in chunks with an eligible tick budget."
   def age_chunks(state, chunk_ticks, minimum_y, game_tick) do
+    # Every mob is native (VMC-081d) and ages in its section, in one call:
+    # only the other kinds' memberships are walked (VMC-081j).
     memberships =
       for {chunk, ticks} <- chunk_ticks,
           is_integer(ticks) and ticks > 0,
-          kind <- [:mob, :object, :item, :orb],
+          kind <- [:object, :item, :orb],
           ids = Map.get(state.spatial.chunks, {chunk, kind}),
           ids != nil,
           do: {ids, ticks}
@@ -152,7 +154,6 @@ defmodule Valimc.Entity.Store do
     # Sparse tickets should not walk the render-loaded population. When most
     # entries tick, a direct traversal avoids rebuilding a dense set through
     # many small membership buckets; both paths select the same live entries.
-    # Native mobs (VMC-081d) age in their section, in one call.
     entries = state.entries
 
     ages =
@@ -1703,6 +1704,10 @@ defmodule Valimc.Entity.Store do
   @doc "Live authoritative entities of a kind in selected chunks."
   def in_chunks(state, chunks, kind),
     do: Valimc.Entity.Spatial.in_chunks(state.spatial, state.entries, chunks, kind)
+
+  @doc "How many entities of `kind` the chunk index holds in `chunks`."
+  def count_in_chunks(state, chunks, kind),
+    do: Valimc.Entity.Spatial.count_in_chunks(state.spatial, chunks, kind)
 
   @doc "Solid entity colliders intersecting an area, with their live entries."
   def colliders(state, area),

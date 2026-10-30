@@ -21,6 +21,18 @@ defmodule Valimc.World.TickPipeline do
   def run(resource, :cooking, _tick, now),
     do: simulated(resource, &RegionData.cooking_tick(&1, now))
 
+  @doc """
+  Whether `phase` would leave the section as it is, so its group need not
+  enter it (VMC-081j): block events, moving pistons, hoppers and cooking act
+  only in simulated chunks, and a section that simulates nothing changes in
+  its entity phase only by a drop or a portal arrival waiting, or by views
+  its tracking has not passed (`RegionData.entities_idle?/1`). The block
+  phase always runs: it stamps the game tick and retries the rules backlog.
+  """
+  def idle?(_resource, :blocks), do: false
+  def idle?(resource, :entities), do: RegionData.entities_idle?(resource)
+  def idle?(resource, _phase), do: not Tickets.simulating?(resource.tickets)
+
   # The runtime selects eligible processors within a partially active section.
   defp simulated(resource, phases),
     do: if(Tickets.simulating?(resource.tickets), do: phases.(resource), else: resource)

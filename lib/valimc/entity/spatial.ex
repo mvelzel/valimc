@@ -66,6 +66,15 @@ defmodule Valimc.Entity.Spatial do
         do: {id, Map.fetch!(entries, id)}
   end
 
+  def count_in_chunks(index, chunks, kind) do
+    Enum.reduce(chunks, 0, fn chunk, n ->
+      case index.chunks do
+        %{{^chunk, ^kind} => ids} -> n + MapSet.size(ids)
+        _ -> n
+      end
+    end)
+  end
+
   def colliders(index, entries, area) do
     for {id, box} <- index.solids,
         Box.intersects?(area, box),

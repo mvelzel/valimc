@@ -928,8 +928,11 @@ fn finish_out<'a>(
     use valimc_core::mobs::term::Value;
     let steps = tick::finish(&mut inner.section, state, velocities);
     let section = &mut inner.section;
+    // Portal sweeps read the section's own blocks: none where it holds no
+    // portal (VMC-081j).
     let store = match region {
-        Some(r) => Some(r.store.lock().map_err(|_| bad())?),
+        Some(r) => Some(r.store.lock().map_err(|_| bad())?)
+            .filter(|s| s.cells.may_hold(valimc_core::cell_count::PORTAL)),
         None => None,
     };
     let mut moved: Vec<u8> = Vec::with_capacity(steps.len() * 77);
@@ -1087,13 +1090,22 @@ fn mob_section_age_tick<'a>(
 /// The section's mobs as redstone's entity contacts see them
 /// (`Redstone.entity_box/1`: their type's box where their store holds them,
 /// living): `{count, packed}`, each `<<min x, y, z, max x, y, z ::
-/// float-64, 1>>` as the rules' context packs an entity.
+/// float-64, 1>>` as the rules' context packs an entity. `chunks`: `:all`,
+/// or the chunks holding a contact block, and only the mobs whose cells
+/// reach one of them are packed (VMC-081j).
 #[rustler::nif]
 fn mob_section_contacts<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
+    chunks: Term<'a>,
 ) -> NifResult<(usize, rustler::Binary<'a>)> {
     let rules = ms::rules()?;
+    let only: Option<std::collections::HashSet<(i32, i32)>> =
+        if chunks.decode::<Atom>().ok() == Some(atoms::all()) {
+            None
+        } else {
+            Some(chunks.decode::<Vec<(i32, i32)>>()?.into_iter().collect())
+        };
     let inner = ms::read(&res)?;
     let mut out = Vec::with_capacity(inner.section.len() * 49);
     let mut n = 0;
@@ -1108,6 +1120,15 @@ fn mob_section_contacts<'a>(
             _ => slot.mob.position,
         };
         let half = ty.facts.width / 2.0;
+        if let Some(only) = &only {
+            // The chunks of the cells its box, less 1e-5 each way, touches.
+            let chunk = |v: f64| ((v.floor() as i64) >> 4) as i32;
+            let (x0, x1) = (chunk(x - half + 1.0e-5), chunk(x + half - 1.0e-5));
+            let (z0, z1) = (chunk(z - half + 1.0e-5), chunk(z + half - 1.0e-5));
+            if !(x0..=x1).any(|cx| (z0..=z1).any(|cz| only.contains(&(cx, cz)))) {
+                continue;
+            }
+        }
         for v in [
             x - half,
             y,

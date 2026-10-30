@@ -84,6 +84,7 @@ mod atoms {
         flat,
         too_large,
         old_column_image,
+        all,
     }
 }
 

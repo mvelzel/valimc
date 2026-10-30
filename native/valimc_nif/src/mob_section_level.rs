@@ -398,6 +398,9 @@ pub fn player(term: Term) -> NifResult<SensedPlayer> {
 
 /// A sensed item (`mob_world/3`'s item rows).
 pub fn item(term: Term) -> NifResult<SensedItem> {
+    if term.is_tuple() {
+        return compact_item(term);
+    }
     let v = mob_term::decode(term)?;
     let m = map_of(&v)?;
     let components = m
@@ -411,6 +414,30 @@ pub fn item(term: Term) -> NifResult<SensedItem> {
         count: int(m, "count")? as i32,
         pickup_delay: int(m, "pickup_delay").unwrap_or(0) as i32,
         in_water: flag(m, "in_water"),
+        components,
+    })
+}
+
+/// A sensed item as the owner packs it each tick (`RegionData.sensed_items/1`):
+/// `{uuid, x, y, z, item, count, pickup_delay, in_water, components | nil}`.
+fn compact_item(term: Term) -> NifResult<SensedItem> {
+    let t = rustler::types::tuple::get_tuple(term)?;
+    if t.len() != 9 {
+        return Err(bad());
+    }
+    let b: rustler::Binary = t[0].decode()?;
+    let components = if t[8].is_atom() {
+        None
+    } else {
+        Some(mob_term::decode(t[8])?).filter(|c| c.as_map().is_some_and(|m| !m.is_empty()))
+    };
+    Ok(SensedItem {
+        uuid: b.as_slice().try_into().map_err(|_| bad())?,
+        position: [t[1].decode()?, t[2].decode()?, t[3].decode()?],
+        item: t[4].decode()?,
+        count: t[5].decode()?,
+        pickup_delay: t[6].decode()?,
+        in_water: t[7].decode()?,
         components,
     })
 }

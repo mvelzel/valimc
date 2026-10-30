@@ -78,6 +78,9 @@ defmodule Valimc.Blocks.Redstone do
   @doc "Whether a tick of `state`'s block checks the entities on it (plates, buttons, tripwire)."
   def checks?(state), do: MapSet.member?(@checks, state)
 
+  @doc "The states whose blocks an entity standing in them reaches (`checks?/1`)."
+  def contact_states, do: MapSet.to_list(@checks)
+
   @doc """
   What redstone's contacts and checks see of a stored entity: its box and
   kind (`:living` for mobs, `:other` for items, orbs and objects).

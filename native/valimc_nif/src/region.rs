@@ -400,6 +400,48 @@ fn set_random_ticking(
     }))
 }
 
+/// Install the redstone contact states (plates, buttons, tripwire) and the
+/// portal states, one bit per state id each (LSB first), and count every
+/// chunk's cells of each (VMC-081j).
+#[rustler::nif]
+fn set_counted_states(
+    env: Env,
+    region: ResourceArc<Region>,
+    contacts: Binary,
+    portals: Binary,
+) -> NifResult<Atom> {
+    let bits = |bitmap: &Binary| -> Vec<bool> {
+        let bytes = bitmap.as_slice();
+        (0..bytes.len() * 8)
+            .map(|i| bytes[i / 8] & (1 << (i % 8)) != 0)
+            .collect()
+    };
+    let (contacts, portals) = (bits(&contacts), bits(&portals));
+    done(with_owned(env, &region, |store| {
+        store.set_counted_states(&contacts, &portals);
+        Ok(())
+    }))
+}
+
+/// The chunks of the regions holding a redstone contact cell (any
+/// process): `[{cx, cz}]`, or `:all` where a region's counted states were
+/// never installed.
+#[rustler::nif]
+fn contact_chunks<'a>(env: Env<'a>, regions: Vec<ResourceArc<Region>>) -> NifResult<Term<'a>> {
+    let mut out = Vec::new();
+    for region in &regions {
+        let chunks = with_store(region, |store| {
+            Ok(store.chunks_with(valimc_core::cell_count::CONTACT))
+        })
+        .map_err(|a| rustler::Error::Term(Box::new(a)))?;
+        match chunks {
+            Some(chunks) => out.extend(chunks),
+            None => return Ok(atoms::all().encode(env)),
+        }
+    }
+    Ok(out.encode(env))
+}
+
 /// A chunk's states and biomes as big-endian u16 binaries (section index order).
 #[rustler::nif]
 fn dump_column<'a>(

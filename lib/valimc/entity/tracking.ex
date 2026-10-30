@@ -104,6 +104,19 @@ defmodule Valimc.Entity.Tracking do
       (MapSet.size(simulated) == 0 or (tracking.trackers == %{} and tracking.natives == %{}))
   end
 
+  @doc """
+  An idle tracking (`idle?/4`) over `views` and `player_views`, which equal
+  what it last saw: `{:rebased, tracking}` keeping these terms where they
+  are other terms than its own (a state copied in by message), so the
+  next `idle?/4` finds them identical without comparing them, else
+  `:same`.
+  """
+  def same(%__MODULE__{} = tracking, views, player_views) do
+    if :erts_debug.same(tracking.last, views) and :erts_debug.same(tracking.players, player_views),
+      do: :same,
+      else: {:rebased, %{tracking | last: views, players: player_views}}
+  end
+
   # The ids whose view is new or another term, and the ids gone.
   defp diff(last, views) when last === views, do: {[], []}
 

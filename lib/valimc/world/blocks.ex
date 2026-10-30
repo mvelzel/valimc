@@ -401,6 +401,22 @@ defmodule Valimc.World.Blocks do
       )
   end
 
+  @doc """
+  Mark the redstone contact states (`contacts`: plates, buttons, tripwire)
+  and the portal states (`portals`), whose cells the region counts so work
+  only they can start is skipped where there are none (VMC-081j).
+  """
+  def counted_states(%__MODULE__{} = blocks, contacts, portals) do
+    :ok = Native.set_counted_states(blocks.ref, bitmap(contacts), bitmap(portals))
+  end
+
+  @doc """
+  The chunks of the regions of `blocks` holding a redstone contact cell, or
+  `:all` where a region does not count them.
+  """
+  def contact_chunks(blocks),
+    do: Native.contact_chunks(for(%__MODULE__{ref: ref} <- blocks, do: ref))
+
   # One bit per state id, least significant first in each byte.
   defp bitmap(states) do
     bytes =

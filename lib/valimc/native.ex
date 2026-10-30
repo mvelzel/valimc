@@ -113,6 +113,9 @@ defmodule Valimc.Native do
   def set_random_ticking(_region, _ticking, _rules, _owner),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def set_counted_states(_region, _contacts, _portals), do: :erlang.nif_error(:nif_not_loaded)
+  def contact_chunks(_regions), do: :erlang.nif_error(:nif_not_loaded)
+
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
   def biome_zoom(_zoom_seed, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -331,7 +334,7 @@ defmodule Valimc.Native do
   def mob_section_reset_idle(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_school(_section, _id, _leader, _school), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_body(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_section_contacts(_section), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_contacts(_section, _chunks), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_claims(_section), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_track(_section, _mask, _fresh, _run, _ids),

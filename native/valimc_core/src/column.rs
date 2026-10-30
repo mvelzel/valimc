@@ -4,6 +4,7 @@ use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
 use crate::light::LightFacts;
 use crate::light_grid::{light_alone, Blocks, ChunkLight, Kind, Layer, LightGrid, TooLarge};
 use crate::piston::Moving;
+use crate::cell_count::CellCounts;
 use crate::random_tick::RandomTicks;
 use crate::section::{index, Biomes, Storage, VOLUME};
 use crate::snapshot::ChunkSnapshot;
@@ -616,6 +617,8 @@ pub struct ColumnStore {
     /// Random ticks (VMC-081g1): the ticking states, every section's
     /// ticking count and the level's position generator.
     pub random: RandomTicks,
+    /// Its cells by class (VMC-081j): redstone contact and portal blocks.
+    pub cells: CellCounts,
     /// Light of the region and its one-chunk ring (VMC-077c), chunk by chunk;
     /// a chunk is unknown to light until lit. Area chunk `(ax, az)` is chunk
     /// `chunk_min - 1 + (ax, az)`.
@@ -654,6 +657,7 @@ impl ColumnStore {
             columns: HashMap::new(),
             budget_bytes,
             random: RandomTicks::new((chunk_size * chunk_size) as usize, seed),
+            cells: CellCounts::new((chunk_size * chunk_size) as usize),
             light: LightGrid::new(ring, ring),
             stored: HashMap::new(),
             halo: HashMap::new(),
@@ -918,6 +922,8 @@ impl ColumnStore {
             self.stored.remove(&chunk);
             self.random
                 .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
+            self.cells
+                .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
             self.prepared.remove(&chunk);
             self.columns.insert(chunk, column);
         }
@@ -1077,6 +1083,7 @@ impl ColumnStore {
             let old = column.set(*x, *y, *z, *state as u16);
             self.random
                 .changed(local, ((y - MIN_Y) >> 4) as usize, old, *state as u16);
+            self.cells.changed(local, old, *state as u16);
             previous.push(old);
         }
         Ok(previous)
@@ -1175,6 +1182,37 @@ impl ColumnStore {
         }
     }
 
+    /// Install the states counted by class (`cell_count`: the redstone
+    /// contact blocks, the portals) and count every chunk's cells.
+    pub fn set_counted_states(&mut self, contacts: &[bool], portals: &[bool]) {
+        self.cells.set_states([contacts, portals]);
+        let (mx, mz) = self.chunk_min;
+        for dz in 0..self.chunk_size {
+            for dx in 0..self.chunk_size {
+                let chunk = (mx + dx, mz + dz);
+                let column = self.columns.get(&chunk).unwrap_or(&self.flat);
+                self.cells
+                    .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
+            }
+        }
+    }
+
+    /// The region's chunks holding a cell of `class` (`cell_count`), or
+    /// None where its counted states were never installed.
+    pub fn chunks_with(&self, class: usize) -> Option<Vec<(i32, i32)>> {
+        if !self.cells.installed() {
+            return None;
+        }
+        let (mx, mz) = self.chunk_min;
+        let size = self.chunk_size as usize;
+        Some(
+            self.cells
+                .chunks_with(class)
+                .map(|i| (mx + (i % size) as i32, mz + (i / size) as i32))
+                .collect(),
+        )
+    }
+
     /// Region chunk `chunk`'s index in per-chunk tables and its column (the
     /// base profile's while untouched), for random ticks.
     pub fn random_column(&self, chunk: (i32, i32)) -> (usize, &Column) {
@@ -1200,6 +1238,8 @@ impl ColumnStore {
         }
         self.stored.remove(&chunk);
         self.random
+            .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
+        self.cells
             .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
         self.prepared.remove(&chunk);
         self.columns.insert(chunk, column);

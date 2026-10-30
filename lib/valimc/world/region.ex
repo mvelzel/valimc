@@ -610,6 +610,9 @@ defmodule Valimc.World.Region do
       # What the block rules of one section read of the others: key =>
       # %{blocks, absent, busy} (VMC-077j).
       peers: %{},
+      # The sections whose stores hold a leash knot (VMC-081j), so a mob
+      # tick learns whether its group has any without asking each.
+      knotted: MapSet.new(),
       # Transfers sent, not yet held: ref => %{target, monitor, players}.
       transfers: %{},
       # Transfers waiting until every frame sent is durable (`send_ready/1`).
@@ -701,6 +704,7 @@ defmodule Valimc.World.Region do
       state
       | sections: sections,
         peers: Map.delete(state.peers, key),
+        knotted: MapSet.delete(state.knotted, key),
         epochs: Map.delete(state.epochs, resource.epoch),
         owners: Map.delete(state.owners, resource.storage.owner)
     }
@@ -937,15 +941,21 @@ defmodule Valimc.World.Region do
   defp put_resource(state, key, resource) do
     # Peers are a callback-local projection. Retaining them here roots old
     # versions of every sibling store; enter/2 supplies current peers next time.
-    resource = %{resource | siblings: %{}}
+    resource = %{resource | siblings: %{}, knotted: nil}
 
     {section, sections} =
       Map.get_and_update!(state.sections, key, &{&1, %{&1 | resource: resource}})
+
+    knotted =
+      if Valimc.Entity.Store.has_type?(resource.entities.store, "minecraft:leash_knot"),
+        do: MapSet.put(state.knotted, key),
+        else: MapSet.delete(state.knotted, key)
 
     %{
       state
       | sections: sections,
         peers: peer(state.peers, key, resource),
+        knotted: knotted,
         touched: touch(state.touched, key, section.resource, resource)
     }
   end
@@ -964,7 +974,12 @@ defmodule Valimc.World.Region do
   # A section's state as its code runs: with what it reads of its siblings
   # and its group's native mob world.
   defp enter(state, key),
-    do: %{state.sections[key].resource | siblings: state.peers, mob_world: state.mob_world}
+    do: %{
+      state.sections[key].resource
+      | siblings: state.peers,
+        mob_world: state.mob_world,
+        knotted: state.knotted
+    }
 
   defp peer(peers, key, resource) do
     absent = resource.generation.absent
@@ -1537,11 +1552,17 @@ defmodule Valimc.World.Region do
     |> Enum.sort()
     |> Enum.reduce(state, fn key, acc ->
       Enum.reduce(TickPipeline.phases(), acc, fn phase, acc ->
-        ProfileWork.phase(phase, fn ->
+        # A phase that would change nothing in the section is not entered
+        # (VMC-081j: most of a large view simulates nothing).
+        if TickPipeline.idle?(acc.sections[key].resource, phase) do
           acc
-          |> put_resource(key, TickPipeline.run(enter(acc, key), phase, tick, now))
-          |> deliver_rules(key)
-        end)
+        else
+          ProfileWork.phase(phase, fn ->
+            acc
+            |> put_resource(key, TickPipeline.run(enter(acc, key), phase, tick, now))
+            |> deliver_rules(key)
+          end)
+        end
       end)
     end)
   end
