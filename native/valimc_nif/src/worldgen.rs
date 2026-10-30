@@ -535,8 +535,7 @@ impl From<&valimc_core::worldgen::region::Entity> for FullEntity {
 }
 
 /// A decorated chunk made full (VMC-025d): its column image (protocol biome
-/// ids), first free Y above the highest motion-blocking non-leaf block per
-/// column (z * 16 + x), block entities, block ticks (position and the state
+/// ids), block entities, block ticks (position and the state
 /// there, kept only where the block still matches), fluid ticks,
 /// post-processing marks and entities.
 #[derive(rustler::NifMap)]
@@ -544,7 +543,6 @@ struct FullChunk {
     x: i32,
     z: i32,
     image: Bin,
-    heights: Vec<i32>,
     block_entities: Vec<FullBlockEntity>,
     block_ticks: Vec<((i32, i32, i32), u16)>,
     fluid_ticks: Vec<((i32, i32, i32), String)>,
@@ -598,7 +596,7 @@ fn full_chunk(
     protocol_biomes: &[u16],
     lit: Option<bool>,
 ) -> Result<FullChunk, String> {
-    use valimc_core::worldgen::blocks::{Heightmap, BLOCK_ENTITY, FLUID_NAMES};
+    use valimc_core::worldgen::blocks::{BLOCK_ENTITY, FLUID_NAMES};
     let state = state.lease()?;
     let table = state.block_table()?;
     {
@@ -636,9 +634,6 @@ fn full_chunk(
                 }
                 None => column.to_image(),
             }),
-            heights: (0..256)
-                .map(|c| chunk.height(Heightmap::MotionBlockingNoLeaves, c & 15, c >> 4))
-                .collect(),
             block_entities,
             block_ticks: chunk
                 .block_ticks

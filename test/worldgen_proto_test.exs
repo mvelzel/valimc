@@ -77,7 +77,6 @@ defmodule Valimc.WorldgenProtoTest do
 
     {:ok, full} = Native.gen_full(state, cell, biomes)
     assert {full.x, full.z} == centre
-    assert length(full.heights) == 256
 
     states = List.to_tuple(for <<id::16 <- inspected.blocks>>, do: id)
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, %{centre => full.image})

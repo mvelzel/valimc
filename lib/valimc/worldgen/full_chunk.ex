@@ -42,9 +42,10 @@ defmodule Valimc.Worldgen.FullChunk do
       key = {chunk.x, chunk.z}
 
       pending =
-        if chunk.marks == [] and chunk.fluid_ticks == [],
-          do: acc.post_processing,
-          else: Map.put(acc.post_processing, key, {chunk.marks, chunk.fluid_ticks})
+        case post(chunk) do
+          nil -> acc.post_processing
+          entry -> Map.put(acc.post_processing, key, entry)
+        end
 
       case block_entities(chunk.block_entities, acc.block_entities) do
         {:ok, entities} ->
@@ -74,6 +75,33 @@ defmodule Valimc.Worldgen.FullChunk do
       error -> error
     end
   end
+
+  @doc """
+  `full` as a generation job hands it on (VMC-081k): its post-processing marks
+  and fluid ticks, which stay untouched until the chunk first ticks, as one
+  frozen binary (`post: {:frozen, binary}`, nil when there are none), so the
+  scheduler and the group that installs it copy a reference, not the lists.
+  """
+  def compact(%{marks: marks, fluid_ticks: fluid_ticks} = full) do
+    post = if marks == [] and fluid_ticks == [], do: nil, else: {marks, fluid_ticks}
+
+    full
+    |> Map.drop([:marks, :fluid_ticks])
+    |> Map.put(:post, post && {:frozen, :erlang.term_to_binary(post)})
+  end
+
+  @doc "A `compact/1`ed full chunk with its marks and fluid ticks as lists again."
+  def expand(%{post: post} = full) do
+    {marks, fluid_ticks} = if post, do: :erlang.binary_to_term(elem(post, 1)), else: {[], []}
+    full |> Map.delete(:post) |> Map.merge(%{marks: marks, fluid_ticks: fluid_ticks})
+  end
+
+  def expand(full), do: full
+
+  # A chunk's post-processing entry, frozen or as lists; nil when it has none.
+  defp post(%{post: post}), do: post
+  defp post(%{marks: [], fluid_ticks: []}), do: nil
+  defp post(%{marks: marks, fluid_ticks: fluid_ticks}), do: {marks, fluid_ticks}
 
   @doc """
   The body records of the entities generation added to `full` chunks (or

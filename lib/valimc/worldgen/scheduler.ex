@@ -126,13 +126,12 @@ defmodule Valimc.Worldgen.Scheduler do
   `requester` (a region section, `{group pid, key}`, fenced by `epoch`) wants
   `wanted` (`chunk => urgent?`) made full, replacing what it wanted before:
   `{:ok, scheduler}` for it to monitor. A requester that monitors the
-  scheduler already passes it as `known`, and nothing is looked up.
+  scheduler already passes it as `known`, and nothing is looked up nor asked
+  whether it lives (a signal and its answer): its monitor reports a stop,
+  after which the requester wants everything again.
   """
   def want(world, dimension, requester, epoch, wanted, known \\ nil) do
-    found =
-      if is_pid(known) and Process.alive?(known),
-        do: {:ok, known},
-        else: whereis(world, dimension)
+    found = if is_pid(known), do: {:ok, known}, else: whereis(world, dimension)
 
     with {:ok, pid} <- found do
       GenServer.cast(pid, {:want, requester, epoch, wanted})
@@ -749,7 +748,8 @@ defmodule Valimc.Worldgen.Scheduler do
 
   defp answer(state, ref, call) do
     if Enum.all?(call.chunks, &Map.has_key?(call.got, &1)) do
-      GenServer.reply(call.from, {:ok, Enum.map(call.chunks, &Map.fetch!(call.got, &1))})
+      fulls = Enum.map(call.chunks, &Valimc.Worldgen.FullChunk.expand(Map.fetch!(call.got, &1)))
+      GenServer.reply(call.from, {:ok, fulls})
       frontier = Frontier.want(state.frontier, {:call, ref}, %{})
       # Nobody persists a call's chunks.
       frontier = %{

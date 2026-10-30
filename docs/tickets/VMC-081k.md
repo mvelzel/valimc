@@ -97,6 +97,31 @@ chunks once (29,423 for all 71 sections at once, as at a join), and again
 each time a delivery generates chunks in it. A reply's membership test is a
 set lookup instead of a scan of the pending list.
 
+## The group's side of exploring
+
+In the same profile the region group collected garbage 222 times in 60 s
+(2.3 s in all, p95 50 ms; five times in a village profile), and generated
+chunks' arrival, `post_process` and `RegionGeneration.pump` with
+`Scheduler.want` showed among its samples.
+
+- **What a delivered chunk carries.** A full chunk reaches the group in the
+  scheduler's delivery message, so its terms are copied into the
+  scheduler's heap from the job and again into the group's. Measured on 64
+  decorated chunks (`Scheduler.full_chunks/4`, seed 20261020, chunks
+  200000..200007 × -144000..-143993; term sizes, `:erts_debug.size/1`): 1,904
+  words per chunk, of which post-processing marks 1,144 (up to 3,552), a
+  heightmap 512 that nothing read, block ticks 201. The group then froze
+  the marks and fluid ticks into a binary (VMC-081c2) and dropped the
+  lists. Now the job freezes them (`FullChunk.compact/1`) and the NIF no
+  longer builds the heightmap: about 250 words per chunk are copied (an
+  86% cut), and the group runs no `term_to_binary/1` on arrival. Callers of
+  `Scheduler.full_chunks/4` and `Frontier.run/2` get the lists back
+  (`FullChunk.expand/1`).
+- **The scheduler's liveness.** Each changed want of a section asked the
+  scheduler whether it lives before casting to it (a signal and its
+  answer): the group monitors it already, and a stop makes it want
+  everything again, so a known scheduler is cast to directly.
+
 ## Checks
 
 Streaming: `mix compile --warnings-as-errors`; `view_streaming_test`,
@@ -112,6 +137,13 @@ run in six at 284c7eae; `check_vanilla.py --changed` through `heavy.py`
 
 Owner lookups: the streaming and connection suites above (42 tests passed).
 
-Next: the region side of exploring in the same profile (222 group
-collections in 60 s, `post_process` of arriving chunks,
-`RegionGeneration.pump` and `Scheduler.want`).
+Delivered chunks: `cargo fmt --check` and clippy of `valimc_nif` (no new
+warnings); `full_chunk_test`, `worldgen_proto_test`,
+`region_generation_test`, and the slow `decorated_world_test` and
+`worldgen_scheduler_test` (26 tests passed); `check_vanilla.py --changed`
+through `heavy.py`: 81 of 81 stages (selected by `worldgen.rs`, the
+decoration and live decoration stages among them).
+
+Next: the group's per-tick upkeep while exploring (`post_process` walks
+every section's waiting entries each tick; the profile's remaining
+collections), measured by a user capture of the same walk.

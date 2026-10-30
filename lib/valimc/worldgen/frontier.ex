@@ -508,7 +508,11 @@ defmodule Valimc.Worldgen.Frontier do
   end
 
   defp collect({:full, requesters, chunk, full}, got, requester),
-    do: if(requester in requesters, do: Map.put(got, chunk, full), else: got)
+    do:
+      if(requester in requesters,
+        do: Map.put(got, chunk, Valimc.Worldgen.FullChunk.expand(full)),
+        else: got
+      )
 
   defp collect({:failed, requesters, chunks, reason}, got, requester) do
     if requester in requesters,

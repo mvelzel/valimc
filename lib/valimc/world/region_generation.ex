@@ -273,10 +273,14 @@ defmodule Valimc.World.RegionGeneration do
   # A generated chunk's post-processing marks and fluid ticks wait, until it
   # first ticks, as one off-heap binary (VMC-081c2): most of a view never
   # ticks, and their lists were the largest part of the owner's heap.
+  # A delivered chunk's entry comes frozen from its job (VMC-081k).
   defp frozen_post(post, chunks) do
-    for {chunk, entry} <- Map.take(post, chunks),
-        into: %{},
-        do: {chunk, {:frozen, :erlang.term_to_binary(entry)}}
+    for {chunk, entry} <- Map.take(post, chunks), into: %{} do
+      case entry do
+        {:frozen, _} -> {chunk, entry}
+        entry -> {chunk, {:frozen, :erlang.term_to_binary(entry)}}
+      end
+    end
   end
 
   @doc "A chunk's post-processing entry as `{marks, fluid_ticks}`, frozen or not."

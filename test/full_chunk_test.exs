@@ -66,6 +66,25 @@ defmodule Valimc.FullChunkTest do
 
     assert {:ok, %{block_entities: %{{1, 64, 2} => {_, _}}}} = parts(loot)
   end
+
+  # VMC-081k: a job hands its post-processing on frozen.
+  test "a compacted full chunk carries its post-processing as one binary" do
+    marks = for y <- 0..40, do: {3, y, 4}
+    full = %{x: 0, z: 0, image: <<>>, marks: marks, fluid_ticks: [{{3, 1, 4}, "water"}]}
+    full = Map.merge(full, %{block_ticks: [], block_entities: []})
+    compact = FullChunk.compact(full)
+    assert {:frozen, binary} = compact.post
+    assert is_binary(binary)
+    refute Map.has_key?(compact, :marks)
+    assert FullChunk.expand(compact) == full
+    assert FullChunk.compact(%{full | marks: [], fluid_ticks: []}).post == nil
+
+    {:ok, raw} = FullChunk.parts([full], %{}, [])
+    {:ok, frozen} = FullChunk.parts([compact], %{}, [])
+    assert frozen.post_processing == %{{0, 0} => compact.post}
+    assert raw.post_processing == %{{0, 0} => {marks, full.fluid_ticks}}
+    assert Map.delete(frozen, :post_processing) == Map.delete(raw, :post_processing)
+  end
 end
 
 defmodule Valimc.FullChunkEntitiesTest do

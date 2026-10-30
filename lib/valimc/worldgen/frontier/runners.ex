@@ -90,7 +90,6 @@ defmodule Valimc.Worldgen.Frontier.Runners do
         x: x,
         z: z,
         image: image,
-        heights: [],
         block_entities: [],
         block_ticks: [],
         fluid_ticks: [],
@@ -144,9 +143,10 @@ defmodule Valimc.Worldgen.Frontier.Runners do
 
   # Its column decoded and checked here, once, as the owner installs it, and
   # its packet's parts encoded (VMC-081c2).
+  # Its post-processing goes frozen (VMC-081k).
   defp with_column(full, packet) do
     {:ok, handle} = Blocks.column_handle(full.image, {:background, {full.x, full.z}, packet})
-    {:ok, Map.put(full, :column, handle)}
+    {:ok, full |> Map.put(:column, handle) |> Valimc.Worldgen.FullChunk.compact()}
   end
 
   # A flat column's image lit alone.
