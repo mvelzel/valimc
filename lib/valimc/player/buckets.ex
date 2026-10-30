@@ -96,6 +96,9 @@ defmodule Valimc.Player.Buckets do
              {:ok, result} when result > 0 <- run(state, position, {:pickup, position}) do
           filled = ItemStack.new(Fluids.pickup_item(result))
           {:ok, filled(state.inventory, hand, stack, filled)}
+        else
+          # Nothing picked up (`{:ok, 0}`), no room or no owner: the bucket stays.
+          _ -> :error
         end
 
       kind ->

@@ -116,4 +116,26 @@ defmodule Valimc.BucketConnectionTest do
     Valimc.TestWait.until(fn -> block(feet) == "obsidian" end)
     assert state(pid).inventory.slots[36] == ItemStack.new("bucket")
   end
+
+  # The M3 gate's disconnect: a pickup that takes nothing (a solid block, or
+  # seagrass, which holds water but is no `BucketPickup`) left the session on
+  # `{:ok, 0}`.
+  test "an empty bucket on a block it cannot take from changes nothing", ctx do
+    seed(ctx, %Inventory{slots: %{36 => ItemStack.new("bucket")}})
+    feet = {trunc(Float.floor(ctx.pose.x)), 64, trunc(Float.floor(ctx.pose.z))}
+    {fx, fy, fz} = feet
+    {client, pid} = login(ctx)
+
+    # Looking down at the floor.
+    client = use_down(client, 1)
+    assert Process.alive?(pid)
+    assert state(pid).inventory.slots[36] == ItemStack.new("bucket")
+
+    set(ctx, %{feet => BlockRegistry.default_state("seagrass")})
+    _client = use_down(client, 2)
+    assert Process.alive?(pid)
+    assert block(feet) == "seagrass"
+    assert block({fx, fy - 1, fz}) != "air"
+    assert state(pid).inventory.slots[36] == ItemStack.new("bucket")
+  end
 end
