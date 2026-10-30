@@ -44,6 +44,7 @@ mod mob_section_level;
 mod mob_term;
 #[cfg(feature = "parity")]
 mod mob_think_parity;
+mod mob_tick;
 mod mobs;
 #[cfg(feature = "parity")]
 mod parity;

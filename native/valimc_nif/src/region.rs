@@ -18,6 +18,18 @@ use valimc_core::{ColumnStore, StoreError};
 pub struct Region {
     owner: Mutex<LocalPid>,
     pub(crate) store: Mutex<ColumnStore>,
+    /// The chunk snapshots it last published (`snapshot_publish`), which
+    /// its group's native mob sections read their blocks from (VMC-081d).
+    pub(crate) published: Mutex<Published>,
+}
+
+/// A region's latest published snapshot per chunk, and how many
+/// publications changed them.
+#[derive(Default)]
+pub(crate) struct Published {
+    pub(crate) revision: u64,
+    pub(crate) chunks:
+        std::collections::HashMap<(i32, i32), ResourceArc<crate::snapshot::Snapshot>>,
 }
 
 #[rustler::resource_impl]
@@ -60,6 +72,7 @@ fn region_new(
     Ok(ResourceArc::new(Region {
         owner: Mutex::new(env.pid()),
         store: Mutex::new(store),
+        published: Mutex::new(Published::default()),
     }))
 }
 

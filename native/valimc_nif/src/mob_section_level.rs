@@ -52,6 +52,10 @@ pub struct LevelEnv {
     /// An oracle scene has no chunks (`hasChunk` false), and the AI reads
     /// air beyond its blocks (as its level holds them).
     pub no_chunks: bool,
+    /// The dimension (`World.dimension`, a POI memory's `GlobalPos`).
+    pub dimension: valimc_core::mobs::term::Atom,
+    /// Its time stands still (the Nether, the End).
+    pub fixed_time: bool,
 }
 
 fn map_of(v: &Value) -> NifResult<&Map> {
@@ -157,6 +161,11 @@ impl LevelEnv {
                 }
             },
             no_chunks: flag(m, "no_chunks"),
+            dimension: match m.get_atom("dimension").and_then(Value::as_atom) {
+                Some(a) => a.clone(),
+                None => valimc_core::mobs::term::Atom::new("overworld"),
+            },
+            fixed_time: flag(m, "fixed_time"),
         })
     }
 
@@ -200,6 +209,8 @@ impl LevelEnv {
         level.sea_level = self.sea_level;
         level.border = self.border;
         level.knots = self.knots.clone();
+        level.dimension = self.dimension.clone();
+        level.fixed_time = self.fixed_time;
         Ok(level)
     }
 }

@@ -14,6 +14,16 @@ defmodule Valimc.World.SpawnInputs do
   end
 
   @doc """
+  The native mob sections of `sections` with the masks of their simulated
+  chunks (VMC-081d): the spawning call reads their mobs' rows itself.
+  """
+  def natives(sections) do
+    for {key, resource} <- sections,
+        %{ref: ref} <- [resource.entities.store.native],
+        do: {ref, Valimc.Entity.NativeMobs.simulated_mask(key, resource.tickets.simulated)}
+  end
+
+  @doc """
   The sections (`id => key`) of the entities `ids` in the `prepared` rows;
   only a plan that discards or resets mobs needs them, so they are not kept
   for every loaded entity each tick.
@@ -35,18 +45,10 @@ defmodule Valimc.World.SpawnInputs do
   defp section(entries, ticking, _previous) do
     {mobs, bodies} =
       Enum.reduce(entries, {[], []}, fn
-        # A native mob (VMC-081d): its row says as much.
-        {id, %{kind: :mob, entity: e, body: %Valimc.Entity.NativeBody{type: type} = row} = entry},
-        {mobs, bodies} ->
-          flags =
-            if(row.persistent or row.from_bucket, do: 1, else: 0) +
-              if(row.alive and MapSet.member?(ticking, Grid.chunk_key(e.x, e.z)), do: 2, else: 0)
-
-          row =
-            {id, EntityTypes.id(type), {e.x, e.y, e.z}, flags, Map.get(entry, :idle, 0),
-             Map.get(entry, :lived, 0)}
-
-          {[row | mobs], [box(type, e) | bodies]}
+        # A native mob (VMC-081d): the spawning call reads it from its
+        # section (`natives/1`).
+        {_, %{native: ref}}, acc when ref != nil ->
+          acc
 
         {id, %{kind: :mob, entity: e, body: %{type: type, mob: mob}} = entry}, {mobs, bodies} ->
           alive = Valimc.Entity.Mob.alive?(mob)
@@ -74,7 +76,7 @@ defmodule Valimc.World.SpawnInputs do
       mobs: mobs,
       bodies: bodies,
       chunks: MapSet.to_list(ticking),
-      ids: Map.keys(entries)
+      ids: for({id, entry} <- entries, not Valimc.Entity.Store.native_entry?(entry), do: id)
     }
   end
 

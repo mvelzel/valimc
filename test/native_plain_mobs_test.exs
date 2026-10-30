@@ -4,7 +4,8 @@ defmodule Valimc.NativePlainMobsTest do
   in Rust give, tick by tick, the records the Elixir simulation gives: the
   same scenes run through a store of Elixir bodies and `MobTicks.steps/5`,
   and through a store whose plain mobs live in a native section and
-  `MobTicks.native_steps/7` (an Elixir mob among them yielding its turns),
+  `MobTicks.native_tick/10` (an Elixir mob among them yielding its turns),
+  whose changes the store takes as the owner does (`Store.native_tick/3`),
   with the owner's ageing between ticks, compared exactly after every
   tick.
 
@@ -195,6 +196,9 @@ defmodule Valimc.NativePlainMobsTest do
   defp env(players),
     do: %{region: nil, level: @level, players: players, items: [], reach: 0}
 
+  # The scene's cells around its floor.
+  defp region, do: {20.0, 60.0, 20.0, 76.0, 72.0, 76.0}
+
   # One owner tick of the store's bodies and mobs, as `RegionData` runs it:
   # the timers (`Store.age_chunks`), then the mobs' turns, their steps
   # applied in the section.
@@ -217,21 +221,41 @@ defmodule Valimc.NativePlainMobsTest do
           not Store.simulated?(entry, tick),
           do: {id, entry}
 
-    {steps, world} =
-      if store.native,
-        do:
-          MobTicks.native_steps(
-            view,
-            Enum.sort(mobs),
+    {steps, world, store} =
+      if store.native do
+        elixir? = Enum.any?(mobs, fn {_, e} -> not Store.native_entry?(e) end)
+        env = env(world.players)
+
+        source =
+          {:scene, Valimc.Physics.Kernel.native(view, region()), env.level, env.players, nil}
+
+        {steps, world, %{moved: moved, changes: changes}} =
+          MobTicks.native_tick(
+            source,
+            if(elixir?, do: Enum.sort(mobs), else: []),
             world,
             nil,
             [],
             store.native,
-            env(world.players)
-          ),
-        else: MobTicks.steps(view, Enum.sort(mobs), world, nil)
+            tick,
+            :all,
+            world.random,
+            %{}
+          )
 
-    store = Store.mark_simulated(store, Enum.map(steps, & &1.id), tick)
+        {store, native_steps} = Store.native_tick(store, moved, changes)
+        {steps ++ Enum.filter(native_steps, & &1.outside), world, store}
+      else
+        {steps, world} = MobTicks.steps(view, Enum.sort(mobs), world, nil)
+        {steps, world, store}
+      end
+
+    store =
+      Store.mark_simulated(
+        store,
+        Enum.reject(Enum.map(steps, & &1.id), &Store.native_entry?(store.entries[&1])),
+        tick
+      )
 
     steps =
       Enum.reject(steps, fn step ->

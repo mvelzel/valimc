@@ -36,8 +36,15 @@ defmodule Valimc.TestBodies do
 
   def body(%{body: body}), do: body
 
-  @doc "The entry with its body as `body/1` reads it."
-  def entry(%{body: %NativeBody{}} = entry), do: %{entry | body: body(entry)}
+  @doc """
+  The entry with its body as `body/1` reads it, and a native mob's idle and
+  lived counts, which its section keeps.
+  """
+  def entry(%{body: %NativeBody{}, native: ref, entity: %{entity_id: id}} = entry) do
+    {_, _, idle, lived} = Native.mob_section_body(ref, id)
+    Map.merge(%{entry | body: body(entry)}, %{idle: idle, lived: lived})
+  end
+
   def entry(entry), do: entry
 
   @doc "Whether goal `module` runs in the entry's mind (a native mind's by name)."

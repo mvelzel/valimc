@@ -111,137 +111,174 @@ defmodule Valimc.Entity.MobTicks do
 
   @doc """
   The steps of a section whose mobs (`[{id, entry}]`, in id order) include
-  native ones (VMC-081d): one ticker over all of them, the native mobs'
-  turns run by their section (`native`, a `Valimc.Entity.NativeMobs`)
-  and each Elixir mob's by yielding to its turn here at its index, so every
-  mob takes its turn in id order. `env` is what native turns read beyond
-  the ticker (`Native.mob_section_begin/7`'s: `%{region, level, players,
-  items, reach}`, `reach` how far around them their AI reads blocks); the
-  Elixir mobs' sensed rows join it here. `{steps, world}` as
-  `steps/5`; a native mob's step body is its `NativeBody` row (`native:
-  true`, `outside` when it left the section), and one whose state did not
-  change has its entry's.
+  native ones (VMC-081d), over a supplied view (oracle checks and tests):
+  `native_tick/9` over `{:scene, ...}`, with a step for every mob as
+  `steps/5` gives one. `env` is what the native turns read beyond the
+  ticker (`%{region, level, players, items}`). A native mob's step body is
+  its `NativeBody` row as it is after the tick.
   """
   def native_steps(view, mobs, world, border, external, native, env) do
-    external = collider_neighbors(mobs, external)
-    elixir? = Enum.any?(mobs, fn {_, entry} -> not Store.native_entry?(entry) end)
-    {mobs, world, ctx} = if elixir?, do: AI.prepare(mobs, world), else: {mobs, world, nil}
-    old = Map.new(mobs)
-    ids = mobs |> Enum.map(&elem(&1, 0)) |> List.to_tuple()
-    index = Map.new(Enum.with_index(Tuple.to_list(ids)))
+    natives = for {id, entry} <- mobs, Store.native_entry?(entry), do: id
 
-    players =
-      for %{x: x, y: y, z: z} <- world.players,
-          do: {{x, y, z}, {x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3}}
+    source =
+      {:scene, Valimc.Physics.Kernel.native(view, scene_region(mobs)), env.level, env.players,
+       env.region}
 
-    {order, travel} =
-      Enum.map_reduce(mobs, %{}, fn {id, entry}, travel ->
-        if Store.native_entry?(entry) do
-          {{:native, id}, travel}
-        else
+    extra = %{items: Map.get(env, :items, []), only: natives}
+    random = world.random
+    elixir = Enum.reject(mobs, fn {_, entry} -> Store.native_entry?(entry) end)
+    all = if elixir == [], do: [], else: mobs
+
+    {steps, world, native_out} =
+      native_tick(source, all, world, border, external, native, nil, :all, random, extra)
+
+    _ = random
+
+    changes =
+      Map.new(native_out.changes, fn {id, _, events, effects, _} -> {id, {events, effects}} end)
+
+    native_steps =
+      for id <- natives do
+        {position, row, idle, _lived} = NativeMobs.body(native, id)
+        {events, effects} = Map.get(changes, id, {[], []})
+
+        step = %{
+          id: id,
+          revision: 0,
+          position: position,
+          body: row,
+          events: events,
+          effects: effects,
+          native: true,
+          outside: false
+        }
+
+        if row.idle != nil, do: Map.put(step, :idle, idle), else: step
+      end
+
+    {Enum.sort_by(steps ++ native_steps, & &1.id), world}
+  end
+
+  # The cells a scene's mobs read: their boxes and moves, two blocks around.
+  defp scene_region(mobs) do
+    mobs
+    |> Enum.map(fn {_, %{entity: e, body: body}} ->
+      {width, height, _} = Valimc.Entity.Body.dimensions(body)
+      half = width / 2 + 2.0
+      {vx, vy, vz} = body.velocity
+
+      {e.x - half + min(vx, 0), e.y - 2.0 + min(vy, 0), e.z - half + min(vz, 0),
+       e.x + half + max(vx, 0), e.y + height + 2.0 + max(vy, 0), e.z + half + max(vz, 0)}
+    end)
+    |> Enum.reduce(fn {a0, b0, c0, d0, e0, f0}, {a1, b1, c1, d1, e1, f1} ->
+      {min(a0, a1), min(b0, b1), min(c0, c1), max(d0, d1), max(e0, e1), max(f0, f1)}
+    end)
+  end
+
+  @doc """
+  One tick of a native section (VMC-081d, `NativeMobs.tick/8`): its native
+  mobs take their turns in Rust over what it keeps resident (`source`
+  `{:world, world}`, or an oracle's `{:scene, view, level, players,
+  region}`), the section's Elixir mobs among them by yielding to their
+  `MobTicks` turn here at their index, so every mob takes its turn in id
+  order. `mobs` is every mob of the section that ticks (`[{id, entry}]`, in
+  id order) when any is an Elixir mob, else `[]` (the native ones need no
+  entry); `world` the Elixir AI's world (its `random` the section's level
+  random); `external` the other sections' Elixir solids; `extra` the
+  section's extras (`Native.mob_section_tick/7`).
+
+  `{elixir_steps, world, %{moved, changes}}`: the Elixir mobs' steps as
+  `steps/5` gives them, the world as they left it, and what changed of the
+  native mobs (`Store.native_tick/3` takes it).
+  """
+  def native_tick(source, mobs, world, border, external, native, tick, mask, random, extra) do
+    elixir = Enum.reject(mobs, fn {_, entry} -> Store.native_entry?(entry) end)
+
+    if elixir == [] do
+      units = Map.get(extra, :units, 16)
+
+      {fixed, _} =
+        Enum.map_reduce(List.wrap(external), %{}, fn {_, entry}, travel ->
           {input, travel} = input(entry, travel)
-          {{:elixir, input}, travel}
-        end
+          {{:fixed, input, collider_box(entry, nil)}, travel}
+        end)
+
+      {:done, random, {[], moved, changes}} =
+        NativeMobs.tick(native, source, tick, mask, random, fixed, extra, units)
+
+      {[], %{world | random: random}, %{moved: moved, changes: changes}}
+    else
+      yield_tick(source, mobs, elixir, world, border, external, native, tick, mask, extra, random)
+    end
+  end
+
+  defp yield_tick(
+         source,
+         mobs,
+         elixir,
+         world,
+         border,
+         external,
+         native,
+         tick,
+         mask,
+         extra,
+         random
+       ) do
+    _ = border
+    {mobs, world, ctx} = AI.prepare(mobs, world)
+    old = Map.new(mobs)
+    external = collider_neighbors(elixir, external)
+
+    {entrants, travel} =
+      Enum.map_reduce(elixir, %{}, fn {id, entry}, travel ->
+        {input, travel} = input(entry, travel)
+        {{id, input, collider_box(entry, nil)}, travel}
       end)
 
     {fixed, travel} =
       Enum.map_reduce(external, travel, fn {_, entry}, travel ->
         {input, travel} = input(entry, travel)
-
-        {{:fixed,
-          Map.merge(input, %{
-            fixed: true,
-            pushable: false,
-            pushes: false,
-            velocity: {0.0, 0.0, 0.0}
-          })}, travel}
+        {{:fixed, input, collider_box(entry, nil)}, travel}
       end)
 
-    colliders =
-      for {{_, entry}, i} <- Enum.with_index(mobs ++ external),
-          box = collider_box(entry, :unsupported),
-          box != :unsupported,
-          do: {i, box}
+    # What the native AI senses of the section's Elixir mobs.
+    others = for {id, entry} <- elixir, do: {id, native_row(world, id, entry)}
+    extra = Map.put(extra, :others, others)
+    units = length(mobs) + length(fixed)
 
-    reach = Map.get(env, :reach, 0)
+    case NativeMobs.tick(native, source, tick, mask, random, entrants ++ fixed, extra, units) do
+      {:done, random, {velocities, moved, changes}} ->
+        # (No Elixir mob took its turn: none was in the ticked chunks.)
+        _ = velocities
+        {[], %{world | random: random}, %{moved: moved, changes: changes}}
 
-    region =
-      (mobs ++ external)
-      |> Enum.map(fn {_, %{entity: e, body: body}} ->
-        {width, height, _} = Valimc.Entity.Body.dimensions(body)
-        half = width / 2 + 2.0
-        {vx, vy, vz} = body.velocity
+      {:yield, ticker, ids, i, random, moved, pushed} ->
+        index = ids |> Tuple.to_list() |> Enum.with_index() |> Map.new()
 
-        {e.x - half + min(vx, 0), e.y - 2.0 + min(vy, 0), e.z - half + min(vz, 0),
-         e.x + half + max(vx, 0), e.y + height + 2.0 + max(vy, 0), e.z + half + max(vz, 0)}
-      end)
-      |> Enum.reduce(fn {a0, b0, c0, d0, e0, f0}, {a1, b1, c1, d1, e1, f1} ->
-        {min(a0, a1), min(b0, b1), min(c0, c1), max(d0, d1), max(e0, e1), max(f0, f1)}
-      end)
-      |> then(fn {x0, y0, z0, x1, y1, z1} ->
-        {x0 - reach, y0 - reach, z0 - reach, x1 + reach, y1 + reach, z1 + reach}
-      end)
+        state = %{
+          entries: Map.new(mobs),
+          ids: ids,
+          index: index,
+          by_uuid: Map.new(mobs, fn {id, entry} -> {entry.entity.uuid, id} end),
+          ctx: ctx,
+          world: world,
+          travel: travel,
+          steps: [],
+          pending: %{},
+          solid: MapSet.new(for({id, _, box} <- entrants, box != nil, do: index[id])),
+          native: native,
+          ticker: ticker,
+          natives:
+            for({_, %{native: ref} = e} <- mobs, ref != nil, into: %{}, do: {e.entity.uuid, true})
+        }
 
-    # What the native AI senses of the section's Elixir mobs, in their
-    # places of the id order (`AI.prepare/2`'s rows).
-    others =
-      if elixir?,
-        do:
-          for(
-            {{id, entry}, index} <- Enum.with_index(mobs),
-            not Store.native_entry?(entry),
-            do: {index, native_row(world, id, entry)}
-          ),
-        else: []
+        state = native_moved(state, random, moved, pushed)
+        {state, {velocities, moved, changes}} = run_native(old, i, state)
+        velocities = Map.new(velocities)
+        steps = Enum.reverse(state.steps)
 
-    env = env |> Map.delete(:reach) |> Map.put(:others, others)
-
-    bounds = if border, do: elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
-    cells = Kernel.native(view, region)
-    supplied = if match?({:states, _}, cells), do: div(byte_size(elem(cells, 1)), 14), else: 0
-
-    {:ok, ticker} =
-      Native.dispatch(:mob_section_begin, supplied + length(order), [
-        native.ref,
-        cells,
-        order ++ fixed,
-        players,
-        bounds,
-        colliders,
-        env
-      ])
-
-    state = %{
-      entries: Map.new(mobs),
-      ids: ids,
-      index: index,
-      by_uuid: Map.new(mobs, fn {id, entry} -> {entry.entity.uuid, id} end),
-      ctx: ctx,
-      world: world,
-      travel: travel,
-      steps: [],
-      pending: %{},
-      solid: MapSet.new(colliders, &elem(&1, 0)),
-      native: native,
-      ticker: ticker,
-      natives:
-        for({_, %{native: ref} = e} <- mobs, ref != nil, into: %{}, do: {e.entity.uuid, true})
-    }
-
-    state = run_native(view, ticker, old, 0, state)
-
-    {elixir, stepped, native_steps} =
-      Native.dispatch(:mob_section_finish, map_size(state.natives), [native.ref, ticker])
-
-    velocities = Map.new(elixir)
-    steps = Enum.reverse(state.steps)
-
-    steps =
-      case state.ctx do
-        nil ->
-          steps
-
-        ctx ->
+        steps =
           ctx
           |> AI.finish(
             Enum.map(steps, &{&1.id, &1.body}),
@@ -252,71 +289,35 @@ defmodule Valimc.Entity.MobTicks do
             body =
               if body.type == "minecraft:ender_dragon",
                 do: body,
-                else: %{body | velocity: Map.fetch!(velocities, index[id])}
+                else: %{body | velocity: Map.fetch!(velocities, id)}
 
             %{step | body: body}
           end)
-      end
 
-    changed =
-      Map.new(native_steps, fn {id, position, row, events, effects, outside} ->
-        {id, {position, row, events, effects, outside}}
-      end)
-
-    native =
-      for id <- stepped, entry = old[id] do
-        case changed do
-          %{^id => {position, row, events, effects, outside}} ->
-            step = %{
-              id: id,
-              revision: entry.revision,
-              position: position,
-              body: NativeMobs.merge(row, entry.body),
-              events: events,
-              effects: effects,
-              native: true,
-              outside: outside
-            }
-
-            if row.idle != nil, do: Map.put(step, :idle, row.idle), else: step
-
-          _ ->
-            %{
-              id: id,
-              revision: entry.revision,
-              position: {entry.entity.x, entry.entity.y, entry.entity.z},
-              body: entry.body,
-              events: [],
-              effects: [],
-              native: true,
-              outside: false
-            }
-        end
-      end
-
-    {Enum.sort_by(steps ++ native, & &1.id), state.world}
+        {steps, state.world, %{moved: moved, changes: changes}}
+    end
   end
 
-  # Native turns from `from` on; at an Elixir mob's index it takes its turn
-  # here, then the native turns go on after it.
-  defp run_native(view, ticker, old, from, state) do
-    case Native.dispatch(:mob_section_run, segment(state, from, 0), [
-           state.native.ref,
-           ticker,
-           from,
-           state.world.random,
-           Map.get(state, :resense, [])
-         ]) do
-      {:yield, i, random, moved, pushed} ->
-        state = native_moved(state, random, moved, pushed)
-        id = elem(state.ids, i)
-        state = step(view, ticker, old, id, i, state)
-        # The native AI senses it where its turn left it.
-        state = Map.put(state, :resense, [native_row(state.world, id, state.entries[id])])
-        run_native(view, ticker, old, i + 1, state)
+  # The Elixir mob at index `i` takes its turn, then the native turns go on
+  # after it until the next Elixir mob's or the end.
+  defp run_native(old, i, state) do
+    id = elem(state.ids, i)
+    state = step(nil, state.ticker, old, id, i, state)
+    # The native AI senses it where its turn left it.
+    resense = [native_row(state.world, id, state.entries[id])]
 
-      {:done, random, moved, pushed} ->
-        native_moved(state, random, moved, pushed)
+    case Native.dispatch(:mob_section_resume, segment(state, i + 1, 0), [
+           state.native.ref,
+           state.ticker,
+           i + 1,
+           state.world.random,
+           resense
+         ]) do
+      {:yield, _, _, j, random, moved, pushed} ->
+        run_native(old, j, native_moved(state, random, moved, pushed))
+
+      {:done, random, out} ->
+        {%{state | world: %{state.world | random: random}}, out}
     end
   end
 
@@ -350,6 +351,9 @@ defmodule Valimc.Entity.MobTicks do
 
     {entries, world} =
       Enum.reduce(moved, {entries, %{state.world | random: random}}, fn
+        {id, _, _, _, _}, {entries, world} when not is_map_key(entries, id) ->
+          {entries, world}
+
         {id, {x, y, z}, yaw, pitch, alive}, {entries, world} ->
           e = entries[id]
 

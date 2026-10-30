@@ -145,24 +145,40 @@ fn int32(value: i64, what: &'static str) -> Result<i32> {
 
 /// The store record of `mob` (`Store.record/1` of its entry).
 pub fn record(mob: &NativeMob) -> Value {
+    record_with(mob, true)
+}
+
+/// `record/1` without its travel fields (`RegionStorage.travelled/1`'s:
+/// position, rotation, velocity, ground, and the mob's motion and mind):
+/// what a cut compares to learn whether a change may wait for the motion
+/// pass (`section::Written::travel_of`).
+pub fn stationary(mob: &NativeMob) -> Value {
+    record_with(mob, false)
+}
+
+fn record_with(mob: &NativeMob, travel: bool) -> Value {
     let body = &mob.body;
     let mut record = Map::with_capacity(16);
     record.insert_atom("kind", Value::atom("mob"));
     record.insert_atom("uuid", Value::Binary(mob.uuid.to_vec()));
-    record.insert_atom("x", Value::Float(mob.position[0]));
-    record.insert_atom("y", Value::Float(mob.position[1]));
-    record.insert_atom("z", Value::Float(mob.position[2]));
+    if travel {
+        record.insert_atom("x", Value::Float(mob.position[0]));
+        record.insert_atom("y", Value::Float(mob.position[1]));
+        record.insert_atom("z", Value::Float(mob.position[2]));
+    }
     record.insert_atom("type", Value::Binary(body.entity_type.as_bytes().to_vec()));
-    record.insert_atom(
-        "rotation",
-        Value::tuple([
-            Value::Float(body.yaw),
-            Value::Float(body.pitch),
-            Value::Float(body.head_yaw),
-        ]),
-    );
-    record.insert_atom("velocity", Value::vec3(body.velocity));
-    record.insert_atom("on_ground", Value::bool(body.on_ground));
+    if travel {
+        record.insert_atom(
+            "rotation",
+            Value::tuple([
+                Value::Float(body.yaw),
+                Value::Float(body.pitch),
+                Value::Float(body.head_yaw),
+            ]),
+        );
+        record.insert_atom("velocity", Value::vec3(body.velocity));
+        record.insert_atom("on_ground", Value::bool(body.on_ground));
+    }
     record.insert_atom("no_gravity", Value::bool(body.no_gravity));
     record.insert_atom("data", data_record(&body.data));
     if let Some(name) = body.custom_name.as_ref().filter(|n| n.truthy()) {
@@ -174,7 +190,7 @@ pub fn record(mob: &NativeMob) -> Value {
     if body.portal_cooldown > 0 {
         record.insert_atom("portal_cooldown", Value::Int(body.portal_cooldown.into()));
     }
-    record.insert_atom("mob", mob_record(&body.mob));
+    record.insert_atom("mob", mob_record(&body.mob, travel));
     if mob.hops > 0 {
         record.insert_atom("hops", Value::Int(mob.hops as i64));
     }
@@ -191,14 +207,18 @@ fn data_record(data: &FamilyData) -> Value {
 }
 
 /// `Mob.record/1`.
-fn mob_record(mob: &Mob) -> Value {
+fn mob_record(mob: &Mob, travel: bool) -> Value {
     let mut record = Map::with_capacity(16);
     record.insert_atom("living", living_record(&mob.living));
     record.insert_atom("equipment", equipment_record(&mob.equipment));
     record.insert_atom("attributes", attributes_record(&mob.attributes));
-    record.insert_atom("ai", Value::or_nil(mob.ai.as_ref(), mind_record));
+    if travel {
+        record.insert_atom("ai", Value::or_nil(mob.ai.as_ref(), mind_record));
+    }
     record.insert_atom("no_ai", Value::bool(mob.no_ai));
-    record.insert_atom("motion", motion_record(&mob.motion));
+    if travel {
+        record.insert_atom("motion", motion_record(&mob.motion));
+    }
     record.insert_atom(
         "hurt_by_player",
         Value::or_nil(mob.hurt_by_player, |uuid| Value::Binary(uuid.to_vec())),

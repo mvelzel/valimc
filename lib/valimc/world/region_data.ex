@@ -107,6 +107,9 @@ defmodule Valimc.World.RegionData do
     # entities moved there), which the group applies once the call returns.
     {:siblings, %{}},
     {:sibling_effects, []},
+    # The group's native mob world (VMC-081d, `Native.mob_world_set/2`): its
+    # level, players and sections, as the group hands it in.
+    {:mob_world, nil},
     # The players standing in the section, as their group's trackers last
     # published them (`Valimc.Player.Host.track/1`): their rows, and the
     # packets not yet in a frame.
@@ -1458,37 +1461,40 @@ defmodule Valimc.World.RegionData do
   # Mobs travel in the entity phase (VMC-015i): the section's simulated mobs
   # tick one at a time in one kernel ticker (VMC-043e2), with their living
   # rules; each step lands here, in a sibling section in the same commit, or
-  # in another group by the handoff.
+  # in another group by the handoff. Native mobs (VMC-081d) take their turns
+  # in their section over what it keeps resident; only what changed of them
+  # comes back (`Store.native_tick/3`), and the Elixir mobs among them yield
+  # their turns to `MobTicks` in id order.
   defp move_mobs(state) do
     store = state.entities.store
+    native = store.native
 
-    mobs =
-      for {id, entry} <- Store.in_chunks(store, state.tickets.simulated, :mob),
-          not Store.simulated?(entry, state.game_tick),
-          do: {id, entry}
+    {natives, elixir} =
+      store
+      |> Store.in_chunks(state.tickets.simulated, :mob)
+      |> Enum.reject(fn {_, entry} -> Store.simulated?(entry, state.game_tick) end)
+      |> Enum.split_with(fn {_, entry} -> Store.native_entry?(entry) end)
 
     dragon_waits =
-      Enum.any?(mobs, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
+      Enum.any?(elixir, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
         Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end)
 
-    if mobs == [] or write_busy(state) != nil or dragon_waits do
+    natives? = native != nil and natives != [] and state.mob_world != nil
+
+    if (natives == [] and elixir == []) or write_busy(state) != nil or dragon_waits do
       state
     else
-      view = Valimc.World.View.new(state.dimension)
       {ready, mob_paths} = Valimc.World.MobPaths.take(state.mob_paths)
       border = Valimc.World.Clock.border_snapshot()
-      native = state.entities.store.native
-      # Native mobs (VMC-081d) take their turns in their section; an Elixir
-      # AI world is built only for Elixir mobs among them.
-      natives? = native != nil and Enum.any?(mobs, fn {_, e} -> Store.native_entry?(e) end)
-      elixir? = not natives? or Enum.any?(mobs, fn {_, e} -> not Store.native_entry?(e) end)
+      # A lazy view: what effects read (eaten and placed blocks), and the
+      # Elixir mobs' blocks.
+      view = Valimc.World.View.new(state.dimension)
+      random = state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656))
 
-      external = fn area ->
-        for {_, store} <- group_stores(state), row <- Store.colliders(store, area), do: row
-      end
-
+      # An Elixir AI world only for Elixir mobs.
       world =
-        if elixir? do
+        if elixir != [] do
+          mobs = Enum.sort(natives ++ elixir)
           own = Valimc.AI.Pois.store_claims(mobs, state.dimension)
 
           located =
@@ -1501,28 +1507,39 @@ defmodule Valimc.World.RegionData do
             mob_world(state, view, border)
             | paths: ready,
               pois: poi_claims(state, own),
-              located: located
+              located: located,
+              random: random
           }
         else
-          %Valimc.AI.World{
-            players: state.player_sensed,
-            random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656))
-          }
+          %Valimc.AI.World{players: state.player_sensed, random: random}
         end
 
-      {steps, world} =
-        if natives?,
-          do:
-            Valimc.Entity.MobTicks.native_steps(
-              view,
-              Enum.sort(mobs),
-              world,
-              border,
-              external,
-              native,
-              native_env(state, mobs, border)
-            ),
-          else: Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, external)
+      {steps, world, native_out} =
+        if natives? do
+          section = if elixir != [], do: Enum.sort(natives ++ elixir), else: []
+
+          Valimc.Entity.MobTicks.native_tick(
+            {:world, state.mob_world},
+            section,
+            world,
+            border,
+            elixir_solids(state, elixir),
+            native,
+            state.game_tick,
+            Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
+            world.random,
+            native_extra(state, elixir)
+          )
+        else
+          external = fn area ->
+            for {_, store} <- group_stores(state), row <- Store.colliders(store, area), do: row
+          end
+
+          {steps, world} =
+            Valimc.Entity.MobTicks.steps(view, Enum.sort(elixir), world, border, external)
+
+          {steps, world, nil}
+        end
 
       state =
         put_in(
@@ -1530,14 +1547,28 @@ defmodule Valimc.World.RegionData do
           Store.mark_simulated(state.entities.store, Enum.map(steps, & &1.id), state.game_tick)
         )
 
+      # What changed of the native mobs: their moves and rows in the store,
+      # and the steps of those with effects or leaving the section.
+      {state, native_steps} =
+        case native_out do
+          nil ->
+            {state, []}
+
+          %{moved: moved, changes: changes} ->
+            {store, native_steps} = Store.native_tick(state.entities.store, moved, changes)
+            {put_in(state.entities.store, store), native_steps}
+        end
+
+      # Paths the Elixir mobs asked for run as a job (VMC-041b).
+      mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
+      elixir_steps = steps
+      steps = Enum.sort_by(steps ++ native_steps, & &1.id)
+
       dragon_effects =
         for step <- steps,
             step.body.type == "minecraft:ender_dragon",
             effect <- step.effects,
             do: {store.entries[step.id].entity, step.position, effect}
-
-      # Paths the mobs asked for run as a job (VMC-041b).
-      mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
 
       state =
         start_paths(%{
@@ -1739,14 +1770,21 @@ defmodule Valimc.World.RegionData do
             {:shulker_push, area, delta, local} <- step.effects,
             do: {area, delta, local}
 
-      steps =
-        Enum.reject(steps, fn step ->
-          %{entity: e, body: body} = store.entries[step.id]
-          step.events == [] and step.body == body and step.position == {e.x, e.y, e.z}
+      # What moves on: the Elixir mobs' changed steps and the native mobs
+      # leaving the section (the others' moves are in the store already).
+      routed =
+        Enum.filter(steps, fn
+          %{native: true} = step ->
+            step.outside
+
+          step ->
+            %{entity: e, body: body} = store.entries[step.id]
+            not (step.events == [] and step.body == body and step.position == {e.x, e.y, e.z})
         end)
 
-      state = route_bodies(state, steps)
-      state = settle_native(state, steps)
+      _ = elixir_steps
+      state = route_bodies(state, routed)
+      state = settle_native(state, routed)
       state = Enum.reduce(lid_pushes, state, &push_lid(&2, &1))
       state = state |> free_knots(freed) |> make_knots(wanted)
       state = if discards == [], do: state, else: discard_mobs(state, discards)
@@ -2900,75 +2938,112 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # What mobs' AI reads (`Valimc.AI.World`): this group's players, the
-  # section's mobs (`AI.think/2` adds them) and items, published blocks,
-  # game time, the section's level random, and what path searches read
-  # beside the blocks (sea level, the stationary border).
-  # What native mobs' turns read beyond their ticker (VMC-081d,
-  # `Native.mob_section_begin/7`): the section's blocks, light and biomes,
-  # the level (clock, difficulty, sky, weather, rules, height, border,
-  # knots), the sensed players and items, and how far the AI reads blocks.
-  defp native_env(state, mobs, border) do
-    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
+  @doc """
+  What native mobs' turns read of the level (VMC-081d), for the group's
+  `MobWorld` once a tick at game tick `tick` in `dimension`: the clock,
+  difficulty, sky, weather, game rules, height, sea level, border and
+  biome zoom seed (`Native.mob_world_set/2`'s `level`). A section's knots
+  and its tests' goals ride its own tick (`native_extra/2`).
+  """
+  def native_level(dimension, tick) do
+    {min_y, height} = Valimc.World.Dimension.bounds(dimension)
     {difficulty, _} = Valimc.World.Clock.difficulty()
     day = Clock.day_ticks()
-    name = Valimc.World.Dimension.name(state.dimension)
-    overworld = state.dimension == :overworld
+    name = Valimc.World.Dimension.name(dimension)
+    overworld = dimension == :overworld
 
     %{rain_level: rain, thunder_level: thunder} =
       if overworld, do: Clock.weather(), else: %{rain_level: 0.0, thunder_level: 0.0}
 
-    {zoom_seed, _} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), state.dimension)
+    {zoom_seed, _} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), dimension)
 
     darken =
       Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain))
 
-    plain = Valimc.Entity.NativeMobs.plain_types()
+    border = Valimc.World.Clock.border_snapshot()
+    fixed_time = Valimc.Data.SleepFacts.dimension(dimension).fixed_time
 
-    # The AI of a native family reads blocks around its mobs (a path, a
-    # wander, a tempting player); plain mobs only their own.
-    reach =
-      if Enum.any?(mobs, fn {_, e} ->
-           Store.native_entry?(e) and not MapSet.member?(plain, e.body.type)
-         end),
-         do: 40,
-         else: 0
-
-    level = %{
-      time: state.game_tick || 0,
+    %{
+      time: tick || 0,
       day: day,
       difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
       darken: darken,
-      bright: not Valimc.Data.SleepFacts.dimension(state.dimension).fixed_time and darken < 4,
+      bright: not fixed_time and darken < 4,
+      fixed_time: fixed_time,
       monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
       halloween: Valimc.AI.Spawn.halloween?(local_date()),
       mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
       mob_drops: Valimc.World.GameRules.get(:mob_drops),
       entity_drops: Valimc.World.GameRules.get(:entity_drops),
       universal_anger: false,
-      goals:
-        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
+      goals: true,
       min_y: min_y,
       max_y: min_y + height - 1,
-      sea_level: Valimc.World.Dimension.sea_level(state.dimension),
+      sea_level: Valimc.World.Dimension.sea_level(dimension),
       border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1),
-      knots: Enum.to_list(knots(state)),
+      knots: [],
       wet: Clock.weather().wet,
-      zoom_seed: zoom_seed
+      zoom_seed: zoom_seed,
+      dimension: dimension
     }
+  end
 
-    %{
-      region: state.blocks.ref,
-      level: level,
-      players: for(p <- state.player_sensed, do: %{p | effects: Enum.to_list(p.effects)}),
-      items: sensed_items(state),
-      reach: reach
-    }
+  # What a section's native tick reads beside its group's world (VMC-081d):
+  # the items its mobs sense, the knots where the group holds any, whether
+  # goals run (tests turn them off per scope), the players' anger events,
+  # the Elixir mobs' POI claims and an answered structure query.
+  defp native_extra(state, elixir) do
+    store = state.entities.store
+    extra = %{units: map_size(store.entries)}
+
+    extra =
+      case sensed_items(state) do
+        [] -> extra
+        items -> Map.put(extra, :items, items)
+      end
+
+    extra =
+      if group_has_type?(state, @knot),
+        do: Map.put(extra, :knots, Enum.to_list(knots(state))),
+        else: extra
+
+    extra =
+      if Application.get_env(:valimc, :mob_goals) != nil,
+        do: Map.put(extra, :goals, Valimc.config(:mob_goals, state.key) != false),
+        else: extra
+
+    extra = if state.mob_events != [], do: Map.put(extra, :events, state.mob_events), else: extra
+    pois = poi_claims(state, Valimc.AI.Pois.store_claims(elixir, state.dimension))
+    extra = if map_size(pois) > 0, do: Map.put(extra, :pois, Enum.to_list(pois)), else: extra
+
+    case state.mob_located do
+      {{uuid, token}, {:ok, {x, y, z}}} -> Map.put(extra, :located, [{uuid, token, {x, y, z}}])
+      {{uuid, token}, _} -> Map.put(extra, :located, [{uuid, token, nil}])
+      _ -> extra
+    end
+  end
+
+  # The group's Elixir solids (a shulker of a type not native) within reach
+  # of this section, the fixed colliders of its native tick.
+  defp elixir_solids(state, _elixir) do
+    {sx, sz} = state.key
+    {x0, z0} = {sx * 128 - 66.0, sz * 128 - 66.0}
+    area = {x0, -4096.0, z0, x0 + 260.0, 4096.0, z0 + 260.0}
+
+    for {_, store} <- group_stores(state),
+        map_size(store.spatial.solids) > 0,
+        {id, entry} <- Store.colliders(store, area),
+        not Store.native_entry?(entry),
+        do: {id, entry}
   end
 
   # What mobs' AI senses of the section's items (`AI.World`'s items).
   defp sensed_items(state) do
-    for {_, %{kind: :item, entity: e, stack: stack} = entry} <- state.entities.store.entries,
+    store = state.entities.store
+
+    for {{_, :item}, ids} <- store.spatial.chunks,
+        id <- ids,
+        %{kind: :item, entity: e, stack: stack} = entry <- [store.entries[id]],
         do: %{
           kind: :item,
           uuid: e.uuid,
@@ -8879,12 +8954,65 @@ defmodule Valimc.World.RegionData do
     end
 
     free = state.entities.portal == nil and not Jobs.running?(state.jobs, :portal)
+    entries = state.entities.store.entries
+    # A native mob's section renewed the cooldowns of those on cooldown and
+    # names the touch of one off it (VMC-081d).
+    {natives, others} = Enum.split_with(local, &Map.get(&1, :native, false))
+    {others, travel} = EntityPortals.contacts(others, entries, read, free)
 
-    case EntityPortals.contacts(local, state.entities.store.entries, read, free) do
-      {local, nil} ->
+    native =
+      if free,
+        do:
+          Enum.find_value(natives, fn step ->
+            Enum.find_value(step.effects, fn
+              {:portal, kind, cell} -> {step, entries[step.id], {kind, cell}}
+              _ -> nil
+            end)
+          end)
+
+    travel =
+      case {travel, native} do
+        {nil, native} -> native
+        {travel, nil} -> travel
+        {{a, _, _}, {b, _, _}} -> if b.id < a.id, do: native, else: travel
+      end
+
+    local = Enum.sort_by(others ++ natives, & &1.id)
+
+    case travel do
+      nil ->
         {local, state}
 
-      {local, {step, entry, _} = travel} ->
+      {%{native: true} = step, entry, _} = travel ->
+        case start_job(state, :portal, EntityPortals.work(travel),
+               supervisor: Valimc.TransferWorkers,
+               deadline: EntityPortals.deadline(),
+               data: %{uuid: entry.entity.uuid}
+             ) do
+          {:ok, state} ->
+            cooldown = EntityPortals.cooldown()
+
+            state =
+              case Native.mob_section_cooldown(entry.native, step.id, cooldown) do
+                {:ok, {_, events, {position, row}}} ->
+                  store =
+                    Store.native_change(state.entities.store, step.id, position, row, events)
+
+                  put_in(state.entities.store, store)
+
+                _ ->
+                  state
+              end
+
+            {local, state}
+
+          {:error, _} ->
+            {local, state}
+        end
+
+      {local_step, entry, _} = travel ->
+        step = local_step
+
         case start_job(state, :portal, EntityPortals.work(travel),
                supervisor: Valimc.TransferWorkers,
                deadline: EntityPortals.deadline(),

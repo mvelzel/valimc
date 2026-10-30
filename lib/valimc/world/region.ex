@@ -637,7 +637,11 @@ defmodule Valimc.World.Region do
       # Players that left, until their file holds their last frame: uuid => storage.
       player_leaving: %{},
       # Natural spawning's randoms (VMC-042a), nil where it is off.
-      spawning: if(Spawning.enabled?(anchor), do: Spawning.new())
+      spawning: if(Spawning.enabled?(anchor), do: Spawning.new()),
+      # What its sections' native mobs read of the group (VMC-081d,
+      # `Native.mob_world_set/2`), and what it was last given.
+      mob_world: Valimc.Native.mob_world_new(),
+      mob_world_seen: %{}
     }
   end
 
@@ -957,8 +961,10 @@ defmodule Valimc.World.Region do
        else: MapSet.put(touched, key)
   end
 
-  # A section's state as its code runs: with what it reads of its siblings.
-  defp enter(state, key), do: %{state.sections[key].resource | siblings: state.peers}
+  # A section's state as its code runs: with what it reads of its siblings
+  # and its group's native mob world.
+  defp enter(state, key),
+    do: %{state.sections[key].resource | siblings: state.peers, mob_world: state.mob_world}
 
   defp peer(peers, key, resource) do
     absent = resource.generation.absent
@@ -1508,6 +1514,7 @@ defmodule Valimc.World.Region do
   defp run_tick(state, tick, now) do
     ProfileWork.workload(fn -> work_counts(state) end)
     state = ProfileWork.phase(:tracking, fn -> track_players(state) end)
+    state = native_world(state, tick)
     state = ProfileWork.phase(:spawning, fn -> spawn_mobs(state, tick) end)
 
     state =
@@ -1637,6 +1644,61 @@ defmodule Valimc.World.Region do
         end)
     end
   end
+
+  # The group's native mob world (VMC-081d) once a tick, before its sections
+  # tick: the level, and the players and sections where they changed. A
+  # group without native mobs gives it nothing.
+  defp native_world(state, tick) do
+    natives =
+      for {key, %{resource: resource}} <- state.sections,
+          do: {key, resource.blocks.ref, native_ref(resource)}
+
+    if Enum.all?(natives, fn {_, _, native} -> native == nil end) do
+      state
+    else
+      seen = state.mob_world_seen
+
+      sensed =
+        case Enum.at(state.sections, 0) do
+          {_, %{resource: resource}} -> resource.player_sensed
+          nil -> []
+        end
+
+      sections = Enum.sort(natives)
+      changes = %{level: RegionData.native_level(state.dimension, tick)}
+
+      changes =
+        if Map.get(seen, :players) === sensed,
+          do: changes,
+          else:
+            Map.put(
+              changes,
+              :players,
+              for(p <- sensed, do: %{p | effects: Enum.to_list(p.effects)})
+            )
+
+      changes =
+        if Map.get(seen, :sections) == sections,
+          do: changes,
+          else:
+            Map.put(
+              changes,
+              :sections,
+              for({{sx, sz}, region, native} <- sections, do: {sx, sz, region, native})
+            )
+
+      changes =
+        if Map.has_key?(seen, :loot),
+          do: changes,
+          else: Map.put(changes, :loot, Valimc.Blocks.Loot.registry())
+
+      :ok = Valimc.Native.mob_world_set(state.mob_world, changes)
+      %{state | mob_world_seen: %{players: sensed, sections: sections, loot: true}}
+    end
+  end
+
+  defp native_ref(%{entities: %{store: %{native: %{ref: ref}}}}), do: ref
+  defp native_ref(_resource), do: nil
 
   # Hosted players' trackers tick first; each section publishes the players
   # standing in it with its entities (VMC-077i4).

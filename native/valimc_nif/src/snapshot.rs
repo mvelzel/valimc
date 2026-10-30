@@ -28,7 +28,7 @@ fn snapshot_publish(
     chunks: Vec<(i32, i32, Option<&Snapshot>)>,
     revision: u64,
 ) -> Result<Vec<ResourceArc<Snapshot>>, Atom> {
-    with_store(&region, |store| {
+    let handles: Vec<ResourceArc<Snapshot>> = with_store(&region, |store| {
         chunks
             .iter()
             .map(|&(cx, cz, previous)| {
@@ -38,7 +38,15 @@ fn snapshot_publish(
                     .map_err(error)
             })
             .collect()
-    })
+    })?;
+    // The region keeps what it published for its native mob sections.
+    if let Ok(mut published) = region.published.lock() {
+        published.revision += 1;
+        for (&(cx, cz, _), handle) in chunks.iter().zip(&handles) {
+            published.chunks.insert((cx, cz), handle.clone());
+        }
+    }
+    Ok(handles)
 }
 
 /// The state at a position of the handle's chunk, nil outside the stored height.

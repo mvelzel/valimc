@@ -35,6 +35,14 @@ pub struct Written {
 }
 
 impl Written {
+    /// The non-travel hash of `record` (`record::stationary/1`'s, whose
+    /// travel fields are left out already).
+    pub fn travel_of(record: &Value) -> u64 {
+        let mut travel = DefaultHasher::new();
+        hash_travel(record, &mut travel);
+        travel.finish()
+    }
+
     /// The hashes of `record`.
     pub fn of(record: &Value) -> Written {
         let mut full = DefaultHasher::new();
@@ -65,9 +73,26 @@ pub struct Slot {
     pub shown: Option<Shown>,
     /// It took its turn in the current tick.
     pub stepped: bool,
-    /// Its state before this tick's turn, kept while its owner decides
-    /// whether a move out of the section goes ahead.
+    /// Its state before this tick's turn: kept for a turn that may leave
+    /// the section or meet a chunk it cannot read (`tick::Tick::begin`), and
+    /// while its owner decides whether a move out of the section goes ahead.
     pub before: Option<Box<(NativeMob, Option<Shown>)>>,
+    /// Where it was before a move out of the section whose state before the
+    /// tick was not kept: the owner's refusal puts it back there.
+    pub start: Option<[f64; 3]>,
+    /// Its move out of the section waits for its owner (`tick::settle`).
+    pub pending: bool,
+    /// The game tick it last took its turn in (here, or in the section it
+    /// came from), and the one its timers last ran in (`tick::age`).
+    pub ticked: Option<i64>,
+    pub aged: Option<i64>,
+    /// Its idle time (`noActionTime`: its mind's, or counted while it has
+    /// none) and the ticks it lived, which despawning reads.
+    pub idle: i64,
+    pub lived: i64,
+    /// The row its owner's store holds (beside the physical fields), None
+    /// before the store was first given one.
+    pub row: Option<Box<super::publish::RowKey>>,
 }
 
 impl Slot {
@@ -81,6 +106,13 @@ impl Slot {
             shown: None,
             stepped: false,
             before: None,
+            start: None,
+            pending: false,
+            ticked: None,
+            aged: None,
+            idle: 0,
+            lived: 0,
+            row: None,
         }
     }
 }
@@ -295,16 +327,27 @@ impl MobSection {
     pub fn cut(&mut self, full: bool) -> Cut {
         let mut cut = Cut::default();
         for slot in self.slots.values_mut() {
-            if slot.before.is_some() {
+            if slot.pending {
                 continue;
             }
             if !slot.touched && !(full && slot.waiting) {
                 cut.waiting |= slot.waiting;
                 continue;
             }
+            slot.touched = false;
+            // A change in travel fields alone waits for the motion pass:
+            // its stationary part tells, without the mind's record.
+            if !full {
+                if let Some(w) = slot.written {
+                    if w.travel == Written::travel_of(&record::stationary(&slot.mob)) {
+                        slot.waiting = true;
+                        cut.waiting = true;
+                        continue;
+                    }
+                }
+            }
             let value = record::record(&slot.mob);
             let now = Written::of(&value);
-            slot.touched = false;
             match slot.written {
                 Some(w) if w.full == now.full => slot.waiting = false,
                 Some(w) if !full && w.travel == now.travel => {
@@ -328,7 +371,7 @@ impl MobSection {
     /// Takes every record as written (a load or a checkpoint holds them).
     pub fn baseline(&mut self) {
         for slot in self.slots.values_mut() {
-            if slot.before.is_some() {
+            if slot.pending {
                 continue;
             }
             if slot.touched || slot.waiting || slot.written.is_none() {
@@ -344,10 +387,15 @@ impl MobSection {
     pub fn records(&self) -> Vec<Value> {
         self.slots
             .values()
-            .map(|s| match &s.before {
+            .map(|s| match (&s.before, s.start) {
                 // A mob whose move out is pending is still where it was.
-                Some(before) => record::record(&before.0),
-                None => record::record(&s.mob),
+                (Some(before), _) if s.pending => record::record(&before.0),
+                (_, Some(start)) if s.pending => {
+                    let mut mob = s.mob.clone();
+                    mob.position = start;
+                    record::record(&mob)
+                }
+                _ => record::record(&s.mob),
             })
             .collect()
     }
@@ -416,6 +464,11 @@ const MOB_TRAVEL: [&str; 2] = ["motion", "ai"];
 // The whole record into `full`, its non-travel part into `travel`.
 fn hash_record(record: &Value, full: &mut DefaultHasher, travel: &mut DefaultHasher) {
     hash_value(record, full);
+    hash_travel(record, travel);
+}
+
+// The record's non-travel part into `travel`.
+fn hash_travel(record: &Value, travel: &mut DefaultHasher) {
     let Some(map) = record.as_map() else {
         hash_value(record, travel);
         return;

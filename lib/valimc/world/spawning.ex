@@ -276,7 +276,8 @@ defmodule Valimc.World.Spawning do
       random: group.spawning.random,
       finalize: group.spawning.mobs,
       spawners: spawners,
-      structures: kept_starts(group)
+      structures: kept_starts(group),
+      natives: Valimc.World.SpawnInputs.natives(group.sections)
     }
 
     [region | siblings] = group.stores
@@ -303,7 +304,11 @@ defmodule Valimc.World.Spawning do
           end)
       end
 
-    owners = Valimc.World.SpawnInputs.owners(prepared, discarded ++ reset)
+    owners =
+      Map.merge(
+        Valimc.World.SpawnInputs.owners(prepared, discarded ++ reset),
+        native_owners(group.sections, discarded ++ reset)
+      )
 
     by_section =
       by_section
@@ -353,6 +358,18 @@ defmodule Valimc.World.Spawning do
       |> Map.put(:phantoms, phantoms)
 
     {%{spawning | random: random, mobs: finalize, spawners: cached}, by_section}
+  end
+
+  # The sections of the native mobs among `ids` (VMC-081d).
+  defp native_owners(_sections, []), do: %{}
+
+  defp native_owners(sections, ids) do
+    for {key, resource} <- sections,
+        resource.entities.store.native != nil,
+        id <- ids,
+        Valimc.Entity.Store.native_entry?(Map.get(resource.entities.store.entries, id, %{})),
+        into: %{},
+        do: {id, key}
   end
 
   # The simulated chunks' kept starts of structures that override spawns.

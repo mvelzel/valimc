@@ -82,6 +82,7 @@ fn invalid() -> rustler::Error {
 }
 
 /// A view decoded for the cells of `region` (inflated a little by callers).
+#[derive(Clone)]
 pub(crate) enum View<S> {
     Rows(Rows<S>),
     States(States),
@@ -920,7 +921,15 @@ fn mobs_step<'a>(
 }
 
 /// A shared snapshot a kernel resource holds for its whole tick.
-pub(crate) struct SnapshotArc(rustler::ResourceArc<Snapshot>);
+#[derive(Clone)]
+pub(crate) struct SnapshotArc(pub(crate) rustler::ResourceArc<Snapshot>);
+
+impl SnapshotArc {
+    /// Whether both hold the same publication.
+    pub(crate) fn same(&self, other: &rustler::ResourceArc<Snapshot>) -> bool {
+        std::ptr::eq::<Snapshot>(&*self.0, &**other)
+    }
+}
 
 impl std::ops::Deref for SnapshotArc {
     type Target = valimc_core::snapshot::ChunkSnapshot;
@@ -930,7 +939,7 @@ impl std::ops::Deref for SnapshotArc {
 }
 
 /// `view` with its snapshots held, not borrowed (a resource's).
-fn owned_view(term: Term, facts: &Facts, region: &Aabb) -> NifResult<View<SnapshotArc>> {
+pub(crate) fn owned_view(term: Term, facts: &Facts, region: &Aabb) -> NifResult<View<SnapshotArc>> {
     let tuple = rustler::types::tuple::get_tuple(term)?;
     let tag: Atom = tuple.first().ok_or(invalid())?.decode()?;
     if tag == atoms::states() {
@@ -1018,21 +1027,53 @@ pub(crate) fn ticker_of(
     .ok_or(invalid())?;
     let view = owned_view(view_term, facts, &region)?;
     let players = players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
+    let colliders = colliders
+        .into_iter()
+        .map(|(index, bbox)| (index, bbox.map(aabb)))
+        .collect();
+    Ok(rustler::ResourceArc::new(ticker_over(
+        view, bodies, players, border, colliders,
+    )?))
+}
+
+/// A ticker resource over a native section's view and ticker, for the
+/// Elixir mobs' turns of a tick that yields to them (VMC-081d).
+pub(crate) fn ticker_over_ticker(
+    view: View<SnapshotArc>,
+    ticker: valimc_core::physics::mob::Ticker,
+    players: Vec<([f64; 3], Aabb)>,
+    border: Option<(f64, f64, f64, f64)>,
+) -> MobTicker {
+    MobTicker(std::sync::Mutex::new(Some(TickerState {
+        view,
+        border,
+        players,
+        ticker,
+    })))
+}
+
+/// A mob ticker over a view already held (a native mob section's resident
+/// one, VMC-081d) for `bodies` in ticker order.
+pub(crate) fn ticker_over(
+    view: View<SnapshotArc>,
+    bodies: Vec<valimc_core::physics::mob::Mob>,
+    players: Vec<([f64; 3], Aabb)>,
+    border: Option<(f64, f64, f64, f64)>,
+    colliders: Vec<(usize, Option<Aabb>)>,
+) -> NifResult<MobTicker> {
     let mut ticker = valimc_core::physics::mob::Ticker::new(bodies);
     for (index, bbox) in colliders {
         if index >= ticker.current.len() {
             return Err(invalid());
         }
-        ticker.collider(index, ticker.current[index].position, bbox.map(aabb));
+        ticker.collider(index, ticker.current[index].position, bbox);
     }
-    Ok(rustler::ResourceArc::new(MobTicker(std::sync::Mutex::new(
-        Some(TickerState {
-            view,
-            border,
-            players,
-            ticker,
-        }),
-    ))))
+    Ok(MobTicker(std::sync::Mutex::new(Some(TickerState {
+        view,
+        border,
+        players,
+        ticker,
+    }))))
 }
 
 /// Begin an owner's mob tick over `view` (the cells around every mob),

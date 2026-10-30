@@ -110,6 +110,52 @@ defmodule Valimc.Entity.NativeMobs do
   def give(nil, _to), do: :ok
   def give(%__MODULE__{ref: ref}, to), do: Native.mob_section_give(ref, to)
 
+  @doc """
+  One tick of the section's mobs (`Native.mob_section_tick/7`): `source`
+  `{:world, world}` or an oracle's `{:scene, view, level, players,
+  region}`; `mask` the simulated chunks (`simulated_mask/2`) or `:all`;
+  `entrants` the section's Elixir mobs and other sections' Elixir solids;
+  `units` how many mobs it may take (it picks the scheduler).
+  """
+  def tick(%__MODULE__{ref: ref}, source, tick, mask, random, entrants, extra, units),
+    do:
+      Native.dispatch(:mob_section_tick, units, [
+        ref,
+        source,
+        tick,
+        mask,
+        random,
+        entrants,
+        extra
+      ])
+
+  @doc "The section's simulated chunks `chunks` as the tick's 64-bit mask."
+  def simulated_mask({sx, sz}, chunks) do
+    Enum.reduce(chunks, 0, fn {cx, cz}, mask ->
+      {lx, lz} = {cx - sx * 8, cz - sz * 8}
+
+      if lx in 0..7 and lz in 0..7,
+        do: Bitwise.bor(mask, Bitwise.bsl(1, lz * 8 + lx)),
+        else: mask
+    end)
+  end
+
+  @doc """
+  The native mobs' timers this game tick (`Native.mob_section_age_tick/4`):
+  `budget` the ticks owed by chunk. `[{id, row | nil, events, done}]`.
+  """
+  def age(nil, _tick, _budget, _min_y), do: []
+  def age(_native, _tick, [], _min_y), do: []
+
+  def age(%__MODULE__{ref: ref}, tick, budget, min_y),
+    do: Native.mob_section_age_tick(ref, tick, budget, min_y * 1.0)
+
+  @doc "A native mob's row as it is now, its position and idle and lived counts."
+  def body(%__MODULE__{ref: ref}, id) do
+    {position, row, idle, lived} = Native.mob_section_body(ref, id)
+    {position, row, idle, lived}
+  end
+
   @doc "A row over `previous` (`NativeBody.merge/2`)."
   def merge(%NativeBody{} = row, previous), do: NativeBody.merge(row, previous)
 

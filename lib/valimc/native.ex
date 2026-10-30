@@ -74,14 +74,10 @@ defmodule Valimc.Native do
     # neighbours' path types over the mob's box, each a few block reads; a
     # zombie's search that visits all 560 took at most 0.86 ms.
     path_find: {2_500, :path_find_dirty},
-    # Per native mob turn of a section's run (VMC-081d): its sense, vitals,
-    # kernel step and pushes.
-    mob_section_run: {8_000, :mob_section_run_dirty},
-    # Per mob a section's ticker begins with: its kernel input, or per
-    # supplied cell of the view (oracles and tests) to decode.
-    mob_section_begin: {500, :mob_section_begin_dirty},
-    # Per native mob the tick ends: its comparison and, changed, its row.
-    mob_section_finish: {4_000, :mob_section_finish_dirty}
+    # Per mob of a section's native tick (VMC-081d): its ageing-free turn
+    # (sense, think, kernel step, vitals) and its change report.
+    mob_section_tick: {10_000, :mob_section_tick_dirty},
+    mob_section_resume: {10_000, :mob_section_resume_dirty}
   }
 
   @doc """
@@ -317,20 +313,26 @@ defmodule Valimc.Native do
   def mob_section_baseline(_section), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_in_chunks(_section, _chunks), do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_begin(_section, _view, _order, _players, _border, _colliders, _env),
+  def mob_world_new, do: :erlang.nif_error(:nif_not_loaded)
+  def mob_world_set(_world, _changes), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_tick(_section, _source, _tick, _mask, _random, _entrants, _extra),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_begin_dirty(_section, _view, _order, _players, _border, _colliders, _env),
+  def mob_section_tick_dirty(_section, _source, _tick, _mask, _random, _entrants, _extra),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_run(_section, _ticker, _from, _random, _resense),
+  def mob_section_resume(_section, _ticker, _from, _random, _resense),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_run_dirty(_section, _ticker, _from, _random, _resense),
+  def mob_section_resume_dirty(_section, _ticker, _from, _random, _resense),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_finish(_section, _ticker), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_section_finish_dirty(_section, _ticker), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_age_tick(_section, _tick, _budget, _min_y),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_reset_idle(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_body(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_settle(_section, _kept), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_hurt(_section, _ticker, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
 

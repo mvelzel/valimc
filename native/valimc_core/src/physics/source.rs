@@ -113,6 +113,34 @@ impl<S: Deref<Target = ChunkSnapshot>> Rows<S> {
     pub fn snapshot(&self, chunk: (i32, i32)) -> Option<&S> {
         self.chunk(chunk).map(|(s, _)| s)
     }
+
+    /// Drops a chunk's snapshot.
+    pub fn remove(&mut self, chunk: (i32, i32)) {
+        let Some(i) = self.index.remove(&chunk) else {
+            return;
+        };
+        self.chunks.swap_remove(i as usize);
+        if let Some((moved, _)) = self.chunks.get(i as usize) {
+            self.index.insert(moved.chunk, i);
+        }
+        self.last.set(((0, 0), NONE));
+    }
+
+    /// The chunks it holds.
+    pub fn chunks(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.index.keys().copied()
+    }
+}
+
+impl<S: Clone> Clone for Rows<S> {
+    fn clone(&self) -> Rows<S> {
+        Rows {
+            chunks: self.chunks.clone(),
+            index: self.index.clone(),
+            last: Cell::new(self.last.get()),
+            outside: self.outside,
+        }
+    }
 }
 
 fn local(y: i32) -> Option<usize> {
@@ -167,6 +195,7 @@ impl BlockSource for AirWhereUnreadable<'_> {
 }
 
 /// Supplied states only (oracles and tests): other positions cannot be read.
+#[derive(Clone)]
 pub struct States(pub HashMap<[i32; 3], u16>);
 
 impl BlockSource for States {

@@ -31,6 +31,7 @@ use super::living::mob::{self as living_mob, Type};
 use super::model::{
     Control, Eye, FloatControl, Hop, HopOutcome, Impulse, MotionSet, NativeMob, Slot as EquipSlot,
 };
+use super::publish::Physical;
 use super::random::LegacyRandom;
 use super::section::{MobSection, Slot};
 use super::sensing::{Kind as RefKind, Ref};
@@ -741,12 +742,14 @@ pub struct Tick {
 }
 
 /// A native mob's part of the tick.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TurnState {
     pub index: usize,
     pub stepped: bool,
     pub refused: bool,
     pub out: Turned,
+    /// Its physical state when the tick began (what its owner holds).
+    pub start: Physical,
 }
 
 /// Where a run stopped.
@@ -759,22 +762,34 @@ pub enum Ran {
 }
 
 impl Tick {
-    /// The tick of `order` (one entry per ticker index); each native mob
-    /// keeps its state from now as its fallback.
-    pub fn begin(section: &mut MobSection, order: Vec<Entrant>) -> Tick {
+    /// The tick of `order` (one entry per ticker index) at game tick
+    /// `tick`. A native mob whose turn may leave the section or meet a
+    /// chunk it cannot read (`keep`) keeps its state from now as its
+    /// fallback; the others keep only where they began.
+    pub fn begin(
+        section: &mut MobSection,
+        order: Vec<Entrant>,
+        tick: Option<i64>,
+        keep: impl Fn(i32) -> bool,
+    ) -> Tick {
         let mut turns = std::collections::BTreeMap::new();
         let mut starts = std::collections::HashMap::new();
         for (index, e) in order.iter().enumerate() {
             if let Entrant::Native(id) = *e {
                 if let Some(slot) = section.peek_mut(id) {
                     slot.stepped = false;
-                    slot.before = Some(Box::new((slot.mob.clone(), slot.shown.clone())));
+                    slot.before =
+                        keep(id).then(|| Box::new((slot.mob.clone(), slot.shown.clone())));
+                    slot.ticked = tick;
                     starts.insert(id, slot.mob.position);
                     turns.insert(
                         id,
                         TurnState {
                             index,
-                            ..TurnState::default()
+                            stepped: false,
+                            refused: false,
+                            out: Turned::default(),
+                            start: Physical::of(&slot.mob),
                         },
                     );
                 }
@@ -1047,25 +1062,29 @@ impl Outside for SectionOutside<'_, '_, '_> {
     }
 }
 
-/// A native mob's step at the tick's end: its new state for the store.
+/// A native mob's step at the tick's end: what its owner is told.
 #[derive(Clone, Debug)]
 pub struct Step {
     pub id: i32,
     pub events: Vec<Event>,
     pub effects: Vec<Effect>,
-    /// Its state differs from the tick's start (or it has events).
-    pub changed: bool,
+    /// Its physical state differs from where the tick began.
+    pub moved: bool,
     /// It left the section: its owner moves it on, or keeps it where it was.
     pub outside: bool,
+    /// Where it began (a portal's sweep starts there).
+    pub from: [f64; 3],
 }
 
 /// The tick's end (`MobTicks.steps/5` after its turns): every mob's motion
 /// with the pushes after its turn (`velocities`, by ticker index); each
-/// native mob's step, or its state from before the tick where the kernel
-/// refused it. Mobs whose move out of the section is pending keep their
-/// fallback until `settle`.
+/// native mob's step. One whose step the kernel refused takes back its state
+/// from before the tick where it kept one (and otherwise keeps its turn's
+/// state where it stood). Mobs whose move out of the section is pending wait
+/// for `settle`.
 pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> Vec<Step> {
     let mut steps = Vec::new();
+    let mut changed = false;
     for (id, state) in tick.turns {
         let Some(slot) = section.peek_mut(id) else {
             continue;
@@ -1077,56 +1096,63 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
                 let (mob, shown) = *before;
                 slot.mob = mob;
                 slot.shown = shown;
+                section.relocate(id);
+                continue;
             }
-            section.relocate(id);
-            continue;
         }
         if let Some(v) = velocities.get(state.index) {
             slot.mob.body.velocity = *v;
         }
-        let changed =
-            !state.out.events.is_empty() || before.as_ref().is_none_or(|b| b.0 != slot.mob);
-        let outside = !section.holds(slot_position(section, id));
-        if changed {
-            section.revision += 1;
+        // A thinking mob's idle time is its mind's (`noActionTime`).
+        if let Some(s) = slot.mob.body.mob.ai.as_ref().and_then(|m| m.state.as_ref()) {
+            slot.idle = s.no_action;
         }
+        let moved = !Physical::of(&slot.mob).same(&state.start);
+        slot.touched = true;
+        changed = true;
+        let position = slot.mob.position;
+        let outside = !section.holds(position);
         let slot = section.peek_mut(id).expect("slot");
         if outside {
-            slot.before = before;
+            slot.pending = true;
+            match before {
+                Some(before) => slot.before = Some(before),
+                None => slot.start = Some(state.start.position),
+            }
         }
-        if changed {
-            slot.touched = true;
-        }
+        section.relocate(id);
         steps.push(Step {
             id,
             events: state.out.events,
             effects: state.out.effects,
-            changed,
+            moved,
             outside,
+            from: state.start.position,
         });
+    }
+    if changed {
+        section.revision += 1;
     }
     steps
 }
 
-fn slot_position(section: &MobSection, id: i32) -> [f64; 3] {
-    section.get(id).map_or([0.0; 3], |s| s.mob.position)
-}
-
 /// Settles the mobs whose move out of the section was pending: those in
-/// `gone` left (their owner withdrew them); the others go back to their
+/// `kept` left (their owner withdrew them); the others go back to their
 /// state before the tick, as the Elixir keeps an entry whose step it did not
-/// carry out.
+/// carry out (or, where that state was not kept, to where they began).
 pub fn settle(section: &mut MobSection, kept: &[i32]) {
     let pending: Vec<i32> = section
         .slots()
-        .filter(|(_, s)| s.before.is_some())
+        .filter(|(_, s)| s.pending)
         .map(|(id, _)| id)
         .collect();
     for id in pending {
         let Some(slot) = section.peek_mut(id) else {
             continue;
         };
+        slot.pending = false;
         let before = slot.before.take();
+        let start = slot.start.take();
         if kept.contains(&id) {
             continue;
         }
@@ -1134,9 +1160,190 @@ pub fn settle(section: &mut MobSection, kept: &[i32]) {
             let (mob, shown) = *before;
             slot.mob = mob;
             slot.shown = shown;
+        } else if let Some(start) = start {
+            slot.mob.position = start;
         }
         section.relocate(id);
     }
+}
+
+/// One mob's timers aged (`Store.age_chunks/4`'s `Body.tick/1` of a native
+/// mob): its events, and whether its death animation ended.
+#[derive(Clone, Debug)]
+pub struct Aged {
+    pub id: i32,
+    pub events: Vec<Event>,
+    pub done: bool,
+    /// Its record may have changed.
+    pub changed: bool,
+}
+
+/// The timers of the section's mobs in chunks with a tick budget
+/// (`budget`: chunk => ticks owed), once per game tick `tick` and not for
+/// one that already took its turn in it (it came from a sibling section):
+/// `Body.tick/1` up to 40 times, stopping when its death animation ends,
+/// and its idle and lived counts. In id order.
+pub fn age(
+    section: &mut MobSection,
+    budget: &std::collections::HashMap<(i32, i32), u32>,
+    tick: Option<i64>,
+) -> Vec<Aged> {
+    let ids: Vec<i32> = section
+        .slots()
+        .filter(|(_, s)| budget.get(&s.chunk).is_some_and(|&t| t > 0))
+        .filter(|(_, s)| tick.is_none() || (s.aged != tick && s.ticked != tick))
+        .map(|(id, _)| id)
+        .collect();
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        let slot = section.peek_mut(id).expect("slot");
+        let ticks = budget[&slot.chunk];
+        let body = &mut slot.mob.body;
+        let before = (
+            body.portal_cooldown,
+            body.mob.living.health.clone(),
+            body.mob.player_memory,
+            body.mob.hurt_by_player,
+        );
+        let mut events = Vec::new();
+        let mut done = false;
+        for _ in 0..ticks.clamp(1, 40) {
+            done = living_body::tick(body, &mut events);
+            if done {
+                break;
+            }
+        }
+        let changed = before
+            != (
+                body.portal_cooldown,
+                body.mob.living.health.clone(),
+                body.mob.player_memory,
+                body.mob.hurt_by_player,
+            );
+        if changed || !events.is_empty() {
+            slot.touched = true;
+        }
+        slot.idle += ticks as i64;
+        slot.lived += ticks as i64;
+        slot.aged = tick;
+        out.push(Aged {
+            id,
+            events,
+            done,
+            changed,
+        });
+    }
+    if !out.is_empty() {
+        section.revision += 1;
+    }
+    out
+}
+
+/// The portals: `Valimc.World.Portal.Contact`'s kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Portal {
+    Nether,
+    End,
+    Gateway,
+}
+
+impl Portal {
+    pub fn name(self) -> &'static str {
+        match self {
+            Portal::Nether => "nether_portal",
+            Portal::End => "end_portal",
+            Portal::Gateway => "end_gateway",
+        }
+    }
+
+    pub fn of(facts: &super::facts::MobFacts, state: u16) -> Option<Portal> {
+        let blocks = &facts.blocks;
+        if blocks.is(state, "nether_portal") {
+            Some(Portal::Nether)
+        } else if blocks.is(state, "end_portal") {
+            Some(Portal::End)
+        } else if blocks.is(state, "end_gateway") {
+            Some(Portal::Gateway)
+        } else {
+            None
+        }
+    }
+}
+
+const DEFLATE: f64 = 1.0e-5;
+
+/// The cooldown a portal's touch renews (`getDimensionChangingDelay`).
+pub const PORTAL_COOLDOWN: i32 = 300;
+
+/// `Contact.touched/4`: the first portal block whose inside shape a box of
+/// `size` (width, height) met moving from `from` to `to`, sampled at most
+/// half a block apart (16 points at most); `read` gives the states of cells
+/// (None where the owner does not hold them).
+pub fn portal_touch(
+    facts: &super::facts::MobFacts,
+    physics: &crate::physics::facts::Facts,
+    size: (f64, f64),
+    from: [f64; 3],
+    to: [f64; 3],
+    read: impl FnOnce(&[[i32; 3]]) -> Vec<Option<u16>>,
+) -> Option<(Portal, [i32; 3])> {
+    use crate::physics::facts::InsideShape;
+    let (w, h) = size;
+    let points: Vec<[f64; 3]> = if from == to {
+        vec![to]
+    } else {
+        let d = ((to[0] - from[0]).powi(2) + (to[1] - from[1]).powi(2) + (to[2] - from[2]).powi(2))
+            .sqrt();
+        let steps = ((d * 2.0).ceil() as i64).clamp(1, 16);
+        (1..=steps)
+            .map(|i| {
+                let t = i as f64 / steps as f64;
+                [
+                    from[0] + (to[0] - from[0]) * t,
+                    from[1] + (to[1] - from[1]) * t,
+                    from[2] + (to[2] - from[2]) * t,
+                ]
+            })
+            .collect()
+    };
+    let mut cells: Vec<([i32; 3], [f64; 6])> = Vec::new();
+    for [x, y, z] in points {
+        let b = [x - w / 2.0, y, z - w / 2.0, x + w / 2.0, y + h, z + w / 2.0];
+        let lo = |v: f64| (v + DEFLATE).floor() as i32;
+        let hi = |v: f64| (v - DEFLATE).floor() as i32;
+        for cx in lo(b[0])..=hi(b[3]) {
+            for cy in lo(b[1])..=hi(b[4]) {
+                for cz in lo(b[2])..=hi(b[5]) {
+                    cells.push(([cx, cy, cz], b));
+                }
+            }
+        }
+    }
+    let positions: Vec<[i32; 3]> = cells.iter().map(|(c, _)| *c).collect();
+    let states = read(&positions);
+    for ((cell, b), state) in cells.iter().zip(states) {
+        let Some(state) = state else { continue };
+        let Some(kind) = Portal::of(facts, state) else {
+            continue;
+        };
+        let [x, y, z] = cell.map(|v| v as f64);
+        let inside = match &physics.player.inside(state).shape {
+            InsideShape::Full => true,
+            InsideShape::Boxes(boxes) => boxes.iter().any(|a| {
+                b[0] + DEFLATE < x + a.max[0]
+                    && b[3] - DEFLATE > x + a.min[0]
+                    && b[1] + DEFLATE < y + a.max[1]
+                    && b[4] - DEFLATE > y + a.min[1]
+                    && b[2] + DEFLATE < z + a.max[2]
+                    && b[5] - DEFLATE > z + a.min[2]
+            }),
+            InsideShape::Context => false,
+        };
+        if inside {
+            return Some((kind, *cell));
+        }
+    }
+    None
 }
 
 /// Whether slot `slot` is a mob a store would see as alive.

@@ -80,6 +80,10 @@ pub(crate) struct Request {
     /// The simulated chunks' kept starts of structures that override spawns
     /// (VMC-042b): per chunk `{structure, box, pieces}`, boxes as six ints.
     structures: Vec<((i32, i32), Vec<Kept>)>,
+    /// The group's native mob sections with their simulated chunks' masks
+    /// (VMC-081d): their mobs' rows and boxes are read from them, after the
+    /// owner's own.
+    natives: Vec<(ResourceArc<crate::mob_section::MobSectionRes>, u64)>,
 }
 
 /// A kept start: its structure, box and pieces in the chunk.
@@ -219,8 +223,27 @@ fn natural(
     region: &Region,
     siblings: &[ResourceArc<Region>],
     absent: Vec<(i32, i32)>,
-    request: Request,
+    mut request: Request,
 ) -> Result<Natural, String> {
+    if !request.natives.is_empty() {
+        let rules = crate::mob_section::rules().map_err(|_| "mob facts not installed")?;
+        for (native, mask) in std::mem::take(&mut request.natives) {
+            let inner = crate::mob_section::read(&native).map_err(|_| "poisoned mobs")?;
+            for (id, ty, p, flags, idle, lived, b) in
+                crate::mob_tick::spawn_rows(&rules, &inner.section, mask)
+            {
+                request.mobs.push((
+                    id as u32,
+                    ty,
+                    (p[0], p[1], p[2]),
+                    flags,
+                    idle.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+                    lived.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+                ));
+                request.bodies.push((b[0], b[1], b[2], b[3], b[4], b[5]));
+            }
+        }
+    }
     let guards = lock(region, siblings)?;
     let stores: Vec<&ColumnStore> = guards.iter().map(|g| &**g).collect();
     let absent: HashSet<(i32, i32)> = absent.into_iter().collect();

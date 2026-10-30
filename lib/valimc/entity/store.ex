@@ -85,8 +85,17 @@ defmodule Valimc.Entity.Store do
   away (`merge_orbs/3`); removal waits for the owner's durable commit.
   """
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y(), game_tick \\ nil) do
-    ages = Map.new(state.entries, fn {id, _} -> {id, ticks} end)
-    age_selected(state, ages, minimum_y, game_tick)
+    ages = for {id, entry} <- state.entries, not native_entry?(entry), into: %{}, do: {id, ticks}
+    {state, expired} = age_selected(state, ages, minimum_y, game_tick)
+
+    budget =
+      for {_, %{native: ref, entity: e}} <- state.entries,
+          ref != nil,
+          uniq: true,
+          do: {Grid.chunk_key(e.x, e.z), ticks}
+
+    {state, more} = age_natives(state, budget, minimum_y, game_tick)
+    {state, expired ++ more}
   end
 
   @doc "Advance counters only in chunks with an eligible tick budget."
@@ -104,18 +113,63 @@ defmodule Valimc.Entity.Store do
     # Sparse tickets should not walk the render-loaded population. When most
     # entries tick, a direct traversal avoids rebuilding a dense set through
     # many small membership buckets; both paths select the same live entries.
+    # Native mobs (VMC-081d) age in their section, in one call.
+    entries = state.entries
+
     ages =
-      if count * 2 >= map_size(state.entries) do
-        for {id, entry} <- state.entries,
+      if count * 2 >= map_size(entries) do
+        for {id, entry} <- entries,
+            not native_entry?(entry),
             ticks = Map.get(chunk_ticks, Grid.chunk_key(entry.entity.x, entry.entity.z)),
             is_integer(ticks) and ticks > 0,
             into: %{},
             do: {id, ticks}
       else
-        for {ids, ticks} <- memberships, id <- ids, into: %{}, do: {id, ticks}
+        for {ids, ticks} <- memberships,
+            id <- ids,
+            not native_entry?(entries[id]),
+            into: %{},
+            do: {id, ticks}
       end
 
-    age_selected(state, ages, minimum_y, game_tick)
+    {state, expired} = age_selected(state, ages, minimum_y, game_tick)
+
+    budget =
+      if state.native == nil,
+        do: [],
+        else:
+          for({chunk, ticks} <- chunk_ticks, is_integer(ticks) and ticks > 0, do: {chunk, ticks})
+
+    {state, more} = age_natives(state, budget, minimum_y, game_tick)
+    {state, expired ++ more}
+  end
+
+  # The native mobs' timers (`NativeMobs.age/4`): only those whose row or
+  # events changed come back, and those done (dead and gone, or fallen
+  # out of the world) expire.
+  defp age_natives(%__MODULE__{native: nil} = state, _budget, _minimum_y, _game_tick),
+    do: {state, []}
+
+  defp age_natives(state, budget, minimum_y, game_tick) do
+    state.native
+    |> NativeMobs.age(game_tick, budget, minimum_y)
+    |> Enum.reduce({state, []}, fn {id, row, events, done}, {items, expired} ->
+      case items.entries[id] do
+        nil ->
+          {items, expired}
+
+        entry ->
+          items =
+            if row == nil and events == [],
+              do: items,
+              else: put_body(items, id, NativeBody.merge(row || entry.body, entry.body), events)
+
+          expired =
+            if done, do: [{items.epoch, id, items.entries[id].revision} | expired], else: expired
+
+          {items, expired}
+      end
+    end)
   end
 
   defp age_selected(state, ages, minimum_y, game_tick) do
@@ -206,18 +260,6 @@ defmodule Valimc.Entity.Store do
         else: body
 
     {body, events, done}
-  end
-
-  defp age_entries(
-         %__MODULE__{native: %NativeMobs{} = native} = state,
-         ages,
-         minimum_y,
-         game_tick
-       ) do
-    {natives, others} = Map.split_with(ages, fn {id, _} -> native_entry?(state.entries[id]) end)
-    {state, expired} = age_entries(%{state | native: nil}, others, minimum_y, game_tick)
-    {state, more} = age_native(%{state | native: native}, natives, minimum_y, game_tick)
-    {state, expired ++ more}
   end
 
   defp age_entries(state, ages, minimum_y, game_tick) do
@@ -330,14 +372,22 @@ defmodule Valimc.Entity.Store do
 
   @doc "Restart the idle time of mobs `ids` (a player came within 32 blocks)."
   def reset_idle(state, ids) do
-    entries =
-      Enum.reduce(ids, state.entries, fn id, entries ->
+    {natives, entries} =
+      Enum.reduce(ids, {[], state.entries}, fn id, {natives, entries} ->
         case entries do
-          %{^id => %{kind: :mob} = entry} -> Map.put(entries, id, Map.put(entry, :idle, 0))
-          _ -> entries
+          # A native mob's idle time is its section's (VMC-081d).
+          %{^id => %{native: ref}} when ref != nil ->
+            {[id | natives], entries}
+
+          %{^id => %{kind: :mob} = entry} ->
+            {natives, Map.put(entries, id, Map.put(entry, :idle, 0))}
+
+          _ ->
+            {natives, entries}
         end
       end)
 
+    if natives != [], do: :ok = Native.mob_section_reset_idle(state.native.ref, natives)
     %{state | entries: entries}
   end
 
@@ -469,6 +519,142 @@ defmodule Valimc.Entity.Store do
     state
   end
 
+  @doc """
+  A native tick's report (VMC-081d, `Native.mob_section_tick/7`): `moved`,
+  the packed physical states of the mobs that moved, mirrored into their
+  entries, rows and views (no view is rebuilt, and the chunk index changes
+  only when a chunk does); then each change `{id, row | nil, events,
+  effects, outside}`: a new row and its events go into the entry and its
+  view as a section call's do. Returns `{state, steps}`: a step for each
+  mob with effects or leaving the section (`outside` its position there,
+  which this store leaves to the owner's routing).
+  """
+  def native_tick(state, moved, changes) do
+    state = native_moves(state, moved)
+
+    Enum.reduce(changes, {state, []}, fn {id, row, events, effects, outside}, {state, steps} ->
+      case state.entries[id] do
+        %{native: _, entity: e, body: body} = entry ->
+          row = if row == nil, do: body, else: NativeBody.merge(row, body)
+
+          case outside do
+            nil ->
+              state =
+                if row == body and events == [],
+                  do: state,
+                  else: put_body(state, id, row, events)
+
+              step =
+                effects != [] &&
+                  %{
+                    id: id,
+                    revision: state.entries[id].revision,
+                    position: {e.x, e.y, e.z},
+                    body: row,
+                    events: [],
+                    effects: effects,
+                    native: true,
+                    outside: false
+                  }
+
+              {state, if(step, do: [step | steps], else: steps)}
+
+            position ->
+              step = %{
+                id: id,
+                revision: entry.revision,
+                position: position,
+                body: row,
+                events: events,
+                effects: effects,
+                native: true,
+                outside: true
+              }
+
+              {state, [step | steps]}
+          end
+
+        _ ->
+          {state, steps}
+      end
+    end)
+    |> then(fn {state, steps} -> {state, Enum.reverse(steps)} end)
+  end
+
+  @solid_mobs ["minecraft:shulker"]
+
+  @doc "The packed physical states of moved native mobs into their entries and views."
+  def native_moves(state, <<>>), do: state
+
+  def native_moves(state, moved) do
+    {entries, views, spatial} = moves(moved, state.entries, state.views, state.spatial)
+    %{state | entries: entries, views: views, spatial: spatial}
+  end
+
+  defp moves(
+         <<id::32-signed, x::float, y::float, z::float, yaw::float, pitch::float, head::float,
+           vx::float, vy::float, vz::float, ground, rest::binary>>,
+         entries,
+         views,
+         spatial
+       ) do
+    case entries do
+      %{^id => %{entity: entity, body: row} = entry} ->
+        on_ground = ground == 1
+        velocity = {vx, vy, vz}
+
+        row = %{
+          row
+          | yaw: yaw,
+            pitch: pitch,
+            head_yaw: head,
+            velocity: velocity,
+            on_ground: on_ground
+        }
+
+        moved = entity.x != x or entity.y != y or entity.z != z
+        revision = entry.revision + 1
+        physical = entry.physical_revision + if(moved, do: 1, else: 0)
+
+        entry = %{
+          entry
+          | entity: %{entity | x: x, y: y, z: z},
+            body: row,
+            revision: revision,
+            physical_revision: physical
+        }
+
+        old = views[id]
+        chunk = Grid.chunk_key(x, z)
+
+        view = %{
+          old
+          | at: {x, y, z},
+            chunk: chunk,
+            velocity: velocity,
+            on_ground: on_ground,
+            yaw: yaw,
+            pitch: pitch,
+            head_yaw: head,
+            body: row,
+            revision: revision,
+            physical_revision: physical
+        }
+
+        spatial =
+          if chunk != old.chunk or row.type in @solid_mobs,
+            do: Valimc.Entity.Spatial.put(spatial, id, old, view),
+            else: spatial
+
+        moves(rest, Map.put(entries, id, entry), Map.put(views, id, view), spatial)
+
+      _ ->
+        moves(rest, entries, views, spatial)
+    end
+  end
+
+  defp moves(<<>>, entries, views, spatial), do: {entries, views, spatial}
+
   @doc "Native mob `id` changed (`native_change/5`'s result of a section call)."
   def native_change(state, id, {x, y, z}, row, events) do
     case state.entries[id] do
@@ -510,41 +696,6 @@ defmodule Valimc.Entity.Store do
          ) do
       {:ok, {_, _, {_, new}}} -> NativeBody.merge(new, row)
       {:error, _} -> row
-    end
-  end
-
-  # The native mobs' timers (`age_body/3` of each, in one call).
-  defp age_native(state, ages, minimum_y, game_tick) do
-    eligible =
-      for {id, ticks} <- ages,
-          entry = state.entries[id],
-          not (game_tick != nil and Map.get(entry, :aged_tick) == game_tick),
-          not (game_tick != nil and Map.get(entry, :simulated_tick) == game_tick),
-          do: {id, min(ticks, 40)}
-
-    case eligible do
-      [] ->
-        {state, []}
-
-      eligible ->
-        results = Native.mob_section_age(state.native.ref, Enum.sort(eligible), true)
-        ticks = Map.new(eligible)
-
-        Enum.reduce(results, {state, []}, fn {id, changed, row, events, done}, {items, expired} ->
-          entry = items.entries[id]
-
-          items =
-            if changed or events != [],
-              do: put_body(items, id, NativeBody.merge(row, entry.body), events),
-              else: items
-
-          expired =
-            if done or entry.entity.y < minimum_y - 64,
-              do: [{items.epoch, id, items.entries[id].revision} | expired],
-              else: expired
-
-          {idle(items, id, :mob, ticks[id]), expired}
-        end)
     end
   end
 
