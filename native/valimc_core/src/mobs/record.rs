@@ -247,7 +247,7 @@ pub fn hash_stationary<H: Hasher>(mob: &NativeMob, settled: bool, h: &mut H) {
     h.write_i64(counter(living.fire_ticks.into()));
     h.write_i64(counter(living.air_supply.into()));
     h.write_i64(counter(living.freezing.frozen_ticks.into()));
-    for stack in &m.equipment.0 {
+    for stack in m.equipment.slots() {
         match stack {
             Some(v) => {
                 h.write_u8(1);
@@ -257,7 +257,7 @@ pub fn hash_stationary<H: Hasher>(mob: &NativeMob, settled: bool, h: &mut H) {
         }
     }
     h.write_usize(m.attributes.0.len());
-    for (id, entry) in &m.attributes.0 {
+    for (id, entry) in m.attributes.0.iter() {
         h.write(id.as_bytes());
         h.write_u8(0xff);
         match entry.base {
@@ -1078,7 +1078,7 @@ fn restore_attributes(attributes: &Value) -> Result<Attributes> {
             .collect::<Result<Vec<_>>>()?;
         out.push((id.to_owned(), AttributeOverride { base, modifiers }));
     }
-    Ok(Attributes(out))
+    Ok(Attributes(std::sync::Arc::new(out)))
 }
 
 /// `Mind.valid?/1` (a map with a valid random) of a kept mind record.

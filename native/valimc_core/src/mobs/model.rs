@@ -22,9 +22,17 @@
 //! indices resolved once when the data is made. A family that moves native
 //! reads its own fields by name (`get`/`set`); the key set never changes
 //! after construction, as `Body.restore` requires.
+//!
+//! The parts a turn rarely changes and whose terms are deep (family data,
+//! equipment, attribute overrides) are shared behind an `Arc` (VMC-081j):
+//! a copy of a mob (a turn's fallback, a sensed row's data, a row key) is a
+//! reference count, and a write copies the part only while another holder
+//! shares it (`Arc::make_mut`). A write of a value a field already holds
+//! (the same integer, atom or float bits) changes nothing and copies nothing.
 
 use super::random::LegacyRandom;
 use super::term::{Atom, Value};
+use std::sync::Arc;
 
 /// A mob in a native section: the store entry (`%{entity: %{uuid, x, y,
 /// z}, body, hops}`) of a living body.
@@ -140,9 +148,10 @@ impl Slot {
     }
 }
 
-/// Equipment by slot: each an `%ItemStack{}` term.
+/// Equipment by slot: each an `%ItemStack{}` term (shared, see the module
+/// docs).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Equipment(pub [Option<Value>; 8]);
+pub struct Equipment(pub Arc<[Option<Value>; 8]>);
 
 impl Equipment {
     pub fn get(&self, slot: Slot) -> Option<&Value> {
@@ -150,7 +159,18 @@ impl Equipment {
     }
 
     pub fn set(&mut self, slot: Slot, stack: Option<Value>) {
-        self.0[slot as usize] = stack;
+        Arc::make_mut(&mut self.0)[slot as usize] = stack;
+    }
+
+    /// The stacks by slot.
+    pub fn slots(&self) -> &[Option<Value>; 8] {
+        &self.0
+    }
+
+    /// Whether this is the very equipment `other` holds (one shared term,
+    /// unchanged since it was shared).
+    pub fn same(&self, other: &Equipment) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
@@ -169,9 +189,9 @@ impl DropChances {
 }
 
 /// Attribute overrides: `%{"minecraft:x" => %{base, modifiers}}`, kept
-/// sorted by id (the map's order).
+/// sorted by id (the map's order); shared (see the module docs).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Attributes(pub Vec<(String, AttributeOverride)>);
+pub struct Attributes(pub Arc<Vec<(String, AttributeOverride)>>);
 
 impl Attributes {
     pub fn get(&self, id: &str) -> Option<&AttributeOverride> {
@@ -184,18 +204,15 @@ impl Attributes {
     /// The override of `id`, made empty (`%{base: nil, modifiers: []}`) if
     /// absent.
     pub fn entry(&mut self, id: &str) -> &mut AttributeOverride {
-        let i = match self
-            .0
-            .binary_search_by(|(k, _)| k.as_bytes().cmp(id.as_bytes()))
-        {
+        let all = Arc::make_mut(&mut self.0);
+        let i = match all.binary_search_by(|(k, _)| k.as_bytes().cmp(id.as_bytes())) {
             Ok(i) => i,
             Err(i) => {
-                self.0
-                    .insert(i, (id.to_owned(), AttributeOverride::default()));
+                all.insert(i, (id.to_owned(), AttributeOverride::default()));
                 i
             }
         };
-        &mut self.0[i].1
+        &mut all[i].1
     }
 
     /// `Map.delete(attributes, id)`.
@@ -204,8 +221,14 @@ impl Attributes {
             .0
             .binary_search_by(|(k, _)| k.as_bytes().cmp(id.as_bytes()))
         {
-            self.0.remove(i);
+            Arc::make_mut(&mut self.0).remove(i);
         }
+    }
+
+    /// Whether these are the very overrides `other` holds (one shared
+    /// term, unchanged since it was shared).
+    pub fn same(&self, other: &Attributes) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// The modifier `id` of attribute `name` removed and, with `add`
@@ -214,6 +237,25 @@ impl Attributes {
     /// toggles: a baby's speed, an enderman's attacking or a witch's
     /// drinking speed).
     pub fn toggle(&mut self, name: &str, id: &str, add: Option<(Number, i32)>) {
+        // Toggled as it already stands (the same modifier last, or none):
+        // nothing changes, and a shared term stays shared.
+        let current = self.get(name);
+        let modifiers = current.map_or(&[][..], |o| &o.modifiers[..]);
+        let held = modifiers.iter().filter(|m| m.id == id).count();
+        // (An empty override goes even when nothing is removed.)
+        let empty = current.is_some_and(|o| o.base.is_none() && o.modifiers.is_empty());
+        let unchanged = match add {
+            None => held == 0 && !empty,
+            Some((amount, operation)) => {
+                held == 1
+                    && modifiers.last().is_some_and(|m| {
+                        m.id == id && m.amount == amount && m.operation == operation
+                    })
+            }
+        };
+        if unchanged {
+            return;
+        }
         let entry = self.entry(name);
         entry.modifiers.retain(|m| m.id != id);
         if let Some((amount, operation)) = add {
@@ -610,8 +652,19 @@ pub use super::ai::mind::MindState;
 /// A family's atom-keyed data (`Body.data`), its key set fixed by type.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FamilyData {
-    fields: Vec<(Atom, Value)>,
+    fields: Arc<Vec<(Atom, Value)>>,
     slots: Slots,
+}
+
+/// Whether writing `new` over `old` would leave the very same value: the
+/// same integer, atom or float bits (any other term is written).
+fn holds(old: &Value, new: &Value) -> bool {
+    match (old, new) {
+        (Value::Int(a), Value::Int(b)) => a == b,
+        (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+        (Value::Atom(a), Value::Atom(b)) => a == b,
+        _ => false,
+    }
 }
 
 // Indices of shared hot fields in `fields`.
@@ -646,13 +699,16 @@ impl FamilyData {
             love_cause: slot("love_cause"),
             baby: slot("baby"),
         };
-        Some(FamilyData { fields, slots })
+        Some(FamilyData {
+            fields: Arc::new(fields),
+            slots,
+        })
     }
 
     /// No data (a family without its own).
     pub fn empty() -> FamilyData {
         FamilyData {
-            fields: Vec::new(),
+            fields: Arc::new(Vec::new()),
             slots: Slots::default(),
         }
     }
@@ -675,11 +731,23 @@ impl FamilyData {
     pub fn set(&mut self, key: &str, value: Value) -> bool {
         match self.index(key) {
             Some(i) => {
-                self.fields[i].1 = value;
+                self.write(i, value);
                 true
             }
             None => false,
         }
+    }
+
+    fn write(&mut self, i: usize, value: Value) {
+        if !holds(&self.fields[i].1, &value) {
+            Arc::make_mut(&mut self.fields)[i].1 = value;
+        }
+    }
+
+    /// Whether these are the very fields `other` holds (one shared term,
+    /// unchanged since it was shared).
+    pub fn same(&self, other: &FamilyData) -> bool {
+        Arc::ptr_eq(&self.fields, &other.fields)
     }
 
     fn index(&self, key: &str) -> Option<usize> {
@@ -695,7 +763,7 @@ impl FamilyData {
     fn put(&mut self, slot: Option<u8>, value: Value) -> bool {
         match slot {
             Some(i) => {
-                self.fields[i as usize].1 = value;
+                self.write(i as usize, value);
                 true
             }
             None => false,

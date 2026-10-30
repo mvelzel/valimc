@@ -1,10 +1,10 @@
 //! Chunk columns (24 sections, y −64..319) owned by one region.
 
+use crate::cell_count::CellCounts;
 use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
 use crate::light::LightFacts;
 use crate::light_grid::{light_alone, Blocks, ChunkLight, Kind, Layer, LightGrid, TooLarge};
 use crate::piston::Moving;
-use crate::cell_count::CellCounts;
 use crate::random_tick::RandomTicks;
 use crate::section::{index, Biomes, Storage, VOLUME};
 use crate::snapshot::ChunkSnapshot;

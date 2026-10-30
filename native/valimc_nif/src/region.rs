@@ -310,9 +310,7 @@ fn chunk_carriers<'a>(
     cx: i32,
     cz: i32,
 ) -> Result<Binary<'a>, Atom> {
-    let carriers = crate::facts::CARRIERS
-        .get()
-        .ok_or(atoms::flags_missing())?;
+    let carriers = crate::facts::CARRIERS.get().ok_or(atoms::flags_missing())?;
     let found = with_store(&region, |store| {
         store.check_chunk((cx, cz)).map_err(error)?;
         Ok(valimc_core::column::find_set(
@@ -336,9 +334,11 @@ fn chunk_prepared<'a>(
     cz: i32,
     spec: valimc_core::column::PacketSpec,
 ) -> Result<Term<'a>, Atom> {
-    let prepared = with_owned(env, &region, |store| {
-        Ok(store.take_prepared((cx, cz), spec))
-    })?;
+    let prepared = with_owned(
+        env,
+        &region,
+        |store| Ok(store.take_prepared((cx, cz), spec)),
+    )?;
     Ok(match prepared {
         None => rustler::types::atom::nil().encode(env),
         Some(p) => {

@@ -85,7 +85,9 @@ pub struct Slot {
     pub stepped: bool,
     /// Its state before this tick's turn: kept for a turn that may leave
     /// the section or meet a chunk it cannot read (`tick::Tick::begin`), and
-    /// while its owner decides whether a move out of the section goes ahead.
+    /// while its owner decides whether a move out of the section goes ahead,
+    /// with what observers were shown then (only once its move out waits:
+    /// no turn changes it).
     pub before: Option<Box<(NativeMob, Option<Shown>)>>,
     /// Where it was before a move out of the section whose state before the
     /// tick was not kept: the owner's refusal puts it back there.
@@ -108,6 +110,10 @@ pub struct Slot {
     pub tracker: Option<crate::tracker::Tracker>,
     /// Noted for the spawn census since its last refresh.
     noted: bool,
+    /// Its travel attributes as its attribute overrides last gave them
+    /// (`tick::TurnWorld::travel_cached`): kept while those overrides are
+    /// the very term they were computed from.
+    pub travel: Option<super::tick::TravelCache>,
 }
 
 impl Slot {
@@ -130,6 +136,7 @@ impl Slot {
             row: None,
             tracker: None,
             noted: false,
+            travel: None,
         }
     }
 }
@@ -637,13 +644,13 @@ mod tests {
                     .set(EquipmentSlot::Head, Some(Value::atom("helmet")))
             }),
             ("attributes", true, |m| {
-                m.body.mob.attributes.0 = vec![(
+                m.body.mob.attributes.0 = std::sync::Arc::new(vec![(
                     "minecraft:max_health".into(),
                     AttributeOverride {
                         base: Some(10.0),
                         modifiers: vec![],
                     },
-                )]
+                )])
             }),
             ("no ai", true, |m| m.body.mob.no_ai = true),
             ("hurt by player", true, |m| {

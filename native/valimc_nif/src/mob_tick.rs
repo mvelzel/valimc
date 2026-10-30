@@ -686,19 +686,13 @@ fn tick_section<'a>(
     let mut order: Vec<Entrant> = Vec::with_capacity(natives.len());
     let mut bodies = Vec::with_capacity(natives.len());
     let mut colliders: Vec<(usize, Option<Aabb>)> = Vec::new();
-    let mut travel: HashMap<u16, Attributes> = HashMap::new();
+    let travel: HashMap<u16, Attributes> = HashMap::new();
     for &id in &natives {
         let i = order.len();
         let mob = &inner.section.get(id).ok_or_else(bad)?.mob;
         let ty = rules.of(&mob.body.entity_type).ok_or_else(bad)?;
-        let attributes = if mob.body.mob.attributes.0.is_empty() {
-            *travel
-                .entry(ty.id)
-                .or_insert_with(|| tick::travel_attributes(&rules, ty, mob))
-        } else {
-            tick::travel_attributes(&rules, ty, mob)
-        };
-        bodies.push(tick::kernel_input(&rules, &families, ty, mob, attributes));
+        // Its whole input is built at its own step.
+        bodies.push(tick::kernel_body(&rules, &families, ty, mob));
         if let Some(b) = families
             .kinds
             .kind(ty.id)

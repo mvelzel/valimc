@@ -102,15 +102,55 @@ timer sent its row every tick (row changes fell from about 19 to 2 a tick
 in the probe), and contacts and portal sweeps ran without any such block.
 Raw results: `.local/tick-budget/results/x081-*.json`.
 
-Not done: the per-mob bookkeeping left in the section tick (the fallback
-clone near section edges, kernel inputs computed for the ticker and again
-at the turn, sensing begun from every mob) and deadline-based native
-ageing; native turns' 10 to 15% gap to a75a314c stays unexplained.
+## Per-mob work in the section tick
+
+Each change is justified by the work it removes; none is timed.
+
+- **Shared deep parts.** A mob's family data, equipment and attribute
+  overrides sit behind an `Arc` (`mobs::model`): copying a mob copies three
+  references, and a write copies a part only while another holder shares
+  it (`Arc::make_mut`); a write of the value a field already holds (the
+  same integer, atom or float bits) is no write. Copies of those parts per
+  tick before: one per kept mob (the fallback), one per sensed animal or
+  brain mob (its row's data), one per changed row (its key's data). A
+  shared part also compares by identity first (a row's data, what
+  observers were shown).
+- **The fallback** is the mob alone (its parts shared as above); what
+  observers were shown, which no turn changes, is copied only when a move
+  out of the section waits (`tick::finish`), not for every kept mob at the
+  tick's start. Which mobs keep one is unchanged, so restores are exactly
+  as before.
+- **One kernel input per turn.** The ticker reads of a mob before its own
+  step only its place, motion, size and whether it is alive and pushed
+  (its grid cell, the earlier mobs' pushes, the players' pushes at the
+  end); `tick::kernel_body` gives exactly those, and the whole input
+  (travel attributes, controls, hops, floats, effects, impulses, hooks) is
+  built once, at the step. Before: twice per turning mob per tick.
+- **Travel attributes** depend on a mob's type and overrides alone: a slot
+  keeps them with the overrides they came from (`Slot::travel`), and while
+  those are the same term they are not computed again (seven attribute
+  evaluations per tick per mob with overrides, before).
+- **Sensing** is begun once per section tick, as it was; each turning
+  mob's row is built again because its own turn changes it, but a row no
+  longer copies the family data (a reference, above).
+
+Not done: deadline-based native ageing; native turns' 10 to 15% gap to
+a75a314c stays unexplained.
 
 The harness's view load stalled intermittently (the group kept ticking,
 the client's view never completed), on images before and after 081h.
 
 ## Checks
+
+Per-mob work: `cargo test -p valimc_core` (210) and clippy of both crates
+(no new warnings); the region, entity, tracking, storage and mob suites
+(300 of 301; `region_tick_test`'s tick-duration case failed once under the
+full run's load and passes alone, three of three);
+`check_vanilla.py --changed` through `heavy.py`: 123 of 123 stages, the
+mob stages' scenes among them (every scene mob keeps a fallback and takes
+the light ticker body).
+
+Round one:
 
 `mix compile --warnings-as-errors`; `cargo test` of `valimc_core` (the
 cell counts, the row data) and clippy of both crates (no new warnings);

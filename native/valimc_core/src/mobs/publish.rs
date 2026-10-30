@@ -196,6 +196,9 @@ impl RowKey {
 /// the section), so a counter counting on sends no row; one crossing zero
 /// (a baby grown up) does.
 fn settled_eq(row: &FamilyData, now: &FamilyData) -> bool {
+    if row.same(now) {
+        return true;
+    }
     let (a, b) = (row.fields(), now.fields());
     a.len() == b.len()
         && a.iter().zip(b).all(|((ka, va), (kb, vb))| {
@@ -216,8 +219,8 @@ fn settled_eq(row: &FamilyData, now: &FamilyData) -> bool {
 pub fn shows(rules: &Rules, ty: Type, mob: &NativeMob, shown: &living_body::Shown) -> bool {
     let body = &mob.body;
     shown.link == living_body::link(&body.mob)
-        && shown.attributes == body.mob.attributes
-        && shown.equipment == body.mob.equipment
+        && (shown.attributes.same(&body.mob.attributes) || shown.attributes == body.mob.attributes)
+        && (shown.equipment.same(&body.mob.equipment) || shown.equipment == body.mob.equipment)
         && shown.values == living_body::values(rules, ty, body)
 }
 

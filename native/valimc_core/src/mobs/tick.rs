@@ -182,6 +182,11 @@ pub struct TurnWorld<'a, 'w> {
     pub dragon: Option<&'a DragonWorld>,
 }
 
+/// A slot's travel attributes (`Slot::travel`): its type, the attribute
+/// overrides they were computed from (shared, so a change to the mob's
+/// copies them and the two are no longer the same term) and the result.
+pub type TravelCache = (u16, super::model::Attributes, Attributes);
+
 impl TurnWorld<'_, '_> {
     /// `travel_attributes/3`, shared by the type's mobs without overrides.
     pub fn travel(&self, ty: Type, mob: &NativeMob) -> Attributes {
@@ -193,6 +198,29 @@ impl TurnWorld<'_, '_> {
             .borrow_mut()
             .entry(ty.id)
             .or_insert_with(|| travel_attributes(self.rules, ty, mob))
+    }
+
+    /// `travel/2` for a mob whose slot keeps `cache` (VMC-081j): the
+    /// attributes depend on its type and overrides alone, so while those
+    /// are the very term `cache` holds they are not computed again.
+    pub fn travel_cached(
+        &self,
+        ty: Type,
+        mob: &NativeMob,
+        cache: &mut Option<TravelCache>,
+    ) -> Attributes {
+        let overrides = &mob.body.mob.attributes;
+        if overrides.0.is_empty() {
+            return self.travel(ty, mob);
+        }
+        if let Some((id, held, attributes)) = cache {
+            if *id == ty.id && held.same(overrides) {
+                return *attributes;
+            }
+        }
+        let attributes = travel_attributes(self.rules, ty, mob);
+        *cache = Some((ty.id, overrides.clone(), attributes));
+        attributes
     }
 }
 
@@ -381,6 +409,33 @@ pub fn travel_attributes(rules: &Rules, ty: Type, mob: &NativeMob) -> Attributes
         water_efficiency: value("minecraft:water_movement_efficiency"),
         friction_modifier: value("minecraft:friction_modifier"),
         air_drag_modifier: value("minecraft:air_drag_modifier"),
+    }
+}
+
+/// What the ticker reads of a mob before its own step (VMC-081j): its
+/// place, motion and size, and whether it is alive and is pushed (the
+/// grid, the pushes of the mobs before it, the players' pushes at the end).
+/// Its other inputs are read only at its step, which takes its whole
+/// `kernel_input` then; they stay at their defaults here, so a turn builds
+/// one kernel input, not two.
+pub fn kernel_body(
+    rules: &Rules,
+    hooks: &dyn MotionHooks,
+    ty: Type,
+    mob: &NativeMob,
+) -> kernel::Mob {
+    let body = &mob.body;
+    let [width, height, eye] = living_body::dimensions(rules, ty, body);
+    let kind = hooks.kind(ty);
+    kernel::Mob {
+        position: mob.position,
+        velocity: body.velocity,
+        size: Dimensions { width, height, eye },
+        alive: living_mob::alive(&body.mob),
+        fixed: kind.fixed || body.mob.no_ai,
+        pushable: kind.pushable,
+        pushes: kind.pushes,
+        ..kernel::Mob::default()
     }
 }
 
@@ -842,8 +897,11 @@ impl Tick {
             if let Entrant::Native(id) = *e {
                 if let Some(slot) = section.peek_mut(id) {
                     slot.stepped = false;
-                    slot.before =
-                        keep(id).then(|| Box::new((slot.mob.clone(), slot.shown.clone())));
+                    // The mob alone: its family data, equipment and
+                    // attribute overrides are shared, not copied, and what
+                    // observers were shown, which no turn changes, is kept
+                    // only for a move out that waits (`finish`).
+                    slot.before = keep(id).then(|| Box::new((slot.mob.clone(), None)));
                     slot.ticked = tick;
                     starts.insert(id, slot.mob.position);
                     turns.insert(
@@ -887,7 +945,16 @@ impl Tick {
                             let ok = if dragon(&slot.mob) {
                                 self.dragon_turn(tw, ai, section, ticker, i, id, &mut slot.mob)
                             } else {
-                                self.turn(tw, ai, section, ticker, i, id, &mut slot.mob)
+                                self.turn(
+                                    tw,
+                                    ai,
+                                    section,
+                                    ticker,
+                                    i,
+                                    id,
+                                    &mut slot.mob,
+                                    &mut slot.travel,
+                                )
                             };
                             slot.stepped = ok;
                             section.put(id, slot);
@@ -916,6 +983,7 @@ impl Tick {
         i: usize,
         id: i32,
         mob: &mut NativeMob,
+        travel: &mut Option<TravelCache>,
     ) -> bool {
         let rules = tw.rules;
         let Some(ty) = rules.of(&mob.body.entity_type) else {
@@ -953,7 +1021,7 @@ impl Tick {
         }
         let made = self.melee(tw, ai, section, ticker, id, mob, made);
         let made_events = split(made, &mut out);
-        let attributes = tw.travel(ty, mob);
+        let attributes = tw.travel_cached(ty, mob, travel);
         let input = kernel_input(rules, tw.motion, ty, mob, attributes);
         let (result, _) = ticker.step(tw.world, i, input, tw.players);
         let Ok(mut t) = result else {
@@ -1354,9 +1422,8 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
         let before = slot.before.take();
         if !state.stepped {
             if let Some(before) = before {
-                let (mob, shown) = *before;
-                slot.mob = mob;
-                slot.shown = shown;
+                // What observers were shown is as the tick began.
+                slot.mob = before.0;
                 section.relocate(id);
                 continue;
             }
@@ -1381,7 +1448,11 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
         if outside {
             slot.pending = true;
             match before {
-                Some(before) => slot.before = Some(before),
+                Some(mut before) => {
+                    // What observers were shown until the tick's report.
+                    before.1 = slot.shown.clone();
+                    slot.before = Some(before);
+                }
                 None => slot.start = Some(state.start.position),
             }
         }
