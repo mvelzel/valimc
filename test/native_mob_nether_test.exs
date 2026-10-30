@@ -19,7 +19,8 @@ defmodule Valimc.NativeMobNetherTest do
   test "the Nether families are native, their goals vanilla's" do
     assert {:ok, types} = Native.mob_kinds()
 
-    for type <- ~w(minecraft:zombified_piglin minecraft:wither_skeleton),
+    for type <- ~w(minecraft:zombified_piglin minecraft:wither_skeleton minecraft:blaze
+             minecraft:ghast),
         do: assert(type in types)
   end
 
@@ -106,5 +107,65 @@ defmodule Valimc.NativeMobNetherTest do
     effects = effects(observed)
     assert Enum.any?(effects, &match?({:attack_extra, _, %{effect: _}}, &1))
     assert running?(observed, "Valimc.AI.Mobs.Skeleton.Weapon")
+  end
+
+  ## Blazes
+
+  test "blazes charge, shoot fireball volleys, rise toward their target and strike", ctx do
+    spots = land(ctx.blocks, 10, :rand.seed_s(:exsss, 221))
+    {[here], rest} = Enum.split(spots, 1)
+    {hx, hy, hz} = here
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1), do: mob(n, "minecraft:blaze", spot)
+
+    near = mob(20, "minecraft:blaze", {hx + 1, hy, hz})
+    low = mob(21, "minecraft:blaze", {hx + 4, hy - 3, hz + 2}, motion: [water: 0.0])
+
+    scene =
+      scene([player(0, here)],
+        ticks: 300,
+        bright: false,
+        acts: [{5, 3, :hurt}],
+        post: true,
+        level: 91
+      )
+
+    observed = compare(ctx, scene, entries ++ [near, low])
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:projectile, "minecraft:small_fireball", _, _, _}, &1))
+    assert Enum.any?(effects, &match?({:level_event, _, 1018, 0}, &1))
+    assert Enum.any?(effects, &match?({:attack, _}, &1))
+    assert Enum.any?(own(observed), &(is_map(&1) and &1[:charged] == true))
+    assert running?(observed, "Valimc.AI.Mobs.Blaze.Attack")
+  end
+
+  ## Ghasts
+
+  test "ghasts drift about, face their target, charge and shoot", ctx do
+    spots = land(ctx.blocks, 8, :rand.seed_s(:exsss, 231))
+    {[here], rest} = Enum.split(spots, 1)
+
+    entries =
+      for {{x, y, z}, n} <- Enum.with_index(rest, 1),
+          do: mob(n, "minecraft:ghast", {x, y + 2, z}, motion: [float: nil])
+
+    {hx, hy, hz} = here
+    high = mob(20, "minecraft:ghast", {hx + 12, hy + 30, hz})
+
+    scene =
+      scene([player(0, here)],
+        ticks: 260,
+        bright: false,
+        post: true,
+        level: 93
+      )
+
+    observed = compare(ctx, scene, entries ++ [high])
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:projectile, "minecraft:fireball", _, _, _}, &1))
+    assert Enum.any?(effects, &match?({:level_event, _, 1015, 0}, &1))
+    assert Enum.any?(records(observed), &(&1.data[:charging] == true))
+    assert running?(observed, "Valimc.AI.Mobs.Ghast.Shoot")
   end
 end

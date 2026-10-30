@@ -9,11 +9,13 @@
 //! Halloween head, the drop chance of a slot and the protocol ids they
 //! look up once.
 
+pub mod blaze;
 pub mod creeper;
 pub mod cube;
 pub mod drowned;
 pub mod enderman;
 pub mod endermite;
+pub mod ghast;
 pub mod silverfish;
 pub mod skeleton;
 pub mod spider;
@@ -47,6 +49,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(wither_skeleton::WitherSkeleton::new(facts)?),
         Box::new(endermite::Endermite::new(facts)?),
         Box::new(silverfish::Silverfish::new(facts)?),
+        Box::new(blaze::Blaze::new(facts)?),
+        Box::new(ghast::Ghast::new(facts)?),
     ])
 }
 

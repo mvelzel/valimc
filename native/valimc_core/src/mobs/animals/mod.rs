@@ -24,6 +24,7 @@ pub mod mooshroom;
 pub mod pig;
 pub mod rabbit;
 pub mod sheep;
+pub mod strider;
 pub mod variants;
 
 use crate::mobs::ai::effect::Effect;
@@ -34,7 +35,7 @@ use crate::mobs::combat::{Event, Family, Hit, SoundKind, SoundRef};
 use crate::mobs::facts::families::AnimalFact;
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::interact::{Done, Hand, InteractEvent, Interaction, Outcome};
-use crate::mobs::kinds::{Kind, Registered};
+use crate::mobs::kinds::{Kind, KindMotion, Registered};
 use crate::mobs::living::mob as living_mob;
 use crate::mobs::model::{Body, FamilyData, MobMotion, NativeMob};
 use crate::mobs::sensing::Uuid;
@@ -123,6 +124,20 @@ pub trait Species: Send + Sync + Sized + 'static {
         None
     }
 
+    /// `tick_start/1`: its `tick()` before `super.tick()` (a strider's
+    /// shivering).
+    fn tick_start(&self, _a: &Animal<Self>, _t: &mut Turn) {}
+
+    /// `motion/0`: how the kernel moves it (a strider walks on lava).
+    fn kernel_motion(&self) -> KindMotion {
+        KindMotion::default()
+    }
+
+    /// `walk_value/2`: its `getWalkTargetValue`; None: an animal's.
+    fn walk_value(&self, _a: &Animal<Self>, _t: &mut Turn, _pos: [i32; 3]) -> Option<f64> {
+        None
+    }
+
     /// `Hooks::block` of its own move-to-block goals (a rabbit's garden).
     fn block(
         &self,
@@ -195,6 +210,7 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(Animal::new(facts, sheep::Sheep::new(facts)?)?),
         Box::new(Animal::new(facts, chicken::Chicken::new(facts)?)?),
         Box::new(Animal::new(facts, rabbit::Rabbit::new(facts)?)?),
+        Box::new(Animal::new(facts, strider::Strider::new(facts)?)?),
     ])
 }
 
@@ -464,6 +480,10 @@ impl<S: Species> Hooks for Animal<S> {
     fn block(&self, t: &mut Turn, tag: Tag, cell: [i32; 3], goal: &mut MoveToBlock) -> bool {
         self.species.block(self, t, tag, cell, goal)
     }
+
+    fn walk_value(&self, t: &mut Turn, pos: [i32; 3]) -> Option<f64> {
+        self.species.walk_value(self, t, pos)
+    }
 }
 
 impl<S: Species> Family for Animal<S> {
@@ -542,6 +562,14 @@ impl<S: Species> Kind for Animal<S> {
     fn finalize(&self, t: &mut Turn, reason: &Atom) {
         self.species.spawn_part(self, t, reason);
         crate::mobs::ai::spawn::mob(t, reason);
+    }
+
+    fn kernel_motion(&self) -> KindMotion {
+        self.species.kernel_motion()
+    }
+
+    fn tick_start(&self, t: &mut Turn) {
+        self.species.tick_start(self, t);
     }
 
     fn custom_step(&self, t: &mut Turn) {

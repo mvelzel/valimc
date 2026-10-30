@@ -42,7 +42,7 @@ mod atoms {
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
         away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
-        magic
+        magic, projectile
     }
 }
 
@@ -314,6 +314,7 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
         Effect::RemoveBlock(c) => (atoms::remove_block(), cell(*c)).encode(env),
         Effect::Infest { cell: c, state } => (atoms::infest(), cell(*c), *state).encode(env),
         Effect::WakeInfested(v) => tagged(env, atoms::wake_infested(), v)?,
+        Effect::Projectile(v) => tagged(env, atoms::projectile(), v)?,
         Effect::Discard => (atoms::discard(),).encode(env),
         Effect::Hurt {
             target,
@@ -406,6 +407,7 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
 /// The own fields of the families that keep them as optional keys, as
 /// `(key, value)` (an absent key is one the Elixir map lacks).
 fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Value)> {
+    use valimc_core::mobs::monsters::blaze::BlazeOwn;
     use valimc_core::mobs::monsters::silverfish::SilverfishOwn;
     use valimc_core::mobs::monsters::zombified_piglin::PiglinOwn;
     let mut out = Vec::new();
@@ -421,6 +423,11 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
     if let Some(o) = own.family::<SilverfishOwn>() {
         opt("friends", o.friends);
     }
+    if let Some(o) = own.family::<BlazeOwn>() {
+        out.push(("offset", Value::Float(o.offset)));
+        out.push(("next_change", Value::Int(o.next_change)));
+        out.push(("charged", Value::bool(o.charged)));
+    }
     water_own(own, &mut out);
     out
 }
@@ -430,7 +437,9 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
 fn water_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static str, Value)>) {
     use valimc_core::mobs::water::fish::{PuffCounters, School};
     if let Some(o) = own.family::<School>() {
-        let leader = o.leader.map_or(Value::atom("nil"), |u| Value::Binary(u.to_vec()));
+        let leader = o
+            .leader
+            .map_or(Value::atom("nil"), |u| Value::Binary(u.to_vec()));
         out.push(("leader", leader));
         out.push(("school", Value::Int(o.school)));
     }

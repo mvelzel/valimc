@@ -367,6 +367,7 @@ defmodule Valimc.NativeMobScene do
   def effect({:level_event, _, _, _} = e), do: e
   def effect({:infest, _, _} = e), do: e
   def effect({:wake_infested, _, _, _} = e), do: e
+  def effect({:projectile, _, _, _, _} = e), do: e
 
   def effect({:touch, ref, amount, {id, volume, pitch}}),
     do: {:touch, ref, amount, {id, volume, pitch}}
