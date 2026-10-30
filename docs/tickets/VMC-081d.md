@@ -1,9 +1,10 @@
 # VMC-081d — Native mobs
 
-Status: In progress
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081a](VMC-081a.md).
+Closed with VMC-081 (October 30, 2026): every family is native and live on the host; the 15× entity-phase target is dropped at the user's call (see [VMC-081](VMC-081.md#closure)).
 
 Mob simulation moves to Rust whole: state, AI, base tick, vitals, combat,
 records and tracking. Elixir keeps processes, sockets, players, commands,

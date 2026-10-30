@@ -1,9 +1,10 @@
 # VMC-081l — Item entities at rest
 
-Status: In progress
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081j](VMC-081j.md).
+Closed with VMC-081 (October 30, 2026): live on the host; production profiles in [VMC-081](VMC-081.md#closure).
 
 A production profile of one player in a village (two vCPUs; 78 sections,
 771 loaded entities, 149 active mobs) put the entity phase at about 13 ms

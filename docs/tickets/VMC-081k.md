@@ -1,9 +1,10 @@
 # VMC-081k — A connection's chunk streaming costs what changed
 
-Status: In progress
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [070](VMC-070.md), [075](VMC-075.md), [077e](VMC-077e.md).
+Closed with VMC-081 (October 30, 2026): live on the host; production profiles in [VMC-081](VMC-081.md#closure).
 
 A production profile (`valimc-profile(15).json`: Hetzner, two vCPUs, view
 distance 32, simulation distance 10, one player exploring, 60 s) showed TPS

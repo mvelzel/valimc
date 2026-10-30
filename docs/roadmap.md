@@ -49,12 +49,11 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. Performance: a native simulation core with Elixir as control plane, plus constant-cost chunk adoption ([081](tickets/VMC-081.md)); its fixed-workload harness gates each slice.
-2. Then SIMD where data-parallel work dominates, terrain noise first ([082](tickets/VMC-082.md)).
-3. M3 automated checks are complete ([078](tickets/VMC-078.md)); client testing remains deferred.
-4. Later resume the fresh-world route (078), dragon fight (045a), family and ritual observations.
+1. The M3 gate: the fresh-world survival route to the dragon's death ([078](tickets/VMC-078.md)) and the pending client gates below, in one tester handoff.
+2. Then define M4 from the backlog.
+3. Later: SIMD where data-parallel work dominates ([082](tickets/VMC-082.md)) and the performance items left in [081](tickets/VMC-081.md#closure).
 
-Done: [081c2](tickets/VMC-081c2.md), [081i](tickets/VMC-081i.md), [081c](tickets/VMC-081c.md), [081b](tickets/VMC-081b.md), [080k](tickets/VMC-080k.md), [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
+Done: [081](tickets/VMC-081.md) (with [081c1](tickets/VMC-081c1.md), [081c3](tickets/VMC-081c3.md), [081d](tickets/VMC-081d.md), [081g1](tickets/VMC-081g1.md), [081g2](tickets/VMC-081g2.md), [081h](tickets/VMC-081h.md), [081j](tickets/VMC-081j.md), [081k](tickets/VMC-081k.md), [081l](tickets/VMC-081l.md)), [081c2](tickets/VMC-081c2.md), [081i](tickets/VMC-081i.md), [081c](tickets/VMC-081c.md), [081b](tickets/VMC-081b.md), [080k](tickets/VMC-080k.md), [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
 [037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
 [048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [078e](tickets/VMC-078e.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
 

@@ -1,10 +1,10 @@
 # VMC-081h — Durability and replication from deltas
 
-Status: In progress
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081d](VMC-081d.md), [081i](VMC-081i.md).
-Note: the durability half is done; replication from per-chunk frames is open.
+Closed with VMC-081 (October 30, 2026): the durability half is live; replication from per-chunk frames is not started and is left as future work in [VMC-081](VMC-081.md#closure).
 
 After 081d and 081i the `mobs` scenario's commit callback cost 1.72 ms per
 tick beside the 12 ms tick, all of it re-deriving what the owner had just

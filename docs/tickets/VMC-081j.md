@@ -1,9 +1,10 @@
 # VMC-081j — The entity phase after the native slices
 
-Status: In progress
+Status: Done
 Milestone: M3, at the user's request
 Parent: [VMC-081](VMC-081.md).
 Depends on: [081d](VMC-081d.md), [081g1](VMC-081g1.md), [081h](VMC-081h.md).
+Closed with VMC-081 (October 30, 2026): live on the host.
 
 After 081g1, 081g2, 081c2, 081h and the deletion of the Elixir mob path
 (081d), a matched `mobs` pair against a75a314c showed the blocks and

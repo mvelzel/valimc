@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-081 Native simulation core and cheap exploration](../tickets/VMC-081.md) | Mobs, tracking, random ticks, spawning and chunk adoption native or resident; journaled durability; idle work skipped; items rest; chunk streaming costs what changed; the host holds 20 TPS with about 150 mobs at a 19 ms mean tick (was 9 to 11 TPS) |
 | [VMC-081b Elixir tick quick wins](../tickets/VMC-081b.md) | Rendered chunks' generation ticks wait frozen off the heap and player groups get a large young heap, cutting collection cost; rule reach, spawning inputs, trackers and encoding stop walking every section; harness combat tick −29%, exploration −41% |
 | [VMC-080k Bounded log recovery](../tickets/VMC-080k.md) | Frame-wise recovery preserves the existing world within the memory cap; production saved-player load, protocol checks and the user's subsequent combat/exploration captures confirm reconnect |
 | [VMC-078e Item merge planning fence](../tickets/VMC-078e.md) | Freeze movement markers while a merge job owns its copied store; durable cross-owner delivery, recovery and affected native checks |
