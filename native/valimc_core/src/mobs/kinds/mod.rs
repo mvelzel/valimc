@@ -406,6 +406,7 @@ impl Registry {
         kinds.extend(crate::mobs::village::kinds(facts)?);
         kinds.extend(crate::mobs::brains::kinds(facts)?);
         kinds.extend(crate::mobs::ambient::kinds(facts)?);
+        kinds.extend(crate::mobs::boss::kinds(facts)?);
         Registry::of(facts, kinds)
     }
 

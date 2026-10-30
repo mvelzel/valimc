@@ -6,9 +6,9 @@ defmodule Valimc.AI.NativeFacts do
   `hostile_facts`, `animal_facts`, `village_facts`, `combat_facts`, the
   attributes, items, status effects, the block registry, tags, the protocol
   registries, the biomes' climates, the structure tags variants name, the
-  block outlines an enderman's ray reads, the potions a witch drinks and the
-  consumables a drinking mob reads), as decoded JSON, and decodes each as its
-  Elixir reader does; the per-state block facts are
+  block outlines an enderman's ray reads, the potions a witch drinks, the
+  consumables a drinking mob reads and the dragon's facts), as decoded JSON,
+  and decodes each as its Elixir reader does; the per-state block facts are
   `Valimc.Data.BlockFacts`'s own install.
   """
   alias Valimc.Data.Facts
@@ -67,7 +67,12 @@ defmodule Valimc.AI.NativeFacts do
         Facts.read!("loot/registries.json")["tags"]["minecraft:worldgen/structure"],
       "outlines" => Map.take(Facts.read!("physics/outlines.json"), ~w(palette states offsets)),
       "potions" => Map.take(Facts.read!("protocol/potions.json"), ~w(potions)),
-      "food_items" => Facts.read!("protocol/food_items.json")["items"]
+      "food_items" => Facts.read!("protocol/food_items.json")["items"],
+      "dragon" =>
+        Map.take(
+          Facts.read!("registry/dragon_facts.json"),
+          ~w(ambient_interval max_head_y_rot graph parts phases)
+        )
     }
   end
 end

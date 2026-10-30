@@ -4,6 +4,7 @@
 
 pub mod ambient;
 pub mod animals;
+pub mod boss;
 pub mod brains;
 pub mod facts;
 pub mod kinds;

@@ -261,6 +261,9 @@ fn hit(facts: &MobFacts, v: &Value) -> NifResult<Hit> {
     hit.lift = field(m, "lift").map(number).transpose()?;
     hit.bypass_immunity = field(m, "bypass_immunity").and_then(Value::as_bool) == Some(true);
     hit.killer = field(m, "killer").cloned();
+    hit.dragon_part = field(m, "dragon_part")
+        .and_then(Value::as_int)
+        .map(|p| p as u8);
     Ok(hit)
 }
 
@@ -303,7 +306,7 @@ fn list(v: &Value) -> NifResult<&[Value]> {
 
 // ------------------------------------------------------------ term writing
 
-fn event(facts: &MobFacts, e: &Event) -> Value {
+pub(crate) fn event(facts: &MobFacts, e: &Event) -> Value {
     let int = |i: Option<i32>| i.map_or(NIL, |i| Value::Int(i as i64));
     match e {
         Event::Entity(n) => Value::tuple([Value::atom("event"), Value::Int(*n as i64)]),

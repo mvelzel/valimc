@@ -299,6 +299,42 @@ target from the section); the four that set an Elixir body's own fields
 (`@tag :elixir_mobs`). Revisions stay in step when a sibling's copy of a
 store already took a native mob's death (`Store.take_deaths/1`).
 
+## Native dragon
+
+The ender dragon's actor is native (`mobs::boss::dragon`): its phases
+(holding, strafing, landing approach, landing, the three perched phases,
+takeoff, charging, dying, hovering), the flight with its 64-sample history
+and eight parts, the arena graph's A* (the heap's tie order and the
+closest-node fallback), the crystal scan and healing, a destroyed crystal's
+head hit and the strafe after it, wall breaking, wing and head contacts,
+fireballs, the breath's cloud and the 200-tick death with its experience
+bursts. Its state stays the `%Valimc.AI.Dragon.Actor{}` term in the body's
+`brain` (`codec`), so records and handoffs are unchanged. The family
+(`Kind`) gives the living rules its multipart damage: `Hit::dragon_part`,
+`Family::damage_result` with the health before the hurt (sitting damage, the
+killing blow in flight), `Family::ambient_interval` (a hurt restarts the
+clock its actor keeps), `ignites` for arrows on the podium. The dragon's
+facts join the native facts (`dragon`).
+
+`native_mob_dragon_test` runs one dragon per scene on both sides over
+generated terrain (`mob_parity_dragon`: the tick's outside actions, its
+timers, `Actor.environment/3` and `Actor.tick/3`) and compares its record,
+position, events, effects and the actions' events every tick: holding and
+strafing two moving players with fireballs (600 ticks), the approach,
+landing, perching, breath, attack and takeoff over an empty arena (900),
+scanning into a charge (500), scanning out into a takeoff, hovering with its
+AI off and on, healing from a crystal that is then destroyed by a player,
+part hits in flight and perched (head, neck, body, wing, rootless, arrows,
+fire, unattributed and tiny hits, sitting damage into a takeoff), a killing
+blow through the whole death on a first and a repeat kill and without drops,
+wall breaking with and without griefing, and contacts with players and mobs
+in flight and perched. The Elixir actor takes the breath's uuid from its
+environment where the owner gives one.
+
+The dragon's section turn is not wired yet: the owner still ticks it in
+Elixir (`MobTicks.dragon_step`), and `mob_section_hit` does not decode
+`dragon_part`.
+
 Acceptance:
 
 - Every mob oracle stage passes with every type native.

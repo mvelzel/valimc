@@ -242,7 +242,8 @@ defmodule Valimc.AI.Dragon.Actor do
         {phase_effects, actor} =
           Enum.map_reduce(phases.effects, actor, fn
             {:flame, at}, actor ->
-              uuid = :crypto.strong_rand_bytes(16)
+              # The owner's fresh uuid where it gives one (the parity's).
+              uuid = Map.get(env, :flame_uuid) || :crypto.strong_rand_bytes(16)
               {{:dragon_flame, uuid, at}, %{actor | flame: uuid}}
 
             :end_flame, actor ->

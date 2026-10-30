@@ -31,6 +31,8 @@ mod light;
 mod loot;
 #[cfg(feature = "parity")]
 mod mob_ai_parity;
+#[cfg(feature = "parity")]
+mod mob_dragon_parity;
 mod mob_facts;
 mod mob_living;
 #[cfg(feature = "parity")]

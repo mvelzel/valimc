@@ -35,6 +35,12 @@ pub fn line_of_sight(level: &Level, from: [f64; 3], to: [f64; 3]) -> bool {
     if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() > 128.0 {
         return false;
     }
+    clear(level, from, to)
+}
+
+/// Whether nothing blocks a ray from `from` to `to`, however far
+/// (`Clip.clip(from, to, :none, read, :collider).miss`: the dragon's sight).
+pub fn clear(level: &Level, from: [f64; 3], to: [f64; 3]) -> bool {
     match ray::clip(&Sight(level), level.physics, from, to, &Context::default()) {
         Ok(hit) => hit.miss,
         // The source reads every cell.

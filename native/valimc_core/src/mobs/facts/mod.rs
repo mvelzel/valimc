@@ -53,6 +53,8 @@ pub struct MobFacts {
     /// Consumable items' defaults by item id (`Valimc.Living.FoodItems`),
     /// where given.
     pub food: HashMap<i32, FoodItem>,
+    /// The ender dragon's facts (`Valimc.AI.Dragon.Facts`), where given.
+    pub dragon: Option<crate::mobs::boss::dragon::DragonFacts>,
 }
 
 /// An item's consumable defaults (`FoodItems.defaults/1`): its
@@ -175,8 +177,9 @@ impl MobFacts {
     /// The facts from the installer's map (`Valimc.AI.NativeFacts.facts/0`):
     /// `ai`, `entities`, `effects`, `hostile`, `animal`, `village`, `combat`,
     /// `attributes`, `items`, `blocks`, `tags`, `registries`, `climates`,
-    /// `structure_tags`, `outlines`, `potions` and `food_items` (optional), each the decoded JSON of its file (or the part of it
-    /// the AI reads).
+    /// `structure_tags`, `outlines`, `potions`, `food_items` and `dragon`
+    /// (optional), each the decoded JSON of its file (or the part of it the
+    /// AI reads).
     pub fn parse(json: &Json) -> Result<MobFacts, String> {
         let at = |key: &str| json.field(key).map_err(|e| format!("mob facts: {e}"));
         let registries = Registries::parse(at("registries")?)?;
@@ -232,7 +235,12 @@ impl MobFacts {
             Ok(f) => food(f)?,
             Err(_) => HashMap::new(),
         };
+        let dragon = match json.field("dragon") {
+            Ok(d) => Some(crate::mobs::boss::dragon::DragonFacts::parse(d)?),
+            Err(_) => None,
+        };
         Ok(MobFacts {
+            dragon,
             food,
             potions,
             outlines,

@@ -64,6 +64,9 @@ pub struct Hit {
     pub bypass_immunity: bool,
     /// The death message's killer (a text tag term), carried along.
     pub killer: Option<Value>,
+    /// The dragon part it struck (0 the head, 1 the neck, ...), where it
+    /// struck one.
+    pub dragon_part: Option<u8>,
 }
 
 impl Hit {
@@ -80,6 +83,7 @@ impl Hit {
             lift: None,
             bypass_immunity: false,
             killer: None,
+            dragon_part: None,
         }
     }
 }
@@ -186,8 +190,9 @@ pub trait Family: Sync {
         false
     }
 
-    /// `damage_result/3`, here over the body with its hurt mob.
-    fn damage_result(&self, _body: &mut Body, _outcome: &mut Outcome) {}
+    /// `damage_result/3`, here over the body with its hurt mob and its
+    /// health before the hurt.
+    fn damage_result(&self, _body: &mut Body, _health_before: f64, _outcome: &mut Outcome) {}
 
     /// `hurt/2`: its part after a hurt, with the events it adds (a squid's
     /// ink).
@@ -223,6 +228,12 @@ pub trait Family: Sync {
 
     /// `sound/2`: its own hurt or death sound.
     fn sound(&self, _body: &Body, _which: SoundKind) -> Option<SoundRef> {
+        None
+    }
+
+    /// Its ambient interval where the AI facts give none (`AI.ambient_interval/1`
+    /// of the dragon): a hurt sound restarts its ambient clock.
+    fn ambient_interval(&self) -> Option<i32> {
         None
     }
 
@@ -512,7 +523,7 @@ pub fn hurt_body(
         return None;
     };
 
-    family.damage_result(body, &mut outcome);
+    family.damage_result(body, health_before, &mut outcome);
     let source = hit.source;
     let sounds = sounds(rules, ty, family, body);
     if let Some(mind) = body.mob.ai.as_mut() {
@@ -682,7 +693,8 @@ fn sound(
     let scale = family.voice_scale(body);
     let pitch = random(&mut body.mob, uuid).voice_pitch(base) * scale;
     if which == SoundKind::Hurt {
-        if let Some(interval) = rules.facts.ai.mob(ty.id).map(|m| m.ambient_interval) {
+        let interval = rules.facts.ai.mob(ty.id).map(|m| m.ambient_interval);
+        if let Some(interval) = interval.or_else(|| family.ambient_interval()) {
             if let Some(mind) = body.mob.ai.as_mut() {
                 rules.mind.hurt_sound(mind, interval);
             }
@@ -780,6 +792,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         lift: None,
         bypass_immunity: false,
         killer: Some(killer),
+        dragon_part: None,
     })
 }
 
