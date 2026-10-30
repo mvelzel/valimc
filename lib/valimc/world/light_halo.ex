@@ -11,7 +11,7 @@ defmodule Valimc.World.LightHalo do
   neighbour the column images of its chunks in that neighbour's ring
   (`{:halo, key, {:hello, ...}}`); the neighbour adopts them and answers with
   its own (`{:halo, key, {:images, ...}}`). Generated columns follow as
-  images, durable block changes in ring chunks as edits (`{:edits, ...}`). A
+  handles (VMC-081c2), durable block changes in ring chunks as edits (`{:edits, ...}`). A
   ring chunk is unknown to light until its owner sends it (VMC-077c), and so
   is a chunk its owner has not generated: light neither enters nor leaves it.
   A ring chunk of a neighbour that unloads keeps its last known blocks.
@@ -77,12 +77,14 @@ defmodule Valimc.World.LightHalo do
 
   @doc """
   Send loaded neighbours the generated columns (VMC-075) of chunks in their
-  rings. A sibling in the same group takes them as a sibling effect, before
-  the group's next cut (VMC-077w), rather than as a message to its own group.
+  rings, as the handles their owner installed (`chunk => handle`, VMC-081c2):
+  their rings share its sections and adopt the light it was lit with alone.
+  A sibling in the same group takes them as a sibling effect, before the
+  group's next cut (VMC-077w), rather than as a message to its own group.
   """
-  def columns_changed(state, columns) do
+  def columns_changed(state, handles) do
     Enum.reduce(neighbours(state.key), state, fn key, acc ->
-      list = for {{cx, cz} = chunk, image} <- columns, ring?(key, chunk), do: {cx, cz, image}
+      list = for {{cx, cz} = chunk, handle} <- handles, ring?(key, chunk), do: {cx, cz, handle}
 
       cond do
         list == [] ->
@@ -118,13 +120,13 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Handle a neighbour's message."
   def handle({:hello, from, pid, images}, state) do
-    state = adopt(state, Native.halo_put(state.blocks.ref, images), :all)
+    state = adopt(state, halo_put(state, images), :all)
     send(pid, {:halo, from, {:images, state.key, images(state, from)}})
     state
   end
 
   def handle({:images, _from, images}, state),
-    do: adopt(state, Native.halo_put(state.blocks.ref, images), :all)
+    do: adopt(state, halo_put(state, images), :all)
 
   def handle({:edits, _from, edits}, state) do
     case Native.halo_set(state.blocks.ref, edits) do
@@ -135,6 +137,9 @@ defmodule Valimc.World.LightHalo do
         state
     end
   end
+
+  defp halo_put(state, chunks),
+    do: Native.dispatch(:halo_put, length(chunks), [state.blocks.ref, chunks])
 
   defp adopt(state, {:ok, []}, _scope), do: state
 

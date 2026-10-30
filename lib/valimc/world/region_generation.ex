@@ -12,9 +12,12 @@ defmodule Valimc.World.RegionGeneration do
   where they were generated (VMC-077c), in deliveries (VMC-077w).
 
   A delivery's chunks are installed together when it arrives and their
-  column images join the owner's next frame (`RegionStorage`, VMC-077f):
-  their columns adopt their light and light crosses their faces, their block
-  entities and ticks are added, their snapshots published, neighbours' rings
+  column images join the group's next cut (`RegionStorage`, VMC-077f; a
+  delivery cuts no frame of its own, VMC-081c2): their columns, from the
+  handles their jobs decoded, adopt their light and light crosses their
+  faces, their block entities and ticks are added (those of chunks outside
+  simulation, and post-processing, frozen off the heap), their snapshots
+  published, neighbours' rings
   and served chunks' light updated, and the calls that waited for them run
   again. The scheduler drops their proto state once that frame is durable. A chunk whose generation failed stays absent
   and its waiting calls fail.
@@ -267,14 +270,45 @@ defmodule Valimc.World.RegionGeneration do
     %{state | generation: gen}
   end
 
+  # A generated chunk's post-processing marks and fluid ticks wait, until it
+  # first ticks, as one off-heap binary (VMC-081c2): most of a view never
+  # ticks, and their lists were the largest part of the owner's heap.
+  defp frozen_post(post, chunks) do
+    for {chunk, entry} <- Map.take(post, chunks),
+        into: %{},
+        do: {chunk, {:frozen, :erlang.term_to_binary(entry)}}
+  end
+
+  @doc "A chunk's post-processing entry as `{marks, fluid_ticks}`, frozen or not."
+  def post_entry({:frozen, binary}), do: :erlang.binary_to_term(binary)
+  def post_entry({_marks, _fluid_ticks} = entry), do: entry
+
+  # A full chunk's column handle, decoded and checked by its job; made here
+  # for one that carries none.
+  defp handle(handles, chunk, image) do
+    case handles do
+      %{^chunk => handle} when handle != nil ->
+        handle
+
+      _ ->
+        case Blocks.column_handle(image) do
+          {:ok, handle} -> handle
+          {:error, reason} -> exit({:generated_install_failed, reason})
+        end
+    end
+  end
+
   # Install generated chunks; they were absent, so no reader saw them.
   defp install(state, parts) do
     gen = state.generation
     columns = Map.filter(parts.columns, fn {chunk, _} -> absent?(gen, chunk) end)
     chunks = Map.keys(columns)
 
+    handles =
+      Map.new(columns, fn {chunk, image} -> {chunk, handle(parts.handles, chunk, image)} end)
+
     {:ok, changes} =
-      case Blocks.put_columns(state.blocks, columns) do
+      case Blocks.put_columns(state.blocks, handles) do
         {:ok, _} = ok -> ok
         {:error, reason} -> exit({:generated_install_failed, reason})
       end
@@ -287,14 +321,14 @@ defmodule Valimc.World.RegionGeneration do
 
     # What generation leaves in chunks outside simulation waits frozen.
     ticks =
-      state.scheduled_ticks
-      |> ScheduledTicks.schedule_all(
+      ScheduledTicks.schedule_generated(
+        state.scheduled_ticks,
         for(
           {position, block, delay, priority} <- parts.ticks,
           do: {position, block, state.game_tick + delay, priority}
-        )
+        ),
+        state.tickets.simulated
       )
-      |> ScheduledTicks.freeze(state.tickets.simulated)
 
     installed = MapSet.new(chunks)
     {deferred, waiting} = Map.split(gen.deferred, chunks)
@@ -315,7 +349,7 @@ defmodule Valimc.World.RegionGeneration do
       | generation: gen,
         block_entities: entities,
         scheduled_ticks: ticks,
-        post: Map.merge(state.post, Map.take(parts.post_processing, chunks)),
+        post: Map.merge(state.post, frozen_post(parts.post_processing, chunks)),
         structures: Map.merge(state.structures, Map.take(parts.structures, chunks)),
         storage: storage
     }
@@ -346,8 +380,10 @@ defmodule Valimc.World.RegionGeneration do
 
     state = Valimc.World.LightUpdates.queue(state, served, :all)
 
-    state = Valimc.World.LightHalo.columns_changed(state, columns)
-    state = RegionData.wait_durable(state, [{:effect, {:generation_handed_over, chunks}}])
+    state = Valimc.World.LightHalo.columns_changed(state, handles)
+    # The group's next cut takes the columns (VMC-081c2): one frame for every
+    # delivery of a commit interval.
+    state = RegionData.after_durable(state, [{:effect, {:generation_handed_over, chunks}}])
 
     deferred
     |> Enum.flat_map(fn {_, calls} -> Enum.reverse(calls) end)

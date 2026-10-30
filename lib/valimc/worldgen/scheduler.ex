@@ -234,6 +234,7 @@ defmodule Valimc.Worldgen.Scheduler do
           Frontier.new(spec,
             decorated: Spec.decorated?(world, state.dimension),
             sky: Valimc.World.Dimension.facts(state.dimension).sky_light,
+            packet: Valimc.World.Blocks.packet_spec(state.dimension),
             log: Application.get_env(:valimc, :generation_order_log, false),
             order: Application.get_env(:valimc, :generation_order, :started)
           )

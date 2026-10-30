@@ -21,12 +21,15 @@ defmodule Valimc.Worldgen.FullChunk do
 
   @doc """
   The region store's parts for `full` chunks (`gen_full` maps),
-  adding their block entities and ticks to the region's `entities` and `ticks`.
+  adding their block entities and ticks to the region's `entities` and `ticks`:
+  column images to store, column handles to install (nil where a full chunk
+  carries none) and the rest.
   """
   def parts(full, entities, ticks) do
     # Ticks gather per chunk, newest first, and join once.
     initial = %{
       columns: %{},
+      handles: %{},
       post_processing: %{},
       block_entities: entities,
       ticks: [ticks],
@@ -50,6 +53,7 @@ defmodule Valimc.Worldgen.FullChunk do
             %{
               acc
               | columns: Map.put(acc.columns, key, chunk.image),
+                handles: Map.put(acc.handles, key, Map.get(chunk, :column)),
                 post_processing: pending,
                 block_entities: entities,
                 ticks: [for({p, state} <- chunk.block_ticks, do: {p, state, 0, 0}) | acc.ticks],

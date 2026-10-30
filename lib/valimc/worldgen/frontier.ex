@@ -25,6 +25,9 @@ defmodule Valimc.Worldgen.Frontier do
     # Final once it has terrain (a noise world generated before decoration).
     final_after_terrain: false,
     sky: true,
+    # How the dimension's chunk packets encode (`Blocks.packet_spec/1`), for
+    # full jobs to prepare them (VMC-081c2); nil prepares none.
+    packet: nil,
     # chunk => %{status, cell, used}
     chunks: %{},
     # Goals: each requester's wants (`chunk => urgent?`), who wants each
@@ -79,13 +82,15 @@ defmodule Valimc.Worldgen.Frontier do
   @doc """
   The generation of `spec` (a `Generator.spec_of/2` spec of a dimension).
   Options: `decorated` (false: chunks are final after terrain), `sky` (the
-  dimension has sky light, stored in full chunks' images), `log` (record
+  dimension has sky light, stored in full chunks' images), `packet` (its
+  chunk packets' `Blocks.packet_spec/1`, which full jobs prepare), `log` (record
   the decoration order) and `order` (`:started`, the default, or
   `:requested`: conflicting decorations run in request order).
   """
   def new(spec, opts \\ []) do
     decorated = Keyword.get(opts, :decorated, true)
     sky = Keyword.get(opts, :sky, true)
+    packet = Keyword.get(opts, :packet)
     log = if Keyword.get(opts, :log, false), do: []
 
     case spec do
@@ -100,12 +105,13 @@ defmodule Valimc.Worldgen.Frontier do
           starts: if(structures, do: Native.gen_starts_new()),
           final_after_terrain: not decorated,
           sky: sky,
+          packet: packet,
           log: log,
           serial: Keyword.get(opts, :order, :started) == :requested
         }
 
       %{kind: :flat} ->
-        %__MODULE__{kind: :flat, flat: spec, final_after_terrain: true, sky: sky}
+        %__MODULE__{kind: :flat, flat: spec, final_after_terrain: true, sky: sky, packet: packet}
     end
   end
 

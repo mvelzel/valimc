@@ -121,7 +121,11 @@ defmodule Valimc.DecoratedWorldTest do
     stored = durable(ctx, @key)
     assert stored.columns == parts.columns
     assert stored.block_entities == parts.block_entities
-    assert stored.post_processing == parts.post_processing
+    # Frozen off the heap until each chunk first ticks (VMC-081c2).
+    assert Map.new(stored.post_processing, fn {chunk, entry} ->
+             {chunk, RegionGeneration.post_entry(entry)}
+           end) == parts.post_processing
+
     # One record per chunk holds its ticks (VMC-077w).
     assert Enum.sort(Map.keys(stored.ticks.index)) ==
              Enum.sort(for {p, b, _, _} <- parts.ticks, do: {p, b})

@@ -129,6 +129,16 @@ impl Storage {
         }
     }
 
+    /// Whether every state the storage can hold passes `valid`: an indexed
+    /// section's palette (a stricter test than its cells, once per entry).
+    pub fn states_valid(&self, valid: impl Fn(u16) -> bool) -> bool {
+        match self {
+            Storage::Single(state) => valid(*state),
+            Storage::Indexed { palette, .. } => palette.iter().all(|s| valid(*s)),
+            Storage::Dense(cells) => cells.iter().all(|s| valid(*s)),
+        }
+    }
+
     /// Approximate heap bytes, for memory budgets.
     pub fn heap_bytes(&self) -> usize {
         match self {

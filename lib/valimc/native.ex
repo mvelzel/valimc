@@ -76,7 +76,13 @@ defmodule Valimc.Native do
     # Per mob of a section's native tick (VMC-081d): its ageing-free turn
     # (sense, think, kernel step, vitals) and its change report.
     mob_section_tick: {10_000, :mob_section_tick_dirty},
-    mob_section_resume: {10_000, :mob_section_resume_dirty}
+    mob_section_resume: {10_000, :mob_section_resume_dirty},
+    # Per generated column installed from its handle (VMC-081c2): its light
+    # crossing its faces into the known chunks beside it, about 50 µs on the
+    # development Mac; a ring chunk sent as an image without light is lit
+    # alone first (about twice that).
+    put_columns: {200_000, :put_columns_dirty},
+    halo_put: {200_000, :halo_put_dirty}
   }
 
   @doc """
@@ -228,8 +234,15 @@ defmodule Valimc.Native do
   def light_image(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)
   def light_column_image(_image, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def halo_put(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def halo_put_dirty(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
   def halo_set(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
-  def put_columns_lit(_region, _images), do: :erlang.nif_error(:nif_not_loaded)
+  def column_handle(_image), do: :erlang.nif_error(:nif_not_loaded)
+  def column_handle_background(_tag, _image, _packet), do: :erlang.nif_error(:nif_not_loaded)
+  def carriers_install(_states), do: :erlang.nif_error(:nif_not_loaded)
+  def chunk_carriers(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
+  def chunk_prepared(_region, _cx, _cz, _spec), do: :erlang.nif_error(:nif_not_loaded)
+  def put_columns(_region, _handles), do: :erlang.nif_error(:nif_not_loaded)
+  def put_columns_dirty(_region, _handles), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Physics (VMC-077l: items, obstruction, the border; VMC-077l2: players)
 

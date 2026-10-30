@@ -20,6 +20,17 @@ pub(crate) static FLAGS: OnceLock<BlockFlags> = OnceLock::new();
 pub(crate) static LIGHT: OnceLock<LightFacts> = OnceLock::new();
 pub(crate) static STATES: OnceLock<StateFacts> = OnceLock::new();
 pub(crate) static PHYSICS: OnceLock<physics::Facts> = OnceLock::new();
+/// The states whose cells chunk packets carry as block entities (owned
+/// carriers and those without data), by state id (VMC-081c2).
+pub(crate) static CARRIERS: OnceLock<Vec<bool>> = OnceLock::new();
+
+/// Install the block-entity carrier states once (later calls keep the first
+/// set, which block data fixes).
+#[rustler::nif]
+fn carriers_install(states: Vec<u16>) -> Atom {
+    let _ = CARRIERS.set(valimc_core::column::state_set(&states));
+    atoms::ok()
+}
 
 mod kinds {
     rustler::atoms! { fixed, offset, scaffolding, powder_snow, shulker_box, moving_piston }

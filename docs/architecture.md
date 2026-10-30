@@ -465,10 +465,23 @@ next, the players' own and nearest chunks first, so the group's mailbox stays
 bounded however fast generation runs. One record per group holds its sections'
 epochs, the chunks ready for it (each with the epoch it was made for) and its
 unacknowledged deliveries; a chunk on its way to a section at its epoch is not
-made again. A group installs a delivery per section in one pass (an unusable
-chunk fails alone) and gives its sibling sections their halo images at once;
-the column images join the next frame, and the scheduler forgets a chunk only
-once that frame is durable. Until then an absent chunk is like a chunk of an
+made again. A full chunk's job also decodes and checks its column once into
+a native handle, with the light it was lit with alone and its first chunk
+packet's encoded sections, heightmaps and block-entity carriers (VMC-081c2).
+A group installs a delivery per section in one pass (an unusable chunk fails
+alone) from those handles, on a normal scheduler for a few chunks: the store
+takes the column's sections as they are and light only crosses the new
+chunk's faces. Its sibling sections' rings, and neighbour groups' by
+message, adopt the same handles, sharing the sections and their light
+instead of decoding and lighting the chunk again. The chunk's first packet
+uses what its job encoded while the column is unchanged (a write clones the
+shared sections, so the prepared parts no longer match), and later packets
+encode on the owner as before. What generation leaves for a chunk's first
+tick (post-processing marks and fluid ticks, the block ticks of chunks outside
+simulation) waits as off-heap binaries. A delivery cuts no frame of its own:
+the group's commit timer cuts its column images with everything else changed
+in that interval, and the scheduler forgets a chunk only once that frame is
+durable. Until then an absent chunk is like a chunk of an
 unloaded neighbour group: block reads in the group see nothing there, edits
 and observations are refused, published snapshots fail closed and the chunk
 stream skips it.

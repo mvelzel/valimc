@@ -77,6 +77,28 @@ defmodule Valimc.TickPipelineTest do
     assert t.frozen == %{} and ScheduledTicks.size(t) == 1
   end
 
+  test "a delivery's ticks freeze at once as scheduling then freezing leaves them" do
+    {:ok, t} = ScheduledTicks.schedule(ScheduledTicks.new(), {0, 0, 0}, 1, 5, 0)
+    {:ok, t} = ScheduledTicks.schedule(t, {40, 0, 0}, 1, 6, 0)
+    t = ScheduledTicks.freeze(%{t | shift: 7}, MapSet.new([{0, 0}]))
+    simulated = MapSet.new([{0, 0}, {-1, 0}])
+
+    # Simulated, frozen, fresh and repeated pairs, interleaved.
+    entries = [
+      {{20, 0, 0}, 2, 0, 0},
+      {{0, 0, 0}, 1, 9, 0},
+      {{-3, 0, 1}, 4, 0, 0},
+      {{41, 0, 0}, 1, 2, 1},
+      {{20, 0, 0}, 2, 0, 0},
+      {{21, 5, 3}, 3, 1, -1},
+      {{-2, 0, 0}, 4, 0, 0},
+      {{40, 0, 0}, 1, 0, 0}
+    ]
+
+    want = t |> ScheduledTicks.schedule_all(entries) |> ScheduledTicks.freeze(simulated)
+    assert ScheduledTicks.schedule_generated(t, entries, simulated) == want
+  end
+
   test "ticks of chunks that do not tick stay untouched until their chunk ticks; a rebase keeps delays" do
     t =
       Enum.reduce(0..999, ScheduledTicks.new(), fn n, acc ->

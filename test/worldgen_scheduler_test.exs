@@ -71,7 +71,9 @@ defmodule Valimc.WorldgenSchedulerTest do
     for {a, b} <- Enum.zip(ours, want) do
       assert {a.x, a.z} == {b.x, b.z}
       assert a.image == b.image, "chunk #{a.x}, #{a.z} differs"
-      assert a == b
+      # A job's full chunk carries its column decoded (VMC-081c2).
+      assert is_reference(a.column)
+      assert Map.delete(a, :column) == b
     end
   end
 

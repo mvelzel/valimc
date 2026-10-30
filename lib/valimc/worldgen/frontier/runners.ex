@@ -6,7 +6,9 @@ defmodule Valimc.Worldgen.Frontier.Runners do
   cell full, an alone job makes a chunk over fresh terrain of its 3 × 3 with
   only its own decoration, a flat job a flat-layer column. Spilled cells are
   read back from the scratch file by the job that needs them, and a
-  decoration hands them back with its result.
+  decoration hands them back with its result. A full chunk carries its
+  column as a handle (`:column`) besides its image, decoded and checked by
+  the job, which its owner and neighbours install without decoding.
 
   The native work runs on the low-priority background threads (VMC-081c);
   the job's process waits for it.
@@ -49,15 +51,17 @@ defmodule Valimc.Worldgen.Frontier.Runners do
   # A spilled cell stays spilled: making it full changes nothing in it.
   def runner(f, %{kind: :full, chunk: chunk}) do
     {worldgen, cell, sky, scratch} = {f.worldgen, f.chunks[chunk].cell, f.sky, f.scratch}
+    packet = f.packet
 
     fn ->
       with {:ok, restored} <- load(worldgen, scratch, [{chunk, cell}]),
-           do: full(worldgen, Map.get(restored, chunk, cell), sky)
+           do: full(worldgen, Map.get(restored, chunk, cell), sky, packet)
     end
   end
 
   def runner(f, %{kind: :alone, chunk: {x, z} = chunk}) do
     {worldgen, source, structures, sky} = {f.worldgen, f.source, f.starts != nil, f.sky}
+    packet = f.packet
 
     fn ->
       with {:ok, cells} <-
@@ -72,12 +76,12 @@ defmodule Valimc.Worldgen.Frontier.Runners do
                  structures
                )
              ),
-           do: full(worldgen, Enum.at(cells, 4), sky)
+           do: full(worldgen, Enum.at(cells, 4), sky, packet)
     end
   end
 
   def runner(f, %{kind: :flat, chunk: {x, z}}) do
-    {spec, sky} = {f.flat, f.sky}
+    {spec, sky, packet} = {f.flat, f.sky, f.packet}
 
     fn ->
       {:ok, image} = Native.column_layers_image(spec.layers, spec.biome)
@@ -94,7 +98,7 @@ defmodule Valimc.Worldgen.Frontier.Runners do
         entities: []
       }
 
-      {:ok, lit(full, sky)}
+      with_column(lit(full, sky), packet)
     end
   end
 
@@ -130,9 +134,19 @@ defmodule Valimc.Worldgen.Frontier.Runners do
   end
 
   # A full chunk, its image with its light alone stored in it (VMC-077c).
-  defp full(worldgen, cell, sky) do
+  defp full(worldgen, cell, sky, packet) do
     biomes = Generator.protocol_biomes()
-    Native.background(&Native.gen_full_background(&1, worldgen, cell, biomes, sky))
+
+    with {:ok, full} <-
+           Native.background(&Native.gen_full_background(&1, worldgen, cell, biomes, sky)),
+         do: with_column(full, packet)
+  end
+
+  # Its column decoded and checked here, once, as the owner installs it, and
+  # its packet's parts encoded (VMC-081c2).
+  defp with_column(full, packet) do
+    {:ok, handle} = Blocks.column_handle(full.image, {:background, {full.x, full.z}, packet})
+    {:ok, Map.put(full, :column, handle)}
   end
 
   # A flat column's image lit alone.

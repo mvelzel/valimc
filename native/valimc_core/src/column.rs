@@ -18,6 +18,10 @@ pub const SECTIONS: usize = HEIGHT / 16;
 /// Column images by chunk (`fill_biomes`).
 pub type ChunkImages = Vec<((i32, i32), Vec<u8>)>;
 
+/// A ring chunk as a neighbour sends it: its column (`None`: the base
+/// profile) and the light it was lit with alone, if known.
+pub type RingChunk = ((i32, i32), Option<Column>, Option<ChunkLight>);
+
 /// Encoded chunk parts: section data, WORLD_SURFACE longs, MOTION_BLOCKING longs.
 pub type EncodedChunk = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -253,12 +257,26 @@ pub fn find(
     chunk: (i32, i32),
     states: &[u16],
 ) -> Vec<(i32, i32, i32, u16)> {
-    let mut out = Vec::new();
+    find_set(sections, chunk, &state_set(states))
+}
+
+/// `states` as a set indexed by state id (`find_set`).
+pub fn state_set(states: &[u16]) -> Vec<bool> {
     // Thousands of states are sought at once (signs, banners, VMC-029d).
     let mut wanted = vec![false; states.iter().map(|&s| s as usize + 1).max().unwrap_or(0)];
     for &s in states {
         wanted[s as usize] = true;
     }
+    wanted
+}
+
+/// `find` with the sought states as a set indexed by state id.
+pub fn find_set(
+    sections: &[Arc<Storage>],
+    chunk: (i32, i32),
+    wanted: &[bool],
+) -> Vec<(i32, i32, i32, u16)> {
+    let mut out = Vec::new();
     let sought = |s: u16| wanted.get(s as usize).copied().unwrap_or(false);
     for (s, storage) in sections.iter().enumerate() {
         let candidate = match &**storage {
@@ -446,6 +464,101 @@ fn changed_cells(chunk: (i32, i32), old: &Column, new: &Column, out: &mut Vec<(i
     }
 }
 
+/// A chunk packet's encoding parameters: the default biome, the global block
+/// and biome bits and the dimension's `(first, count)` of stored sections.
+pub type PacketSpec = (u32, u32, u32, (usize, usize));
+
+/// Network data for one column: concatenated sections plus the two heightmaps
+/// (WORLD_SURFACE, MOTION_BLOCKING) packed at 9 bits. The window is the
+/// dimension's `(first, count)` of the stored sections (VMC-026b): only those
+/// are sent, with heights relative to the first one's bottom.
+pub fn encode_column(
+    column: &Column,
+    flags: &BlockFlags,
+    (biome, global_bits, biome_bits, window): PacketSpec,
+) -> Result<EncodedChunk, StoreError> {
+    let (first, count) = window;
+    if count == 0 || first + count > SECTIONS {
+        return Err(StoreError::InvalidY);
+    }
+    let mut sections = Vec::with_capacity(count * 16);
+    for (s, storage) in column.sections.iter().enumerate().skip(first).take(count) {
+        let biomes = match &column.biomes {
+            Some(stored) => wire::SectionBiomes::Stored(&stored[s]),
+            None => wire::SectionBiomes::Uniform(biome),
+        };
+        wire::encode_section(
+            &mut sections,
+            storage,
+            flags,
+            biomes,
+            global_bits,
+            biome_bits,
+        );
+    }
+    let (bottom, top) = ((first * 16) as u16, (count * 16) as u16);
+    let relative = |h: &u16| h.saturating_sub(bottom).min(top) as u64;
+    let mut surface = Vec::with_capacity(37 * 8);
+    wire::pack_longs(
+        &mut surface,
+        column.heights(flags, WORLD_SURFACE).iter().map(relative),
+        9,
+    );
+    let mut motion = Vec::with_capacity(37 * 8);
+    wire::pack_longs(
+        &mut motion,
+        column.heights(flags, MOTION_BLOCKING).iter().map(relative),
+        9,
+    );
+    Ok((sections, surface, motion))
+}
+
+/// A generated chunk's packet parts, made by its generation job beside its
+/// column (VMC-081c2): the encoding and the block-entity carriers. It holds
+/// the column's sections, so a later write to them clones them first and it
+/// no longer matches (`of`).
+#[derive(Debug)]
+pub struct Prepared {
+    column: Column,
+    pub spec: PacketSpec,
+    pub encoded: EncodedChunk,
+    pub carriers: Vec<(i32, i32, i32, u16)>,
+}
+
+impl Prepared {
+    pub fn new(
+        chunk: (i32, i32),
+        column: &Column,
+        flags: &BlockFlags,
+        spec: PacketSpec,
+        carriers: &[bool],
+    ) -> Result<Prepared, StoreError> {
+        Ok(Prepared {
+            column: column.clone(),
+            spec,
+            encoded: encode_column(column, flags, spec)?,
+            carriers: find_set(&column.sections, chunk, carriers),
+        })
+    }
+
+    /// Whether `column` is still the one these parts were made from.
+    pub fn of(&self, column: &Column) -> bool {
+        let biomes = match (&self.column.biomes, &column.biomes) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        biomes
+            && self.column.sections.len() == column.sections.len()
+            && self
+                .column
+                .sections
+                .iter()
+                .zip(&column.sections)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+    }
+}
+
 /// The block storage of one region: lazily materialized columns over a base layer
 /// profile. Columns that were never touched read from the base profile.
 pub struct ColumnStore {
@@ -472,6 +585,9 @@ pub struct ColumnStore {
     /// Moving pistons' block entities by chunk (VMC-048b), which snapshots
     /// share.
     pub pistons: HashMap<(i32, i32), crate::piston::ChunkPistons>,
+    /// Generated chunks' packet parts their jobs prepared (VMC-081c2), until
+    /// first asked for.
+    prepared: HashMap<(i32, i32), Arc<Prepared>>,
 }
 
 impl ColumnStore {
@@ -497,6 +613,7 @@ impl ColumnStore {
             halo: HashMap::new(),
             sky: true,
             pistons: HashMap::new(),
+            prepared: HashMap::new(),
         }
     }
 
@@ -688,23 +805,25 @@ impl ColumnStore {
         self.check_chunk(chunk).is_err() && self.area_chunk(chunk).is_some()
     }
 
-    /// Adopt ring chunks from a neighbour's columns (`None`: the base profile).
-    /// A chunk new to the ring is lit alone and light crosses its faces; a known
-    /// one relights the cells that changed. Returns the region's light changes.
+    /// Adopt ring chunks from a neighbour's columns (`None`: the base profile),
+    /// each with the light it was lit with alone, if known. A chunk new to the
+    /// ring takes that light (or is lit alone) and light crosses its faces; a
+    /// known one relights the cells that changed. Returns the region's light
+    /// changes.
     pub fn halo_put(
         &mut self,
         facts: &LightFacts,
-        chunks: Vec<((i32, i32), Option<Column>)>,
+        chunks: Vec<RingChunk>,
     ) -> Result<Vec<LightChange>, StoreError> {
-        if chunks.iter().any(|(chunk, _)| !self.in_ring(*chunk)) {
+        if chunks.iter().any(|(chunk, _, _)| !self.in_ring(*chunk)) {
             return Err(StoreError::OutOfRegion);
         }
         let (mut fresh, mut changed) = (Vec::new(), Vec::new());
-        for (chunk, column) in chunks {
+        for (chunk, column, light) in chunks {
             let column = column.unwrap_or_else(|| self.flat.clone());
             match self.halo.get(&chunk) {
                 Some(old) => changed_cells(chunk, old, &column, &mut changed),
-                None => fresh.push((self.area_chunk(chunk).unwrap(), None)),
+                None => fresh.push((self.area_chunk(chunk).unwrap(), light)),
             }
             self.halo.insert(chunk, column);
         }
@@ -751,6 +870,7 @@ impl ColumnStore {
             self.stored.remove(&chunk);
             self.random
                 .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
+            self.prepared.remove(&chunk);
             self.columns.insert(chunk, column);
         }
         let cells = self.area_cells(&changed);
@@ -914,10 +1034,7 @@ impl ColumnStore {
         Ok(previous)
     }
 
-    /// Network data for one chunk: concatenated sections plus the two heightmaps
-    /// (WORLD_SURFACE, MOTION_BLOCKING) packed at 9 bits. `window` is the
-    /// dimension's `(first, count)` of the stored sections (VMC-026b): only those
-    /// are sent, with heights relative to the first one's bottom.
+    /// Network data for one chunk (`encode_column`).
     pub fn encode_chunk(
         &self,
         chunk: (i32, i32),
@@ -927,42 +1044,32 @@ impl ColumnStore {
         biome_bits: u32,
         window: (usize, usize),
     ) -> Result<EncodedChunk, StoreError> {
-        let (first, count) = window;
-        if count == 0 || first + count > SECTIONS {
-            return Err(StoreError::InvalidY);
-        }
         self.chunk_of(chunk.0 * 16, chunk.1 * 16)?;
-        let column = self.column(chunk);
-        let mut sections = Vec::with_capacity(count * 16);
-        for (s, storage) in column.sections.iter().enumerate().skip(first).take(count) {
-            let biomes = match &column.biomes {
-                Some(stored) => wire::SectionBiomes::Stored(&stored[s]),
-                None => wire::SectionBiomes::Uniform(biome),
-            };
-            wire::encode_section(
-                &mut sections,
-                storage,
-                flags,
-                biomes,
-                global_bits,
-                biome_bits,
-            );
+        encode_column(
+            self.column(chunk),
+            flags,
+            (biome, global_bits, biome_bits, window),
+        )
+    }
+
+    /// A region chunk's sections (the base profile's while untouched).
+    pub fn chunk_sections(&self, chunk: (i32, i32)) -> &[Arc<Storage>] {
+        &self.column(chunk).sections
+    }
+
+    /// Keep what a generation job prepared of `chunk`'s packet (VMC-081c2)
+    /// until `take_prepared` asks for it.
+    pub fn prepare(&mut self, chunk: (i32, i32), prepared: Arc<Prepared>) {
+        if self.check_chunk(chunk).is_ok() {
+            self.prepared.insert(chunk, prepared);
         }
-        let (bottom, top) = ((first * 16) as u16, (count * 16) as u16);
-        let relative = |h: &u16| h.saturating_sub(bottom).min(top) as u64;
-        let mut surface = Vec::with_capacity(37 * 8);
-        wire::pack_longs(
-            &mut surface,
-            column.heights(flags, WORLD_SURFACE).iter().map(relative),
-            9,
-        );
-        let mut motion = Vec::with_capacity(37 * 8);
-        wire::pack_longs(
-            &mut motion,
-            column.heights(flags, MOTION_BLOCKING).iter().map(relative),
-            9,
-        );
-        Ok((sections, surface, motion))
+    }
+
+    /// What was prepared of `chunk`'s packet with `spec`, once, if its column
+    /// is still the one it was prepared from.
+    pub fn take_prepared(&mut self, chunk: (i32, i32), spec: PacketSpec) -> Option<Arc<Prepared>> {
+        let prepared = self.prepared.remove(&chunk)?;
+        (prepared.spec == spec && prepared.of(self.columns.get(&chunk)?)).then_some(prepared)
     }
 
     /// Blocks in one chunk whose state is in `states` (e.g. block-entity carriers).
@@ -1078,6 +1185,7 @@ impl ColumnStore {
         self.stored.remove(&chunk);
         self.random
             .recount(self.local(chunk), column.sections.iter().map(|s| &**s));
+        self.prepared.remove(&chunk);
         self.columns.insert(chunk, column);
         Ok(())
     }
@@ -1104,11 +1212,8 @@ impl ColumnStore {
         {
             return Err(StoreError::InvalidY);
         }
-        let mut valid = true;
-        for storage in &column.sections {
-            storage.for_each(|_, state| valid &= flags.valid(state as u32));
-        }
-        if valid {
+        let valid = |state: u16| flags.valid(state as u32);
+        if column.sections.iter().all(|s| s.states_valid(valid)) {
             Ok(())
         } else {
             Err(StoreError::InvalidState)
@@ -1622,7 +1727,9 @@ mod tests {
             vec![],
             "unknown ring chunks take no edits"
         );
-        let changes = store.halo_put(&facts, vec![((-1, 0), Some(west))]).unwrap();
+        let changes = store
+            .halo_put(&facts, vec![((-1, 0), Some(west), None)])
+            .unwrap();
         assert_eq!(block(&store, 0, 70, 5), 13);
         // Air at y 60..82 holds that light (sections 7 to 9), and z 16 and 17
         // at y 70 or so (section 8) in the next chunk.
@@ -1650,6 +1757,34 @@ mod tests {
         assert!(store
             .put_column((0, 0), Column::from_layers(&ground()), &flags)
             .is_ok());
+    }
+
+    #[test]
+    fn a_ring_chunk_with_its_light_alone_lights_as_one_lit_here() {
+        let facts = light_facts();
+        // Torches and a roof in the ring chunk west of the region.
+        let mut west = Column::from_layers(&ground());
+        west.set(-1, 70, 5, 2);
+        west.set(-3, 64, 9, 2);
+        for x in -16..0 {
+            for z in 0..16 {
+                west.set(x, 75, z, 1);
+            }
+        }
+        let alone = light_alone(&west.sections, &facts, true);
+        let ring = |light: Option<ChunkLight>| {
+            let mut store = ColumnStore::new((0, 0), 2, ground(), 1 << 30);
+            store.light_init(&facts, &[]).unwrap();
+            let changes = store
+                .halo_put(&facts, vec![((-1, 0), Some(west.clone()), light)])
+                .unwrap();
+            (store, changes)
+        };
+        let ((given, a), (lit, b)) = (ring(Some(alone)), ring(None));
+        assert_eq!(a, b);
+        for chunk in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+            assert_eq!(light_of(&given, chunk), light_of(&lit, chunk), "{chunk:?}");
+        }
     }
 
     #[test]

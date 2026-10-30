@@ -5162,9 +5162,11 @@ defmodule Valimc.World.RegionData do
   # Their frame is cut at once rather than at the next commit tick.
 
   @doc false
-  def wait_durable(state, waits) do
-    storage = Enum.reduce(waits, state.storage, &RegionStorage.after_durable(&2, &1))
-    commit(%{state | storage: storage})
+  def wait_durable(state, waits), do: commit(after_durable(state, waits))
+
+  @doc "`waits` released once the next cut, whenever it is, is durable."
+  def after_durable(state, waits) do
+    %{state | storage: Enum.reduce(waits, state.storage, &RegionStorage.after_durable(&2, &1))}
   end
 
   defp release_now(state, effects), do: Enum.reduce(effects, state, &release_effect(&2, &1))
@@ -5504,7 +5506,8 @@ defmodule Valimc.World.RegionData do
     if ready == [] do
       state
     else
-      marks = for chunk <- ready, {x, y, z} <- elem(state.post[chunk], 0), do: {x, y, z}
+      entries = Map.new(ready, &{&1, RegionGeneration.post_entry(state.post[&1])})
+      marks = for chunk <- ready, {x, y, z} <- elem(entries[chunk], 0), do: {x, y, z}
       actions = for position <- marks, do: {:post, position}
       {state, outcome} = rule_run(state, %{actions: actions, handling_tick: true})
 
@@ -5515,7 +5518,7 @@ defmodule Valimc.World.RegionData do
 
       ticks =
         for chunk <- ready,
-            {position, name} <- elem(state.post[chunk], 1),
+            {position, name} <- elem(entries[chunk], 1),
             do: {:schedule, position, {:fluid, Valimc.Blocks.Fluids.id(name)}, 0, 0}
 
       kept_by_chunk = Enum.group_by(kept, fn {x, _, z} -> Grid.chunk_key(x, z) end)
@@ -8326,8 +8329,20 @@ defmodule Valimc.World.RegionData do
       # Section encoding is a short NIF call on the owner; packet assembly and
       # compression run in the worker from these immutable binaries.
       started = System.monotonic_time(:microsecond)
-      encoded = Blocks.encode(state.blocks, key)
-      entities = if encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key)
+
+      # A generated chunk's first packet: its job encoded it (VMC-081c2).
+      {encoded, entities} =
+        case Blocks.prepared(state.blocks, key) do
+          nil ->
+            encoded = Blocks.encode(state.blocks, key)
+
+            {encoded,
+             if(encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key))}
+
+          prepared ->
+            prepared
+        end
+
       preserved = preserved_entities(state, key)
       light = Blocks.light_image(state.blocks, key)
       sections_microseconds = System.monotonic_time(:microsecond) - started

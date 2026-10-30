@@ -1,11 +1,12 @@
 //! Block and sky light over the Region resource, chunk by chunk (VMC-077c).
 
-use crate::facts::{FLAGS, LIGHT};
+use crate::facts::{CARRIERS, FLAGS, LIGHT};
 use crate::region::{error, with_owned, with_store, Region};
 use crate::{atoms, bytes, done};
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
-use valimc_core::column::{with_light, Column};
-use valimc_core::light_grid::{light_alone, TooLarge};
+use std::sync::Arc;
+use valimc_core::column::{with_light, Column, PacketSpec, Prepared};
+use valimc_core::light_grid::{light_alone, ChunkLight, TooLarge};
 
 /// Whether the region's dimension has sky light (VMC-026b); set before lighting.
 #[rustler::nif]
@@ -111,60 +112,163 @@ pub(crate) fn lit_alone(image: &[u8], sky: bool) -> Result<Option<Vec<u8>>, Atom
     Ok(Some(with_light(image, &light)))
 }
 
-fn valid_column(bytes: &[u8]) -> Result<Column, Atom> {
+/// A generated column decoded and checked once (VMC-081c2), with the light
+/// its chunk was lit with alone and, from its generation job, its chunk
+/// packet's parts: its owner installs it and its neighbours' rings adopt it
+/// without decoding, sharing its sections, and its first packet is not
+/// encoded again.
+pub struct ColumnHandle {
+    column: Column,
+    light: Option<ChunkLight>,
+    prepared: Option<Arc<Prepared>>,
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for ColumnHandle {}
+
+fn handle_of(image: &[u8]) -> Result<ColumnHandle, Atom> {
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    let column = Column::from_image(bytes).ok_or(atoms::invalid_layers())?;
-    let mut valid = true;
-    for storage in &column.sections {
-        storage.for_each(|_, state| valid &= flags.valid(state as u32));
-    }
-    if valid {
-        Ok(column)
+    let (column, light) = Column::read_image(image).ok_or(atoms::invalid_layers())?;
+    if column
+        .sections
+        .iter()
+        .all(|s| s.states_valid(|state| flags.valid(state as u32)))
+    {
+        Ok(ColumnHandle {
+            column,
+            light,
+            prepared: None,
+        })
     } else {
         Err(atoms::invalid_state())
     }
 }
 
-/// Adopt ring chunks from a neighbour's column images (or `flat`); returns the
-/// region's light changes.
-#[rustler::nif(schedule = "DirtyCpu")]
+/// A column image (with its light, if stored) as a handle to install.
+#[rustler::nif]
+fn column_handle(image: Binary) -> Result<ResourceArc<ColumnHandle>, Atom> {
+    handle_of(image.as_slice()).map(ResourceArc::new)
+}
+
+/// `column_handle` on a generation thread (VMC-081c), before queued bulk work;
+/// with `packet` (`{cx, cz, spec}`) also the chunk's packet parts.
+#[rustler::nif]
+fn column_handle_background<'a>(
+    env: Env<'a>,
+    tag: Term<'a>,
+    image: Binary<'a>,
+    packet: Option<(i32, i32, PacketSpec)>,
+) -> Atom {
+    let bytes = image.as_slice().to_vec();
+    crate::background::submit(env, tag, true, move || {
+        let error = |e| format!("a column image: {e:?}");
+        let mut handle = handle_of(&bytes).map_err(error)?;
+        if let Some((cx, cz, spec)) = packet {
+            let flags = FLAGS.get().ok_or("block facts not installed")?;
+            let carriers = CARRIERS.get().ok_or("carrier states not installed")?;
+            let prepared = Prepared::new((cx, cz), &handle.column, flags, spec, carriers)
+                .map_err(|e| format!("a chunk packet: {e:?}"))?;
+            handle.prepared = Some(Arc::new(prepared));
+        }
+        Ok(ResourceArc::new(handle))
+    })
+}
+
+/// A ring chunk as a neighbour sends it: a handle, an image (with the light
+/// it was stored with, if any) or `flat`.
+fn ring_chunk(term: Term) -> Result<(Option<Column>, Option<ChunkLight>), Atom> {
+    if let Ok(handle) = term.decode::<ResourceArc<ColumnHandle>>() {
+        return Ok((Some(handle.column.clone()), handle.light.clone()));
+    }
+    match term.decode::<Binary>() {
+        Ok(bytes) => {
+            let handle = handle_of(bytes.as_slice())?;
+            Ok((Some(handle.column), handle.light))
+        }
+        Err(_) => Ok((None, None)),
+    }
+}
+
+fn adopt_ring(
+    env: Env,
+    region: &Region,
+    chunks: Vec<(i32, i32, Term)>,
+) -> Result<Vec<Change>, Atom> {
+    let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
+    let mut columns = Vec::with_capacity(chunks.len());
+    for (cx, cz, term) in chunks {
+        let (column, light) = ring_chunk(term)?;
+        columns.push(((cx, cz), column, light));
+    }
+    with_owned(env, region, |store| {
+        store.halo_put(facts, columns).map_err(error)
+    })
+}
+
+/// Adopt ring chunks from a neighbour's column handles or images (or
+/// `flat`); returns the region's light changes. Short: a few chunks
+/// (`halo_put_dirty` for more).
+#[rustler::nif]
 fn halo_put(
     env: Env,
     region: ResourceArc<Region>,
     chunks: Vec<(i32, i32, Term)>,
 ) -> Result<Vec<Change>, Atom> {
-    let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
-    let mut columns = Vec::with_capacity(chunks.len());
-    for (cx, cz, image) in chunks {
-        let column = match image.decode::<Binary>() {
-            Ok(bytes) => Some(valid_column(bytes.as_slice())?),
-            Err(_) => None,
-        };
-        columns.push(((cx, cz), column));
-    }
-    with_owned(env, &region, |store| {
-        store.halo_put(facts, columns).map_err(error)
-    })
+    adopt_ring(env, &region, chunks)
 }
 
-/// Install generated columns (VMC-075) from their images, all or nothing, with
-/// the light they were generated with; returns the region's light changes.
+/// `halo_put` on a dirty scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn put_columns_lit(
+fn halo_put_dirty(
     env: Env,
     region: ResourceArc<Region>,
-    images: Vec<(i32, i32, Binary)>,
+    chunks: Vec<(i32, i32, Term)>,
+) -> Result<Vec<Change>, Atom> {
+    adopt_ring(env, &region, chunks)
+}
+
+fn install(
+    env: Env,
+    region: &Region,
+    handles: Vec<(i32, i32, ResourceArc<ColumnHandle>)>,
 ) -> Result<Vec<Change>, Atom> {
     let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    let mut columns = Vec::with_capacity(images.len());
-    for (cx, cz, image) in images {
-        let (column, light) = Column::read_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
-        columns.push(((cx, cz), column, light));
-    }
-    with_owned(env, &region, |store| {
-        store.put_columns(facts, flags, columns).map_err(error)
+    let columns = handles
+        .iter()
+        .map(|(cx, cz, h)| ((*cx, *cz), h.column.clone(), h.light.clone()))
+        .collect();
+    with_owned(env, region, |store| {
+        let changes = store.put_columns(facts, flags, columns).map_err(error)?;
+        for (cx, cz, h) in &handles {
+            if let Some(prepared) = &h.prepared {
+                store.prepare((*cx, *cz), prepared.clone());
+            }
+        }
+        Ok(changes)
     })
+}
+
+/// Install generated columns (VMC-075) from their handles, all or nothing,
+/// with the light they were generated with; returns the region's light
+/// changes. Short: a few chunks (`put_columns_dirty` for more).
+#[rustler::nif]
+fn put_columns(
+    env: Env,
+    region: ResourceArc<Region>,
+    handles: Vec<(i32, i32, ResourceArc<ColumnHandle>)>,
+) -> Result<Vec<Change>, Atom> {
+    install(env, &region, handles)
+}
+
+/// `put_columns` on a dirty scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn put_columns_dirty(
+    env: Env,
+    region: ResourceArc<Region>,
+    handles: Vec<(i32, i32, ResourceArc<ColumnHandle>)>,
+) -> Result<Vec<Change>, Atom> {
+    install(env, &region, handles)
 }
 
 /// Apply a neighbour's block changes to known ring chunks; returns the

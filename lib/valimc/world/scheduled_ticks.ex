@@ -92,6 +92,12 @@ defmodule Valimc.World.ScheduledTicks do
         end
       end)
 
+    add_entries(%{ticks | index: index, sequence: sequence}, added)
+  end
+
+  defp add_entries(ticks, []), do: ticks
+
+  defp add_entries(ticks, added) do
     by_chunk =
       Enum.group_by(added, fn {_, _, _, {x, _, z}, _} ->
         {Integer.floor_div(x, 16), Integer.floor_div(z, 16)}
@@ -108,7 +114,59 @@ defmodule Valimc.World.ScheduledTicks do
         end)
       end)
 
-    %{ticks | containers: containers, index: index, sequence: sequence}
+    %{ticks | containers: containers}
+  end
+
+  @doc """
+  The ticks a delivery of generated chunks brings (`schedule_all/2`'s
+  `entries`), leaving the containers of chunks outside `simulated` frozen
+  as `schedule_all/2` then `freeze/2` would, without indexing the ticks of
+  chunks that held none first (VMC-081c2): those are frozen at once.
+  """
+  def schedule_generated(%__MODULE__{} = ticks, entries, simulated) do
+    held = fn chunk ->
+      MapSet.member?(simulated, chunk) or Map.has_key?(ticks.containers, chunk) or
+        Map.has_key?(ticks.frozen, chunk)
+    end
+
+    ticks =
+      if ticks.frozen == %{},
+        do: ticks,
+        else: thaw(ticks, Enum.uniq(for {{x, _, z}, _, _, _} <- entries, do: {x >>> 4, z >>> 4}))
+
+    # One numbering in the entries' order, as `schedule_all/2` gives; a pair
+    # already scheduled keeps its tick and takes no number.
+    {added, cold, index, sequence} =
+      Enum.reduce(entries, {[], %{}, ticks.index, ticks.sequence}, fn
+        {{x, _, z} = position, block, due, priority}, {added, cold, index, sequence} = acc ->
+          if Map.has_key?(index, {position, block}) do
+            acc
+          else
+            entry = {due - ticks.shift, priority, sequence, position, block}
+            index = Map.put(index, {position, block}, entry)
+            chunk = {x >>> 4, z >>> 4}
+
+            if held.(chunk),
+              do: {[entry | added], cold, index, sequence + 1},
+              else: {added, Map.update(cold, chunk, [entry], &[entry | &1]), index, sequence + 1}
+          end
+      end)
+
+    frozen =
+      Enum.reduce(cold, ticks.frozen, fn {chunk, list}, acc ->
+        list = Enum.sort(list)
+        Map.put(acc, chunk, {:frozen, length(list), :erlang.term_to_binary(list)})
+      end)
+
+    # The index keeps only unfrozen ticks.
+    index =
+      if cold == %{},
+        do: index,
+        else: Map.drop(index, for({_, list} <- cold, {_, _, _, p, b} <- list, do: {p, b}))
+
+    %{ticks | index: index, sequence: sequence, frozen: frozen}
+    |> add_entries(added)
+    |> freeze(simulated)
   end
 
   @doc """

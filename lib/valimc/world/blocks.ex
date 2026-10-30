@@ -117,17 +117,30 @@ defmodule Valimc.World.Blocks do
   end
 
   @doc """
-  Install generated column images (`chunk => image`, VMC-075), all or nothing,
-  with the light they were generated with; returns the region's light changes
-  (`light_update/2`).
+  Install generated columns from their handles (`chunk => handle`,
+  `column_handle/2`, VMC-081c2), all or nothing, with the light they were
+  generated with; returns the region's light changes (`light_update/2`).
   """
-  def put_columns(%__MODULE__{} = blocks, images) when is_map(images) do
-    list = for {{cx, cz}, image} <- images, do: {cx, cz, image}
+  def put_columns(%__MODULE__{} = blocks, handles) when is_map(handles) do
+    list = for {{cx, cz}, handle} <- handles, do: {cx, cz, handle}
+    Native.dispatch(:put_columns, length(list), [blocks.ref, list])
+  end
 
-    case Native.put_columns_lit(blocks.ref, list) do
-      {:ok, changes} -> {:ok, changes}
-      {:error, _} = error -> error
-    end
+  @doc """
+  A column image (with the light it was lit with alone, if stored) decoded
+  and checked once, for `put_columns/2` and neighbours' rings to share
+  without decoding. `{:background, chunk, spec}` makes it on a generation
+  thread (VMC-081c) with its chunk's packet parts (`packet_spec/1`,
+  `prepared/2`).
+  """
+  def column_handle(image), do: Native.column_handle(image)
+
+  def column_handle(image, {:background, _chunk, nil}),
+    do: Native.background(&Native.column_handle_background(&1, image, nil))
+
+  def column_handle(image, {:background, {cx, cz}, spec}) do
+    :ok = carriers_installed()
+    Native.background(&Native.column_handle_background(&1, image, {cx, cz, spec}))
   end
 
   @doc """
@@ -231,22 +244,38 @@ defmodule Valimc.World.Blocks do
   dimension's sections are encoded. The owner hands the result to a worker.
   """
   def encode(%__MODULE__{} = blocks, {cx, cz} = chunk) do
-    biome = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
+    {biome, bits, biome_bits, window} = packet_spec()
 
-    case Native.encode_chunk(
-           blocks.ref,
-           cx,
-           cz,
-           biome,
-           Data.global_block_bits(),
-           Data.global_biome_bits(),
-           Valimc.World.Dimension.section_window()
-         ) do
+    case Native.encode_chunk(blocks.ref, cx, cz, biome, bits, biome_bits, window) do
       {:ok, :flat} ->
         :flat
 
       {:ok, {sections, surface, motion}} ->
         %{chunk: chunk, sections: sections, surface: surface, motion: motion}
+    end
+  end
+
+  @doc """
+  How `dimension`'s chunk packets encode sections: `{default_biome,
+  block_bits, biome_bits, section_window}`.
+  """
+  def packet_spec(dimension \\ Valimc.World.Dimension.current()) do
+    {Data.registry_id("minecraft:worldgen/biome", "minecraft:plains"), Data.global_block_bits(),
+     Data.global_biome_bits(), Valimc.World.Dimension.section_window(dimension)}
+  end
+
+  @doc """
+  What `chunk`'s generation job prepared of its packet (VMC-081c2), once
+  and while its column is as generated: `{encode/2's result,
+  chunk_entities/2's}`, else nil.
+  """
+  def prepared(%__MODULE__{} = blocks, {cx, cz} = chunk) do
+    case Native.chunk_prepared(blocks.ref, cx, cz, packet_spec()) do
+      {:ok, {sections, surface, motion, found}} ->
+        {%{chunk: chunk, sections: sections, surface: surface, motion: motion}, carriers(found)}
+
+      {:ok, nil} ->
+        nil
     end
   end
 
@@ -294,27 +323,32 @@ defmodule Valimc.World.Blocks do
   without data (end portals) as `position => block`.
   """
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
-    states = owned_states() ++ Valimc.Blocks.BlockEntityTypes.plain_states()
-    {:ok, found} = Native.chunk_find(blocks.ref, cx, cz, states)
+    :ok = carriers_installed()
+    {:ok, found} = Native.chunk_carriers(blocks.ref, cx, cz)
+    carriers(found)
+  end
 
+  defp carriers(found) do
     for <<x::32-signed, y::32-signed, z::32-signed, block::16 <- found>>,
       into: %{},
       do: {{x, y, z}, block}
   end
 
-  defp owned_states do
-    case :persistent_term.get({__MODULE__, :owned_states}, nil) do
-      nil ->
-        states =
-          for state <- 0..(Data.block_state_count() - 1),
-              Valimc.Blocks.block_entity(state) != nil,
-              do: state
+  @doc """
+  Install the block-entity carriers (`chunk_entities/2`) natively, once per
+  VM: the owned carriers and those without data.
+  """
+  def carriers_installed do
+    if :persistent_term.get({__MODULE__, :carriers}, false) do
+      :ok
+    else
+      owned =
+        for state <- 0..(Data.block_state_count() - 1),
+            Valimc.Blocks.block_entity(state) != nil,
+            do: state
 
-        :persistent_term.put({__MODULE__, :owned_states}, states)
-        states
-
-      states ->
-        states
+      :ok = Native.carriers_install(owned ++ Valimc.Blocks.BlockEntityTypes.plain_states())
+      :persistent_term.put({__MODULE__, :carriers}, true)
     end
   end
 

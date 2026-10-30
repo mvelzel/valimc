@@ -1307,9 +1307,10 @@ defmodule Valimc.World.Region do
   end
 
   # A delivery of full chunks from the generation scheduler (VMC-077w): each
-  # section installs its chunks in one pass, the halo images its siblings get
-  # apply once per sibling, everything commits once, and then the scheduler
-  # may send the next delivery. Its credit is the account's it was sent to
+  # section installs its chunks in one pass, the column handles its siblings'
+  # rings get apply once per sibling, and then the scheduler may send the
+  # next delivery. The group's commit timer cuts the columns with everything
+  # else of its interval (VMC-081c2). Its credit is the account's it was sent to
   # (`credit`): sections that moved take it along, and their new group
   # acknowledges it once it installed them.
   defp owner_info({:generated, scheduler, deliveries}, state),
@@ -1364,7 +1365,7 @@ defmodule Valimc.World.Region do
         end
       end)
 
-    {:noreply, commit_frames(state)}
+    {:noreply, state}
   end
 
   defp owner_info({:halo, key, payload} = info, state) do

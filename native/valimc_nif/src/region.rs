@@ -301,6 +301,59 @@ fn encode_chunk<'a>(
     })
 }
 
+/// Packed `{x, y, z, state}` records of the block-entity carriers
+/// (`carriers_install`) in one chunk.
+#[rustler::nif]
+fn chunk_carriers<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+) -> Result<Binary<'a>, Atom> {
+    let carriers = crate::facts::CARRIERS
+        .get()
+        .ok_or(atoms::flags_missing())?;
+    let found = with_store(&region, |store| {
+        store.check_chunk((cx, cz)).map_err(error)?;
+        Ok(valimc_core::column::find_set(
+            store.chunk_sections((cx, cz)),
+            (cx, cz),
+            carriers,
+        ))
+    })?;
+    Ok(packed_blocks(env, &found))
+}
+
+/// What a generation job prepared of a chunk's packet with `spec` (VMC-081c2):
+/// `{sections, surface, motion, carriers}` as `encode_chunk` and
+/// `chunk_carriers` give them, once, while its column is unchanged; nil
+/// otherwise.
+#[rustler::nif]
+fn chunk_prepared<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    spec: valimc_core::column::PacketSpec,
+) -> Result<Term<'a>, Atom> {
+    let prepared = with_owned(env, &region, |store| {
+        Ok(store.take_prepared((cx, cz), spec))
+    })?;
+    Ok(match prepared {
+        None => rustler::types::atom::nil().encode(env),
+        Some(p) => {
+            let (sections, surface, motion) = &p.encoded;
+            (
+                bytes(env, sections.clone()),
+                bytes(env, surface.clone()),
+                bytes(env, motion.clone()),
+                packed_blocks(env, &p.carriers),
+            )
+                .encode(env)
+        }
+    })
+}
+
 /// Packed `{x, y, z, state}` records of the positions in one chunk holding any
 /// of `states` (block-entity carriers).
 #[rustler::nif]

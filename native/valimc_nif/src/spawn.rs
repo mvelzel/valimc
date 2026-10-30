@@ -186,8 +186,9 @@ fn spawn_position_ok(
 /// The creatures generated chunks get (`spawnMobsForChunkGeneration`, each
 /// chunk's random decoration-seeded from the world seed): per chunk its
 /// spawns. Chunk generation reads a level with no entities and no sky
-/// darkening.
-#[rustler::nif(schedule = "DirtyCpu")]
+/// darkening. A few block reads per pack: about 3 µs a chunk, so a normal
+/// scheduler serves a delivery's chunks (VMC-081c2).
+#[rustler::nif]
 fn spawn_generated(
     region: ResourceArc<Region>,
     siblings: Vec<ResourceArc<Region>>,
