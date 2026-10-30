@@ -32,7 +32,7 @@ pub struct Contact {
 }
 
 /// The cells a body scan covers, in vanilla's order (x, then y, then z).
-fn positions(b: &Aabb, inset: f64) -> Option<Vec<[i32; 3]>> {
+fn positions(b: &Aabb, inset: f64) -> Option<impl Iterator<Item = [i32; 3]>> {
     if !(b.max[0] - b.min[0] > 2.0 * inset
         && b.max[1] - b.min[1] > 2.0 * inset
         && b.max[2] - b.min[2] > 2.0 * inset)
@@ -41,15 +41,9 @@ fn positions(b: &Aabb, inset: f64) -> Option<Vec<[i32; 3]>> {
     }
     let lo: [i32; 3] = std::array::from_fn(|i| (b.min[i] + inset).floor() as i32);
     let hi: [i32; 3] = std::array::from_fn(|i| (b.max[i] - inset).ceil() as i32 - 1);
-    let mut out = Vec::new();
-    for x in lo[0]..=hi[0] {
-        for y in lo[1]..=hi[1] {
-            for z in lo[2]..=hi[2] {
-                out.push([x, y, z]);
-            }
-        }
-    }
-    Some(out)
+    Some((lo[0]..=hi[0]).flat_map(move |x| {
+        (lo[1]..=hi[1]).flat_map(move |y| (lo[2]..=hi[2]).map(move |z| [x, y, z]))
+    }))
 }
 
 /// The height of a fluid cell's surface: full under the same fluid.

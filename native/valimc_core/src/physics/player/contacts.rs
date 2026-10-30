@@ -4,17 +4,17 @@
 //! Effects that need the player's living state (burning, damage) are
 //! returned as observations for the owner to apply.
 
-use super::paths::{self, Path, Visit};
+use super::paths::{Path, Visit, Visits, Walked};
 use super::pose::{self, Dimensions};
 use super::rules::{self, Stuck};
 use super::Fault;
 use crate::physics::aabb::Aabb;
+use crate::physics::cells::CellSet;
 use crate::physics::collide;
 use crate::physics::facts::{Facts, Hazard, InsideKind, InsideShape, EMPTY, LAVA};
 use crate::physics::source::BlockSource;
 use crate::physics::sweep::collided_along;
 use crate::physics::table::Context;
-use std::collections::HashSet;
 
 fn state(source: &dyn BlockSource, p: [i32; 3]) -> Result<u16, Fault> {
     source.state(p[0], p[1], p[2]).ok_or(Fault::Unreadable(p))
@@ -99,6 +99,20 @@ pub fn slowing(
     ctx: &Context,
     b: &Body,
 ) -> Result<Slowing, Fault> {
+    slowing_walked(source, facts, catalog, paths, &Walked::new(), ctx, b)
+}
+
+/// `slowing` over the visits `walked` keeps for the paths (walked on first
+/// use), which the tick's other contact rules share.
+pub fn slowing_walked(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    catalog: &[Dimensions],
+    paths: &[Path],
+    walked: &Walked,
+    ctx: &Context,
+    b: &Body,
+) -> Result<Slowing, Fault> {
     if b.flying || b.spectator || paths.is_empty() {
         return Ok(Slowing {
             multiplier: None,
@@ -109,10 +123,11 @@ pub fn slowing(
     pose::geometry(catalog, b.pose, b.feet)?;
     let feet = stuck(facts, state(source, floor(b.feet))?);
     let mut ctx = *ctx;
-    let mut seen: HashSet<[i32; 3]> = HashSet::new();
+    let mut seen = CellSet::new();
     let mut last: Option<Slowed> = None;
     let mut powder_snow = false;
-    paths::visit(catalog, paths, b.pose, &mut |v: &Visit| {
+    let visits = walked.get_or_init(|| Visits::walk(catalog, paths, b.pose));
+    visits.replay(&mut |v: &Visit| {
         if seen.contains(&v.position) {
             return Ok(());
         }
@@ -254,6 +269,20 @@ pub fn touched(
     ctx: &Context,
     t: &Toucher,
 ) -> Result<Touched, Fault> {
+    touched_walked(source, facts, catalog, paths, &Walked::new(), ctx, t)
+}
+
+/// `touched` over the visits `walked` keeps for the paths (walked on first
+/// use).
+pub fn touched_walked(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    catalog: &[Dimensions],
+    paths: &[Path],
+    walked: &Walked,
+    ctx: &Context,
+    t: &Toucher,
+) -> Result<Touched, Fault> {
     let b = &t.body;
     if b.spectator || paths.is_empty() {
         return Ok(Touched::default());
@@ -272,10 +301,11 @@ pub fn touched(
         active: hot,
     };
     let mut ctx = *ctx;
-    let mut seen: HashSet<[i32; 3]> = HashSet::new();
+    let mut seen = CellSet::new();
     let mut step: Option<u32> = None;
     let mut current: Vec<Contact> = Vec::new();
-    paths::visit(catalog, paths, b.pose, &mut |v: &Visit| {
+    let visits = walked.get_or_init(|| Visits::walk(catalog, paths, b.pose));
+    visits.replay(&mut |v: &Visit| {
         if seen.contains(&v.position) {
             return Ok(());
         }

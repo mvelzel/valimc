@@ -8,6 +8,7 @@
 //! damage, air, burning, lava) come back as observations.
 
 use super::aabb::Aabb;
+use super::cells::CellMap;
 use super::collide::{self, Extra};
 use super::fluid::{self, Depths, Pushed};
 use super::player::contacts::{self, Body, Slowing, Touched, Toucher};
@@ -19,7 +20,6 @@ use super::player::{Fault, World};
 use super::response::{self, Response};
 use super::sweep;
 use super::table::Context;
-use std::collections::HashMap;
 
 /// `FenceBlock`s and `DoorBlock`s (flag bits 47 and 48): `MoveControl` does
 /// not jump onto them.
@@ -1050,6 +1050,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let mut recorded = Vec::new();
     paths::record(&mut recorded, start, moved.actual, moved.requested);
     let visited = paths::collect(&recorded, start, m.position);
+    let walked = paths::Walked::new();
     let catalog = m.catalog();
     let feet = Body {
         pose: 0,
@@ -1062,11 +1063,12 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         multiplier,
         last,
         powder_snow,
-    } = contacts::slowing(
+    } = contacts::slowing_walked(
         w.source,
         w.facts,
         &catalog,
         &visited,
+        &walked,
         &m.context(moved.fall, m.position[1]),
         &feet,
     )?;
@@ -1076,11 +1078,12 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     if last.is_some() {
         m.fall_distance = 0.0;
     }
-    let touched = contacts::touched(
+    let touched = contacts::touched_walked(
         w.source,
         w.facts,
         &catalog,
         &visited,
+        &walked,
         &m.context(m.fall_distance, m.position[1]),
         &Toucher {
             body: feet,
@@ -1387,7 +1390,7 @@ pub type Stepped = (Result<Ticked, Fault>, Vec<(usize, [f64; 3])>);
 pub struct Ticker {
     pub current: Vec<Mob>,
     cell: f64,
-    grid: HashMap<(i64, i64), Vec<usize>>,
+    grid: CellMap<(i64, i64), Vec<usize>>,
     cells: Vec<(i64, i64)>,
     solid: Vec<Option<Aabb>>,
     solid_count: usize,
@@ -1400,7 +1403,7 @@ impl Ticker {
         let mut t = Ticker {
             current: mobs,
             cell,
-            grid: HashMap::new(),
+            grid: CellMap::default(),
             cells: Vec::new(),
             solid,
             solid_count: 0,

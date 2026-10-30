@@ -150,6 +150,7 @@ fn segments(p: &Path) -> Result<Vec<Segment>, Fault> {
 
 /// A block visit: the cell, the crossing step it was found at, the body at
 /// the segment's start and the segment's displacement.
+#[derive(Clone, Copy, Debug)]
 pub struct Visit {
     pub position: [i32; 3],
     pub step: u32,
@@ -211,4 +212,38 @@ pub fn visit(
         }
     }
     Ok(())
+}
+
+/// The visits of a body along its paths, walked once for every contact
+/// rule that reads them (`visit` replayed): the visits in order and the
+/// fault that ended the walk early, which a replay meets after them.
+pub struct Visits {
+    list: Vec<Visit>,
+    fault: Option<Fault>,
+}
+
+/// The visits of `pose`'s body along `paths`, walked on first use.
+pub type Walked = std::cell::OnceCell<Visits>;
+
+impl Visits {
+    pub fn walk(catalog: &[Dimensions], paths: &[Path], pose: u8) -> Visits {
+        let mut list = Vec::new();
+        let fault = visit(catalog, paths, pose, &mut |v| {
+            list.push(*v);
+            Ok(())
+        })
+        .err();
+        Visits { list, fault }
+    }
+
+    /// `visit`'s calls of `visitor` and its result, from the walk.
+    pub fn replay(
+        &self,
+        visitor: &mut dyn FnMut(&Visit) -> Result<(), Fault>,
+    ) -> Result<(), Fault> {
+        for v in &self.list {
+            visitor(v)?;
+        }
+        self.fault.map_or(Ok(()), Err)
+    }
 }

@@ -6,6 +6,7 @@
 pub mod aabb;
 pub mod block_body;
 pub mod border;
+pub mod cells;
 pub mod collide;
 pub mod explosion;
 pub mod facts;

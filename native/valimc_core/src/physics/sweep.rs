@@ -5,6 +5,8 @@
 //! with the crossing step it was found at.
 
 use super::aabb::Aabb;
+use super::cells::CellBuild;
+use std::collections::HashSet;
 
 const TINY_SQUARE: f64 = 9.999999439624929e-11;
 const EPSILON: f64 = 9.999999747378752e-6;
@@ -22,8 +24,13 @@ pub struct Sweep {
     pub complete: bool,
 }
 
+/// Visits a walk finds new cells among by searching them; past this many, by
+/// a hash set of them.
+const LISTED: usize = 32;
+
 struct Walk {
-    seen: std::collections::HashSet<[i32; 3]>,
+    /// The visited cells once there are more than `LISTED`.
+    seen: Option<HashSet<[i32; 3], CellBuild>>,
     visits: Vec<Visit>,
     attempts: usize,
     stop: usize,
@@ -35,60 +42,75 @@ enum Flow {
 }
 
 impl Walk {
-    fn visit(&mut self, cells: &[[i32; 3]], step: u32) -> Result<Flow, ()> {
-        for &pos in cells {
-            self.attempts += 1;
-            if self.attempts > MAX_ATTEMPTS {
-                return Err(());
+    /// Whether `p` is new to the walk.
+    #[inline]
+    fn new_cell(&mut self, p: [i32; 3]) -> bool {
+        if let Some(seen) = &mut self.seen {
+            return seen.insert(p);
+        }
+        if self.visits.iter().any(|v| v.0 == p) {
+            return false;
+        }
+        if self.visits.len() >= LISTED {
+            let mut seen = HashSet::with_capacity_and_hasher(4 * LISTED, CellBuild::default());
+            seen.extend(self.visits.iter().map(|v| v.0));
+            seen.insert(p);
+            self.seen = Some(seen);
+        }
+        true
+    }
+
+    /// Visit the cells a box covers, in the order the walk visits them: Y,
+    /// then the horizontal axes with the larger movement component last (X,
+    /// Y, Z for a stationary body), each against the movement's direction.
+    /// `None` when the box covers too many cells or the walk runs out of
+    /// attempts.
+    fn visit(&mut self, b: &Aabb, delta: [f64; 3], stationary: bool, step: u32) -> Option<Flow> {
+        let lo: [i32; 3] = std::array::from_fn(|i| b.min[i].min(b.max[i]).floor() as i32);
+        let hi: [i32; 3] = std::array::from_fn(|i| b.min[i].max(b.max[i]).floor() as i32);
+        let count: i64 = (0..3).map(|i| (hi[i] - lo[i] + 1) as i64).product();
+        if count > 512 {
+            return None;
+        }
+        let (a, bb, c) = if stationary {
+            (2, 1, 0)
+        } else if delta[0].abs() < delta[2].abs() {
+            (1, 2, 0)
+        } else {
+            (1, 0, 2)
+        };
+        // Each axis's first cell, its step and how many cells it spans.
+        let span = |i: usize| -> (i32, i32, i32) {
+            let n = hi[i] - lo[i] + 1;
+            if delta[i] < 0.0 {
+                (hi[i], -1, n)
+            } else {
+                (lo[i], 1, n)
             }
-            if self.seen.insert(pos) {
-                self.visits.push((pos, step));
-                if self.visits.len() >= self.stop {
-                    return Ok(Flow::Stop);
+        };
+        let (sa, sb, sc) = (span(a), span(bb), span(c));
+        let mut p = [0; 3];
+        for ia in 0..sa.2 {
+            p[a] = sa.0 + ia * sa.1;
+            for ib in 0..sb.2 {
+                p[bb] = sb.0 + ib * sb.1;
+                for ic in 0..sc.2 {
+                    p[c] = sc.0 + ic * sc.1;
+                    self.attempts += 1;
+                    if self.attempts > MAX_ATTEMPTS {
+                        return None;
+                    }
+                    if self.new_cell(p) {
+                        self.visits.push((p, step));
+                        if self.visits.len() >= self.stop {
+                            return Some(Flow::Stop);
+                        }
+                    }
                 }
             }
         }
-        Ok(Flow::Go)
+        Some(Flow::Go)
     }
-}
-
-/// The cells a box covers, in the order the walk visits them: Y, then the
-/// horizontal axes with the larger movement component last (X, Y, Z for a
-/// stationary body), each against the movement's direction.
-fn cells(b: &Aabb, delta: [f64; 3], stationary: bool) -> Option<Vec<[i32; 3]>> {
-    let lo: [i32; 3] = std::array::from_fn(|i| b.min[i].min(b.max[i]).floor() as i32);
-    let hi: [i32; 3] = std::array::from_fn(|i| b.min[i].max(b.max[i]).floor() as i32);
-    let count: i64 = (0..3).map(|i| (hi[i] - lo[i] + 1) as i64).product();
-    if count > 512 {
-        return None;
-    }
-    let (a, bb, c) = if stationary {
-        (2, 1, 0)
-    } else if delta[0].abs() < delta[2].abs() {
-        (1, 2, 0)
-    } else {
-        (1, 0, 2)
-    };
-    let range = |i: usize| -> Vec<i32> {
-        if delta[i] < 0.0 {
-            (lo[i]..=hi[i]).rev().collect()
-        } else {
-            (lo[i]..=hi[i]).collect()
-        }
-    };
-    let mut out = Vec::with_capacity(count as usize);
-    for x in range(a) {
-        for y in range(bb) {
-            for z in range(c) {
-                let mut p = [0; 3];
-                p[a] = x;
-                p[bb] = y;
-                p[c] = z;
-                out.push(p);
-            }
-        }
-    }
-    Some(out)
 }
 
 fn direction(x: f64) -> f64 {
@@ -134,8 +156,8 @@ pub fn sweep(from: [f64; 3], to: [f64; 3], body: &Aabb, stop_after: usize) -> Op
         return None;
     }
     let mut walk = Walk {
-        seen: std::collections::HashSet::new(),
-        visits: Vec::new(),
+        seen: None,
+        visits: Vec::with_capacity(LISTED),
         attempts: 0,
         stop: stop_after.max(1),
     };
@@ -144,13 +166,11 @@ pub fn sweep(from: [f64; 3], to: [f64; 3], body: &Aabb, stop_after: usize) -> Op
         complete: matches!(flow, Flow::Go),
     };
     if delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2] < TINY_SQUARE {
-        let cells = cells(body, [0.0; 3], true)?;
-        let flow = walk.visit(&cells, 0).ok()?;
+        let flow = walk.visit(body, [0.0; 3], true, 0)?;
         return Some(finish(walk, flow));
     }
     let sizes: [f64; 3] = std::array::from_fn(|i| body.max[i] - body.min[i]);
-    let initial = cells(&body.moved(delta.map(|d| -d)), delta, false)?;
-    if let Flow::Stop = walk.visit(&initial, 0).ok()? {
+    if let Flow::Stop = walk.visit(&body.moved(delta.map(|d| -d)), delta, false, 0)? {
         return Some(finish(walk, Flow::Stop));
     }
     let corner = corner(delta);
@@ -183,8 +203,7 @@ pub fn sweep(from: [f64; 3], to: [f64; 3], body: &Aabb, stop_after: usize) -> Op
         }
         let [tx, ty, tz] = times;
         if tx > 1.0 && ty > 1.0 && tz > 1.0 {
-            let last = cells(body, delta, false)?;
-            let flow = walk.visit(&last, step + 1).ok()?;
+            let flow = walk.visit(body, delta, false, step + 1)?;
             return Some(finish(walk, flow));
         }
         let axis = if tx < ty {
@@ -210,16 +229,12 @@ pub fn sweep(from: [f64; 3], to: [f64; 3], body: &Aabb, stop_after: usize) -> Op
                 let clamped = hit[i].max(lo + EPSILON).min(lo + 1.0 - EPSILON);
                 (clamped - sizes[i] * corner[i]).floor()
             });
-            let crossed = cells(
-                &Aabb {
-                    min: grid,
-                    max: back,
-                },
-                delta,
-                false,
-            )?;
+            let crossed = Aabb {
+                min: grid,
+                max: back,
+            };
             step += 1;
-            if let Flow::Stop = walk.visit(&crossed, step).ok()? {
+            if let Flow::Stop = walk.visit(&crossed, delta, false, step)? {
                 return Some(finish(walk, Flow::Stop));
             }
         }

@@ -5,6 +5,7 @@
 //! loaded or not generated fails closed, except a spectator's
 //! (`AirWhereUnreadable`).
 
+use super::cells::CellMap;
 use super::table::{ShapeTable, LARGE, MOVING_PISTON};
 use crate::column::{MIN_Y, SECTIONS};
 use crate::piston::Moving;
@@ -49,7 +50,7 @@ fn special(storage: &Storage, table: &ShapeTable) -> bool {
 /// resource for a whole tick (VMC-043e).
 pub struct Rows<S> {
     /// Per chunk its snapshot and which sections may hold special colliders.
-    chunks: HashMap<(i32, i32), (S, [bool; SECTIONS])>,
+    chunks: CellMap<(i32, i32), (S, [bool; SECTIONS])>,
     /// The state outside the stored height.
     outside: u16,
 }
@@ -57,7 +58,7 @@ pub struct Rows<S> {
 impl<S: Deref<Target = ChunkSnapshot>> Rows<S> {
     pub fn new(outside: u16) -> Rows<S> {
         Rows {
-            chunks: HashMap::new(),
+            chunks: CellMap::default(),
             outside,
         }
     }
