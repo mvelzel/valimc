@@ -80,7 +80,7 @@ defmodule Valimc.Storage.RegionLog do
         with true <- :erlang.crc32(payload) == crc,
              <<lsn::64, incarnation::32, body::binary>> = payload,
              true <- lsn > last,
-             {:ok, ops} when is_list(ops) <- safe_term(body) do
+             {:ok, ops} when is_list(ops) <- decode_term(body) do
           frame = %{lsn: lsn, incarnation: incarnation, ops: ops, at: {offset, 8 + len}}
           decode(bytes, offset + 8 + len, lsn, [frame | acc])
         else
@@ -99,8 +99,10 @@ defmodule Valimc.Storage.RegionLog do
     end
   end
 
-  defp safe_term(body) do
-    {:ok, :erlang.binary_to_term(body, [:safe])}
+  # The server's own CRC-checked frames: not `:safe`, as for checkpoints
+  # (`Valimc.Storage.Checkpoint.decode/1`).
+  defp decode_term(body) do
+    {:ok, :erlang.binary_to_term(body)}
   rescue
     ArgumentError -> :error
   end
@@ -118,7 +120,7 @@ defmodule Valimc.Storage.RegionLog do
 
     with true <- :crypto.hash(:sha256, body) == digest,
          <<@ckpt_magic, lsn::64, incarnation::32, term::binary>> <- body,
-         {:ok, state} <- safe_term(term) do
+         {:ok, state} <- decode_term(term) do
       {:ok, %{lsn: lsn, incarnation: incarnation, state: state}}
     else
       _ -> {:error, :invalid_checkpoint}

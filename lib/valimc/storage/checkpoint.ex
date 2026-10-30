@@ -54,14 +54,19 @@ defmodule Valimc.Storage.Checkpoint do
     end
   end
 
-  @doc "A checkpoint's `seq` and records from its bytes."
+  @doc """
+  A checkpoint's `seq` and records from its bytes. Only this server writes
+  them and the digest verifies them, so they decode without `:safe`: records
+  hold atoms that native code creates only while it runs (a villager's
+  memories), which a freshly started VM does not have yet.
+  """
   def decode(bytes) when is_binary(bytes) and byte_size(bytes) > 48 do
     size = byte_size(bytes) - 32
     <<body::binary-size(^size), digest::binary-size(32)>> = bytes
 
     with true <- :crypto.hash(:sha256, body) == digest,
          <<@magic, seq::64, term::binary>> <- body,
-         records when is_map(records) <- :erlang.binary_to_term(term, [:safe]) do
+         records when is_map(records) <- :erlang.binary_to_term(term) do
       {:ok, %{seq: seq, records: records}}
     else
       _ -> {:error, :invalid_checkpoint}

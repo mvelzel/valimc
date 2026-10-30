@@ -108,7 +108,7 @@ defmodule Valimc.Player.Storage do
       records =
         RegionStorage.fold(
           records,
-          for({_, frame} <- frames, do: :erlang.binary_to_term(frame, [:safe]))
+          for({_, frame} <- frames, do: :erlang.binary_to_term(frame))
         )
 
       last = frames |> List.last({seq, nil}) |> elem(0)

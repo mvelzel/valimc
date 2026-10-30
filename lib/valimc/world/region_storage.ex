@@ -1071,8 +1071,9 @@ defmodule Valimc.World.RegionStorage do
         do: record.(key, entry)
       )
 
-  # Decoded frames (`[{seq, frame}]`), in order.
-  defp ops(frames), do: Enum.map(frames, &:erlang.binary_to_term(elem(&1, 1), [:safe]))
+  # Decoded frames (`[{seq, frame}]`), in order; the log's own CRC-checked
+  # frames, not `:safe` (`Valimc.Storage.Checkpoint.decode/1`).
+  defp ops(frames), do: Enum.map(frames, &:erlang.binary_to_term(elem(&1, 1)))
 
   @doc """
   Records with `frames` (decoded ops lists, in order) applied. A frame's
@@ -1307,7 +1308,7 @@ defmodule Valimc.World.RegionStorage do
 
     stored =
       case File.read(path) do
-        {:ok, bytes} -> :erlang.binary_to_term(bytes, [:safe])
+        {:ok, bytes} -> :erlang.binary_to_term(bytes)
         {:error, :enoent} -> %{}
       end
 
