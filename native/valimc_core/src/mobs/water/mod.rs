@@ -3,6 +3,7 @@
 //! guardians (elder guardians) and dolphins. Each is a `Kind` built as the
 //! hostile families are (`monsters`), whose helpers they share.
 
+pub mod dolphin;
 pub mod fish;
 
 use crate::mobs::facts::MobFacts;
@@ -17,5 +18,6 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(Fish::new(facts, FishKind::Plain)?),
         Box::new(Fish::new(facts, FishKind::Pufferfish)?),
         Box::new(Fish::new(facts, FishKind::Tropical)?),
+        Box::new(dolphin::Dolphin::new(facts)?),
     ])
 }

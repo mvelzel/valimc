@@ -88,9 +88,15 @@ defmodule Valimc.NativeMobScene do
       mob_drops: scene.rules.mob_drops,
       entity_drops: scene.rules.entity_drops,
       universal_anger: scene.rules.universal_anger,
-      knots: Map.new(scene.knots, fn {x, y, z, id} -> {{x, y, z}, id} end)
+      knots: Map.new(scene.knots, fn {x, y, z, id} -> {{x, y, z}, id} end),
+      items: scene.items,
+      locate: locate(scene.treasure)
     }
   end
+
+  # Structure queries find `treasure` at once (nil: deferred, as live).
+  defp locate(nil), do: :deferred
+  defp locate(at), do: fn _query -> {:ok, at} end
 
   defp sensed_player(p) do
     {x, y, z} = p.position
@@ -111,7 +117,7 @@ defmodule Valimc.NativeMobScene do
       invulnerable: p.mode == :creative,
       alive: true,
       crouching: false,
-      swimming: false,
+      swimming: Map.get(p, :swimming, false),
       invisible: false,
       armor_cover: 0.0,
       movement: p.movement,
@@ -315,8 +321,26 @@ defmodule Valimc.NativeMobScene do
   def sound_id(id) when is_integer(id), do: id
 
   def sound_id(name) do
-    Valimc.Data.HostileFacts.sound_id(name) || ai_sound(name) ||
+    Valimc.Data.HostileFacts.sound_id(name) || ai_sound(name) || combat_sound(name) ||
       Valimc.Entity.Animal.sound_id(name)
+  end
+
+  # The hurt and death sounds of the living rules (`combat_facts`).
+  defp combat_sound(name) do
+    key = {__MODULE__, :combat_sounds}
+
+    sounds =
+      case :persistent_term.get(key, nil) do
+        nil ->
+          sounds = Valimc.Data.Facts.read!("registry/combat_facts.json")["sounds"]
+          :persistent_term.put(key, sounds)
+          sounds
+
+        sounds ->
+          sounds
+      end
+
+    sounds[name]
   end
 
   defp ai_sound(name) do
@@ -364,6 +388,8 @@ defmodule Valimc.NativeMobScene do
     do: {:sound_block, sound_id(id), source, volume, pitch}
 
   def effect({:effect, _, _} = e), do: e
+  def effect({:throw, _, _, _, _} = e), do: e
+  def effect({:pickup, {:item, uuid}, count}), do: {:pickup, uuid, count}
   def effect({:orb, _, _} = e), do: e
   def effect({:alert, _, _} = e), do: e
   def effect({:attack_extra, _, _} = e), do: e
@@ -491,7 +517,7 @@ defmodule Valimc.NativeMobScene do
   An entry of mob `n` of `type` at a spot: options `:data`, `:age` (an
   animal's), `:yaw`, `:no_ai`, `:leash`, `:finalize` (a spawn reason),
   `:fire` (fire ticks), `:equipment` (`slot => stack`), `:motion` (fields of
-  its motion), `:target`.
+  its motion), `:target`, `:pick_up` (`canPickUpLoot`), `:air` (its air supply).
   """
   def mob(n, type, {x, y, z}, opts \\ []) do
     {:ok, body} = Body.new(type)
@@ -505,7 +531,10 @@ defmodule Valimc.NativeMobScene do
     yaw = Keyword.get(opts, :yaw, 15.0 * n)
     body = %{body | data: data, yaw: yaw, head_yaw: yaw, on_ground: true}
     body = %{body | mob: %{body.mob | no_ai: Keyword.get(opts, :no_ai, false)}}
+    loot = Keyword.get(opts, :pick_up, body.mob.can_pick_up_loot)
+    body = %{body | mob: %{body.mob | can_pick_up_loot: loot}}
     body = put_in(body.mob.living.fire_ticks, Keyword.get(opts, :fire, 0))
+    body = put_in(body.mob.living.air_supply, Keyword.get(opts, :air, body.mob.living.air_supply))
 
     body =
       update_in(body.mob.equipment, &Map.merge(&1, Map.new(Keyword.get(opts, :equipment, []))))
@@ -541,7 +570,31 @@ defmodule Valimc.NativeMobScene do
       pitch: Keyword.get(opts, :pitch, -3.0),
       mode: Keyword.get(opts, :mode, :survival),
       mainhand: Keyword.get(opts, :mainhand),
-      movement: {0.0, 0.0, 0.0}
+      movement: {0.0, 0.0, 0.0},
+      swimming: Keyword.get(opts, :swimming, false)
+    }
+  end
+
+  @doc """
+  A sensed item `n` of `item` (a name) at a point: options `:count`,
+  `:pickup_delay`, `:in_water`.
+  """
+  def item(n, item, {x, y, z}, opts \\ []) do
+    %{
+      kind: :item,
+      uuid: uuid(3000 + n),
+      x: x * 1.0,
+      y: y * 1.0,
+      z: z * 1.0,
+      width: 0.25,
+      height: 0.25,
+      eye: 0.2125000059604645,
+      item: Valimc.Protocol.ItemTypes.id(item),
+      count: Keyword.get(opts, :count, 1),
+      components: %{},
+      pickup_delay: Keyword.get(opts, :pickup_delay, 0),
+      in_water: Keyword.get(opts, :in_water, true),
+      alive: true
     }
   end
 
@@ -550,7 +603,8 @@ defmodule Valimc.NativeMobScene do
   `:difficulty`, `:bright`, `:monsters_burn`, `:halloween`, `:darken`, `:knots`,
   `:acts`, `:moves`, `:level` (the level random's seed), `:statues`,
   `:post`, `:collide`, `:loot`, `:griefing` (`mobGriefing`),
-  `:universal_anger`.
+  `:universal_anger`, `:items` (sensed item rows, `item/4`), `:treasure`
+  (where structure queries find it at once).
   """
   def scene(players, opts) do
     %{
@@ -578,7 +632,9 @@ defmodule Valimc.NativeMobScene do
       statues: Keyword.get(opts, :statues, []),
       post: Keyword.get(opts, :post, false),
       collide: Keyword.get(opts, :collide, []),
-      loot: Keyword.get(opts, :loot)
+      loot: Keyword.get(opts, :loot),
+      items: Keyword.get(opts, :items, []),
+      treasure: Keyword.get(opts, :treasure)
     }
   end
 end

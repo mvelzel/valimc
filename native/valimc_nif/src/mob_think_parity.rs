@@ -22,7 +22,7 @@ use valimc_core::mobs::ai::leash::Holder;
 use valimc_core::mobs::ai::mind::MindState;
 use valimc_core::mobs::ai::think::{self, Ctx, Moves, SectionAi};
 use valimc_core::mobs::animals::rabbit::HopState;
-use valimc_core::mobs::combat::{AiMind, Hit, Rules};
+use valimc_core::mobs::combat::{AiMind, Event, Hit, Rules, SoundRef};
 use valimc_core::mobs::kinds::interact::{
     At, Hand, InteractEvent, Interaction, Outcome, Request, Source,
 };
@@ -42,7 +42,7 @@ mod atoms {
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
         away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
-        magic, projectile, lay_eggs, gift
+        magic, projectile, lay_eggs, gift, throw
     }
 }
 
@@ -66,6 +66,30 @@ struct PlayerT<'a> {
     mode: Atom,
     mainhand: Option<i32>,
     movement: V3,
+    swimming: bool,
+}
+
+/// A sensed item row (`%{kind: :item, uuid, x, y, z, item, count,
+/// pickup_delay, in_water}`; its components are empty).
+#[derive(NifMap)]
+struct ItemT<'a> {
+    uuid: Binary<'a>,
+    x: f64,
+    y: f64,
+    z: f64,
+    item: i32,
+    count: i32,
+    pickup_delay: i32,
+    in_water: bool,
+}
+
+/// A structure query's fixed answer (`world.locate`).
+struct Fixed(Option<[i32; 3]>);
+
+impl valimc_core::mobs::level::Locator for Fixed {
+    fn locate(&self, _query: &valimc_core::mobs::level::Query) -> Option<[i32; 3]> {
+        self.0
+    }
 }
 
 #[derive(NifMap)]
@@ -106,6 +130,10 @@ struct SceneT<'a> {
     collide: Vec<Vec<usize>>,
     /// The loot registry spawn enchanting rolls in.
     loot: Option<ResourceArc<crate::loot::LootRegistry>>,
+    /// The items the mobs sense, as each tick begins.
+    items: Vec<ItemT<'a>>,
+    /// Where structure queries find treasure (nil: deferred).
+    treasure: Option<(i32, i32, i32)>,
 }
 
 fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
@@ -125,7 +153,7 @@ fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
         invulnerable: m == valimc_core::mobs::sensing::GameMode::Creative,
         alive: true,
         crouching: false,
-        swimming: false,
+        swimming: p.swimming,
         invisible: false,
         armor_cover: 0.0,
         equipment,
@@ -228,7 +256,26 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             (atoms::pickup(), crate::binary(env, item), *count).encode(env)
         }
         Effect::Drop(stack) => (atoms::drop(), mob_term::encode(env, stack)?).encode(env),
-        Effect::Living(_) => (atoms::living(),).encode(env),
+        // The living rules' events the AI made (a family's air drowning
+        // it), as the Elixir's raw events normalize.
+        Effect::Living(event) => match event {
+            Event::Sound {
+                sound,
+                source,
+                volume,
+                pitch,
+            } => {
+                let id = match sound {
+                    SoundRef::Id(id) => *id,
+                    SoundRef::Name(name) => {
+                        crate::mob_facts::facts()?.sounds.id(name).unwrap_or(-1)
+                    }
+                };
+                (atoms::sound(), id, *source, *volume, *pitch).encode(env)
+            }
+            Event::Entity(n) => (atoms::event(), *n).encode(env),
+            _ => (atoms::other(),).encode(env),
+        },
         Effect::AttackExtra(r, extras) => (
             atoms::attack_extra(),
             reference(env, r),
@@ -352,6 +399,13 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             mob_term::encode(env, actions)?,
         )
             .encode(env),
+        Effect::Throw(v) => {
+            let v = mob_term::encode(env, v)?;
+            let items = rustler::types::tuple::get_tuple(v)?;
+            let mut all = vec![atoms::throw().encode(env)];
+            all.extend(items);
+            rustler::types::tuple::make_tuple(env, &all)
+        }
         _ => (atoms::other(),).encode(env),
     })
 }
@@ -628,6 +682,21 @@ fn mob_parity_think<'a>(
         .map(player_of)
         .collect::<NifResult<Vec<_>>>()?;
     let difficulty = difficulty(scene.difficulty)?;
+    let items = scene
+        .items
+        .iter()
+        .map(|i| {
+            Ok(valimc_core::mobs::sensing::SensedItem {
+                uuid: uuid(&i.uuid)?,
+                position: [i.x, i.y, i.z],
+                item: i.item,
+                count: i.count,
+                pickup_delay: i.pickup_delay,
+                in_water: i.in_water,
+                components: None,
+            })
+        })
+        .collect::<NifResult<Vec<_>>>()?;
     // The level borrows the registry for as long as any level lives: a
     // parity run keeps its handle (the Elixir's is a persistent term too).
     let loot: Option<&'static valimc_core::loot::Loot> = scene
@@ -647,6 +716,9 @@ fn mob_parity_think<'a>(
         level.rules.entity_drops = scene.rules.entity_drops;
         level.rules.universal_anger = scene.rules.universal_anger;
         level.loot = loot;
+        if let Some((x, y, z)) = scene.treasure {
+            level.locator = Some(&*Box::leak(Box::new(Fixed(Some([x, y, z])))));
+        }
         level.knots = scene
             .knots
             .iter()
@@ -718,7 +790,7 @@ fn mob_parity_think<'a>(
                 ctx,
                 level,
                 players.clone(),
-                vec![],
+                items.clone(),
                 ids.iter().copied().zip(mobs.iter_mut()),
                 others,
             );
