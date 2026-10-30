@@ -5,6 +5,8 @@
 
 pub mod dolphin;
 pub mod fish;
+pub mod guardian;
+pub mod squid;
 
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::Kind;
@@ -18,6 +20,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(Fish::new(facts, FishKind::Plain)?),
         Box::new(Fish::new(facts, FishKind::Pufferfish)?),
         Box::new(Fish::new(facts, FishKind::Tropical)?),
+        Box::new(squid::Squid::new(facts)?),
+        Box::new(guardian::Guardian::new(facts)?),
         Box::new(dolphin::Dolphin::new(facts)?),
     ])
 }

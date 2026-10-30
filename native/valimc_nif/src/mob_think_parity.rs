@@ -41,7 +41,7 @@ mod atoms {
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
-        away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
+        away, maybe, shot, poked, y_rot, aggressive, wanted, effect, struck, elder_curse, infest, wake_infested,
         magic, projectile, lay_eggs, gift, throw, shoot_bullet, spawn_mob, shulker_push, bullet
     }
 }
@@ -402,6 +402,7 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
         Effect::Gift { table, velocity } => {
             (atoms::gift(), table.as_str(), v3(*velocity)).encode(env)
         }
+        Effect::ElderCurse(at) => (atoms::elder_curse(), v3(*at)).encode(env),
         Effect::GiveEffect { target, actions } => (
             atoms::effect(),
             reference(env, target),
@@ -545,6 +546,35 @@ fn animal_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static st
 /// counters).
 fn water_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static str, Value)>) {
     use valimc_core::mobs::water::fish::{PuffCounters, School};
+    use valimc_core::mobs::water::guardian::GuardianOwn;
+    use valimc_core::mobs::water::squid::SquidOwn;
+    if let Some(o) = own.family::<GuardianOwn>() {
+        let refs = o
+            .thorns
+            .iter()
+            .map(|r| {
+                let kind = match r.kind {
+                    Kind::Player => "player",
+                    Kind::Mob => "mob",
+                    Kind::Item => "item",
+                };
+                Value::Tuple(vec![
+                    Value::Atom(valimc_core::mobs::term::Atom::new(kind)),
+                    Value::Binary(r.uuid.to_vec()),
+                ])
+            })
+            .collect();
+        out.push(("thorns", Value::List(refs)));
+    }
+    if let Some(o) = own.family::<SquidOwn>() {
+        out.push(("tentacle", Value::Float(o.tentacle)));
+        out.push(("tentacle_speed", Value::Float(o.tentacle_speed)));
+        out.push(("rotate_speed", Value::Float(o.rotate_speed)));
+        out.push(("x_rot", Value::Float(o.x_rot)));
+        out.push(("z_rot", Value::Float(o.z_rot)));
+        out.push(("movement", Value::vec3(o.movement)));
+        out.push(("in_water", Value::bool(o.in_water)));
+    }
     if let Some(o) = own.family::<School>() {
         let leader = o
             .leader
@@ -582,7 +612,13 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
             (p.index, nodes, s.navigation.speed).encode(env)
         }
     };
+    let bat = s
+        .own
+        .family::<valimc_core::mobs::ambient::bat::BatSpot>()
+        .map(|b| cell(b.0));
     let own = match s.own.family::<HopState>() {
+        // A bat's spot is its own state itself, a tuple.
+        None if bat.is_some() => bat.encode(env),
         None => own(env, &s.own)?,
         Some(h) => {
             let mut map = map_new(env);
@@ -855,6 +891,38 @@ fn mob_parity_think<'a>(
                             let hit = Hit::new(source, 1.0);
                             kind.hurt_with(rules, &mut mob.body, &hit, &mut Vec::new());
                         }
+                    } else if what == atoms::struck() {
+                        // The first player's melee hit beside its damage:
+                        // the mind's hurt, then its family's.
+                        let facts = crate::mob_facts::facts()?;
+                        let source = facts
+                            .damage_types
+                            .id("minecraft:player_attack")
+                            .ok_or(bad())?;
+                        let p = players.first().ok_or(bad())?;
+                        think::hurt(
+                            mob,
+                            Some(Ref {
+                                kind: Kind::Player,
+                                uuid: p.uuid,
+                            }),
+                            source,
+                        );
+                        let who = valimc_core::mobs::combat::Attacker {
+                            uuid: p.uuid,
+                            entity_id: p.id,
+                            player: true,
+                            entity_type: "minecraft:player".to_owned(),
+                            mainhand: None,
+                        };
+                        let hit = Hit {
+                            attacker: Some(who.clone()),
+                            direct: Some(who),
+                            ..Hit::new(source, 1.0)
+                        };
+                        let type_id = facts.entities.id(&mob.body.entity_type).ok_or(bad())?;
+                        let kind = kinds.kind(type_id).ok_or(bad())?;
+                        kind.hurt(&mut mob.body, &hit, &mut Vec::new());
                     } else if what == atoms::hurt() {
                         let facts = crate::mob_facts::facts()?;
                         let source = facts

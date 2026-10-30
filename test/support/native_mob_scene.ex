@@ -291,6 +291,27 @@ defmodule Valimc.NativeMobScene do
               }
 
               AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
+
+            # The first player's melee hit beside its damage: the mind's
+            # hurt, then its family's (a squid's ink, a guardian's thorns, a
+            # bat waking).
+            :struck ->
+              [p | _] = scene.players
+              ai = AI.hurt(e.body.mob.ai, {:player, p.uuid}, :player_attack)
+              body = put_in(e.body.mob.ai, ai).body
+              who = %{uuid: p.uuid, entity_id: p.id, player: true, type: "minecraft:player"}
+
+              hit = %{
+                source: Valimc.Living.DamageSource.new(:player_attack),
+                amount: 1.0,
+                attacker: who,
+                direct: who
+              }
+
+              case AI.Mobs.hook(body.type, :hurt, [body, hit], body) do
+                {body, _events} -> body
+                body -> body
+              end
           end
 
         List.replace_at(entries, i, {id, %{e | body: body}})
@@ -454,6 +475,7 @@ defmodule Valimc.NativeMobScene do
 
   def effect({:eat_block, _, _} = e), do: e
   def effect({:hurt, _, _, _, _} = e), do: e
+  def effect({:elder_curse, _} = e), do: e
   def effect({:lay_eggs, _, _} = e), do: e
   def effect({:gift, _, _} = e), do: e
 

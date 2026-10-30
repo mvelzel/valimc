@@ -348,7 +348,7 @@ kind_data = fn
     end
 
   %{type: type, data: data, mob: mob} when type in ~w(minecraft:squid minecraft:glow_squid) ->
-    o = Valimc.AI.Mobs.Squid.own(mob.ai)
+    o = Valimc.AI.Mobs.Squid.own(mob.ai, 0)
 
     squid = %{
       "tentacle" => bits.(o.tentacle),
@@ -581,7 +581,7 @@ end
 # A squid's tentacle speed, drawn as vanilla made it (VMC-043e).
 own_start = fn
   type, start when type in ~w(minecraft:squid minecraft:glow_squid) ->
-    Map.merge(Valimc.AI.Mobs.Squid.own(nil), %{tentacle_speed: float.(start["tentacle_speed"])})
+    Map.merge(Valimc.AI.Mobs.Squid.own(nil, 0), %{tentacle_speed: float.(start["tentacle_speed"])})
 
   _, _ ->
     nil

@@ -2,6 +2,7 @@
 //! and tracking, owned per section by its group process. See
 //! `docs/tickets/VMC-081d.md`.
 
+pub mod ambient;
 pub mod animals;
 pub mod brains;
 pub mod facts;

@@ -63,12 +63,16 @@ defmodule Valimc.AI.Mobs.Squid do
   @impl true
   defdelegate air(air, in_water), to: Valimc.AI.Mobs.Fish
 
-  @doc "Its own state: the tentacle cycle, rotations and movement vector."
-  def own(%{own: %{tentacle: _} = own}), do: own
+  @doc """
+  Its own state: the tentacle cycle, rotations and movement vector; a fresh
+  one's tentacle speed is drawn as vanilla's constructor draws it, after
+  `random.setSeed(id)` with its network id `id`.
+  """
+  def own(%{own: %{tentacle: _} = own}, _id), do: own
 
-  def own(_mind) do
-    # Drawn in vanilla's constructor, before the random a mob is given here.
-    speed = @f.(@f.(1.0 / @f.(@f.(:rand.uniform()) + 1.0)) * @f.(0.2))
+  def own(_mind, id) do
+    {f, _} = Random.float(Random.new(id || 0))
+    speed = @f.(@f.(1.0 / @f.(f + 1.0)) * @f.(0.2))
 
     %{
       tentacle: 0.0,
@@ -82,7 +86,8 @@ defmodule Valimc.AI.Mobs.Squid do
   end
 
   @doc "Change its own state."
-  def put(self, changes), do: Self.mind(self, &%{&1 | own: Map.merge(own(&1), changes)})
+  def put(self, changes),
+    do: Self.mind(self, &%{&1 | own: Map.merge(own(&1, self.id), changes)})
 
   # `wasTouchingWater` as its tick began, for its `aiStep` after the move.
   @impl true
@@ -96,7 +101,7 @@ defmodule Valimc.AI.Mobs.Squid do
   @impl true
   def after_ai(%Self{} = self) do
     self = Valimc.Entity.Animal.settle_ageable(self)
-    o = own(self.mind)
+    o = own(self.mind, self.id)
     tentacle = @f.(o.tentacle + o.tentacle_speed)
 
     {tentacle, speed, self} =
@@ -206,10 +211,10 @@ defmodule Valimc.AI.Mobs.Squid do
 
       {pitch, mind} = Valimc.AI.voice(mind, nil)
       sound = {:sound, Facts.sound_id(squirt), "neutral", Facts.mob(type).volume, pitch, seed()}
-      o = own(mind)
+      x_rot = if is_map(mind.own), do: Map.get(mind.own, :x_rot, 0.0), else: 0.0
       ink = if type == @glow, do: "minecraft:glow_squid_ink", else: "minecraft:squid_ink"
       scale = if body.data.age < 0, do: @f.(0.1), else: @f.(0.3)
-      rotate = rotation(o.x_rot, mind.body_yaw)
+      rotate = rotation(x_rot, mind.body_yaw)
 
       {particles, random} =
         Enum.map_reduce(1..30, mind.random, fn _, r ->
@@ -280,7 +285,7 @@ defmodule Valimc.AI.Mobs.Squid.RandomMovement do
   def can_use(state, self), do: {true, state, self}
 
   def tick(state, self) do
-    own = Squid.own(self.mind)
+    own = Squid.own(self.mind, self.id)
 
     cond do
       self.mind.no_action > 100 ->
@@ -316,8 +321,12 @@ defmodule Valimc.AI.Mobs.Squid.Flee do
 
   def can_use(state, self) do
     case attacker(self) do
-      nil -> {false, state, self}
-      a -> {Squid.own(self.mind).in_water and World.distance_sq(self, a) < 100.0, state, self}
+      nil ->
+        {false, state, self}
+
+      a ->
+        {Squid.own(self.mind, self.id).in_water and World.distance_sq(self, a) < 100.0, state,
+         self}
     end
   end
 

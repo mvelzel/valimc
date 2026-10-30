@@ -1,11 +1,14 @@
 defmodule Valimc.NativeMobWaterTest do
   @moduledoc """
-  The native water families (VMC-081d, `valimc_core::mobs::water`) against
-  `Valimc.AI.Mobs`: their registered goals against vanilla's, and whole
-  sections of them thinking tick by tick over generated terrain
-  (`Valimc.NativeMobScene`), every record, mind and effect and the level
-  random equal every tick: fish schooling, fleeing, panicking, flopping and
-  puffing.
+  The native water and ambient families (VMC-081d,
+  `valimc_core::mobs::{water, ambient}`) against `Valimc.AI.Mobs`: their
+  registered goals against vanilla's, and whole sections of them thinking
+  tick by tick over generated terrain (`Valimc.NativeMobScene`), every
+  record, mind and effect and the level random equal every tick: fish
+  schooling, fleeing, panicking, flopping and puffing; squid stroking,
+  fleeing and inking; guardians beaming, paying back hits with thorns and
+  elders cursing; bats roosting, waking and flying. Dolphins have their
+  own test (`native_mob_dolphin_test`).
   """
   use ExUnit.Case, async: true
 
@@ -21,7 +24,9 @@ defmodule Valimc.NativeMobWaterTest do
     assert {:ok, types} = Native.mob_kinds()
 
     for type <-
-          ~w(minecraft:cod minecraft:salmon minecraft:pufferfish minecraft:tropical_fish),
+          ~w(minecraft:cod minecraft:salmon minecraft:pufferfish minecraft:tropical_fish
+             minecraft:squid minecraft:glow_squid minecraft:guardian minecraft:elder_guardian
+             minecraft:bat),
         do: assert(type in types)
   end
 
@@ -48,7 +53,7 @@ defmodule Valimc.NativeMobWaterTest do
   end
 
   defp swimmer(n, type, {x, y, z}, opts),
-    do: mob(n, type, {x, y - 2, z}, [motion: soaked()] ++ opts)
+    do: mob(n, type, {x, y - 1, z}, [motion: soaked()] ++ opts)
 
   ## Fish
 
@@ -63,7 +68,7 @@ defmodule Valimc.NativeMobWaterTest do
         swimmer(n, type, spot, finalize: :natural)
       end
 
-    swimming = %{player(0, here) | position: {px + 0.5, py - 1.5, pz + 0.5}}
+    swimming = %{player(0, here) | position: {px + 0.5, py - 1.0, pz + 0.5}}
 
     scene =
       scene([swimming],
@@ -119,9 +124,9 @@ defmodule Valimc.NativeMobWaterTest do
     # A sensed-only villager beside the first is stung too.
     statues = [swimmer(90, "minecraft:villager", here, no_ai: true)]
 
-    near = %{player(0, here) | position: {px + 0.5, py - 2.0, pz + 0.5}}
+    near = %{player(0, here) | position: {px + 0.5, py - 1.0, pz + 0.5}}
     away = {{px + 40.5, py * 1.0, pz + 0.5}, {0.0, 0.0, 0.0}}
-    there = {{px + 0.5, py - 2.0, pz + 0.5}, {0.0, 0.0, 0.0}}
+    there = {{px + 0.5, py - 1.0, pz + 0.5}, {0.0, 0.0, 0.0}}
     moves = for t <- 0..299, do: [if(t < 120, do: there, else: away)]
 
     scene = scene([near], ticks: 300, moves: moves, statues: statues, post: true, level: 307)
@@ -131,5 +136,113 @@ defmodule Valimc.NativeMobWaterTest do
     assert Enum.any?(records, &(&1.data[:puff] == 2))
     assert Enum.any?(effects(observed), &match?({:hurt, {:player, _}, :mob_attack, _, _}, &1))
     assert Enum.any?(effects(observed), &match?({:hurt, {:mob, _}, :mob_attack, _, _}, &1))
+  end
+
+  ## Squid
+
+  test "squid stroke about, flee what hurt them and squirt ink; glow squid darken", ctx do
+    spots = pool(ctx.blocks, 9, 311)
+    [ashore] = land(ctx.blocks, 1, :rand.seed_s(:exsss, 312))
+    {[here], rest} = Enum.split(spots, 1)
+    {px, py, pz} = here
+
+    swimming =
+      for {{spot, n}, k} <- Enum.with_index(Enum.with_index(rest, 1)) do
+        type = if rem(k, 2) == 0, do: "minecraft:glow_squid", else: "minecraft:squid"
+        swimmer(n, type, spot, age: if(k == 4, do: -24_000, else: 0), no_ai: k == 5)
+      end
+
+    entries = swimming ++ [mob(20, "minecraft:squid", ashore)]
+    near = %{player(0, here) | position: {px + 0.5, py - 1.0, pz + 0.5}}
+    acts = for i <- [0, 1, 3, 8], do: {12, i, :struck}
+
+    scene = scene([near], ticks: 260, acts: acts, post: true, level: 313)
+    observed = compare(ctx, scene, entries)
+    records = List.flatten(for {r, _, _, _} <- observed, do: r)
+    assert running?(observed, "Valimc.AI.Mobs.Squid.Flee")
+    assert running?(observed, "Valimc.AI.Mobs.Squid.RandomMovement")
+    assert Enum.any?(records, &((&1.data[:dark] || 0) > 0))
+    assert Enum.any?(effects(observed), &match?({:event, 19}, &1))
+  end
+
+  ## Guardians
+
+  test "guardians beam squid and players, pay back hits with thorns; elders curse", ctx do
+    spots = pool(ctx.blocks, 12, 321)
+    {[here, far], rest} = Enum.split(spots, 2)
+    {px, py, pz} = here
+    [ashore] = land(ctx.blocks, 1, :rand.seed_s(:exsss, 322))
+
+    guardians =
+      for {spot, n} <- Enum.with_index(Enum.take(rest, 6), 1),
+          do: swimmer(n, "minecraft:guardian", spot, finalize: :natural)
+
+    # An elder whose curse falls inside the scene (its tick plus its id).
+    elders = [swimmer(1150, "minecraft:elder_guardian", far, finalize: :natural)]
+
+    squid =
+      for {spot, n} <- Enum.with_index(Enum.drop(rest, 6), 30),
+          do: swimmer(n, "minecraft:squid", spot, [])
+
+    stranded = [mob(40, "minecraft:guardian", ashore)]
+    near = %{player(0, here) | position: {px + 0.5, py - 1.0, pz + 0.5}}
+    acts = for i <- [0, 1, 6], do: {3, i, :struck}
+
+    for difficulty <- [:normal, :hard] do
+      scene =
+        scene([near],
+          ticks: 300,
+          acts: acts,
+          difficulty: difficulty,
+          post: true,
+          level: 323
+        )
+
+      observed = compare(ctx, scene, guardians ++ elders ++ squid ++ stranded)
+      effects = effects(observed)
+      assert running?(observed, "Valimc.AI.Mobs.Guardian.Attack")
+      assert Enum.any?(effects, &match?({:event, 21}, &1))
+      assert Enum.any?(effects, &match?({:hurt, _, :indirect_magic, _, _}, &1))
+      assert Enum.any?(effects, &match?({:hurt, {:player, _}, :thorns, 2.0, []}, &1))
+      assert Enum.any?(effects, &match?({:elder_curse, _}, &1))
+    end
+  end
+
+  ## Bats
+
+  # Bats over open ground: some hang under the ground's top block (a
+  # conductor above them), others fly above it; one resting in the open air
+  # wakes at once, one near a player is struck awake.
+  test "bats roost under conductors, wake and fly to their spots", ctx do
+    spots = land(ctx.blocks, 10, :rand.seed_s(:exsss, 331))
+    {[here], rest} = Enum.split(spots, 1)
+
+    bats =
+      for {{x, y, z}, n} <- Enum.with_index(rest, 1) do
+        if rem(n, 3) != 0,
+          do: mob(n, "minecraft:bat", {x, y - 2, z}, data: [resting: true]),
+          else: mob(n, "minecraft:bat", {x, y + 2, z}, data: [resting: false])
+      end
+
+    {hx, hy, hz} = here
+    near = mob(20, "minecraft:bat", {hx, hy - 2, hz}, data: [resting: true])
+    open = mob(21, "minecraft:bat", {hx + 1, hy + 3, hz}, data: [resting: true])
+
+    for level <- [332, 333] do
+      scene =
+        scene([player(0, here)],
+          ticks: 300,
+          acts: [{40, 9, :struck}],
+          post: true,
+          level: level
+        )
+
+      observed = compare(ctx, scene, bats ++ [near, open])
+      records = List.flatten(for {r, _, _, _} <- observed, do: r)
+      effects = effects(observed)
+      assert Enum.any?(effects, &match?({:level_event, _, 1025, 0}, &1))
+      assert Enum.any?(records, &(&1.data.resting == false))
+      assert Enum.any?(owns(observed), &match?({_, _, _}, &1))
+    end
   end
 end
