@@ -82,4 +82,12 @@ defmodule Valimc.ItemCheckpointsTest do
     assert [%{motion: %{age: 1}}] =
              Store.records(Valimc.TestRegion.section(owner).entities.store)
   end
+
+  # The M3 gate's third owner crash: `/kill` read every entry's body to spot
+  # the dragon, and an item has none.
+  test "/kill of an item removes it and leaves its owner running", ctx do
+    assert {:ok, 1} = Region.kill_entities(ctx.owner, [<<71::128>>])
+    assert Process.alive?(ctx.pid)
+    assert Store.records(Valimc.TestRegion.section(ctx.owner).entities.store) == []
+  end
 end

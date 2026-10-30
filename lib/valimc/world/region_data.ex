@@ -3952,9 +3952,9 @@ defmodule Valimc.World.RegionData do
       {store, killed, dragons} =
         Enum.reduce(uuids, {state.entities.store, 0, []}, fn uuid, {store, killed, dragons} ->
           with {:ok, {_, id, _}} <- Store.find(store, uuid),
-               type = store.entries[id].body.type,
+               dragon? = match?(%{body: %{type: "minecraft:ender_dragon"}}, store.entries[id]),
                {:ok, next} <- Store.kill(store, id) do
-            dragons = if type == "minecraft:ender_dragon", do: [uuid | dragons], else: dragons
+            dragons = if dragon?, do: [uuid | dragons], else: dragons
             {next, killed + 1, dragons}
           else
             _ -> {store, killed, dragons}
