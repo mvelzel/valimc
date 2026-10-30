@@ -18,6 +18,7 @@
 //! ticker, then runs again after it) or the end, and `mob_section_finish`
 //! ends the ticker and answers the native mobs' steps.
 
+use crate::mob_section_level::{self, LevelEnv, SectionEnv};
 use crate::mob_term;
 use crate::physics::{self as physics_nif, BoxT, MobT, MobTicker, TickerState, Vec3};
 use crate::region::Region;
@@ -25,19 +26,20 @@ use rustler::types::tuple::get_tuple;
 use rustler::{Atom, Encoder, Env, LocalPid, NifResult, ResourceArc, Term};
 use std::cell::Cell;
 use std::sync::{Mutex, OnceLock};
-use valimc_core::mobs::combat::{self, AiMind, Attacker, Event, Hit, NoFamilies, Rules, SoundRef};
+use valimc_core::mobs::ai::think::{Ctx, SectionAi};
+use valimc_core::mobs::ai::Extra;
+use valimc_core::mobs::combat::{self, AiMind, Attacker, Event, Hit, Rules, SoundRef};
 use valimc_core::mobs::living::mob::{self as living_mob, Type};
 use valimc_core::mobs::living::{body as living_body, effects, health};
 use valimc_core::mobs::model::{NativeMob, Rung, Slot as EquipSlot};
 use valimc_core::mobs::random::LegacyRandom;
 use valimc_core::mobs::record::{self, RecordError, RecordFacts};
 use valimc_core::mobs::section::{chunk_of, MobSection, Slot, Written};
+use valimc_core::mobs::sensing::Sensing;
 use valimc_core::mobs::term::{Map, Value, NIL};
-use valimc_core::mobs::tick::{
-    self, Effect, Entrant, NoMotionHooks, NoThought, Ran, Tick, TurnWorld,
-};
-use valimc_core::mobs::vitals::Sky;
+use valimc_core::mobs::tick::{self, Effect, Entrant, Ran, Tick, TurnWorld};
 use valimc_core::physics::player::World;
+use valimc_core::physics::source::AirWhereUnreadable;
 
 mod atoms {
     rustler::atoms! {
@@ -75,7 +77,7 @@ fn rules() -> NifResult<Rules<'static>> {
     Ok(Rules {
         facts: crate::mob_facts::facts()?,
         living: crate::mob_living::facts()?,
-        families: &NoFamilies,
+        families: crate::mob_facts::kinds()?,
         mind: &AiMind,
     })
 }
@@ -97,21 +99,13 @@ struct Inner {
     running: Option<Running>,
 }
 
-/// A tick in progress: its turns, the light it reads and its sky.
+/// A tick in progress: its turns, the level its mobs read (with the
+/// section's store for light and biomes) and its AI's sensing between runs.
 struct Running {
     tick: Tick,
     region: Option<ResourceArc<Region>>,
-    env: TickEnv,
-}
-
-#[derive(Clone, Copy)]
-struct TickEnv {
-    monsters_burn: bool,
-    darken: i32,
-    wet: bool,
-    sea_level: i32,
-    zoom_seed: i64,
-    mob_griefing: bool,
+    level: LevelEnv,
+    sensing: Sensing<Extra>,
 }
 
 #[rustler::resource_impl]
@@ -472,14 +466,15 @@ fn events_value(rules: &Rules, events: &[Event]) -> Value {
     Value::List(events.iter().map(|e| event(rules, e)).collect())
 }
 
-fn effect(e: &Effect) -> Value {
+fn effect(rules: &Rules, e: &Effect) -> Option<Value> {
     let cell = |c: &[i32; 3]| Value::ivec3([c[0].into(), c[1].into(), c[2].into()]);
-    match e {
+    Some(match e {
         Effect::Trample(c) => Value::tuple([Value::atom("trample"), cell(c)]),
         Effect::CrackEgg(c, s) => {
             Value::tuple([Value::atom("crack_egg"), cell(c), Value::Int(*s as i64)])
         }
-    }
+        Effect::Ai(e) => return mob_section_level::effect(rules.facts, e),
+    })
 }
 
 fn uuid_value(u: &[u8; 16]) -> Value {
@@ -581,7 +576,7 @@ fn row(rules: &Rules, slot: &mut Slot, fresh: bool) -> Value {
             .collect(),
     )
     .unwrap_or_default();
-    let mut map = Map::with_capacity(28);
+    let mut map = Map::with_capacity(29);
     map.insert_atom("__struct__", Value::atom(NATIVE_BODY));
     map.insert_atom("type", Value::Binary(body.entity_type.as_bytes().to_vec()));
     map.insert_atom("yaw", Value::Float(body.yaw));
@@ -640,6 +635,25 @@ fn row(rules: &Rules, slot: &mut Slot, fresh: bool) -> Value {
     map.insert_atom("death", Value::bool(m.death.is_some()));
     map.insert_atom("no_ai", Value::bool(m.no_ai));
     map.insert_atom("idle", state.map_or(NIL, |s| Value::Int(s.no_action)));
+    map.insert_atom(
+        "leash",
+        Value::or_nil(m.leash.as_ref(), |l| {
+            use valimc_core::mobs::model::LeashHolder;
+            let holder = match &l.holder {
+                LeashHolder::Player(u) => Value::tuple([Value::atom("player"), uuid_value(u)]),
+                LeashHolder::Knot([x, y, z]) => Value::tuple([
+                    Value::atom("knot"),
+                    Value::ivec3([(*x).into(), (*y).into(), (*z).into()]),
+                ]),
+            };
+            Map::from_atoms([
+                ("holder", holder),
+                ("id", Value::or_nil(l.id, |i| Value::Int(i as i64))),
+                ("restored", Value::bool(l.restored)),
+            ])
+            .into()
+        }),
+    );
     Value::Map(map)
 }
 
@@ -674,15 +688,16 @@ fn entrant(term: Term) -> NifResult<(Entrant, Option<MobT>)> {
     }
 }
 
+/// What the tick reads beyond its mobs: `%{region, level, players, items,
+/// others}` (`level` as `LevelEnv.decode/1` reads it, `others` the
+/// section's Elixir mobs' sensed rows with their places in the id order).
 #[derive(rustler::NifMap)]
-struct EnvT {
-    monsters_burn: bool,
-    darken: i32,
-    wet: bool,
-    sea_level: i32,
-    zoom_seed: i64,
-    mob_griefing: bool,
+struct EnvT<'a> {
     region: Option<ResourceArc<Region>>,
+    level: Term<'a>,
+    players: Vec<Term<'a>>,
+    items: Vec<Term<'a>>,
+    others: Vec<(usize, Term<'a>)>,
 }
 
 /// Begins the section's tick: `order` is every mob in id order, `{:native,
@@ -699,7 +714,7 @@ fn mob_section_begin<'a>(
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
     colliders: Vec<(usize, Option<BoxT>)>,
-    tick_env: EnvT,
+    tick_env: EnvT<'a>,
 ) -> NifResult<(Atom, ResourceArc<MobTicker>)> {
     begin(env, res, view, order, players, border, colliders, tick_env)
 }
@@ -716,7 +731,7 @@ fn mob_section_begin_dirty<'a>(
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
     colliders: Vec<(usize, Option<BoxT>)>,
-    tick_env: EnvT,
+    tick_env: EnvT<'a>,
 ) -> NifResult<(Atom, ResourceArc<MobTicker>)> {
     begin(env, res, view, order, players, border, colliders, tick_env)
 }
@@ -730,7 +745,7 @@ fn begin<'a>(
     players: Vec<(Vec3, BoxT)>,
     border: Option<(f64, f64, f64, f64)>,
     colliders: Vec<(usize, Option<BoxT>)>,
-    tick_env: EnvT,
+    tick_env: EnvT<'a>,
 ) -> NifResult<(Atom, ResourceArc<MobTicker>)> {
     let rules = rules()?;
     let mut inner = owned(env, &res)?;
@@ -750,7 +765,7 @@ fn begin<'a>(
                 let attributes = tick::travel_attributes(&rules, ty, &slot.mob);
                 bodies.push(tick::kernel_input(
                     &rules,
-                    &NoMotionHooks,
+                    &families(&rules)?,
                     ty,
                     &slot.mob,
                     attributes,
@@ -763,93 +778,78 @@ fn begin<'a>(
     }
     let ticker = physics_nif::ticker_of(view, bodies, players, border, colliders)?;
     let tick = Tick::begin(&mut inner.section, entrants);
+    let level_env = LevelEnv::decode(tick_env.level)?;
+    let players = tick_env
+        .players
+        .into_iter()
+        .map(mob_section_level::player)
+        .collect::<NifResult<Vec<_>>>()?;
+    let items = tick_env
+        .items
+        .into_iter()
+        .map(mob_section_level::item)
+        .collect::<NifResult<Vec<_>>>()?;
+    let others = tick_env
+        .others
+        .into_iter()
+        .map(|(i, row)| Ok((i, mob_section_level::mob(rules.facts, row)?)))
+        .collect::<NifResult<Vec<_>>>()?;
+    // `AI.prepare/2`: the native mobs' minds and the section's sensing.
+    let sensing = {
+        let guard = ticker.state()?;
+        let state = guard.as_ref().ok_or_else(|| fail(atoms::no_tick()))?;
+        let section_env = section_env(&rules, tick_env.region.as_deref(), &state.view, &level_env);
+        let air = AirWhereUnreadable(&state.view);
+        let blocks = level_env.blocks(&state.view, &air);
+        let mut level = level_env.level(blocks, &section_env, rules.facts, LegacyRandom::new(0))?;
+        let ids: std::collections::HashSet<i32> = tick.turns.keys().copied().collect();
+        let mobs = inner.section.mobs_mut().filter(|(id, _)| ids.contains(id));
+        SectionAi::begin(ctx(&rules)?, &mut level, players, items, mobs, others).sensing
+    };
     inner.running = Some(Running {
         tick,
         region: tick_env.region,
-        env: TickEnv {
-            monsters_burn: tick_env.monsters_burn,
-            darken: tick_env.darken,
-            wet: tick_env.wet,
-            sea_level: tick_env.sea_level,
-            zoom_seed: tick_env.zoom_seed,
-            mob_griefing: tick_env.mob_griefing,
-        },
+        level: level_env,
+        sensing,
     });
     Ok((atoms::ok(), ticker))
 }
 
-/// The sky a tick's turns read: the section's light, rain over the
-/// ticker's snapshots, the sun and the level random.
-struct TickSky<'a> {
-    env: TickEnv,
-    /// The section's Region: its store is locked for each light read only,
-    /// as its light updates and encodings hold it elsewhere.
+fn ctx<'a>(rules: &'a Rules<'a>) -> NifResult<Ctx<'a>> {
+    Ok(Ctx {
+        rules,
+        kinds: crate::mob_facts::kinds()?,
+        paths: crate::path::path_facts().ok_or(rustler::Error::BadArg)?,
+    })
+}
+
+fn families<'a>(rules: &Rules<'a>) -> NifResult<tick::Families<'a>> {
+    Ok(tick::Families {
+        kinds: crate::mob_facts::kinds()?,
+        facts: rules.facts,
+    })
+}
+
+fn section_env<'a>(
+    rules: &Rules<'a>,
     region: Option<&'a Region>,
     view: &'a physics_nif::View<physics_nif::SnapshotArc>,
-    climates: &'a [valimc_core::mobs::facts::Climate],
-    plains: u16,
-    random: LegacyRandom,
-}
-
-impl TickSky<'_> {
-    fn light_at(&self, p: [i32; 3]) -> Option<(u8, u8)> {
-        let region = self.region?;
-        let store = region.store.lock().ok()?;
-        store.light_at(p[0], p[1], p[2])
-    }
-}
-
-impl Sky for TickSky<'_> {
-    fn monsters_burn(&self) -> bool {
-        self.env.monsters_burn
-    }
-
-    fn light(&self, p: [i32; 3]) -> f64 {
-        match self.light_at(p) {
-            None => 0.0,
-            Some((sky, block)) => {
-                let level = (sky as i32 - self.env.darken).max(block as i32);
-                let v = (level as f64 / 15.0) as f32;
-                (v / (4.0 - 3.0 * v)) as f64
-            }
-        }
-    }
-
-    fn sees_sky(&self, p: [i32; 3]) -> bool {
-        matches!(self.light_at(p), Some((15, _)))
-    }
-
-    fn rain(&self, position: [f64; 3], top: f64) -> bool {
-        let physics_nif::View::Rows(rows) = self.view else {
-            return false;
-        };
-        let (Some(flags), Some(light)) = (crate::facts::FLAGS.get(), crate::facts::LIGHT.get())
-        else {
-            return false;
-        };
-        let column = |x: i32, z: i32| {
-            rows.snapshot((x >> 4, z >> 4))
-                .map(|s| s.column(x, z, flags, light))
-        };
-        let biome = |p: [i32; 3]| {
-            let (qx, qy, qz) =
-                valimc_core::worldgen::surface::zoom(self.env.zoom_seed, p[0], p[1], p[2]);
-            let s = rows.snapshot((qx >> 2, qz >> 2))?;
-            Some(s.biome((qx, qy, qz)).unwrap_or(self.plains))
-        };
-        valimc_core::mobs::level::rain_at(
-            self.climates,
-            self.env.wet,
-            self.env.sea_level,
-            position,
-            top,
-            column,
-            biome,
-        ) == Some(true)
-    }
-
-    fn random(&mut self) -> &mut LegacyRandom {
-        &mut self.random
+    level: &'a LevelEnv,
+) -> SectionEnv<'a> {
+    SectionEnv {
+        region,
+        view,
+        facts: rules.facts,
+        zoom_seed: level.zoom_seed,
+        wet: level.wet,
+        sea_level: level.sea_level,
+        plains: rules
+            .facts
+            .registries
+            .id("minecraft:worldgen/biome", "minecraft:plains")
+            .unwrap_or(0) as u16,
+        tops: level.tops.as_ref(),
+        no_chunks: level.no_chunks,
     }
 }
 
@@ -882,9 +882,11 @@ fn run(
     ticker: &MobTicker,
     from: usize,
     random: i64,
+    resense: Vec<Term>,
 ) -> NifResult<Run> {
     let rules = rules()?;
     let physics = physics_nif::facts()?;
+    let families = families(&rules)?;
     let mut inner = owned(env, res)?;
     let Inner { section, running } = &mut *inner;
     let running = running.as_mut().ok_or_else(|| fail(atoms::no_tick()))?;
@@ -904,34 +906,38 @@ fn run(
     };
     let tw = TurnWorld {
         rules: &rules,
-        motion: &NoMotionHooks,
-        thinker: &NoThought,
+        motion: &families,
+        kinds: families.kinds,
         world: &world,
         players: &players[..],
-        mob_griefing: running.env.mob_griefing,
+        mob_griefing: running.level.rules.mob_griefing,
         travel: Default::default(),
     };
-    let plains = rules
-        .facts
-        .registries
-        .id("minecraft:worldgen/biome", "minecraft:plains")
-        .unwrap_or(0) as u16;
-    let mut sky = TickSky {
-        env: running.env,
-        region: running.region.as_deref(),
-        view,
-        climates: &rules.facts.climates,
-        plains,
-        random: LegacyRandom::from_state(random as u64).ok_or(rustler::Error::BadArg)?,
+    let section_env = section_env(&rules, running.region.as_deref(), view, &running.level);
+    let random = LegacyRandom::from_state(random as u64).ok_or(rustler::Error::BadArg)?;
+    let air = AirWhereUnreadable(view);
+    let blocks = running.level.blocks(view, &air);
+    let mut level = running
+        .level
+        .level(blocks, &section_env, rules.facts, random)?;
+    let mut ai = SectionAi {
+        ctx: ctx(&rules)?,
+        level: &mut level,
+        sensing: std::mem::replace(&mut running.sensing, Sensing::new(vec![], vec![], vec![])),
     };
-    let ran = running.tick.run(section, &tw, &mut sky, ticker, from);
+    // The Elixir mobs that took their turns since the last run.
+    for row in resense {
+        ai.resense(mob_section_level::mob(rules.facts, row)?);
+    }
+    let ran = running.tick.run(section, &tw, &mut ai, ticker, from);
+    running.sensing = ai.sensing;
     let moved = std::mem::take(&mut running.tick.moved);
     let pushed = std::mem::take(&mut running.tick.pushed)
         .into_iter()
         .map(|(i, v)| (i, (v[0], v[1], v[2])))
         .collect();
     let rows = moved_rows(section, &moved);
-    Ok((ran, sky.random.seed as i64, rows, pushed))
+    Ok((ran, level.random.seed as i64, rows, pushed))
 }
 
 fn ran_term<'a>(env: Env<'a>, (ran, random, moved, pushed): Run) -> Term<'a> {
@@ -942,10 +948,11 @@ fn ran_term<'a>(env: Env<'a>, (ran, random, moved, pushed): Run) -> Term<'a> {
 }
 
 /// Runs turns from index `from` with the level random `random` (its
-/// state): `{:yield, index, random, moved, pushed}` at an Elixir mob's
-/// index, `{:done, random, moved, pushed}` at the end; `moved` refreshes the
-/// Elixir AI's sensing of the native mobs that moved, `pushed` the Elixir
-/// mobs' velocities their steps pushed.
+/// state), after sensing again the Elixir mobs of `resense` (their sensed
+/// rows since the last run): `{:yield, index, random, moved, pushed}` at an
+/// Elixir mob's index, `{:done, random, moved, pushed}` at the end; `moved`
+/// refreshes the Elixir AI's sensing of the native mobs that moved,
+/// `pushed` the Elixir mobs' velocities their steps pushed.
 #[rustler::nif]
 fn mob_section_run<'a>(
     env: Env<'a>,
@@ -953,8 +960,12 @@ fn mob_section_run<'a>(
     ticker: ResourceArc<MobTicker>,
     from: usize,
     random: i64,
+    resense: Vec<Term<'a>>,
 ) -> NifResult<Term<'a>> {
-    Ok(ran_term(env, run(env, &res, &ticker, from, random)?))
+    Ok(ran_term(
+        env,
+        run(env, &res, &ticker, from, random, resense)?,
+    ))
 }
 
 /// `mob_section_run/4` for runs past the normal scheduler's budget.
@@ -965,8 +976,12 @@ fn mob_section_run_dirty<'a>(
     ticker: ResourceArc<MobTicker>,
     from: usize,
     random: i64,
+    resense: Vec<Term<'a>>,
 ) -> NifResult<Term<'a>> {
-    Ok(ran_term(env, run(env, &res, &ticker, from, random)?))
+    Ok(ran_term(
+        env,
+        run(env, &res, &ticker, from, random, resense)?,
+    ))
 }
 
 /// Ends the tick: the players push, every mob's motion settles.
@@ -1029,7 +1044,12 @@ fn finish<'a>(
             .ok_or_else(|| fail(atoms::missing()))?;
         let p = slot.mob.position;
         let row = row(&rules, slot, false);
-        let effects = Value::List(step.effects.iter().map(effect).collect());
+        let effects = Value::List(
+            step.effects
+                .iter()
+                .filter_map(|e| effect(&rules, e))
+                .collect(),
+        );
         out.push(
             (
                 step.id,
@@ -1341,6 +1361,408 @@ fn mob_section_name<'a>(
     })
 }
 
+/// A player's use of an item on mob `id` (`RegionData`'s `{:interact_entity}`,
+/// `kinds::interact`): its lead part, then its family's. `player` is
+/// `{uuid, position, entity id, width, height}` (nil: unknown, no lead
+/// part), `loot` the stacks each shearing table rolled (the owner rolls its
+/// tables). `{:ok, {outcome, events, {position, row}}}`, the outcome
+/// `:pass`, `:consume` or `{:done, hand, swing, events, others, drops,
+/// convert, free, discard}` in `Valimc.Entity.Animals.Interaction`'s shapes, sounds
+/// without their seeds and `convert` the record of the mob it becomes.
+#[rustler::nif]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn mob_section_interact<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    item: Term<'a>,
+    player: Option<(rustler::Binary<'a>, Vec3, i32, f64, f64)>,
+    infinite: bool,
+    loot: Vec<(String, Vec<Term<'a>>)>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::ai::leash::Holder;
+    use valimc_core::mobs::kinds::{self, interact as ki, leads};
+    let item = if item.is_atom() {
+        None
+    } else {
+        Some(mob_term::decode(item)?)
+    };
+    let player = match &player {
+        None => None,
+        Some((who, (x, y, z), pid, width, height)) => Some(leads::Player {
+            uuid: who
+                .as_slice()
+                .try_into()
+                .map_err(|_| rustler::Error::BadArg)?,
+            holder: Holder {
+                position: [*x, *y, *z],
+                width: *width,
+                height: *height,
+                yaw: 0.0,
+                movement: [0.0; 3],
+                id: Some(*pid),
+            },
+        }),
+    };
+    let mut tables = Vec::new();
+    for (name, stacks) in &loot {
+        let stacks = stacks
+            .iter()
+            .map(|s| mob_term::decode(*s))
+            .collect::<NifResult<Vec<_>>>()?;
+        tables.push((name.clone(), stacks));
+    }
+    let request = ki::Request {
+        item,
+        infinite,
+        player: player.map(|p| p.uuid),
+    };
+    let registry = crate::mob_facts::kinds()?;
+    act(env, &res, None, id, |rules, mob, _| {
+        let mut roll = |table: &str, _props: &[(String, String)]| -> Vec<Value> {
+            tables
+                .iter()
+                .find(|(n, _)| n == table)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default()
+        };
+        let kind = rules
+            .facts
+            .entities
+            .id(&mob.body.entity_type)
+            .and_then(|t| registry.kind(t));
+        let outcome = match kind {
+            None => ki::Outcome::Pass,
+            Some(kind) => {
+                let mut i = ki::Interaction {
+                    rules,
+                    mob,
+                    request: &request,
+                    loot: &mut roll,
+                };
+                kinds::interact(&mut i, kind, player.as_ref())
+            }
+        };
+        let value = interact_outcome(&outcome, mob);
+        mob_term::encode(env, &value).unwrap_or_else(|_| atoms::invalid().encode(env))
+    })
+}
+
+fn interact_outcome(
+    outcome: &valimc_core::mobs::kinds::interact::Outcome,
+    mob: &NativeMob,
+) -> Value {
+    use valimc_core::mobs::kinds::interact::{At, Hand, InteractEvent, Outcome, Source};
+    let d = match outcome {
+        Outcome::Pass => return Value::atom("pass"),
+        Outcome::Consume => return Value::atom("consume"),
+        Outcome::Done(d) => d,
+    };
+    let text = |s: &str| Value::Binary(s.as_bytes().to_vec());
+    let hand = match d.hand() {
+        Hand::Keep => Value::atom("keep"),
+        Hand::Use(n) => Value::tuple([Value::atom("use"), Value::Int(*n as i64)]),
+        Hand::Fill(stack) => Value::tuple([Value::atom("fill"), stack.clone()]),
+        Hand::Wear(n) => Value::tuple([Value::atom("wear"), Value::Int(*n as i64)]),
+    };
+    let events = d
+        .events
+        .iter()
+        .map(|e| match e {
+            InteractEvent::Sound {
+                sound,
+                source,
+                volume,
+                pitch,
+            } => Value::Tuple(vec![
+                Value::atom("sound"),
+                Value::Int(*sound as i64),
+                text(source),
+                Value::Float(*volume),
+                Value::Float(*pitch),
+            ]),
+            InteractEvent::SoundBlock {
+                sound,
+                source,
+                volume,
+                pitch,
+            } => Value::Tuple(vec![
+                Value::atom("sound_block"),
+                Value::Int(*sound as i64),
+                text(source),
+                Value::Float(*volume),
+                Value::Float(*pitch),
+            ]),
+            InteractEvent::Entity(n) => Value::tuple([Value::atom("event"), Value::Int(*n as i64)]),
+        })
+        .collect();
+    let others = Value::or_nil(d.others.as_ref(), |o| {
+        Value::Tuple(vec![
+            Value::Int(o.sound as i64),
+            match o.source {
+                Source::Named(name) => text(name),
+                Source::Id(id) => Value::Int(id as i64),
+            },
+            Value::Float(o.volume),
+            Value::Float(o.pitch),
+            Value::atom(match o.at {
+                At::Player => "player",
+                At::Animal => "animal",
+            }),
+        ])
+    });
+    let drops = d
+        .drops
+        .iter()
+        .map(|x| {
+            Value::tuple([
+                x.stack.clone(),
+                Value::vec3(x.offset),
+                Value::or_nil(x.add, |a| {
+                    Value::tuple([Value::atom("add"), Value::vec3(a)])
+                }),
+            ])
+        })
+        .collect();
+    let convert = Value::or_nil(d.convert.as_ref(), |body| {
+        record::record(&NativeMob {
+            uuid: mob.uuid,
+            position: mob.position,
+            hops: 0,
+            body: (**body).clone(),
+        })
+    });
+    let free = d
+        .free
+        .iter()
+        .map(|c| Value::ivec3([c[0].into(), c[1].into(), c[2].into()]))
+        .collect();
+    Value::Tuple(vec![
+        Value::atom("done"),
+        hand,
+        Value::bool(d.swing),
+        Value::List(events),
+        others,
+        Value::List(drops),
+        convert,
+        Value::List(free),
+        Value::bool(d.discard),
+    ])
+}
+
+/// `Combat.mob_hit/3` of native mob `id` (`Mob.doHurtTarget`'s hit on a
+/// target of type `target`, a player's for its melee goal): `{:ok, hit}` in
+/// `Combat`'s shape, its source the damage type's name, or `{:error,
+/// :dead_mob | :missing_entity}`.
+#[rustler::nif]
+fn mob_section_mob_hit<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    target: String,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let inner = read(&res)?;
+    let Some(slot) = inner.section.get(id) else {
+        return Ok((atoms::error(), Atom::from_str(env, "missing_entity")?).encode(env));
+    };
+    let target = rules
+        .facts
+        .entities
+        .id(&target)
+        .ok_or(rustler::Error::BadArg)?;
+    let Some(hit) = combat::mob_hit(&rules, &slot.mob, id, target) else {
+        return Ok((atoms::error(), Atom::from_str(env, "dead_mob")?).encode(env));
+    };
+    let attacker = |a: &Attacker| -> Value {
+        Value::Map(Map::from_atoms([
+            ("uuid", Value::Binary(a.uuid.to_vec())),
+            ("entity_id", Value::Int(a.entity_id as i64)),
+            ("player", Value::bool(a.player)),
+            ("type", Value::Binary(a.entity_type.as_bytes().to_vec())),
+            ("mainhand", a.mainhand.clone().unwrap_or(NIL)),
+        ]))
+    };
+    let name = &rules.facts.damage_types.types[hit.source as usize].name;
+    let mut m = Map::from_atoms([
+        (
+            "source",
+            Value::Atom(valimc_core::mobs::term::Atom::new(
+                name.strip_prefix("minecraft:").unwrap_or(name),
+            )),
+        ),
+        ("amount", Value::Float(hit.amount)),
+    ]);
+    if let Some(a) = &hit.attacker {
+        m.insert_atom("attacker", attacker(a));
+    }
+    if let Some(a) = &hit.direct {
+        m.insert_atom("direct", attacker(a));
+    }
+    if let Some(p) = hit.position {
+        m.insert_atom("position", Value::vec3(p));
+    }
+    if let Some((power, [x, z])) = hit.extra_knockback {
+        m.insert_atom(
+            "extra_knockback",
+            Value::tuple([
+                Value::Float(power),
+                Value::tuple([Value::Float(x), Value::Float(z)]),
+            ]),
+        );
+    }
+    if let Some(k) = &hit.killer {
+        m.insert_atom("killer", k.clone());
+    }
+    Ok((atoms::ok(), mob_term::encode(env, &Value::Map(m))?).encode(env))
+}
+
+/// An owner's change of a family field of mob `id` (`data[key] = value`:
+/// a chicken that became a jockey's, a block an enderman could not put
+/// down back in its arms). `{:ok, {true | false, events, {position, row}}}`,
+/// false where its family has no such field.
+#[rustler::nif]
+fn mob_section_data<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    key: Atom,
+    value: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let key = key.to_term(env).atom_to_string()?;
+    let value = mob_term::decode(value)?;
+    act(env, &res, None, id, |_, mob, _| {
+        mob.body.data.set(&key, value)
+    })
+}
+
+/// `Conversion.convert/4` of mob `id` (`{:convert, type}` of its step, a
+/// zombie drowning): the record of the mob of type `to` with `uuid` it
+/// becomes where it stands, at the local difficulty's `special` multiplier
+/// (`kinds::convert`); the owner removes this one. `{:ok, record}` or
+/// `{:error, :missing | :invalid}`.
+#[rustler::nif]
+fn mob_section_convert<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    uuid: rustler::Binary<'a>,
+    to: String,
+    special: f64,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let inner = owned(env, &res)?;
+    let uuid: [u8; 16] = uuid
+        .as_slice()
+        .try_into()
+        .map_err(|_| rustler::Error::BadArg)?;
+    let Some(slot) = inner.section.get(id) else {
+        return Ok((atoms::error(), atoms::missing()).encode(env));
+    };
+    let converted = rules.facts.entities.id(&to).and_then(|to| {
+        valimc_core::mobs::kinds::convert(
+            &rules,
+            crate::mob_facts::kinds().ok()?,
+            &slot.mob.body,
+            &uuid,
+            to,
+            special,
+        )
+    });
+    match converted {
+        None => Ok((atoms::error(), atoms::invalid()).encode(env)),
+        Some(body) => {
+            let record = record::record(&NativeMob {
+                uuid,
+                position: slot.mob.position,
+                hops: 0,
+                body,
+            });
+            Ok((atoms::ok(), mob_term::encode(env, &record)?).encode(env))
+        }
+    }
+}
+
+/// `AbstractCubeMob.remove` of a dead mob `id` (`Kind::split`): the mobs it
+/// becomes as it goes, `[{record, {x, y, z}}]` (each record's uuid for the
+/// owner to give), from its own random; none for a family that does not
+/// split or a mob that is alive.
+#[rustler::nif]
+fn mob_section_split<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let inner = owned(env, &res)?;
+    let mut out = Vec::new();
+    if let Some(slot) = inner.section.get(id) {
+        let mob = &slot.mob;
+        let kind = rules
+            .facts
+            .entities
+            .id(&mob.body.entity_type)
+            .and_then(|t| crate::mob_facts::kinds().ok()?.kind(t));
+        if let Some(kind) = kind.filter(|_| !living_mob::alive(&mob.body.mob)) {
+            for (body, at) in kind.split(&rules, &mob.body, mob.position) {
+                let record = record::record(&NativeMob {
+                    uuid: [0; 16],
+                    position: at,
+                    hops: 0,
+                    body,
+                });
+                out.push((mob_term::encode(env, &record)?, (at[0], at[1], at[2])).encode(env));
+            }
+        }
+    }
+    Ok(out.encode(env))
+}
+
+/// A lead's change by the owner (`Valimc.Entity.Leashes`' `bind`, `knot`
+/// and `snip` of native mobs): `{holder, id}` leashes mob `id` to `holder`
+/// (`{:player, uuid}` or `{:knot, {x, y, z}}`, network id `id`) keeping its
+/// momentum; nil takes its lead and home away.
+#[rustler::nif]
+fn mob_section_leash<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    leash: Term<'a>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::kinds::leads;
+    use valimc_core::mobs::model::LeashHolder;
+    let leash = mob_term::decode(leash)?;
+    let to = match leash.as_tuple_n::<2>() {
+        None => None,
+        Some([holder, holder_id]) => {
+            let holder = match holder.as_tuple_n::<2>() {
+                Some([kind, uuid]) if kind.is_atom("player") => LeashHolder::Player(
+                    uuid.as_binary()
+                        .and_then(|b| b.try_into().ok())
+                        .ok_or(rustler::Error::BadArg)?,
+                ),
+                Some([kind, pos]) if kind.is_atom("knot") => {
+                    let [x, y, z] = pos.as_ivec3().ok_or(rustler::Error::BadArg)?;
+                    let c = |v: i64| i32::try_from(v).map_err(|_| rustler::Error::BadArg);
+                    LeashHolder::Knot([c(x)?, c(y)?, c(z)?])
+                }
+                _ => return Err(rustler::Error::BadArg),
+            };
+            let holder_id = holder_id
+                .as_int()
+                .and_then(|i| i32::try_from(i).ok())
+                .ok_or(rustler::Error::BadArg)?;
+            Some((holder, holder_id))
+        }
+    };
+    act(env, &res, None, id, |_, mob, _| match to {
+        Some((holder, holder_id)) => leads::attach(mob, holder, Some(holder_id)),
+        None => {
+            leads::remove(mob);
+        }
+    })
+}
+
 /// A displacement or a portal's change of motion: the velocity and, when
 /// given, the position, ground and rotation.
 #[rustler::nif]
@@ -1424,8 +1846,14 @@ fn mob_section_effect<'a>(
     let tag: Atom = t.first().ok_or(rustler::Error::BadArg)?.decode()?;
     if tag == atoms::add() {
         let effect: i32 = t.get(1).ok_or(rustler::Error::BadArg)?.decode()?;
+        // A rung, or `Effects.add/3`'s one-rung list.
+        let term = *t.get(2).ok_or(rustler::Error::BadArg)?;
+        let term = match term.decode::<Vec<Term>>() {
+            Ok(list) => *list.first().ok_or(rustler::Error::BadArg)?,
+            Err(_) => term,
+        };
         let (ticks, amplifier, ambient, particles, icon): (i32, u8, bool, bool, bool) =
-            t.get(2).ok_or(rustler::Error::BadArg)?.decode()?;
+            term.decode()?;
         let rung = Rung {
             ticks,
             amplifier,
@@ -1605,7 +2033,7 @@ fn mob_section_displace<'a>(
         let attributes = tick::travel_attributes(&rules, ty, &slot.mob);
         (
             index,
-            tick::kernel_input(&rules, &NoMotionHooks, ty, &slot.mob, attributes),
+            tick::kernel_input(&rules, &families(&rules)?, ty, &slot.mob, attributes),
         )
     };
     let moved = {
@@ -1631,4 +2059,266 @@ fn mob_section_displace<'a>(
         mob.body.velocity = moved.velocity;
         mob.body.on_ground = moved.on_ground;
     })
+}
+
+/// Oracle entry points (the vanilla stages' native modes), built only with
+/// the `parity` feature.
+#[cfg(feature = "parity")]
+mod oracle {
+    use super::*;
+    use valimc_core::mobs::ai::think;
+    use valimc_core::mobs::kinds::interact::InteractEvent;
+
+    mod oracle_atoms {
+        rustler::atoms! { love, feed, event }
+    }
+
+    /// A section holding mobs anywhere (a scene around the origin), owned by
+    /// the caller.
+    #[rustler::nif]
+    fn mob_section_oracle_new(env: Env) -> ResourceArc<MobSectionRes> {
+        let mut section = MobSection::new((0, 0));
+        section.anywhere = true;
+        ResourceArc::new(MobSectionRes {
+            owner: Mutex::new(env.pid()),
+            inner: Mutex::new(Inner {
+                section,
+                running: None,
+            }),
+        })
+    }
+
+    /// Mob `id` thinks with a mind now (`AI.ensure/2`), its body (and a
+    /// cube's move control) facing `body_yaw`, and holds its lead's holder `leash_id` as it does once it
+    /// found it.
+    #[rustler::nif]
+    fn mob_section_oracle_prepare(
+        env: Env,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        body_yaw: f64,
+        leash_id: Option<i32>,
+    ) -> NifResult<Atom> {
+        let rules = rules()?;
+        let ctx = ctx(&rules)?;
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        think::ensure(&ctx, &mut slot.mob);
+        let cube = matches!(
+            slot.mob.body.entity_type.as_str(),
+            "minecraft:slime" | "minecraft:magma_cube"
+        );
+        if let Some(s) = slot.mob.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) {
+            s.body_yaw = body_yaw;
+            // A cube's move control faces its spawn yaw, as the oracle sets it.
+            if cube && s.own.family.is_none() {
+                s.own.family = Some(Box::new(valimc_core::mobs::monsters::cube::CubeOwn {
+                    y_rot: body_yaw,
+                    ..Default::default()
+                }));
+            }
+        }
+        if let (Some(leash), Some(lid)) = (slot.mob.body.mob.leash.as_mut(), leash_id) {
+            leash.restored = false;
+            leash.id = Some(lid);
+        }
+        Ok(atoms::ok())
+    }
+
+    /// What a scene does to mob `id` before a tick: `:love` (`fall_in_love`,
+    /// its events) or `:feed` (a baby fed).
+    #[rustler::nif]
+    fn mob_section_oracle_act<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        what: Atom,
+    ) -> NifResult<Term<'a>> {
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let mut events = Vec::new();
+        if what == oracle_atoms::love() {
+            for e in valimc_core::mobs::animals::feed_love(&mut slot.mob, None) {
+                if let InteractEvent::Entity(n) = e {
+                    events.push((oracle_atoms::event(), n).encode(env));
+                }
+            }
+        } else if what == oracle_atoms::feed() {
+            valimc_core::mobs::animals::feed_baby(&mut slot.mob);
+        } else {
+            return Err(rustler::Error::BadArg);
+        }
+        Ok(events.encode(env))
+    }
+
+    /// The mind of mob `id` as the AI stage compares it (nil without one):
+    /// `%{body_yaw, goals, targets, target, aggressive, path, ambient,
+    /// no_action, own}`, goals `[{index, name}]`, `own` a cube's move
+    /// control (nil for others), `target` a `{kind, uuid}` and `path` `{x, y, z, speed}` of
+    /// its next node.
+    #[rustler::nif]
+    fn mob_section_oracle_mind<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+    ) -> NifResult<Term<'a>> {
+        let inner = read(&res)?;
+        let slot = inner
+            .section
+            .get(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let Some(s) = slot
+            .mob
+            .body
+            .mob
+            .ai
+            .as_ref()
+            .and_then(|m| m.state.as_deref())
+        else {
+            return mob_term::encode(env, &NIL);
+        };
+        // The running goals by their index in the type's registration; a
+        // skeleton's weapon goal by the vanilla goal it stands for.
+        let names = |sel: &valimc_core::mobs::ai::selector::Selector| {
+            use valimc_core::mobs::monsters::skeleton::Weapon;
+            Value::List(
+                sel.entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.running)
+                    .filter_map(|(i, e)| Some((i, e.goal.as_deref()?)))
+                    .map(|(i, g)| {
+                        let name = match g.as_any().downcast_ref::<Weapon>() {
+                            Some(w) if format!("{w:?}").contains("mode: Bow") => {
+                                "RangedBowAttackGoal"
+                            }
+                            Some(_) => "MeleeAttackGoal",
+                            None => g.name(),
+                        };
+                        Value::tuple([
+                            Value::Int(i as i64),
+                            Value::Binary(name.as_bytes().to_vec()),
+                        ])
+                    })
+                    .collect(),
+            )
+        };
+        let path = s.navigation.path.as_ref().and_then(|p| {
+            p.nodes.get(p.index).map(|n| {
+                Value::Tuple(vec![
+                    Value::Int(n[0].into()),
+                    Value::Int(n[1].into()),
+                    Value::Int(n[2].into()),
+                    Value::Float(s.navigation.speed),
+                ])
+            })
+        });
+        let map = Map::from_atoms([
+            ("body_yaw", Value::Float(s.body_yaw)),
+            ("goals", names(&s.goals)),
+            ("targets", names(&s.targets)),
+            ("target", Value::or_nil(s.target.as_ref(), reference)),
+            ("aggressive", Value::bool(s.aggressive)),
+            ("path", path.unwrap_or(NIL)),
+            ("ambient", Value::Int(s.ambient)),
+            ("no_action", Value::Int(s.no_action)),
+            (
+                "own",
+                Value::or_nil(
+                    s.own.family::<valimc_core::mobs::monsters::cube::CubeOwn>(),
+                    |o| {
+                        Map::from_atoms([
+                            ("y_rot", Value::Float(o.y_rot)),
+                            ("jump_delay", Value::Int(o.jump_delay)),
+                            ("aggressive", Value::bool(o.aggressive)),
+                        ])
+                        .into()
+                    },
+                ),
+            ),
+        ]);
+        mob_term::encode(env, &Value::Map(map))
+    }
+
+    /// Mob `id`'s health with what a record leaves out (its hurt cooldown
+    /// and last hurt): `{value, maximum, hurt_ticks, death_ticks, cooldown,
+    /// last_hurt}`.
+    #[rustler::nif]
+    fn mob_section_oracle_health(
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+    ) -> NifResult<(f64, f64, i32, i32, i32, f64)> {
+        let inner = read(&res)?;
+        let slot = inner
+            .section
+            .get(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let h = &slot.mob.body.mob.living.health;
+        Ok((
+            h.value,
+            h.maximum,
+            h.hurt_ticks,
+            h.death_ticks,
+            h.cooldown,
+            h.last_hurt,
+        ))
+    }
+
+    /// What a record leaves out of mobs `ids`: `[{body_yaw, running goals,
+    /// leash, home, move disabled}]`, `leash` nil or `{holder id,
+    /// momentum}`.
+    #[rustler::nif]
+    fn mob_section_oracle_minds<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        ids: Vec<i32>,
+    ) -> NifResult<Vec<Term<'a>>> {
+        let inner = read(&res)?;
+        ids.iter()
+            .map(|&id| {
+                let slot = inner
+                    .section
+                    .get(id)
+                    .ok_or_else(|| fail(atoms::missing()))?;
+                let state = slot
+                    .mob
+                    .body
+                    .mob
+                    .ai
+                    .as_ref()
+                    .and_then(|m| m.state.as_deref());
+                let goals: Vec<&str> = state
+                    .map(|s| s.goals.running().map(|g| g.name()).collect())
+                    .unwrap_or_default();
+                let leash = slot
+                    .mob
+                    .body
+                    .mob
+                    .leash
+                    .as_ref()
+                    .map(|l| (l.id.unwrap_or(-1), l.momentum));
+                let home = slot
+                    .mob
+                    .body
+                    .mob
+                    .home
+                    .as_ref()
+                    .map(|h| (h.center[0], h.center[1], h.center[2], h.radius));
+                Ok((
+                    state.map_or(0.0, |s| s.body_yaw),
+                    goals,
+                    leash,
+                    home,
+                    state.is_some_and(|s| s.disabled & valimc_core::mobs::ai::goal::MOVE != 0),
+                )
+                    .encode(env))
+            })
+            .collect()
+    }
 }

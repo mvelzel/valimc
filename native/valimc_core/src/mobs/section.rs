@@ -129,6 +129,8 @@ pub struct MobSection {
     removed: HashMap<[u8; 16], Written>,
     /// Changes so far (any change to any mob).
     pub revision: u64,
+    /// Holds mobs anywhere (an oracle's scene around the origin).
+    pub anywhere: bool,
 }
 
 impl MobSection {
@@ -140,6 +142,7 @@ impl MobSection {
             chunks: BTreeMap::new(),
             removed: HashMap::new(),
             revision: 0,
+            anywhere: false,
         }
     }
 
@@ -158,6 +161,11 @@ impl MobSection {
 
     pub fn slots(&self) -> impl Iterator<Item = (i32, &Slot)> {
         self.slots.iter().map(|(&id, s)| (id, s))
+    }
+
+    /// The mobs in id order, to change.
+    pub fn mobs_mut(&mut self) -> impl Iterator<Item = (i32, &mut NativeMob)> {
+        self.slots.iter_mut().map(|(&id, s)| (id, &mut s.mob))
     }
 
     pub fn contains(&self, id: i32) -> bool {
@@ -200,7 +208,7 @@ impl MobSection {
         if self.uuids.contains_key(&mob.uuid) {
             return Err(InsertError::Uuid);
         }
-        if section_of(chunk_of(mob.position)) != self.section {
+        if !self.holds(mob.position) {
             return Err(InsertError::Outside);
         }
         let written = written.or_else(|| self.removed.remove(&mob.uuid));
@@ -230,6 +238,17 @@ impl MobSection {
         }
         self.revision += 1;
         Some(slot)
+    }
+
+    /// Mob `id` out of the section for its turn (its indexes kept), so its
+    /// AI reads the others while it changes; `put` brings it back.
+    pub fn take(&mut self, id: i32) -> Option<Slot> {
+        self.slots.remove(&id)
+    }
+
+    pub fn put(&mut self, id: i32, slot: Slot) {
+        self.revision += 1;
+        self.slots.insert(id, slot);
     }
 
     /// Mob `id`'s chunk after its position changed.
@@ -266,7 +285,7 @@ impl MobSection {
 
     /// Whether its position is in this section.
     pub fn holds(&self, position: [f64; 3]) -> bool {
-        section_of(chunk_of(position)) == self.section
+        self.anywhere || section_of(chunk_of(position)) == self.section
     }
 
     /// The records a frame writes now (`RegionStorage.diff_parts/2` of the

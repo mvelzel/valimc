@@ -115,7 +115,9 @@ defmodule Valimc.Entity.MobTicks do
   turns run by their section (`native`, a `Valimc.Entity.NativeMobs`)
   and each Elixir mob's by yielding to its turn here at its index, so every
   mob takes its turn in id order. `env` is what native turns read beyond
-  the ticker (`Native.mob_section_begin/7`'s). `{steps, world}` as
+  the ticker (`Native.mob_section_begin/7`'s: `%{region, level, players,
+  items, reach}`, `reach` how far around them their AI reads blocks); the
+  Elixir mobs' sensed rows join it here. `{steps, world}` as
   `steps/5`; a native mob's step body is its `NativeBody` row (`native:
   true`, `outside` when it left the section), and one whose state did not
   change has its entry's.
@@ -161,6 +163,8 @@ defmodule Valimc.Entity.MobTicks do
           box != :unsupported,
           do: {i, box}
 
+    reach = Map.get(env, :reach, 0)
+
     region =
       (mobs ++ external)
       |> Enum.map(fn {_, %{entity: e, body: body}} ->
@@ -174,6 +178,23 @@ defmodule Valimc.Entity.MobTicks do
       |> Enum.reduce(fn {a0, b0, c0, d0, e0, f0}, {a1, b1, c1, d1, e1, f1} ->
         {min(a0, a1), min(b0, b1), min(c0, c1), max(d0, d1), max(e0, e1), max(f0, f1)}
       end)
+      |> then(fn {x0, y0, z0, x1, y1, z1} ->
+        {x0 - reach, y0 - reach, z0 - reach, x1 + reach, y1 + reach, z1 + reach}
+      end)
+
+    # What the native AI senses of the section's Elixir mobs, in their
+    # places of the id order (`AI.prepare/2`'s rows).
+    others =
+      if elixir?,
+        do:
+          for(
+            {{id, entry}, index} <- Enum.with_index(mobs),
+            not Store.native_entry?(entry),
+            do: {index, native_row(world, id, entry)}
+          ),
+        else: []
+
+    env = env |> Map.delete(:reach) |> Map.put(:others, others)
 
     bounds = if border, do: elem(Valimc.Physics.BorderSnapshot.bounds(border), 1)
     cells = Kernel.native(view, region)
@@ -208,8 +229,10 @@ defmodule Valimc.Entity.MobTicks do
     }
 
     state = run_native(view, ticker, old, 0, state)
+
     {elixir, stepped, native_steps} =
       Native.dispatch(:mob_section_finish, map_size(state.natives), [native.ref, ticker])
+
     velocities = Map.new(elixir)
     steps = Enum.reverse(state.steps)
 
@@ -281,16 +304,31 @@ defmodule Valimc.Entity.MobTicks do
            state.native.ref,
            ticker,
            from,
-           state.world.random
+           state.world.random,
+           Map.get(state, :resense, [])
          ]) do
       {:yield, i, random, moved, pushed} ->
         state = native_moved(state, random, moved, pushed)
-        state = step(view, ticker, old, elem(state.ids, i), i, state)
+        id = elem(state.ids, i)
+        state = step(view, ticker, old, id, i, state)
+        # The native AI senses it where its turn left it.
+        state = Map.put(state, :resense, [native_row(state.world, id, state.entries[id])])
         run_native(view, ticker, old, i + 1, state)
 
       {:done, random, moved, pushed} ->
         native_moved(state, random, moved, pushed)
     end
+  end
+
+  # An Elixir mob as the native AI senses it: the Elixir AI's row of it.
+  defp native_row(world, id, %{entity: e} = entry) do
+    case AI.World.entity(world, {:mob, e.uuid}) do
+      nil -> AI.sensed({id, entry})
+      row -> row
+    end
+    |> Map.take(
+      ~w(uuid id type x y z yaw pitch eye width height box alive recent_mob_hurt baby huntable target in_love age in_water invulnerable killed_by panicking data)a
+    )
   end
 
   # The native turns a run from index `i` takes before it yields.

@@ -18,7 +18,6 @@ use valimc_core::physics::Aabb;
 static PATHS: OnceLock<PathFacts> = OnceLock::new();
 
 /// The installed path facts (the native mob AI searches with them).
-#[cfg(feature = "parity")]
 pub(crate) fn path_facts() -> Option<&'static PathFacts> {
     PATHS.get()
 }

@@ -1227,6 +1227,7 @@ STAGES = [
     ('hostile_ai', [
         ('java', 'HostileOracle', 'cases', '@hostile-ai.json'),
         ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12'),
+        ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12', '--native'),
     ]),
     # VMC-044a: the village's facts (POI types, professions, the schedule) and
     # villagers living a day by their brains over beds, job sites and bells.
@@ -1251,6 +1252,7 @@ STAGES = [
     ('animals', [
         ('java', 'AnimalOracle', 'cases', '@animals.json'),
         ('check', 'check_animals.exs', '@animals.json'),
+        ('check', 'check_animals.exs', '@animals.json', '--native'),
     ]),
     ('bucket_mobs', [
         ('regen', 'BucketMobOracle', 'facts', '@bucket-facts.json'),

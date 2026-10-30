@@ -70,7 +70,7 @@ defmodule Valimc.CombatConnectionTest do
 
   defp body(owner, uuid) do
     {:ok, {_, id, _}} = Store.find(store(owner), uuid)
-    {id, store(owner).entries[id]}
+    {id, Valimc.TestBodies.entry(store(owner).entries[id])}
   end
 
   test "full-strength sword hits kill a zombie, which drops its loot and experience", ctx do

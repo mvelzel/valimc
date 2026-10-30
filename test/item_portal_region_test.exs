@@ -102,7 +102,7 @@ defmodule Valimc.ItemPortalRegionTest do
         {:ok, owner} = Valimc.TestWorld.item_owner(key)
 
         case Store.find(resource(owner).entities.store, uuid) do
-          {:ok, {_, id, _}} -> resource(owner).entities.store.entries[id]
+          {:ok, {_, id, _}} -> Valimc.TestBodies.entry(resource(owner).entities.store.entries[id])
           _ -> nil
         end
       end)

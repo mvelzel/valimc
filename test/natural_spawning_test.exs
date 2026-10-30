@@ -229,7 +229,7 @@ defmodule Valimc.NaturalSpawningTest do
     assert :ok = Region.name_entity(owner, uuid, name)
     store = Valimc.TestRegion.section(owner).entities.store
     {:ok, {_, id, _}} = Store.find(store, uuid)
-    entry = store.entries[id]
+    entry = Valimc.TestBodies.entry(store.entries[id])
     assert entry.body.custom_name == name and entry.body.mob.persistent
     {:ok, restored} = Body.restore(Body.record(entry.body))
     assert restored.custom_name == name and restored.mob.persistent

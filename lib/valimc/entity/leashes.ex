@@ -14,12 +14,14 @@ defmodule Valimc.Entity.Leashes do
 
   `request` is the interaction's (`Valimc.Entity.Animals.Interaction`) with
   the player's body as a holder (`holder: %{id, x, y, z, width, height}`)
-  and whether it sneaks. Mobs are `{id, body, {x, y, z}}`. A lead's holder
+  and whether it sneaks. Mobs are `{id, body, {x, y, z}}`, a native mob's
+  body its row (VMC-081d: its own interaction is native, the owner applies
+  `attach/3` and `drop/1` of a row through its section). A lead's holder
   is `{:player, uuid}` or `{:knot, pos}` (`Valimc.Entity.Mob`); the mob's
   own tick does the rest (`Valimc.AI.Leash`).
   """
   alias Valimc.AI.Leash
-  alias Valimc.Entity.{Body, Mob}
+  alias Valimc.Entity.{Body, Mob, NativeBody}
   alias Valimc.Entity.Animals.Interaction
   alias Valimc.Protocol.{ItemStack, ItemTypes}
 
@@ -93,14 +95,17 @@ defmodule Valimc.Entity.Leashes do
   `canHaveALeashAttachedTo`: a living mob that takes a lead, within 12
   blocks of the holder (`%{x, y, z, width, height}`).
   """
-  def attachable?(%Body{type: type, mob: mob} = body, {x, y, z}, holder) do
+  def attachable?(%{type: type} = body, {x, y, z}, holder) do
     {width, height, _} = Body.dimensions(body)
 
-    Leash.leashable?(type) and Mob.alive?(mob) and
+    Leash.leashable?(type) and Body.alive?(body) and
       Leash.between(%{x: x, y: y, z: z, width: width, height: height}, holder) <= 12.0
   end
 
   @doc "`setLeashedTo`: leashed to `holder` (network id `id`), keeping its momentum."
+  def attach(%NativeBody{} = row, holder, id),
+    do: %{row | leash: %{holder: holder, id: id, restored: false}}
+
   def attach(%Body{mob: mob} = body, holder, id) do
     momentum = if mob.leash, do: mob.leash.momentum, else: 0.0
     leash = %{holder: holder, id: id, momentum: momentum, restored: false}
@@ -114,6 +119,11 @@ defmodule Valimc.Entity.Leashes do
   def drop(body) do
     {body, [], free} = remove(body)
     {body, [{ItemStack.new("minecraft:lead"), {0.0, 0.0, 0.0}, nil}], free}
+  end
+
+  defp remove(%NativeBody{leash: leash} = row) do
+    free = for %{holder: {:knot, pos}} <- [leash], do: pos
+    {%{row | leash: nil}, [], free}
   end
 
   defp remove(%Body{mob: mob} = body) do
@@ -135,11 +145,16 @@ defmodule Valimc.Entity.Leashes do
   def leashed_to(mobs, holder, {cx, cy, cz}) do
     box = {cx - @area, cy - @area, cz - @area, cx + @area, cy + @area, cz + @area}
 
-    for {_, %Body{mob: %Mob{leash: %{holder: ^holder, restored: false}}} = body, {x, y, z}} =
-          mob <- mobs,
+    for {_, body, {x, y, z}} = mob <- mobs,
+        match?(%{holder: ^holder, restored: false}, leash(body)),
         meets?(box, body, {x, y, z}),
         do: mob
   end
+
+  @doc "A body's lead (a native mob's as its row shows it), nil for none."
+  def leash(%Body{mob: %Mob{leash: leash}}), do: leash
+  def leash(%NativeBody{leash: leash}), do: leash
+  def leash(_body), do: nil
 
   defp meets?({x0, y0, z0, x1, y1, z1}, body, {x, y, z}) do
     {width, height, _} = Body.dimensions(body)

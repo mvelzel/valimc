@@ -52,7 +52,7 @@ defmodule Valimc.ProjectileConnectionTest do
 
   defp health(owner, uuid) do
     {:ok, {_, id, _}} = Store.find(store(owner), uuid)
-    store(owner).entries[id].body.mob.living.health.value
+    Valimc.TestBodies.body(store(owner).entries[id]).mob.living.health.value
   end
 
   test "a drawn bow's arrow hurts a zombie, and a mob's arrow hurts the player", ctx do

@@ -170,15 +170,30 @@ defmodule Valimc.NativePlainMobsTest do
     }
   end
 
-  @env %{
-    monsters_burn: false,
+  @level %{
+    time: 1000,
+    day: 1000,
+    difficulty: :normal,
     darken: 0,
-    wet: false,
-    sea_level: 63,
-    zoom_seed: 0,
+    bright: true,
+    monsters_burn: false,
+    halloween: false,
     mob_griefing: true,
-    region: nil
+    mob_drops: true,
+    entity_drops: true,
+    universal_anger: false,
+    goals: false,
+    min_y: -64,
+    max_y: 319,
+    sea_level: 63,
+    border: nil,
+    knots: [],
+    wet: false,
+    zoom_seed: 0
   }
+
+  defp env(players),
+    do: %{region: nil, level: @level, players: players, items: [], reach: 0}
 
   # One owner tick of the store's bodies and mobs, as `RegionData` runs it:
   # the timers (`Store.age_chunks`), then the mobs' turns, their steps
@@ -204,7 +219,16 @@ defmodule Valimc.NativePlainMobsTest do
 
     {steps, world} =
       if store.native,
-        do: MobTicks.native_steps(view, Enum.sort(mobs), world, nil, [], store.native, @env),
+        do:
+          MobTicks.native_steps(
+            view,
+            Enum.sort(mobs),
+            world,
+            nil,
+            [],
+            store.native,
+            env(world.players)
+          ),
         else: MobTicks.steps(view, Enum.sort(mobs), world, nil)
 
     store = Store.mark_simulated(store, Enum.map(steps, & &1.id), tick)
@@ -299,7 +323,13 @@ defmodule Valimc.NativePlainMobsTest do
       y: 64.0,
       z: 48.4,
       mode: :survival,
-      alive: true
+      alive: true,
+      yaw: 0.0,
+      pitch: 0.0,
+      eye: 1.6200000047683716,
+      width: 0.6000000238418579,
+      height: 1.7999999523162842,
+      effects: []
     }
 
     compare(:plain, 120, [player], true)

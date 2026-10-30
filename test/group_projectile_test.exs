@@ -6,7 +6,7 @@ defmodule Valimc.GroupProjectileTest do
   alias Valimc.TestScope
   alias Valimc.World.Region
 
-  setup do
+  setup ctx do
     nonce = System.unique_integer([:positive])
     a = {119_000 + rem(nonce, 3333) * 3, 2400}
     b = {elem(a, 0) + 1, elem(a, 1)}
@@ -17,7 +17,10 @@ defmodule Valimc.GroupProjectileTest do
       region_ticks: :manual,
       region_commit_ms: 600_000,
       regionizer: false,
-      item_simulation: true
+      item_simulation: true,
+      # Tests that set an Elixir body's own fields keep their mobs in Elixir.
+      native_mob_types:
+        if(ctx[:elixir_mobs], do: :plain, else: Application.get_env(:valimc, :native_mob_types))
     )
 
     on_exit(fn ->
@@ -52,7 +55,7 @@ defmodule Valimc.GroupProjectileTest do
     store = Valimc.TestRegion.section(owner).entities.store
 
     case Store.find(store, uuid) do
-      {:ok, {_, id, _}} -> store.entries[id]
+      {:ok, {_, id, _}} -> Valimc.TestBodies.entry(store.entries[id])
       _ -> nil
     end
   end
@@ -68,6 +71,7 @@ defmodule Valimc.GroupProjectileTest do
     %{arrow | data: %{arrow.data | damage: damage}}
   end
 
+  @tag :elixir_mobs
   test "mob travel and living timers run once across either section direction", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}
@@ -285,6 +289,7 @@ defmodule Valimc.GroupProjectileTest do
     end
   end
 
+  @tag :elixir_mobs
   test "a mob collides with a neighboring-section shulker lid and crosses after its death", c do
     TestScope.isolate([c.a, c.b], mob_goals: false)
     a = {c.pa, c.ea}

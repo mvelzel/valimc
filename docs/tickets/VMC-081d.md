@@ -151,8 +151,9 @@ The plain mobs (living types of a spawning category without Elixir AI:
 wolf, fox, goat, horse and the other horses, llama, camel, panda, parrot,
 polar bear, frog, armadillo, sniffer, bee, allay, the illagers, ravager,
 breeze, warden and the rest `Body`'s plain list holds, the dragon apart) are
-simulated whole in Rust, behind `config :valimc, :native_mob_types` (a list
-of type names, or `:plain`, the default).
+simulated whole in Rust, behind `config :valimc, :native_mob_types` (type
+names and `:plain`). The farm animals (cow, mooshroom, pig, sheep, chicken,
+rabbit) are native too, by name; see below.
 
 - **Section** (`mobs::section`, NIF `mob_section`): a section's native mobs
   in network-id order with a uuid and a chunk index, owned by the group
@@ -188,7 +189,8 @@ of type names, or `:plain`, the default).
   (`Thinker`: a pending `finalizeSpawn` today, the family AI's hook), the
   kernel's step from `MobMotion.kernel`'s input, `MobMotion.apply`, the
   splash, farmland and turtle eggs, `settle`, `MobVitals.apply` and
-  daylight. `mob_section_finish` ends the ticker; a mob the kernel refused
+  daylight. The think step is the family AI's (next section); a plain
+  mob has none. `mob_section_finish` ends the ticker; a mob the kernel refused
   keeps its state from before the tick, and one whose move out of the
   section its owner cannot carry out yet takes it back
   (`mob_section_settle`, after the outgoing handoff's plan when one carries
@@ -233,6 +235,69 @@ the p95 shows; the collection count and total (about 107 major ones, 1.1 s
 a minute) equal the run before, which places them outside the measured
 ticks. On a scene of 200 plain mobs (`MobTicks` over a supplied view) a
 native turn takes 7 µs, the Elixir one 29 µs.
+
+## Native farm animals
+
+The section's tick drives the family AI (`mobs::ai::think::SectionAi`): each
+tick builds a `Level` (`mob_section_level`: the owner's clock, difficulty,
+weather, rules, light and biomes read from the Region resource, the knots)
+and begins the AI with the players, items, native mobs in id order and the
+sensed rows of the Elixir ones. A native turn calls `think` (with an
+`Outside` for goal positions on the ticker and melee on the section's mobs
+mid-tick), `change_other` for the native mobs its AI changed, then after
+the kernel step `move_sounds` (a family's splash), `settle` with the
+turn's `Moves` and `moved`; an Elixir mob's turn `resense`s it. Families
+come from `kinds::Registry` (`mob_facts::kinds()`); their `MotionHooks`
+(kernel motion, climbing, the jump, falls) feed the kernel's input. A type
+the registry has not ported yields to Elixir. The AI's effects reach the
+owner in the Elixir step's shapes (offspring and orbs, eggs laid, grazing,
+dropped leads, knots freed or made, a companion's record).
+
+The owner's player paths call the section: an interaction
+(`mob_section_interact`, `kinds::interact`: the lead part, then the
+family's; the owner rolls the shearing tables and adds sound seeds) applies
+as `RegionData.interacted/6` applies an Elixir one, a conversion (a sheared
+mooshroom) creating its record; a fence's bind and a knot's use or snip go
+through `Leashes` over the native rows' leads (`NativeBody.leash`) and
+`mob_section_leash`.
+
+`scripts/check_animals.exs --native` (a second check of the `animals`
+stage) runs the farm animals of each oracle scene in a native section
+through `MobTicks.native_steps/7`, cats staying Elixir, and compares every
+tick with vanilla's as the Elixir run does.
+
+## Native hostiles
+
+The zombie family (zombie, husk, zombie villager, drowned), the skeletons
+(skeleton, stray, bogged), creeper, spider, cave spider, enderman, witch,
+slime and magma cube are native too. The owner's paths that read a mob's
+own state call the section for a native one: its melee hit on a player
+(`mob_section_mob_hit`, `Combat.mob_hit/3`), a conversion's new record
+(`mob_section_convert`, `kinds::convert`), a dead cube's halves as it is
+removed (`mob_section_split`, `Kind::split`), a family field the owner sets
+(`mob_section_data`: a chicken jockey's chicken, an enderman's block it
+could not put down); arrows, potions, tridents and projectiles take the
+shooter's type from its row, and a companion made whole (a spider
+jockey's skeleton) arrives as its record. Family death drops (an
+enderman's block) ride the death's equipment, as `combat::died` adds them.
+A cube's jump reads its lava power (`Kind::jump`), so magma cubes leap out
+of lava.
+
+`scripts/check_mob_ai.exs --native` (a second check of the `hostile_ai`
+stage) runs the native families' mobs of each scene in a native section:
+the AI reads the scene's light (full sky light above each column's top)
+and air beyond its blocks, as the oracle's level holds them, and the blocks
+mobs took or put down; its mind (goals by registration index, targets,
+path, ambient and idle times, a cube's move control) comes from
+`mob_section_oracle_mind`. `hostile_spawns` checks `Valimc.AI.Spawn`; the
+native `finalizeSpawn`s equal the Elixir ones in `native_mob_hostile_test`.
+
+Region tests read a native mob's body through `Valimc.TestBodies` (its
+record restored, with its live health and lead, its mind's goals and
+target from the section); the four that set an Elixir body's own fields
+(a mind's marker, a motion's wanted position) keep their mobs in Elixir
+(`@tag :elixir_mobs`). Revisions stay in step when a sibling's copy of a
+store already took a native mob's death (`Store.take_deaths/1`).
 
 Acceptance:
 

@@ -336,6 +336,6 @@ defmodule Valimc.AnimalRegionTest do
 
   defp cow(ctx) do
     {:ok, {_, id, _}} = Store.find(store(ctx), <<5::128>>)
-    store(ctx).entries[id].body
+    Valimc.TestBodies.body(store(ctx).entries[id])
   end
 end

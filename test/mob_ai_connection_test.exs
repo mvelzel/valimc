@@ -67,7 +67,9 @@ defmodule Valimc.MobAiConnectionTest do
 
   defp store(owner), do: Valimc.TestRegion.section(owner).entities.store
 
-  defp entry(owner, uuid) do
+  defp entry(owner, uuid), do: Valimc.TestBodies.entry(raw_entry(owner, uuid))
+
+  defp raw_entry(owner, uuid) do
     {:ok, {_, id, _}} = Store.find(store(owner), uuid)
     store(owner).entries[id]
   end
@@ -77,15 +79,8 @@ defmodule Valimc.MobAiConnectionTest do
     :math.sqrt((e.x - ctx.pose.x) ** 2 + (e.z - ctx.pose.z) ** 2)
   end
 
-  defp running?(owner, uuid, module) do
-    case entry(owner, uuid).body.mob.ai do
-      %Valimc.AI.Mind{goals: goals} ->
-        Enum.any?(Tuple.to_list(goals), &(&1.running and &1.module == module))
-
-      _ ->
-        false
-    end
-  end
+  defp running?(owner, uuid, module),
+    do: Valimc.TestBodies.running?(raw_entry(owner, uuid), module)
 
   test "a zombie targets the player, walks to it and hits it", ctx do
     save(ctx, %Inventory{})
@@ -95,7 +90,7 @@ defmodule Valimc.MobAiConnectionTest do
 
     # Hit at normal difficulty: a zombie's 3.
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value == 17.0 end, 30_000)
-    assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
+    assert Valimc.TestBodies.target(raw_entry(owner, uuid)) == {:player, ctx.uuid}
     assert distance(owner, uuid, ctx) < 2.0
   end
 
@@ -135,7 +130,7 @@ defmodule Valimc.MobAiConnectionTest do
     # Charged for three seconds, then three small fireballs: 5 each, and fire.
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).fire_ticks > 0 end, 30_000)
     assert TestPlayer.living(pid).health.value < 20.0
-    assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
+    assert Valimc.TestBodies.target(raw_entry(owner, uuid)) == {:player, ctx.uuid}
   end
 
   test "zombified piglins turn on the player who hits one of them", ctx do
@@ -260,7 +255,7 @@ defmodule Valimc.MobAiConnectionTest do
     Valimc.TestWait.until(
       fn ->
         cubes =
-          for {_, %{body: %Body{type: "minecraft:magma_cube"} = b}} <- store(owner).entries,
+          for {_, %{body: %{type: "minecraft:magma_cube"} = b}} <- store(owner).entries,
               do: b.data.size
 
         match?({:error, _}, Store.find(store(owner), uuid)) and length(cubes) in 2..4 and
@@ -278,7 +273,7 @@ defmodule Valimc.MobAiConnectionTest do
 
     # Half its 6 and up to 5 more at normal difficulty, then a throw.
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 17.0 end, 30_000)
-    assert entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid}
+    assert Valimc.TestBodies.target(raw_entry(owner, uuid)) == {:player, ctx.uuid}
   end
 
   test "a ghast charges and its fireball hurts the player", ctx do

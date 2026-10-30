@@ -10,9 +10,22 @@
 # oracle did and add each lead (holder, angular momentum, home, stopped
 # `:move` goals), the links sent, the break's sound and the leads dropped.
 alias Valimc.AI
-alias Valimc.Entity.{Animal, Body, MobTicks}
+alias Valimc.Entity.{Animal, Body, MobTicks, NativeMobs, Store}
+alias Valimc.Native
 
-[path] = System.argv()
+# `--native` (VMC-081d): the farm animals take their turns in a native
+# section (`MobTicks.native_steps/7`), the others as before.
+{path, native?} =
+  case System.argv() do
+    [path] -> {path, false}
+    [path, "--native"] -> {path, true}
+  end
+
+native_types =
+  MapSet.new(~w(cow mooshroom pig sheep chicken rabbit), &("minecraft:" <> &1))
+
+if native?, do: NativeMobs.install!()
+native_ticks = :counters.new(1, [])
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
@@ -93,6 +106,13 @@ goal_names = fn body ->
 
   for {%{running: true}, {_, name, _, _, _}} <- Enum.zip(Tuple.to_list(body.mob.ai.goals), goals),
       do: name
+end
+
+# A native mind's running goals by vanilla name (they name the Elixir goals).
+native_goal_names = fn type, names ->
+  {goals, _} = Valimc.AI.Mobs.registered(type)
+  by_module = Map.new(goals, fn {_, name, module, _, _} -> {inspect(module), name} end)
+  Enum.map(names, &Map.get(by_module, &1, &1))
 end
 
 # The oracle's data of an animal: its type's own fields.
@@ -216,6 +236,69 @@ checked =
 
       ticks = if death, do: Enum.take(c["ticks"], death + 1), else: c["ticks"]
 
+      # A native mode's section, its farm animals there from their records.
+      native =
+        if native? and Enum.any?(entries, fn {_, e} -> e.body.type in native_types end),
+          do: %NativeMobs{ref: Native.mob_section_oracle_new(), types: native_types}
+
+      to_native = fn {id, e} ->
+        if native != nil and e.body.type in native_types do
+          {x, y, z} = {e.entity.x, e.entity.y, e.entity.z}
+          record = Store.body_record(e.body, e.entity.uuid, {x, y, z})
+          {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
+          leash = e.body.mob.leash
+
+          :ok =
+            Native.mob_section_oracle_prepare(
+              native.ref,
+              id,
+              e.body.mob.ai.body_yaw,
+              leash && leash.id
+            )
+
+          {id,
+           %{
+             kind: :mob,
+             native: native.ref,
+             entity: Map.put(e.entity, :entity_id, id),
+             body: row,
+             revision: 1
+           }}
+        else
+          {id, e}
+        end
+      end
+
+      entries = Enum.map(entries, to_native)
+
+      # What a native animal's record and mind show.
+      native_view = fn id ->
+        [record] = Native.mob_section_records(native.ref, [id])
+
+        [{body_yaw, goals, leash, home, move_off}] =
+          Native.mob_section_oracle_minds(native.ref, [id])
+
+        %{
+          record: record,
+          body_yaw: body_yaw,
+          goals: goals,
+          leash: leash,
+          home: home,
+          move_off: move_off
+        }
+      end
+
+      link_of = fn {id, e} ->
+        if Store.native_entry?(e) do
+          case native_view.(id).leash do
+            {holder, _} when holder >= 0 -> holder
+            _ -> nil
+          end
+        else
+          e.body.mob.leash && e.body.mob.leash.id
+        end
+      end
+
       {_, _, _, count} =
         Enum.reduce(
           Enum.with_index(ticks),
@@ -254,32 +337,72 @@ checked =
                 if a["tick"] == tick do
                   {id, e} = Enum.at(entries, a["mob"])
 
-                  {body, events} =
-                    case a["what"] do
-                      "love" -> Animal.fall_in_love(e.body, nil)
-                      "feed" -> {Animal.feed_baby(e.body), []}
-                    end
+                  if Store.native_entry?(e) do
+                    events =
+                      Native.mob_section_oracle_act(native.ref, id, String.to_atom(a["what"]))
 
-                  {List.replace_at(entries, a["mob"], {id, %{e | body: body}}),
-                   Map.put(acted, id, events)}
+                    {entries, Map.put(acted, id, events)}
+                  else
+                    {body, events} =
+                      case a["what"] do
+                        "love" -> Animal.fall_in_love(e.body, nil)
+                        "feed" -> {Animal.feed_baby(e.body), []}
+                      end
+
+                    {List.replace_at(entries, a["mob"], {id, %{e | body: body}}),
+                     Map.put(acted, id, events)}
+                  end
                 else
                   {entries, acted}
                 end
               end)
 
-            {steps, world} = MobTicks.steps(kernel_view, entries, world, nil)
+            links_before = Map.new(entries, fn {id, _} = entry -> {id, link_of.(entry)} end)
+
+            {steps, world} =
+              if native do
+                level = %{
+                  time: world.time,
+                  day: world.day,
+                  difficulty: world.difficulty,
+                  darken: 0,
+                  bright: false,
+                  monsters_burn: false,
+                  halloween: false,
+                  mob_griefing: true,
+                  mob_drops: true,
+                  entity_drops: true,
+                  universal_anger: false,
+                  goals: true,
+                  min_y: -64,
+                  max_y: 319,
+                  sea_level: 63,
+                  border: nil,
+                  knots: Enum.to_list(knots),
+                  wet: false,
+                  zoom_seed: 0
+                }
+
+                env = %{region: nil, level: level, players: players, items: [], reach: 0}
+                MobTicks.native_steps(kernel_view, entries, world, nil, [], native, env)
+              else
+                MobTicks.steps(kernel_view, entries, world, nil)
+              end
 
             unless length(steps) == length(entries),
               do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
 
             # The links observers are sent: a lead's holder that changed.
-            links =
+            stepped =
               Enum.zip_with(entries, steps, fn {id, e}, step ->
-                link = fn body -> body.mob.leash && body.mob.leash.id end
+                {x, y, z} = step.position
+                {id, %{e | body: step.body, entity: %{e.entity | x: x, y: y, z: z}}}
+              end)
 
-                if link.(e.body) == link.(step.body),
-                  do: [],
-                  else: [{id, link.(step.body) || 0}]
+            links =
+              Enum.map(stepped, fn {id, _} = entry ->
+                after_link = link_of.(entry)
+                if links_before[id] == after_link, do: [], else: [{id, after_link || 0}]
               end)
               |> Map.new(fn
                 [] -> {nil, nil}
@@ -287,11 +410,7 @@ checked =
               end)
               |> Map.delete(nil)
 
-            entries =
-              Enum.zip_with(entries, steps, fn {id, e}, step ->
-                {x, y, z} = step.position
-                {id, %{e | body: step.body, entity: %{e.entity | x: x, y: y, z: z}}}
-              end)
+            entries = stepped
 
             # Melee hits on mobs (a cat's on a rabbit) through the one hurt
             # path, as the owner lands them after the tick.
@@ -309,18 +428,61 @@ checked =
                       end)
                   }
 
+                  store = %{
+                    store
+                    | entries: Map.reject(store.entries, fn {_, e} -> Store.native_entry?(e) end)
+                  }
+
                   {:ok, hit} = Valimc.Entity.Combat.mob_hit(store, step.id, te.body.type)
 
-                  case Valimc.Entity.Combat.hurt_body(te.body, te.entity, hit) do
-                    :ignored -> entries
-                    {body, _, _} -> List.replace_at(entries, i, {tid, %{te | body: body}})
+                  if Store.native_entry?(te) do
+                    {:ok, {_, _, {_, row}}} =
+                      Native.mob_section_hurt(
+                        native.ref,
+                        nil,
+                        tid,
+                        Map.put(hit, :position, {te.entity.x, te.entity.y, te.entity.z})
+                      )
+
+                    List.replace_at(
+                      entries,
+                      i,
+                      {tid, %{te | body: NativeMobs.merge(row, te.body)}}
+                    )
+                  else
+                    case Valimc.Entity.Combat.hurt_body(te.body, te.entity, hit) do
+                      :ignored -> entries
+                      {body, _, _} -> List.replace_at(entries, i, {tid, %{te | body: body}})
+                    end
                   end
               end
 
             checks =
               Enum.zip_with([entries, steps, row["mobs"]], fn [{id, e}, step, expected] ->
-                body = e.body
-                mind = body.mob.ai
+                nv = if Store.native_entry?(e), do: native_view.(id)
+                if nv, do: :counters.add(native_ticks, 1, 1)
+
+                # A native animal as its record and mind show it.
+                {body, mind} =
+                  case nv do
+                    nil ->
+                      {e.body, e.body.mob.ai}
+
+                    %{record: r} ->
+                      {yaw, pitch, head} = r.rotation
+
+                      {%{
+                         type: r.type,
+                         data: r.data,
+                         mob: r.mob,
+                         velocity: r.velocity,
+                         on_ground: r.on_ground,
+                         yaw: yaw,
+                         pitch: pitch,
+                         head_yaw: head
+                       }, %{body_yaw: nv.body_yaw, random: r.mob.ai.random, disabled: []}}
+                  end
+
                 {x, y, z} = step.position
 
                 sounds =
@@ -363,7 +525,14 @@ checked =
                   body: bits.(mind.body_yaw),
                   pitch: bits.(body.pitch),
                   seed: mind.random,
-                  goals: Enum.join(goal_names.(body), ","),
+                  goals:
+                    Enum.join(
+                      if(nv,
+                        do: native_goal_names.(body.type, nv.goals),
+                        else: goal_names.(body)
+                      ),
+                      ","
+                    ),
                   data: our_data.(body),
                   sounds: sounds
                 }
@@ -390,18 +559,30 @@ checked =
                       {got, want}
 
                     l ->
-                      leash = body.mob.leash
+                      ours =
+                        case nv do
+                          nil ->
+                            leash = body.mob.leash
 
-                      ours = %{
-                        "holder" => if(leash, do: leash.id, else: -1),
-                        "momentum" => leash && hex.(leash.momentum),
-                        "home" =>
-                          case body.mob.home do
-                            {{hx, hy, hz}, r} -> [hx, hy, hz, r]
-                            nil -> nil
-                          end,
-                        "move_off" => :move in mind.disabled
-                      }
+                            %{
+                              "holder" => if(leash, do: leash.id, else: -1),
+                              "momentum" => leash && hex.(leash.momentum),
+                              "home" =>
+                                case body.mob.home do
+                                  {{hx, hy, hz}, r} -> [hx, hy, hz, r]
+                                  nil -> nil
+                                end,
+                              "move_off" => :move in mind.disabled
+                            }
+
+                          nv ->
+                            %{
+                              "holder" => if(nv.leash, do: elem(nv.leash, 0), else: -1),
+                              "momentum" => nv.leash && hex.(elem(nv.leash, 1)),
+                              "home" => nv.home && Tuple.to_list(nv.home),
+                              "move_off" => nv.move_off
+                            }
+                        end
 
                       theirs = Map.put_new(l, "home", nil)
                       link = for %{"link" => [_, to]} <- expected["sounds"], do: to
@@ -474,7 +655,7 @@ checked =
               ours =
                 for step <- steps,
                     {:sound_at, name, _, _, volume, pitch} <- step.events,
-                    do: {name, bits.(volume), bits.(pitch)}
+                    do: {sound_name.(name), bits.(volume), bits.(pitch)}
 
               theirs =
                 for s <- row["holder_sounds"],
@@ -545,15 +726,17 @@ checked =
                   # The child's own draws (a chick's egg time) are the oracle's.
                   entries ++
                     [
-                      entry.(
-                        w["id"],
-                        type,
-                        w["id"],
-                        at,
-                        {float.(w["yaw"]), float.(w["head"]), float.(w["body"])},
-                        w["seed"],
-                        Map.merge(Map.new(data, fn {k, v} -> {to_string(k), v} end), w["data"]),
-                        false
+                      to_native.(
+                        entry.(
+                          w["id"],
+                          type,
+                          w["id"],
+                          at,
+                          {float.(w["yaw"]), float.(w["head"]), float.(w["body"])},
+                          w["seed"],
+                          Map.merge(Map.new(data, fn {k, v} -> {to_string(k), v} end), w["data"]),
+                          false
+                        )
                       )
                     ]
               end)
@@ -727,5 +910,6 @@ dropped =
 IO.puts("PASS: #{dropped} drops equal vanilla's (deaths, shearing, laying)")
 
 IO.puts(
-  "PASS: #{checked} animal ticks of #{length(cases)} scenes equal vanilla's (goals, rotations, randoms, age, love, wool, hops, sounds, events, grazing, births, leads)"
+  "PASS: #{checked} animal ticks of #{length(cases)} scenes equal vanilla's (goals, rotations, randoms, age, love, wool, hops, sounds, events, grazing, births, leads)" <>
+    if(native?, do: ", #{:counters.get(native_ticks, 1)} of them native", else: "")
 )

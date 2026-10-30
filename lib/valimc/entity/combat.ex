@@ -272,6 +272,11 @@ defmodule Valimc.Entity.Combat do
   """
   def mob_hit(store, id, target_type) do
     case store.entries[id] do
+      # A native mob's (VMC-081d), from its section.
+      %{kind: :mob, native: ref} when ref != nil ->
+        with {:ok, hit} <- Valimc.Native.mob_section_mob_hit(ref, id, target_type),
+             do: {:ok, %{hit | source: DamageSource.new(hit.source)}}
+
       %{kind: :mob, body: body, entity: entity} ->
         if Mob.alive?(body.mob) do
           type = body.type

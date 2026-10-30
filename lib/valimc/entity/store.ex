@@ -1383,6 +1383,16 @@ defmodule Valimc.Entity.Store do
         {:native, position, row, events} ->
           {:ok, native_change(state, id, position, row, events)}
 
+        # A native mob's lead (VMC-081d, `Valimc.Entity.Leashes`).
+        {:leash, leash} ->
+          case Native.mob_section_leash(entry.native, id, leash) do
+            {:ok, {_, events, {position, row}}} ->
+              {:ok, native_change(state, id, position, row, events)}
+
+            {:error, _} = error ->
+              error
+          end
+
         {:motion, %ItemMotionState{} = motion} ->
           %{entity: %{x: x, y: y, z: z}} = entry
           step = %{id: id, revision: revision, position: {x, y, z}, motion: motion}
@@ -1412,8 +1422,10 @@ defmodule Valimc.Entity.Store do
                 acc = put_body(acc, id, %{row | death: false}, [])
                 {acc, [{death, position} | deaths]}
 
+              # Taken already (a sibling's copy of this store resolved it
+              # first): the row changes alike, so revisions stay in step.
               _ ->
-                {acc, deaths}
+                {put_body(acc, id, %{row | death: false}, []), deaths}
             end
 
           %{body: %Body{mob: %{death: death} = mob} = body, entity: entity} when death != nil ->

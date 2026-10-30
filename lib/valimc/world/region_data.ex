@@ -32,7 +32,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Worldgen.Generator
 
   alias Valimc.Entity.{Body, Publication, Store, ExperienceOrbs, Handoffs, Tracking, ItemMerges}
-  alias Valimc.Entity.{EffectCloud, Projectile}
+  alias Valimc.Entity.{EffectCloud, NativeBody, Projectile}
   alias Valimc.Native
   alias Valimc.World.Projectiles
   alias Valimc.World.ContainerSpills
@@ -364,9 +364,8 @@ defmodule Valimc.World.RegionData do
         # A dead cube splits as it is removed (VMC-043d, `AbstractCubeMob.remove`).
         splits =
           for {_epoch, id, _revision} <- expired,
-              %{body: %Body{mob: %Valimc.Entity.Mob{}} = body, entity: e} <- [items.entries[id]],
-              not Body.alive?(body),
-              split <- Valimc.AI.Mobs.hook(body.type, :split, [body, {e.x, e.y, e.z}], []),
+              entry <- [items.entries[id]],
+              split <- cube_split(id, entry),
               do: split
 
         items =
@@ -377,8 +376,12 @@ defmodule Valimc.World.RegionData do
 
         {:noreply, state} = commit_items(items, :ok, nil, state)
 
-        Enum.reduce(splits, state, fn {body, position}, state ->
-          create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+        Enum.reduce(splits, state, fn
+          {%Body{} = body, position}, state ->
+            create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+
+          {record, _position}, state ->
+            create_body(state, %{record | uuid: :crypto.strong_rand_bytes(16)})
         end)
       end
     else
@@ -1169,7 +1172,7 @@ defmodule Valimc.World.RegionData do
     # `canBeAffected` (VMC-043d: a wither skeleton is never withered).
     type =
       case group_entry(state, sid) do
-        {_, _, %{body: %Body{type: type}}} -> type
+        {_, _, %{kind: :mob, body: %{type: type}}} -> type
         _ -> nil
       end
 
@@ -1517,7 +1520,7 @@ defmodule Valimc.World.RegionData do
               border,
               external,
               native,
-              native_env(state)
+              native_env(state, mobs, border)
             ),
           else: Valimc.Entity.MobTicks.steps(view, Enum.sort(mobs), world, border, external)
 
@@ -1768,7 +1771,13 @@ defmodule Valimc.World.RegionData do
           else:
             adopt_drops(
               state,
-              for({position, body, uuid} <- made, do: Store.body_record(body, uuid, position))
+              for {{x, y, z} = position, body, uuid} <- made do
+                # A native mob's companion comes as its record (VMC-081d).
+                case body do
+                  %Body{} -> Store.body_record(body, uuid, position)
+                  record -> %{record | uuid: uuid, x: x, y: y, z: z}
+                end
+              end
             )
 
       state = Enum.reduce(blasts, state, &mob_blast/2)
@@ -1817,7 +1826,7 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     case store.entries[id] do
-      %{entity: e, body: %Body{type: shooter}} ->
+      %{kind: :mob, entity: e, body: %{type: shooter}} ->
         owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: shooter}
         body = Projectile.new(type, owner)
         body = Projectile.impulse(%{body | velocity: velocity, yaw: yaw, pitch: pitch})
@@ -1845,7 +1854,7 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     case store.entries[id] do
-      %{entity: e, body: %Body{type: thrower}} ->
+      %{kind: :mob, entity: e, body: %{type: thrower}} ->
         owner = %{uuid: e.uuid, id: e.entity_id, player: false, type: thrower}
         body = Projectile.new(type, owner, info.stack)
         body = Projectile.shoot(body, info.direction, info.velocity, info.uncertainty)
@@ -2023,7 +2032,78 @@ defmodule Valimc.World.RegionData do
     publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
 
-  # What an interaction did: the body changed in place, or (a conversion)
+  # A native mob's interaction (VMC-081d): its section's (`kinds::interact`)
+  # with the shearing tables rolled here; `{:ok, {:native, position, row,
+  # events}, outcome}` in `Interaction.outcome/1`'s shape, `:pass` or
+  # `:consume`.
+  defp native_interaction(%{native: ref, body: row}, id, request) do
+    holder = request[:holder]
+
+    player =
+      holder &&
+        {request.player, {holder.x, holder.y, holder.z}, holder.id, holder.width, holder.height}
+
+    loot = shearing_loot(row, request.item)
+
+    case Native.mob_section_interact(ref, id, request.item, player, request.infinite, loot) do
+      {:ok,
+       {{:done, hand, swing, events, others, drops, convert, free, discard}, own, {pos, row}}} ->
+        seeded =
+          Enum.map(events, fn
+            {kind, sound, source, volume, pitch} ->
+              <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+              {kind, sound, source, volume, pitch, seed}
+
+            event ->
+              event
+          end)
+
+        {:ok, {:native, pos, row, own},
+         %{
+           hand: hand,
+           swing: swing,
+           events: seeded,
+           others: others,
+           drops: drops,
+           convert: convert,
+           free: free,
+           discard: discard
+         }}
+
+      {:ok, {outcome, _, _}} when outcome in [:pass, :consume] ->
+        outcome
+
+      {:error, _} ->
+        {:error, :missing_item}
+    end
+  end
+
+  @shears Valimc.Protocol.ItemTypes.id("minecraft:shears")
+
+  # The shearing table a native sheep or mooshroom rolls, rolled here.
+  defp shearing_loot(%NativeBody{type: type, data: data}, %{item_id: @shears})
+       when type in ["minecraft:sheep", "minecraft:mooshroom"] do
+    {table, properties} =
+      case type do
+        "minecraft:sheep" ->
+          {"minecraft:shearing/sheep", Valimc.Entity.Animals.Sheep.properties(data)}
+
+        _ ->
+          {"minecraft:shearing/mooshroom", Valimc.Entity.Animals.Mooshroom.properties(data)}
+      end
+
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+
+    case Valimc.Blocks.Loot.entity_drops(table, seed, {0.0, 0.0, 0.0}, %{properties: properties}) do
+      {:ok, stacks} -> [{table, stacks}]
+      _ -> []
+    end
+  end
+
+  defp shearing_loot(_row, _item), do: []
+
+  # What an interaction did: the body (a native mob's
+  # `{:native, position, row, events}`) changed in place, or (a conversion)
   # the old entity gone and the new one in its place with the events; its
   # drops launched from it.
   defp interacted(state, id, revision, {x, y, z} = at, body, outcome) do
@@ -2044,15 +2124,26 @@ defmodule Valimc.World.RegionData do
         {state, store}
       else
         {state,
-         case outcome.convert do
-           nil ->
+         case {outcome.convert, body} do
+           {nil, {:native, position, row, events}} ->
+             Store.native_change(store, id, position, row, events ++ outcome.events)
+
+           {nil, body} ->
              Store.change_body(store, id, body, outcome.events)
 
-           new ->
-             record = Store.body_record(new, :crypto.strong_rand_bytes(16), at)
+           {new, _} ->
+             uuid = :crypto.strong_rand_bytes(16)
+
+             # A native mob becomes the record its section made.
+             record =
+               case new do
+                 %Body{} -> Store.body_record(new, uuid, at)
+                 record -> Map.put(record, :uuid, uuid)
+               end
 
              with {:ok, store} <- Store.remove(store, store.epoch, id, revision),
                   {:ok, store, {_, new_id, _}} <- Store.create_record(store, state.key, record) do
+               new = if match?(%Body{}, new), do: new, else: store.entries[new_id].body
                Store.change_body(store, new_id, new, outcome.events)
              else
                _ -> store
@@ -2181,8 +2272,8 @@ defmodule Valimc.World.RegionData do
     {own, other} = Enum.split_with(Enum.uniq(positions), &(block_section(&1) == state.key))
 
     held =
-      for {_, %{kind: :mob, body: %Body{mob: %{leash: %{holder: {:knot, pos}}}}}} <-
-            group_entries(state),
+      for {_, %{kind: :mob, body: body}} <- group_entries(state),
+          %{holder: {:knot, pos}} <- [Valimc.Entity.Leashes.leash(body)],
           into: MapSet.new(),
           do: pos
 
@@ -2262,7 +2353,13 @@ defmodule Valimc.World.RegionData do
       {key, store} =
         Enum.find(group_stores(state), fn {_, store} -> Map.has_key?(store.entries, id) end)
 
-      change_group_entry(state, key, store, id, {:body, body, []})
+      change =
+        case body do
+          %NativeBody{leash: leash} -> {:leash, leash && {leash.holder, leash.id}}
+          body -> {:body, body, []}
+        end
+
+      change_group_entry(state, key, store, id, change)
     end)
   end
 
@@ -2312,7 +2409,15 @@ defmodule Valimc.World.RegionData do
            Valimc.Entity.Leashes.bind(leash_mobs(state), player, {position, existing}),
          true <- leash_ready?(state, moved) do
       {state, id} = if existing, do: {state, existing}, else: new_knot(state, position)
-      moved = for {mob, body} <- moved, do: {mob, put_in(body.mob.leash.id, id)}
+
+      moved =
+        for {mob, body} <- moved do
+          case body do
+            %NativeBody{} -> {mob, put_in(body.leash.id, id)}
+            body -> {mob, put_in(body.mob.leash.id, id)}
+          end
+        end
+
       {:swing, state |> releash(moved) |> knot_sound(position, "minecraft:item.lead.tied")}
     else
       _ -> :pass
@@ -2447,6 +2552,9 @@ defmodule Valimc.World.RegionData do
               state,
               Store.change_body(store, id, %{body | data: %{data | carried: carried}})
             )
+
+          %{kind: :mob, native: ref, body: %NativeBody{data: %{carried: nil}}} when ref != nil ->
+            put_entities(state, native_data(store, ref, id, :carried, carried))
 
           _ ->
             state
@@ -2612,7 +2720,7 @@ defmodule Valimc.World.RegionData do
   # A skeleton's arrow (`performRangedAttack`, VMC-043b3).
   defp mob_shot({id, shot}, state) do
     case state.entities.store.entries[id] do
-      %{entity: %{uuid: uuid}, body: %Body{type: type}} ->
+      %{kind: :mob, entity: %{uuid: uuid}, body: %{type: type}} ->
         effect =
           case Valimc.AI.Mobs.Skeleton.arrow_effect(type) do
             nil -> nil
@@ -2644,11 +2752,13 @@ defmodule Valimc.World.RegionData do
 
     {store, records} =
       Enum.reduce(conversions, {state.entities.store, []}, fn {id, to}, {store, records} ->
-        with %{kind: :mob, body: body, entity: e, revision: revision} <- store.entries[id],
+        uuid = :crypto.strong_rand_bytes(16)
+
+        with %{kind: :mob, body: body, entity: e, revision: revision} = entry <-
+               store.entries[id],
+             {:ok, record} <- converted(entry, id, body, uuid, to, special, {e.x, e.y, e.z}),
              {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
-          uuid = :crypto.strong_rand_bytes(16)
-          new = Valimc.AI.Conversion.convert(body, uuid, to, special)
-          {next, [Store.body_record(new, uuid, {e.x, e.y, e.z}) | records]}
+          {next, [record | records]}
         else
           _ -> {store, records}
         end
@@ -2657,6 +2767,40 @@ defmodule Valimc.World.RegionData do
     state = publish_item_views(%{state | entities: %{state.entities | store: store}})
     adopt_drops(state, Enum.reverse(records))
   end
+
+  # A family field of a native mob set by its section (VMC-081d).
+  defp native_data(store, ref, id, key, value) do
+    case Native.mob_section_data(ref, id, key, value) do
+      {:ok, {_, events, {position, row}}} -> Store.native_change(store, id, position, row, events)
+      _ -> store
+    end
+  end
+
+  # The halves a dead cube becomes as it is removed: `{body, position}`, a
+  # native one's `{record, position}` (VMC-081d, `Kind::split`).
+  defp cube_split(id, %{native: ref, body: %NativeBody{alive: false}}) when ref != nil,
+    do: Native.mob_section_split(ref, id)
+
+  defp cube_split(_id, %{body: %Body{mob: %Valimc.Entity.Mob{}} = body, entity: e}) do
+    if Body.alive?(body),
+      do: [],
+      else: Valimc.AI.Mobs.hook(body.type, :split, [body, {e.x, e.y, e.z}], [])
+  end
+
+  defp cube_split(_id, _entry), do: []
+
+  # The record of the mob a mob becomes (a native one's from its section,
+  # VMC-081d), at its entity's place.
+  defp converted(%{native: ref, body: %NativeBody{}}, id, _row, uuid, to, special, {x, y, z})
+       when ref != nil do
+    with {:ok, record} <- Native.mob_section_convert(ref, id, uuid, to, special),
+         do: {:ok, %{record | x: x, y: y, z: z}}
+  end
+
+  defp converted(_entry, _id, body, uuid, to, special, position),
+    do:
+      {:ok,
+       Store.body_record(Valimc.AI.Conversion.convert(body, uuid, to, special), uuid, position)}
 
   # `Creeper.explodeCreeper` (VMC-043b4): `level.explode(this, ...,
   # ExplosionInteraction.MOB)`: it breaks blocks only while mobs may grief,
@@ -2696,8 +2840,11 @@ defmodule Valimc.World.RegionData do
     store =
       Enum.reduce(uuids, state.entities.store, fn uuid, store ->
         with {:ok, {_, id, _}} <- Store.find(store, uuid),
-             %{kind: :mob, body: %Body{data: %{jockey: false}} = body} <- store.entries[id] do
-          Store.change_body(store, id, %{body | data: %{body.data | jockey: true}})
+             %{kind: :mob, body: %{data: %{jockey: false}} = body} = entry <- store.entries[id] do
+          case entry do
+            %{native: ref} when ref != nil -> native_data(store, ref, id, :jockey, true)
+            _ -> Store.change_body(store, id, %{body | data: %{body.data | jockey: true}})
+          end
         else
           _ -> store
         end
@@ -2758,9 +2905,12 @@ defmodule Valimc.World.RegionData do
   # game time, the section's level random, and what path searches read
   # beside the blocks (sea level, the stationary border).
   # What native mobs' turns read beyond their ticker (VMC-081d,
-  # `Native.mob_section_begin/7`): the sun, the sky's darkening, rain, the
-  # level's sea level and biome zoom, mob griefing and the section's light.
-  defp native_env(state) do
+  # `Native.mob_section_begin/7`): the section's blocks, light and biomes,
+  # the level (clock, difficulty, sky, weather, rules, height, border,
+  # knots), the sensed players and items, and how far the AI reads blocks.
+  defp native_env(state, mobs, border) do
+    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
+    {difficulty, _} = Valimc.World.Clock.difficulty()
     day = Clock.day_ticks()
     name = Valimc.World.Dimension.name(state.dimension)
     overworld = state.dimension == :overworld
@@ -2770,17 +2920,71 @@ defmodule Valimc.World.RegionData do
 
     {zoom_seed, _} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), state.dimension)
 
-    %{
+    darken =
+      Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain))
+
+    plain = Valimc.Entity.NativeMobs.plain_types()
+
+    # The AI of a native family reads blocks around its mobs (a path, a
+    # wander, a tempting player); plain mobs only their own.
+    reach =
+      if Enum.any?(mobs, fn {_, e} ->
+           Store.native_entry?(e) and not MapSet.member?(plain, e.body.type)
+         end),
+         do: 40,
+         else: 0
+
+    level = %{
+      time: state.game_tick || 0,
+      day: day,
+      difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
+      darken: darken,
+      bright: not Valimc.Data.SleepFacts.dimension(state.dimension).fixed_time and darken < 4,
       monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
-      darken:
-        Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)),
-      wet: Clock.weather().wet,
-      sea_level:
-        if(overworld, do: 63, else: Valimc.World.Dimension.facts(state.dimension).sea_level),
-      zoom_seed: zoom_seed,
+      halloween: Valimc.AI.Spawn.halloween?(local_date()),
       mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
-      region: state.blocks.ref
+      mob_drops: Valimc.World.GameRules.get(:mob_drops),
+      entity_drops: Valimc.World.GameRules.get(:entity_drops),
+      universal_anger: false,
+      goals:
+        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
+      min_y: min_y,
+      max_y: min_y + height - 1,
+      sea_level: Valimc.World.Dimension.sea_level(state.dimension),
+      border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1),
+      knots: Enum.to_list(knots(state)),
+      wet: Clock.weather().wet,
+      zoom_seed: zoom_seed
     }
+
+    %{
+      region: state.blocks.ref,
+      level: level,
+      players: for(p <- state.player_sensed, do: %{p | effects: Enum.to_list(p.effects)}),
+      items: sensed_items(state),
+      reach: reach
+    }
+  end
+
+  # What mobs' AI senses of the section's items (`AI.World`'s items).
+  defp sensed_items(state) do
+    for {_, %{kind: :item, entity: e, stack: stack} = entry} <- state.entities.store.entries,
+        do: %{
+          kind: :item,
+          uuid: e.uuid,
+          x: e.x * 1.0,
+          y: e.y * 1.0,
+          z: e.z * 1.0,
+          width: 0.25,
+          height: 0.25,
+          eye: 0.2125000059604645,
+          item: stack.item_id,
+          count: stack.count,
+          components: stack.components,
+          pickup_delay: Map.get(entry, :motion, %{pickup_delay: 0}).pickup_delay,
+          in_water: Map.get(entry, :motion, %Valimc.Entity.ItemMotionState{}).in_water,
+          alive: true
+        }
   end
 
   # Native mobs whose steps left the section and did not go (a handoff that
@@ -2800,24 +3004,7 @@ defmodule Valimc.World.RegionData do
     {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
     {difficulty, _} = Valimc.World.Clock.difficulty()
 
-    items =
-      for {_, %{kind: :item, entity: e, stack: stack} = entry} <- state.entities.store.entries,
-          do: %{
-            kind: :item,
-            uuid: e.uuid,
-            x: e.x * 1.0,
-            y: e.y * 1.0,
-            z: e.z * 1.0,
-            width: 0.25,
-            height: 0.25,
-            eye: 0.2125000059604645,
-            item: stack.item_id,
-            count: stack.count,
-            components: stack.components,
-            pickup_delay: Map.get(entry, :motion, %{pickup_delay: 0}).pickup_delay,
-            in_water: Map.get(entry, :motion, %Valimc.Entity.ItemMotionState{}).in_water,
-            alive: true
-          }
+    items = sensed_items(state)
 
     day = Clock.day_ticks()
     name = Valimc.World.Dimension.name(state.dimension)
@@ -3764,17 +3951,19 @@ defmodule Valimc.World.RegionData do
          nil <- write_busy(state),
          {:ok, {_, id, revision}} <- Store.find(store, uuid),
          %{kind: :mob, body: body, entity: e} = entry <-
-           store.entries[id] || {:error, :missing_item},
-         # Native mobs (VMC-081d) have no interactions of their own yet.
-         true <- not Store.native_entry?(entry) or :pass do
+           store.entries[id] || {:error, :missing_item} do
       at = {e.x, e.y, e.z}
 
       # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
       result =
-        with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
-             :pass <- Valimc.Entity.Bucketable.interact(body, request),
-             :pass <- Valimc.Entity.Animals.Interaction.interact(body, request),
-             do: Valimc.AI.Mobs.interact(body, request)
+        if Store.native_entry?(entry) do
+          native_interaction(entry, id, request)
+        else
+          with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
+               :pass <- Valimc.Entity.Bucketable.interact(body, request),
+               :pass <- Valimc.Entity.Animals.Interaction.interact(body, request),
+               do: Valimc.AI.Mobs.interact(body, request)
+        end
 
       case result do
         {:ok, next, outcome} ->
@@ -6612,7 +6801,7 @@ defmodule Valimc.World.RegionData do
     store = state.entities.store
 
     with {:ok, {_, id, _}} <- Store.find(store, uuid),
-         %{kind: :mob, body: %Body{type: type} = body, entity: e} <- store.entries[id],
+         %{kind: :mob, body: %{type: type} = body, entity: e} <- store.entries[id],
          true <- Body.alive?(body) do
       difficulty = elem(Clock.difficulty(), 0).level
       eye = Valimc.Data.EntityTypes.fetch(type).eye_height

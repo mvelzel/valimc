@@ -10,9 +10,10 @@ defmodule Valimc.Entity.NativeMobs do
   to it is a call on the resource.
 
   Which types are native is `config :valimc, :native_mob_types` (per owner
-  scope): a list of entity type names, or `:plain`, every living type of a
-  spawning category whose family has no Elixir AI yet (`Body`'s plain mobs,
-  the dragon apart). A type is native or Elixir whole: as families' AI
+  scope): a list of entity type names and `:plain`, every living type of a
+  spawning category whose family has no Elixir AI (`Body`'s plain mobs, the
+  dragon apart). A type whose family is native (`mobs::kinds`) thinks in
+  Rust; the others' turns yield to `MobTicks`. A type is native or Elixir whole: as families' AI
   moves to Rust their types join the list.
   """
   alias Valimc.Data.{EffectTypes, EntityTypes}
@@ -25,6 +26,7 @@ defmodule Valimc.Entity.NativeMobs do
   @doc "Install the facts native mobs read once per VM (later calls do nothing)."
   def install! do
     Valimc.Entity.NativeLiving.install!()
+    Valimc.AI.Paths.install!()
 
     if not :persistent_term.get({__MODULE__, :installed}, false) do
       {:ok, _} = Native.mob_section_install(record_facts())
@@ -77,11 +79,13 @@ defmodule Valimc.Entity.NativeMobs do
   @doc "The native types of owner scope `scope`."
   def types(scope) do
     case Valimc.config(:native_mob_types, scope) do
-      :plain -> plain_types()
       nil -> MapSet.new()
-      names when is_list(names) -> MapSet.new(names)
+      names -> names |> List.wrap() |> Enum.reduce(MapSet.new(), &add/2)
     end
   end
+
+  defp add(:plain, set), do: MapSet.union(set, plain_types())
+  defp add(name, set) when is_binary(name), do: MapSet.put(set, name)
 
   @doc """
   The native mobs of section `{sx, sz}` (owner scope `scope`), owned by the

@@ -298,7 +298,7 @@ defmodule Valimc.ProjectileTest do
 
     defp find(owner, uuid) do
       case Store.find(store(owner), uuid) do
-        {:ok, {_, id, _}} -> store(owner).entries[id]
+        {:ok, {_, id, _}} -> Valimc.TestBodies.entry(store(owner).entries[id])
         _ -> nil
       end
     end

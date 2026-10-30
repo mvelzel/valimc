@@ -33,7 +33,12 @@ defmodule Valimc.FallingBlockTest do
 
   defp block(name), do: Valimc.Data.Blocks.default_state(name)
   defp at(x, y, z), do: Valimc.TestBlocks.get({x, y, z})
-  defp entries(owner), do: Map.values(Valimc.TestRegion.section(owner).entities.store.entries)
+
+  defp entries(owner),
+    do:
+      Valimc.TestRegion.section(owner).entities.store.entries
+      |> Map.values()
+      |> Enum.map(&Valimc.TestBodies.entry/1)
 
   test "sand falls and lands, onto a torch it drops, powder hardens in water", %{owner: owner} do
     assert run("fill #{@x - 4} #{@y - 1} #{@z - 4} #{@x + 4} #{@y - 1} #{@z + 4} stone") =~

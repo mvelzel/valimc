@@ -20,7 +20,11 @@
 //! carry out. Each slot keeps that state (`Slot::before`) until the tick's
 //! end decides.
 
+use super::ai::think::{self, Moves, SectionAi};
+use super::ai::turn::Outside;
+use super::ai::Effect as AiEffect;
 use super::combat::{self, Event, Rules, SoundRef};
+use super::kinds::Registry;
 use super::living::body as living_body;
 use super::living::f;
 use super::living::mob::{self as living_mob, Type};
@@ -29,6 +33,7 @@ use super::model::{
 };
 use super::random::LegacyRandom;
 use super::section::{MobSection, Slot};
+use super::sensing::{Kind as RefKind, Ref};
 use super::term::Value;
 use super::vitals::{self, Moved, Sky};
 use crate::physics::fluid;
@@ -45,6 +50,8 @@ pub enum Effect {
     Trample([i32; 3]),
     /// `{:crack_egg, cell, state}`.
     CrackEgg([i32; 3], u16),
+    /// What its AI made (`mobs::ai::Effect`) that leaves it.
+    Ai(AiEffect),
 }
 
 /// How a family's mobs move and push (`Valimc.AI.Kind.motion/0`) and the
@@ -110,7 +117,8 @@ impl MotionHooks for NoMotionHooks {}
 pub struct TurnWorld<'a, 'w> {
     pub rules: &'a Rules<'a>,
     pub motion: &'a dyn MotionHooks,
-    pub thinker: &'a dyn Thinker,
+    /// The native families.
+    pub kinds: &'a Registry,
     pub world: &'a World<'w>,
     pub players: &'a [([f64; 3], Aabb)],
     pub mob_griefing: bool,
@@ -133,40 +141,6 @@ impl TurnWorld<'_, '_> {
     }
 }
 
-/// A mob's AI around its move (`Valimc.AI.think_mob/4` and `settle/5`):
-/// the hook native families' AI plugs into (`mobs::ai::Turn` and its
-/// selectors). The default finishes a pending spawn (`Spawn.mob/2`, the
-/// part every mob has) and thinks no further, as a mob without goals.
-pub trait Thinker: Sync {
-    /// Whether mobs of `ty` think natively.
-    fn thinks(&self, _ty: Type) -> bool {
-        false
-    }
-
-    /// The AI part of the turn before the move: `finalizeSpawn` first, then
-    /// the mob's AI. `level` is the section's level random; the events go
-    /// with the mob's, the effects leave it.
-    fn think(
-        &self,
-        rules: &Rules,
-        ty: Type,
-        mob: &mut NativeMob,
-        level: &mut LegacyRandom,
-        out: &mut Turned,
-    ) {
-        let _ = (rules, ty, out);
-        finalize_spawn(rules, mob, level);
-    }
-
-    /// After the move (`settle/5`): the body control and a family's ticks.
-    fn settle(&self, _rules: &Rules, _ty: Type, _mob: &mut NativeMob, _out: &mut Turned) {}
-}
-
-/// Mobs without native AI.
-pub struct NoThought;
-
-impl Thinker for NoThought {}
-
 /// What a turn leaves: the mob's events and the effects leaving it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Turned {
@@ -174,35 +148,124 @@ pub struct Turned {
     pub effects: Vec<Effect>,
 }
 
-const FOLLOW_RANGE: &str = "minecraft:follow_range";
-const SPAWN_BONUS: &str = "minecraft:random_spawn_bonus";
+/// The kernel's motion hooks of the native families (`mobs::kinds`).
+pub struct Families<'a> {
+    pub kinds: &'a Registry,
+    pub facts: &'a super::facts::MobFacts,
+}
 
-/// `Spawn.finalize/1` of a family without its own finalizer (`Spawn.mob/2`):
-/// a follow range bonus (a triangle of two level doubles) unless it has one,
-/// left-handedness one time in twenty (a level float). Clears the pending
-/// reason.
-pub fn finalize_spawn(_rules: &Rules, mob: &mut NativeMob, level: &mut LegacyRandom) {
-    let m = &mut mob.body.mob;
-    if m.finalize.take().is_none() {
-        return;
+impl<'a> Families<'a> {
+    fn kind_of(&self, name: &str) -> Option<&'a dyn super::kinds::Kind> {
+        self.kinds.kind(self.facts.entities.id(name)?)
     }
-    let has = m
-        .attributes
-        .get(FOLLOW_RANGE)
-        .is_some_and(|o| o.modifiers.iter().any(|x| x.id == SPAWN_BONUS));
-    if !has {
-        let a = level.double();
-        let b = level.double();
-        let entry = m.attributes.entry(FOLLOW_RANGE);
-        entry.modifiers.retain(|x| x.id != SPAWN_BONUS);
-        entry.modifiers.push(super::model::Modifier {
-            id: SPAWN_BONUS.to_owned(),
-            amount: super::model::Number::Float(0.11485000000000001 * (a - b)),
-            operation: 1,
-        });
+}
+
+impl MotionHooks for Families<'_> {
+    fn kind(&self, ty: Type) -> Kind {
+        let Some(kind) = self.kinds.kind(ty.id) else {
+            return Kind::default();
+        };
+        let m = kind.kernel_motion();
+        Kind {
+            step_gap: m.step_gap.map(|g| g as f32),
+            fixed: m.fixed,
+            pushable: m.pushable,
+            pushes: m.pushes,
+            fluid_pushed: m.fluid_pushed,
+            travel: travel_of(super::model::Travel {
+                kind: m.travel.0,
+                sink: m.travel.1,
+            }),
+            emits: !matches!(m.emission, crate::mobs::kinds::Emission::None),
+            lava_walker: m.lava_walker,
+        }
     }
-    let roll = level.float() as f64;
-    m.left_handed = roll < f(0.05);
+
+    fn climbs(&self, mob: &NativeMob) -> Option<bool> {
+        self.kind_of(&mob.body.entity_type)?.climbs(&mob.body)
+    }
+
+    fn cube(&self, mob: &NativeMob) -> Option<CubeJump> {
+        let kind = self.kind_of(&mob.body.entity_type)?;
+        kind.jump(&mob.body).map(|(bonus, lava)| CubeJump {
+            bonus: bonus as f32,
+            lava: lava.map(|l| l as f32),
+        })
+    }
+
+    fn falls(&self, ty: Type) -> bool {
+        self.kinds.kind(ty.id).is_none_or(|k| k.falls())
+    }
+}
+
+/// An AI effect that is the mob's event (`MobTicks.split/1`): its sounds,
+/// entity events and swings.
+fn ai_event(e: AiEffect) -> Result<Event, AiEffect> {
+    use super::term::NIL;
+    Ok(match e {
+        AiEffect::Sound {
+            id,
+            source,
+            volume,
+            pitch,
+            seed,
+        } => Event::Other(Value::Tuple(vec![
+            Value::atom("sound"),
+            Value::Int(id as i64),
+            Value::Int(source as i64),
+            Value::Float(volume),
+            Value::Float(pitch),
+            Value::Int(seed),
+        ])),
+        AiEffect::SoundAt {
+            id,
+            source,
+            at,
+            volume,
+            pitch,
+        } => Event::Other(Value::Tuple(vec![
+            Value::atom("sound_at"),
+            Value::Int(id as i64),
+            Value::Binary(source.as_bytes().to_vec()),
+            Value::vec3(at),
+            Value::Float(volume),
+            Value::Float(pitch),
+        ])),
+        AiEffect::SoundBlock(v) => Event::Other(tagged("sound_block", v)),
+        AiEffect::Event(n) => Event::Entity(n),
+        AiEffect::Swing(hand) => Event::Other(Value::tuple([
+            Value::atom("swing"),
+            Value::atom(hand.name()),
+        ])),
+        AiEffect::Living(e) => e,
+        other => {
+            let _ = NIL;
+            return Err(other);
+        }
+    })
+}
+
+/// `{tag, ...}`: a tuple payload's items after `tag`, else `{tag, payload}`.
+pub fn tagged(tag: &'static str, v: Value) -> Value {
+    match v {
+        Value::Tuple(mut items) => {
+            items.insert(0, Value::atom(tag));
+            Value::Tuple(items)
+        }
+        v => Value::tuple([Value::atom(tag), v]),
+    }
+}
+
+/// Splits AI effects into the mob's events and the effects leaving it.
+fn split(made: Vec<AiEffect>, out: &mut Turned) -> Vec<Event> {
+    let mut events = Vec::new();
+    for e in made {
+        match ai_event(e) {
+            Ok(event) => events.push(event),
+            Err(effect) => out.effects.push(Effect::Ai(effect)),
+        }
+    }
+    events
 }
 
 /// `MobMotion.travel/2`: the travel attributes from the type's bases and
@@ -648,70 +711,6 @@ fn trample(
     }
 }
 
-/// One native mob's turn at ticker index `i` (`MobTicks.ordered_step/6`).
-/// `pushed` collects the mobs its step pushed; false when the kernel
-/// refused its step (it keeps its state from before the tick).
-pub fn turn(
-    tw: &TurnWorld,
-    sky: &mut dyn Sky,
-    ticker: &mut Ticker,
-    i: usize,
-    mob: &mut NativeMob,
-    out: &mut Turned,
-    pushed: &mut Vec<(usize, [f64; 3])>,
-) -> bool {
-    let rules = tw.rules;
-    let Some(ty) = rules.of(&mob.body.entity_type) else {
-        return false;
-    };
-    // The pushes of the mobs before it, and hits, are in the ticker.
-    mob.body.velocity = ticker.current[i].velocity;
-    sense(rules, ty, tw.world, mob);
-    // `baseTick`'s burning comes first (VMC-043b).
-    out.events.extend(vitals::base_tick(rules, mob));
-    tw.thinker.think(rules, ty, mob, sky.random(), out);
-    let attributes = tw.travel(ty, mob);
-    let input = kernel_input(rules, tw.motion, ty, mob, attributes);
-    let (result, by) = ticker.step(tw.world, i, input, tw.players);
-    pushed.extend(by);
-    let Ok(mut t) = result else {
-        return false;
-    };
-    // A family that never falls (a bat's `checkFallDamage`) lands softly.
-    if !tw.motion.falls(ty) {
-        t.landing = None;
-    }
-    apply_ticked(mob, &t);
-    // The move's splash into water comes before the rest of its tick.
-    let mut splashed = Vec::new();
-    if let Some(v) = t.splash {
-        splashed.push(splash(rules, ty, mob, v));
-    }
-    // What it landed and stepped on (the level random): farmland, eggs.
-    let mut ground = Turned::default();
-    trample(rules, ty, mob, &t, sky, &mut ground);
-    eggs(rules, mob, &t, tw.mob_griefing, sky, &mut ground);
-    let mut settled = Turned::default();
-    tw.thinker.settle(rules, ty, mob, &mut settled);
-    // A family that set its motion after the move (a squid's stroke) tells
-    // the ticker, so later pushes add to it.
-    if mob.body.velocity != t.mob.velocity {
-        ticker.current[i].velocity = mob.body.velocity;
-    }
-    out.events.extend(splashed);
-    out.events
-        .extend(vitals::apply(rules, mob, &Moved::from(&t)));
-    // The sun on undead mobs and rain on burning ones (VMC-043b).
-    let position = mob.position;
-    out.events
-        .extend(vitals::daylight(rules, mob, position, sky));
-    out.events.extend(settled.events);
-    out.events.extend(ground.events);
-    out.effects.extend(settled.effects);
-    out.effects.extend(ground.effects);
-    true
-}
-
 /// Who takes each ticker index's turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entrant {
@@ -737,6 +736,8 @@ pub struct Tick {
     /// Per native mob in the tick: its events and effects so far, and
     /// whether its step went through.
     pub turns: std::collections::BTreeMap<i32, TurnState>,
+    /// Where each native mob's tick began.
+    pub starts: std::collections::HashMap<i32, [f64; 3]>,
 }
 
 /// A native mob's part of the tick.
@@ -762,11 +763,13 @@ impl Tick {
     /// keeps its state from now as its fallback.
     pub fn begin(section: &mut MobSection, order: Vec<Entrant>) -> Tick {
         let mut turns = std::collections::BTreeMap::new();
+        let mut starts = std::collections::HashMap::new();
         for (index, e) in order.iter().enumerate() {
             if let Entrant::Native(id) = *e {
                 if let Some(slot) = section.peek_mut(id) {
                     slot.stepped = false;
                     slot.before = Some(Box::new((slot.mob.clone(), slot.shown.clone())));
+                    starts.insert(id, slot.mob.position);
                     turns.insert(
                         id,
                         TurnState {
@@ -783,15 +786,18 @@ impl Tick {
             moved: Vec::new(),
             pushed: Vec::new(),
             turns,
+            starts,
         }
     }
 
-    /// Runs turns from `from` on until an Elixir mob's or the end.
+    /// Runs turns from `from` on until an Elixir mob's or the end, the
+    /// section's AI (`ai`, its level random the sky's) thinking for its
+    /// native mobs.
     pub fn run(
         &mut self,
         section: &mut MobSection,
         tw: &TurnWorld,
-        sky: &mut dyn Sky,
+        ai: &mut SectionAi,
         ticker: &mut Ticker,
         from: usize,
     ) -> Ran {
@@ -802,35 +808,242 @@ impl Tick {
                 Entrant::Elixir => return Ran::Yield(i),
                 Entrant::Fixed => {}
                 Entrant::Native(id) => {
-                    if let (Some(slot), Some(state)) =
-                        (section.peek_mut(id), self.turns.get_mut(&id))
-                    {
-                        let mut pushed = Vec::new();
-                        let ok = turn(
-                            tw,
-                            sky,
-                            ticker,
-                            i,
-                            &mut slot.mob,
-                            &mut state.out,
-                            &mut pushed,
-                        );
-                        state.stepped = ok;
-                        state.refused = !ok;
-                        slot.stepped = ok;
-                        self.pushed.extend(
-                            pushed
-                                .into_iter()
-                                .filter(|(j, _)| self.order.get(*j) == Some(&Entrant::Elixir)),
-                        );
-                        self.moved.push(id);
-                        section.relocate(id);
+                    if self.turns.contains_key(&id) {
+                        if let Some(mut slot) = section.take(id) {
+                            let ok = self.turn(tw, ai, section, ticker, i, id, &mut slot.mob);
+                            slot.stepped = ok;
+                            section.put(id, slot);
+                            let state = self.turns.get_mut(&id).expect("turn");
+                            state.stepped = ok;
+                            state.refused = !ok;
+                            self.moved.push(id);
+                            section.relocate(id);
+                        }
                     }
                 }
             }
             self.next += 1;
         }
         Ran::Done
+    }
+
+    /// One native mob's turn at ticker index `i` (`MobTicks.ordered_step/6`),
+    /// the mob out of its section meanwhile; false when the kernel refused
+    /// its step (it keeps its state from before the tick).
+    #[allow(clippy::too_many_arguments)]
+    fn turn(
+        &mut self,
+        tw: &TurnWorld,
+        ai: &mut SectionAi,
+        section: &mut MobSection,
+        ticker: &mut Ticker,
+        i: usize,
+        id: i32,
+        mob: &mut NativeMob,
+    ) -> bool {
+        let rules = tw.rules;
+        let Some(ty) = rules.of(&mob.body.entity_type) else {
+            return false;
+        };
+        let mut out = std::mem::take(&mut self.turns.get_mut(&id).expect("turn").out);
+        // The pushes of the mobs before it, and hits, are in the ticker.
+        mob.body.velocity = ticker.current[i].velocity;
+        // Where its tick began (`old[id]`): its body turns from there.
+        let from = self.starts.get(&id).copied().unwrap_or(mob.position);
+        sense(rules, ty, tw.world, mob);
+        // `baseTick`'s burning comes first (VMC-043b).
+        out.events.extend(vitals::base_tick(rules, mob));
+        let made = {
+            let mut outside = SectionOutside {
+                tw,
+                ticker: &*ticker,
+                section: &*section,
+                i,
+            };
+            ai.think(mob, id, Some(&mut outside))
+        };
+        // Others it changed now (an alert, a partner bred): those of the
+        // section's native mobs.
+        for e in &made {
+            if let Some(uuid) = think::other(e) {
+                if uuid == mob.uuid {
+                    ai.change_other(e, mob, id);
+                } else if let Some(tid) = section.id_of(&uuid) {
+                    if let Some(target) = section.get_mut(tid) {
+                        ai.change_other(e, &mut target.mob, tid);
+                    }
+                }
+            }
+        }
+        let made = self.melee(tw, ai, section, ticker, id, mob, made);
+        let made_events = split(made, &mut out);
+        let attributes = tw.travel(ty, mob);
+        let input = kernel_input(rules, tw.motion, ty, mob, attributes);
+        let (result, by) = ticker.step(tw.world, i, input, tw.players);
+        self.pushed.extend(
+            by.into_iter()
+                .filter(|(j, _)| self.order.get(*j) == Some(&Entrant::Elixir)),
+        );
+        let Ok(mut t) = result else {
+            self.turns.get_mut(&id).expect("turn").out = out;
+            return false;
+        };
+        // A family that never falls (a bat's `checkFallDamage`) lands softly.
+        if !tw.motion.falls(ty) {
+            t.landing = None;
+        }
+        apply_ticked(mob, &t);
+        // The move's splash into water comes before the rest of its tick.
+        let splashed: Vec<Event> = if tw.kinds.kind(ty.id).is_some() {
+            let mut sink = Turned::default();
+            split(ai.move_sounds(mob, t.splash), &mut sink)
+        } else {
+            t.splash
+                .map(|v| splash(rules, ty, mob, v))
+                .into_iter()
+                .collect()
+        };
+        // What it landed and stepped on (the level random): farmland, eggs.
+        let mut ground = Turned::default();
+        trample(rules, ty, mob, &t, ai.level, &mut ground);
+        eggs(rules, mob, &t, tw.mob_griefing, ai.level, &mut ground);
+        let moves = Moves {
+            swims: [t.pre_swim.map(|v| v as f64), t.swim.map(|v| v as f64)],
+            step: t.step,
+        };
+        let settled = {
+            let mut outside = SectionOutside {
+                tw,
+                ticker: &*ticker,
+                section: &*section,
+                i,
+            };
+            ai.settle(mob, id, [from[0], from[2]], moves, Some(&mut outside))
+        };
+        // A family that set its motion after the move (a squid's stroke)
+        // tells the ticker, so later pushes add to it.
+        if mob.body.velocity != t.mob.velocity {
+            ticker.current[i].velocity = mob.body.velocity;
+        }
+        let vital = vitals::apply(rules, mob, &Moved::from(&t));
+        // The sun on undead mobs and rain on burning ones (VMC-043b).
+        let position = mob.position;
+        let sunned = vitals::daylight(rules, mob, position, ai.level);
+        // A family's own tick after the move (a zombie drowning).
+        let own = match tw.kinds.kind(ty.id) {
+            Some(kind) => kind.after_move(mob, &t),
+            None => Vec::new(),
+        };
+        let mut later = Turned::default();
+        let later_events = split(settled.into_iter().chain(own).collect(), &mut later);
+        out.events.extend(made_events);
+        out.events.extend(splashed);
+        out.events.extend(vital);
+        out.events.extend(sunned);
+        out.events.extend(later_events);
+        out.events.extend(ground.events);
+        out.effects.extend(later.effects);
+        out.effects.extend(ground.effects);
+        ai.moved(mob);
+        self.turns.get_mut(&id).expect("turn").out = out;
+        true
+    }
+
+    /// `MobTicks.melee/5`: its melee hits on the section's native mobs land
+    /// now, as `doHurtTarget` lands them mid-tick (the target's hurt timers
+    /// run when it is still to tick; its knockback goes to the ticker); a
+    /// hit on any other mob stays an effect for its owner.
+    #[allow(clippy::too_many_arguments)]
+    fn melee(
+        &mut self,
+        tw: &TurnWorld,
+        ai: &mut SectionAi,
+        section: &mut MobSection,
+        ticker: &mut Ticker,
+        id: i32,
+        mob: &NativeMob,
+        made: Vec<AiEffect>,
+    ) -> Vec<AiEffect> {
+        let rules = tw.rules;
+        let mut kept = Vec::with_capacity(made.len());
+        for e in made {
+            let AiEffect::Attack(r) = &e else {
+                kept.push(e);
+                continue;
+            };
+            let target = (r.kind == RefKind::Mob)
+                .then(|| section.id_of(&r.uuid))
+                .flatten()
+                .filter(|t| self.turns.contains_key(t));
+            let Some(tid) = target else {
+                kept.push(e);
+                continue;
+            };
+            let Some(slot) = section.get_mut(tid) else {
+                kept.push(e);
+                continue;
+            };
+            let Some(tty) = rules.of(&slot.mob.body.entity_type) else {
+                kept.push(e);
+                continue;
+            };
+            let Some(hit) = combat::mob_hit(rules, mob, id, tty.id) else {
+                kept.push(e);
+                continue;
+            };
+            let state = self.turns.get_mut(&tid).expect("turn");
+            slot.mob.body.velocity = ticker.current[state.index].velocity;
+            let (events, hurt) = combat::hit_body(rules, &mut slot.mob, &hit);
+            if hurt && !state.stepped && !state.refused {
+                super::living::health::tick(&mut slot.mob.body.mob.living.health);
+            }
+            ticker.current[state.index].velocity = slot.mob.body.velocity;
+            state.out.events.extend(events);
+            ai.moved(&slot.mob);
+        }
+        kept
+    }
+}
+
+/// What a native turn gives its AI beyond the level and sensing: the
+/// kernel's probe of a goal's own move and whether a melee hit would kill
+/// one of the section's mobs (`MobTicks.goal_position/5`, `kills?/5`).
+struct SectionOutside<'s, 'a, 'w> {
+    tw: &'s TurnWorld<'a, 'w>,
+    ticker: &'s Ticker,
+    section: &'s MobSection,
+    i: usize,
+}
+
+impl Outside for SectionOutside<'_, '_, '_> {
+    fn goal_position(&mut self, t: &super::ai::Turn) -> Option<[f64; 3]> {
+        let rules = self.tw.rules;
+        let ty = rules.of(&t.mob.body.entity_type)?;
+        let attributes = self.tw.travel(ty, t.mob);
+        let input = kernel_input(rules, self.tw.motion, ty, t.mob, attributes);
+        self.ticker
+            .goal_position(self.tw.world, self.i, &input)
+            .ok()
+    }
+
+    fn melee(&mut self, t: &mut super::ai::Turn, target: &Ref) -> bool {
+        let rules = self.tw.rules;
+        let Some(slot) = self
+            .section
+            .id_of(&target.uuid)
+            .and_then(|tid| self.section.get(tid))
+        else {
+            return false;
+        };
+        let Some(tty) = rules.of(&slot.mob.body.entity_type) else {
+            return false;
+        };
+        let Some(hit) = combat::mob_hit(rules, t.mob, t.id, tty.id) else {
+            return false;
+        };
+        let mut target = slot.mob.clone();
+        let (_, hurt) = combat::hit_body(rules, &mut target, &hit);
+        hurt && !living_mob::alive(&target.body.mob)
     }
 }
 

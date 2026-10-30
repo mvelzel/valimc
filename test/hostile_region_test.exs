@@ -74,7 +74,7 @@ defmodule Valimc.HostileRegionTest do
   defp entry(ctx, uuid) do
     store = Valimc.TestRegion.section(ctx.owner).entities.store
     {:ok, {_, id, _}} = Store.find(store, uuid)
-    store.entries[id]
+    Valimc.TestBodies.entry(store.entries[id])
   end
 
   defp step(ctx, ticks) do

@@ -320,9 +320,10 @@ defmodule Valimc.Native do
   def mob_section_begin_dirty(_section, _view, _order, _players, _border, _colliders, _env),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_run(_section, _ticker, _from, _random), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_run(_section, _ticker, _from, _random, _resense),
+    do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_run_dirty(_section, _ticker, _from, _random),
+  def mob_section_run_dirty(_section, _ticker, _from, _random, _resense),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_finish(_section, _ticker), do: :erlang.nif_error(:nif_not_loaded)
@@ -355,6 +356,27 @@ defmodule Valimc.Native do
   def mob_section_deaths(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_age(_section, _ages, _commit), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_mobs(_section), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_interact(_section, _id, _item, _player, _infinite, _loot),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_leash(_section, _id, _leash), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_convert(_section, _id, _uuid, _to, _special),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_split(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_data(_section, _id, _key, _value), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_mob_hit(_section, _id, _target), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_new, do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_prepare(_section, _id, _body_yaw, _leash),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_act(_section, _id, _what), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_minds(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_mind(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_health(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Path search (VMC-041b)
 

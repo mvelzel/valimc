@@ -8,7 +8,8 @@ defmodule Valimc.Entity.NativeBody do
   persistence, the bucket flag, what observers are shown of it (`shown`:
   `Body.shown/1`'s projection, `{values, synced attributes, equipment,
   link}`), what other mobs sense of it, the attribute values its owner's
-  pushes and explosions read and whether a death waits to drop.
+  pushes and explosions read, whether a death waits to drop and its lead
+  (`leash`: nil or `%{holder, id, restored}`, `Valimc.Entity.Leashes`).
 
   Its state lives in Rust; every change goes through its section's
   resource, never through this row.
@@ -42,7 +43,8 @@ defmodule Valimc.Entity.NativeBody do
     :gravity,
     :death,
     :no_ai,
-    :idle
+    :idle,
+    :leash
   ]
 
   @doc "A new row over `previous`: a nil `shown` keeps what was shown."

@@ -10,15 +10,35 @@
 # taken too; level events and the entities a mob adds (fireballs) too.
 # An optional second argument is the least number of scenes (another
 # family's oracle, VMC-043d's NetherMobOracle, has fewer).
+#
+# `--native` (VMC-081d): the mobs of the native families take their turns in
+# a native section (`MobTicks.native_steps/7`), the others as before.
 alias Valimc.AI
-alias Valimc.Entity.{Body, Combat, MobTicks}
+alias Valimc.Entity.{Body, Combat, MobTicks, NativeMobs, Store}
 alias Valimc.Living.DamageSource
+alias Valimc.Native
+
+{native?, argv} =
+  case Enum.split_with(System.argv(), &(&1 == "--native")) do
+    {[], argv} -> {false, argv}
+    {_, argv} -> {true, argv}
+  end
 
 {path, least} =
-  case System.argv() do
+  case argv do
     [path] -> {path, 9}
     [path, least] -> {path, String.to_integer(least)}
   end
+
+native_types =
+  MapSet.new(
+    ~w(zombie husk zombie_villager drowned skeleton stray bogged creeper spider cave_spider
+       enderman witch slime magma_cube),
+    &("minecraft:" <> &1)
+  )
+
+if native?, do: NativeMobs.install!()
+native_ticks = :counters.new(1, [])
 
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
@@ -49,7 +69,7 @@ air = Valimc.Data.Blocks.default_state("air")
 # Sound ids the AI plays by name, and the farm animals' by their sound
 # variants (VMC-043c).
 sound_names =
-  for file <- ~w(ai_facts animal_facts),
+  for file <- ~w(combat_facts ai_facts animal_facts),
       {n, id} <- :json.decode(File.read!("priv/registry/#{file}.json"))["sounds"],
       into: %{},
       do: {id, n}
@@ -105,15 +125,26 @@ player = fn p ->
   }
 end
 
-goal_names = fn body, which ->
-  {goals, targets} = Valimc.AI.Mobs.registered(body.type)
-  registered = if which == :goals, do: goals, else: targets
-  entries = Tuple.to_list(if which == :goals, do: body.mob.ai.goals, else: body.mob.ai.targets)
+goal_names = fn
+  # A native mind's running goals by registration index (VMC-081d), a
+  # skeleton's weapon goal by the vanilla goal it stands for.
+  %{mob: %{ai: %{goals: goals} = mind}} = body, which when is_list(goals) ->
+    {goals, targets} = Valimc.AI.Mobs.registered(body.type)
+    registered = if which == :goals, do: goals, else: targets
 
-  # A goal that stands for another as the mob's weapon changes names it
-  # (`vanilla_name`, a skeleton's, VMC-043b3).
-  for {%{running: true} = entry, {_, name, _, _, _}} <- Enum.zip(entries, registered),
-      do: (is_map(entry.state) && Map.get(entry.state, :vanilla_name)) || name
+    for {i, name} <- Map.fetch!(mind, which) do
+      if String.starts_with?(name, "Valimc."), do: elem(Enum.at(registered, i), 1), else: name
+    end
+
+  body, which ->
+    {goals, targets} = Valimc.AI.Mobs.registered(body.type)
+    registered = if which == :goals, do: goals, else: targets
+    entries = Tuple.to_list(if which == :goals, do: body.mob.ai.goals, else: body.mob.ai.targets)
+
+    # A goal that stands for another as the mob's weapon changes names it
+    # (`vanilla_name`, a skeleton's, VMC-043b3).
+    for {%{running: true} = entry, {_, name, _, _, _}} <- Enum.zip(entries, registered),
+        do: (is_map(entry.state) && Map.get(entry.state, :vanilla_name)) || name
 end
 
 # A brain as the oracle seeded it: its RunOnes' randoms and sensors' countdowns.
@@ -689,6 +720,65 @@ checked =
            %{entity: %{uuid: uuid, entity_id: m["id"], x: x, y: y, z: z}, body: body, revision: 1}}
         end
 
+      # A native mode's section, the native families' mobs there from their records.
+      native =
+        if native? and Enum.any?(entries, fn {_, e} -> e.body.type in native_types end),
+          do: %NativeMobs{ref: Native.mob_section_oracle_new(), types: native_types}
+
+      entries =
+        for {id, e} <- entries do
+          if native != nil and e.body.type in native_types do
+            record =
+              Store.body_record(e.body, e.entity.uuid, {e.entity.x, e.entity.y, e.entity.z})
+
+            {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
+            :ok = Native.mob_section_oracle_prepare(native.ref, id, e.body.mob.ai.body_yaw, nil)
+            {id, %{e | body: row} |> Map.merge(%{kind: :mob, native: native.ref})}
+          else
+            {id, e}
+          end
+        end
+
+      # A native mob as the checks read it: its record's body and its mind.
+      native_body = fn id ->
+        [record] = Native.mob_section_records(native.ref, [id])
+        {:ok, body} = Body.restore(record)
+        # A mob without a mind (NoAI) has the Elixir's fresh one's fields.
+        m =
+          Native.mob_section_oracle_mind(native.ref, id) ||
+            %{
+              body_yaw: body.yaw,
+              goals: [],
+              targets: [],
+              target: nil,
+              aggressive: false,
+              path: nil,
+              ambient: 0,
+              no_action: 0,
+              own: nil
+            }
+
+        mind = %{
+          body_yaw: m.body_yaw,
+          random: record.mob.ai.random,
+          goals: m.goals,
+          targets: m.targets,
+          target: m.target,
+          aggressive: m.aggressive,
+          navigation:
+            case m.path do
+              {x, y, z, speed} -> %{path: %{nodes: {{x, y, z}}, index: 0}, speed: speed}
+              nil -> %{path: nil, speed: 0.0}
+            end,
+          ambient: m.ambient,
+          no_action: m.no_action,
+          own: m.own,
+          brain: nil
+        }
+
+        put_in(body.mob.ai, mind)
+      end
+
       {_, _, count} =
         Enum.reduce(Enum.with_index(c["ticks"]), {entries, world, count}, fn {row, tick},
                                                                              {entries, world,
@@ -729,10 +819,20 @@ checked =
                   position: {p.x, p.y, p.z}
                 }
 
-                {body, made, _} = Combat.hurt_body(entry.body, entry.entity, hit)
+                if Store.native_entry?(entry) do
+                  {:ok, {_, made, {_, row}}} = Native.mob_section_hurt(native.ref, nil, id, hit)
 
-                {List.replace_at(entries, h["mob"], {id, %{entry | body: body}}),
-                 Map.put(events, id, made)}
+                  {List.replace_at(
+                     entries,
+                     h["mob"],
+                     {id, %{entry | body: NativeMobs.merge(row, entry.body)}}
+                   ), Map.put(events, id, made)}
+                else
+                  {body, made, _} = Combat.hurt_body(entry.body, entry.entity, hit)
+
+                  {List.replace_at(entries, h["mob"], {id, %{entry | body: body}}),
+                   Map.put(events, id, made)}
+                end
               else
                 {entries, events}
               end
@@ -745,13 +845,73 @@ checked =
               {id, %{gone: true} = entry} ->
                 {id, entry}
 
+              {id, %{native: ref} = entry} ->
+                [{^id, _, row, _, done}] = Native.mob_section_age(ref, [{id, 1}], true)
+                row = if row, do: NativeMobs.merge(row, entry.body), else: entry.body
+                {id, Map.put(%{entry | body: row}, :gone, done)}
+
               {id, entry} ->
                 {body, _, done} = Body.tick(entry.body)
                 {id, Map.put(%{entry | body: body}, :gone, done)}
             end)
 
           live = Enum.reject(entries, fn {_, e} -> e.gone end)
-          {steps, world} = MobTicks.steps(kernel_view, live, world, nil)
+
+          {steps, world} =
+            if native do
+              # The blocks mobs took or put down, which the native AI reads
+              # from its view.
+              edits =
+                for {{:mob_ai_edit, cell}, state} <- Process.get(), into: %{}, do: {cell, state}
+
+              native_view =
+                if edits == %{} do
+                  kernel_view
+                else
+                  blocks =
+                    for {{x, y, z}, state} <- Map.merge(scene, edits), do: [x, y, z, state]
+
+                  elem(view.(blocks, false), 1)
+                end
+
+              tops =
+                if c["day"] != nil do
+                  for {{x, z}, y} <-
+                        Enum.reduce(c["blocks"], %{}, fn [x, y, z, _], acc ->
+                          Map.update(acc, {x, z}, y, &max(&1, y))
+                        end),
+                      do: {x, z, y}
+                end
+
+              level = %{
+                time: world.time,
+                day: 0,
+                difficulty: :normal,
+                darken: 0,
+                bright: c["day"] == true,
+                monsters_burn: c["day"] == true,
+                halloween: false,
+                mob_griefing: true,
+                mob_drops: true,
+                entity_drops: true,
+                universal_anger: false,
+                goals: true,
+                min_y: -64,
+                max_y: 319,
+                sea_level: 63,
+                border: nil,
+                knots: [],
+                wet: false,
+                zoom_seed: 0,
+                tops: tops,
+                no_chunks: true
+              }
+
+              env = %{region: nil, level: level, players: players, items: world.items, reach: 0}
+              MobTicks.native_steps(native_view, live, world, nil, [], native, env)
+            else
+              MobTicks.steps(kernel_view, live, world, nil)
+            end
 
           unless length(steps) == length(live),
             do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
@@ -803,7 +963,14 @@ checked =
                 0
 
               [{id, entry}, step, expected] ->
-                body = entry.body
+                body =
+                  if Store.native_entry?(entry) do
+                    :counters.add(native_ticks, 1, 1)
+                    native_body.(id)
+                  else
+                    entry.body
+                  end
+
                 mind = body.mob.ai
                 {x, y, z} = step.position
 
@@ -1153,5 +1320,6 @@ checked =
   end
 
 IO.puts(
-  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes, level events, added entities)"
+  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes, level events, added entities)" <>
+    if(native?, do: ", #{:counters.get(native_ticks, 1)} of them native", else: "")
 )

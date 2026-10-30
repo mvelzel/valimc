@@ -15,7 +15,10 @@ defmodule Valimc.MobTravelRegionTest do
       item_simulation: true,
       region_ticks: :manual,
       # No goals: the tests move the mobs alone (VMC-041a), unless tagged.
-      mob_goals: Map.get(ctx, :goals, false)
+      mob_goals: Map.get(ctx, :goals, false),
+      # Tests that set an Elixir body's motion keep their mobs in Elixir.
+      native_mob_types:
+        if(ctx[:elixir_mobs], do: :plain, else: Application.get_env(:valimc, :native_mob_types))
     )
 
     File.mkdir_p!(base)
@@ -65,7 +68,7 @@ defmodule Valimc.MobTravelRegionTest do
   defp entry(ctx, uuid) do
     store = Valimc.TestRegion.section(ctx.owner).entities.store
     {:ok, {_, id, _}} = Store.find(store, uuid)
-    store.entries[id]
+    Valimc.TestBodies.entry(store.entries[id])
   end
 
   # One owner tick at a time: each moves the mobs once.
@@ -106,6 +109,7 @@ defmodule Valimc.MobTravelRegionTest do
     assert (b.x - a.x) ** 2 + (b.z - a.z) ** 2 > 0.36
   end
 
+  @tag :elixir_mobs
   test "a zombie told to move walks toward its target", ctx do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x - 2.0, 64.0, z})
@@ -129,6 +133,7 @@ defmodule Valimc.MobTravelRegionTest do
     assert e.entity.x > x - 1.0 and e.body.yaw == 270.0
   end
 
+  @tag :elixir_mobs
   test "a zombie walking across a section line moves to that section's owner", ctx do
     {_, z} = ctx.at
     summon(ctx, <<1::128>>, {ctx.edge - 1.5, 64.0, z})

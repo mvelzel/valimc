@@ -376,7 +376,7 @@ defmodule Valimc.RegionGroupTest do
     cow = fn epoch, uuid ->
       current = store(pc, epoch)
       {:ok, {_, id, _}} = Store.find(current, uuid)
-      current.entries[id].body
+      Valimc.TestBodies.body(current.entries[id])
     end
 
     for {epoch, uuid} <- [{ec, left.uuid}, {ed, right.uuid}] do

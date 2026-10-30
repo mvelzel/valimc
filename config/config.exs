@@ -30,8 +30,30 @@ config :valimc,
   regionizer: true,
   item_simulation: true,
   # Mob types simulated whole in Rust (VMC-081d, `Valimc.Entity.NativeMobs`):
-  # a list of type names, or :plain (the living types without Elixir AI).
-  native_mob_types: :plain,
+  # type names and :plain (the living types without Elixir AI).
+  native_mob_types: [
+    :plain,
+    "minecraft:cow",
+    "minecraft:mooshroom",
+    "minecraft:pig",
+    "minecraft:sheep",
+    "minecraft:chicken",
+    "minecraft:rabbit",
+    "minecraft:zombie",
+    "minecraft:husk",
+    "minecraft:zombie_villager",
+    "minecraft:drowned",
+    "minecraft:skeleton",
+    "minecraft:stray",
+    "minecraft:bogged",
+    "minecraft:creeper",
+    "minecraft:spider",
+    "minecraft:cave_spider",
+    "minecraft:enderman",
+    "minecraft:witch",
+    "minecraft:slime",
+    "minecraft:magma_cube"
+  ],
   cooking_simulation: true,
   world_path: "world",
   # Terrain of new worlds (VMC-024d): :flat or :vanilla (overworld noise terrain

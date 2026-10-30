@@ -73,7 +73,7 @@ defmodule Valimc.ExplosionTest do
     assert Valimc.TestBlocks.get({@line, @y - 2, @z}) == block("obsidian")
     assert Valimc.TestBlocks.get({@line - 6, @y - 5, @z - 5}) == block("stone")
 
-    entries = Map.values(store(east).entries)
+    entries = store(east).entries |> Map.values() |> Enum.map(&Valimc.TestBodies.entry/1)
     # The TNT it reached primes with a short fuse; the primed one is gone.
     assert [%{body: %Body{data: %{fuse: fuse}}}] =
              Enum.filter(entries, &match?(%{body: %Body{type: "minecraft:tnt"}}, &1))
