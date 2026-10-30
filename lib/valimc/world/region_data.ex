@@ -696,13 +696,18 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # Which items merge depends only on which items there are, where they
+  # stand, their stacks and whether they may merge: the spatial index counts
+  # those changes (`Spatial`'s `items`), so a plan starts only after one, and
+  # an item's velocity or counters alone start none (VMC-081l).
   defp start_item_merging(state, now) do
-    # Only items merge: other kinds neither start nor restart a merge plan.
-    items = for {id, %{kind: :item} = entry} <- state.entities.store.entries, do: {id, entry}
+    store = state.entities.store
 
-    if state.entities.persistent and length(items) >= 2 and
-         (state.entities.merge_next == nil or now >= state.entities.merge_next) do
-      stamp = Map.new(items, fn {id, entry} -> {id, entry.physical_revision} end)
+    # Only items merge: other kinds neither start nor restart a merge plan.
+    if state.entities.persistent and
+         (state.entities.merge_next == nil or now >= state.entities.merge_next) and
+         Valimc.Entity.Spatial.item_count(store.spatial) >= 2 do
+      stamp = {store.epoch, store.spatial.items}
 
       state = %{state | entities: %{state.entities | merge_next: now + 200}}
 
@@ -728,12 +733,13 @@ defmodule Valimc.World.RegionData do
   # kernel like items, and its explosion once the fuse runs out. Bodies move
   # while no write is in flight; a crater waiting for its job starts here.
   defp tick_block_bodies(state) do
+    # The simulated chunks' objects by the spatial index, in id order (as a
+    # small store's map walk gave them), not every entity (VMC-081l).
     bodies =
-      for {id, %{kind: :object, body: %{type: type}, entity: %{x: x, z: z}} = entry} <-
-            state.entities.store.entries,
+      for {id, %{body: %{type: type}} = entry} <-
+            Enum.sort(Store.in_chunks(state.entities.store, state.tickets.simulated, :object)),
           BlockBodies.ticks?(type),
           not Store.simulated?(entry, state.game_tick),
-          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
           do: {id, entry}
 
     state =
@@ -1439,14 +1445,22 @@ defmodule Valimc.World.RegionData do
   end
 
   defp move_unplanned_items(state, now) do
-    # Bodies (VMC-043a) are inert until VMC-015i moves them.
-    {items, orbs} =
-      state.entities.store.entries
-      |> Enum.filter(fn {_, %{kind: kind, entity: %{x: x, z: z}} = entry} ->
-        kind in [:item, :orb] and not Store.simulated?(entry, state.game_tick) and
-          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z))
-      end)
-      |> Enum.split_with(fn {_, entry} -> entry.kind == :item end)
+    # The awake items and the orbs of the simulated chunks, by the spatial
+    # index: resting items and the other chunks' entities are not visited
+    # (VMC-081l).
+    store = state.entities.store
+    chunks = state.tickets.simulated
+
+    items =
+      for id <- Enum.sort(Valimc.Entity.Spatial.awake(store.spatial, chunks)),
+          entry = store.entries[id],
+          not Store.simulated?(entry, state.game_tick),
+          do: {id, entry}
+
+    orbs =
+      for {id, entry} <- Store.in_chunks(store, chunks, :orb),
+          not Store.simulated?(entry, state.game_tick),
+          do: {id, entry}
 
     # Fire cannot hurt some stacks (netherite, VMC-034n4d).
     inputs =
