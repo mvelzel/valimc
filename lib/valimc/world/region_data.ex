@@ -5222,8 +5222,6 @@ defmodule Valimc.World.RegionData do
           effect <- state.tick_index[block].scheduled_tick(position, block, read, &random/1),
           do: effect
 
-    {random_effects, lava, growing} = random_ticks(state, read)
-
     # Plates, buttons and tripwire check the entities on them at their ticks.
     entities =
       if Enum.any?(rule_due, fn {_, block} -> Redstone.checks?(block) end),
@@ -5243,6 +5241,10 @@ defmodule Valimc.World.RegionData do
         })
         |> elem(0)
       end
+
+    # Random ticks read the cells as the block ticks left them (vanilla's
+    # `tickChunks` runs after `LevelTicks`).
+    {random_effects, lava, growing} = random_ticks(state, &read_block(state, &1))
 
     state
     |> daylight_ticks(tick)
@@ -5544,18 +5546,20 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  # Vanilla picks `randomTickSpeed` positions per section per tick (the gamerule,
-  # `:random_tick_speed`); the native sampler skips sections without handled
-  # states and returns only hits.
+  # Vanilla picks `randomTickSpeed` positions (the game rule,
+  # `:random_tick_speed`) in each section with randomly ticking cells of the
+  # chunks that tick; the native sampler (VMC-081g1) draws them in the
+  # simulated, generated chunks and returns the handled states drawn.
   # The sampled cells' behaviour effects, the lava cells among them and the
   # growing plants.
   defp random_ticks(state, read) do
-    hits =
-      for {{x, _, z} = position, block} <-
-            Blocks.random_ticks(state.blocks, state.random_tick_speed),
-          Tickets.simulated?(state.tickets, Grid.chunk_key(x, z)),
-          in_region?(state, position),
-          do: {position, block}
+    mask =
+      Valimc.Entity.NativeMobs.simulated_mask(
+        state.key,
+        Enum.reject(state.tickets.simulated, &RegionGeneration.absent?(state.generation, &1))
+      )
+
+    hits = Blocks.random_ticks(state.blocks, state.random_tick_speed, mask)
 
     {lava, others} = Enum.split_with(hits, fn {_, block} -> block in @lava_states end)
 

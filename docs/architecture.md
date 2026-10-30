@@ -221,9 +221,12 @@ was sent to.
   interactions need neither: they are calls inside the group hosting the
   player (VMC-077i3).
 - **Tick pipeline.** Each group tick runs `TickPipeline` phases on each of its
-  sections at the group's game tick: scheduled block ticks, random ticks (a
-  native per-section sampler), block events, entities, moving pistons' block
-  entities, cooking. Block ticks and item motion
+  sections at the group's game tick: scheduled block ticks, random ticks,
+  block events, entities, moving pistons' block entities, cooking. Random
+  ticks draw natively as vanilla's `tickChunk` does, in the simulated chunks
+  the owner names by mask, only in sections whose randomly ticking count
+  (kept in the store as cells change) is above zero, and return the drawn
+  cells the owner handles. Block ticks and item motion
   run only in chunks a simulation ticket covers; cooking while any chunk of
   the section does (VMC-077e). Scheduled ticks sit in per-chunk containers, as
   vanilla's `LevelTicks`: a tick visits only the containers of simulated

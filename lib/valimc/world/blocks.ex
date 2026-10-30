@@ -13,6 +13,7 @@ defmodule Valimc.World.Blocks do
   alias Valimc.Native
   alias Valimc.Protocol.Data
   alias Valimc.World.Chunk
+  import Bitwise
 
   @enforce_keys [:ref, :key]
   defstruct [:ref, :key]
@@ -351,31 +352,47 @@ defmodule Valimc.World.Blocks do
     chunks
   end
 
-  @doc "Mark the states whose random ticks this region handles (VMC-066)."
-  def random_ticking(%__MODULE__{} = blocks, states) do
-    size = div(Valimc.Protocol.Data.block_state_count() + 7, 8)
-    set = MapSet.new(states)
-
-    bitmap =
-      for byte <- 0..(size - 1), into: <<>> do
-        bits =
-          for bit <- 7..0//-1,
-              into: <<>>,
-              do: <<if(MapSet.member?(set, byte * 8 + bit), do: 1, else: 0)::1>>
-
-        bits
-      end
-
-    :ok = Native.set_random_ticking(blocks.ref, bitmap)
+  @doc """
+  Mark the states whose random ticks this region handles (VMC-066); the
+  sections count every randomly ticking state, as vanilla's do (VMC-081g1).
+  """
+  def random_ticking(%__MODULE__{} = blocks, handled) do
+    :ok =
+      Native.set_random_ticking(
+        blocks.ref,
+        bitmap(Valimc.World.Growth.ticking_states()),
+        bitmap(handled)
+      )
   end
 
-  @doc "Sampled random tick hits `{position, state}` for this tick (vanilla positions per section)."
-  def random_ticks(%__MODULE__{} = blocks, per_section) do
-    sections = Grid.region_size() ** 2 * 24
+  # One bit per state id, least significant first in each byte.
+  defp bitmap(states) do
+    bytes =
+      Enum.reduce(states, %{}, fn state, acc ->
+        Map.update(acc, div(state, 8), 1 <<< rem(state, 8), &(&1 ||| 1 <<< rem(state, 8)))
+      end)
+
+    size = div(Valimc.Protocol.Data.block_state_count() + 7, 8)
+    for byte <- 0..(size - 1), into: <<>>, do: <<Map.get(bytes, byte, 0)>>
+  end
+
+  @doc """
+  The random ticks of this tick (`randomTickSpeed` positions in each section
+  with randomly ticking cells) in the chunks of `mask` (bit `z * 8 + x` of
+  the region chunk, `Valimc.Entity.NativeMobs.simulated_mask/2`): the draws
+  that found a handled state, `{position, state}`.
+  """
+  def random_ticks(_blocks, _per_section, 0), do: []
+
+  def random_ticks(%__MODULE__{} = blocks, per_section, mask) do
+    chunks = popcount(mask)
 
     {:ok, hits} =
-      Native.dispatch(:random_ticks, per_section * sections, [blocks.ref, per_section])
+      Native.dispatch(:random_ticks, per_section * chunks * 24, [blocks.ref, per_section, mask])
 
     for <<x::32-signed, y::32-signed, z::32-signed, state::16 <- hits>>, do: {{x, y, z}, state}
   end
+
+  defp popcount(0), do: 0
+  defp popcount(mask), do: (mask &&& 1) + popcount(mask >>> 1)
 end

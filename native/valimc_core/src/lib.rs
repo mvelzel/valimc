@@ -13,6 +13,7 @@ pub mod nbt;
 pub mod path;
 pub mod physics;
 pub mod piston;
+pub mod random_tick;
 pub mod rules;
 pub mod section;
 pub mod snapshot;

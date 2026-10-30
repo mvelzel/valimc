@@ -37,6 +37,7 @@ defmodule Valimc.World.Growth do
               do: state
 
   @growing MapSet.new(@states)
+  @ticking for [_, first, last] <- @facts["runs"], state <- first..last, do: state
   @farmland Blocks.states("farmland")
 
   @doc "The randomly ticking states of the growing blocks."
@@ -45,6 +46,9 @@ defmodule Valimc.World.Growth do
   @doc "Whether `state` is one of them."
   def growing?(state), do: MapSet.member?(@growing, state)
 
+  @doc "Every randomly ticking state (`BlockState.isRandomlyTicking`)."
+  def ticking_states, do: @ticking
+
   @doc """
   The rules' random tick actions at `hits` (`[{position, state}]`) in
   `dimension`: `{:random_tick, position, false, rain?}`.
@@ -52,13 +56,15 @@ defmodule Valimc.World.Growth do
   def random_ticks(_dimension, []), do: []
 
   def random_ticks(dimension, hits) do
-    wet = Clock.weather().wet
-    view = View.new(dimension)
+    # Only a farmland's tick in wet weather reads the rain above it.
+    view =
+      if Clock.weather().wet and Enum.any?(hits, fn {_, state} -> state in @farmland end),
+        do: View.new(dimension)
 
     for {position, state} <- hits,
         do:
           {:random_tick, position, false,
-           wet and state in @farmland and rain_above?(view, position)}
+           view != nil and state in @farmland and rain_above?(view, position)}
   end
 
   # `isRainingAt(pos.above())`: open to the sky, at or above the column's

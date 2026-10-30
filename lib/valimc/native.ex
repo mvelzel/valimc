@@ -110,9 +110,9 @@ defmodule Valimc.Native do
 
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def touched_chunks(_region), do: :erlang.nif_error(:nif_not_loaded)
-  def set_random_ticking(_region, _bitmap), do: :erlang.nif_error(:nif_not_loaded)
-  def random_ticks(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
-  def random_ticks_dirty(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
+  def set_random_ticking(_region, _ticking, _handled), do: :erlang.nif_error(:nif_not_loaded)
+  def random_ticks(_region, _per_section, _mask), do: :erlang.nif_error(:nif_not_loaded)
+  def random_ticks_dirty(_region, _per_section, _mask), do: :erlang.nif_error(:nif_not_loaded)
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
   def biome_zoom(_zoom_seed, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -419,6 +419,7 @@ defmodule Valimc.Native do
 
   def mob_section_oracle_villager(_section, _id, _gates, _order, _sensors, _refresh, _timing),
     do: :erlang.nif_error(:nif_not_loaded)
+
   def mob_section_oracle_path(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_set(_section, _id, _change), do: :erlang.nif_error(:nif_not_loaded)
 
