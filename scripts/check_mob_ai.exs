@@ -30,20 +30,42 @@ alias Valimc.Native
     [path, least] -> {path, String.to_integer(least)}
   end
 
-native_types =
-  MapSet.new(
-    ~w(zombie husk zombie_villager drowned skeleton stray bogged creeper spider cave_spider
-       enderman witch slime magma_cube),
-    &("minecraft:" <> &1)
-  )
-
 if native?, do: NativeMobs.install!()
+
+# Every type whose family is native (`mobs::kinds`) but the brain mobs,
+# whose brains this harness seeds only in Elixir (the think parity tests
+# compare those), unless the run names some (`VALIMC_NATIVE_TYPES`,
+# comma-separated, without the namespace).
+native_types =
+  case System.get_env("VALIMC_NATIVE_TYPES") do
+    nil when native? ->
+      {:ok, types} = Native.mob_kinds()
+
+      brains =
+        ~w(minecraft:axolotl minecraft:hoglin minecraft:piglin minecraft:villager minecraft:ender_dragon)
+
+      MapSet.new(types -- brains)
+
+    nil ->
+      MapSet.new()
+
+    names ->
+      names |> String.split(",", trim: true) |> MapSet.new(&("minecraft:" <> &1))
+  end
+
 native_ticks = :counters.new(1, [])
 
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
 unless length(cases) >= least, do: raise("Incomplete mob AI traces")
+
+# A triage run may name its scenes (`VALIMC_CASES`, comma-separated).
+cases =
+  case System.get_env("VALIMC_CASES") do
+    nil -> cases
+    names -> Enum.filter(cases, &(&1["name"] in String.split(names, ",", trim: true)))
+  end
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -733,6 +755,16 @@ checked =
 
             {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
             :ok = Native.mob_section_oracle_prepare(native.ref, id, e.body.mob.ai.body_yaw, nil)
+
+            # A squid's tentacle speed as vanilla drew it (`own_start`).
+            case e.body.mob.ai.own do
+              %{tentacle_speed: speed} ->
+                :ok = Native.mob_section_oracle_tentacle(native.ref, id, speed * 1.0)
+
+              _ ->
+                :ok
+            end
+
             {id, %{e | body: row} |> Map.merge(%{kind: :mob, native: native.ref})}
           else
             {id, e}
@@ -772,6 +804,8 @@ checked =
             end,
           ambient: m.ambient,
           no_action: m.no_action,
+          # A family's own state and a brain as its record keeps them (a
+          # squid's tentacle, a bat's target, a brain's memories).
           own: m.own,
           brain: nil
         }
@@ -906,6 +940,20 @@ checked =
                 tops: tops,
                 no_chunks: true
               }
+
+              # A treasure search answered at once, as the oracle's level does.
+              level =
+                if Map.has_key?(c, "treasure_result") do
+                  Process.put(:mob_structure_queries, [])
+
+                  Map.put(
+                    level,
+                    :locate,
+                    c["treasure_result"] && List.to_tuple(c["treasure_result"])
+                  )
+                else
+                  level
+                end
 
               env = %{region: nil, level: level, players: players, items: world.items, reach: 0}
               MobTicks.native_steps(native_view, live, world, nil, [], native, env)

@@ -19,7 +19,12 @@ defmodule Valimc.MobBrainRegionTest do
     TestScope.isolate(TestScope.neighborhood(key),
       world_path: base,
       item_simulation: true,
-      region_ticks: :manual
+      region_ticks: :manual,
+      # These read Elixir brains (activities, memories): their mobs stay
+      # Elixir (VMC-081d; the native brains' think parity compares them).
+      native_mob_types:
+        Application.get_env(:valimc, :native_mob_types) --
+          ~w(minecraft:piglin minecraft:hoglin minecraft:villager minecraft:iron_golem minecraft:wandering_trader minecraft:cat)
     )
 
     File.mkdir_p!(base)

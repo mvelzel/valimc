@@ -78,4 +78,11 @@ defmodule Valimc.Data.SleepFacts do
 
   @doc "The top of `state`'s non-climbable collision shape, nil when it has none."
   def floor(state), do: elem(@floors, :binary.at(@floor_states, state))
+
+  @doc """
+  What standing up from a bed reads, for the native mobs (VMC-081d):
+  `{flags, floor_states, floors, beds}` (the per-state binaries, the
+  floors, the bed blocks' names).
+  """
+  def native, do: {@flags, @floor_states, Tuple.to_list(@floors), Map.keys(@beds)}
 end

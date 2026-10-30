@@ -523,8 +523,14 @@ defmodule Valimc.Entity.Body do
   end
 
   @doc "The body's physical bounding box, including a family's opening or offset geometry."
-  def box(%Valimc.Entity.NativeBody{} = body, position),
-    do: Valimc.Entity.NativeBody.box(body, position)
+  # A native mob's row (VMC-081d) keeps its family's data: a shulker's lid
+  # opens its box as an Elixir body's does.
+  def box(%Valimc.Entity.NativeBody{type: type} = body, position) do
+    case Valimc.AI.Mobs.hook(type, :box, [body, position], nil) do
+      nil -> Valimc.Entity.NativeBody.box(body, position)
+      box -> box
+    end
+  end
 
   def box(%__MODULE__{type: @knot}, {x, y, z}),
     do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}

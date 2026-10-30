@@ -594,6 +594,33 @@ fn water_own(own: &valimc_core::mobs::ai::mind::Own, out: &mut Vec<(&'static str
     }
 }
 
+/// A mind's own state as the Elixir's `own` (a bat's spot, a rabbit's
+/// hops, a family's fields), for the oracle stages' native modes too.
+pub(crate) fn mind_own<'a>(env: Env<'a>, s: &MindState) -> NifResult<Term<'a>> {
+    let bat = s
+        .own
+        .family::<valimc_core::mobs::ambient::bat::BatSpot>()
+        .map(|b| cell(b.0));
+    Ok(match s.own.family::<HopState>() {
+        // A bat's spot is its own state itself, a tuple.
+        None if bat.is_some() => bat.encode(env),
+        None => own(env, &s.own)?,
+        Some(h) => {
+            let mut map = map_new(env);
+            for (k, v) in [
+                (atoms::jump_ticks(), h.jump_ticks.encode(env)),
+                (atoms::jump_duration(), h.jump_duration.encode(env)),
+                (atoms::was_on_ground(), h.was_on_ground.encode(env)),
+                (atoms::jump_delay(), h.jump_delay.encode(env)),
+                (atoms::can_jump(), h.can_jump.encode(env)),
+            ] {
+                map = map.map_put(k, v)?;
+            }
+            map
+        }
+    })
+}
+
 /// What the record leaves out of a mind: `{tick, no_action, ambient,
 /// running goals, target, look, body_yaw, path, own, forced_age_timer,
 /// age_lock_timer, disabled, wet, control}`.
@@ -618,28 +645,7 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
             (p.index, nodes, s.navigation.speed).encode(env)
         }
     };
-    let bat = s
-        .own
-        .family::<valimc_core::mobs::ambient::bat::BatSpot>()
-        .map(|b| cell(b.0));
-    let own = match s.own.family::<HopState>() {
-        // A bat's spot is its own state itself, a tuple.
-        None if bat.is_some() => bat.encode(env),
-        None => own(env, &s.own)?,
-        Some(h) => {
-            let mut map = map_new(env);
-            for (k, v) in [
-                (atoms::jump_ticks(), h.jump_ticks.encode(env)),
-                (atoms::jump_duration(), h.jump_duration.encode(env)),
-                (atoms::was_on_ground(), h.was_on_ground.encode(env)),
-                (atoms::jump_delay(), h.jump_delay.encode(env)),
-                (atoms::can_jump(), h.can_jump.encode(env)),
-            ] {
-                map = map.map_put(k, v)?;
-            }
-            map
-        }
-    };
+    let own = mind_own(env, s)?;
     Ok(rustler::types::tuple::make_tuple(
         env,
         &[

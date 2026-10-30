@@ -1142,6 +1142,7 @@ STAGES = [
     ('dolphin_treasure', [
         ('java', 'DolphinTreasureOracle', '@dolphin-treasure.json'),
         ('check', 'check_mob_ai.exs', '@dolphin-treasure.json', '6'),
+        ('check', 'check_mob_ai.exs', '@dolphin-treasure.json', '6', '--native'),
     ]),
     ('dolphin_breath', [
         ('java', 'DolphinBreathOracle', '@dolphin-breath.json'),
@@ -1204,11 +1205,13 @@ STAGES = [
     ('mob_ai', [
         ('java', 'MobAiOracle', 'cases', '@mob-ai.json'),
         ('check', 'check_mob_ai.exs', '@mob-ai.json'),
+        ('check', 'check_mob_ai.exs', '@mob-ai.json', '9', '--native'),
     ]),
     # VMC-043d: the Nether's mobs with their goals and brains.
     ('nether_mobs', [
         ('java', 'NetherMobOracle', 'cases', '@nether-mobs.json'),
         ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4'),
+        ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4', '--native'),
     ]),
     # VMC-043b: what the overworld hostiles read of vanilla, and their finalizeSpawn.
     ('hostile_facts', [

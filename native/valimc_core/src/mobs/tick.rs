@@ -951,6 +951,17 @@ impl Tick {
         };
         let mut later = Turned::default();
         let later_events = split(settled.into_iter().chain(own).collect(), &mut later);
+        // An opening lid moves the section's mobs it meets before the next
+        // turn (`MobTicks.lid_pushes/3`); its owner moves the rest.
+        let later_effects = std::mem::take(&mut later.effects);
+        for e in later_effects {
+            later.effects.push(match e {
+                Effect::Ai(AiEffect::ShulkerPush(v)) => {
+                    Effect::Ai(AiEffect::ShulkerPush(self.lid_push(tw, section, ticker, v)))
+                }
+                other => other,
+            });
+        }
         out.events.extend(made_events);
         out.events.extend(splashed);
         out.events.extend(vital);
@@ -962,6 +973,72 @@ impl Tick {
         ai.moved(mob);
         self.turns.get_mut(&id).expect("turn").out = out;
         true
+    }
+
+    /// `MobTicks.lid_pushes/3` of a lid's push `{area, delta}`: each native
+    /// mob of the tick it meets (not a shulker or the dragon) moves by
+    /// `delta` over the ticker without its own turn, in id order. The push
+    /// as its owner forwards it: `{area, delta, [ids moved here]}`.
+    fn lid_push(
+        &mut self,
+        tw: &TurnWorld,
+        section: &mut MobSection,
+        ticker: &mut Ticker,
+        v: Value,
+    ) -> Value {
+        let parse = || -> Option<([f64; 6], [f64; 3])> {
+            let items = v.as_tuple()?;
+            let area = items.first()?.as_tuple()?;
+            let area: Vec<f64> = area.iter().map(Value::as_number).collect::<Option<_>>()?;
+            let delta = items.get(1)?.as_tuple()?;
+            let delta: Vec<f64> = delta.iter().map(Value::as_number).collect::<Option<_>>()?;
+            Some((area.try_into().ok()?, delta.try_into().ok()?))
+        };
+        let Some((area, delta)) = parse() else {
+            return v;
+        };
+        let rules = tw.rules;
+        let area_box = Aabb::new([area[0], area[1], area[2]], [area[3], area[4], area[5]]);
+        let mut moved = Vec::new();
+        let ids: Vec<(i32, usize)> = self.turns.iter().map(|(&id, t)| (id, t.index)).collect();
+        for (id, index) in ids {
+            let Some(slot) = section.get(id) else {
+                continue;
+            };
+            let ty_name = slot.mob.body.entity_type.as_str();
+            if ty_name == "minecraft:shulker" || ty_name == "minecraft:ender_dragon" {
+                continue;
+            }
+            let Some(ty) = rules.of(ty_name) else {
+                continue;
+            };
+            let [w, h, _] = living_body::dimensions(rules, ty, &slot.mob.body);
+            let [x, y, z] = slot.mob.position;
+            let own = Aabb::new(
+                [x - w / 2.0, y, z - w / 2.0],
+                [x + w / 2.0, y + h, z + w / 2.0],
+            );
+            if !own.intersects(&area_box) {
+                continue;
+            }
+            let attributes = tw.travel(ty, &slot.mob);
+            let input = kernel_input(rules, tw.motion, ty, &slot.mob, attributes);
+            let Ok(m) = ticker.displace(tw.world, index, input, delta) else {
+                continue;
+            };
+            if let Some(slot) = section.get_mut(id) {
+                slot.mob.position = m.position;
+                slot.mob.body.velocity = m.velocity;
+                slot.mob.body.on_ground = m.on_ground;
+            }
+            section.relocate(id);
+            moved.push(Value::Int(id as i64));
+        }
+        Value::Tuple(vec![
+            Value::Tuple(area.iter().map(|&a| Value::Float(a)).collect()),
+            Value::vec3(delta),
+            Value::List(moved),
+        ])
     }
 
     /// `MobTicks.melee/5`: its melee hits on the section's native mobs land

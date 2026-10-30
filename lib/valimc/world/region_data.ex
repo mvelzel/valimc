@@ -1647,7 +1647,8 @@ defmodule Valimc.World.RegionData do
       # Items mobs threw (a piglin's barter, VMC-043d).
       throws =
         for step <- steps,
-            thrown <- step.effects,
+            effect <- step.effects,
+            thrown <- barter(effect),
             is_tuple(thrown) and elem(thrown, 0) == :throw,
             do: thrown
 
@@ -2074,6 +2075,15 @@ defmodule Valimc.World.RegionData do
   # with the shearing tables rolled here; `{:ok, {:native, position, row,
   # events}, outcome}` in `Interaction.outcome/1`'s shape, `:pass` or
   # `:consume`.
+  defp native_bucket(%{body: %{type: type}} = entry, request) do
+    if Valimc.Entity.Bucketable.bucketable?(type) do
+      {:ok, body} = Body.restore(Store.record(entry))
+      Valimc.Entity.Bucketable.interact(body, request)
+    else
+      :pass
+    end
+  end
+
   defp native_interaction(%{native: ref, body: row}, id, request) do
     holder = request[:holder]
 
@@ -2693,6 +2703,15 @@ defmodule Valimc.World.RegionData do
 
   # `BehaviorUtils.throwItem`: each item from where and as fast as the mob
   # threw it, picked up after the default delay.
+  # A native piglin's barter (VMC-081d): the bartering table rolled with its
+  # seed, each item thrown from its hand at its velocity.
+  defp barter({:barter, seed, from, velocity}) do
+    {:ok, items} = Valimc.Blocks.Loot.barter(seed)
+    for stack <- items, do: {:throw, stack, from, velocity}
+  end
+
+  defp barter(effect), do: [effect]
+
   defp mob_throws(state, throws) do
     records =
       for thrown <- throws do
@@ -4032,7 +4051,10 @@ defmodule Valimc.World.RegionData do
       # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
       result =
         if Store.native_entry?(entry) do
-          native_interaction(entry, id, request)
+          # A bucket takes a native mob as it takes an Elixir one (VMC-081d):
+          # over its body as its record holds it.
+          with :pass <- native_bucket(entry, request),
+               do: native_interaction(entry, id, request)
         else
           with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
                :pass <- Valimc.Entity.Bucketable.interact(body, request),
@@ -4716,7 +4738,9 @@ defmodule Valimc.World.RegionData do
          record =
            Store.body_record(body, :crypto.strong_rand_bytes(16), point)
            |> Map.put(:entity_id, id),
-         {:ok, _, _} <- Store.create_record(state.entities.store, state.key, record) do
+         # A preflight only: a native section (VMC-081d) would keep the mob.
+         {:ok, _, _} <-
+           Store.create_record(%{state.entities.store | native: nil}, state.key, record) do
       case rule_run(state, %{actions: [empty]}) do
         {next, %{results: [result]}} when result > 0 ->
           # The preflight reserves only an id. Preserve all entity effects

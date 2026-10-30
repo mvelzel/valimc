@@ -4,10 +4,11 @@ defmodule Valimc.Entity.Displacement do
   alias Valimc.Entity.{Body, Mob}
 
   @doc "Whether an entry is met by a lid's swept slab and admits its external move."
-  def meets?(%{body: %Body{type: "minecraft:shulker"}}, _area), do: false
-  def meets?(%{body: %Body{type: "minecraft:ender_dragon"}}, _area), do: false
+  # A native mob's row (VMC-081d) names its type as a body does.
+  def meets?(%{body: %{type: "minecraft:shulker"}}, _area), do: false
+  def meets?(%{body: %{type: "minecraft:ender_dragon"}}, _area), do: false
 
-  def meets?(%{body: %Body{type: type}}, _area)
+  def meets?(%{body: %{type: type}}, _area)
       when type in ["minecraft:area_effect_cloud", "minecraft:shulker_bullet"], do: false
 
   def meets?(entry, area) do

@@ -83,6 +83,9 @@ defmodule Valimc.Entity.Bucketable do
 
   def interact(_body, _request), do: :pass
 
+  @doc "Whether a bucket of water takes mobs of `type`."
+  def bucketable?(type), do: Map.has_key?(@types, type)
+
   @doc "The bucket item, its name/variant components and modelled entity data."
   def capture(%Body{type: type, mob: mob} = body) when is_map_key(@types, type) do
     data = %{"Health" => {:float, <<mob.living.health.value::float-32>>}}

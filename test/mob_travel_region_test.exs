@@ -275,6 +275,7 @@ defmodule Valimc.MobTravelRegionTest do
   end
 
   @tag goals: true
+  @tag :elixir_mobs
   test "a dolphin's background lookup survives unticked goals and is consumed after NoAI ends",
        ctx do
     assert Valimc.World.Spec.current().generator == :flat

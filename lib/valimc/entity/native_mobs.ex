@@ -30,6 +30,8 @@ defmodule Valimc.Entity.NativeMobs do
 
     if not :persistent_term.get({__MODULE__, :installed}, false) do
       {:ok, _} = Native.mob_section_install(record_facts())
+      {flags, floor_states, floors, beds} = Valimc.Data.SleepFacts.native()
+      Native.mob_sleep_install(flags, floor_states, Enum.map(floors, &(&1 && &1 * 1.0)), beds)
       :persistent_term.put({__MODULE__, :installed}, true)
     end
 

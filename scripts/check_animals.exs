@@ -21,10 +21,29 @@ alias Valimc.Native
     [path, "--native"] -> {path, true}
   end
 
-native_types =
-  MapSet.new(~w(cow mooshroom pig sheep chicken rabbit), &("minecraft:" <> &1))
-
 if native?, do: NativeMobs.install!()
+
+# Every type whose family is native (`mobs::kinds`) but the brain mobs,
+# whose brains this harness seeds only in Elixir (the think parity tests
+# compare those), unless the run names some (`VALIMC_NATIVE_TYPES`,
+# comma-separated, without the namespace).
+native_types =
+  case System.get_env("VALIMC_NATIVE_TYPES") do
+    nil when native? ->
+      {:ok, types} = Native.mob_kinds()
+
+      brains =
+        ~w(minecraft:axolotl minecraft:hoglin minecraft:piglin minecraft:villager minecraft:ender_dragon)
+
+      MapSet.new(types -- brains)
+
+    nil ->
+      MapSet.new()
+
+    names ->
+      names |> String.split(",", trim: true) |> MapSet.new(&("minecraft:" <> &1))
+  end
+
 native_ticks = :counters.new(1, [])
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})

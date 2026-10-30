@@ -145,6 +145,7 @@ defmodule Valimc.BucketMobConnectionTest do
     end)
 
     [released] = for {_, %{kind: :mob} = entry} <- store(owner).entries, do: entry
+    released = Valimc.TestBodies.entry(released)
     assert released.entity.uuid != uuid
     assert released.body.type == "minecraft:salmon"
     assert released.body.data.size == 2 and released.body.data.from_bucket

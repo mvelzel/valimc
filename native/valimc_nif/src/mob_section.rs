@@ -1607,6 +1607,43 @@ fn mob_section_age<'a>(
     Ok(out.encode(env))
 }
 
+/// A schooling fish's school as its spawn pack made it (`AI.spawn_groups`
+/// in the Elixir): the leader it follows (nil) and the size it leads. Its
+/// mind is made first where it has none yet.
+#[rustler::nif]
+fn mob_section_school(
+    env: Env,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    leader: Option<rustler::Binary>,
+    school: i64,
+) -> NifResult<Atom> {
+    use valimc_core::mobs::water::fish::School;
+    let rules = rules()?;
+    let ctx = ctx(&rules)?;
+    let mut inner = owned(env, &res)?;
+    let slot = inner
+        .section
+        .get_mut(id)
+        .ok_or_else(|| fail(atoms::missing()))?;
+    valimc_core::mobs::ai::think::ensure(&ctx, &mut slot.mob);
+    let leader = match leader {
+        Some(b) => Some(
+            b.as_slice()
+                .try_into()
+                .map_err(|_| rustler::Error::BadArg)?,
+        ),
+        None => None,
+    };
+    if let Some(s) = slot.mob.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) {
+        match s.own.family_mut::<School>() {
+            Some(o) => *o = School { leader, school },
+            None => s.own.family = Some(Box::new(School { leader, school })),
+        }
+    }
+    Ok(atoms::ok())
+}
+
 /// The ids of the mobs whose spawn rules read them, with what they read:
 /// `[{id, type, {x, y, z}, persistent, alive}]`.
 #[rustler::nif]
@@ -1758,6 +1795,57 @@ mod oracle {
         Ok(atoms::ok())
     }
 
+    /// `StandUp.bed/4` natively over a view (`{:rows, ...}` or supplied
+    /// states), for its parity test: `{x, y, z}` or nil.
+    #[rustler::nif]
+    fn mob_stand_up_parity(
+        view: Term,
+        head: (i32, i32, i32),
+        facing: usize,
+        yaw: f64,
+    ) -> NifResult<Option<(f64, f64, f64)>> {
+        let physics = physics_nif::facts()?;
+        let (x, y, z) = head;
+        let region = valimc_core::physics::Aabb::new(
+            [x as f64 - 6.0, y as f64 - 4.0, z as f64 - 6.0],
+            [x as f64 + 6.0, y as f64 + 4.0, z as f64 + 6.0],
+        );
+        let view = physics_nif::owned_view(view, physics, &region)?;
+        let facts = crate::mob_facts::facts()?;
+        Ok(
+            mob_section_level::stand_up(&view, facts, [x, y, z], facing & 3, yaw)
+                .map(|p| (p[0], p[1], p[2])),
+        )
+    }
+
+    /// A squid's tentacle speed as the oracle's scene drew it (vanilla
+    /// seeds it from its own entity id).
+    #[rustler::nif]
+    fn mob_section_oracle_tentacle(
+        env: Env,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        speed: f64,
+    ) -> NifResult<Atom> {
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        use valimc_core::mobs::water::squid::SquidOwn;
+        if let Some(s) = slot.mob.body.mob.ai.as_mut().and_then(|m| m.state.as_mut()) {
+            match s.own.family_mut::<SquidOwn>() {
+                Some(o) => o.tentacle_speed = speed,
+                None => {
+                    let mut o = SquidOwn::fresh(id);
+                    o.tentacle_speed = speed;
+                    s.own.family = Some(Box::new(o));
+                }
+            }
+        }
+        Ok(atoms::ok())
+    }
+
     /// What a scene does to mob `id` before a tick: `:love` (`fall_in_love`,
     /// its events) or `:feed` (a baby fed).
     #[rustler::nif]
@@ -1873,7 +1961,17 @@ mod oracle {
                 ),
             ),
         ]);
-        mob_term::encode(env, &Value::Map(map))
+        let term = mob_term::encode(env, &Value::Map(map))?;
+        // Another family's own state as the Elixir keeps it (a squid's
+        // tentacle, a bat's spot, a turtle's travel, a school).
+        if s.own
+            .family::<valimc_core::mobs::monsters::cube::CubeOwn>()
+            .is_none()
+        {
+            let own = crate::mob_think_parity::mind_own(env, s)?;
+            return term.map_put(rustler::Atom::from_str(env, "own")?, own);
+        }
+        Ok(term)
     }
 
     /// Mob `id`'s health with what a record leaves out (its hurt cooldown

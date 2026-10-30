@@ -459,10 +459,30 @@ defmodule Valimc.Entity.Store do
   # in a plan's worker as a pending entry its owner adds when it adopts the
   # plan (`sync_native/1`).
   defp build_native(state, id, %{uuid: uuid} = record) do
+    spawned = Map.get(record, :spawn_body)
+
     record =
       Map.drop(record, [:entity_id, :entity_counters, :spawn_body, :native_parcel, :on_fire])
 
     case Native.mob_section_insert(state.native.ref, [{id, record}], false) do
+      {:ok, [{^id, position, _}]} = inserted when is_map(spawned) ->
+        # A pack's fish keeps the school its spawn made (its mind's own).
+        case spawned do
+          %Body{type: type, mob: %{ai: %{own: own} = mind}} when is_map(own) ->
+            if type in Valimc.AI.Mobs.Fish.schooling() do
+              %{leader: leader, school: school} = Valimc.AI.Mobs.Fish.school(mind)
+              :ok = Native.mob_section_school(state.native.ref, id, leader, school)
+            end
+
+          _ ->
+            :ok
+        end
+
+        {:ok, [{^id, ^position, row}]} = inserted
+
+        {:ok, put_native(state, id, uuid, position, row, Map.get(record, :hops, 0)),
+         {state.epoch, id, 1}}
+
       {:ok, [{^id, position, row}]} ->
         {:ok, put_native(state, id, uuid, position, row, Map.get(record, :hops, 0)),
          {state.epoch, id, 1}}

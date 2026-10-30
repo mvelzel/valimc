@@ -56,6 +56,18 @@ pub struct LevelEnv {
     pub dimension: valimc_core::mobs::term::Atom,
     /// Its time stands still (the Nether, the End).
     pub fixed_time: bool,
+    /// An oracle scene's structure queries answered at once (its
+    /// `locate`: `{x, y, z}` or nil); None: deferred to the owner's job.
+    pub locate: Option<Option<[i32; 3]>>,
+}
+
+/// A structure query's answer given at once.
+pub struct FixedLocator(pub Option<[i32; 3]>);
+
+impl valimc_core::mobs::level::Locator for FixedLocator {
+    fn locate(&self, _query: &valimc_core::mobs::level::Query) -> Option<[i32; 3]> {
+        self.0
+    }
 }
 
 fn map_of(v: &Value) -> NifResult<&Map> {
@@ -166,6 +178,15 @@ impl LevelEnv {
                 None => valimc_core::mobs::term::Atom::new("overworld"),
             },
             fixed_time: flag(m, "fixed_time"),
+            locate: match m.get_atom("locate") {
+                None => None,
+                Some(v) if v.is_nil() => Some(None),
+                Some(v) => {
+                    let [x, y, z] = v.as_tuple_n::<3>().ok_or_else(bad)?;
+                    let c = |v: &Value| v.as_int().map(|i| i as i32).ok_or_else(bad);
+                    Some(Some([c(x)?, c(y)?, c(z)?]))
+                }
+            },
         })
     }
 
@@ -244,6 +265,27 @@ impl Environment for SectionEnv<'_> {
 
     fn chunk_loaded(&self, _chunk: (i32, i32)) -> Option<bool> {
         self.no_chunks.then_some(false)
+    }
+
+    /// `StandUp.bed/4` over the tick's snapshots (where a villager gets up).
+    fn stand_up(&self, _type_id: u16, head: [i32; 3], facing: u8, yaw: f64) -> Option<[f64; 3]> {
+        if !matches!(self.view, physics_nif::View::Rows(_)) {
+            return None;
+        }
+        stand_up(self.view, self.facts, head, facing as usize & 3, yaw)
+    }
+
+    /// `View.find/3` over the tick's snapshots: a chunk it cannot read
+    /// holds none; an oracle scene has no finder.
+    fn find(&self, chunk: (i32, i32), states: &[u16]) -> Option<Vec<(i32, i32, i32, u16)>> {
+        let physics_nif::View::Rows(rows) = self.view else {
+            return None;
+        };
+        Some(
+            rows.snapshot(chunk)
+                .map(|s| s.find(states))
+                .unwrap_or_default(),
+        )
     }
 
     fn biome(&self, p: [i32; 3]) -> Option<u16> {
@@ -618,4 +660,192 @@ pub fn effect(facts: &MobFacts, e: &Effect) -> Option<Value> {
             return None;
         }
     })
+}
+
+// ---------------------------------------------------------------- stand up
+
+/// What standing up from a bed reads of a state (`Valimc.Data.SleepFacts`):
+/// its flags (2 dangerous, 4 not to be inside), its floor height, and which
+/// blocks are beds.
+pub struct SleepFacts {
+    flags: Vec<u8>,
+    floor_states: Vec<u8>,
+    floors: Vec<Option<f64>>,
+    beds: std::collections::HashSet<u16>,
+}
+
+static SLEEP: std::sync::OnceLock<SleepFacts> = std::sync::OnceLock::new();
+
+/// Installs the sleep facts once per VM (`NativeMobs.install!/0`): the
+/// per-state flag and floor-index binaries, the floors and the bed blocks'
+/// names. A second install keeps the first.
+#[rustler::nif]
+fn mob_sleep_install(
+    flags: rustler::Binary,
+    floor_states: rustler::Binary,
+    floors: Vec<Option<f64>>,
+    beds: Vec<String>,
+) -> NifResult<bool> {
+    let facts = crate::mob_facts::facts()?;
+    let beds = beds
+        .iter()
+        .filter_map(|name| facts.blocks.id(name))
+        .collect();
+    Ok(SLEEP
+        .set(SleepFacts {
+            flags: flags.as_slice().to_vec(),
+            floor_states: floor_states.as_slice().to_vec(),
+            floors,
+            beds,
+        })
+        .is_ok())
+}
+
+impl SleepFacts {
+    fn dangerous(&self, state: u16) -> bool {
+        self.flags.get(state as usize).is_some_and(|f| f & 2 != 0)
+    }
+
+    fn invalid_inside(&self, state: u16) -> bool {
+        self.flags.get(state as usize).is_some_and(|f| f & 4 != 0)
+    }
+
+    fn floor(&self, state: u16) -> Option<f64> {
+        let i = *self.floor_states.get(state as usize)?;
+        self.floors.get(i as usize).copied().flatten()
+    }
+}
+
+/// North, south, west, east (the villager's facing index).
+const STEPS: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+const CLOCKWISE: [usize; 4] = [3, 2, 0, 1];
+const OPPOSITE: [usize; 4] = [1, 0, 3, 2];
+
+/// `StandUp.bed/4`: where a standing player gets up from the bed whose
+/// head is at `head` facing `facing` when it looks at `yaw`, over `view`.
+pub fn stand_up(
+    view: &dyn valimc_core::physics::source::BlockSource,
+    facts: &MobFacts,
+    head: [i32; 3],
+    facing: usize,
+    yaw: f64,
+) -> Option<[f64; 3]> {
+    let sleep = SLEEP.get()?;
+    let physics = physics_nif::facts().ok()?;
+    let state = |p: [i32; 3]| view.state(p[0], p[1], p[2]).unwrap_or(0);
+    let is_bed = |s: u16| {
+        facts
+            .blocks
+            .block_id(s)
+            .is_some_and(|id| sleep.beds.contains(&id))
+    };
+    let right = CLOCKWISE[facing];
+    let side = if facing_angle(right, yaw) {
+        OPPOSITE[right]
+    } else {
+        right
+    };
+    let (fx, fz) = STEPS[facing];
+    let (sx, sz) = STEPS[side];
+    let surround = [
+        (sx, sz),
+        (sx - fx, sz - fz),
+        (sx - fx * 2, sz - fz * 2),
+        (-fx * 2, -fz * 2),
+        (-sx - fx * 2, -sz - fz * 2),
+        (-sx - fx, -sz - fz),
+        (-sx, -sz),
+        (-sx + fx, -sz + fz),
+        (fx, fz),
+        (sx + fx, sz + fz),
+    ];
+    let above = [(0, 0), (-fx, -fz)];
+    let safe = |[x, y, z]: [i32; 3], check: bool| -> Option<[f64; 3]> {
+        let here = state([x, y, z]);
+        let below = state([x, y - 1, z]);
+        if check && sleep.dangerous(here) {
+            return None;
+        }
+        let floor = match sleep.floor(here) {
+            Some(h) => h,
+            None => match sleep.floor(below) {
+                Some(h) if h >= 1.0 => h - 1.0,
+                _ => return None,
+            },
+        };
+        if floor >= 1.0 || (check && floor <= 0.0 && sleep.dangerous(below)) {
+            return None;
+        }
+        let position = [x as f64 + 0.5, y as f64 + floor, z as f64 + 0.5];
+        const HALF: f64 = 0.30000001192092896;
+        const HEIGHT: f64 = 1.7999999523162842;
+        let [px, py, pz] = position;
+        let body = Aabb::new(
+            [px - HALF, py, pz - HALF],
+            [px + HALF, py + HEIGHT, pz + HALF],
+        );
+        let ctx = valimc_core::physics::Context {
+            entity: false,
+            bottom: 0.0,
+            descending: false,
+            placement: false,
+            entity_present: false,
+            fall_distance: 0.0,
+            falling_block: false,
+            powder_snow_walkable: false,
+            lava_walker: false,
+            noclip: None,
+        };
+        let extra = valimc_core::physics::collide::Extra {
+            entities: Vec::new(),
+            border: None,
+            subject: [px, pz],
+        };
+        match valimc_core::physics::collide::no_collision(
+            view,
+            &physics.shapes,
+            &body,
+            &ctx,
+            &extra,
+        ) {
+            Ok(true) => {}
+            _ => return None,
+        }
+        if sleep.invalid_inside(here) || sleep.invalid_inside(state([x, y + 1, z])) {
+            return None;
+        }
+        Some(position)
+    };
+    let at = |[x, y, z]: [i32; 3], offsets: &[(i32, i32)], check: bool| {
+        offsets
+            .iter()
+            .find_map(|&(dx, dz)| safe([x + dx, y, z + dz], check))
+    };
+    let [x, y, z] = head;
+    if is_bed(state([x, y - 1, z])) {
+        let below = [x, y - 1, z];
+        [
+            (head, &surround[..], true),
+            (below, &surround[..], true),
+            (head, &above[..], true),
+            (head, &surround[..], false),
+            (below, &surround[..], false),
+            (head, &above[..], false),
+        ]
+        .into_iter()
+        .find_map(|(cell, offsets, check)| at(cell, offsets, check))
+    } else {
+        let offsets: Vec<(i32, i32)> = surround.iter().chain(above.iter()).copied().collect();
+        at(head, &offsets, true).or_else(|| at(head, &offsets, false))
+    }
+}
+
+/// `Direction.isFacingAngle` over `Mth`'s sine table.
+fn facing_angle(direction: usize, yaw: f64) -> bool {
+    use valimc_core::mobs::living::f;
+    let (nx, nz) = STEPS[direction];
+    let radians = f(yaw * f(std::f64::consts::PI / 180.0));
+    let dx = -(valimc_core::mobs::mth::sin(radians) as f64);
+    let dz = valimc_core::mobs::mth::cos(radians) as f64;
+    f(f(nx as f64 * dx) + f(nz as f64 * dz)) > 0.0
 }

@@ -140,7 +140,7 @@ defmodule Valimc.MobAiConnectionTest do
     owner = summon(ctx, "minecraft:zombified_piglin", a, 5.0)
     summon(ctx, "minecraft:zombified_piglin", b, -5.0)
     Valimc.TestWait.until(fn -> entry(owner, b).body.mob.ai != nil end, 10_000)
-    assert entry(owner, a).body.mob.ai.target == nil
+    assert Valimc.TestBodies.target(raw_entry(owner, a)) == nil
 
     hit = %{
       source: Valimc.Living.DamageSource.new(:player_attack),
@@ -159,7 +159,7 @@ defmodule Valimc.MobAiConnectionTest do
 
     # Both angry; a zombified piglin's 5 lands.
     Valimc.TestWait.until(
-      fn -> entry(owner, b).body.mob.ai.target == {:player, ctx.uuid} end,
+      fn -> Valimc.TestBodies.target(raw_entry(owner, b)) == {:player, ctx.uuid} end,
       10_000
     )
 
@@ -176,7 +176,7 @@ defmodule Valimc.MobAiConnectionTest do
     # Gold on its head: twenty ticks of sensing, and no target.
     Valimc.TestWait.until(fn -> entry(owner, uuid).body.mob.ai != nil end, 10_000)
     Process.sleep(1_500)
-    assert entry(owner, uuid).body.mob.ai.target == nil
+    assert Valimc.TestBodies.target(raw_entry(owner, uuid)) == nil
     assert TestPlayer.living(pid).health.value == 20.0
 
     hit = %{
@@ -195,7 +195,7 @@ defmodule Valimc.MobAiConnectionTest do
     {:ok, _} = Region.hurt_entity(owner, uuid, hit)
 
     Valimc.TestWait.until(
-      fn -> entry(owner, uuid).body.mob.ai.target == {:player, ctx.uuid} end,
+      fn -> Valimc.TestBodies.target(raw_entry(owner, uuid)) == {:player, ctx.uuid} end,
       10_000
     )
 
@@ -283,6 +283,6 @@ defmodule Valimc.MobAiConnectionTest do
 
     # A second's charge, then a large fireball: its hit and blast.
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
-    assert entry(owner, <<17::128>>).body.mob.ai.target == {:player, ctx.uuid}
+    assert Valimc.TestBodies.target(raw_entry(owner, <<17::128>>)) == {:player, ctx.uuid}
   end
 end

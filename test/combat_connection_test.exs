@@ -234,11 +234,20 @@ defmodule Valimc.CombatConnectionTest do
     assert {:ok, _} = Region.step(owner, 1)
     assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
 
+    # Its lid closes: a native shulker's (VMC-081d) in its section.
     Valimc.TestRegion.replace_section(owner, fn section ->
       {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
-      shell = section.entities.store.entries[id].body
-      shell = put_in(shell.data.peek, 0)
-      put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
+
+      case section.entities.store.entries[id] do
+        %{native: ref} when ref != nil ->
+          {:ok, {_, events, {position, row}}} = Valimc.Native.mob_section_data(ref, id, :peek, 0)
+          store = Store.native_change(section.entities.store, id, position, row, events)
+          put_in(section.entities.store, store)
+
+        entry ->
+          shell = put_in(entry.body.data.peek, 0)
+          put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
+      end
     end)
 
     assert {:ok, _} = Region.step(owner, 1)
@@ -312,6 +321,11 @@ defmodule Valimc.CombatConnectionTest do
   end
 
   test "a guardian retaliates even when its hurt window refuses the next hit", ctx do
+    # It sets an Elixir guardian's hurt window: its guardian stays Elixir.
+    Valimc.TestScope.isolate(Valimc.TestScope.neighborhood(ctx.key),
+      native_mob_types: Application.get_env(:valimc, :native_mob_types) -- ["minecraft:guardian"]
+    )
+
     save(ctx, 0.0, %Inventory{})
     {_client, pid} = TestPlayer.login(ctx)
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)

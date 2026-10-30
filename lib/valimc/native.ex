@@ -314,6 +314,9 @@ defmodule Valimc.Native do
   def mob_section_in_chunks(_section, _chunks), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_world_new, do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_sleep_install(_flags, _floor_states, _floors, _beds),
+    do: :erlang.nif_error(:nif_not_loaded)
   def mob_world_set(_world, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_tick(_section, _source, _tick, _mask, _random, _entrants, _extra),
@@ -332,6 +335,7 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_reset_idle(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_school(_section, _id, _leader, _school), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_body(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_settle(_section, _kept), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_hurt(_section, _ticker, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
@@ -379,6 +383,8 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_oracle_act(_section, _id, _what), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_oracle_tentacle(_section, _id, _speed), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_stand_up_parity(_view, _head, _facing, _yaw), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_minds(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_mind(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_health(_section, _id), do: :erlang.nif_error(:nif_not_loaded)

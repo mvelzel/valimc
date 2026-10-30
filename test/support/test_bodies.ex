@@ -47,6 +47,19 @@ defmodule Valimc.TestBodies do
 
   def entry(entry), do: entry
 
+  @doc "A schooling fish's school (`Fish.school/1`; a native mind's from its section)."
+  def school(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
+    own =
+      case Native.mob_section_oracle_mind(ref, id) do
+        %{own: own} when is_map(own) -> own
+        _ -> %{}
+      end
+
+    Map.merge(%{leader: nil, school: 1}, Map.take(own, [:leader, :school]))
+  end
+
+  def school(%{body: %{mob: %{ai: mind}}}), do: Valimc.AI.Mobs.Fish.school(mind)
+
   @doc "Whether goal `module` runs in the entry's mind (a native mind's by name)."
   def running?(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}, module) do
     [{_, goals, _, _, _}] = Native.mob_section_oracle_minds(ref, [id])

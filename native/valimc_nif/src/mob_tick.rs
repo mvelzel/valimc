@@ -842,9 +842,13 @@ fn tick_section<'a>(
     let air = AirWhereUnreadable(view);
     let blocks = parts.env.blocks(view, &air);
     let random = LegacyRandom::from_state(random as u64).ok_or_else(bad)?;
+    let locator = parts.env.locate.map(mob_section_level::FixedLocator);
     let mut level = parts.env.level(blocks, &section_env, rules.facts, random)?;
     parts.moving.give(&mut level);
     level.loot = parts.loot.as_deref();
+    level.locator = locator
+        .as_ref()
+        .map(|l| l as &dyn valimc_core::mobs::level::Locator);
     // `AI.prepare/2` over the level random: the native mobs' minds, the
     // sensing of every mob, the brain mobs' reactions.
     let others: Vec<(usize, SensedMob<Extra>)> = extras
@@ -1026,12 +1030,20 @@ fn resume<'a>(
         let air = AirWhereUnreadable(view);
         let blocks = running.parts.env.blocks(view, &air);
         let random = LegacyRandom::from_state(random as u64).ok_or_else(bad)?;
+        let locator = running
+            .parts
+            .env
+            .locate
+            .map(mob_section_level::FixedLocator);
         let mut level = running
             .parts
             .env
             .level(blocks, &section_env, rules.facts, random)?;
         running.parts.moving.give(&mut level);
         level.loot = running.parts.loot.as_deref();
+        level.locator = locator
+            .as_ref()
+            .map(|l| l as &dyn valimc_core::mobs::level::Locator);
         let mut ai = SectionAi {
             ctx: ms::ctx(&rules)?,
             level: &mut level,

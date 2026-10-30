@@ -366,8 +366,8 @@ defmodule Valimc.NaturalSpawningTest do
     store = Valimc.TestRegion.section(owner).entities.store
 
     traders =
-      for {_, %{body: %{type: "minecraft:wandering_trader"} = body, entity: e}} <- store.entries,
-          do: {body, e}
+      for {_, %{body: %{type: "minecraft:wandering_trader"}, entity: e} = entry} <- store.entries,
+          do: {Valimc.TestBodies.body(entry), e}
 
     assert [{body, e} | _] = traders
     reference = {floor(x), floor(y), floor(z)}
@@ -448,23 +448,24 @@ defmodule Valimc.NaturalSpawningTest do
           owner = if key == a, do: owner_a, else: owner_b
           store = Valimc.TestRegion.section(owner).entities.store
           {:ok, {_, id, _}} = Store.find(store, record.uuid)
-          body = store.entries[id].body
+          entry = store.entries[id]
+          body = Valimc.TestBodies.body(entry)
           assert body.mob.finalize == nil
           {:ok, restored} = body |> Body.record() |> Body.restore()
           assert restored.data == body.data
           assert restored.mob.ai.random == body.mob.ai.random
           assert Valimc.AI.Mobs.Fish.school(restored.mob.ai).leader == nil
-          {record.uuid, body}
+          {record.uuid, Map.put(body, :school, Valimc.TestBodies.school(entry))}
         end
       )
 
     for pack <- 0..1 do
       members = Enum.filter(records, fn {_, r} -> r.spawn_pack == {:natural, pack} end)
       [{_, leader} | followers] = members
-      assert Valimc.AI.Mobs.Fish.school(bodies[leader.uuid].mob.ai).school == 4
+      assert bodies[leader.uuid].school.school == 4
 
       for {_, follower} <- followers do
-        assert Valimc.AI.Mobs.Fish.school(bodies[follower.uuid].mob.ai).leader == leader.uuid
+        assert bodies[follower.uuid].school.leader == leader.uuid
       end
 
       if pack == 1 do
