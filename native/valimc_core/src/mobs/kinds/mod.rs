@@ -403,6 +403,7 @@ impl Registry {
         let mut kinds = crate::mobs::animals::kinds(facts)?;
         kinds.extend(crate::mobs::monsters::kinds(facts)?);
         kinds.extend(crate::mobs::water::kinds(facts)?);
+        kinds.extend(crate::mobs::village::kinds(facts)?);
         Registry::of(facts, kinds)
     }
 

@@ -88,6 +88,7 @@ defmodule Valimc.NativeMobScene do
       mob_drops: scene.rules.mob_drops,
       entity_drops: scene.rules.entity_drops,
       universal_anger: scene.rules.universal_anger,
+      villages: scene.villages && MapSet.new(scene.villages),
       knots: Map.new(scene.knots, fn {x, y, z, id} -> {{x, y, z}, id} end),
       items: scene.items,
       locate: locate(scene.treasure)
@@ -628,7 +629,8 @@ defmodule Valimc.NativeMobScene do
   `:acts`, `:moves`, `:level` (the level random's seed), `:statues`,
   `:post`, `:collide`, `:loot`, `:griefing` (`mobGriefing`),
   `:universal_anger`, `:items` (sensed item rows, `item/4`), `:treasure`
-  (where structure queries find it at once).
+  (where structure queries find it at once), `:villages` (the sections
+  holding an occupied village POI).
   """
   def scene(players, opts) do
     %{
@@ -658,7 +660,8 @@ defmodule Valimc.NativeMobScene do
       collide: Keyword.get(opts, :collide, []),
       loot: Keyword.get(opts, :loot),
       items: Keyword.get(opts, :items, []),
-      treasure: Keyword.get(opts, :treasure)
+      treasure: Keyword.get(opts, :treasure),
+      villages: Keyword.get(opts, :villages)
     }
   end
 end

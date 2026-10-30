@@ -428,6 +428,9 @@ pub fn mob(facts: &MobFacts, term: Term) -> NifResult<SensedMob<Extra>> {
             // An Elixir mob's own state is its own (a native family's
             // fields are sensed natively).
             own: None,
+            // A brain mob's memories (a villager's last sleep a golem
+            // reads).
+            memories: m.get_atom("memories").filter(|v| !v.is_nil()).cloned(),
         },
     })
 }

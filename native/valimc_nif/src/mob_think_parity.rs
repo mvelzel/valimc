@@ -134,6 +134,8 @@ struct SceneT<'a> {
     items: Vec<ItemT<'a>>,
     /// Where structure queries find treasure (nil: deferred).
     treasure: Option<(i32, i32, i32)>,
+    /// The sections holding an occupied village POI (`World.villages`).
+    villages: Option<Vec<(i32, i32, i32)>>,
 }
 
 fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
@@ -485,6 +487,7 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
     use valimc_core::mobs::monsters::shulker::{Reaction, ShulkerOwn};
     use valimc_core::mobs::monsters::silverfish::SilverfishOwn;
     use valimc_core::mobs::monsters::zombified_piglin::PiglinOwn;
+    use valimc_core::mobs::village::iron_golem::GolemOwn;
     let mut out = Vec::new();
     let mut opt = |k: &'static str, v: Option<i64>| {
         if let Some(v) = v {
@@ -497,6 +500,10 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
     }
     if let Some(o) = own.family::<SilverfishOwn>() {
         opt("friends", o.friends);
+    }
+    if let Some(o) = own.family::<GolemOwn>() {
+        opt("attack", o.attack);
+        opt("flower", o.flower);
     }
     if let Some(o) = own.family::<ShulkerOwn>() {
         if let Some(r) = o.hurt {
@@ -728,6 +735,10 @@ fn mob_parity_think<'a>(
         level.rules.mob_drops = scene.rules.mob_drops;
         level.rules.entity_drops = scene.rules.entity_drops;
         level.rules.universal_anger = scene.rules.universal_anger;
+        level.villages = scene
+            .villages
+            .as_ref()
+            .map(|v| v.iter().map(|&(x, y, z)| [x, y, z]).collect());
         level.loot = loot;
         if let Some((x, y, z)) = scene.treasure {
             level.locator = Some(&*Box::leak(Box::new(Fixed(Some([x, y, z])))));

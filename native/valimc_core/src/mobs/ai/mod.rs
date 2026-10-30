@@ -26,6 +26,7 @@ pub mod mind;
 pub mod navigation;
 pub mod paths;
 pub mod pickup;
+pub mod pois;
 pub mod random_pos;
 pub mod selector;
 pub mod shapes;
@@ -53,6 +54,10 @@ use std::fmt::Debug;
 pub struct Extra {
     pub data: Option<crate::mobs::model::FamilyData>,
     pub own: Option<Box<dyn Opaque>>,
+    /// A brain mob's memories as the Elixir's term map (`AI.sensed/1`'s
+    /// `memories`: a villager's last sleep an iron golem reads); None for a
+    /// mob without a brain. The owner gives an Elixir brain mob's.
+    pub memories: Option<crate::mobs::term::Value>,
 }
 
 /// A value the core holds without interpreting it (a brain's state, a

@@ -186,6 +186,7 @@ pub fn sensed(ctx: &Ctx, id: i32, mob: &NativeMob) -> Option<SensedMob<Extra>> {
         extra: Extra {
             data: animal.then(|| body.data.clone()),
             own: own_sensed(kind, mob),
+            memories: None,
         },
     })
 }

@@ -176,6 +176,9 @@ pub struct Level<'a> {
     pub darken: i32,
     /// `isBrightOutside`.
     pub bright: bool,
+    /// The dimension's time stands still (the Nether, the End): it is
+    /// never dark outside there (`isDarkOutside`).
+    pub fixed_time: bool,
     pub monsters_burn: bool,
     pub halloween: bool,
     pub rules: Rules,
@@ -190,6 +193,12 @@ pub struct Level<'a> {
     pub knots: HashMap<[i32; 3], i32>,
     /// Kept structure starts by chunk.
     pub structures: HashMap<(i32, i32), Vec<StructureStart>>,
+    /// The POI tickets taken by block (`World.pois`, the living villagers'
+    /// claims): `mobs::ai::pois` reads them.
+    pub pois: HashMap<[i32; 3], i32>,
+    /// The 16-block sections holding an occupied village POI where the
+    /// owner gives them (`World.villages`); None: from `pois`.
+    pub villages: Option<Vec<[i32; 3]>>,
     /// The section's level random (`World.random`).
     pub random: LegacyRandom,
     /// The loot registry (spawn equipment's enchanting), where the owner
@@ -224,6 +233,7 @@ impl<'a> Level<'a> {
             local: None,
             darken: 0,
             bright: false,
+            fixed_time: false,
             monsters_burn: false,
             halloween: false,
             rules: Rules::default(),
@@ -234,6 +244,8 @@ impl<'a> Level<'a> {
             border: None,
             knots: HashMap::new(),
             structures: HashMap::new(),
+            pois: HashMap::new(),
+            villages: None,
             random,
             loot: None,
             locator: None,
