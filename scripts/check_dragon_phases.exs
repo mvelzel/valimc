@@ -1,7 +1,13 @@
+# `--native` (VMC-081d): each scene's phases set, strafe and tick as the
+# native dragon's (`Native.dragon_oracle_phases/3`) over the same hand-built
+# env (its graph's heights, podium, crystals, players, sight and ground).
 alias Valimc.AI.{Random, Dragon.Flight, Dragon.Paths, Dragon.Phases}
 
-[file] = System.argv()
+{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
+native? = native != []
+[file] = argv
 raw = file |> File.read!() |> JSON.decode!()
+if native?, do: Valimc.Entity.NativeMobs.install!()
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
@@ -44,19 +50,49 @@ for row <- raw["cases"] do
 
   flight = %Flight{position: List.to_tuple(row["position"]), yaw: 25.0}
 
+  # The native scene: the same graph heights, podium, crystals and players,
+  # its sight as `visible`, its ground below where `solid` says.
+  scene = fn players, collision ->
+    %{
+      height: 90,
+      podium: env.podium,
+      crystals: env.crystals,
+      players: players,
+      sees: row["scene"] != 3,
+      floor: if(row["scene"] == 3, do: 0, else: 70),
+      ground: Valimc.Data.Blocks.default_state("end_stone"),
+      collision: collision == true
+    }
+  end
+
+  native = fn state, op, players, collision ->
+    {state, boxes} = Valimc.Native.dragon_oracle_phases(state, op, scene.(players, collision))
+    Process.put(:dragon_boxes, boxes)
+    state
+  end
+
+  start = %Phases{flight: flight, head_yaw: 25.0, random: Random.new(4519 + row["scene"])}
+
   state =
-    Phases.set(
-      %Phases{flight: flight, head_yaw: 25.0, random: Random.new(4519 + row["scene"])},
-      row["start_phase"]
-    )
+    if native?,
+      do: native.(start, {:set, row["start_phase"]}, env.players, false),
+      else: Phases.set(start, row["start_phase"])
 
   player = List.first(env.players)
 
   state =
     cond do
-      state.phase == 1 and player -> Phases.strafe(state, player, env)
-      state.phase == 8 and player -> %{state | target: player.position}
-      true -> state
+      state.phase == 1 and player != nil and native? ->
+        native.(state, {:strafe, player}, env.players, false)
+
+      state.phase == 1 and player ->
+        Phases.strafe(state, player, env)
+
+      state.phase == 8 and player ->
+        %{state | target: player.position}
+
+      true ->
+        state
     end
 
   Enum.with_index(row["ticks"])
@@ -67,10 +103,14 @@ for row <- raw["cases"] do
         else: []
 
     state =
-      Phases.tick(
-        state,
-        env |> Map.put(:players, players) |> Map.put(:collision, tick["collision"])
-      )
+      if native? do
+        native.(state, {:tick, false}, players, tick["collision"])
+      else
+        Phases.tick(
+          state,
+          env |> Map.put(:players, players) |> Map.put(:collision, tick["collision"])
+        )
+      end
 
     label =
       "start #{row["start_phase"]} scene #{row["scene"]} crystals #{row["crystals"]} tick #{index}"
@@ -97,7 +137,8 @@ for row <- raw["cases"] do
         ],
         do: DragonPhaseCheck.equal(actual, tick[key], label <> " " <> key)
 
-    DragonPhaseCheck.equal(Flight.boxes(state.flight), tick["parts"], label <> " parts")
+    boxes = if native?, do: Process.get(:dragon_boxes), else: Flight.boxes(state.flight)
+    DragonPhaseCheck.equal(boxes, tick["parts"], label <> " parts")
 
     effects =
       for effect <- state.effects,
@@ -132,5 +173,6 @@ for row <- raw["cases"] do
 end
 
 IO.puts(
-  "PASS: #{length(raw["cases"])} native dragon phase sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, paths, random, fireballs and breath"
+  "PASS: #{length(raw["cases"])} native dragon phase sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, paths, random, fireballs and breath" <>
+    if(native?, do: ", every tick the native dragon's", else: "")
 )

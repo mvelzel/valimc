@@ -789,7 +789,11 @@ pub(crate) fn attacker(v: &Value) -> NifResult<Attacker> {
 /// A hit as the Elixir's (`%{source, amount, attacker, direct, position,
 /// direction, extra_knockback, lift, bypass_immunity, killer}`).
 fn hit(rules: &Rules, term: Term) -> NifResult<Hit> {
-    let v = mob_term::decode(term)?;
+    hit_of(rules, &mob_term::decode(term)?)
+}
+
+/// `hit/2` of a decoded term.
+pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
     let m = v.as_map().ok_or(rustler::Error::BadArg)?;
     let mut hit = Hit::new(
         damage_type(rules, m.get_atom("source").ok_or(rustler::Error::BadArg)?)?,

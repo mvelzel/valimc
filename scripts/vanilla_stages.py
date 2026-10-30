@@ -335,28 +335,34 @@ STAGES = [
     ('dragon_arena', [
         ('java', 'DragonArenaOracle', '@dragon-arena.json'),
         ('check', 'check_dragon_arena.exs', '@dragon-arena.json'),
+        ('check', 'check_dragon_arena.exs', '@dragon-arena.json', '--native'),
     ]),
     ('dragon_actor', [
         ('java', 'DragonActorOracle', '@dragon-actor.json'),
         ('check', 'check_dragon_actor.exs', '@dragon-actor.json'),
+        ('check', 'check_dragon_actor.exs', '@dragon-actor.json', '--native'),
     ]),
     ('dragon_damage', [
         ('java', 'DragonDamageOracle', '@dragon-damage.json'),
         ('check', 'check_dragon_damage.exs', '@dragon-damage.json'),
+        ('check', 'check_dragon_damage.exs', '@dragon-damage.json', '--native'),
     ]),
     ('dragon_phases', [
         ('java', 'DragonPhaseOracle', '@dragon-phases.json'),
         ('check', 'check_dragon_phases.exs', '@dragon-phases.json'),
+        ('check', 'check_dragon_phases.exs', '@dragon-phases.json', '--native'),
     ]),
     ('dragon_flight', [
         ('regen', 'DragonFlightOracle', 'facts', '@dragon-facts.json'),
         ('same', '@dragon-facts.json', 'priv/registry/dragon_facts.json'),
         ('java', 'DragonFlightOracle', 'cases', '@dragon-flight.json'),
         ('check', 'check_dragon_flight.exs', '@dragon-flight.json'),
+        ('check', 'check_dragon_flight.exs', '@dragon-flight.json', '--native'),
     ]),
     ('end_crystal', [
         ('java', 'EndCrystalOracle', '@end-crystal.json'),
         ('check', 'check_end_crystal.exs', '@end-crystal.json'),
+        ('check', 'check_end_crystal.exs', '@end-crystal.json', '--native'),
     ]),
     ('entity_facts', [
         ('regen', 'EntityOracle', 'facts', '@entity-facts.json'),

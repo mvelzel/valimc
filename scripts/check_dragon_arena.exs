@@ -1,8 +1,27 @@
+# `--native` (VMC-081d): the boss bar's progress is read as the arena reads
+# a native dragon's (its row's health, `Arena.sync_bar/2`), of a dragon at
+# 75 of its 200 health in a native section.
 alias Valimc.World.Dragon.{Fight, Podium}
 alias Valimc.Protocol.BossPackets
 
-[file] = System.argv()
+{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
+native? = native != []
+[file] = argv
 raw = file |> File.read!() |> JSON.decode!()
+
+progress =
+  if native? do
+    Valimc.Entity.NativeMobs.install!()
+    {:ok, dragon} = Valimc.Entity.Body.new("minecraft:ender_dragon")
+    dragon = put_in(dragon.mob.living.health.value, 75.0)
+    ref = Valimc.Native.mob_section_oracle_new()
+    record = Valimc.Entity.Store.body_record(dragon, <<4509::128>>, {0.5, 90.0, 0.5})
+    {:ok, [{_, _, row}]} = Valimc.Native.mob_section_insert(ref, [{9, record}], false)
+    %{data: %{health: {value, maximum}}} = row
+    Valimc.Data.Float32.round(value / maximum)
+  else
+    0.375
+  end
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
@@ -40,7 +59,7 @@ for {key, expected} <- raw["packets"] do
   packet =
     case String.split(key, "_") do
       ["add", flags] ->
-        BossPackets.add(uuid, title, 0.375, 0, 0, String.to_integer(flags))
+        BossPackets.add(uuid, title, progress, 0, 0, String.to_integer(flags))
 
       ["flags", flags] ->
         BossPackets.flags(uuid, String.to_integer(flags))
@@ -49,7 +68,7 @@ for {key, expected} <- raw["packets"] do
         BossPackets.remove(uuid)
 
       ["progress"] ->
-        BossPackets.progress(uuid, 0.375)
+        BossPackets.progress(uuid, progress)
 
       ["name"] ->
         BossPackets.name(uuid, Valimc.Text.literal("The returned dragon"))
@@ -151,5 +170,6 @@ final =
 true = elem(final, 0).stage == nil
 
 IO.puts(
-  "PASS: native podium writes/drop intent, seven gateway seeds, #{map_size(raw["packets"])} boss packets and all #{length(raw["ritual"])} ritual ticks"
+  "PASS: native podium writes/drop intent, seven gateway seeds, #{map_size(raw["packets"])} boss packets and all #{length(raw["ritual"])} ritual ticks" <>
+    if(native?, do: ", the bar's progress a native dragon's", else: "")
 )

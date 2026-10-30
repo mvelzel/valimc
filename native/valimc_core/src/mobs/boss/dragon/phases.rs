@@ -239,7 +239,7 @@ impl Phases {
                 if self.target.is_none() || self.ticks >= 10 {
                     self.set(0);
                 } else {
-                    let retarget = self.retarget();
+                    let retarget = self.retarget(env);
                     let ticks = self.ticks + if self.ticks > 0 { 1 } else { 0 };
                     self.ticks = ticks + if retarget { 1 } else { 0 };
                 }
@@ -249,7 +249,7 @@ impl Phases {
                     self.target = Some(bottom(env.podium));
                 }
                 self.ticks += 1;
-                let health = if self.retarget() { 0.0 } else { 1.0 };
+                let health = if self.retarget(env) { 0.0 } else { 1.0 };
                 self.effects.push(PhaseEffect::Health(health));
             }
             10 if self.target.is_none() => self.target = Some(self.flight.position),
@@ -258,7 +258,7 @@ impl Phases {
     }
 
     fn holding(&mut self, env: &Env) {
-        if !self.retarget() {
+        if !self.retarget(env) {
             return;
         }
         if self.path.as_ref().is_some_and(Vec::is_empty) {
@@ -325,7 +325,7 @@ impl Phases {
     }
 
     fn approach(&mut self, env: &Env) {
-        if !self.retarget() {
+        if !self.retarget(env) {
             return;
         }
         if self.path.as_ref().is_none_or(Vec::is_empty) {
@@ -483,10 +483,11 @@ impl Phases {
         }
     }
 
-    /// `retarget?/2` (the owner never reports a collision).
-    fn retarget(&self) -> bool {
+    /// `retarget?/2`: near or far from its target, or collided (which its
+    /// owner never reports; an oracle's scene does).
+    fn retarget(&self, env: &Env) -> bool {
         let d = self.target_distance();
-        d < 100.0 || d > 22_500.0
+        d < 100.0 || d > 22_500.0 || env.collision
     }
 
     fn draw(&mut self, bound: i64) -> i64 {

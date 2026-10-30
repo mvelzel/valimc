@@ -285,6 +285,13 @@ defmodule Valimc.Native do
   def mob_parity_dragon(_region, _zoom_seed, _record_facts, _scene),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def dragon_oracle_flight(_flight, _target, _phase, _wall, _no_ai),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def dragon_oracle_paths(_scene, _closest, _finds), do: :erlang.nif_error(:nif_not_loaded)
+  def dragon_oracle_phases(_phases, _op, _scene), do: :erlang.nif_error(:nif_not_loaded)
+  def dragon_oracle_actor(_section, _id, _op, _scene), do: :erlang.nif_error(:nif_not_loaded)
+
   def mob_parity_interact(_record_facts, _record, _item, _player, _infinite, _leash, _loot),
     do: :erlang.nif_error(:nif_not_loaded)
 

@@ -139,6 +139,12 @@ pub struct Env<'a> {
     pub targets: Vec<Target>,
     /// Its flight hit a wall last tick.
     pub wall: bool,
+    /// It collided (`horizontalCollision`, `verticalCollision`): never in
+    /// play, where it does not move by collision; an oracle's scene sets it.
+    pub collision: bool,
+    /// An oracle's fixed answer to whether it sees a player (its scene's
+    /// `visible`); None: by line of sight.
+    pub sees: Option<bool>,
 }
 
 fn eligible(p: &SensedPlayer) -> bool {
@@ -247,12 +253,17 @@ pub fn environment<'a>(
         eye: [x, y + eye_height, z],
         targets,
         wall: false,
+        collision: false,
+        sees: None,
     }
 }
 
 impl Env<'_> {
     /// `visible`: nothing blocks the dragon's eye from the player's.
     pub fn visible(&self, player: &Player) -> bool {
+        if let Some(sees) = self.sees {
+            return sees;
+        }
         match self.sight.iter().find(|(id, _)| *id == player.id) {
             Some((_, eye)) => crate::mobs::sensing::sight::clear(self.level, self.eye, *eye),
             None => false,
