@@ -5,7 +5,8 @@ defmodule Valimc.AI.NativeFacts do
   generated files the Elixir AI decodes (`ai_facts`, `entity_facts`,
   `hostile_facts`, `animal_facts`, `village_facts`, `combat_facts`, the
   attributes, items, status effects, the block registry, tags, the protocol
-  registries, the biomes' climates and the structure tags variants name), as
+  registries, the biomes' climates, the structure tags variants name and the
+  block outlines an enderman's ray reads), as
   decoded JSON, and decodes each as its Elixir reader does; the per-state
   block facts are `Valimc.Data.BlockFacts`'s own install.
   """
@@ -62,7 +63,8 @@ defmodule Valimc.AI.NativeFacts do
       "registries" => Data.registries(),
       "climates" => climates,
       "structure_tags" =>
-        Facts.read!("loot/registries.json")["tags"]["minecraft:worldgen/structure"]
+        Facts.read!("loot/registries.json")["tags"]["minecraft:worldgen/structure"],
+      "outlines" => Map.take(Facts.read!("physics/outlines.json"), ~w(palette states offsets))
     }
   end
 end

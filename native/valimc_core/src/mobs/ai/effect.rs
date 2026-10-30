@@ -192,7 +192,7 @@ pub enum Effect {
         type_id: u16,
         options: Value,
     },
-    SpawnBody(Value),
+    SpawnBody(Box<crate::mobs::model::NativeMob>),
     SpawnMob(Value),
     Jockey(Uuid),
     /// `{:convert, type}`, `:discard`.

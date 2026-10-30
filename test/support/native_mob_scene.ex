@@ -32,7 +32,11 @@ defmodule Valimc.NativeMobScene do
     size = Valimc.Data.Grid.region_size()
     absent = for cx <- 0..(size - 1), cz <- 0..(size - 1), {cx, cz} not in @chunks, do: {cx, cz}
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, images, MapSet.new(absent))
-    handles = Valimc.World.Blocks.snapshots(blocks, for(c <- @chunks, do: {c, nil}), 1)
+    # The path searches read the region's every chunk, as the native side
+    # reads its store (the chunks beyond the generated ones are the store's
+    # own fill).
+    region = for cx <- 0..(size - 1), cz <- 0..(size - 1), do: {{cx, cz}, nil}
+    handles = Valimc.World.Blocks.snapshots(blocks, region, 1)
     view = {:rows, Enum.reject(handles, &is_nil/1), Valimc.Protocol.Data.block("air")}
 
     types =
@@ -70,6 +74,7 @@ defmodule Valimc.NativeMobScene do
       bright: scene.bright,
       monsters_burn: scene.monsters_burn,
       halloween: scene.halloween,
+      darken: scene.darken,
       mob_griefing: scene.rules.mob_griefing,
       mob_drops: scene.rules.mob_drops,
       entity_drops: scene.rules.entity_drops,
@@ -221,6 +226,16 @@ defmodule Valimc.NativeMobScene do
 
             :fire ->
               put_in(e.body.mob.living.fire_ticks, 160).body
+
+            # A family's part of a hurt it turned away (an arrow) or took
+            # without a living attacker (a cactus).
+            :shot ->
+              hit = %{source: :arrow, amount: 4.0}
+              AI.Mobs.hook(e.body.type, :repelled, [e.body, hit], e.body)
+
+            :poked ->
+              hit = %{source: :cactus, amount: 1.0}
+              AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
           end
 
         List.replace_at(entries, i, {id, %{e | body: body}})
@@ -286,8 +301,14 @@ defmodule Valimc.NativeMobScene do
   def sound_id(id) when is_integer(id), do: id
 
   def sound_id(name) do
-    Valimc.Data.HostileFacts.sound_id(name) ||
+    Valimc.Data.HostileFacts.sound_id(name) || ai_sound(name) ||
       Valimc.Entity.Animal.sound_id(name)
+  end
+
+  defp ai_sound(name) do
+    Valimc.AI.Facts.sound_id(name)
+  rescue
+    KeyError -> nil
   end
 
   @doc "An effect as both sides answer it (sound seeds and bodies left out)."
@@ -339,6 +360,18 @@ defmodule Valimc.NativeMobScene do
   def effect({:swing, _}), do: {:swing}
   def effect(:discard), do: {:discard}
   def effect(_), do: {:other}
+
+  @doc "The Elixir side's ticks of `scene` over `entries` (for a look at a difference)."
+  def elixir(%{blocks: blocks, view: view}, scene, entries) do
+    restore = fn entries ->
+      for {id, e} <- entries do
+        {:ok, body} = Body.restore(entry_record(id, e))
+        {id, %{e | body: body}}
+      end
+    end
+
+    run(blocks, view, %{scene | statues: restore.(scene.statues)}, restore.(entries))
+  end
 
   @doc """
   Runs `scene` over `entries` on both sides and asserts each tick equal:
@@ -489,7 +522,7 @@ defmodule Valimc.NativeMobScene do
 
   @doc """
   A scene of `players`: options `:time`, `:day`, `:ticks`, `:step`,
-  `:difficulty`, `:bright`, `:monsters_burn`, `:halloween`, `:knots`,
+  `:difficulty`, `:bright`, `:monsters_burn`, `:halloween`, `:darken`, `:knots`,
   `:acts`, `:moves`, `:level` (the level random's seed), `:statues`,
   `:post`, `:collide`, `:loot`.
   """
@@ -505,6 +538,7 @@ defmodule Valimc.NativeMobScene do
       bright: Keyword.get(opts, :bright, true),
       monsters_burn: Keyword.get(opts, :monsters_burn, false),
       halloween: Keyword.get(opts, :halloween, false),
+      darken: Keyword.get(opts, :darken, 0),
       rules: %{mob_griefing: true, mob_drops: true, entity_drops: true},
       knots: Keyword.get(opts, :knots, []),
       acts: Keyword.get(opts, :acts, []),

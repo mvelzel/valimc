@@ -26,7 +26,8 @@ defmodule Valimc.NativeMobHostileTest do
 
     for type <-
           ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager minecraft:skeleton
-             minecraft:stray minecraft:bogged minecraft:creeper),
+             minecraft:stray minecraft:bogged minecraft:creeper minecraft:spider
+             minecraft:cave_spider minecraft:enderman),
         do: assert(type in types)
   end
 
@@ -311,6 +312,175 @@ defmodule Valimc.NativeMobHostileTest do
     assert interact(ctx, creeper, stack.("minecraft:flint_and_steel")) == :done
     assert interact(ctx, creeper, stack.("minecraft:fire_charge")) == :done
     assert interact(ctx, creeper, stack.("minecraft:stick")) == :pass
+  end
+
+  ## Spiders
+
+  test "spiders hunt in the dark, leap, climb, bite and ride skeletons", ctx do
+    spots = land(ctx.blocks, 14, :rand.seed_s(:exsss, 131))
+    {[here, golem], rest} = Enum.split(spots, 2)
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1) do
+        type = if rem(n, 3) == 0, do: "minecraft:cave_spider", else: "minecraft:spider"
+        mob(n, type, spot, finalize: :natural)
+      end
+
+    {hx, hy, hz} = here
+    near = mob(20, "minecraft:spider", {hx + 3, hy, hz})
+    cave = mob(21, "minecraft:cave_spider", {hx - 2, hy, hz + 1})
+    collide = for t <- 0..239, do: if(rem(div(t, 7), 3) == 0, do: [0, 3, 12], else: [])
+
+    observed =
+      for {difficulty, level} <- [hard: 41, normal: 42, hard: 43, hard: 44, hard: 45] do
+        scene =
+          scene([player(0, here)],
+            ticks: 160,
+            bright: false,
+            darken: 11,
+            difficulty: difficulty,
+            day: 2_000_000,
+            statues: [mob(90, "minecraft:iron_golem", golem, no_ai: true)],
+            acts: [{20, 4, :hurt}],
+            collide: collide,
+            post: true,
+            level: level
+          )
+
+        compare(ctx, scene, entries ++ [near, cave])
+      end
+
+    # A skeleton jockey is one spawn in a hundred: many first ticks.
+    spawned =
+      for level <- 50..89 do
+        scene =
+          scene([], ticks: 1, bright: false, difficulty: :hard, loot: loot(), level: level)
+
+        compare(ctx, scene, entries)
+      end
+
+    ticks = Enum.concat(observed)
+    effects = effects(ticks)
+    records = List.flatten(for {r, _, _, _} <- ticks, do: r)
+
+    assert Enum.any?(
+             effects(Enum.concat(spawned)),
+             &match?({:spawn_body, "minecraft:skeleton", _}, &1)
+           )
+
+    assert Enum.any?(effects, &match?({:attack_extra, _, %{effect: _}}, &1))
+    assert Enum.any?(records, &(&1.data[:climbing] == true))
+    assert Enum.any?(records, &(&1.mob.living.effects != %{}))
+    assert running?(ticks, "Valimc.AI.Goals.LeapAtTarget")
+    assert running?(ticks, "Valimc.AI.Mobs.Spider.Attack")
+  end
+
+  test "spiders give up in the light", ctx do
+    spots = land(ctx.blocks, 3, :rand.seed_s(:exsss, 132))
+    [here | _] = spots
+    {hx, hy, hz} = here
+    hurt = for n <- 1..4, do: mob(n, "minecraft:spider", {hx + n, hy, hz - 1})
+    acts = for i <- 0..3, do: {2, i, :hurt}
+
+    scene =
+      scene([player(0, here)], ticks: 400, bright: true, acts: acts, post: true, level: 47)
+
+    compare(ctx, scene, hurt)
+  end
+
+  ## Endermen
+
+  test "endermen stare back, teleport, freeze, take blocks and keep their anger", ctx do
+    spots = land(ctx.blocks, 14, :rand.seed_s(:exsss, 141))
+    {[here, far, mite], rest} = Enum.split(spots, 3)
+    {hx, hy, hz} = here
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1),
+          do: mob(n, "minecraft:enderman", spot, finalize: if(n < 4, do: :natural))
+
+    # One stands where the first player looks, one close by where the
+    # second looks; one carries a block. The first player walks away later.
+    {fx, fy, fz} = far
+    grass = Valimc.Protocol.Data.block("grass_block")
+    stared = mob(20, "minecraft:enderman", {hx + 6, surface(ctx.blocks, hx + 6, hz), hz})
+    close = mob(22, "minecraft:enderman", {hx, surface(ctx.blocks, hx, hz + 3), hz + 3})
+    carrying = mob(21, "minecraft:enderman", {fx, fy, fz}, data: [carried: grass])
+    p = staring(player(0, here), stared)
+    q = staring(player(1, {hx, hy, hz - 1}), close)
+    {px, py, pz} = p.position
+
+    moves =
+      for t <- 0..239 do
+        dx = if t < 80, do: 0.0, else: (t - 80) * 0.3
+        [{{px - dx, py, pz}, {0.0, 0.0, 0.0}}, {q.position, {0.0, 0.0, 0.0}}]
+      end
+
+    acts = [{5, 0, :shot}, {12, 1, :poked}, {30, 2, :hurt}, {40, 4, :poked}]
+
+    for {bright, level} <- [{false, 51}, {true, 52}] do
+      scene =
+        scene([p, q],
+          ticks: 240,
+          moves: moves,
+          bright: bright,
+          darken: if(bright, do: 0, else: 11),
+          statues: [mob(90, "minecraft:endermite", mite, no_ai: true)],
+          acts: acts,
+          post: true,
+          level: level
+        )
+
+      observed = compare(ctx, scene, entries ++ [stared, carrying, close])
+      effects = effects(observed)
+      records = List.flatten(for {r, _, _, _} <- observed, do: r)
+      assert Enum.any?(effects, &match?({:event, 46}, &1))
+      assert Enum.any?(effects, &match?({:level_event, _, 2018, _}, &1))
+      assert Enum.any?(records, &(&1.data.stared_at == true))
+      assert running?(observed, "Valimc.AI.Mobs.Enderman.Freeze")
+    end
+  end
+
+  # A player turned to look into a mob's eyes (an enderman's).
+  defp staring(player, {_, %{entity: %{x: ex, y: ey, z: ez}}}) do
+    {px, py, pz} = player.position
+    dy = ey + 2.55 - (py + 1.62)
+    flat = :math.sqrt((ex - px) * (ex - px) + (ez - pz) * (ez - pz))
+    yaw = :math.atan2(-(ex - px), ez - pz) * 180.0 / :math.pi()
+    %{player | yaw: yaw, pitch: -:math.atan2(dy, flat) * 180.0 / :math.pi()}
+  end
+
+  test "endermen pick blocks up and put them down while mobs may grief", ctx do
+    spots = land(ctx.blocks, 12, :rand.seed_s(:exsss, 142))
+    grass = Valimc.Protocol.Data.block("grass_block")
+
+    entries =
+      for {spot, n} <- Enum.with_index(spots, 1) do
+        data = if rem(n, 2) == 0, do: [carried: grass], else: []
+        mob(n, "minecraft:enderman", spot, data: data)
+      end
+
+    observed =
+      for level <- 61..64 do
+        scene = scene([], ticks: 400, bright: false, darken: 11, level: level)
+        compare(ctx, scene, entries)
+      end
+
+    effects = effects(Enum.concat(observed))
+    assert Enum.any?(effects, &match?({:take_block, _, _}, &1))
+  end
+
+  test "a carried block drops as mined with silk touch", ctx do
+    {:ok, body} = Body.new("minecraft:enderman")
+    holdable = Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:enderman_holdable"]
+
+    for id <- holdable do
+      state = Valimc.Data.Blocks.default_state(Valimc.Data.Blocks.name(id))
+      body = %{body | data: %{body.data | carried: state}}
+      record = entry_record(1, %{entity: %{uuid: uuid(1), x: 0.5, y: 64.0, z: 0.5}, body: body})
+      expected = Valimc.AI.Mobs.Enderman.death_drops(body)
+      assert {id, Native.mob_parity_death_drops(ctx.facts, record)} == {id, expected}
+    end
   end
 
   ## Conversions

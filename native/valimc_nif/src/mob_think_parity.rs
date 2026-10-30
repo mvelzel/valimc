@@ -22,7 +22,7 @@ use valimc_core::mobs::ai::leash::Holder;
 use valimc_core::mobs::ai::mind::MindState;
 use valimc_core::mobs::ai::think::{self, Ctx, Moves, SectionAi};
 use valimc_core::mobs::animals::rabbit::HopState;
-use valimc_core::mobs::combat::{AiMind, Rules};
+use valimc_core::mobs::combat::{AiMind, Hit, Rules};
 use valimc_core::mobs::kinds::interact::{
     At, Hand, InteractEvent, Interaction, Outcome, Request, Source,
 };
@@ -40,7 +40,8 @@ mod atoms {
         jump_ticks, jump_duration, was_on_ground, jump_delay, can_jump, move_to, wait,
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
-        throw_trident, touch, take_block, place_carried, remove_block
+        throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
+        away, maybe, shot, poked
     }
 }
 
@@ -97,6 +98,8 @@ struct SceneT<'a> {
     post: bool,
     monsters_burn: bool,
     halloween: bool,
+    /// The sky's darkening (`World.darken`: 11 at night).
+    darken: i32,
     /// Per tick, the indices of the mobs whose move bumped into a wall.
     collide: Vec<Vec<usize>>,
     /// The loot registry spawn enchanting rolls in.
@@ -248,7 +251,23 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             )
                 .encode(env)
         }
-        Effect::SpawnBody(body) => (atoms::spawn_body(), mob_term::encode(env, body)?).encode(env),
+        Effect::SpawnBody(mob) => {
+            // Its type and equipment (its uuid and mind are its own).
+            let record = record::record(mob);
+            let equipment = record
+                .as_map()
+                .and_then(|m| m.get_atom("mob"))
+                .and_then(Value::as_map)
+                .and_then(|m| m.get_atom("equipment"))
+                .cloned()
+                .unwrap_or(Value::Map(Default::default()));
+            (
+                atoms::spawn_body(),
+                mob.body.entity_type.as_str(),
+                mob_term::encode(env, &equipment)?,
+            )
+                .encode(env)
+        }
         Effect::Jockey(uuid) => (atoms::jockey(), crate::binary(env, uuid)).encode(env),
         Effect::Shoot(shot) => {
             let mut map = map_new(env);
@@ -309,6 +328,35 @@ fn control<'a>(env: Env<'a>, c: &Control) -> Term<'a> {
     }
 }
 
+/// A mind's own fields as the Elixir's `own` map: nil when nothing was
+/// kept; a neutral mob's anger (`anger_end`, `anger_target`) and a family's
+/// own fields.
+fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::monsters::enderman::{EndermanOwn, Reaction};
+    if own.is_empty() {
+        return Ok(atoms::nil().encode(env));
+    }
+    let mut map = map_new(env);
+    if let Some(anger) = &own.anger {
+        let target = anger
+            .target
+            .as_ref()
+            .map_or(atoms::nil().encode(env), |r| reference(env, r));
+        map = map.map_put(atoms::anger_end(), anger.end)?;
+        map = map.map_put(atoms::anger_target(), target)?;
+    }
+    if let Some(o) = own.family::<EndermanOwn>() {
+        if let Some(reaction) = o.hurt {
+            let reaction = match reaction {
+                Reaction::Away => atoms::away(),
+                Reaction::Maybe => atoms::maybe(),
+            };
+            map = map.map_put(atoms::hurt(), reaction)?;
+        }
+    }
+    Ok(map)
+}
+
 /// What the record leaves out of a mind: `{tick, no_action, ambient,
 /// running goals, target, look, body_yaw, path, own, forced_age_timer,
 /// age_lock_timer, disabled, wet, control}`.
@@ -334,7 +382,7 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
         }
     };
     let own = match s.own.family::<HopState>() {
-        None => atoms::nil().encode(env),
+        None => own(env, &s.own)?,
         Some(h) => {
             let mut map = map_new(env);
             for (k, v) in [
@@ -469,6 +517,7 @@ fn mob_parity_think<'a>(
         level.bright = scene.bright;
         level.monsters_burn = scene.monsters_burn;
         level.halloween = scene.halloween;
+        level.darken = scene.darken;
         level.day = scene.day;
         level.rules.mob_griefing = scene.rules.mob_griefing;
         level.rules.mob_drops = scene.rules.mob_drops;
@@ -498,6 +547,20 @@ fn mob_parity_think<'a>(
                         valimc_core::mobs::animals::feed_baby(mob);
                     } else if what == atoms::fire() {
                         mob.body.mob.living.fire_ticks = 160;
+                    } else if what == atoms::shot() || what == atoms::poked() {
+                        // A family's part of a hurt it turned away (an
+                        // arrow) or took without a living attacker (a
+                        // cactus).
+                        let facts = crate::mob_facts::facts()?;
+                        let type_id = facts.entities.id(&mob.body.entity_type).ok_or(bad())?;
+                        let kind = kinds.kind(type_id).ok_or(bad())?;
+                        if what == atoms::shot() {
+                            let arrow = facts.damage_types.id("minecraft:arrow").ok_or(bad())?;
+                            kind.repelled(&mut mob.body, &Hit::new(arrow, 4.0));
+                        } else {
+                            let cactus = facts.damage_types.id("minecraft:cactus").ok_or(bad())?;
+                            kind.hurt(&mut mob.body, &Hit::new(cactus, 1.0), &mut Vec::new());
+                        }
                     } else if what == atoms::hurt() {
                         let facts = crate::mob_facts::facts()?;
                         let source = facts
@@ -774,4 +837,26 @@ fn mob_parity_convert<'a>(
         body,
     };
     mob_term::encode(env, &record::record(&converted))
+}
+
+/// `death_drops/1` of a mob of a record: its family's own drops.
+#[rustler::nif]
+fn mob_parity_death_drops<'a>(
+    env: Env<'a>,
+    record_facts: ResourceArc<MobRecordFacts>,
+    record: Term<'a>,
+) -> NifResult<Vec<Term<'a>>> {
+    let rules = rules()?;
+    let value = mob_term::decode(record)?;
+    let mob = record::restore(&value, &record_facts.0).map_err(|_| bad())?;
+    let type_id = rules
+        .facts
+        .entities
+        .id(&mob.body.entity_type)
+        .ok_or(bad())?;
+    let kind = crate::mob_facts::kinds()?.kind(type_id).ok_or(bad())?;
+    kind.death_drops(&mob.body)
+        .iter()
+        .map(|stack| mob_term::encode(env, stack))
+        .collect()
 }

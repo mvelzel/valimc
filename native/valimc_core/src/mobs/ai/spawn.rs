@@ -5,6 +5,7 @@
 //! draws from `this.random`. `mob` is `Mob`'s own part (a follow range
 //! bonus, handedness); families add theirs (`Kind::finalize`).
 
+use super::effect::Effect;
 use super::turn::Turn;
 use crate::mobs::ai::fmath::f;
 use crate::mobs::facts::Slot as FactSlot;
@@ -205,4 +206,43 @@ fn enchant(t: &mut Turn, stack: Value, special: f64) -> Value {
         items::put_component(&mut stack, "minecraft:enchantments", Value::Map(map));
     }
     stack
+}
+
+/// `Spawn.companion/3`: a mob of type `name` this one's spawn makes and
+/// finalizes at once, for `reason`, from the same level random (a spider
+/// jockey's skeleton): a fresh body facing as this one does, with a fresh
+/// uuid (from the turn's own stream, the Elixir's `:crypto`) and a mind of
+/// its own; what its finalize made stays its own. It leaves as a
+/// `SpawnBody` effect the owner adopts where this one stands. Nothing
+/// outside a section's tick (no families to make it with).
+pub fn companion(t: &mut Turn, name: &str, reason: &Atom) {
+    let Some(ctx) = t.ctx else { return };
+    let facts = t.level.facts;
+    let Some(ty) = crate::mobs::living::mob::Type::of(facts, name) else {
+        return;
+    };
+    let (Some(kind), Some(ai)) = (ctx.kinds.kind(ty.id), facts.ai.mob(ty.id)) else {
+        return;
+    };
+    let mut body = crate::mobs::living::body::fresh(ctx.rules, ty);
+    body.yaw = t.yaw();
+    body.head_yaw = t.yaw();
+    let mut uuid = [0u8; 16];
+    uuid[..8].copy_from_slice(&t.next_seed().to_be_bytes());
+    uuid[8..].copy_from_slice(&t.next_seed().to_be_bytes());
+    let mut mob = crate::mobs::model::NativeMob {
+        uuid,
+        position: t.pos(),
+        hops: 0,
+        body,
+    };
+    let dims = crate::mobs::living::body::dimensions(ctx.rules, ty, &mob.body);
+    {
+        let mut made = Turn::new(
+            &mut mob, 0, ty.id, ai, dims, t.level, t.sensing, t.paths, kind,
+        );
+        made.ctx = Some(ctx);
+        kind.finalize(&mut made, reason);
+    }
+    t.effect(Effect::SpawnBody(Box::new(mob)));
 }

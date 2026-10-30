@@ -13,6 +13,7 @@
 
 pub mod ai;
 pub mod families;
+pub mod outlines;
 pub mod registry;
 
 pub use ai::AiFacts;
@@ -45,13 +46,15 @@ pub struct MobFacts {
     pub hostile: HostileFacts,
     pub animal: AnimalFacts,
     pub village: VillageFacts,
+    /// Block outline shapes (`Valimc.Physics.Clip`'s), where given.
+    pub outlines: outlines::Outlines,
 }
 
 impl MobFacts {
     /// The facts from the installer's map (`Valimc.AI.NativeFacts.facts/0`):
     /// `ai`, `entities`, `effects`, `hostile`, `animal`, `village`, `combat`,
-    /// `attributes`, `items`, `blocks`, `tags`, `registries`, `climates` and
-    /// `structure_tags`, each the decoded JSON of its file (or the part of it
+    /// `attributes`, `items`, `blocks`, `tags`, `registries`, `climates`,
+    /// `structure_tags` and `outlines` (optional), each the decoded JSON of its file (or the part of it
     /// the AI reads).
     pub fn parse(json: &Json) -> Result<MobFacts, String> {
         let at = |key: &str| json.field(key).map_err(|e| format!("mob facts: {e}"));
@@ -96,7 +99,12 @@ impl MobFacts {
         let hostile = HostileFacts::parse(&ctx, hostile_json)?;
         let animal = AnimalFacts::parse(&ctx, animal_json, at("structure_tags")?)?;
         let village = VillageFacts::parse(village_json)?;
+        let outlines = match json.field("outlines") {
+            Ok(o) => outlines::Outlines::parse(o)?,
+            Err(_) => outlines::Outlines::default(),
+        };
         Ok(MobFacts {
+            outlines,
             entities,
             attributes,
             effects,

@@ -10,7 +10,9 @@
 //! look up once.
 
 pub mod creeper;
+pub mod enderman;
 pub mod skeleton;
+pub mod spider;
 pub mod zombie;
 
 use crate::mobs::ai::fmath::f;
@@ -28,6 +30,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(zombie::Zombie::new(facts)?),
         Box::new(skeleton::Skeleton::new(facts)?),
         Box::new(creeper::Creeper::new(facts)?),
+        Box::new(spider::Spider::new(facts)?),
+        Box::new(enderman::Enderman::new(facts)?),
     ])
 }
 

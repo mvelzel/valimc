@@ -252,6 +252,10 @@ pub struct Turn<'t, 'w> {
     /// kernel's probe of a goal's own move, mid-tick melee hits); None: a
     /// turn alone.
     pub outside: Option<&'t mut (dyn Outside + 't)>,
+    /// The living rules and the families, where the turn runs in a
+    /// section's tick (a family that makes and finalizes another mob reads
+    /// them: a spider jockey's skeleton); None: a turn alone.
+    pub ctx: Option<super::think::Ctx<'w>>,
     seed: u64,
 }
 
@@ -327,6 +331,7 @@ impl<'t, 'w> Turn<'t, 'w> {
             hooks,
             effects: Vec::new(),
             outside: None,
+            ctx: None,
             seed,
         }
     }

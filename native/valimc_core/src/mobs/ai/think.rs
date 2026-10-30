@@ -272,6 +272,7 @@ pub fn change_other<'w>(
             let ai = facts.ai.mob(ty.id).unwrap_or_else(|| blank());
             let dims = living_body::dimensions(ctx.rules, ty, &target.body);
             let mut t = Turn::new(target, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
+            t.ctx = Some(*ctx);
             t.set_target(Some(*to));
         }
         Effect::Bred(_) => {
@@ -336,6 +337,7 @@ pub fn think<'t, 'w>(
     }
     let dims = living_body::dimensions(ctx.rules, ty, &mob.body);
     let mut t = Turn::new(mob, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
+    t.ctx = Some(*ctx);
     t.outside = outside;
     if alive {
         despawn_check(&mut t, ty);
@@ -403,6 +405,7 @@ fn finalize<'w>(
     let dims = living_body::dimensions(ctx.rules, ty, &mob.body);
     let effects = {
         let mut t = Turn::new(mob, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
+        t.ctx = Some(*ctx);
         kind.finalize(&mut t, &reason);
         std::mem::take(&mut t.effects)
     };
@@ -742,6 +745,7 @@ pub fn settle<'t, 'w>(
     if thinking && (alive || kind.dying()) {
         let motion = kind.kernel_motion();
         let mut t = Turn::new(mob, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
+        t.ctx = Some(*ctx);
         t.outside = outside;
         let snapped = t.mind.snapped;
         for volume in moves.swims.into_iter().flatten() {
@@ -764,6 +768,7 @@ pub fn settle<'t, 'w>(
         std::mem::take(&mut t.effects)
     } else if alive && kind.still() {
         let mut t = Turn::new(mob, id, ty.id, ai, dims, level, sensing, ctx.paths, kind);
+        t.ctx = Some(*ctx);
         t.outside = outside;
         kind.after_ai(&mut t);
         kind.after_tick(&mut t);
