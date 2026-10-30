@@ -11,6 +11,13 @@ defmodule Valimc.Entity.Store do
   handoffs it has made, so a permit granted before it left and came back no
   longer matches. Records are persisted one by one (`RegionStorage`), so the
   store has no count or size cap.
+
+  Every change to an entity's record (VMC-081h) puts its uuid in `dirty`,
+  the store's journal: its owner's next frame takes the journal
+  (`take_dirty/1`) and writes the records it names, so a frame costs what
+  changed, never a walk over the store. Changes to what no record holds (an
+  entry's tick stamps, a mob's idle time, the on-fire flag) and native mobs,
+  whose records are their section's (`NativeMobs.cut/2`), stay out of it.
   """
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
@@ -25,7 +32,7 @@ defmodule Valimc.Entity.Store do
   # (`take_deaths/1`, VMC-037n). `native`: the section's native mobs
   # (`Valimc.Entity.NativeMobs`, VMC-081d), nil when none of its types is
   # native; an entry of a native mob holds its resource as `native` and a
-  # `NativeBody` row as its body.
+  # `NativeBody` row as its body. `dirty`: the journal, uuid => true.
   defstruct epoch: nil,
             entries: %{},
             uuids: %{},
@@ -33,7 +40,8 @@ defmodule Valimc.Entity.Store do
             spatial: %Valimc.Entity.Spatial{},
             ledger: @ledger,
             deaths: [],
-            native: nil
+            native: nil,
+            dirty: %{}
 
   @max_steps 32
   @bodies [:mob, :object]
@@ -44,6 +52,36 @@ defmodule Valimc.Entity.Store do
   def empty_ledger, do: @ledger
 
   def new, do: %__MODULE__{epoch: make_ref()}
+
+  @doc """
+  The uuids whose records changed since the last call (the journal), and the
+  store without them.
+  """
+  def take_dirty(%__MODULE__{dirty: dirty} = state) when map_size(dirty) == 0, do: {[], state}
+  def take_dirty(%__MODULE__{dirty: dirty} = state), do: {Map.keys(dirty), %{state | dirty: %{}}}
+
+  @doc """
+  Whether two stores hold the same entities, views and ledger, whatever their
+  journals: a frame taken meanwhile leaves a store the same.
+  """
+  def same?(%__MODULE__{} = a, %__MODULE__{} = b), do: %{a | dirty: %{}} == %{b | dirty: %{}}
+  def same?(a, b), do: a == b
+
+  @doc """
+  `planned`, derived from `current`'s entities elsewhere (a plan's worker),
+  with `current`'s journal too: what its owner changed since it was copied
+  still goes into a frame.
+  """
+  def adopt(%__MODULE__{} = planned, %__MODULE__{dirty: dirty}) when map_size(dirty) == 0,
+    do: planned
+
+  def adopt(%__MODULE__{} = planned, %__MODULE__{} = current),
+    do: %{planned | dirty: Map.merge(planned.dirty, current.dirty)}
+
+  # The journal with `entry`'s record changed: a native mob's is its
+  # section's.
+  defp dirty(dirty, %{native: ref}) when ref != nil, do: dirty
+  defp dirty(dirty, %{entity: %{uuid: uuid}}), do: Map.put(dirty, uuid, true)
 
   @doc "Rebase worker-created items onto current motion/counters; never replace existing items."
   def merge_created(%{epoch: epoch} = current, %{epoch: epoch} = original, original),
@@ -70,6 +108,7 @@ defmodule Valimc.Entity.Store do
          %{
            current
            | entries: Map.merge(current.entries, added),
+             dirty: Enum.reduce(added, current.dirty, fn {_, e}, d -> dirty(d, e) end),
              uuids: Enum.into(added, current.uuids, fn {id, e} -> {e.entity.uuid, id} end),
              spatial:
                Enum.reduce(added, current.spatial, fn {id, _}, index ->
@@ -232,7 +271,13 @@ defmodule Valimc.Entity.Store do
             revision = entry.revision + 1
             entry = %{entry | count: orb.count, age: orb.age, revision: revision}
             view = %{acc.views[id] | count: orb.count, revision: revision}
-            %{acc | entries: Map.put(acc.entries, id, entry), views: Map.put(acc.views, id, view)}
+
+            %{
+              acc
+              | entries: Map.put(acc.entries, id, entry),
+                dirty: dirty(acc.dirty, entry),
+                views: Map.put(acc.views, id, view)
+            }
           end
         end)
 
@@ -295,7 +340,12 @@ defmodule Valimc.Entity.Store do
           # Its portal cooldown runs down (VMC-026d).
           motion = %{entry.motion | portal_cooldown: max(0, entry.motion.portal_cooldown - ticks)}
           entry = %{entry | age: age, lived: entry.lived + ticks, motion: motion}
-          items = %{items | entries: Map.put(items.entries, id, entry)}
+
+          items = %{
+            items
+            | entries: Map.put(items.entries, id, entry),
+              dirty: dirty(items.dirty, entry)
+          }
 
           expired =
             if age >= 6000 or entry.entity.y < minimum_y - 64,
@@ -318,6 +368,7 @@ defmodule Valimc.Entity.Store do
               %{
                 items
                 | entries: Map.put(items.entries, id, entry),
+                  dirty: dirty(items.dirty, entry),
                   views:
                     Map.update!(
                       items.views,
@@ -437,6 +488,7 @@ defmodule Valimc.Entity.Store do
     %{
       state
       | entries: Map.put(state.entries, id, entry),
+        dirty: dirty(state.dirty, entry),
         uuids: Map.put(state.uuids, uuid, id),
         spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
@@ -980,6 +1032,7 @@ defmodule Valimc.Entity.Store do
        %{
          state
          | entries: Map.put(state.entries, id, entry),
+           dirty: dirty(state.dirty, entry),
            uuids: Map.put(state.uuids, uuid, id),
            spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
            views: Map.put(state.views, id, view)
@@ -1020,6 +1073,7 @@ defmodule Valimc.Entity.Store do
      %{
        state
        | entries: Map.put(state.entries, id, entry),
+         dirty: dirty(state.dirty, entry),
          uuids: Map.put(state.uuids, uuid, id),
          spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
          views: Map.put(state.views, id, view)
@@ -1132,6 +1186,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             dirty: dirty(state.dirty, entry),
              spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, id}
@@ -1172,6 +1227,7 @@ defmodule Valimc.Entity.Store do
         next = %{
           state
           | entries: Map.put(state.entries, id, entry),
+            dirty: dirty(state.dirty, entry),
             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
             views: Map.put(state.views, id, view)
         }
@@ -1192,6 +1248,7 @@ defmodule Valimc.Entity.Store do
        %{
          state
          | entries: Map.delete(state.entries, id),
+           dirty: dirty(state.dirty, entry),
            uuids: Map.delete(state.uuids, entry.entity.uuid),
            spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], nil),
            views: Map.delete(state.views, id)
@@ -1295,6 +1352,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             dirty: dirty(state.dirty, entry),
              spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
@@ -1367,6 +1425,7 @@ defmodule Valimc.Entity.Store do
          %{
            state
            | entries: Map.put(state.entries, id, entry),
+             dirty: dirty(state.dirty, entry),
              spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
@@ -1422,7 +1481,12 @@ defmodule Valimc.Entity.Store do
 
       # A thinking mob's idle time is its AI's (`noActionTime`, VMC-041a).
       entry = if is_map_key(step, :idle), do: Map.put(entry, :idle, step.idle), else: entry
-      state = %{state | entries: Map.put(state.entries, id, entry)}
+
+      state = %{
+        state
+        | entries: Map.put(state.entries, id, entry),
+          dirty: dirty(state.dirty, entry)
+      }
 
       {:ok, put_body(state, id, body, Map.get(step, :events, [])),
        {state.epoch, id, revision + 1}}
@@ -1690,6 +1754,7 @@ defmodule Valimc.Entity.Store do
     %{
       state
       | entries: Map.put(state.entries, id, entry),
+        dirty: dirty(state.dirty, entry),
         spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
     }
@@ -1806,6 +1871,7 @@ defmodule Valimc.Entity.Store do
     next = %{
       state
       | entries: Map.put(state.entries, id, entry),
+        dirty: dirty(state.dirty, entry),
         uuids: Map.put(state.uuids, uuid, id),
         spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)

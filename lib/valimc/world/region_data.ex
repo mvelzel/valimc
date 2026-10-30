@@ -303,8 +303,21 @@ defmodule Valimc.World.RegionData do
       game_tick: state.game_tick
     }
 
-  defp baseline_storage(state),
-    do: %{state | storage: RegionStorage.baseline(state.storage, parts(state))}
+  defp baseline_storage(state) do
+    {parts, state} = take_parts(state)
+    %{state | storage: RegionStorage.baseline(state.storage, parts)}
+  end
+
+  # The parts with their journals (`Store` and `ScheduledTicks`'s `dirty`),
+  # and the state without them: the storage that takes them writes what
+  # they name (VMC-081h).
+  defp take_parts(state) do
+    parts = parts(state)
+    {_, store} = Store.take_dirty(state.entities.store)
+    {_, ticks} = ScheduledTicks.take_dirty(state.scheduled_ticks)
+
+    {parts, %{state | entities: %{state.entities | store: store}, scheduled_ticks: ticks}}
+  end
 
   def item_tick(state, now) do
     state = travel_item(state)
@@ -5039,7 +5052,8 @@ defmodule Valimc.World.RegionData do
   # Cut a frame of what changed since the last; replies and effects whose frame
   # was already durable (none here) run at once.
   defp commit(state) do
-    {storage, released} = RegionStorage.commit(state.storage, parts(state))
+    {parts, state} = take_parts(state)
+    {storage, released} = RegionStorage.commit(state.storage, parts)
     run_released(%{state | storage: storage}, released)
   end
 
@@ -5104,15 +5118,19 @@ defmodule Valimc.World.RegionData do
     state = %{state | storage: RegionStorage.send_now(state.storage, sync)}
     state = if sync, do: drain_durable(state), else: state
 
-    if Valimc.World.Saving.auto?(),
-      do: %{
+    if Valimc.World.Saving.auto?() do
+      {parts, state} = take_parts(state)
+
+      %{
         state
         | storage:
-            RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
+            RegionStorage.checkpoint(state.storage, parts, state.blocks,
               wait: if(opts[:detach], do: :locked, else: :written)
             )
-      },
-      else: state
+      }
+    else
+      state
+    end
   end
 
   # This section's durable acknowledgements already in the mailbox (after a
@@ -5135,15 +5153,19 @@ defmodule Valimc.World.RegionData do
   end
 
   defp maybe_checkpoint(state) do
-    if RegionStorage.checkpoint_due?(state.storage),
-      do: %{
+    if RegionStorage.checkpoint_due?(state.storage) do
+      {parts, state} = take_parts(state)
+
+      %{
         state
         | storage:
-            RegionStorage.checkpoint(state.storage, parts(state), state.blocks,
+            RegionStorage.checkpoint(state.storage, parts, state.blocks,
               wrap: &{:resource, state.epoch, &1}
             )
-      },
-      else: state
+      }
+    else
+      state
+    end
   end
 
   defp run_released(state, items) do
@@ -5556,8 +5578,13 @@ defmodule Valimc.World.RegionData do
       post =
         Enum.reduce(ready, state.post, fn chunk, acc ->
           case kept_by_chunk do
-            %{^chunk => marks} -> Map.put(acc, chunk, {marks, []})
-            _ -> Map.delete(acc, chunk)
+            # Unchanged marks stay the same term (the storage compares by
+            # identity first).
+            %{^chunk => marks} ->
+              if acc[chunk] == {marks, []}, do: acc, else: Map.put(acc, chunk, {marks, []})
+
+            _ ->
+              Map.delete(acc, chunk)
           end
         end)
 
@@ -9325,7 +9352,7 @@ defmodule Valimc.World.RegionData do
     result =
       cond do
         Map.has_key?(pending, :base_store) and
-            pending.base_store != state.entities.store ->
+            not Store.same?(pending.base_store, state.entities.store) ->
           {:error, {:retry, :stale_item_plan}}
 
         pending.acceptance_deadline != nil and
@@ -9346,6 +9373,9 @@ defmodule Valimc.World.RegionData do
             do: Store.sync_native(items),
             else: items
 
+        # What the owner changed since the plan copied the store still goes
+        # into a frame.
+        items = Store.adopt(items, state.entities.store)
         state = %{state | entities: %{state.entities | store: items}}
         # A cleared handoff is over once adopted; the next one starts from its
         # resume. A rejected merge's donor is back: it waits before trying again.

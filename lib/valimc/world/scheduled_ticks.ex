@@ -12,9 +12,11 @@ defmodule Valimc.World.ScheduledTicks do
   Dues are stored relative to `shift`, so a section moving to a group on
   another game tick (`rebase/2`) keeps every delay without touching its ticks.
   A chunk's ticks are one record (`{:ticks, chunk}`, its container in order
-  as `record/1` writes it, VMC-077w; `from_records/1` reads them back). A
-  container nothing changed stays the same term, so the section's storage
-  finds the changed chunks by identity and a frame costs what they hold.
+  as `record/1` writes it, VMC-077w; `from_records/1` reads them back).
+  Every change to a chunk's ticks puts the chunk in `dirty`, the journal its
+  section's storage takes for the next frame (`take_dirty/1`, VMC-081h), so
+  a frame costs the chunks that changed; freezing and thawing change no
+  record and stay out of it.
 
   The containers of chunks outside simulation can be frozen (`freeze/2`): each
   becomes one off-heap binary that the owner's collections never copy, which
@@ -27,9 +29,32 @@ defmodule Valimc.World.ScheduledTicks do
   @max_per_tick 65_536
 
   # `frozen`: chunk => `{:frozen, count, binary}` of its container's entries.
-  defstruct containers: %{}, index: %{}, frozen: %{}, sequence: 0, shift: 0
+  # `dirty`: the journal, chunk => true.
+  defstruct containers: %{}, index: %{}, frozen: %{}, sequence: 0, shift: 0, dirty: %{}
 
   def new, do: %__MODULE__{}
+
+  @doc "The chunks whose ticks changed since the last call (the journal), and the ticks without them."
+  def take_dirty(%__MODULE__{dirty: dirty} = ticks) when map_size(dirty) == 0, do: {[], ticks}
+  def take_dirty(%__MODULE__{dirty: dirty} = ticks), do: {Map.keys(dirty), %{ticks | dirty: %{}}}
+
+  @doc "Chunk `chunk`'s record (`record/1`), frozen or not; nil when it has no ticks."
+  def chunk_record(%__MODULE__{containers: containers, frozen: frozen}, chunk) do
+    case containers do
+      %{^chunk => container} ->
+        record(container)
+
+      _ ->
+        case frozen do
+          %{^chunk => container} -> record(container)
+          _ -> nil
+        end
+    end
+  end
+
+  @doc "The chunks that hold ticks, frozen or not."
+  def chunks(%__MODULE__{containers: containers, frozen: frozen}),
+    do: Map.keys(containers) ++ Map.keys(frozen)
 
   def size(%__MODULE__{index: index, frozen: frozen}),
     do: map_size(index) + Enum.sum(for {_, {:frozen, n, _}} <- frozen, do: n)
@@ -65,7 +90,8 @@ defmodule Valimc.World.ScheduledTicks do
          ticks
          | containers: containers,
            index: Map.put(ticks.index, {position, block}, entry),
-           sequence: ticks.sequence + 1
+           sequence: ticks.sequence + 1,
+           dirty: Map.put(ticks.dirty, chunk, true)
        }}
     end
   end
@@ -114,7 +140,10 @@ defmodule Valimc.World.ScheduledTicks do
         end)
       end)
 
-    %{ticks | containers: containers}
+    dirty =
+      Enum.reduce(by_chunk, ticks.dirty, fn {chunk, _}, acc -> Map.put(acc, chunk, true) end)
+
+    %{ticks | containers: containers, dirty: dirty}
   end
 
   @doc """
@@ -164,7 +193,10 @@ defmodule Valimc.World.ScheduledTicks do
         do: index,
         else: Map.drop(index, for({_, list} <- cold, {_, _, _, p, b} <- list, do: {p, b}))
 
-    %{ticks | index: index, sequence: sequence, frozen: frozen}
+    # Chunks frozen at once hold records too.
+    dirty = Enum.reduce(cold, ticks.dirty, fn {chunk, _}, acc -> Map.put(acc, chunk, true) end)
+
+    %{ticks | index: index, sequence: sequence, frozen: frozen, dirty: dirty}
     |> add_entries(added)
     |> freeze(simulated)
   end
@@ -189,8 +221,10 @@ defmodule Valimc.World.ScheduledTicks do
         do: Enum.filter(Map.keys(ticks.containers), &MapSet.member?(chunks, &1)),
         else: chunks
 
-    {due, containers} =
-      Enum.reduce(chunks, {[], ticks.containers}, fn chunk, {due, containers} = acc ->
+    {due, containers, dirty} =
+      Enum.reduce(chunks, {[], ticks.containers, ticks.dirty}, fn chunk,
+                                                                  {due, containers, dirty} =
+                                                                    acc ->
         with %{^chunk => container} <- containers,
              {[_ | _] = taken, rest} <- take(container, stored, []) do
           containers =
@@ -198,13 +232,13 @@ defmodule Valimc.World.ScheduledTicks do
               do: Map.delete(containers, chunk),
               else: Map.put(containers, chunk, rest)
 
-          {taken ++ due, containers}
+          {taken ++ due, containers, Map.put(dirty, chunk, true)}
         else
           _ -> acc
         end
       end)
 
-    if due == [], do: {[], ticks}, else: take_run(ticks, containers, due)
+    if due == [], do: {[], ticks}, else: take_run(%{ticks | dirty: dirty}, containers, due)
   end
 
   defp take_run(ticks, containers, due) do

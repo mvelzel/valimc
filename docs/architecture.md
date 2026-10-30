@@ -96,7 +96,10 @@ time (`World.GameTick`), so groups merge without offsets. The group cuts all
 its sections' changes at once into one record of the write-ahead log, so a
 change that spans sections is durable whole or not at all; it cuts only the
 sections changed since its last cut, so a group's cost follows what changes
-in it, not how many sections it holds. Inside a group the block rules read
+in it, not how many sections it holds. It prepares frames at the end of each
+tick and on its commit timer, not after each callback: a frame a callback cut
+for a reply that waits on it (an entity handoff, a generated chunk's
+handover) waits at most until the tick ends. Inside a group the block rules read
 and write across section borders and stop only at its edge; sibling effects
 apply between tick phases so later phases observe what earlier ones changed.
 Light crosses by the group's own mailbox (generated columns as sibling effects before the next
@@ -211,10 +214,19 @@ was sent to.
   checkpoint with them, writes the file and tells the log what it covers.
   The commit tick's task reports back; a flush or shutdown waits for it; an
   unloading section waits only until the task holds the lock, and a section
-  loading again waits for that task to end. A frame holds the records a
-  part's keyed entries changed into, found by identity (a chunk's scheduled
-  ticks, an entity, a container), so it costs what changed. Simulation never
-  waits for the disk.
+  loading again waits for that task to end. A frame holds the records that
+  changed, named as they change (VMC-081h): the entity store and the
+  scheduled ticks keep a journal of the uuids and chunks whose records
+  changed, which the section's storage takes at each cut; a native mob's
+  section marks its mobs whose saved fields changed, hashing those fields in
+  place (`record::hash_stationary`), and builds a record only to write it;
+  the small parts that seldom change (containers, block entities,
+  comparators, pistons, post-processing, structures, the arena, the handoff
+  ledger) are compared with what was last committed, by identity first. A
+  cut costs what changed, never a walk over a part, and the checkpoint task
+  builds the records of every part but the entities itself. Tests check
+  every journal against a whole comparison (`RegionStorage`'s test build).
+  Simulation never waits for the disk.
 - **Cross-owner effects.** Entity handoffs between groups and box edits use
   shared primitives: `Txn.Permits` (one owner permit table) and `Txn.Receipts`
   (one idempotency classifier over the receipt tables) (VMC-064). A player's
@@ -631,9 +643,11 @@ no file descriptor between operations, so descriptors are bounded by its
 stripes; an append that cannot open its segment wrote nothing and is retried
 for 30 seconds. Worlds stored before the shared log are refused with a clear
 error, never migrated (D4). A crash loses at most the last frames (about 50 ms
-of changes); item motion reaches a frame at most once a second, and tick
-counters (entity ages and delays, furnace burn and progress) are saved by
-checkpoints, at the latest five minutes after they move, as vanilla's autosave.
+of changes); item and mob motion reaches a frame at most once a second, and
+tick counters (entity ages and delays, furnace burn and progress) are saved by
+checkpoints, at the latest five minutes after they move, as vanilla's autosave
+(a native mob's go with its motion, at most once a second); a counter crossing
+zero goes at once.
 An entity record carries its kind, uuid, position and hops, never its
 network id; an outgoing handoff intent is stored without network ids, so one
 recovered after a restart delivers records that get fresh ones.

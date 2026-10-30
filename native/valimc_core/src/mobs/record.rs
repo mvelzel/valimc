@@ -26,6 +26,7 @@
 //! written back as one.
 
 use std::collections::HashMap;
+use std::hash::Hasher;
 
 use super::model::*;
 use super::random::LegacyRandom;
@@ -149,11 +150,251 @@ pub fn record(mob: &NativeMob) -> Value {
 }
 
 /// `record/1` without its travel fields (`RegionStorage.travelled/1`'s:
-/// position, rotation, velocity, ground, and the mob's motion and mind):
-/// what a cut compares to learn whether a change may wait for the motion
-/// pass (`section::Written::travel_of`).
+/// position, rotation, velocity, ground, and the mob's motion and mind).
+/// Only the tests use it: a cut hashes the same fields in place
+/// (`hash_stationary`).
+#[cfg(test)]
 pub fn stationary(mob: &NativeMob) -> Value {
     record_with(mob, false)
+}
+
+/// The family data fields that count ticks (`AgeableMob`'s age and love,
+/// a chicken's egg timer, a zombie's or skeleton's time in water or powder
+/// snow, a conversion, an enderman's stare timers, a glow squid's dark
+/// ticks, a dolphin's moisture, a trader's despawn delay, a creeper's
+/// swell): a settled hash (`hash_stationary` with `settled`) keeps only
+/// their sign.
+pub const COUNTERS: [&str; 13] = [
+    "age",
+    "conversion",
+    "dark",
+    "despawn_delay",
+    "egg_time",
+    "in_love",
+    "in_snow",
+    "in_water",
+    "moistness",
+    "swell",
+    "target_time",
+    "ticks",
+    "using_time",
+];
+
+/// Hashes exactly what `stationary/1` would hold, from the mob in place
+/// (no term is built): two mobs hash alike when their stationary records
+/// are equal by Elixir's `==` (numbers by value). A cut compares this with
+/// what the last frame wrote to learn whether a change may wait for the
+/// motion pass, for every mob that changed, so it must stay cheap. With
+/// `settled`, the counters that move every tick (hurt, death, fire, air,
+/// freezing and effect ticks, the portal cooldown, the player memory, a
+/// held item's use, the data's `COUNTERS`) count only by their sign, as an
+/// item's age and a furnace's burn do (`RegionStorage.wait/4`): a change of
+/// them alone may wait, one crossing zero may not. Keep it field for field
+/// with `record_with`; `stationary_hash_follows_the_record` checks each
+/// field.
+pub fn hash_stationary<H: Hasher>(mob: &NativeMob, settled: bool, h: &mut H) {
+    let counter = |n: i64| if settled { n.signum() } else { n };
+    let body = &mob.body;
+    h.write(&mob.uuid);
+    h.write(body.entity_type.as_bytes());
+    h.write_u8(0xff);
+    h.write_u8(body.no_gravity as u8);
+    let fields = body.data.fields();
+    h.write_usize(fields.len());
+    for (k, v) in fields {
+        h.write(k.as_str().as_bytes());
+        h.write_u8(0xff);
+        match v {
+            Value::Int(n) if settled && COUNTERS.contains(&k.as_str()) => {
+                hash_value(&Value::Int(n.signum()), h)
+            }
+            v => hash_value(v, h),
+        }
+    }
+    match body.custom_name.as_ref().filter(|n| n.truthy()) {
+        Some(name) => {
+            h.write_u8(1);
+            hash_value(name, h);
+        }
+        None => h.write_u8(0),
+    }
+    match &body.preserved {
+        Some(p) => {
+            h.write_u8(1);
+            h.write_usize(p.len());
+            h.write(p);
+        }
+        None => h.write_u8(0),
+    }
+    h.write_i64(counter(body.portal_cooldown.max(0).into()));
+    h.write_u64(mob.hops);
+    let m = &body.mob;
+    let living = &m.living;
+    hash_float(f32r(living.health.value), h);
+    h.write_i64(counter(living.health.hurt_ticks.into()));
+    h.write_i64(counter(living.health.death_ticks.into()));
+    hash_float(living.absorption, h);
+    h.write_usize(living.effects.0.len());
+    for (id, rungs) in &living.effects.0 {
+        h.write_i32(*id);
+        h.write_usize(rungs.len());
+        for r in rungs {
+            h.write_i64(counter(r.ticks.into()));
+            h.write_u8(r.amplifier);
+            h.write_u8(r.ambient as u8 | (r.particles as u8) << 1 | (r.icon as u8) << 2);
+        }
+    }
+    h.write_i64(counter(living.fire_ticks.into()));
+    h.write_i64(counter(living.air_supply.into()));
+    h.write_i64(counter(living.freezing.frozen_ticks.into()));
+    for stack in &m.equipment.0 {
+        match stack {
+            Some(v) => {
+                h.write_u8(1);
+                hash_value(v, h);
+            }
+            None => h.write_u8(0),
+        }
+    }
+    h.write_usize(m.attributes.0.len());
+    for (id, entry) in &m.attributes.0 {
+        h.write(id.as_bytes());
+        h.write_u8(0xff);
+        match entry.base {
+            Some(b) => {
+                h.write_u8(1);
+                hash_float(b, h);
+            }
+            None => h.write_u8(0),
+        }
+        h.write_usize(entry.modifiers.len());
+        for md in &entry.modifiers {
+            h.write(md.id.as_bytes());
+            h.write_u8(0xff);
+            match md.amount {
+                Number::Int(i) => hash_number(i as f64, Some(i), h),
+                Number::Float(f) => hash_number(f, None, h),
+            }
+            h.write_i32(md.operation);
+        }
+    }
+    h.write_u8(m.no_ai as u8);
+    match &m.hurt_by_player {
+        Some(uuid) => {
+            h.write_u8(1);
+            h.write(uuid);
+        }
+        None => h.write_u8(0),
+    }
+    h.write_i64(counter(m.player_memory.into()));
+    h.write_u8(m.persistent as u8 | (m.left_handed as u8) << 1 | (m.can_pick_up_loot as u8) << 2);
+    for chance in &m.drop_chances.0 {
+        match chance {
+            Some(c) => {
+                h.write_u8(1);
+                hash_float(*c, h);
+            }
+            None => h.write_u8(0),
+        }
+    }
+    match &m.finalize {
+        Some(reason) => {
+            h.write_u8(1);
+            h.write(reason.as_str().as_bytes());
+            h.write_u8(0xff);
+        }
+        None => h.write_u8(0),
+    }
+    match m.leash.as_ref().map(|l| &l.holder) {
+        Some(LeashHolder::Player(uuid)) => {
+            h.write_u8(1);
+            h.write(uuid);
+        }
+        Some(LeashHolder::Knot([x, y, z])) => {
+            h.write_u8(2);
+            h.write_i32(*x);
+            h.write_i32(*y);
+            h.write_i32(*z);
+        }
+        None => h.write_u8(0),
+    }
+    match &m.home {
+        Some(home) => {
+            h.write_u8(1);
+            home.center.iter().for_each(|c| h.write_i32(*c));
+            h.write_i32(home.radius);
+        }
+        None => h.write_u8(0),
+    }
+    match &m.using {
+        Some(using) => {
+            h.write_u8(1);
+            h.write(using.hand.name().as_bytes());
+            h.write_i64(counter(using.ticks.into()));
+        }
+        None => h.write_u8(0),
+    }
+}
+
+/// Hashing as Elixir's `==` compares: integers and floats by value (`1 ==
+/// 1.0`, `0.0 == -0.0`), everything else exactly.
+pub fn hash_value<H: Hasher>(v: &Value, h: &mut H) {
+    match v {
+        Value::Atom(a) => {
+            h.write_u8(1);
+            h.write(a.as_str().as_bytes());
+            h.write_u8(0xff);
+        }
+        Value::Int(i) => hash_number(*i as f64, Some(*i), h),
+        Value::Float(f) => hash_number(*f, None, h),
+        Value::Binary(b) => {
+            h.write_u8(3);
+            h.write_usize(b.len());
+            h.write(b);
+        }
+        Value::List(items) => {
+            h.write_u8(4);
+            h.write_usize(items.len());
+            items.iter().for_each(|i| hash_value(i, h));
+        }
+        Value::Tuple(items) => {
+            h.write_u8(5);
+            h.write_usize(items.len());
+            items.iter().for_each(|i| hash_value(i, h));
+        }
+        Value::Map(m) => {
+            h.write_u8(6);
+            h.write_usize(m.len());
+            for (k, v) in m.iter() {
+                hash_value(k, h);
+                hash_value(v, h);
+            }
+        }
+        Value::Opaque(b) => {
+            h.write_u8(7);
+            h.write(b);
+        }
+    }
+}
+
+fn hash_float<H: Hasher>(f: f64, h: &mut H) {
+    hash_number(f, None, h)
+}
+
+fn hash_number<H: Hasher>(f: f64, int: Option<i64>, h: &mut H) {
+    h.write_u8(2);
+    // An integer too large for a double compares by its own value.
+    match int {
+        Some(i) if (i as f64) as i64 != i || i.unsigned_abs() > 1 << 53 => {
+            h.write_u8(1);
+            h.write_i64(i);
+        }
+        _ => {
+            h.write_u8(0);
+            let f = if f == 0.0 { 0.0 } else { f };
+            h.write_u64(f.to_bits());
+        }
+    }
 }
 
 fn record_with(mob: &NativeMob, travel: bool) -> Value {

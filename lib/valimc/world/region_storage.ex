@@ -25,10 +25,17 @@ defmodule Valimc.World.RegionStorage do
   The owner adopts every change in memory at once and replies at once (D2).
   Every 50 ms (`@commit_ms`) the changes since the last frame are one frame:
   cells and columns as they were made, every other part as the records that
-  changed, found in O(changes) (`diff_parts/2`). Only the replies of entity
-  handoffs between owners wait for their frame to be durable
-  (`after_durable/2`), so a crash can lose the last frames but never one half
-  of a handoff.
+  changed (`diff_parts/2`, VMC-081h). The parts that change every tick say
+  what changed as they change: the entity store and the scheduled ticks keep
+  a journal of the uuids and chunks whose records changed (`Store` and
+  `ScheduledTicks`'s `take_dirty/1`), and native mobs' sections the records
+  their mobs changed (`NativeMobs.cut/2`), so a frame costs what changed and
+  never walks a part. The small parts that seldom change (containers, block
+  entities, comparators, pistons, post-processing, structures, the arena,
+  the handoff ledger) are compared with what was last committed, by identity
+  first. Only the replies of entity handoffs between owners wait for their
+  frame to be durable (`after_durable/2`), so a crash can lose the last
+  frames but never one half of a handoff.
 
   A cut frame waits in the section's outbox; its group process sends the
   frames of all its sections from one commit as one record (VMC-077j,
@@ -64,10 +71,11 @@ defmodule Valimc.World.RegionStorage do
   @autosave_ms 300_000
   # Item motion is written at most this often, like the item checkpoints before.
   @motion_ms 1000
-  @parts [
-    :items,
+  # The parts compared whole with what was last committed (the ledger is the
+  # store's); the store's entities and the ticks are journaled.
+  @compared [
+    :ledger,
     :containers,
-    :ticks,
     :block_entities,
     :comparators,
     :pistons,
@@ -75,6 +83,9 @@ defmodule Valimc.World.RegionStorage do
     :structures,
     :arena
   ]
+  @parts [:items, :ticks | tl(@compared)]
+  # Tests check every journal against a whole comparison (`check_journals/3`).
+  @check Mix.env() == :test
   # Owner frames stay well below the log's frame cap (world-core E1).
   @frame_bytes 8 * 1024 * 1024
 
@@ -86,9 +97,18 @@ defmodule Valimc.World.RegionStorage do
     pending: %{},
     waits: [],
     in_flight: %{},
-    committed: %{},
+    # The compared parts as last committed.
+    compared: %{},
+    # The record each Elixir entity's key last went into a frame with (or a
+    # load or checkpoint holds), what its next change is weighed against.
+    written: %{},
+    # The chunks whose ticks a frame holds, and the ticks' shift.
+    tick_chunks: MapSet.new(),
+    shift: 0,
     # `{written, current}` records of changes that wait (`diff_parts/2`).
     deferred: %{},
+    # Tests: the journaled parts as last committed (`check_journals/3`).
+    check: nil,
     dirty_chunks: MapSet.new(),
     checkpoint_seq: 0,
     since_checkpoint: 0,
@@ -400,7 +420,11 @@ defmodule Valimc.World.RegionStorage do
       route: storage.route,
       path: storage.path,
       seq: storage.seq,
-      records: parts |> records() |> Map.put(:game_tick, parts.game_tick),
+      # The entities' records now (native mobs' are their section's, which
+      # keeps changing); every other part goes as it is, its records built in
+      # the task (frozen ticks are off-heap binaries the task decodes).
+      records: parts.items |> part_records() |> Map.put(:game_tick, parts.game_tick),
+      parts: stored_parts(parts),
       images:
         for(
           chunk <- chunks,
@@ -417,7 +441,7 @@ defmodule Valimc.World.RegionStorage do
     storage = diff_parts(storage, parts)
 
     storage = %{
-      baseline(storage, parts)
+      checkpointed_baseline(storage, parts)
       | dirty_chunks: MapSet.new(),
         requested: false,
         counters_since: nil
@@ -515,7 +539,8 @@ defmodule Valimc.World.RegionStorage do
 
       lit = Blocks.lit_images(job.images, job.sky)
       columns = for {chunk, image} <- lit, into: %{}, do: {{:column, chunk}, image}
-      Checkpoint.write(job.path, job.seq, kept |> Map.merge(columns) |> Map.merge(job.records))
+      records = Enum.reduce(job.parts, job.records, &Map.merge(&2, part_records(&1)))
+      Checkpoint.write(job.path, job.seq, kept |> Map.merge(columns) |> Map.merge(records))
     else
       {newer, _} when is_integer(newer) -> :ok
       error -> error
@@ -566,45 +591,59 @@ defmodule Valimc.World.RegionStorage do
   `Valimc.Entity.Store`), `containers`, `ticks` (a `ScheduledTicks`),
   `block_entities`, `comparators` (outputs by position), `pistons` (moving
   pistons' block entities by position), `post` (generated
-  chunks' post-processing) and `game_tick`.
+  chunks' post-processing), `structures`, `arena` and `game_tick`.
 
-  A frame carries only what changed, found in O(changes): each part is
-  described once as keyed maps of entries (`fields/2`), and only the entries
-  that are no longer the terms last committed become records (an unchanged
-  entry is the same term and compares at once). A change that may wait
-  (`wait/4`) keeps its last written and its current record in `deferred`
-  until it changes otherwise, or until the next motion pass writes it.
+  A frame carries only what changed. The store's and the ticks' journals
+  (their `dirty`, which the owner clears once it hands them here) name the
+  entities and chunks whose records changed; native mobs' records come from
+  their section; every compared part is described once as keyed maps of
+  entries (`fields/2`), and only its entries that are no longer the terms
+  last committed become records (an unchanged entry is the same term and
+  compares at once). A change that may wait (`wait/4`) keeps its last
+  written and its current record in `deferred` until it changes otherwise,
+  or until the next motion pass writes it.
   """
   def diff_parts(storage, parts) do
     now = System.monotonic_time(:millisecond)
     full = storage.motion_waiting and now >= storage.motion_at
 
-    {changes, committed} =
-      Enum.reduce(@parts, {%{}, storage.committed}, fn part, {changes, committed} ->
-        value = Map.fetch!(parts, part)
+    {changes, compared} =
+      Enum.reduce(@compared, {%{}, storage.compared}, fn part, {changes, compared} ->
+        value = part_value(parts, part)
 
-        case committed do
+        case compared do
+          # Equal: kept as the term it is now, so the next cut compares it
+          # by identity even when an owner rebuilt it equal.
           %{^part => ^value} ->
-            {changes, committed}
+            {changes, Map.put(compared, part, value)}
 
           _ ->
-            {part_changes(part, committed[part], value, changes), Map.put(committed, part, value)}
+            {part_changes(part, compared[part], value, changes), Map.put(compared, part, value)}
         end
       end)
 
+    {changes, written} = entity_changes(storage.written, parts.items, changes)
+    {changes, storage} = tick_changes(storage, parts.ticks, changes)
+    storage = check_journals(storage, parts, changes)
+
     # Native mobs' records come from their section (VMC-081d), which
     # decides what a frame writes as `settle/4` would.
-    changes =
-      if Enum.any?(changes, &native_change?/1),
-        do: Map.reject(changes, &native_change?/1),
-        else: changes
-
     {native, native_waiting} = NativeMobs.cut(parts.items.native, full)
 
     # A motion pass writes what waited and has not changed again since.
     changes = if full, do: Map.merge(storage.deferred, changes), else: changes
-    {pending, deferred, waits} = settle(storage.pending, storage.deferred, changes, full)
-    pending = Map.merge(pending, native)
+
+    {pending, deferred, written, waits} =
+      settle(storage.pending, storage.deferred, written, changes, full)
+
+    # A native mob's deletion gives way to an Elixir entity with its uuid (a
+    # mob that stopped being native); anything else native writes stands.
+    pending =
+      Map.merge(pending, native, fn
+        _key, elixir, :deleted when elixir != :deleted -> elixir
+        _key, _elixir, native -> native
+      end)
+
     deferred = Map.drop(deferred, Map.keys(native))
     waits = if native_waiting, do: Enum.uniq([:motion | waits]), else: waits
 
@@ -612,7 +651,8 @@ defmodule Valimc.World.RegionStorage do
       storage
       | pending: pending,
         deferred: deferred,
-        committed: committed,
+        written: written,
+        compared: compared,
         motion_waiting: (storage.motion_waiting and not full) or :motion in waits,
         motion_at: if(full, do: now + @motion_ms, else: storage.motion_at),
         counters_since:
@@ -627,17 +667,161 @@ defmodule Valimc.World.RegionStorage do
       else: storage
   end
 
-  @doc "Take `parts` as what the log and checkpoint hold (after a load or a checkpoint)."
+  defp part_value(parts, :ledger), do: parts.items.ledger
+  defp part_value(parts, part), do: Map.fetch!(parts, part)
+
+  # The journaled entities' changes: each uuid's record now (`:deleted` once
+  # gone) against the one last written. A native mob's record is its
+  # section's, so its key leaves `written`.
+  defp entity_changes(written, %Store{dirty: dirty} = store, changes) do
+    Enum.reduce(Map.keys(dirty), {changes, written}, fn uuid, {changes, written} ->
+      key = {:entity, uuid}
+
+      case store.uuids do
+        %{^uuid => id} ->
+          case store.entries[id] do
+            nil ->
+              {changes, written}
+
+            entry ->
+              if Store.native_entry?(entry),
+                do: {changes, Map.delete(written, key)},
+                else:
+                  {Map.put(changes, key, {Map.get(written, key), Store.record(entry)}), written}
+          end
+
+        _ ->
+          case written do
+            %{^key => before} -> {Map.put(changes, key, {before, :deleted}), written}
+            _ -> {changes, written}
+          end
+      end
+    end)
+  end
+
+  # The journaled chunks' ticks (never waiting: their old record is
+  # `:unknown`), deleted once a chunk a frame holds has none, and the shift.
+  defp tick_changes(storage, %ScheduledTicks{dirty: dirty, shift: shift} = ticks, changes) do
+    {changes, chunks} =
+      Enum.reduce(Map.keys(dirty), {changes, storage.tick_chunks}, fn chunk, {changes, chunks} ->
+        case ScheduledTicks.chunk_record(ticks, chunk) do
+          nil ->
+            if MapSet.member?(chunks, chunk),
+              do:
+                {Map.put(changes, {:ticks, chunk}, {:unknown, :deleted}),
+                 MapSet.delete(chunks, chunk)},
+              else: {changes, chunks}
+
+          record ->
+            {Map.put(changes, {:ticks, chunk}, {:unknown, record}), MapSet.put(chunks, chunk)}
+        end
+      end)
+
+    changes =
+      if shift == storage.shift,
+        do: changes,
+        else: Map.put(changes, {:ticks, :shift}, {:unknown, shift})
+
+    {changes, %{storage | tick_chunks: chunks, shift: shift}}
+  end
+
+  @doc """
+  Take `parts` as what the log and checkpoint hold (after a load): the
+  compared parts, every Elixir entity's record and the chunks with ticks.
+  """
   def baseline(storage, parts) do
     NativeMobs.baseline(parts.items.native)
 
+    written =
+      for {_, entry} <- parts.items.entries,
+          not Store.native_entry?(entry),
+          into: %{},
+          do: {{:entity, entry.entity.uuid}, Store.record(entry)}
+
+    check(
+      %{
+        storage
+        | compared: Map.new(@compared, &{&1, part_value(parts, &1)}),
+          written: written,
+          tick_chunks: MapSet.new(ScheduledTicks.chunks(parts.ticks)),
+          shift: parts.ticks.shift,
+          deferred: %{},
+          motion_waiting: false,
+          motion_at: System.monotonic_time(:millisecond) + @motion_ms
+      },
+      parts
+    )
+  end
+
+  # A checkpoint holds every record as it is (`diff_parts/2` has just taken
+  # every journal): what waited is written now.
+  defp checkpointed_baseline(storage, parts) do
+    NativeMobs.baseline(parts.items.native)
+
+    written =
+      Enum.reduce(storage.deferred, storage.written, fn
+        {{:entity, _} = key, {_, current}}, acc -> Map.put(acc, key, current)
+        _, acc -> acc
+      end)
+
     %{
       storage
-      | committed: Map.new(@parts, &{&1, Map.fetch!(parts, &1)}),
+      | written: written,
         deferred: %{},
         motion_waiting: false,
         motion_at: System.monotonic_time(:millisecond) + @motion_ms
     }
+  end
+
+  if @check do
+    defp check(storage, parts),
+      do: %{storage | check: {parts.items.entries, ScheduledTicks.all_containers(parts.ticks)}}
+
+    # Every record that changed since the last commit, found by comparing the
+    # journaled parts whole as frames did before VMC-081h, must be one its
+    # journal named: a change that bypasses the journal fails the owner.
+    defp check_journals(%{check: nil} = storage, parts, _changes), do: check(storage, parts)
+
+    defp check_journals(storage, parts, _changes) do
+      {entries, containers} = storage.check
+      dirty = parts.items.dirty
+
+      for {id, entry} <- parts.items.entries,
+          old <- [entries[id]],
+          old !== entry,
+          not Store.native_entry?(entry),
+          old == nil or not Store.native_entry?(old),
+          old == nil or Store.record(old) != Store.record(entry),
+          not Map.has_key?(dirty, entry.entity.uuid) do
+        raise "store journal missed entity #{inspect(entry.entity.uuid)}: #{inspect(entry, limit: 8)}"
+      end
+
+      for {id, old} <- entries,
+          not Map.has_key?(parts.items.entries, id),
+          not Store.native_entry?(old),
+          not Map.has_key?(dirty, old.entity.uuid) do
+        raise "store journal missed the removal of #{inspect(old.entity.uuid)}"
+      end
+
+      now = ScheduledTicks.all_containers(parts.ticks)
+
+      for chunk <- Enum.uniq(Map.keys(containers) ++ Map.keys(now)),
+          old <- [containers[chunk]],
+          new <- [now[chunk]],
+          old !== new,
+          record(old) != record(new),
+          not Map.has_key?(parts.ticks.dirty, chunk) do
+        raise "scheduled ticks journal missed chunk #{inspect(chunk)}"
+      end
+
+      check(storage, parts)
+    end
+
+    defp record(nil), do: nil
+    defp record(container), do: ScheduledTicks.record(container)
+  else
+    defp check(storage, _parts), do: storage
+    defp check_journals(storage, _parts, _changes), do: storage
   end
 
   # Each stored part as keyed maps of its entries, each with how an entry
@@ -649,7 +833,12 @@ defmodule Valimc.World.RegionStorage do
          # A native mob's record is its section's (`NativeMobs.cut/2`).
          _id, %{native: ref} = entry when ref != nil -> {{:entity, entry.entity.uuid}, :native}
          _id, entry -> {{:entity, entry.entity.uuid}, Store.record(entry)}
-       end},
+       end}
+      | fields(:ledger, ledger)
+    ]
+
+  defp fields(:ledger, ledger),
+    do: [
       {ledger.incoming, &{{:handoff_in, &1}, &2}},
       # Network ids are the VM's: a recovered intent delivers without them.
       {%{sequence: ledger.sequence, outgoing: ledger.outgoing},
@@ -692,18 +881,14 @@ defmodule Valimc.World.RegionStorage do
 
   # `changes` with the records of `part` that changed between its last
   # committed value and `value`: `key => {old, new}`, `new` `:deleted` for a
-  # gone record, `old` nil for a new one. A chunk's old ticks are `:unknown`:
-  # no wait depends on them, so they are not built.
+  # gone record, `old` nil for a new one.
   defp part_changes(part, previous, value, changes) do
     olds =
       if previous,
         do: Enum.map(fields(part, previous), &elem(&1, 0)),
         else: Stream.repeatedly(fn -> %{} end)
 
-    before =
-      if part == :ticks,
-        do: fn _, _, _ -> :unknown end,
-        else: fn record, key, entry -> elem(record.(key, entry), 1) end
+    before = fn record, key, entry -> elem(record.(key, entry), 1) end
 
     fields(part, value)
     |> Enum.zip(olds)
@@ -738,41 +923,52 @@ defmodule Valimc.World.RegionStorage do
     end)
   end
 
-  # `{pending, deferred, waits}`: changed records the next frame must carry go
-  # to `pending`; one whose change may wait keeps `{written, current}` (the
-  # record the last frame wrote, the one it would write now) in `deferred`,
-  # and `waits` says what waits (`:motion`, `:counters`).
-  defp settle(pending, deferred, changes, full) do
-    {pending, deferred, waits} =
-      Enum.reduce(changes, {pending, deferred, []}, fn {key, {before, value}},
-                                                       {pending, deferred, waits} ->
-        {written, waited} =
+  # `{pending, deferred, written, waits}`: changed records the next frame
+  # must carry go to `pending` (an entity's also to `written`); one whose
+  # change may wait keeps `{written, current}` (the record the last frame
+  # wrote, the one it would write now) in `deferred`, and `waits` says what
+  # waits (`:motion`, `:counters`).
+  defp settle(pending, deferred, written, changes, full) do
+    {pending, deferred, written, waits} =
+      Enum.reduce(changes, {pending, deferred, written, []}, fn {key, {before, value}},
+                                                                {pending, deferred, written,
+                                                                 waits} ->
+        {last, waited} =
           case deferred do
-            %{^key => {written, _}} -> {written, true}
+            %{^key => {last, _}} -> {last, true}
             _ -> {before, false}
           end
 
         cond do
           # Back to what the last frame wrote while it waited: nothing to write.
-          value == written and waited ->
-            {Map.delete(pending, key), Map.delete(deferred, key), waits}
+          value == last and waited ->
+            {Map.delete(pending, key), Map.delete(deferred, key), written, waits}
 
-          value == written ->
-            {pending, deferred, waits}
+          value == last ->
+            {pending, deferred, written, waits}
 
-          value == :deleted or written in [nil, :unknown, :deleted] ->
-            {Map.put(pending, key, value), Map.delete(deferred, key), waits}
+          value == :deleted or last in [nil, :unknown, :deleted] ->
+            {Map.put(pending, key, value), Map.delete(deferred, key),
+             put_written(written, key, value), waits}
 
           true ->
-            case wait(key, written, value, full) do
-              nil -> {Map.put(pending, key, value), Map.delete(deferred, key), waits}
-              kind -> {pending, Map.put(deferred, key, {written, value}), [kind | waits]}
+            case wait(key, last, value, full) do
+              nil ->
+                {Map.put(pending, key, value), Map.delete(deferred, key),
+                 put_written(written, key, value), waits}
+
+              kind ->
+                {pending, Map.put(deferred, key, {last, value}), written, [kind | waits]}
             end
         end
       end)
 
-    {pending, deferred, Enum.uniq(waits)}
+    {pending, deferred, written, Enum.uniq(waits)}
   end
+
+  defp put_written(written, {:entity, _} = key, :deleted), do: Map.delete(written, key)
+  defp put_written(written, {:entity, _} = key, record), do: Map.put(written, key, record)
+  defp put_written(written, _key, _value), do: written
 
   # Whether a changed record may wait: `:counters` when only its tick counters
   # moved (an item's age and delays, a furnace burning on, a hopper's
@@ -828,7 +1024,19 @@ defmodule Valimc.World.RegionStorage do
   defp burning(cooking),
     do: %{cooking | burn_left: cooking.burn_left > 0, progress: cooking.progress > 0}
 
-  defp records(parts), do: Enum.reduce(@parts, %{}, &Map.merge(&2, part_records(&1, parts[&1])))
+  # Every part but the entities, for a checkpoint task: the ticks without
+  # their index and journal.
+  defp stored_parts(parts) do
+    for part <- @parts, part not in [:items, :ledger] do
+      case part do
+        :ticks -> {:ticks, %{parts.ticks | index: %{}, dirty: %{}}}
+        part -> {part, Map.fetch!(parts, part)}
+      end
+    end
+  end
+
+  defp part_records(%Store{} = store), do: part_records(:items, store)
+  defp part_records({part, value}), do: part_records(part, value)
 
   @doc false
   def part_records(:items, %Store{native: native} = value) when native != nil do
@@ -853,8 +1061,6 @@ defmodule Valimc.World.RegionStorage do
         into: %{},
         do: record.(key, entry)
       )
-
-  defp native_change?({_key, {before, value}}), do: before == :native or value == :native
 
   # Decoded frames (`[{seq, frame}]`), in order.
   defp ops(frames), do: Enum.map(frames, &:erlang.binary_to_term(elem(&1, 1), [:safe]))

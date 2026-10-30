@@ -1085,8 +1085,8 @@ defmodule Valimc.World.Region do
     end)
   end
 
-  defp section_result({:reply, state, reply}, _from), do: {:reply, reply, commit_frames(state)}
-  defp section_result({:noreply, state, _}, _from), do: {:noreply, commit_frames(state)}
+  defp section_result({:reply, state, reply}, _from), do: {:reply, reply, after_callback(state)}
+  defp section_result({:noreply, state, _}, _from), do: {:noreply, after_callback(state)}
   defp section_result({:stop, state, reason}, _from), do: {:stop, reason, state}
 
   # A session's call to its own group (`call/3`): it runs as the group would
@@ -1109,11 +1109,11 @@ defmodule Valimc.World.Region do
 
           case section_call(state, key, message, {self(), tag}) do
             {:reply, state, reply} ->
-              {reply, commit_frames(state)}
+              {reply, after_callback(state)}
 
             {:noreply, state, _} ->
               receive do
-                {^tag, reply} -> {reply, commit_frames(state)}
+                {^tag, reply} -> {reply, after_callback(state)}
               after
                 0 -> raise ArgumentError, "inline owner call waits: #{inspect(elem(message, 0))}"
               end
@@ -1301,7 +1301,7 @@ defmodule Valimc.World.Region do
         result
     end)
     |> case do
-      {:noreply, state} -> {:noreply, commit_frames(state)}
+      {:noreply, state} -> {:noreply, after_callback(state)}
       stop -> stop
     end
   end
@@ -1393,7 +1393,7 @@ defmodule Valimc.World.Region do
         stop
     end)
     |> case do
-      {:noreply, state} -> {:noreply, state |> send_ready() |> commit_frames()}
+      {:noreply, state} -> {:noreply, state |> send_ready() |> after_callback()}
       stop -> stop
     end
   end
@@ -1479,7 +1479,7 @@ defmodule Valimc.World.Region do
 
   defp section_info(state, key, message) do
     case section_apply(state, key, message) do
-      {:noreply, state} -> {:noreply, commit_frames(state)}
+      {:noreply, state} -> {:noreply, after_callback(state)}
       stop -> stop
     end
   end
@@ -1505,7 +1505,7 @@ defmodule Valimc.World.Region do
       end
     end)
     |> case do
-      {:noreply, state} -> {:noreply, commit_frames(state)}
+      {:noreply, state} -> {:noreply, after_callback(state)}
       stop -> stop
     end
   end
@@ -1821,11 +1821,19 @@ defmodule Valimc.World.Region do
   # Every section's and hosted player's frames from one cut go out as one
   # record: when any has frames to send, the others' changes are cut too, so a
   # callback's changes to the world and to a player are durable together.
-  # Only sections changed since the last cut (`touched`) can have any: a cut
-  # costs what changed, not the group's size (VMC-077w); the commit timer
-  # sweeps every section once a second. `cut` true cuts everything now;
-  # `:players` (the commit timer) cuts the players' changes. While a transfer
-  # waits for what moves to be durable, nothing more is cut (`send_ready/1`).
+  # Frames are prepared at the end of each tick and by the commit timer, not
+  # after each callback (VMC-081h): a frame a callback cut (an entity
+  # handoff's, a generated chunk's) waits at most until the tick ends, and
+  # the reply that waits on it too. A group whose ticks are stepped by hand
+  # has no tick end and prepares them after each callback. Only sections
+  # changed since the last cut (`touched`) can have any: a cut costs what
+  # changed, not the group's size (VMC-077w); the commit timer sweeps every
+  # section once a second. `cut` true cuts everything now; `:players` (the
+  # commit timer) cuts the players' changes. While a transfer waits for what
+  # moves to be durable, nothing more is cut (`send_ready/1`).
+  defp after_callback(%{manual: true} = state), do: commit_frames(state)
+  defp after_callback(state), do: state
+
   defp commit_frames(state, cut \\ false),
     do: ProfileWork.phase(:commit_prepare, fn -> prepare_frames(state, cut) end)
 

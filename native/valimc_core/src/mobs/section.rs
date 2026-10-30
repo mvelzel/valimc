@@ -8,14 +8,20 @@
 //! The section is owned by the group process that owns the section (the NIF
 //! resource checks it) and moves with it (`region_give`).
 //!
-//! Records at a cut mirror `RegionStorage`'s diff exactly: a record is
-//! written when it differs (by Elixir's `==`) from the one the last frame
-//! wrote, and may wait for the motion pass when only its travel fields
+//! Records at a cut follow `RegionStorage`'s rules: a record is written when
+//! it differs (by Elixir's `==`) from the one the last frame wrote, and may
+//! wait for the motion pass (at most a second) when only its travel fields
 //! (`RegionStorage.travelled/1`: position, velocity, rotation, ground, the
-//! mob's motion and mind) changed. Instead of keeping the written terms, a
-//! slot keeps their hashes: the whole record's and the record without its
-//! travel fields, numbers hashed as `==` compares them. A mob gone since it
-//! was written leaves its uuid for the next cut's deletion.
+//! mob's motion and mind) or its tick counters (an age, an egg timer, hurt,
+//! fire and effect ticks, without crossing zero) changed, as an item's motion
+//! and counters wait (VMC-081h). Instead of keeping the written terms, a slot
+//! keeps their hashes: the whole record's, and its settled part's (the record
+//! without its travel fields, counters by their sign), numbers hashed as `==`
+//! compares them. The settled hash is taken from the mob in place
+//! (`record::hash_stationary`), so a mob whose change may wait costs one hash
+//! and no term; a record is built only to be written, or on a motion pass.
+//! A mob gone since it was written leaves its uuid for the next cut's
+//! deletion.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -28,31 +34,34 @@ use super::term::Value;
 use crate::spawning::census::{Census, Counted};
 
 /// The hashes of the record a frame last wrote (or a load or checkpoint
-/// holds): the whole record's and its non-travel part's.
+/// holds): the whole record's and its settled part's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Written {
     pub full: u64,
-    pub travel: u64,
+    pub settled: u64,
 }
 
 impl Written {
-    /// The non-travel hash of `record` (`record::stationary/1`'s, whose
-    /// travel fields are left out already).
-    pub fn travel_of(record: &Value) -> u64 {
-        let mut travel = DefaultHasher::new();
-        hash_travel(record, &mut travel);
-        travel.finish()
+    /// The settled hash of `mob` (`record::hash_stationary`).
+    pub fn settled_of(mob: &NativeMob) -> u64 {
+        let mut h = DefaultHasher::new();
+        record::hash_stationary(mob, true, &mut h);
+        h.finish()
     }
 
-    /// The hashes of `record`.
-    pub fn of(record: &Value) -> Written {
+    /// The hashes of `mob`, whose record is `record` (`record::record/1`).
+    pub fn of(mob: &NativeMob, record: &Value) -> Written {
         let mut full = DefaultHasher::new();
-        let mut travel = DefaultHasher::new();
-        hash_record(record, &mut full, &mut travel);
+        record::hash_value(record, &mut full);
         Written {
             full: full.finish(),
-            travel: travel.finish(),
+            settled: Written::settled_of(mob),
         }
+    }
+
+    /// The hashes of `mob`'s record as it is now.
+    pub fn of_mob(mob: &NativeMob) -> Written {
+        Written::of(mob, &record::record(mob))
     }
 }
 
@@ -438,11 +447,13 @@ impl MobSection {
                 continue;
             }
             slot.touched = false;
-            // A change in travel fields alone waits for the motion pass:
-            // its stationary part tells, without the mind's record.
+            // A change of travel fields and counters alone waits for the
+            // motion pass: the settled hash tells, without building its
+            // record.
+            let settled = Written::settled_of(&slot.mob);
             if !full {
                 if let Some(w) = slot.written {
-                    if w.travel == Written::travel_of(&record::stationary(&slot.mob)) {
+                    if w.settled == settled {
                         slot.waiting = true;
                         cut.waiting = true;
                         continue;
@@ -450,13 +461,14 @@ impl MobSection {
                 }
             }
             let value = record::record(&slot.mob);
-            let now = Written::of(&value);
+            let mut h = DefaultHasher::new();
+            record::hash_value(&value, &mut h);
+            let now = Written {
+                full: h.finish(),
+                settled,
+            };
             match slot.written {
                 Some(w) if w.full == now.full => slot.waiting = false,
-                Some(w) if !full && w.travel == now.travel => {
-                    slot.waiting = true;
-                    cut.waiting = true;
-                }
                 _ => {
                     slot.written = Some(now);
                     slot.waiting = false;
@@ -478,7 +490,7 @@ impl MobSection {
                 continue;
             }
             if slot.touched || slot.waiting || slot.written.is_none() {
-                slot.written = Some(Written::of(&record::record(&slot.mob)));
+                slot.written = Some(Written::of_mob(&slot.mob));
                 slot.touched = false;
                 slot.waiting = false;
             }
@@ -504,142 +516,244 @@ impl MobSection {
     }
 }
 
-// Hashing as Elixir's `==` compares: integers and floats by value (`1 ==
-// 1.0`, `0.0 == -0.0`), everything else exactly.
-fn hash_value(v: &Value, h: &mut DefaultHasher) {
-    match v {
-        Value::Atom(a) => {
-            h.write_u8(1);
-            h.write(a.as_str().as_bytes());
-            h.write_u8(0xff);
-        }
-        Value::Int(i) => hash_number(*i as f64, Some(*i), h),
-        Value::Float(f) => hash_number(*f, None, h),
-        Value::Binary(b) => {
-            h.write_u8(3);
-            h.write_usize(b.len());
-            h.write(b);
-        }
-        Value::List(items) => {
-            h.write_u8(4);
-            h.write_usize(items.len());
-            items.iter().for_each(|i| hash_value(i, h));
-        }
-        Value::Tuple(items) => {
-            h.write_u8(5);
-            h.write_usize(items.len());
-            items.iter().for_each(|i| hash_value(i, h));
-        }
-        Value::Map(m) => {
-            h.write_u8(6);
-            h.write_usize(m.len());
-            for (k, v) in m.iter() {
-                hash_value(k, h);
-                hash_value(v, h);
-            }
-        }
-        Value::Opaque(b) => {
-            h.write_u8(7);
-            h.write(b);
-        }
-    }
-}
-
-fn hash_number(f: f64, int: Option<i64>, h: &mut DefaultHasher) {
-    h.write_u8(2);
-    // An integer too large for a double compares by its own value.
-    match int {
-        Some(i) if (i as f64) as i64 != i || i.unsigned_abs() > 1 << 53 => {
-            h.write_u8(1);
-            h.write_i64(i);
-        }
-        _ => {
-            h.write_u8(0);
-            let f = if f == 0.0 { 0.0 } else { f };
-            h.write_u64(f.to_bits());
-        }
-    }
-}
-
-const TRAVEL: [&str; 6] = ["x", "y", "z", "velocity", "rotation", "on_ground"];
-const MOB_TRAVEL: [&str; 2] = ["motion", "ai"];
-
-// The whole record into `full`, its non-travel part into `travel`.
-fn hash_record(record: &Value, full: &mut DefaultHasher, travel: &mut DefaultHasher) {
-    hash_value(record, full);
-    hash_travel(record, travel);
-}
-
-// The record's non-travel part into `travel`.
-fn hash_travel(record: &Value, travel: &mut DefaultHasher) {
-    let Some(map) = record.as_map() else {
-        hash_value(record, travel);
-        return;
-    };
-    for (k, v) in map.iter() {
-        let name = k.as_atom().map(|a| a.as_str());
-        if name.is_some_and(|n| TRAVEL.contains(&n)) {
-            continue;
-        }
-        hash_value(k, travel);
-        match (name, v.as_map()) {
-            (Some("mob"), Some(mob)) => {
-                travel.write_u8(6);
-                for (mk, mv) in mob.iter() {
-                    if mk
-                        .as_atom()
-                        .is_some_and(|a| MOB_TRAVEL.contains(&a.as_str()))
-                    {
-                        continue;
-                    }
-                    hash_value(mk, travel);
-                    hash_value(mv, travel);
-                }
-            }
-            _ => hash_value(v, travel),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mobs::term::Map;
+    use crate::mobs::model::Slot as EquipmentSlot;
+    use crate::mobs::model::{
+        AttributeOverride, Attributes, Body, DropChances, Effects, Equipment, FamilyData, Freezing,
+        Hand, Health, Home, Leash, LeashHolder, Living, Mind, Mob, MobMotion, Rung, Using,
+    };
+    use crate::mobs::term::Atom;
 
-    fn record(x: f64, health: f64) -> Value {
-        let mob = Map::from_atoms([
-            ("living", Value::Float(health)),
-            ("motion", Value::Float(x)),
-            ("ai", Value::Int(1)),
-        ]);
-        Map::from_atoms([
-            ("x", Value::Float(x)),
-            ("y", Value::Float(64.0)),
-            ("mob", mob.into()),
-        ])
-        .into()
+    fn value_hash(v: &Value) -> u64 {
+        let mut h = DefaultHasher::new();
+        record::hash_value(v, &mut h);
+        h.finish()
     }
 
     #[test]
-    fn written_hashes_as_elixir_compares() {
-        let a = Written::of(&record(1.0, 20.0));
-        assert_eq!(a, Written::of(&record(1.0, 20.0)));
+    fn values_hash_as_elixir_compares() {
         // `0.0 == -0.0` and `1 == 1.0` in Elixir.
         assert_eq!(
-            Written::of(&Value::Float(0.0)),
-            Written::of(&Value::Float(-0.0))
+            value_hash(&Value::Float(0.0)),
+            value_hash(&Value::Float(-0.0))
         );
-        assert_eq!(Written::of(&Value::Int(1)), Written::of(&Value::Float(1.0)));
-        // Moving changes only the full hash; health changes both.
-        let moved = Written::of(&record(2.0, 20.0));
-        assert_ne!(a.full, moved.full);
-        assert_eq!(a.travel, moved.travel);
-        let hurt = Written::of(&record(1.0, 19.0));
-        assert_ne!(a.travel, hurt.travel);
+        assert_eq!(value_hash(&Value::Int(1)), value_hash(&Value::Float(1.0)));
+        assert_ne!(value_hash(&Value::Int(1)), value_hash(&Value::Int(2)));
+    }
+
+    type Change = (&'static str, bool, fn(&mut NativeMob));
+
+    /// Changes of a mob, and whether each changes its stationary record.
+    fn changes() -> Vec<Change> {
+        vec![
+            // Travel fields: the stationary record stays.
+            ("x", false, |m| m.position[0] += 1.0),
+            ("yaw", false, |m| m.body.yaw += 1.0),
+            ("pitch", false, |m| m.body.pitch += 1.0),
+            ("head yaw", false, |m| m.body.head_yaw += 1.0),
+            ("velocity", false, |m| m.body.velocity[1] -= 0.08),
+            ("ground", false, |m| m.body.on_ground = false),
+            ("motion", false, |m| m.body.mob.motion.fall_distance = 2.0),
+            ("mind", false, |m| {
+                m.body.mob.ai = Some(Mind {
+                    random: crate::mobs::random::LegacyRandom::new(5),
+                    memories: None,
+                    state: None,
+                })
+            }),
+            // Fields the record leaves out, or writes alike.
+            ("maximum", false, |m| m.body.mob.living.health.maximum = 9.0),
+            ("cooldown", false, |m| m.body.mob.living.health.cooldown = 3),
+            ("last hurt", false, |m| {
+                m.body.mob.living.health.last_hurt = 2.0
+            }),
+            ("last mob hurt", false, |m| {
+                m.body.mob.living.last_mob_hurt = Some(4)
+            }),
+            ("hurt by", false, |m| m.body.mob.hurt_by = Some([7; 16])),
+            ("powder snow", false, |m| {
+                m.body.mob.living.freezing.powder_snow = true
+            }),
+            ("portal cooldown below 1", false, |m| {
+                m.body.portal_cooldown = -3
+            }),
+            ("false name", false, |m| {
+                m.body.custom_name = Some(Value::atom("false"))
+            }),
+            ("health below a float's precision", false, |m| {
+                m.body.mob.living.health.value = 8.0 + 1e-9
+            }),
+            ("negative zero absorption", false, |m| {
+                m.body.mob.living.absorption = -0.0
+            }),
+            ("leash bookkeeping", false, |m| {
+                m.body.mob.leash = None;
+            }),
+            // Stationary fields.
+            ("type", true, |m| {
+                m.body.entity_type = "minecraft:fox".into()
+            }),
+            ("no gravity", true, |m| m.body.no_gravity = true),
+            ("data", true, |m| {
+                m.body.data = FamilyData::new(vec![(Atom::new("age"), Value::Int(-5))]).unwrap()
+            }),
+            ("name", true, |m| {
+                m.body.custom_name = Some(Value::Binary(b"Rex".to_vec()))
+            }),
+            ("preserved", true, |m| m.body.preserved = Some(vec![1, 2])),
+            ("portal cooldown", true, |m| m.body.portal_cooldown = 300),
+            ("hops", true, |m| m.hops = 1),
+            ("health", true, |m| m.body.mob.living.health.value = 7.0),
+            ("hurt ticks", true, |m| {
+                m.body.mob.living.health.hurt_ticks = 10
+            }),
+            ("death ticks", true, |m| {
+                m.body.mob.living.health.death_ticks = 1
+            }),
+            ("absorption", true, |m| m.body.mob.living.absorption = 4.0),
+            ("effects", true, |m| {
+                m.body.mob.living.effects.0 = vec![(
+                    1,
+                    vec![Rung {
+                        ticks: 20,
+                        amplifier: 0,
+                        ambient: false,
+                        particles: true,
+                        icon: true,
+                    }],
+                )]
+            }),
+            ("fire", true, |m| m.body.mob.living.fire_ticks = 5),
+            ("air", true, |m| m.body.mob.living.air_supply = 299),
+            ("frozen", true, |m| {
+                m.body.mob.living.freezing.frozen_ticks = 1
+            }),
+            ("equipment", true, |m| {
+                m.body
+                    .mob
+                    .equipment
+                    .set(EquipmentSlot::Head, Some(Value::atom("helmet")))
+            }),
+            ("attributes", true, |m| {
+                m.body.mob.attributes.0 = vec![(
+                    "minecraft:max_health".into(),
+                    AttributeOverride {
+                        base: Some(10.0),
+                        modifiers: vec![],
+                    },
+                )]
+            }),
+            ("no ai", true, |m| m.body.mob.no_ai = true),
+            ("hurt by player", true, |m| {
+                m.body.mob.hurt_by_player = Some([3; 16])
+            }),
+            ("player memory", true, |m| m.body.mob.player_memory = 99),
+            ("persistent", true, |m| m.body.mob.persistent = true),
+            ("left handed", true, |m| m.body.mob.left_handed = true),
+            ("loot", true, |m| m.body.mob.can_pick_up_loot = true),
+            ("drop chances", true, |m| {
+                m.body.mob.drop_chances.0[EquipmentSlot::Head as usize] = Some(0.085)
+            }),
+            ("finalize", true, |m| {
+                m.body.mob.finalize = Some(Atom::new("spawner"))
+            }),
+            ("leash holder", true, |m| {
+                m.body.mob.leash.as_mut().unwrap().holder = LeashHolder::Player([2; 16])
+            }),
+            ("home", true, |m| {
+                m.body.mob.home = Some(Home {
+                    center: [1, 2, 3],
+                    radius: 4,
+                })
+            }),
+            ("using", true, |m| {
+                m.body.mob.using = Some(Using {
+                    hand: Hand::MainHand,
+                    ticks: 3,
+                })
+            }),
+        ]
+    }
+
+    #[test]
+    fn stationary_hash_follows_the_record() {
+        let mut base = mob(1, [8.5, 64.0, 8.5]);
+        base.body.mob.leash = Some(Leash {
+            holder: LeashHolder::Knot([1, 2, 3]),
+            id: None,
+            momentum: 0.0,
+            restored: false,
+        });
+        let stationary = value_hash(&record::stationary(&base));
+        let travel = exact(&base);
+        for (name, changes, change) in changes() {
+            let mut m = base.clone();
+            change(&mut m);
+            // Leaving the leash's unsaved fields is no change.
+            if name == "leash bookkeeping" {
+                m = base.clone();
+                let leash = m.body.mob.leash.as_mut().unwrap();
+                leash.id = Some(4);
+                leash.momentum = 1.0;
+                leash.restored = true;
+            }
+            let record_changed = value_hash(&record::stationary(&m)) != stationary;
+            assert_eq!(record_changed, changes, "{name}: the stationary record");
+            assert_eq!(exact(&m) != travel, changes, "{name}: the stationary hash");
+        }
+    }
+
+    fn exact(m: &NativeMob) -> u64 {
+        let mut h = DefaultHasher::new();
+        record::hash_stationary(m, false, &mut h);
+        h.finish()
+    }
+
+    #[test]
+    fn the_settled_hash_keeps_only_the_sign_of_counters() {
+        let mut base = mob(1, [8.5, 64.0, 8.5]);
+        base.body.data = FamilyData::new(vec![
+            (Atom::new("egg_time"), Value::Int(100)),
+            (Atom::new("variant"), Value::Int(2)),
+        ])
+        .unwrap();
+        base.body.mob.living.health.hurt_ticks = 5;
+        base.body.mob.living.fire_ticks = 5;
+        let settled = Written::settled_of(&base);
+        let cases: Vec<Change> = vec![
+            // Counters counting on: settled, though the record changed.
+            ("egg timer", false, |m| {
+                m.body.data.set("egg_time", Value::Int(99));
+            }),
+            ("hurt ticks", false, |m| {
+                m.body.mob.living.health.hurt_ticks = 4
+            }),
+            ("fire", false, |m| m.body.mob.living.fire_ticks = 4),
+            ("air", false, |m| m.body.mob.living.air_supply = 290),
+            // Crossing zero, or a field that is no counter: not settled.
+            ("egg laid", true, |m| {
+                m.body.data.set("egg_time", Value::Int(0));
+            }),
+            ("hurt over", true, |m| {
+                m.body.mob.living.health.hurt_ticks = 0
+            }),
+            ("fire out", true, |m| m.body.mob.living.fire_ticks = 0),
+            ("variant", true, |m| {
+                m.body.data.set("variant", Value::Int(3));
+            }),
+            ("health", true, |m| m.body.mob.living.health.value = 7.0),
+        ];
+        for (name, changes, change) in cases {
+            let mut m = base.clone();
+            change(&mut m);
+            assert_ne!(exact(&m), exact(&base), "{name}: the record changed");
+            assert_eq!(Written::settled_of(&m) != settled, changes, "{name}");
+        }
     }
 
     fn mob(uuid: u8, position: [f64; 3]) -> NativeMob {
-        use crate::mobs::model::*;
         NativeMob {
             uuid: [uuid; 16],
             position,
@@ -713,7 +827,13 @@ mod tests {
         assert!(s.cut(true).records.is_empty());
         // Hurt: written now.
         s.get_mut(5).unwrap().mob.body.mob.living.health.value = 6.0;
+        s.get_mut(5).unwrap().mob.body.mob.living.health.hurt_ticks = 10;
         assert_eq!(s.cut(false).records.len(), 1);
+        // Its hurt time counting down waits for the motion pass.
+        s.get_mut(5).unwrap().mob.body.mob.living.health.hurt_ticks = 9;
+        let cut = s.cut(false);
+        assert!(cut.records.is_empty() && cut.waiting);
+        assert_eq!(s.cut(true).records.len(), 1);
         // Gone: deleted once; one never written leaves nothing.
         s.insert(6, mob(2, [10.5, 64.0, 8.5]), None).unwrap();
         s.remove(5).unwrap();

@@ -212,7 +212,7 @@ fn mob_section_insert<'a>(
         let value = mob_term::decode(term)?;
         match restore(&value)? {
             Ok(mob) => {
-                let w = written.then(|| Written::of(&record::record(&mob)));
+                let w = written.then(|| Written::of_mob(&mob));
                 mobs.push((id, mob, w))
             }
             Err(reason) => return Ok((atoms::error(), (id, reason)).encode(env)),
