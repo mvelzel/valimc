@@ -75,6 +75,10 @@ pub struct NavSpec {
     /// `WallClimberNavigation`.
     pub climber: bool,
     pub can_open_doors: bool,
+    /// `setCanFloat` from the start (a villager's).
+    pub can_float: bool,
+    /// `setRequiredPathLength` (a villager's 48 blocks); None: 16.
+    pub required_length: Option<i32>,
 }
 
 impl Default for NavSpec {
@@ -85,6 +89,8 @@ impl Default for NavSpec {
             breaching: false,
             climber: false,
             can_open_doors: false,
+            can_float: false,
+            required_length: None,
         }
     }
 }

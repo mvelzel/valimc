@@ -23,6 +23,11 @@ use std::collections::HashMap;
 /// Flag bits of the block fact table (`flag_bits`) the AI asks.
 pub const AIR: u32 = 0;
 pub const SOLID: u32 = 2;
+pub const STURDY_UP: u32 = 6;
+pub const LIQUID: u32 = 12;
+pub const COLLISION_UP: u32 = 18;
+pub const FULL_COLLISION: u32 = 23;
+pub const SIGNAL_SOURCE: u32 = 36;
 pub const SOLID_RENDER: u32 = 16;
 pub const REDSTONE_CONDUCTOR: u32 = 35;
 pub const INVISIBLE: u32 = 51;

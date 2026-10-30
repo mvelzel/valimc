@@ -94,6 +94,10 @@ pub fn mind_state(
     let mut nav = Navigation::new(spec.kind, spec.breaching);
     nav.climber = spec.climber;
     nav.can_open_doors = spec.can_open_doors;
+    nav.can_float = spec.can_float;
+    if let Some(length) = spec.required_length {
+        nav.required_length = length as f64;
+    }
     if floats
         && matches!(
             spec.kind,

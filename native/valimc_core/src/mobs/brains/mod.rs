@@ -11,6 +11,7 @@
 pub mod axolotl;
 pub mod hoglin;
 pub mod piglin;
+pub mod villager;
 
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::Kind;
@@ -22,6 +23,7 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
     Ok(vec![
         Box::new(hoglin::Hoglin::new(facts)?),
         Box::new(piglin::Piglin::new(facts)?),
+        Box::new(villager::Villager::new(facts)?),
         Box::new(crate::mobs::animals::Animal::new(
             facts,
             axolotl::Axolotl::new(facts)?,
@@ -30,7 +32,7 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
 }
 
 /// The two halves of a uuid (`<<a::64, b::64>>`).
-fn halves(uuid: &Uuid) -> (u64, u64) {
+pub(crate) fn halves(uuid: &Uuid) -> (u64, u64) {
     let mut a = [0u8; 8];
     let mut b = [0u8; 8];
     a.copy_from_slice(&uuid[..8]);

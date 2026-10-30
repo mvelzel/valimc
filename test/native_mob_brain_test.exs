@@ -21,6 +21,12 @@ defmodule Valimc.NativeMobBrainTest do
   # A pool (water over x 34..42) with a dry ledge beside it.
   @pool {34, 2, 46, 14}
   @water {34, 2, 42, 14}
+  # A village: beds, job sites and a bell.
+  @village {2, 18, 30, 40}
+  @beds [{6, 22}, {9, 22}, {12, 22}, {15, 22}]
+  @lectern {8, 30}
+  @composter {12, 30}
+  @bell {20, 34}
 
   setup_all do
     setup_with(fn _blocks ->
@@ -29,7 +35,21 @@ defmodule Valimc.NativeMobBrainTest do
       floor = fn {x0, z0, x1, z1} -> for x <- x0..x1, z <- z0..z1, do: {{x, @floor, z}, stone} end
       {wx0, wz0, wx1, wz1} = @water
       pool = for x <- wx0..wx1, z <- wz0..wz1, do: {{x, @floor + 1, z}, water}
-      edits = Map.new(floor.(@hoglins) ++ floor.(@pool) ++ pool)
+      head = Blocks.state("white_bed", %{"part" => "head", "facing" => "north"})
+      foot = Blocks.state("white_bed", %{"part" => "foot", "facing" => "north"})
+
+      beds =
+        for {x, z} <- @beds,
+            cell <- [{{x, @floor + 1, z}, head}, {{x, @floor + 1, z + 1}, foot}],
+            do: cell
+
+      at = fn {x, z}, name -> {{x, @floor + 1, z}, Blocks.default_state(name)} end
+
+      village =
+        beds ++
+          [at.(@lectern, "lectern"), at.(@composter, "composter"), at.(@bell, "bell")]
+
+      edits = Map.new(floor.(@hoglins) ++ floor.(@pool) ++ pool ++ floor.(@village) ++ village)
       edits = Map.put(edits, {28, @floor + 1, 12}, Blocks.default_state("warped_fungus"))
       edits = Map.put(edits, {16, @floor + 1, 2}, Blocks.default_state("soul_fire"))
       {edits, %{fungus: {28, @floor + 1, 12}, soul_fire: {16, @floor + 1, 2}}}
@@ -39,7 +59,7 @@ defmodule Valimc.NativeMobBrainTest do
   test "the brain families are native and register no goals" do
     assert {:ok, types} = Native.mob_kinds()
 
-    for type <- ~w(minecraft:hoglin minecraft:axolotl minecraft:piglin),
+    for type <- ~w(minecraft:hoglin minecraft:axolotl minecraft:piglin minecraft:villager),
         do: assert(type in types)
   end
 
@@ -243,5 +263,106 @@ defmodule Valimc.NativeMobBrainTest do
     assert remembered?(observed, "nearest_visible_nemesis")
     assert remembered?(observed, "nearest_visible_zombified")
     assert active?(observed, :avoid)
+  end
+
+  ## Villagers
+
+  alias Valimc.Entity.Body
+
+  # The scene's mobs as the last tick left them (as records keep them: a
+  # fresh mind each, their saved memories back).
+  defp continued(observed, entries) do
+    {records, _, _, _} = List.last(observed)
+
+    for {{id, e}, r} <- Enum.zip(entries, records) do
+      {:ok, body} = Body.restore(r)
+      {id, %{e | body: body, entity: %{e.entity | x: r.x, y: r.y, z: r.z}}}
+    end
+  end
+
+  # A villager whose record keeps `memories` (`%{name => {value, ttl}}`).
+  defp remembering({id, e}, memories) do
+    ai = %{random: Valimc.AI.Random.new(e.entity.uuid), memories: memories}
+    {id, put_in(e.body.mob.ai, ai)}
+  end
+
+  defp villager(n, spot, opts \\ []), do: mob(n, "minecraft:villager", on(spot), opts)
+
+  test "villagers claim beds, job sites and the bell, and work, meet and sleep over a day",
+       ctx do
+    entries = [
+      villager(1, {7, 26}),
+      villager(2, {10, 27}),
+      villager(3, {14, 26}),
+      villager(4, {18, 30})
+    ]
+
+    # Morning: claims, and work once a job site makes a librarian or farmer.
+    work = scene([], ticks: 360, time: 2000, day: 2000, post: true, level: 51)
+    observed = compare(ctx, work, entries)
+    assert remembered?(observed, "home")
+    assert remembered?(observed, "potential_job_site") or remembered?(observed, "job_site")
+    assert remembered?(observed, "meeting_point")
+    assert Enum.any?(effects(observed), &match?({:event, 14}, &1))
+
+    # Afternoon at the bell, then the evening's rest in bed.
+    entries = continued(observed, entries)
+    meet = scene([], ticks: 240, time: 9100, day: 9100, post: true, level: 52)
+    observed = compare(ctx, meet, entries)
+    assert active?(observed, :meet)
+
+    entries = continued(observed, entries)
+    rest = scene([], ticks: 300, time: 12_100, day: 12_100, post: true, level: 53)
+    observed = compare(ctx, rest, entries)
+    assert active?(observed, :rest)
+    assert remembered?(observed, "last_slept")
+    assert Enum.any?(effects(observed), &match?({:other}, &1))
+  end
+
+  test "villagers panic at a zombie and when hurt, and summon a golem", ctx do
+    slept = %{last_slept: {1950, :never}}
+
+    entries =
+      [
+        villager(1, {8, 32}),
+        villager(2, {9, 33}),
+        villager(3, {10, 32}),
+        villager(4, {9, 31})
+      ]
+      |> Enum.map(&remembering(&1, slept))
+
+    statues = [mob(90, "minecraft:zombie", on({12, 35}), no_ai: true)]
+
+    scene =
+      scene([player(0, on({15, 38}))],
+        ticks: 260,
+        time: 2060,
+        day: 2060,
+        statues: statues,
+        acts: [{20, 3, :hurt}],
+        post: true,
+        level: 54
+      )
+
+    observed = compare(ctx, scene, entries)
+    assert active?(observed, :panic)
+    assert remembered?(observed, "nearest_hostile")
+    assert Enum.any?(effects(observed), &match?({:spawn, "minecraft:iron_golem", _}, &1))
+    assert remembered?(observed, "golem_detected_recently")
+  end
+
+  test "baby villagers play and jump on beds, and grown-ups gossip", ctx do
+    entries = [
+      villager(1, {8, 24}, age: -2000),
+      villager(2, {11, 25}, age: -30),
+      villager(3, {19, 33}),
+      villager(4, {21, 32})
+    ]
+
+    scene = scene([], ticks: 300, time: 10_100, day: 10_100, post: true, level: 55)
+    observed = compare(ctx, scene, entries)
+    assert active?(observed, :play)
+    assert remembered?(observed, "nearest_bed")
+    assert remembered?(observed, "last_gossip") or remembered?(observed, "interaction_target")
   end
 end
