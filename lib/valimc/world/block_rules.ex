@@ -316,13 +316,14 @@ defmodule Valimc.World.BlockRules do
     <<Map.get(context, :time, 0)::64-signed, day::64-signed, rain::float-32, thunder::float-32,
       length(toggles)::32,
       for({p, at} <- toggles, into: <<>>, do: <<pos(p)::binary, at::64-signed>>)::binary,
-      length(entities)::32,
+      Enum.reduce(entities, 0, fn
+        {:packed, n, _}, count -> count + n
+        _, count -> count + 1
+      end)::32,
       for(
-        {{x0, y0, z0}, {x1, y1, z1}, kind} <- entities,
+        entity <- entities,
         into: <<>>,
-        do:
-          <<x0::float-64, y0::float-64, z0::float-64, x1::float-64, y1::float-64, z1::float-64,
-            entity_kind(kind)>>
+        do: entity_record(entity)
       )::binary, length(pending)::32,
       for({p, block} <- pending, into: <<>>, do: <<pos(p)::binary, block::16>>)::binary,
       length(outputs)::32,
@@ -358,6 +359,15 @@ defmodule Valimc.World.BlockRules do
           b1::32-signed <- packed>>,
         do: {{x, y, z}, block, b0, b1}
       )
+
+  # An entity's record, or many a native mob section packed already
+  # (`{:packed, count, records}`, VMC-081d).
+  defp entity_record({:packed, _n, records}), do: records
+
+  defp entity_record({{x0, y0, z0}, {x1, y1, z1}, kind}),
+    do:
+      <<x0::float-64, y0::float-64, z0::float-64, x1::float-64, y1::float-64, z1::float-64,
+        entity_kind(kind)>>
 
   defp entity_kind(:living), do: 1
   defp entity_kind(:arrow), do: 2

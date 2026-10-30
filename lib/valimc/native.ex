@@ -337,6 +337,7 @@ defmodule Valimc.Native do
   def mob_section_reset_idle(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_school(_section, _id, _leader, _school), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_body(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_contacts(_section), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_settle(_section, _kept), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_hurt(_section, _ticker, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
 

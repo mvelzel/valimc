@@ -5275,12 +5275,28 @@ defmodule Valimc.World.RegionData do
           Grid.region_key(Grid.chunk_key(floor(x), floor(z))) == state.key,
           do: {{x - 0.3, y, z - 0.3}, {x + 0.3, y + 1.8, z + 0.3}, :living}
 
+    store = state.entities.store
+
     others =
-      for {_, entry} <- state.entities.store.entries,
+      for {_, entry} <- store.entries,
+          not Store.native_entry?(entry),
           box = Redstone.entity_box(entry),
           do: box
 
-    players ++ others
+    # The native mobs' boxes, packed by their section (VMC-081d).
+    natives =
+      case store.native do
+        %{ref: ref} ->
+          case Native.mob_section_contacts(ref) do
+            {0, _} -> []
+            {n, packed} -> [{:packed, n, packed}]
+          end
+
+        nil ->
+          []
+      end
+
+    players ++ others ++ natives
   end
 
   # The redstone context of a run (`BlockRules.run/4`): the game time, the

@@ -52,7 +52,7 @@ mod atoms {
     rustler::atoms! {
         ok, world, scene, all, done, r#yield = "yield", fixed, anger, player, portal, only,
         level, players, sections, loot, items, others, knots, goals, events, pois, located,
-        loot_seeds, no_tick, missing, invalid,
+        loot_seeds, no_tick, missing, invalid, not_owner,
     }
 }
 
@@ -121,7 +121,7 @@ fn mob_world_set<'a>(
     changes: Term<'a>,
 ) -> NifResult<Atom> {
     if env.pid() != *world.owner.lock().map_err(|_| bad())? {
-        return Err(rustler::Error::Term(Box::new(atoms::invalid())));
+        return Err(rustler::Error::Term(Box::new(atoms::not_owner())));
     }
     let level = match changes.map_get(atoms::level()) {
         Ok(t) => Some(LevelEnv::decode(t)?),
@@ -1322,6 +1322,46 @@ pub(crate) fn spawn_rows(rules: &Rules, section: &MobSection, mask: u64) -> Vec<
             ))
         })
         .collect()
+}
+
+/// The section's mobs as redstone's entity contacts see them
+/// (`Redstone.entity_box/1`: their type's box where their store holds them,
+/// living): `{count, packed}`, each `<<min x, y, z, max x, y, z ::
+/// float-64, 1>>` as the rules' context packs an entity.
+#[rustler::nif]
+fn mob_section_contacts<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+) -> NifResult<(usize, rustler::Binary<'a>)> {
+    let rules = ms::rules()?;
+    let inner = ms::read(&res)?;
+    let mut out = Vec::with_capacity(inner.section.len() * 49);
+    let mut n = 0;
+    for (_, slot) in inner.section.slots() {
+        let Some(ty) = rules.of(&slot.mob.body.entity_type) else {
+            continue;
+        };
+        // A mob whose move out waits is where its store still holds it.
+        let [x, y, z] = match (&slot.before, slot.start) {
+            (Some(before), _) if slot.pending => before.0.position,
+            (_, Some(start)) if slot.pending => start,
+            _ => slot.mob.position,
+        };
+        let half = ty.facts.width / 2.0;
+        for v in [
+            x - half,
+            y,
+            z - half,
+            x + half,
+            y + ty.facts.height,
+            z + half,
+        ] {
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        out.push(1);
+        n += 1;
+    }
+    Ok((n, crate::bytes(env, out)))
 }
 
 /// The idle times of mobs `ids` restart (a player came within 32 blocks,

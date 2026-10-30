@@ -132,6 +132,25 @@ defmodule Valimc.RedstoneRegionTest do
            end)
   end
 
+  test "a native mob on a stone plate powers it (its section packs its box)", ctx do
+    {x, z} = {ctx.x + 30, ctx.z + 70}
+    plate = {x, 64, z}
+
+    set(ctx.owner, %{
+      {x, 63, z} => BlockRegistry.default_state("stone"),
+      plate => BlockRegistry.default_state("stone_pressure_plate")
+    })
+
+    {:ok, cow} = Valimc.Entity.Body.new("minecraft:cow")
+    cow = %{cow | mob: %{cow.mob | no_ai: true}}
+    record = Valimc.Entity.Store.body_record(cow, <<77::128>>, {x + 0.5, 64.0, z + 0.5})
+    :ok = Region.drop_items(ctx.owner, [record])
+    store = Valimc.TestRegion.section(ctx.owner).entities.store
+    assert Enum.any?(store.entries, fn {_, e} -> Valimc.Entity.Store.native_entry?(e) end)
+    assert {:ok, _} = Region.step(ctx.owner, 2)
+    assert props(plate)["powered"] == "true"
+  end
+
   test "a daylight detector reads the sky every twentieth tick; an adventurer cannot invert it",
        ctx do
     {x, y, z} = detector = {ctx.x + 60, 64, ctx.z + 60}
