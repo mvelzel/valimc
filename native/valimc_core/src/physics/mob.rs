@@ -10,7 +10,7 @@
 use super::aabb::Aabb;
 use super::cells::CellMap;
 use super::collide::{self, Extra};
-use super::fluid::{self, Depths, Pushed};
+use super::fluid::{self, Contact, Depths, Pushed};
 use super::player::contacts::{self, Body, Slowing, Touched, Toucher};
 use super::player::kinetics::Material;
 use super::player::paths;
@@ -651,35 +651,49 @@ fn feet_block(w: &World, mob: &Mob) -> Result<Option<(f64, u64)>, Fault> {
         .map(|b| (b.max[1] + p[1] as f64, w.facts.flags(state))))
 }
 
+/// The fluid depths over `body` and the motion its currents leave, with the
+/// fluid contacts they came from (the eye test reads them too).
 fn currents(
     w: &World,
     body: &Aabb,
     velocity: [f64; 3],
     pushed: bool,
-) -> Result<(Depths, [f64; 3]), Fault> {
+) -> Result<(Depths, [f64; 3], Vec<Contact>), Fault> {
     if !rules::bounded(velocity, 64.0) {
         return Err(Fault::Limit("invalid_fluid_current"));
     }
     w.fluid_bounded(body)?;
-    fluid::current(
+    let found =
+        fluid::contacts(w.source, w.facts, body)?.ok_or(Fault::Limit("invalid_fluid_box"))?;
+    let (depths, pushed) = fluid::current_in(
         w.source,
         w.facts,
-        body,
+        &found,
         velocity,
         pushed,
         false,
         Pushed::Item,
-    )?
-    .ok_or(Fault::Limit("invalid_fluid_box"))
+    )?;
+    Ok((depths, pushed, found))
 }
 
-fn begin_motion(w: &World, mob: &Mob) -> Result<(Mob, Aabb, Depths), Fault> {
+/// Whether the eye is under water, from `body`'s fluid contacts (`World.eyes`
+/// over the same body).
+fn eye_in_water(w: &World, found: &[Contact], eye: [f64; 3]) -> Result<bool, Fault> {
+    Ok(fluid::eyes_in(w.source, w.facts, found, eye)?.0)
+}
+
+/// The mob's state as its travel begins: its body, its fluid depths and the
+/// fluid contacts they came from.
+type Begun = (Mob, Aabb, Depths, Vec<Contact>);
+
+fn begin_motion(w: &World, mob: &Mob) -> Result<Begun, Fault> {
     let mut m = mob.clone();
     let start = m.position;
     let body = m.body(start)?;
     // baseTick: the fluid state and its currents; water resets the fall,
     // lava halves it.
-    let (depths, pushed) = currents(w, &body, m.velocity, m.fluid_pushed)?;
+    let (depths, pushed, found) = currents(w, &body, m.velocity, m.fluid_pushed)?;
     m.velocity = pushed;
     let water = depths.water > 0.0;
     let lava = depths.lava > 0.0;
@@ -708,7 +722,7 @@ fn begin_motion(w: &World, mob: &Mob) -> Result<(Mob, Aabb, Depths), Fault> {
     if m.rise {
         m.velocity[1] += (0.3_f32 as f64 - m.velocity[1]) * 0.3_f32 as f64;
     }
-    Ok((m, body, depths))
+    Ok((m, body, depths, found))
 }
 
 fn goal_move(w: &World, m: &mut Mob, body: &Aabb, depths: Depths) -> Result<Option<f32>, Fault> {
@@ -727,13 +741,13 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     if mob.fixed {
         return fixed(w, mob);
     }
-    let (mut m, body, depths) = begin_motion(w, mob)?;
+    let (mut m, body, depths, found) = begin_motion(w, mob)?;
     let start = m.position;
     let water = depths.water > 0.0;
     let lava = depths.lava > 0.0;
     // LivingEntity.baseTick's air reads the eye's fluid where the tick began.
     let eye = [start[0], start[1] + m.size.eye, start[2]];
-    let (eye_water, _) = w.eyes(&body, eye)?;
+    let eye_water = eye_in_water(w, &found, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
     // A goal's own move before the move control (`BreathAirGoal.tick`):
     // the rest of the tick travels from where it left the mob.
@@ -1101,8 +1115,12 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         None
     };
     let eye_after = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
+    // The move's own fluid sample was of the body where it ended.
     let eye_after = (
-        w.eyes(&after_body, eye_after)?.0,
+        match &moved.found {
+            Some(found) => eye_in_water(w, found, eye_after)?,
+            None => w.eyes(&after_body, eye_after)?.0,
+        },
         w.state(eye_after.map(|v| v.floor() as i32))?,
     );
     Ok(Ticked {
@@ -1133,9 +1151,9 @@ fn fixed(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
     let mut m = mob.clone();
     m.velocity = [0.0; 3];
     let body = m.body(m.position)?;
-    let (depths, _) = currents(w, &body, m.velocity, m.fluid_pushed)?;
+    let (depths, _, found) = currents(w, &body, m.velocity, m.fluid_pushed)?;
     let eye = [m.position[0], m.position[1] + m.size.eye, m.position[2]];
-    let (eye_water, _) = w.eyes(&body, eye)?;
+    let eye_water = eye_in_water(w, &found, eye)?;
     let eye_state = w.state(eye.map(|v| v.floor() as i32))?;
     m.forward = 0.0;
     m.strafe = 0.0;
@@ -1176,8 +1194,10 @@ struct Moved {
     actual: [f64; 3],
     fall: f64,
     landing: Option<(u16, f64)>,
-    /// The fluid depths after the move (re-sampled unless in water before).
+    /// The fluid depths after the move (re-sampled unless in water before),
+    /// and the contacts of a re-sample.
     depths: Depths,
+    found: Option<Vec<Contact>>,
     material: Material,
 }
 
@@ -1249,16 +1269,16 @@ fn mob_move(
     // in water before.
     let mut splash = None;
     // A strider in lava resets its fall instead (`Strider.checkFallDamage`).
-    let depths = if water_before || m.lava_walker && depths_before.lava > 0.0 {
-        depths_before
+    let (depths, found) = if water_before || m.lava_walker && depths_before.lava > 0.0 {
+        (depths_before, None)
     } else {
         let before = m.velocity;
-        let (depths, pushed) = currents(w, &after_body, m.velocity, m.fluid_pushed)?;
+        let (depths, pushed, found) = currents(w, &after_body, m.velocity, m.fluid_pushed)?;
         m.velocity = pushed;
         if depths.water > 0.0 {
             splash = Some(before);
         }
-        depths
+        (depths, Some(found))
     };
     let water = depths.water > 0.0;
     let mut fall = fall;
@@ -1306,6 +1326,7 @@ fn mob_move(
         fall: m.fall_distance,
         landing,
         depths,
+        found,
         material,
         swim,
         splash,
@@ -1507,7 +1528,7 @@ impl Ticker {
             border: w.border,
             entities: &boxes,
         };
-        let (mut m, body, depths) = begin_motion(&local, mob)?;
+        let (mut m, body, depths, _) = begin_motion(&local, mob)?;
         goal_move(&local, &mut m, &body, depths)?;
         Ok(m.position)
     }

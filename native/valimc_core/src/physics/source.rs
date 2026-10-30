@@ -25,6 +25,8 @@ pub trait BlockSource {
     /// Whether the section holding a position may hold a large collision
     /// shape or a moving piston (true when unknown), so a scan may skip halo
     /// cells elsewhere (Moonrise's per-section special collider counts).
+    /// The answer is the same for every position of a 16-block section
+    /// (scans ask once per section).
     fn special_near(&self, _x: i32, _y: i32, _z: i32) -> bool {
         true
     }

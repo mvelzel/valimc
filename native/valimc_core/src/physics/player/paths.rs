@@ -227,7 +227,7 @@ pub type Walked = std::cell::OnceCell<Visits>;
 
 impl Visits {
     pub fn walk(catalog: &[Dimensions], paths: &[Path], pose: u8) -> Visits {
-        let mut list = Vec::new();
+        let mut list = Vec::with_capacity(16);
         let fault = visit(catalog, paths, pose, &mut |v| {
             list.push(*v);
             Ok(())

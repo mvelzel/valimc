@@ -221,19 +221,50 @@ impl VoxelShape {
         if self.is_empty() || other.is_empty() {
             return false;
         }
-        let maps: [Vec<(isize, isize)>; 3] = std::array::from_fn(|a| {
-            let (x, y) = (&self.axes[a], &other.axes[a]);
-            let identical = x.len() == y.len()
-                && x.iter()
-                    .zip(y)
-                    .all(|(&u, &v)| place.coord(a, u) == other_place.coord(a, v));
-            if identical {
-                // Vanilla's `IdenticalMerger`: every coordinate, no collapse.
-                (0..x.len() as isize).map(|i| (i, i)).collect()
-            } else {
-                merge_intersection(x, place, y, other_place, a)
+        // Each axis merges at most both lists' coordinates: small shapes
+        // merge on the stack.
+        if (0..3).all(|a| self.axes[a].len() + other.axes[a].len() <= MERGED) {
+            let mut maps = [Pairs::<MERGED>::new(); 3];
+            for (a, map) in maps.iter_mut().enumerate() {
+                self.merge_axis(place, other, other_place, a, map);
             }
-        });
+            self.any_shared(other, [maps[0].pairs(), maps[1].pairs(), maps[2].pairs()])
+        } else {
+            let mut maps: [Vec<(i32, i32)>; 3] = Default::default();
+            for (a, map) in maps.iter_mut().enumerate() {
+                self.merge_axis(place, other, other_place, a, map);
+            }
+            self.any_shared(other, [&maps[0], &maps[1], &maps[2]])
+        }
+    }
+
+    /// The merged cell indices of axis `a` (`IdenticalMerger` for equal
+    /// coordinates, else `IndirectMerger`).
+    fn merge_axis(
+        &self,
+        place: &Place,
+        other: &VoxelShape,
+        other_place: &Place,
+        a: usize,
+        out: &mut impl Merged,
+    ) {
+        let (x, y) = (&self.axes[a], &other.axes[a]);
+        let identical = x.len() == y.len()
+            && x.iter()
+                .zip(y)
+                .all(|(&u, &v)| place.coord(a, u) == other_place.coord(a, v));
+        if identical {
+            // Vanilla's `IdenticalMerger`: every coordinate, no collapse.
+            for i in 0..x.len() as i32 {
+                out.push(i, i);
+            }
+        } else {
+            merge_intersection(x, place, y, other_place, a, out);
+        }
+    }
+
+    /// Whether a merged cell is filled in both shapes.
+    fn any_shared(&self, other: &VoxelShape, maps: [&[(i32, i32)]; 3]) -> bool {
         let cells = |a: usize| maps[a].len().saturating_sub(1);
         for x in 0..cells(0) {
             for y in 0..cells(1) {
@@ -241,7 +272,9 @@ impl VoxelShape {
                     let (lx, rx) = maps[0][x];
                     let (ly, ry) = maps[1][y];
                     let (lz, rz) = maps[2][z];
-                    if self.full(lx, ly, lz) && other.full(rx, ry, rz) {
+                    if self.full(lx as isize, ly as isize, lz as isize)
+                        && other.full(rx as isize, ry as isize, rz as isize)
+                    {
                         return true;
                     }
                 }
@@ -300,20 +333,79 @@ impl VoxelShape {
     }
 }
 
+/// Merged cell index pairs: a list, or a fixed array for small merges.
+trait Merged {
+    fn push(&mut self, a: i32, b: i32);
+    fn set_last(&mut self, a: i32, b: i32);
+}
+
+impl Merged for Vec<(i32, i32)> {
+    fn push(&mut self, a: i32, b: i32) {
+        Vec::push(self, (a, b));
+    }
+
+    fn set_last(&mut self, a: i32, b: i32) {
+        if let Some(last) = self.last_mut() {
+            *last = (a, b);
+        }
+    }
+}
+
+/// Coordinates a merge of two lists keeps on the stack.
+const MERGED: usize = 32;
+
+#[derive(Clone, Copy)]
+struct Pairs<const N: usize> {
+    len: usize,
+    pairs: [(i32, i32); N],
+}
+
+impl<const N: usize> Pairs<N> {
+    fn new() -> Self {
+        Pairs {
+            len: 0,
+            pairs: [(0, 0); N],
+        }
+    }
+
+    fn pairs(&self) -> &[(i32, i32)] {
+        &self.pairs[..self.len]
+    }
+}
+
+impl<const N: usize> Merged for Pairs<N> {
+    #[inline]
+    fn push(&mut self, a: i32, b: i32) {
+        self.pairs[self.len] = (a, b);
+        self.len += 1;
+    }
+
+    #[inline]
+    fn set_last(&mut self, a: i32, b: i32) {
+        if self.len > 0 {
+            self.pairs[self.len - 1] = (a, b);
+        }
+    }
+}
+
 /// Vanilla's `IndirectMerger` for an `AND` join: the merged coordinates of two
 /// lists (values within the epsilon collapse, the first kept), each with the
 /// cell index it stands for in either list (`-1` before a list starts). Points
-/// of one list outside the other's span are skipped.
+/// of one list outside the other's span are skipped. At most `a.len() +
+/// b.len()` pairs.
 fn merge_intersection(
     a: &[f64],
     a_place: &Place,
     b: &[f64],
     b_place: &Place,
     axis: usize,
-) -> Vec<(isize, isize)> {
+    out: &mut impl Merged,
+) {
     let va = |i: usize| a_place.coord(axis, a[i]);
     let vb = |i: usize| b_place.coord(axis, b[i]);
-    let mut out: Vec<(f64, isize, isize)> = Vec::with_capacity(a.len() + b.len());
+    // The value of the last pair pushed: later values within the epsilon
+    // of it collapse into that pair.
+    let mut last: Option<f64> = None;
     let (mut ia, mut ib) = (0usize, 0usize);
     loop {
         let out_a = ia >= a.len();
@@ -335,16 +427,15 @@ fn merge_intersection(
             }
             vb(ib - 1)
         };
-        let (ca, cb) = (ia as isize - 1, ib as isize - 1);
-        match out.last_mut() {
-            Some(last) if last.0 >= value - EPSILON => {
-                last.1 = ca;
-                last.2 = cb;
+        let (ca, cb) = (ia as i32 - 1, ib as i32 - 1);
+        match last {
+            Some(l) if l >= value - EPSILON => out.set_last(ca, cb),
+            _ => {
+                out.push(ca, cb);
+                last = Some(value);
             }
-            _ => out.push((value, ca, cb)),
         }
     }
-    out.into_iter().map(|(_, ca, cb)| (ca, cb)).collect()
 }
 
 /// Vanilla's `Shapes.create` of a world box: an empty shape when an axis is

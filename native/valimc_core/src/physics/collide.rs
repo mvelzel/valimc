@@ -53,9 +53,25 @@ pub fn block_colliders<'t>(
     body: &Aabb,
     ctx: &Context,
 ) -> Result<Vec<Collider<'t>>, Unreadable> {
-    let (lo, hi) = scan_range(body);
-    let query = box_shape(body);
     let mut out = Vec::new();
+    for_block_colliders(source, table, body, ctx, &mut |c| out.push(c))?;
+    Ok(out)
+}
+
+/// `block_colliders`, each given to `found` in turn.
+pub fn for_block_colliders<'t>(
+    source: &dyn BlockSource,
+    table: &'t ShapeTable,
+    body: &Aabb,
+    ctx: &Context,
+    found: &mut dyn FnMut(Collider<'t>),
+) -> Result<(), Unreadable> {
+    let (lo, hi) = scan_range(body);
+    // `body` as a shape, made for the first cell whose shape it is tested
+    // against.
+    let mut query: Option<VoxelShape> = None;
+    // `special_near` answers per section: the last section's answer.
+    let mut near: Option<([i32; 3], bool)> = None;
     for z in lo[2]..=hi[2] {
         for y in lo[1]..=hi[1] {
             for x in lo[0]..=hi[0] {
@@ -65,9 +81,20 @@ pub fn block_colliders<'t>(
                 if halo == 3 {
                     continue;
                 }
-                if halo > 0 && !source.special_near(x, y, z) {
-                    // No large shape or moving piston in this section (Moonrise).
-                    continue;
+                if halo > 0 {
+                    let section = [x >> 4, y >> 4, z >> 4];
+                    let special = match near {
+                        Some((s, special)) if s == section => special,
+                        _ => {
+                            let special = source.special_near(x, y, z);
+                            near = Some((section, special));
+                            special
+                        }
+                    };
+                    if !special {
+                        // No large shape or moving piston in this section (Moonrise).
+                        continue;
+                    }
                 }
                 let state = source.state(x, y, z).ok_or(Unreadable([x, y, z]))?;
                 let special = table.special(state);
@@ -77,7 +104,7 @@ pub fn block_colliders<'t>(
                     continue;
                 }
                 if special & MOVING_PISTON != 0 {
-                    moving_colliders(source, table, [x, y, z], ctx, body, &query, &mut out);
+                    moving_colliders(source, table, [x, y, z], ctx, body, &mut query, found);
                     continue;
                 }
                 // `LiquidBlock.getCollisionShape`: a lava source with no lava
@@ -100,11 +127,14 @@ pub fn block_colliders<'t>(
                 };
                 let hit = if picked.shape.full_block && picked.offset == [0.0; 3] {
                     body.intersects(&Aabb::block(x, y, z))
+                } else if picked.shape.is_empty() {
+                    false
                 } else {
-                    picked.shape.intersects(&place, &query, &Place::ORIGIN)
+                    let query = query.get_or_insert_with(|| box_shape(body));
+                    picked.shape.intersects(&place, query, &Place::ORIGIN)
                 };
                 if hit {
-                    out.push(Collider {
+                    found(Collider {
                         shape: Cow::Borrowed(picked.shape),
                         place,
                     });
@@ -112,7 +142,7 @@ pub fn block_colliders<'t>(
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// A moving piston's collider (VMC-048b): its block entity's shape when it
@@ -124,8 +154,8 @@ fn moving_colliders<'t>(
     pos: [i32; 3],
     ctx: &Context,
     body: &Aabb,
-    query: &VoxelShape,
-    out: &mut Vec<Collider<'t>>,
+    query: &mut Option<VoxelShape>,
+    found: &mut dyn FnMut(Collider<'t>),
 ) {
     let Some(moving) = source.moving(pos[0], pos[1], pos[2]) else {
         return;
@@ -138,10 +168,11 @@ fn moving_colliders<'t>(
     let hit = if shape.full_block {
         body.intersects(&Aabb::block(pos[0], pos[1], pos[2]))
     } else {
+        let query = query.get_or_insert_with(|| box_shape(body));
         shape.intersects(&place, query, &Place::ORIGIN)
     };
     if hit {
-        out.push(Collider {
+        found(Collider {
             shape: Cow::Owned(shape),
             place,
         });
@@ -221,7 +252,7 @@ pub fn colliders<'t>(
     extra: &Extra,
 ) -> Result<Vec<Collider<'t>>, Unreadable> {
     let mut out = extra.colliders(query);
-    out.extend(block_colliders(source, table, query, ctx)?);
+    for_block_colliders(source, table, query, ctx, &mut |c| out.push(c))?;
     Ok(out)
 }
 

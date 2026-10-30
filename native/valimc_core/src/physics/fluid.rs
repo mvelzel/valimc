@@ -294,9 +294,22 @@ pub fn current(
     let Some(found) = contacts(source, facts, body)? else {
         return Ok(None);
     };
+    current_in(source, facts, &found, velocity, pushed, fast_lava, kind).map(Some)
+}
+
+/// `current` over a body's already found contacts.
+pub fn current_in(
+    source: &dyn BlockSource,
+    facts: &Facts,
+    found: &[Contact],
+    velocity: [f64; 3],
+    pushed: bool,
+    fast_lava: bool,
+    kind: Pushed,
+) -> Result<(Depths, [f64; 3]), Unreadable> {
     let mut water = Accumulator::default();
     let mut lava = Accumulator::default();
-    for c in &found {
+    for c in found {
         let acc = if c.fluid.kind == WATER {
             &mut water
         } else {
@@ -328,13 +341,13 @@ pub fn current(
         lava_factor,
         kind,
     );
-    Ok(Some((
+    Ok((
         Depths {
             water: water.height,
             lava: lava.height,
         },
         next,
-    )))
+    ))
 }
 
 fn apply(velocity: [f64; 3], acc: &Accumulator, factor: f64, kind: Pushed) -> [f64; 3] {

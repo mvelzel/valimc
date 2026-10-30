@@ -3,7 +3,7 @@
 //! block below that decides friction, bounce and speed.
 
 use super::aabb::Aabb;
-use super::collide::block_colliders;
+use super::collide::for_block_colliders;
 use super::facts::{Facts, Motion};
 use super::source::{BlockSource, Unreadable};
 use super::table::Context;
@@ -20,9 +20,8 @@ pub fn nearest(
     position: [f64; 3],
     ctx: &Context,
 ) -> Result<Option<[i32; 3]>, Unreadable> {
-    let found = block_colliders(source, &facts.shapes, test, ctx)?;
     let mut best: Option<([i32; 3], f64)> = None;
-    for c in found {
+    for_block_colliders(source, &facts.shapes, test, ctx, &mut |c| {
         let p = c.place.position.unwrap_or([0.0; 3]).map(|v| v as i32);
         let d: f64 = (0..3)
             .map(|i| {
@@ -37,7 +36,7 @@ pub fn nearest(
         if better {
             best = Some((p, d));
         }
-    }
+    })?;
     Ok(best.map(|(p, _)| p))
 }
 
