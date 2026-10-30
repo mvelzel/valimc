@@ -37,36 +37,30 @@ defmodule Valimc.World do
   end
 
   @doc """
-  The first `limit` of `keys` (in order) that can be sent, read from published
-  tables without asking an owner (VMC-077e): `{key, {:frame, frame}}` when the
-  owner published the chunk's packet next to its snapshot, `{key, {:owner, pid}}`
-  when it must be requested (`request_chunk/2`). A chunk not generated yet
-  (VMC-075) or of a region still loading is left out, as vanilla sends only
-  loaded chunks; a region not running is started.
+  A section's publication as a streaming connection reads it, without asking
+  its owner (VMC-077e, VMC-081k): `{pid, table, generated}`, where `generated`
+  (`BlockSnapshot.generated/1`) changes whenever chunks of the section become
+  generated; nil while the section loads (vanilla sends only loaded chunks). A
+  section not running is started.
   """
-  def sendable(dimension, keys, limit), do: sendable(dimension, keys, limit, %{}, [])
-
-  defp sendable(_dimension, _keys, 0, _routes, acc), do: Enum.reverse(acc)
-  defp sendable(_dimension, [], _limit, _routes, acc), do: Enum.reverse(acc)
-
-  defp sendable(dimension, [key | rest], limit, routes, acc) do
-    region = Grid.section(dimension, key)
-
-    {route, routes} =
-      case routes do
-        %{^region => route} -> {route, routes}
-        _ -> {route(region), Map.put(routes, region, route(region))}
-      end
-
-    with {pid, table} <- route,
-         false <- BlockSnapshot.absent?(table, key) do
-      sendable(dimension, rest, limit - 1, routes, [{key, published_frame(table, key, pid)} | acc])
+  def stream_source({_, _, _} = section) do
+    with {pid, table} <- route(section),
+         count when is_integer(count) <- BlockSnapshot.generated(table) do
+      {pid, table, count}
     else
-      _ -> sendable(dimension, rest, limit, routes, acc)
+      _ -> nil
     end
   end
 
-  defp published_frame(table, key, pid) do
+  @doc "The generated ones of `chunks` in a section's publication `table` (none once it is gone)."
+  def generated(table, chunks), do: Enum.reject(chunks, &BlockSnapshot.absent?(table, &1))
+
+  @doc """
+  How a generated chunk of the section owned by `pid`, publishing in `table`, is
+  sent: `{:frame, frame}` when its owner published the chunk's packet next to
+  its snapshot, `{:owner, pid}` when it must be requested (`request_chunk/2`).
+  """
+  def chunk_source(table, key, pid) do
     case :ets.lookup(table, {:frame, key}) do
       [{_, frame}] -> {:frame, frame}
       [] -> {:owner, pid}

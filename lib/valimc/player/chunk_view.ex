@@ -32,31 +32,98 @@ defmodule Valimc.Player.ChunkView do
   @doc "Every tracked chunk, nearest to the center first."
   def chunks(nil), do: []
 
-  def chunks({{cx, cz}, _} = view) do
-    for(chunk <- box(view), contains?(view, chunk), do: chunk)
+  def chunks({{cx, cz}, distance} = view) do
+    for(
+      x <- (cx - distance - 1)..(cx + distance + 1),
+      {z0, z1} <- [span(view, x)],
+      z <- z0..z1,
+      do: {x, z}
+    )
     |> Enum.sort_by(fn {x, z} -> (x - cx) * (x - cx) + (z - cz) * (z - cz) end)
   end
 
   @doc """
   The chunks entering and leaving when the view changes from `from` to `to`, as
-  `{entering, leaving}`; only their union's bounding box is visited.
+  `{entering, leaving}`. Overlapping views are compared column by column, each
+  column's tracked chunks being one run (`span/2`), so the work is the columns
+  and the chunks that changed, not the views' area (VMC-081k).
   """
   def difference(view, view), do: {[], []}
 
   def difference(from, to) do
     if from != nil and to != nil and overlaps?(from, to) do
-      {x0, z0, x1, z1} = union(bounds(from), bounds(to))
-
-      for x <- x0..x1, z <- z0..z1, reduce: {[], []} do
-        {entering, leaving} ->
-          case {contains?(from, {x, z}), contains?(to, {x, z})} do
-            {false, true} -> {[{x, z} | entering], leaving}
-            {true, false} -> {entering, [{x, z} | leaving]}
-            _ -> {entering, leaving}
-          end
-      end
+      {x0, _, x1, _} = union(bounds(from), bounds(to))
+      columns_difference(&span(from, &1), &span(to, &1), x0, x1)
     else
       {chunks(to), chunks(from)}
+    end
+  end
+
+  @doc """
+  The chunks entering and leaving when the square of chunks within Chebyshev
+  distance `radius` of `center` (`{center, radius}`, a simulation distance) moves
+  from `from` to `to`, as `{entering, leaving}`; nil is no square.
+  """
+  def square_difference(square, square), do: {[], []}
+
+  def square_difference(from, to) do
+    {x0, x1} =
+      [from, to]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn {{cx, _}, r} -> {cx - r, cx + r} end)
+      |> Enum.reduce(fn {a0, a1}, {b0, b1} -> {min(a0, b0), max(a1, b1)} end)
+
+    columns_difference(&square_span(from, &1), &square_span(to, &1), x0, x1)
+  end
+
+  defp square_span(nil, _x), do: nil
+
+  defp square_span({{cx, cz}, r}, x) when x >= cx - r and x <= cx + r, do: {cz - r, cz + r}
+  defp square_span(_square, _x), do: nil
+
+  # Column by column (x ascending, z ascending, each list built by prepending,
+  # as a scan of the bounding box would be): what `to` holds beyond `from`'s run
+  # and `from` beyond `to`'s.
+  defp columns_difference(from, to, x0, x1) do
+    Enum.reduce(x0..x1, {[], []}, fn x, {entering, leaving} ->
+      a = from.(x)
+      b = to.(x)
+      {outside(b, a, x, entering), outside(a, b, x, leaving)}
+    end)
+  end
+
+  defp outside(nil, _other, _x, acc), do: acc
+  defp outside({z0, z1}, nil, x, acc), do: prepend(x, z0, z1, acc)
+
+  defp outside({z0, z1}, {o0, o1}, x, acc) do
+    acc = prepend(x, z0, min(z1, o0 - 1), acc)
+    prepend(x, max(z0, o1 + 1), z1, acc)
+  end
+
+  defp prepend(x, z0, z1, acc) when z0 <= z1,
+    do: Enum.reduce(z0..z1, acc, &[{x, &1} | &2])
+
+  defp prepend(_x, _z0, _z1, acc), do: acc
+
+  # The tracked chunks of column `x`, one run `{z0, z1}` or nil: `contains?/2`
+  # solved for z.
+  defp span({{cx, cz}, distance}, x) do
+    a = max(0, abs(x - cx) - 2)
+    rest = distance * distance - a * a
+
+    if rest > 0 do
+      b = isqrt(rest - 1) + 2
+      {cz - b, cz + b}
+    end
+  end
+
+  defp isqrt(n) do
+    r = trunc(:math.sqrt(n))
+
+    cond do
+      r * r > n -> r - 1
+      (r + 1) * (r + 1) <= n -> r + 1
+      true -> r
     end
   end
 
@@ -65,11 +132,6 @@ defmodule Valimc.Player.ChunkView do
 
   def intersects?({{cx, cz}, _} = view, {x0, z0, x1, z1}),
     do: contains?(view, {cx |> max(x0) |> min(x1), cz |> max(z0) |> min(z1)})
-
-  defp box(view) do
-    {x0, z0, x1, z1} = bounds(view)
-    for x <- x0..x1, z <- z0..z1, do: {x, z}
-  end
 
   defp bounds({{cx, cz}, distance}),
     do: {cx - distance - 1, cz - distance - 1, cx + distance + 1, cz + distance + 1}

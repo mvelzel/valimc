@@ -20,7 +20,7 @@ defmodule Valimc.Session.Replication do
     WeatherReplication
   }
 
-  alias Valimc.Session.ChunkSender
+  alias Valimc.Session.{ChunkSender, PendingChunks, ViewWants}
   alias Valimc.Player.ChunkView
   alias Valimc.Worldgen.Scheduler
 
@@ -56,14 +56,8 @@ defmodule Valimc.Session.Replication do
       regions = ChunkView.regions(view, state.player.dimension)
       World.subscribe(regions, state.regions)
       chunks = MapSet.difference(state.chunks, MapSet.new(forgotten))
+      pending = state.pending |> PendingChunks.delete(leaving) |> PendingChunks.put(entering)
       leaving = MapSet.new(leaving)
-      {cx, cz} = center
-
-      pending =
-        Enum.reject(state.pending, &MapSet.member?(leaving, &1))
-        |> Enum.concat(entering)
-        |> Enum.sort_by(fn {x, z} -> (x - cx) * (x - cx) + (z - cz) * (z - cz) end)
-
       send(self(), :send_chunks)
 
       %{
@@ -136,37 +130,31 @@ defmodule Valimc.Session.Replication do
   # player tickets load (VMC-071). An owner told before that is no longer the
   # one of its key (the view left it, it restarted, or the player changed
   # dimension) withdraws. `wanted` remembers which owner was told.
-  defp want_chunks(%{view: {{cx, cz}, _} = view} = state) do
+  # The sets come from `ViewWants`, which visits only the chunks a change
+  # moved (VMC-081k); each section's owner is still looked up, so a section
+  # whose group changed or stopped is told again as before.
+  defp want_chunks(%{view: {{cx, cz} = center, _} = view} = state) do
     reach = min(Valimc.config(:simulation_distance), ChunkView.server_distance())
-    local = for x <- (cx - reach)..(cx + reach), z <- (cz - reach)..(cz + reach), do: {x, z}
 
     arena =
       if Map.get(state, :dragon_arena, false), do: Valimc.World.Dragon.Arena.chunks(), else: []
 
-    simulation = Enum.uniq(local ++ arena)
-    simulated_chunks = MapSet.new(simulation)
-
-    loading =
-      view
-      |> ChunkView.chunks()
-      |> Enum.concat(Enum.reject(simulation, &ChunkView.contains?(view, &1)))
-      |> Enum.group_by(&Grid.region_key/1)
+    wants =
+      ViewWants.update(state.view_wants, state.player.dimension, view, {center, reach}, arena)
 
     size = Grid.region_size()
 
     {wanted, tickets} =
-      loading
-      |> Enum.sort_by(fn {{rx, rz}, _} ->
-        (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
+      wants.sections
+      |> Enum.sort_by(fn {{rx, rz} = key, _} ->
+        {(rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2, key}
       end)
-      |> Enum.map_reduce(%{}, fn {key, chunks}, tickets ->
+      |> Enum.map_reduce(%{}, fn {key, {chunks, simulated}}, tickets ->
         section = Grid.section(state.player.dimension, key, :section)
 
         case World.region(section) do
           {:ok, pid} ->
-            simulated = Enum.filter(chunks, &MapSet.member?(simulated_chunks, &1))
-
-            told = {pid, MapSet.new(chunks), MapSet.new(simulated)}
+            told = {pid, chunks, simulated}
 
             # Only a section whose chunks changed is told again: the
             # player's focus orders generation (VMC-077u), and a view of
@@ -175,8 +163,8 @@ defmodule Valimc.Session.Replication do
               {{section, told}, tickets}
             else
               entries = [
-                {key, :player_simulation, simulated},
-                {key, :player_loading, chunks}
+                {key, :player_simulation, MapSet.to_list(simulated)},
+                {key, :player_loading, MapSet.to_list(chunks)}
               ]
 
               {{section, told}, Map.update(tickets, pid, entries, &(entries ++ &1))}
@@ -215,7 +203,7 @@ defmodule Valimc.Session.Replication do
     # One message per group, nearest sections first.
     for {pid, entries} <- tickets, do: Region.tickets(pid, Enum.reverse(entries))
 
-    watch_owners(%{state | wanted: wanted})
+    watch_owners(%{state | wanted: wanted, view_wants: wants})
   end
 
   # The groups told the view's wants are watched (VMC-077y): one that stops
@@ -255,17 +243,30 @@ defmodule Valimc.Session.Replication do
   the connection never waits. Nothing streams before the client confirms its
   play teleport.
   """
-  def stream_chunks(%{phase: :play, teleport_pending: false, pending: [_ | _]} = state) do
+  def stream_chunks(
+        %{
+          phase: :play,
+          teleport_pending: false,
+          view: {center, _},
+          pending: %PendingChunks{count: count} = pending
+        } = state
+      )
+      when count > 0 do
     case ChunkSender.batch_size(state.chunk_sender) do
       0 ->
         state
 
       size ->
         # The nearest chunks that are ready, as vanilla sends from loaded ones.
+        dimension = state.player.dimension
+
+        {sendable, pending} =
+          PendingChunks.sendable(pending, center, size, fn key ->
+            World.stream_source(Grid.section(dimension, key, :section))
+          end)
+
         {ready, sender} =
-          state.pending
-          |> then(&World.sendable(state.player.dimension, &1, size))
-          |> Enum.reduce({[], state.chunk_sender}, fn
+          Enum.reduce(sendable, {[], state.chunk_sender}, fn
             {chunk, {:frame, frame}}, {ready, sender} ->
               {[{chunk, frame} | ready], sender}
 
@@ -276,7 +277,7 @@ defmodule Valimc.Session.Replication do
               end
           end)
 
-        state = %{state | chunk_sender: sender}
+        state = %{state | pending: pending, chunk_sender: sender}
         if ready == [], do: state, else: send_batch(state, Enum.reverse(ready))
     end
   end
@@ -290,7 +291,11 @@ defmodule Valimc.Session.Replication do
   def chunk_reply(state, message) do
     case ChunkSender.response(state.chunk_sender, message) do
       {:ok, chunk, sender} ->
-        sender = if chunk in state.pending, do: sender, else: ChunkSender.forget(sender, [chunk])
+        sender =
+          if PendingChunks.member?(state.pending, chunk),
+            do: sender,
+            else: ChunkSender.forget(sender, [chunk])
+
         {:ok, stream_chunks(%{state | chunk_sender: sender})}
 
       :error ->
@@ -330,12 +335,12 @@ defmodule Valimc.Session.Replication do
         ]
 
     send_frames(state, frames)
-    sent = MapSet.new(ready, &elem(&1, 0))
+    sent = Enum.map(ready, &elem(&1, 0))
 
     %{
       state
-      | pending: Enum.reject(state.pending, &MapSet.member?(sent, &1)),
-        chunks: MapSet.union(state.chunks, sent),
+      | pending: PendingChunks.delete(state.pending, sent),
+        chunks: MapSet.union(state.chunks, MapSet.new(sent)),
         chest_lids: lids,
         chunk_sender: ChunkSender.sent(state.chunk_sender, length(ready))
     }

@@ -132,7 +132,9 @@ defmodule Valimc.Net.Connection do
        # The dimension, chunk and position the generation scheduler was last
        # told the player is at (VMC-077u).
        generation_focus: nil,
-       pending: [],
+       # The sets the view's tickets want per section (`ViewWants`).
+       view_wants: %Valimc.Session.ViewWants{},
+       pending: Valimc.Session.PendingChunks.new(),
        # Vanilla refills the quota in the tick a player joins (VMC-070).
        chunk_sender: Valimc.Session.ChunkSender.tick(%Valimc.Session.ChunkSender{}),
        # Vanilla's default until the client sends its settings (VMC-070).

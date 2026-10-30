@@ -1198,7 +1198,21 @@ defmodule Valimc.TestWorld do
   def registered(key), do: Registry.lookup(Valimc.RegionRegistry, section(key))
   def item_snapshot(key), do: World.item_snapshot(section(key))
   def chunk(chunk), do: World.chunk(Valimc.World.Dimension.current(), chunk)
-  def sendable(keys, limit), do: World.sendable(Valimc.World.Dimension.current(), keys, limit)
+
+  # The first `limit` of `keys` a connection could send now, as it reads them.
+  def sendable(keys, limit) do
+    keys
+    |> Enum.flat_map(fn key ->
+      case World.stream_source(section(Valimc.Data.Grid.region_key(key))) do
+        {pid, table, _} ->
+          for k <- World.generated(table, [key]), do: {k, World.chunk_source(table, k, pid)}
+
+        nil ->
+          []
+      end
+    end)
+    |> Enum.take(limit)
+  end
 
   def subscribe(keys, previous),
     do: World.subscribe(MapSet.new(keys, &section/1), MapSet.new(previous, &section/1))

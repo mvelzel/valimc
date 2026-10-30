@@ -461,7 +461,13 @@ waits for a chunk: an owner publishes each chunk's packet beside its snapshot
 once encoded and withdraws it in the step that adopts a
 change; the connection reads published packets directly, asks for the others
 with `send_request` and sends replies when they arrive. A dimension change
-withdraws the old dimension's tickets and abandons pending requests.
+withdraws the old dimension's tickets and abandons pending requests. A view
+change costs what it moved, not the view's area: the chunks entering and
+leaving come column by column, a section's wanted chunks change only by those
+(`Session.ViewWants`), and pending chunks are kept by section with the
+generated ones each section's publication count last showed
+(`Session.PendingChunks`), so a section with nothing ready costs its route and
+that count per batch, not a lookup per chunk.
 
 ## Generation (M2)
 

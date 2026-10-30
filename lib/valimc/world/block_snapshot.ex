@@ -8,8 +8,9 @@ defmodule Valimc.World.BlockSnapshot do
   sections it writes afterwards, and each section keeps the revision of the
   publication that last changed it. Rows move with the table on a section
   handoff (VMC-077j). A chunk not generated yet (VMC-075) has an `:absent`
-  row. Readers go through `Valimc.World.View`; observations never grant
-  authority.
+  row. A `:generated` counter row counts the publications that turned chunks
+  from absent (or unpublished) to generated. Readers go through
+  `Valimc.World.View`; observations never grant authority.
   """
   alias Valimc.World.Blocks
 
@@ -18,7 +19,26 @@ defmodule Valimc.World.BlockSnapshot do
     previous = for chunk <- chunks, do: {chunk, published(table, chunk)}
     handles = Blocks.snapshots(blocks, previous, revision)
     :ets.insert(table, Enum.zip_with(chunks, handles, &{{:chunk, &1}, &2}))
+
+    # After the rows, so a reader that sees the new count sees them too.
+    if Enum.any?(previous, &match?({_, nil}, &1)),
+      do: :ets.update_counter(table, :generated, 1, {:generated, 0})
+
     :ok
+  end
+
+  @doc """
+  How many publications made chunks of the table generated (VMC-081k): a
+  reader that saw some chunks absent need not look at them again while this
+  count is unchanged. Nil once the table is gone.
+  """
+  def generated(table) do
+    case :ets.lookup(table, :generated) do
+      [{_, count}] -> count
+      [] -> 0
+    end
+  rescue
+    ArgumentError -> nil
   end
 
   @doc "Mark `chunks` as not generated yet: reads of them fail until they are published."
