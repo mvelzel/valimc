@@ -7,3 +7,7 @@ publish.workspace = true
 description = "Pure Rust world data structures for ValiMC (no BEAM dependency)."
 
 [dependencies]
+
+[[bench]]
+name = "mob_kernel"
+harness = false
