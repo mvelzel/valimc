@@ -48,13 +48,75 @@ pub struct MobFacts {
     pub village: VillageFacts,
     /// Block outline shapes (`Valimc.Physics.Clip`'s), where given.
     pub outlines: outlines::Outlines,
+    /// Potions by registry id (`Valimc.Data.PotionTypes`), where given.
+    pub potions: Vec<Potion>,
+}
+
+/// A potion (`Valimc.Data.PotionTypes`): its name and each effect's rungs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Potion {
+    pub name: String,
+    pub effects: Vec<(i32, Vec<crate::mobs::model::Rung>)>,
+}
+
+impl MobFacts {
+    /// `PotionTypes.id/1` of a namespaced name.
+    pub fn potion(&self, name: &str) -> Option<i32> {
+        self.potions
+            .iter()
+            .position(|p| p.name == name)
+            .map(|i| i as i32)
+    }
+}
+
+fn potions(json: &Json) -> Result<Vec<Potion>, String> {
+    let mut rows = json
+        .field("potions")?
+        .as_array()?
+        .iter()
+        .map(|row| {
+            let id = row.field("id")?.as_f64()? as usize;
+            let effects = row
+                .field("effects")?
+                .as_array()?
+                .iter()
+                .map(|e| {
+                    let rungs = e
+                        .field("rungs")?
+                        .as_array()?
+                        .iter()
+                        .map(|r| match r.as_array()? {
+                            [ticks, amplifier, ambient, particles, icon] => {
+                                Ok(crate::mobs::model::Rung {
+                                    ticks: ticks.as_f64()? as i32,
+                                    amplifier: amplifier.as_f64()? as u8,
+                                    ambient: ambient.as_bool()?,
+                                    particles: particles.as_bool()?,
+                                    icon: icon.as_bool()?,
+                                })
+                            }
+                            _ => Err("a rung needs five fields".to_string()),
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    Ok((e.field("id")?.as_f64()? as i32, rungs))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let name = row.field("name")?.as_str()?.to_owned();
+            Ok((id, Potion { name, effects }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    rows.sort_by_key(|(id, _)| *id);
+    if rows.iter().enumerate().any(|(i, (id, _))| i != *id) {
+        return Err("potion ids are not contiguous".into());
+    }
+    Ok(rows.into_iter().map(|(_, p)| p).collect())
 }
 
 impl MobFacts {
     /// The facts from the installer's map (`Valimc.AI.NativeFacts.facts/0`):
     /// `ai`, `entities`, `effects`, `hostile`, `animal`, `village`, `combat`,
     /// `attributes`, `items`, `blocks`, `tags`, `registries`, `climates`,
-    /// `structure_tags` and `outlines` (optional), each the decoded JSON of its file (or the part of it
+    /// `structure_tags`, `outlines` and `potions` (optional), each the decoded JSON of its file (or the part of it
     /// the AI reads).
     pub fn parse(json: &Json) -> Result<MobFacts, String> {
         let at = |key: &str| json.field(key).map_err(|e| format!("mob facts: {e}"));
@@ -103,7 +165,12 @@ impl MobFacts {
             Ok(o) => outlines::Outlines::parse(o)?,
             Err(_) => outlines::Outlines::default(),
         };
+        let potions = match json.field("potions") {
+            Ok(p) => potions(p)?,
+            Err(_) => Vec::new(),
+        };
         Ok(MobFacts {
+            potions,
             outlines,
             entities,
             attributes,

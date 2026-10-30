@@ -27,7 +27,7 @@ defmodule Valimc.NativeMobHostileTest do
     for type <-
           ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager minecraft:skeleton
              minecraft:stray minecraft:bogged minecraft:creeper minecraft:spider
-             minecraft:cave_spider minecraft:enderman),
+             minecraft:cave_spider minecraft:enderman minecraft:witch),
         do: assert(type in types)
   end
 
@@ -481,6 +481,64 @@ defmodule Valimc.NativeMobHostileTest do
       expected = Valimc.AI.Mobs.Enderman.death_drops(body)
       assert {id, Native.mob_parity_death_drops(ctx.facts, record)} == {id, expected}
     end
+  end
+
+  ## Witches
+
+  test "witches drink what they need, throw potions and resist magic", ctx do
+    spots = land(ctx.blocks, 12, :rand.seed_s(:exsss, 151))
+    pools = water(ctx.blocks, 1, :rand.seed_s(:exsss, 152))
+    {[here, far], rest} = Enum.split(spots, 2)
+    {hx, hy, hz} = here
+    water = Valimc.Protocol.Data.block("water")
+
+    entries =
+      for {spot, n} <- Enum.with_index(rest, 1) do
+        opts =
+          cond do
+            n == 1 -> [fire: 300]
+            n == 2 -> [finalize: :natural]
+            true -> []
+          end
+
+        mob(n, "minecraft:witch", spot, opts)
+      end
+
+    # One close by to throw at, one wet, one hurt, one far from its target.
+    [{wx, wy, wz}] = pools
+    near = mob(20, "minecraft:witch", {hx + 3, surface(ctx.blocks, hx + 3, hz), hz})
+
+    wet =
+      mob(21, "minecraft:witch", {wx, wy - 1, wz},
+        motion: [water: 1.0, eye_water: true, eye: {true, water}]
+      )
+
+    hurt = put_in(elem(near, 1).body.mob.living.health.value, 6.0)
+    hurt = {22, %{hurt | entity: %{hurt.entity | uuid: uuid(22), x: hurt.entity.x + 1.0}}}
+
+    scene =
+      scene([player(0, here), player(1, far)],
+        ticks: 300,
+        bright: false,
+        acts: [{10, 3, :hurt}],
+        post: true,
+        level: 71
+      )
+
+    observed = compare(ctx, scene, entries ++ [near, wet, hurt])
+    effects = effects(observed)
+    records = List.flatten(for {r, _, _, _} <- observed, do: r)
+    assert Enum.any?(effects, &match?({:throw_potion, _}, &1))
+    assert Enum.any?(records, &(&1.data.drinking == true))
+    assert running?(observed, "Valimc.AI.Goals.RangedAttack")
+
+    drunk =
+      for %{mob: %{equipment: %{mainhand: stack}}} <- records,
+          contents = stack.components["minecraft:potion_contents"],
+          into: MapSet.new(),
+          do: contents.potion
+
+    assert MapSet.size(drunk) >= 3
   end
 
   ## Conversions

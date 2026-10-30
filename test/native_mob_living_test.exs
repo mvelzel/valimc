@@ -293,7 +293,7 @@ defmodule Valimc.NativeMobLivingTest do
   # ------------------------------------------------------------------ cases
 
   @hostiles ~w(zombie husk skeleton stray creeper spider cave_spider blaze wither_skeleton
-               zombified_piglin)
+               zombified_piglin witch enderman)
   @animals ~w(cow pig sheep chicken)
 
   defp player_hit(amount, yaw \\ 30.0, extra \\ %{}) do
@@ -357,7 +357,7 @@ defmodule Valimc.NativeMobLivingTest do
       [hit(:fireball, 6.0, %{bypass_immunity: true})]
     ]
 
-    for type <- ~w(zombie skeleton blaze stray wither_skeleton spider),
+    for type <- ~w(zombie skeleton blaze stray wither_skeleton spider witch enderman),
         dressed <- [false, true],
         effects <- [
           %{},

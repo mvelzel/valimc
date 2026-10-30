@@ -155,8 +155,15 @@ fn zombie(entity_type: &str) -> bool {
 struct ParityFamilies;
 
 impl Families for ParityFamilies {
-    fn family(&self, _entity_type: u16) -> &dyn Family {
-        &ParityFamily
+    /// A native family's own hooks; the stand-in for the others.
+    fn family(&self, entity_type: u16) -> &dyn Family {
+        match crate::mob_facts::kinds()
+            .ok()
+            .and_then(|kinds| kinds.kind(entity_type))
+        {
+            Some(kind) => kind,
+            None => &ParityFamily,
+        }
     }
 }
 
@@ -610,11 +617,14 @@ fn run(rules: &Rules, mob: &mut NativeMob, op: &Value) -> NifResult<(Vec<Event>,
             Value::List(done)
         }
         // `Body.values/1`.
+        // The common, living and mob fields (the test's `Enum.take(10)`;
+        // a family's own are its scenes').
         "values" => {
             let t = ty(rules, mob)?;
             Value::List(
                 body::values(rules, t, &mob.body)
                     .into_iter()
+                    .take(10)
                     .map(|(k, v, d)| Value::Tuple(vec![Value::Atom(k), v, d]))
                     .collect(),
             )
