@@ -34,6 +34,28 @@ pub struct Column {
     pub sections: Vec<Arc<Storage>>,
     /// Per-section biomes; `None` uses the region's default biome everywhere.
     pub biomes: Option<Arc<Vec<Biomes>>>,
+    /// The WORLD_SURFACE heights read so far (natural spawning's starts,
+    /// VMC-081g2); a write forgets its column's.
+    surface: SurfaceCache,
+}
+
+/// Heights of one heightmap by column (`z * 16 + x`), each computed when
+/// first read; `UNKNOWN` until then. A clone starts empty.
+#[derive(Default)]
+struct SurfaceCache(std::sync::OnceLock<Box<[std::sync::atomic::AtomicU16; 256]>>);
+
+const UNKNOWN: u16 = u16::MAX;
+
+impl Clone for SurfaceCache {
+    fn clone(&self) -> Self {
+        SurfaceCache::default()
+    }
+}
+
+impl std::fmt::Debug for SurfaceCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SurfaceCache")
+    }
 }
 
 impl Column {
@@ -41,6 +63,26 @@ impl Column {
         Self {
             sections: sections.into_iter().map(Arc::new).collect(),
             biomes: biomes.map(Arc::new),
+            surface: SurfaceCache::default(),
+        }
+    }
+
+    /// `height(x, z)` of the WORLD_SURFACE heightmap (`flags` the block
+    /// facts), kept until a write to that column.
+    pub fn surface(&self, x: usize, z: usize, flags: &BlockFlags) -> u16 {
+        use std::sync::atomic::{AtomicU16, Ordering::Relaxed};
+        let cells = self
+            .surface
+            .0
+            .get_or_init(|| Box::new(std::array::from_fn(|_| AtomicU16::new(UNKNOWN))));
+        let cell = &cells[z * 16 + x];
+        match cell.load(Relaxed) {
+            UNKNOWN => {
+                let h = height(&self.sections, x, z, flags, WORLD_SURFACE);
+                cell.store(h, Relaxed);
+                h
+            }
+            h => h,
         }
     }
 
@@ -90,6 +132,10 @@ impl Column {
         let previous = self.sections[s].get(i);
         if previous != state {
             Arc::make_mut(&mut self.sections[s]).set(i, state);
+            if let Some(cells) = self.surface.0.get() {
+                cells[((z & 15) * 16 + (x & 15)) as usize]
+                    .store(UNKNOWN, std::sync::atomic::Ordering::Relaxed);
+            }
         }
         previous
     }
@@ -791,7 +837,9 @@ impl ColumnStore {
         if !self.light.known(ax, az) {
             return None;
         }
-        let cell = self.area_cells(&[(x, y, z)])[0];
+        // Inside the region and the build height: its area cell, without a list.
+        let (ox, oz) = ((self.chunk_min.0 - 1) * 16, (self.chunk_min.1 - 1) * 16);
+        let cell = ((x - ox) as usize, (y - MIN_Y) as usize, (z - oz) as usize);
         let sky = if self.sky {
             self.light.get(Kind::Sky, cell)
         } else {
@@ -1813,5 +1861,22 @@ mod tests {
         let heights = column.heights(&f, WORLD_SURFACE);
         assert_eq!(heights[3], (100 - MIN_Y + 1) as u16);
         assert_eq!(heights[4], 128);
+    }
+
+    #[test]
+    fn a_kept_surface_height_follows_writes_to_its_column() {
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        let f = flags();
+        store.set_many(&[(3, 100, 0, 5)], &f).unwrap();
+        let surface = |store: &ColumnStore, x: usize| store.columns[&(0, 0)].surface(x, 0, &f);
+        assert_eq!(surface(&store, 3), (100 - MIN_Y + 1) as u16);
+        assert_eq!(surface(&store, 4), 128);
+        store
+            .set_many(&[(3, 100, 0, 0), (4, 120, 0, 5)], &f)
+            .unwrap();
+        assert_eq!(surface(&store, 3), 128);
+        assert_eq!(surface(&store, 4), (120 - MIN_Y + 1) as u16);
+        let heights = store.columns[&(0, 0)].heights(&f, WORLD_SURFACE);
+        assert!((0..16).all(|x| surface(&store, x) == heights[x]));
     }
 }

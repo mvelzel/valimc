@@ -32,7 +32,7 @@ use valimc_core::physics::Aabb;
 use valimc_core::spawning::block_spawner;
 use valimc_core::spawning::census::Counted;
 use valimc_core::spawning::facts::{Category, Facts};
-use valimc_core::spawning::level::Level;
+use valimc_core::spawning::level::{Level, WORLD_SURFACE};
 use valimc_core::spawning::rules::{overlaps, Player, World};
 use valimc_core::spawning::spawner::{self, Charges, Despawn, Drawn, SpawnState, Tick};
 use valimc_core::spawning::structures::{Area, Areas, Kept};
@@ -344,6 +344,9 @@ impl Level for Stores<'_, '_> {
         let mask = 1u8 << map;
         MIN_Y
             + match column {
+                Some(column) if map == WORLD_SURFACE => {
+                    column.surface((x & 15) as usize, (z & 15) as usize, self.flags) as i32
+                }
                 Some(column) => valimc_core::column::height(
                     &column.sections,
                     (x & 15) as usize,
