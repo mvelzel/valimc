@@ -416,6 +416,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_oracle_brain_view(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_villager(_section, _id, _gates, _order, _sensors, _refresh, _timing),
+    do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_path(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_set(_section, _id, _change), do: :erlang.nif_error(:nif_not_loaded)
 

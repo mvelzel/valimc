@@ -1858,6 +1858,84 @@ mod oracle {
         Ok(atoms::ok())
     }
 
+    /// A villager `id` as the village oracle made it (after
+    /// `mob_section_oracle_prepare`): its brain built with the oracle's
+    /// gates (`[{key, random state}]`) and activity order (`[{priority,
+    /// [activity]}]`), its sensors' countdowns, the gates each remade brain
+    /// takes, started by its schedule at day time `day` and game time
+    /// `time`; then its mind's random the state `random` and, where given,
+    /// when it last slept.
+    #[rustler::nif]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn mob_section_oracle_villager(
+        env: Env,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        gates: Vec<(String, u64)>,
+        order: Vec<(i32, Vec<String>)>,
+        sensors: Vec<i32>,
+        refresh: Vec<Vec<(String, u64)>>,
+        timing: (i64, i64, u64, Option<i64>),
+    ) -> NifResult<Atom> {
+        use valimc_core::mobs::ai::brain::{Activity, Mem, MemValue};
+        use valimc_core::mobs::brains::villager::Villager;
+        use valimc_core::mobs::random::LegacyRandom;
+        let (day, time, random, slept) = timing;
+        let rules = rules()?;
+        let kinds = crate::mob_facts::kinds()?;
+        let state = |s: u64| LegacyRandom::from_state(s).ok_or(rustler::Error::BadArg);
+        let keyed = |rows: Vec<(String, u64)>| -> NifResult<Vec<(String, LegacyRandom)>> {
+            rows.into_iter().map(|(k, s)| Ok((k, state(s)?))).collect()
+        };
+        let gates = keyed(gates)?;
+        let refresh = refresh
+            .into_iter()
+            .map(keyed)
+            .collect::<NifResult<Vec<_>>>()?;
+        let order: Vec<(i32, Vec<Activity>)> = order
+            .into_iter()
+            .map(|(p, acts)| (p, acts.iter().filter_map(|a| Activity::of(a)).collect()))
+            .collect();
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        let ty = rules
+            .facts
+            .entities
+            .id(&slot.mob.body.entity_type)
+            .ok_or(rustler::Error::BadArg)?;
+        let villager = kinds
+            .kind(ty)
+            .and_then(|k| k.brain())
+            .and_then(|b| b.as_any().downcast_ref::<Villager>())
+            .ok_or(rustler::Error::BadArg)?;
+        let data = slot.mob.body.data.clone();
+        let mut brain = villager.build(&data, &mut LegacyRandom::new(0), &gates, &order);
+        for (s, t) in brain.sensors.iter_mut().zip(sensors) {
+            s.time = t;
+        }
+        brain.refresh = refresh;
+        Villager::start(rules.facts, &mut brain, &data, day, time);
+        if let Some(slept) = slept {
+            brain
+                .memories
+                .set(Mem::LastSlept, MemValue::Int(slept), None);
+        }
+        let mind = slot
+            .mob
+            .body
+            .mob
+            .ai
+            .as_mut()
+            .ok_or_else(|| fail(atoms::missing()))?;
+        mind.random = state(random)?;
+        let s = mind.state.as_mut().ok_or_else(|| fail(atoms::missing()))?;
+        s.brain = Some(Box::new(brain));
+        Ok(atoms::ok())
+    }
+
     /// What the AI stages compare of brain mob `id`'s brain: `{running,
     /// activity | nil, gate seeds, memories}` (`Brain.running/1`'s
     /// `"priority:activity"`, the first active activity not core, each

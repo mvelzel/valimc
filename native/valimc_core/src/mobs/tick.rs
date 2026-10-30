@@ -316,6 +316,33 @@ pub fn tagged(tag: &'static str, v: Value) -> Value {
     }
 }
 
+/// `MobTicks.extras/2` merged into a melee hit: what its family adds to a
+/// hit on `target` (the first `{:attack_extra, target, extras}` it made: an
+/// iron golem's amount and throw, a mob's extra knockback).
+pub fn with_extras(mut hit: combat::Hit, made: &[AiEffect], target: &Ref) -> combat::Hit {
+    let extras = made.iter().find_map(|e| match e {
+        AiEffect::AttackExtra(r, Value::Map(m)) if r == target => Some(m),
+        _ => None,
+    });
+    let Some(m) = extras else {
+        return hit;
+    };
+    let number = |key: &str| m.get_atom(key).and_then(Value::as_number);
+    if let Some(amount) = number("amount") {
+        hit.amount = amount;
+    }
+    if let Some(v) = m.get_atom("lift") {
+        hit.lift = v.as_number();
+    }
+    if let Some(v) = m.get_atom("extra_knockback") {
+        hit.extra_knockback = v.as_tuple_n::<2>().and_then(|[power, direction]| {
+            let [x, z] = direction.as_tuple_n::<2>()?;
+            Some((power.as_number()?, [x.as_number()?, z.as_number()?]))
+        });
+    }
+    hit
+}
+
 /// Splits AI effects into the mob's events and the effects leaving it.
 fn split(made: Vec<AiEffect>, out: &mut Turned) -> Vec<Event> {
     let mut events = Vec::new();
@@ -1244,6 +1271,7 @@ impl Tick {
         made: Vec<AiEffect>,
     ) -> Vec<AiEffect> {
         let rules = tw.rules;
+        let all = made.clone();
         let mut kept = Vec::with_capacity(made.len());
         for e in made {
             let AiEffect::Attack(r) = &e else {
@@ -1270,6 +1298,7 @@ impl Tick {
                 kept.push(e);
                 continue;
             };
+            let hit = with_extras(hit, &all, r);
             let state = self.turns.get_mut(&tid).expect("turn");
             slot.mob.body.velocity = ticker.current[state.index].velocity;
             let (events, hurt) = combat::hit_body(rules, &mut slot.mob, &hit);
@@ -1320,6 +1349,7 @@ impl Outside for SectionOutside<'_, '_, '_> {
         let Some(hit) = combat::mob_hit(rules, t.mob, t.id, tty.id) else {
             return false;
         };
+        let hit = with_extras(hit, &t.effects, target);
         let mut target = slot.mob.clone();
         let (_, hurt) = combat::hit_body(rules, &mut target, &hit);
         hurt && !living_mob::alive(&target.body.mob)

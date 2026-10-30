@@ -674,7 +674,29 @@ impl Villager {
         let facts = t.level.facts;
         let uuid = t.uuid;
         let data = t.data().clone();
-        let mut fresh = BrainFamily::brain(self, facts, &uuid, &data, &mut t.random);
+        // An oracle's brain takes the gates it was given for its next
+        // remaking, and keeps its activity order.
+        let (gates, order, rest) = match t.brain() {
+            Some(b) if !b.refresh.is_empty() => (
+                Some(b.refresh[0].clone()),
+                b.order.clone(),
+                b.refresh[1..].to_vec(),
+            ),
+            Some(b) => (None, b.order.clone(), Vec::new()),
+            None => (None, Vec::new(), Vec::new()),
+        };
+        let mut fresh = match gates {
+            Some(gates) => self.build(&data, &mut t.random, &gates, &order),
+            None if !order.is_empty() => {
+                let gates: Vec<(String, LegacyRandom)> = Villager::gates(&uuid, baby(&data))
+                    .into_iter()
+                    .map(|(k, r)| (k.to_owned(), r))
+                    .collect();
+                self.build(&data, &mut t.random, &gates, &order)
+            }
+            None => BrainFamily::brain(self, facts, &uuid, &data, &mut t.random),
+        };
+        fresh.refresh = rest;
         if let Some(old) = t.brain() {
             fresh.memories = old.memories.clone();
         }
@@ -961,20 +983,18 @@ fn unobstructed(t: &Turn, [x, y, z]: [i32; 3]) -> bool {
     !mobs && !players
 }
 
-impl BrainFamily for Villager {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn brain(
+impl Villager {
+    /// `Villager.brain/4`: its brain with `gates` (by key) and the activity
+    /// `order` (empty: its activities' order), its sensors' countdowns drawn
+    /// from `random`.
+    pub fn build(
         &self,
-        facts: &MobFacts,
-        uuid: &Uuid,
         data: &FamilyData,
         random: &mut LegacyRandom,
+        gates: &[(String, LegacyRandom)],
+        order: &[(i32, Vec<Activity>)],
     ) -> Brain {
         let baby = baby(data);
-        let gates = Villager::gates(uuid, baby);
         let g = |key: &str| -> LegacyRandom {
             gates
                 .iter()
@@ -1025,8 +1045,7 @@ impl BrainFamily for Villager {
             Conds::NONE,
             &[],
         ));
-        let _ = facts;
-        Brain::new(
+        Brain::ordered(
             &[
                 (Sensor::NearestLiving, 20),
                 (Sensor::Players, 20),
@@ -1042,7 +1061,39 @@ impl BrainFamily for Villager {
             random,
             Some(SAVED),
             SHARED,
+            order,
         )
+    }
+
+    /// A villager's activity at day time `day` by its schedule
+    /// (`registerBrainGoals`' and the brain update's), started at game time
+    /// `time`: what an oracle's seeded brain starts with.
+    pub fn start(facts: &MobFacts, brain: &mut Brain, data: &FamilyData, day: i64, time: i64) {
+        let scheduled = facts.village.scheduled(day, baby(data));
+        if let Some(a) = Activity::of(scheduled) {
+            brain.schedule(time, a);
+        }
+    }
+}
+
+impl BrainFamily for Villager {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn brain(
+        &self,
+        facts: &MobFacts,
+        uuid: &Uuid,
+        data: &FamilyData,
+        random: &mut LegacyRandom,
+    ) -> Brain {
+        let _ = facts;
+        let gates: Vec<(String, LegacyRandom)> = Villager::gates(uuid, baby(data))
+            .into_iter()
+            .map(|(k, r)| (k.to_owned(), r))
+            .collect();
+        self.build(data, random, &gates, &[])
     }
 
     /// `registerBrainGoals` when a villager is made: the schedule picks its

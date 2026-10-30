@@ -504,6 +504,13 @@ pub struct Brain {
     pub saved: Option<&'static [Mem]>,
     /// The memories other brain mobs read of it.
     pub shared: &'static [Mem],
+    /// The activity order it was made with (`%{priority => [activity]}`,
+    /// vanilla's hash order: an oracle's; empty, the order of its
+    /// activities).
+    pub order: Vec<(i32, Vec<Activity>)>,
+    /// The gates (by key) each remade brain takes in turn (an oracle's
+    /// seeds; empty, the mob's own).
+    pub refresh: Vec<Vec<(String, LegacyRandom)>>,
 }
 
 impl Brain {
@@ -518,6 +525,19 @@ impl Brain {
         random: &mut LegacyRandom,
         saved: Option<&'static [Mem]>,
         shared: &'static [Mem],
+    ) -> Brain {
+        Brain::ordered(sensors, activities, random, saved, shared, &[])
+    }
+
+    /// `new/6` with an activity `order`: behaviours of one priority run by
+    /// their activity's place in its priority's order, where it has one.
+    pub fn ordered(
+        sensors: &[(Sensor, i32)],
+        activities: Vec<Package>,
+        random: &mut LegacyRandom,
+        saved: Option<&'static [Mem]>,
+        shared: &'static [Mem],
+        order: &[(i32, Vec<Activity>)],
     ) -> Brain {
         let sensors = sensors
             .iter()
@@ -536,8 +556,13 @@ impl Brain {
                 erase: package.erase,
             });
             for (i, (priority, behavior)) in package.behaviors.into_iter().enumerate() {
+                let rank = order
+                    .iter()
+                    .find(|(p, _)| *p == priority)
+                    .and_then(|(_, acts)| acts.iter().position(|&x| x == package.name))
+                    .unwrap_or(a);
                 keyed.push((
-                    (priority, a, i),
+                    (priority, rank, i),
                     Entry {
                         activity: package.name,
                         priority,
@@ -557,9 +582,28 @@ impl Brain {
             schedule_update: -9999,
             saved,
             shared,
+            order: order.to_vec(),
+            refresh: Vec::new(),
         };
         brain.activate(Activity::Idle);
         brain
+    }
+
+    /// `updateActivityFromSchedule` at game time `time`: at most once in 20
+    /// ticks, the scheduled activity when it is not active (else its
+    /// default where its requirements do not hold).
+    pub fn schedule(&mut self, time: i64, scheduled: Activity) {
+        if time - self.schedule_update > 20 {
+            self.schedule_update = time;
+            if !self.active.contains(&scheduled) {
+                let to = if self.requirements_met(scheduled) {
+                    scheduled
+                } else {
+                    self.default
+                };
+                self.activate(to);
+            }
+        }
     }
 
     /// `setActiveActivity`: a newly active activity erases what the others
@@ -1054,12 +1098,8 @@ impl<'w> Turn<'_, 'w> {
     /// scheduled activity when it is not active.
     pub fn update_from_schedule(&mut self, scheduled: Activity) {
         let time = self.level.time;
-        let Some(b) = self.brain_mut() else { return };
-        if time - b.schedule_update > 20 {
-            b.schedule_update = time;
-            if !b.active.contains(&scheduled) {
-                self.set_active_if_possible(scheduled);
-            }
+        if let Some(b) = self.brain_mut() {
+            b.schedule(time, scheduled);
         }
     }
 

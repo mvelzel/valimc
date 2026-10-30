@@ -267,11 +267,9 @@ impl Environment for SectionEnv<'_> {
         self.no_chunks.then_some(false)
     }
 
-    /// `StandUp.bed/4` over the tick's snapshots (where a villager gets up).
+    /// `StandUp.bed/4` over the tick's snapshots, or an oracle scene's
+    /// supplied blocks (where a villager gets up).
     fn stand_up(&self, _type_id: u16, head: [i32; 3], facing: u8, yaw: f64) -> Option<[f64; 3]> {
-        if !matches!(self.view, physics_nif::View::Rows(_)) {
-            return None;
-        }
         stand_up(self.view, self.facts, head, facing as usize & 3, yaw)
     }
 

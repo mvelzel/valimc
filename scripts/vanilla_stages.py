@@ -1247,6 +1247,7 @@ STAGES = [
     ('village', [
         ('java', 'VillageOracle', 'cases', '@village.json'),
         ('check', 'check_village.exs', '@village.json'),
+        ('check', 'check_village.exs', '@village.json', '--native'),
     ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
