@@ -52,7 +52,8 @@ mod atoms {
     rustler::atoms! {
         ok, world, scene, all, done, r#yield = "yield", fixed, anger, player, portal, only,
         level, players, sections, loot, items, others, knots, goals, events, pois, located,
-        loot_seeds, no_tick, missing, invalid, not_owner,
+        loot_seeds, no_tick, missing, invalid, not_owner, dragon, crystals, previous_kill,
+        crystal_bodies,
     }
 }
 
@@ -314,6 +315,89 @@ pub(crate) struct Extras {
     /// The native mobs that take turns (an oracle's live ones); None: every
     /// one in the simulated chunks.
     only: Option<Vec<i32>>,
+    /// A dragon's arena (`dragon_world`), where the group holds one.
+    dragon: Option<tick::DragonWorld>,
+}
+
+/// A box `{x0, y0, z0, x1, y1, z1}`.
+type Box6 = (f64, f64, f64, f64, f64, f64);
+
+fn box6(b: Box6) -> [f64; 6] {
+    [b.0, b.1, b.2, b.3, b.4, b.5]
+}
+
+/// A dragon's arena from its owner: `%{crystals: n | nil, previous_kill,
+/// crystal_bodies: [{uuid, {x, y, z}, box}], others: [{uuid, {x, y, z},
+/// width, height, box | nil, recent}]}` (the group's Elixir mobs).
+fn dragon_world(term: Term) -> NifResult<tick::DragonWorld> {
+    use valimc_core::mobs::boss::dragon::{Crystal, MobTarget};
+    let crystal_bodies = term
+        .map_get(atoms::crystal_bodies())?
+        .decode::<Vec<(Term, Vec3, Box6)>>()?
+        .into_iter()
+        .map(|(uuid, p, b)| {
+            Ok(Crystal {
+                uuid: uuid16(uuid)?,
+                position: [p.0, p.1, p.2],
+                bbox: box6(b),
+            })
+        })
+        .collect::<NifResult<_>>()?;
+    let others = term
+        .map_get(atoms::others())?
+        .decode::<Vec<(Term, Vec3, f64, f64, Option<Box6>, bool)>>()?
+        .into_iter()
+        .map(|(uuid, p, width, height, b, recent)| {
+            Ok(MobTarget {
+                uuid: uuid16(uuid)?,
+                position: [p.0, p.1, p.2],
+                width,
+                height,
+                bbox: b.map(box6),
+                recent,
+            })
+        })
+        .collect::<NifResult<_>>()?;
+    Ok(tick::DragonWorld {
+        crystals: term.map_get(atoms::crystals())?.decode()?,
+        previous_kill: term.map_get(atoms::previous_kill())?.decode()?,
+        crystal_bodies,
+        others,
+        flame_uuid: [0; 16],
+    })
+}
+
+/// 16 fresh bytes: a breath's cloud uuid.
+fn fresh_uuid() -> [u8; 16] {
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&ms::seed().to_be_bytes());
+    out[8..].copy_from_slice(&ms::seed().to_be_bytes());
+    out
+}
+
+/// The native mobs of `section` the dragon may touch, where they are.
+fn dragon_targets(
+    rules: &Rules,
+    section: &MobSection,
+) -> Vec<valimc_core::mobs::boss::dragon::MobTarget> {
+    use valimc_core::mobs::boss::dragon::{recent, MobTarget};
+    section
+        .slots()
+        .filter_map(|(_, slot)| {
+            let m = &slot.mob;
+            let ty = rules.of(&m.body.entity_type)?;
+            let [width, height, _] =
+                valimc_core::mobs::living::body::dimensions(rules, ty, &m.body);
+            Some(MobTarget {
+                uuid: m.uuid,
+                position: m.position,
+                width,
+                height,
+                bbox: rules.family(ty).bounding_box(&m.body, m.position),
+                recent: recent(&m.body.mob),
+            })
+        })
+        .collect()
 }
 
 fn uuid16(t: Term) -> NifResult<[u8; 16]> {
@@ -389,6 +473,9 @@ fn extras(rules: &Rules, term: Term) -> NifResult<Extras> {
         let mut only: Vec<i32> = t.decode()?;
         only.sort_unstable();
         x.only = Some(only);
+    }
+    if let Some(t) = get(atoms::dragon()) {
+        x.dragon = Some(dragon_world(t)?);
     }
     Ok(x)
 }
@@ -544,7 +631,7 @@ fn tick_section<'a>(
     let rules = ms::rules()?;
     let physics = physics_nif::facts()?;
     let families = ms::families(&rules)?;
-    let extras = extras(&rules, extra)?;
+    let mut extras = extras(&rules, extra)?;
     let all = mask.decode::<Atom>().ok() == Some(atoms::all());
     let mask: u64 = if all { u64::MAX } else { mask.decode()? };
     let mut elixir: Vec<Elixir> = Vec::new();
@@ -623,6 +710,24 @@ fn tick_section<'a>(
         })
         .map(|(id, _)| id)
         .collect();
+    // A dragon's arena: its owner's, with the native mobs of the group's
+    // other sections it may touch.
+    let dragon = natives
+        .iter()
+        .any(|id| inner.section.get(*id).is_some_and(|s| tick::dragon(&s.mob)))
+        .then(|| {
+            let mut dw = extras.dragon.take().unwrap_or_default();
+            for s in &sections {
+                if s.key == key {
+                    continue;
+                }
+                if let Some(other) = s.native.as_ref().and_then(|n| ms::sibling(n)) {
+                    dw.others.extend(dragon_targets(&rules, &other.section));
+                }
+            }
+            dw.flame_uuid = fresh_uuid();
+            dw
+        });
     let region = scene_region.or_else(|| {
         sections
             .iter()
@@ -843,6 +948,7 @@ fn tick_section<'a>(
         players: &pushers[..],
         mob_griefing: parts.env.rules.mob_griefing,
         travel: std::cell::RefCell::new(travel),
+        dragon: dragon.as_ref(),
     };
     let section_env = ms::section_env(&rules, region.as_deref(), view, &parts.env);
     let air = AirWhereUnreadable(view);
@@ -919,6 +1025,7 @@ fn tick_section<'a>(
                 sensing,
                 ids: ids.clone(),
                 travel,
+                dragon,
             });
             Ok((
                 atoms::r#yield(),
@@ -1029,6 +1136,7 @@ fn resume<'a>(
         players: &ts.players[..],
         mob_griefing: running.parts.env.rules.mob_griefing,
         travel: std::cell::RefCell::new(std::mem::take(&mut running.travel)),
+        dragon: running.dragon.as_ref(),
     };
     let ran = {
         let section_env =
@@ -1408,6 +1516,107 @@ fn mob_section_body<'a>(
         mob_term::encode(env, &row)?,
         copy.idle,
         copy.lived,
+    )
+        .encode(env))
+}
+
+/// `Actor.crystal_destroyed/6` of the native dragon `id`: the end crystal
+/// `crystal` it may heal from was destroyed (`direct` `{uuid, entity_id,
+/// position}`, the explosion's direct entity) by `striker` (`{id, position,
+/// height, eligible, attacker}` or nil) over its arena (`arena`, as the
+/// tick's `dragon` extra), its level `level` (`RegionData.native_level/2`'s)
+/// over the group's sections (`world`): its head hit and a holding dragon's
+/// strafe. `{:ok, {nil, events, {position, row}}}`.
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn mob_section_dragon_crystal<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    world: ResourceArc<MobWorldRes>,
+    level: Term<'a>,
+    id: i32,
+    crystal: Term<'a>,
+    direct: (Term<'a>, i32, Vec3),
+    striker: Option<(i64, Vec3, f64, bool, Term<'a>)>,
+    arena: Term<'a>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::boss::dragon::{
+        self as dragon,
+        actor::{self, CrystalHit, Striker},
+        Arena, Player,
+    };
+    let rules = ms::rules()?;
+    let facts = rules.facts.dragon.as_ref().ok_or_else(bad)?;
+    let crystal = uuid16(crystal)?;
+    let direct = CrystalHit {
+        uuid: uuid16(direct.0)?,
+        entity_id: direct.1,
+        position: [direct.2 .0, direct.2 .1, direct.2 .2],
+    };
+    let striker = match striker {
+        Some((pid, p, height, eligible, attacker)) => Some(Striker {
+            player: Player {
+                id: pid,
+                position: [p.0, p.1, p.2],
+                height,
+            },
+            eligible,
+            attacker: ms::attacker(&mob_term::decode(attacker)?)?,
+        }),
+        None => None,
+    };
+    let mut dw = dragon_world(arena)?;
+    dw.flame_uuid = fresh_uuid();
+    let level_env = LevelEnv::decode(level)?;
+    let (players, sections) = {
+        let w = world.inner.lock().map_err(|_| bad())?;
+        (w.players.clone(), w.sections.clone())
+    };
+    let mut guard = ms::owned(env, &res)?;
+    let inner = &mut *guard;
+    let key = inner.section.section;
+    let region = sections
+        .iter()
+        .find(|s| s.key == key)
+        .map(|s| s.region.clone());
+    let view = sync(&mut inner.resident, key, &sections)?;
+    let section_env = ms::section_env(&rules, region.as_deref(), view, &level_env);
+    let air = AirWhereUnreadable(view);
+    let blocks = level_env.blocks(view, &air);
+    let level = level_env.level(blocks, &section_env, rules.facts, LegacyRandom { seed: 0 })?;
+    let slot = inner
+        .section
+        .get_mut(id)
+        .ok_or_else(|| rustler::Error::Term(Box::new(atoms::missing())))?;
+    let height = |x: i64, z: i64| tick::arena_height(&level, x, z);
+    let arena = Arena {
+        height: &height,
+        podium: [0, height(0, 0), 0],
+        crystals: dw.crystals,
+        crystal_bodies: dw.crystal_bodies,
+        mobs: Vec::new(),
+        previous_kill: dw.previous_kill,
+        flame_uuid: dw.flame_uuid,
+    };
+    let mut denv = dragon::environment(facts, rules.facts, &level, &slot.mob, &arena, &players);
+    let events = actor::crystal_destroyed(
+        &rules,
+        &mut slot.mob,
+        &crystal,
+        &direct,
+        striker.as_ref(),
+        &mut denv,
+    );
+    let row = ms::row(&rules, slot, false);
+    let p = slot.mob.position;
+    inner.section.relocate(id);
+    Ok((
+        atoms::ok(),
+        (
+            rustler::types::atom::nil(),
+            mob_term::encode(env, &ms::events_value(&rules, &events))?,
+            ((p[0], p[1], p[2]), mob_term::encode(env, &row)?),
+        ),
     )
         .encode(env))
 }

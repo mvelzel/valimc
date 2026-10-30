@@ -317,6 +317,7 @@ defmodule Valimc.Native do
 
   def mob_sleep_install(_flags, _floor_states, _floors, _beds),
     do: :erlang.nif_error(:nif_not_loaded)
+
   def mob_world_set(_world, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_tick(_section, _source, _tick, _mask, _random, _entrants, _extra),
@@ -346,6 +347,10 @@ defmodule Valimc.Native do
 
   def mob_section_kills(_section, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_kill(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_dragon_crystal(_section, _world, _level, _id, _crystal, _direct, _striker, _arena),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def mob_section_push(_section, _ticker, _id, _impulse), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_blast(_section, _id, _source, _amount, _impulse),
@@ -379,6 +384,9 @@ defmodule Valimc.Native do
   def mob_section_data(_section, _id, _key, _value), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_mob_hit(_section, _id, _target), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_new, do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_section_oracle_put(_section, _id, _record, _health),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_oracle_prepare(_section, _id, _body_yaw, _leash),
     do: :erlang.nif_error(:nif_not_loaded)

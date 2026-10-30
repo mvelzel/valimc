@@ -104,8 +104,8 @@ defmodule Valimc.DragonLiveTest do
     uuid = dragon.entity.uuid
 
     Valimc.TestRegion.replace_section(c.owners[key], fn s ->
-      body = %{dragon.body | mob: %{dragon.body.mob | no_ai: true}}
-      put_in(s.entities.store, Store.change_body(s.entities.store, id, body))
+      no_ai = &%{&1 | mob: %{&1.mob | no_ai: true}}
+      put_in(s.entities.store, Valimc.TestBodies.replace(s.entities.store, id, no_ai))
     end)
 
     assert section(c).arena.dragon == uuid and section(c).arena.initialized
@@ -179,12 +179,14 @@ defmodule Valimc.DragonLiveTest do
     {:ok, _} =
       Region.set_blocks(c.origin, observed.fence, %{wool => Blocks.default_state("white_wool")})
 
+    # The native dragon's body (VMC-081d), read before it leaves.
+    body = Valimc.TestBodies.body(dragon)
+
     Valimc.TestRegion.replace_section(c.owners[key], fn s ->
       {:ok, store} = Store.remove(s.entities.store, s.entities.store.epoch, id, dragon.revision)
       put_in(s.entities.store, store)
     end)
 
-    body = dragon.body
     body = put_in(body.mob.living.health.value, 0.0)
     record = Store.body_record(body, uuid, {129.0, 80.0, 20.0})
     :ok = Region.drop_items(c.owners[{1, 0}], [record])
@@ -362,9 +364,8 @@ defmodule Valimc.DragonLiveTest do
     assert fight.dragon == dragon.entity.uuid
 
     Valimc.TestRegion.replace_section(c.owners[key], fn state ->
-      body = dragon.body
-      body = put_in(body.mob.living.health.value, 0.0)
-      put_in(state.entities.store, Store.change_body(state.entities.store, id, body))
+      dead = &put_in(&1.mob.living.health.value, 0.0)
+      put_in(state.entities.store, Valimc.TestBodies.replace(state.entities.store, id, dead))
     end)
 
     # Existing item plans can defer an entity phase; bound wall ticks while

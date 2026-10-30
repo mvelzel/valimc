@@ -80,19 +80,18 @@ defmodule Valimc.DragonTest do
     store = Valimc.TestRegion.section(owner).entities.store
     {:ok, {_, id, _}} = Store.find(store, <<62::128>>)
     {:ok, {_, arrow_id, _}} = Store.find(store, <<63::128>>)
-    assert store.entries[id].body.mob.living.health.value == 200.0
+    assert Valimc.TestBodies.body(store.entries[id]).mob.living.health.value == 200.0
     assert store.entries[arrow_id].body.data.fire == 20
     assert elem(store.entries[arrow_id].body.velocity, 0) < 0
 
     Valimc.TestRegion.replace_section(owner, fn s ->
-      body = s.entities.store.entries[id].body
-      body = %{body | data: %{body.data | phase: 0}}
-      put_in(s.entities.store, Store.change_body(s.entities.store, id, body))
+      flying = &%{&1 | data: %{&1.data | phase: 0}}
+      put_in(s.entities.store, Valimc.TestBodies.replace(s.entities.store, id, flying))
     end)
 
     shoot.(<<64::128>>)
     store = Valimc.TestRegion.section(owner).entities.store
-    assert store.entries[id].body.mob.living.health.value == 194.0
+    assert Valimc.TestBodies.body(store.entries[id]).mob.living.health.value == 194.0
     assert {:error, :missing_item} = Store.find(store, <<64::128>>)
   end
 end
@@ -145,9 +144,8 @@ defmodule Valimc.DragonConnectionTest do
 
     for {part, expected} <- [{1, 193.0}, {3, 190.25}] do
       Valimc.TestRegion.replace_section(owner, fn s ->
-        body = s.entities.store.entries[id].body
-        body = put_in(body.mob.living.health.cooldown, 0)
-        put_in(s.entities.store, Store.change_body(s.entities.store, id, body))
+        ready = &put_in(&1.mob.living.health.cooldown, 0)
+        put_in(s.entities.store, Valimc.TestBodies.replace(s.entities.store, id, ready))
       end)
 
       TestPlayer.ticks(pid, 14)
@@ -167,7 +165,7 @@ defmodule Valimc.DragonConnectionTest do
       Client.send_packet(client, :play, "attack", Wire.varint(id + part))
 
       Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.section(owner).entities.store.entries[id].body.mob.living.health.value ==
+        Valimc.TestBodies.body(Valimc.TestRegion.section(owner).entities.store.entries[id]).mob.living.health.value ==
           expected
       end)
     end

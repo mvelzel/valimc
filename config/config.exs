@@ -31,7 +31,7 @@ config :valimc,
   item_simulation: true,
   # Mob types simulated whole in Rust (VMC-081d, `Valimc.Entity.NativeMobs`):
   # type names and :plain (the living types without Elixir AI); every family
-  # ported so far.
+  # ported.
   native_mob_types: [
     :plain,
     "minecraft:axolotl",
@@ -47,6 +47,7 @@ config :valimc,
     "minecraft:dolphin",
     "minecraft:drowned",
     "minecraft:elder_guardian",
+    "minecraft:ender_dragon",
     "minecraft:enderman",
     "minecraft:endermite",
     "minecraft:ghast",

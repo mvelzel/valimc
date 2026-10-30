@@ -1625,6 +1625,11 @@ defmodule Valimc.Entity.Store do
   """
   def kill(state, id) do
     case state.entries[id] do
+      # The dragon is removed (`Body.kill/1`): its death is its actor's.
+      %{native: ref, body: %{type: "minecraft:ender_dragon"}, revision: revision}
+      when ref != nil ->
+        remove(state, state.epoch, id, revision)
+
       %{native: ref} ->
         case Native.mob_section_kill(ref, id) do
           {:ok, {true, events, {position, row}}} ->

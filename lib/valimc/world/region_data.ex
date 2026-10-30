@@ -987,7 +987,7 @@ defmodule Valimc.World.RegionData do
       case target do
         %{ref: {:mob, sid}, uuid: uuid} ->
           case group_entry(state, sid) do
-            {_, _, %{entity: %{uuid: ^uuid}, body: %Body{type: "minecraft:ender_dragon"} = body}} ->
+            {_, _, %{entity: %{uuid: ^uuid}, body: %{type: "minecraft:ender_dragon"} = body}} ->
               Valimc.Entity.Dragon.ignites?(body, hit)
 
             _ ->
@@ -1476,7 +1476,7 @@ defmodule Valimc.World.RegionData do
       |> Enum.split_with(fn {_, entry} -> Store.native_entry?(entry) end)
 
     dragon_waits =
-      Enum.any?(elixir, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
+      Enum.any?(natives ++ elixir, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
         Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end)
 
     natives? = native != nil and natives != [] and state.mob_world != nil
@@ -3032,6 +3032,12 @@ defmodule Valimc.World.RegionData do
         else: extra
 
     extra = if state.mob_events != [], do: Map.put(extra, :events, state.mob_events), else: extra
+
+    extra =
+      if Store.has_type?(state.entities.store, "minecraft:ender_dragon"),
+        do: Map.put(extra, :dragon, native_dragon(state)),
+        else: extra
+
     pois = poi_claims(state, Valimc.AI.Pois.store_claims(elixir, state.dimension))
     extra = if map_size(pois) > 0, do: Map.put(extra, :pois, Enum.to_list(pois)), else: extra
 
@@ -3492,9 +3498,6 @@ defmodule Valimc.World.RegionData do
           }
         end
 
-      view = Valimc.World.View.new(state.dimension)
-      world = mob_world(state, view, Valimc.World.Clock.border_snapshot())
-
       direct = %{
         uuid: crystal.uuid,
         entity_id: crystal.entity_id,
@@ -3506,14 +3509,41 @@ defmodule Valimc.World.RegionData do
       arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
 
       dragons =
-        for {id, %{body: %Body{type: "minecraft:ender_dragon"}, entity: e}} <-
+        for {id, %{body: %{type: "minecraft:ender_dragon"}, entity: e}} <-
               group_entries(state),
             arena == nil or arena.dragon == e.uuid,
             do: id
 
       Enum.reduce(dragons, state, fn id, state ->
         case group_entry(state, id) do
+          # A native dragon (VMC-081d) in its section, over its arena.
+          {key, store, %{native: ref}} when ref != nil ->
+            striker =
+              player &&
+                {player.id, player.position, player.height * 1.0, player.eligible,
+                 player.attacker}
+
+            case Native.mob_section_dragon_crystal(
+                   ref,
+                   state.mob_world,
+                   native_level(state.dimension, state.game_tick),
+                   id,
+                   crystal.uuid,
+                   {crystal.uuid, crystal.entity_id,
+                    {crystal.x * 1.0, crystal.y * 1.0, crystal.z * 1.0}},
+                   striker,
+                   native_dragon(state)
+                 ) do
+              {:ok, {_, events, {position, row}}} ->
+                change_group_entry(state, key, store, id, {:native, position, row, events})
+
+              _ ->
+                state
+            end
+
           {key, store, entry} ->
+            view = Valimc.World.View.new(state.dimension)
+            world = mob_world(state, view, Valimc.World.Clock.border_snapshot())
             env = Valimc.AI.Dragon.Actor.environment(entry.body, entry.entity, world)
 
             {body, events} =
@@ -3582,6 +3612,36 @@ defmodule Valimc.World.RegionData do
       true ->
         state
     end
+  end
+
+  # A native dragon's arena (VMC-081d, `mob_tick`'s `dragon`): the fight's
+  # crystal count and whether it was won before, the group's end crystals,
+  # and its Elixir mobs, which its wings and head may touch (its section
+  # reads the native ones).
+  defp native_dragon(state) do
+    arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
+    entries = group_entries(state)
+
+    crystals =
+      for {_, %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}} <- entries do
+        {w, h, _} = Body.dimensions(body)
+        {x, y, z} = {e.x * 1.0, e.y * 1.0, e.z * 1.0}
+        {e.uuid, {x, y, z}, {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}}
+      end
+
+    others =
+      for {id, %{kind: :mob, body: %Body{}} = entry} <- entries do
+        s = Valimc.AI.sensed({id, entry})
+        box = s.box && s.box |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
+        {s.uuid, {s.x, s.y, s.z}, s.width * 1.0, s.height * 1.0, box, s.recent_mob_hurt}
+      end
+
+    %{
+      crystals: arena && arena.alive_crystals,
+      previous_kill: arena == nil or arena.previous_kill,
+      crystal_bodies: crystals,
+      others: others
+    }
   end
 
   # Built only for a ticking dragon; every entity row comes from this owner.

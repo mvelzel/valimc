@@ -119,6 +119,8 @@ pub(crate) struct Running {
     pub(crate) sensing: Sensing<Extra>,
     pub(crate) ids: Vec<i32>,
     pub(crate) travel: std::collections::HashMap<u16, valimc_core::physics::mob::Attributes>,
+    /// A dragon's arena, where the section holds one.
+    pub(crate) dragon: Option<tick::DragonWorld>,
 }
 
 #[rustler::resource_impl]
@@ -435,7 +437,7 @@ thread_local! {
 }
 
 /// A sound's seed (the client's), as the Elixir's `:crypto` draw.
-fn seed() -> i64 {
+pub(crate) fn seed() -> i64 {
     SEEDS.with(|s| {
         let mut x = s.get();
         x ^= x << 13;
@@ -502,6 +504,7 @@ pub(crate) fn effect(rules: &Rules, e: &Effect) -> Option<Value> {
             Value::tuple([Value::atom("crack_egg"), cell(c), Value::Int(*s as i64)])
         }
         Effect::Ai(e) => return mob_section_level::effect(rules.facts, e),
+        Effect::Raw(v) => v.clone(),
     })
 }
 
@@ -591,6 +594,16 @@ pub(crate) fn row(rules: &Rules, slot: &mut Slot, fresh: bool) -> Value {
             .collect(),
     )
     .unwrap_or_default();
+    // A dragon's boss bar reads its health (`Arena.sync_bar/2`); its row
+    // changes every tick its actor runs.
+    let mut data = data;
+    if tick::dragon(mob) {
+        let h = &m.living.health;
+        data.insert_atom(
+            "health",
+            Value::tuple([Value::Float(h.value), Value::Float(h.maximum)]),
+        );
+    }
     let mut map = Map::with_capacity(29);
     map.insert_atom("__struct__", Value::atom(NATIVE_BODY));
     map.insert_atom("type", Value::Binary(body.entity_type.as_bytes().to_vec()));
@@ -748,7 +761,7 @@ fn damage_type(rules: &Rules, v: &Value) -> NifResult<u16> {
         .ok_or(rustler::Error::BadArg)
 }
 
-fn attacker(v: &Value) -> NifResult<Attacker> {
+pub(crate) fn attacker(v: &Value) -> NifResult<Attacker> {
     let m = v.as_map().ok_or(rustler::Error::BadArg)?;
     Ok(Attacker {
         uuid: m
@@ -796,6 +809,9 @@ fn hit(rules: &Rules, term: Term) -> NifResult<Hit> {
     hit.lift = field(m, "lift").map(number).transpose()?;
     hit.bypass_immunity = field(m, "bypass_immunity").and_then(Value::as_bool) == Some(true);
     hit.killer = field(m, "killer").cloned();
+    hit.dragon_part = field(m, "dragon_part")
+        .and_then(Value::as_int)
+        .map(|p| p as u8);
     Ok(hit)
 }
 
@@ -1750,6 +1766,34 @@ mod oracle {
 
     mod oracle_atoms {
         rustler::atoms! { love, feed, event }
+    }
+
+    /// Mob `id` as `record` restores it (a test's change of what its record
+    /// holds), with its health's `{cooldown, last_hurt}` beside the record;
+    /// the rest of its slot stays. `{position, row}`.
+    #[rustler::nif]
+    fn mob_section_oracle_put<'a>(
+        env: Env<'a>,
+        res: ResourceArc<MobSectionRes>,
+        id: i32,
+        record: Term<'a>,
+        health: (i32, f64),
+    ) -> NifResult<Term<'a>> {
+        let rules = rules()?;
+        let mut mob = restore(&mob_term::decode(record)?)?.map_err(fail)?;
+        mob.body.mob.living.health.cooldown = health.0;
+        mob.body.mob.living.health.last_hurt = health.1;
+        let mut inner = owned(env, &res)?;
+        let slot = inner
+            .section
+            .get_mut(id)
+            .ok_or_else(|| fail(atoms::missing()))?;
+        slot.mob = mob;
+        slot.touched = true;
+        let p = slot.mob.position;
+        let row = row(&rules, slot, false);
+        inner.section.relocate(id);
+        Ok(((p[0], p[1], p[2]), mob_term::encode(env, &row)?).encode(env))
     }
 
     /// A section holding mobs anywhere (a scene around the origin), owned by

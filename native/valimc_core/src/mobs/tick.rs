@@ -53,6 +53,9 @@ pub enum Effect {
     CrackEgg([i32; 3], u16),
     /// What its AI made (`mobs::ai::Effect`) that leaves it.
     Ai(AiEffect),
+    /// An effect already in its owner's terms (the dragon's
+    /// `DragonEffect::value`).
+    Raw(Value),
 }
 
 /// How a family's mobs move and push (`Valimc.AI.Kind.motion/0`) and the
@@ -112,6 +115,60 @@ pub struct NoMotionHooks;
 
 impl MotionHooks for NoMotionHooks {}
 
+/// What a dragon's turn reads beyond its level and the section's mobs
+/// (`RegionData.dragon_world/2`): the fight's alive crystals (None without
+/// a fight) and whether it was won before (no fight counts as won), the
+/// group's end crystals, the mobs it may touch outside its section as they
+/// were when the tick began, and the uuid a breath started this tick takes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DragonWorld {
+    pub crystals: Option<i64>,
+    pub previous_kill: bool,
+    pub crystal_bodies: Vec<super::boss::dragon::Crystal>,
+    pub others: Vec<super::boss::dragon::MobTarget>,
+    pub flame_uuid: [u8; 16],
+}
+
+impl Default for DragonWorld {
+    fn default() -> DragonWorld {
+        DragonWorld {
+            crystals: None,
+            previous_kill: true,
+            crystal_bodies: Vec::new(),
+            others: Vec::new(),
+            flame_uuid: [0; 16],
+        }
+    }
+}
+
+/// `Arena.height/4`: a column's `MOTION_BLOCKING_NO_LEAVES` height (above
+/// its highest such block), the bottom where it has none or is unreadable.
+pub fn arena_height(level: &super::level::Level, x: i64, z: i64) -> i64 {
+    /// `Heightmap.Types.MOTION_BLOCKING_NO_LEAVES`'s bit.
+    const NO_LEAVES: u8 = 1 << 5;
+    let (x, z) = (x as i32, z as i32);
+    (level.min_y..=level.max_y)
+        .rev()
+        .find(|&y| {
+            level.block([x, y, z]).is_some_and(|s| {
+                level
+                    .states
+                    .heightmaps
+                    .get(s as usize)
+                    .copied()
+                    .unwrap_or(0)
+                    & NO_LEAVES
+                    != 0
+            })
+        })
+        .map_or(level.min_y as i64, |top| top as i64 + 1)
+}
+
+/// Whether a mob is the ender dragon, whose actor takes its whole turn.
+pub fn dragon(mob: &NativeMob) -> bool {
+    mob.body.entity_type == super::boss::dragon::DRAGON
+}
+
 /// What a turn reads: the rules, the motion hooks, the physics world of the
 /// ticker, the players that push, the sky (light, rain, the sun and the
 /// level random) and the game rules it applies.
@@ -126,6 +183,8 @@ pub struct TurnWorld<'a, 'w> {
     /// The travel attributes of types whose mobs have no attribute
     /// overrides, as `MobTicks` shares them per type.
     pub travel: std::cell::RefCell<std::collections::HashMap<u16, Attributes>>,
+    /// A dragon's arena, where the section holds one (else none's).
+    pub dragon: Option<&'a DragonWorld>,
 }
 
 impl TurnWorld<'_, '_> {
@@ -825,7 +884,11 @@ impl Tick {
                 Entrant::Native(id) => {
                     if self.turns.contains_key(&id) {
                         if let Some(mut slot) = section.take(id) {
-                            let ok = self.turn(tw, ai, section, ticker, i, id, &mut slot.mob);
+                            let ok = if dragon(&slot.mob) {
+                                self.dragon_turn(tw, ai, section, ticker, i, id, &mut slot.mob)
+                            } else {
+                                self.turn(tw, ai, section, ticker, i, id, &mut slot.mob)
+                            };
                             slot.stepped = ok;
                             section.put(id, slot);
                             let state = self.turns.get_mut(&id).expect("turn");
@@ -972,6 +1035,130 @@ impl Tick {
         out.effects.extend(ground.effects);
         ai.moved(mob);
         self.turns.get_mut(&id).expect("turn").out = out;
+        true
+    }
+
+    /// The dragon's turn (`MobTicks.dragon_step/4`): none of an ordinary
+    /// mob's, only its actor's tick over its arena (`Actor.environment/3`),
+    /// or its mind made again where a handoff brought it here within the
+    /// tick it already took. Its wings and head land at once on the
+    /// section's mobs of this tick; on players and other mobs they go to its
+    /// owner, with the rest of its effects and events as the Elixir actor's
+    /// terms. The ticker takes its velocity; its kernel row is fixed.
+    #[allow(clippy::too_many_arguments)]
+    fn dragon_turn(
+        &mut self,
+        tw: &TurnWorld,
+        ai: &mut SectionAi,
+        section: &mut MobSection,
+        ticker: &mut Ticker,
+        i: usize,
+        id: i32,
+        mob: &mut NativeMob,
+    ) -> bool {
+        use super::boss::dragon::{self as dragon_mod, actor, Arena, DragonEffect, MobTarget};
+        let rules = tw.rules;
+        let Some(facts) = rules.facts.dragon.as_ref() else {
+            return false;
+        };
+        let mut out = std::mem::take(&mut self.turns.get_mut(&id).expect("turn").out);
+        // Hits before its turn are in the ticker.
+        mob.body.velocity = ticker.current[i].velocity;
+        if actor::ticked_at(&mob.body, ai.level.time) {
+            actor::resume(mob);
+            ticker.current[i].velocity = mob.body.velocity;
+            self.turns.get_mut(&id).expect("turn").out = out;
+            ai.moved(mob);
+            return true;
+        }
+        let step = {
+            let level: &super::level::Level = ai.level;
+            let none = DragonWorld::default();
+            let dw = tw.dragon.unwrap_or(&none);
+            let height = |x: i64, z: i64| arena_height(level, x, z);
+            // The mobs it may touch: the section's where they are now, the
+            // others where they were.
+            let mut mobs: Vec<MobTarget> = Vec::new();
+            for (_, slot) in section.slots() {
+                let m = &slot.mob;
+                let Some(ty) = rules.of(&m.body.entity_type) else {
+                    continue;
+                };
+                let [width, height, _] = living_body::dimensions(rules, ty, &m.body);
+                mobs.push(MobTarget {
+                    uuid: m.uuid,
+                    position: m.position,
+                    width,
+                    height,
+                    bbox: rules.family(ty).bounding_box(&m.body, m.position),
+                    recent: dragon_mod::recent(&m.body.mob),
+                });
+            }
+            mobs.extend(dw.others.iter().cloned());
+            let arena = Arena {
+                height: &height,
+                podium: [0, height(0, 0), 0],
+                crystals: dw.crystals,
+                crystal_bodies: dw.crystal_bodies.clone(),
+                mobs,
+                previous_kill: dw.previous_kill,
+                flame_uuid: dw.flame_uuid,
+            };
+            let players = &ai.sensing.players;
+            let mut env = dragon_mod::environment(facts, rules.facts, level, mob, &arena, players);
+            actor::tick(rules, mob, &mut env)
+        };
+        mob.position = step.position;
+        ticker.current[i].velocity = mob.body.velocity;
+        out.events
+            .extend(step.events.iter().map(|e| Event::Other(e.value())));
+        for effect in step.effects {
+            if let DragonEffect::Contact {
+                target,
+                push,
+                amount,
+                wing,
+            } = &effect
+            {
+                let tid = (target.kind == RefKind::Mob)
+                    .then(|| section.id_of(&target.uuid))
+                    .flatten()
+                    .filter(|t| self.turns.contains_key(t));
+                if let Some(slot) = tid.and_then(|t| section.get_mut(t)) {
+                    let state = self.turns.get_mut(&tid.expect("target")).expect("turn");
+                    slot.mob.body.velocity = ticker.current[state.index].velocity;
+                    living_body::push(&mut slot.mob.body, *push);
+                    let recent = *wing && dragon_mod::recent(&slot.mob.body.mob);
+                    let source = rules.facts.damage_types.id("minecraft:mob_attack");
+                    if let Some(source) = source.filter(|_| *amount > 0.0 && !recent) {
+                        let me = combat::Attacker {
+                            uuid: mob.uuid,
+                            entity_id: id,
+                            player: false,
+                            entity_type: dragon_mod::DRAGON.to_owned(),
+                            mainhand: None,
+                        };
+                        let hit = combat::Hit {
+                            attacker: Some(me.clone()),
+                            direct: Some(me),
+                            position: Some(mob.position),
+                            ..combat::Hit::new(source, *amount)
+                        };
+                        let (events, hurt) = combat::hit_body(rules, &mut slot.mob, &hit);
+                        if hurt && !state.stepped && !state.refused {
+                            super::living::health::tick(&mut slot.mob.body.mob.living.health);
+                        }
+                        state.out.events.extend(events);
+                    }
+                    ticker.current[state.index].velocity = slot.mob.body.velocity;
+                    ai.moved(&slot.mob);
+                    continue;
+                }
+            }
+            out.effects.push(Effect::Raw(effect.value()));
+        }
+        self.turns.get_mut(&id).expect("turn").out = out;
+        ai.moved(mob);
         true
     }
 
@@ -1177,8 +1364,12 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
                 continue;
             }
         }
-        if let Some(v) = velocities.get(state.index) {
-            slot.mob.body.velocity = *v;
+        // The dragon's actor owns its velocity; its fixed row only kept it
+        // out of pushing.
+        if !dragon(&slot.mob) {
+            if let Some(v) = velocities.get(state.index) {
+                slot.mob.body.velocity = *v;
+            }
         }
         // A thinking mob's idle time is its mind's (`noActionTime`).
         if let Some(s) = slot.mob.body.mob.ai.as_ref().and_then(|m| m.state.as_ref()) {
@@ -1284,10 +1475,22 @@ pub fn age(
         );
         let mut events = Vec::new();
         let mut done = false;
-        for _ in 0..ticks.clamp(1, 40) {
-            done = living_body::tick(body, &mut events);
-            if done {
-                break;
+        if body.entity_type == super::boss::dragon::DRAGON {
+            // Its living timers once a game tick, the tick kept with its body
+            // as it moves on (`aged_tick`); its death actor ends it.
+            let aged = tick.map(Value::Int);
+            if aged.is_none() || body.data.get("aged_tick") != aged.as_ref() {
+                super::boss::dragon::timers(body);
+                if let Some(t) = aged {
+                    body.data.set("aged_tick", t);
+                }
+            }
+        } else {
+            for _ in 0..ticks.clamp(1, 40) {
+                done = living_body::tick(body, &mut events);
+                if done {
+                    break;
+                }
             }
         }
         let changed = before

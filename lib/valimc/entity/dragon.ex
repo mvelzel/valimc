@@ -52,11 +52,14 @@ defmodule Valimc.Entity.Dragon do
 
   defp number(_, default), do: default
 
-  @doc "The current eight part boxes, in the client's root+1 through root+8 order."
-  def boxes(%Body{data: %{brain: %{phases: %{flight: %Flight{} = flight}}}}),
+  @doc """
+  The current eight part boxes, in the client's root+1 through root+8 order,
+  of a body or a native dragon's row (VMC-081d), whose data holds its actor.
+  """
+  def boxes(%{data: %{brain: %{phases: %{flight: %Flight{} = flight}}}}),
     do: Flight.boxes(flight)
 
-  def boxes(%Body{data: %{brain: %{flight: %Flight{} = flight}}}), do: Flight.boxes(flight)
+  def boxes(%{data: %{brain: %{flight: %Flight{} = flight}}}), do: Flight.boxes(flight)
   def boxes(_body), do: Flight.boxes(%Flight{})
   def sitting?(%{data: %{phase: phase}}), do: Facts.phase(phase).sitting
   def knockback?(body), do: not sitting?(body)

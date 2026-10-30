@@ -332,9 +332,28 @@ wall breaking with and without griefing, and contacts with players and mobs
 in flight and perched. The Elixir actor takes the breath's uuid from its
 environment where the owner gives one.
 
-The dragon's section turn is not wired yet: the owner still ticks it in
-Elixir (`MobTicks.dragon_step`), and `mob_section_hit` does not decode
-`dragon_part`.
+The dragon is native in play (`:native_mob_types`). Its section turn
+(`Tick::dragon_turn`) skips everything of an ordinary mob's turn: where a
+handoff brought it within a tick it already took (`actor::ticked_at`) its
+mind is made again, else its actor ticks over an `Arena` built at its turn
+(the podium and graph heights from the section's level,
+`MOTION_BLOCKING_NO_LEAVES` scanned down as `Arena.height/4`; the section's
+mobs where they are now, the group's other native mobs and the owner's
+Elixir ones where the tick began; the owner's crystal count, end crystals
+and `previous_kill` as the tick's `dragon` extra; a fresh breath uuid), and
+the ticker takes its velocity, which the tick's end leaves alone. Its wings
+and head land at once on the section's mobs of the tick (pushed, hit as a
+`mob_attack` from it at its new position unless a wing meets one hurt within
+two ticks, timers run for one still to tick); the rest leave as the Elixir
+actor's terms (`DragonEffect::value`, `DragonEvent::value`), which
+`RegionData.dragon_effect/2`, the block edits and the sound paths apply
+unchanged. Its timers age once a game tick (`dragon::timers`, the tick kept
+in `aged_tick` as the Elixir's). A destroyed crystal calls
+`mob_section_dragon_crystal` (its head hit and a holding dragon's strafe,
+over the group's level); `mob_section_hit` reads `dragon_part`; `/kill`
+removes it. The owner reads its phase, part boxes (`Dragon.boxes/1` of its
+row, whose data holds its actor) and health (the row's data, for the boss
+bar) from its row. `MobTicks.dragon_step` is gone.
 
 Acceptance:
 
@@ -410,7 +429,7 @@ villager gets up where `StandUp.bed` puts it (native, with the sleep facts
 from `SleepFacts`; `native_mob_stand_up_test` compares 400 scenes); a
 piglin's barter is rolled from its seed and thrown by the owner.
 
-Every family `mobs::kinds` ports but the dragon is native
+Every family `mobs::kinds` ports is native, the dragon too
 (`:native_mob_types`). The oracle stages' native modes run every family
 but the brain mobs, whose brains the harness seeds only in Elixir (their
 think parity compares them).
@@ -466,6 +485,6 @@ water_age, the shulker, puffer, turtle, endermite, guardian and dolphin
 breath stages.
 
 Left: tracking still walks every view (its own ticket makes it native);
-the dragon's section turn; the oracle harness seeding brains natively; a
+the oracle harness seeding brains natively; a
 cheaper test than the stationary record for a touched mob's persistent
 change.

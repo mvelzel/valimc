@@ -76,9 +76,9 @@ defmodule Valimc.DragonActorTest do
     assert entry(c.source, <<540::128>>) == nil
     e = entry(c.target, <<540::128>>)
     assert e.entity.x > c.edge
+    # The native dragon's mind keeps its actor's tick (VMC-081d).
     assert e.body.data.brain.tick == 1 and e.body.data.brain.world_tick == 1
-    assert e.body.mob.living.health.hurt_ticks == 9
-    assert e.body.mob.ai.tick == 1
+    assert Valimc.TestBodies.body(e).mob.living.health.hurt_ticks == 9
     assert e.body.velocity == e.body.data.brain.phases.flight.velocity
     assert length(Valimc.Entity.Dragon.boxes(e.body)) == 8
     :ok = Region.flush(c.pid)
@@ -88,11 +88,11 @@ defmodule Valimc.DragonActorTest do
     saved = entry(target, <<540::128>>)
     assert saved.body.data.brain == e.body.data.brain
     assert saved.body.velocity == e.body.velocity
-    assert saved.body.mob.living.health.hurt_ticks == 9
+    assert Valimc.TestBodies.body(saved).mob.living.health.hurt_ticks == 9
     :ok = Valimc.TestScope.simulate(target, c.b)
     {:ok, _} = Region.step(target, 1)
     assert entry(target, <<540::128>>).body.data.brain.tick == 2
-    assert entry(target, <<540::128>>).body.mob.living.health.hurt_ticks == 8
+    assert Valimc.TestBodies.body(entry(target, <<540::128>>)).mob.living.health.hurt_ticks == 8
   end
 
   test "perched breath appears in the head's sibling and a forced takeoff removes it", c do
@@ -112,8 +112,12 @@ defmodule Valimc.DragonActorTest do
 
     Valimc.TestRegion.replace_section(c.source, fn s ->
       e = entry_from_store(s.entities.store, <<541::128>>)
-      body = %{e.body | data: %{e.body.data | phase: 4}}
-      put_in(s.entities.store, Store.change_body(s.entities.store, e.entity.entity_id, body))
+      takeoff = &%{&1 | data: %{&1.data | phase: 4}}
+
+      put_in(
+        s.entities.store,
+        Valimc.TestBodies.replace(s.entities.store, e.entity.entity_id, takeoff)
+      )
     end)
 
     {:ok, _} = Region.step(c.source, 1)
@@ -166,7 +170,7 @@ defmodule Valimc.DragonActorTest do
 
     assert {:ok, %{hurt: true}} = Region.hurt_entity(target, <<544::128>>, hit)
     assert entry(target, <<544::128>>) == nil
-    damaged = entry(source, <<543::128>>).body
+    damaged = Valimc.TestBodies.body(entry(source, <<543::128>>))
     assert damaged.mob.living.health.value == 140.0
     assert damaged.data.brain.ambient == -80
 
@@ -174,7 +178,7 @@ defmodule Valimc.DragonActorTest do
         do: :ok = Valimc.TestScope.simulate({pid, epoch}, key)
 
     {:ok, _} = Region.step(source, 1)
-    damaged = entry(source, <<543::128>>).body
+    damaged = Valimc.TestBodies.body(entry(source, <<543::128>>))
     assert damaged.mob.living.health.value == 140.0
     assert damaged.data.brain.crystal == nil
     :ok = Region.flush(pid)

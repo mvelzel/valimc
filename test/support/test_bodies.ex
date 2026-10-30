@@ -37,6 +37,28 @@ defmodule Valimc.TestBodies do
   def body(%{body: body}), do: body
 
   @doc """
+  The store with entry `id`'s body as `fun` makes it of `body/1`'s, in the
+  owner's process: a native mob is restored in its section from the changed
+  body's record (with its health's cooldown and last hurt; its mind's live
+  state beside its record starts again), its row the store's; any other
+  entry's body changes in place.
+  """
+  def replace(store, id, fun) do
+    case store.entries[id] do
+      %{body: %NativeBody{}, native: ref, entity: e} = entry ->
+        body = fun.(body(entry))
+        record = Store.body_record(body, e.uuid, {e.x, e.y, e.z})
+        health = body.mob.living.health
+        cooldown = {health.cooldown, health.last_hurt * 1.0}
+        {_, row} = Native.mob_section_oracle_put(ref, id, record, cooldown)
+        Store.change_body(store, id, row)
+
+      entry ->
+        Store.change_body(store, id, fun.(body(entry)))
+    end
+  end
+
+  @doc """
   The entry with its body as `body/1` reads it, and a native mob's idle and
   lived counts, which its section keeps.
   """

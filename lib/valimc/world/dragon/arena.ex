@@ -89,7 +89,7 @@ defmodule Valimc.World.Dragon.Arena do
     dragon =
       ops.entries.(state)
       |> Enum.filter(fn
-        {_, %{body: %Body{type: "minecraft:ender_dragon"}}} -> true
+        {_, %{body: %{type: "minecraft:ender_dragon"}}} -> true
         _ -> false
       end)
       |> Enum.min_by(&elem(&1, 0), fn -> nil end)
@@ -192,6 +192,10 @@ defmodule Valimc.World.Dragon.Arena do
       case Enum.find(ops.entries.(state), fn {_, e} -> e.entity.uuid == state.arena.dragon end) do
         {_, %{body: %{mob: %{living: %{health: health}}}}} ->
           Float32.round(health.value / health.maximum)
+
+        # A native dragon's row (VMC-081d) carries its health.
+        {_, %{body: %{data: %{health: {value, maximum}}}}} ->
+          Float32.round(value / maximum)
 
         _ ->
           bar.health
