@@ -11,6 +11,7 @@
 
 pub mod creeper;
 pub mod cube;
+pub mod drowned;
 pub mod enderman;
 pub mod skeleton;
 pub mod spider;
@@ -30,6 +31,7 @@ use crate::mobs::term::{Atom, Value};
 pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
     Ok(vec![
         Box::new(zombie::Zombie::new(facts)?),
+        Box::new(drowned::Drowned::new(facts)?),
         Box::new(skeleton::Skeleton::new(facts)?),
         Box::new(creeper::Creeper::new(facts)?),
         Box::new(spider::Spider::new(facts)?),

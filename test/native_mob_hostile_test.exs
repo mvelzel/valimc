@@ -28,7 +28,7 @@ defmodule Valimc.NativeMobHostileTest do
           ~w(minecraft:zombie minecraft:husk minecraft:zombie_villager minecraft:skeleton
              minecraft:stray minecraft:bogged minecraft:creeper minecraft:spider
              minecraft:cave_spider minecraft:enderman minecraft:witch minecraft:slime
-             minecraft:magma_cube),
+             minecraft:magma_cube minecraft:drowned),
         do: assert(type in types)
   end
 
@@ -630,6 +630,79 @@ defmodule Valimc.NativeMobHostileTest do
     end
   end
 
+  ## Drowned
+
+  test "drowned swim after targets, throw tridents, head for water and shore", ctx do
+    spots = land(ctx.blocks, 8, :rand.seed_s(:exsss, 171))
+    pools = water(ctx.blocks, 8, :rand.seed_s(:exsss, 172))
+    {[here, golem], rest} = Enum.split(spots, 2)
+    {[pool], deep} = Enum.split(pools, 1)
+    water = Valimc.Protocol.Data.block("water")
+    soaked = [water: 1.0, eye_water: true, eye: {true, water}]
+    trident = Valimc.Protocol.ItemStack.new("trident")
+
+    on_land =
+      for {spot, n} <- Enum.with_index(rest, 1) do
+        opts = [finalize: :natural, fire: if(n == 1, do: 100, else: 0)]
+        opts = if n == 2, do: [{:equipment, [mainhand: trident]} | opts], else: opts
+        mob(n, "minecraft:drowned", spot, opts)
+      end
+
+    swimming =
+      for {{x, y, z}, n} <- Enum.with_index(deep, 20) do
+        opts = [motion: soaked, finalize: :natural, data: [searching: rem(n, 2) == 0]]
+        opts = if rem(n, 3) == 0, do: [{:equipment, [mainhand: trident]} | opts], else: opts
+        mob(n, "minecraft:drowned", {x, min(y - 2, 58), z}, opts)
+      end
+
+    # A player in the water (a target worth swimming after) and one ashore.
+    {px, py, pz} = pool
+    wet = %{player(1, {px, py - 1, pz}) | position: {px + 0.5, py - 1.0, pz + 0.5}}
+
+    for {bright, level} <- [{false, 91}, {true, 92}] do
+      scene =
+        scene([player(0, here), wet],
+          ticks: 240,
+          bright: bright,
+          monsters_burn: bright,
+          statues: [mob(90, "minecraft:iron_golem", golem, no_ai: true)],
+          acts: [{6, 0, :hurt}],
+          post: true,
+          loot: loot(),
+          level: level
+        )
+
+      observed = compare(ctx, scene, on_land ++ swimming)
+      minds = minds(observed)
+      assert Enum.any?(minds, &(is_tuple(&1) and elem(&1, 4) != nil))
+
+      if bright do
+        assert running?(observed, "Valimc.AI.Mobs.Drowned.GoToWater")
+      else
+        assert running?(observed, "Valimc.AI.Mobs.Drowned.SwimUp")
+        assert Enum.any?(effects(observed), &match?({:throw_trident, _}, &1))
+      end
+    end
+  end
+
+  test "drowned spawn with tridents, rods, shells and nautilus riders", ctx do
+    pools = water(ctx.blocks, 24, :rand.seed_s(:exsss, 173))
+
+    entries =
+      for {{x, y, z}, n} <- Enum.with_index(pools, 1),
+          do: mob(n, "minecraft:drowned", {x, y - 1, z}, finalize: :natural)
+
+    observed =
+      for level <- 1..10 do
+        scene = scene([], ticks: 1, bright: false, loot: loot(), level: 200 + level)
+        compare(ctx, scene, entries)
+      end
+
+    records = List.flatten(for {r, _, _, _} <- Enum.concat(observed), do: r)
+    assert Enum.any?(records, &Map.has_key?(&1.mob.equipment, :mainhand))
+    assert Enum.any?(records, &Map.has_key?(&1.mob.equipment, :offhand))
+  end
+
   ## Conversions
 
   defp convert(ctx, body, to, special) do
@@ -654,6 +727,8 @@ defmodule Valimc.NativeMobHostileTest do
     for special <- [0.0, 0.5, 1.0] do
       convert(ctx, zombie, "minecraft:husk", special)
       convert(ctx, baby, "minecraft:zombie_villager", special)
+      convert(ctx, zombie, "minecraft:drowned", special)
+      convert(ctx, baby, "minecraft:drowned", special)
       convert(ctx, husk, "minecraft:zombie", special)
       convert(ctx, skeleton, "minecraft:stray", special)
     end

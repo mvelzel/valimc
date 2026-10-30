@@ -293,7 +293,7 @@ defmodule Valimc.NativeMobLivingTest do
   # ------------------------------------------------------------------ cases
 
   @hostiles ~w(zombie husk skeleton stray creeper spider cave_spider blaze wither_skeleton
-               zombified_piglin witch enderman slime magma_cube)
+               zombified_piglin witch enderman slime magma_cube drowned)
   @animals ~w(cow pig sheep chicken)
 
   defp player_hit(amount, yaw \\ 30.0, extra \\ %{}) do
