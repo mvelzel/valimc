@@ -11,6 +11,7 @@ use crate::column::{MIN_Y, SECTIONS};
 use crate::piston::Moving;
 use crate::section::Storage;
 use crate::snapshot::ChunkSnapshot;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::ops::{Deref, RangeInclusive};
 
@@ -52,35 +53,65 @@ fn special(storage: &Storage, table: &ShapeTable) -> bool {
 /// resource for a whole tick (VMC-043e).
 pub struct Rows<S> {
     /// Per chunk its snapshot and which sections may hold special colliders.
-    chunks: CellMap<(i32, i32), (S, [bool; SECTIONS])>,
+    chunks: Vec<(S, [bool; SECTIONS])>,
+    /// Each chunk's place in `chunks`.
+    index: CellMap<(i32, i32), u32>,
+    /// The chunk read last and its place: most reads are of the chunk the
+    /// read before was.
+    last: Cell<((i32, i32), u32)>,
     /// The state outside the stored height.
     outside: u16,
 }
 
+const NONE: u32 = u32::MAX;
+
 impl<S: Deref<Target = ChunkSnapshot>> Rows<S> {
     pub fn new(outside: u16) -> Rows<S> {
         Rows {
-            chunks: CellMap::default(),
+            chunks: Vec::new(),
+            index: CellMap::default(),
+            last: Cell::new(((0, 0), NONE)),
             outside,
         }
     }
 
-    /// Add a chunk's snapshot; `table` decides which of the sections `near`
-    /// (those the query reaches) hold special colliders, others count as if
-    /// they might.
+    /// Add a chunk's snapshot (replacing one of the same chunk); `table`
+    /// decides which of the sections `near` (those the query reaches) hold
+    /// special colliders, others count as if they might.
     pub fn insert(&mut self, snapshot: S, near: RangeInclusive<usize>, table: &ShapeTable) {
         let special =
             std::array::from_fn(|s| !near.contains(&s) || special(&snapshot.sections[s], table));
-        self.chunks.insert(snapshot.chunk, (snapshot, special));
+        let chunk = snapshot.chunk;
+        match self.index.get(&chunk) {
+            Some(&i) => self.chunks[i as usize] = (snapshot, special),
+            None => {
+                self.index.insert(chunk, self.chunks.len() as u32);
+                self.chunks.push((snapshot, special));
+            }
+        }
+    }
+
+    /// A chunk's snapshot and special sections.
+    #[inline]
+    fn chunk(&self, chunk: (i32, i32)) -> Option<&(S, [bool; SECTIONS])> {
+        let (last, i) = self.last.get();
+        let i = if last == chunk && i != NONE {
+            i
+        } else {
+            let i = *self.index.get(&chunk)?;
+            self.last.set((chunk, i));
+            i
+        };
+        self.chunks.get(i as usize)
     }
 
     pub fn contains(&self, chunk: (i32, i32)) -> bool {
-        self.chunks.contains_key(&chunk)
+        self.index.contains_key(&chunk)
     }
 
     /// The snapshot of a chunk (its column and biomes, VMC-081d's rain).
     pub fn snapshot(&self, chunk: (i32, i32)) -> Option<&S> {
-        self.chunks.get(&chunk).map(|(s, _)| s)
+        self.chunk(chunk).map(|(s, _)| s)
     }
 }
 
@@ -94,12 +125,12 @@ fn local(y: i32) -> Option<usize> {
 impl<S: Deref<Target = ChunkSnapshot>> BlockSource for Rows<S> {
     #[inline]
     fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
-        let (snapshot, _) = self.chunks.get(&(x >> 4, z >> 4))?;
+        let (snapshot, _) = self.chunk((x >> 4, z >> 4))?;
         Some(snapshot.get(x, y, z).unwrap_or(self.outside))
     }
 
     fn special_near(&self, x: i32, y: i32, z: i32) -> bool {
-        match (self.chunks.get(&(x >> 4, z >> 4)), local(y)) {
+        match (self.chunk((x >> 4, z >> 4)), local(y)) {
             (Some((_, special)), Some(local)) => special[local >> 4],
             (Some(_), None) => false,
             // Unreadable: the scan reads it and fails.
@@ -108,7 +139,7 @@ impl<S: Deref<Target = ChunkSnapshot>> BlockSource for Rows<S> {
     }
 
     fn moving(&self, x: i32, y: i32, z: i32) -> Option<Moving> {
-        self.chunks.get(&(x >> 4, z >> 4))?.0.moving(x, y, z)
+        self.chunk((x >> 4, z >> 4))?.0.moving(x, y, z)
     }
 }
 

@@ -70,15 +70,62 @@ pub fn for_block_colliders<'t>(
     // `body` as a shape, made for the first cell whose shape it is tested
     // against.
     let mut query: Option<VoxelShape> = None;
+    let mut cell = |x: i32, y: i32, z: i32, halo: u8| -> Result<(), Unreadable> {
+        let state = source.state(x, y, z).ok_or(Unreadable([x, y, z]))?;
+        let special = table.special(state);
+        if (halo == 1 && special & LARGE == 0) || (halo == 2 && special & MOVING_PISTON == 0) {
+            return Ok(());
+        }
+        if special & MOVING_PISTON != 0 {
+            moving_colliders(source, table, [x, y, z], ctx, body, &mut query, found);
+            return Ok(());
+        }
+        // `LiquidBlock.getCollisionShape`: a lava source with no lava
+        // above is half a block to a lava walker above it (VMC-043d).
+        let stable = ctx.lava_walker
+            && table.lava(state) == 2
+            && ctx.above(0.5, y, true)
+            && table.lava(source.state(x, y + 1, z).ok_or(Unreadable([x, y + 1, z]))?) == 0;
+        let picked = if stable {
+            super::table::Picked {
+                shape: &table.lava_stable,
+                offset: [0.0; 3],
+            }
+        } else {
+            table.shape(state, [x, y, z], ctx)
+        };
+        let place = Place {
+            offset: (picked.offset != [0.0; 3]).then_some(picked.offset),
+            position: Some([x as f64, y as f64, z as f64]),
+        };
+        let hit = if picked.shape.full_block && picked.offset == [0.0; 3] {
+            body.intersects(&Aabb::block(x, y, z))
+        } else if picked.shape.is_empty() {
+            false
+        } else {
+            let query = query.get_or_insert_with(|| box_shape(body));
+            picked.shape.intersects(&place, query, &Place::ORIGIN)
+        };
+        if hit {
+            found(Collider {
+                shape: Cow::Borrowed(picked.shape),
+                place,
+            });
+        }
+        Ok(())
+    };
     // `special_near` answers per section: the last section's answer.
     let mut near: Option<([i32; 3], bool)> = None;
     for z in lo[2]..=hi[2] {
+        let halo_z = (z == lo[2] || z == hi[2]) as u8;
         for y in lo[1]..=hi[1] {
-            for x in lo[0]..=hi[0] {
-                let halo = (x == lo[0] || x == hi[0]) as u8
-                    + (y == lo[1] || y == hi[1]) as u8
-                    + (z == lo[2] || z == hi[2]) as u8;
+            // The row's cells are all on the halo when it is.
+            let halo_row = halo_z + (y == lo[1] || y == hi[1]) as u8;
+            let mut x = lo[0];
+            while x <= hi[0] {
+                let halo = (x == lo[0] || x == hi[0]) as u8 + halo_row;
                 if halo == 3 {
+                    x += 1;
                     continue;
                 }
                 if halo > 0 {
@@ -92,53 +139,19 @@ pub fn for_block_colliders<'t>(
                         }
                     };
                     if !special {
-                        // No large shape or moving piston in this section (Moonrise).
+                        // No large shape or moving piston in this section
+                        // (Moonrise): on a halo row, none in the rest of
+                        // the row's cells in it either.
+                        x = if halo_row > 0 {
+                            (x | 15).min(hi[0]) + 1
+                        } else {
+                            x + 1
+                        };
                         continue;
                     }
                 }
-                let state = source.state(x, y, z).ok_or(Unreadable([x, y, z]))?;
-                let special = table.special(state);
-                if (halo == 1 && special & LARGE == 0)
-                    || (halo == 2 && special & MOVING_PISTON == 0)
-                {
-                    continue;
-                }
-                if special & MOVING_PISTON != 0 {
-                    moving_colliders(source, table, [x, y, z], ctx, body, &mut query, found);
-                    continue;
-                }
-                // `LiquidBlock.getCollisionShape`: a lava source with no lava
-                // above is half a block to a lava walker above it (VMC-043d).
-                let stable = ctx.lava_walker
-                    && table.lava(state) == 2
-                    && ctx.above(0.5, y, true)
-                    && table.lava(source.state(x, y + 1, z).ok_or(Unreadable([x, y + 1, z]))?) == 0;
-                let picked = if stable {
-                    super::table::Picked {
-                        shape: &table.lava_stable,
-                        offset: [0.0; 3],
-                    }
-                } else {
-                    table.shape(state, [x, y, z], ctx)
-                };
-                let place = Place {
-                    offset: (picked.offset != [0.0; 3]).then_some(picked.offset),
-                    position: Some([x as f64, y as f64, z as f64]),
-                };
-                let hit = if picked.shape.full_block && picked.offset == [0.0; 3] {
-                    body.intersects(&Aabb::block(x, y, z))
-                } else if picked.shape.is_empty() {
-                    false
-                } else {
-                    let query = query.get_or_insert_with(|| box_shape(body));
-                    picked.shape.intersects(&place, query, &Place::ORIGIN)
-                };
-                if hit {
-                    found(Collider {
-                        shape: Cow::Borrowed(picked.shape),
-                        place,
-                    });
-                }
+                cell(x, y, z, halo)?;
+                x += 1;
             }
         }
     }
