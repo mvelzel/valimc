@@ -2784,7 +2784,8 @@ defmodule Valimc.World.RegionData do
     adopt_drops(state, records)
   end
 
-  defp companion(body, %{jockey: true} = opts) do
+  @doc false
+  def companion(body, %{jockey: true, follow_bonus: _} = opts) do
     mob = body.mob
     follow = "minecraft:follow_range"
     entry = %{base: nil, modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]}
@@ -2802,9 +2803,13 @@ defmodule Valimc.World.RegionData do
     }
   end
 
+  # A mount whose own spawn the rider's drew (a drowned's zombie nautilus):
+  # it faces as the rider does.
+  def companion(body, %{jockey: true, yaw: yaw}), do: %{body | yaw: yaw, head_yaw: yaw}
+
   # A mob another summoned (a villagers' iron golem, VMC-044a2): its
   # `finalizeSpawn` was drawn when it was made.
-  defp companion(body, %{summoned: true} = opts) do
+  def companion(body, %{summoned: true} = opts) do
     mob = body.mob
     follow = "minecraft:follow_range"
     entry = %{base: nil, modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]}
@@ -2821,7 +2826,7 @@ defmodule Valimc.World.RegionData do
     }
   end
 
-  defp companion(body, _opts), do: body
+  def companion(body, _opts), do: body
 
   # A skeleton's arrow (`performRangedAttack`, VMC-043b3).
   defp mob_shot({id, shot}, state) do
