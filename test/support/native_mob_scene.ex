@@ -268,6 +268,14 @@ defmodule Valimc.NativeMobScene do
             :fire ->
               put_in(e.body.mob.living.fire_ticks, 160).body
 
+            # A player's blow as its family takes it before it lands (an
+            # axolotl playing dead), then its mind's hurt.
+            :blow ->
+              [p | _] = scene.players
+              hit = %{source: :player_attack, amount: 2.0, attacker: %{type: "minecraft:player"}}
+              body = AI.Mobs.hook(e.body.type, :before_hurt, [e.body, hit], e.body)
+              put_in(body.mob.ai, AI.hurt(body.mob.ai, {:player, p.uuid}, :player_attack))
+
             # A family's part of a hurt it turned away (an arrow) or took
             # without a living attacker (a cactus).
             :shot ->

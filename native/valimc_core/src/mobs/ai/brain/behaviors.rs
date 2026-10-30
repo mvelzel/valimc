@@ -480,6 +480,27 @@ impl<T: Trigger> Trigger for TriggerIf<T> {
     }
 }
 
+/// `Behavior.one_shot([], fn self -> {test, self} end)`: it starts when the
+/// test holds, doing nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Check {
+    pub test: Test,
+}
+
+pub fn check(test: Test) -> Box<dyn Behavior> {
+    one_shot(Check { test })
+}
+
+impl Trigger for Check {
+    fn conditions(&self) -> Conds {
+        Conds::NONE
+    }
+
+    fn trigger(&mut self, t: &mut Turn) -> bool {
+        self.test.holds(t)
+    }
+}
+
 /// `BecomePassiveIfMemoryPresent.create(memory, duration)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BecomePassive {

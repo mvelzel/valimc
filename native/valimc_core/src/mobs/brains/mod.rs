@@ -8,6 +8,7 @@
 //! A brain's `RunOne` gates shuffle by randoms of their own, seeded from the
 //! mob's uuid as the Elixir seeds them (`gates/1`); vanilla's are unseeded.
 
+pub mod axolotl;
 pub mod hoglin;
 
 use crate::mobs::facts::MobFacts;
@@ -17,7 +18,13 @@ use crate::mobs::sensing::Uuid;
 
 /// Every brain family.
 pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
-    Ok(vec![Box::new(hoglin::Hoglin::new(facts)?)])
+    Ok(vec![
+        Box::new(hoglin::Hoglin::new(facts)?),
+        Box::new(crate::mobs::animals::Animal::new(
+            facts,
+            axolotl::Axolotl::new(facts)?,
+        )?),
+    ])
 }
 
 /// The two halves of a uuid (`<<a::64, b::64>>`).

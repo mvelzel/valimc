@@ -41,7 +41,7 @@ mod atoms {
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
-        away, maybe, shot, poked, y_rot, aggressive, wanted, effect, struck, elder_curse, infest, wake_infested,
+        away, maybe, shot, poked, y_rot, aggressive, wanted, effect, struck, blow, elder_curse, infest, wake_infested,
         magic, projectile, lay_eggs, gift, throw, shoot_bullet, spawn_mob, shulker_push, bullet
     }
 }
@@ -452,6 +452,9 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
         return Ok(atoms::nil().encode(env));
     }
     let mut map = map_new(env);
+    if let Some(o) = own.family::<valimc_core::mobs::brains::axolotl::AxolotlOwn>() {
+        map = map.map_put(rustler::Atom::from_str(env, "find_liquid")?, o.find_liquid)?;
+    }
     if let Some(anger) = &own.anger {
         let target = anger
             .target
@@ -891,6 +894,34 @@ fn mob_parity_think<'a>(
                             let hit = Hit::new(source, 1.0);
                             kind.hurt_with(rules, &mut mob.body, &hit, &mut Vec::new());
                         }
+                    } else if what == atoms::blow() {
+                        // A player's blow as its family takes it before it
+                        // lands (an axolotl playing dead), then its mind's
+                        // hurt.
+                        let facts = crate::mob_facts::facts()?;
+                        let type_id = facts.entities.id(&mob.body.entity_type).ok_or(bad())?;
+                        let kind = kinds.kind(type_id).ok_or(bad())?;
+                        let source = facts
+                            .damage_types
+                            .id("minecraft:player_attack")
+                            .ok_or(bad())?;
+                        let player = players.first().ok_or(bad())?;
+                        let mut hit = Hit::new(source, 2.0);
+                        hit.attacker = Some(valimc_core::mobs::combat::Attacker {
+                            uuid: player.uuid,
+                            entity_id: player.id,
+                            player: true,
+                            entity_type: "minecraft:player".to_owned(),
+                            mainhand: None,
+                        });
+                        if let Some(body) = kind.before_hurt(&mob.body, &hit) {
+                            mob.body = body;
+                        }
+                        let attacker = Some(Ref {
+                            kind: Kind::Player,
+                            uuid: player.uuid,
+                        });
+                        think::hurt(mob, attacker, source);
                     } else if what == atoms::struck() {
                         // The first player's melee hit beside its damage:
                         // the mind's hurt, then its family's.

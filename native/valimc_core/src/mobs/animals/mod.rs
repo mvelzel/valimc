@@ -29,6 +29,7 @@ pub mod strider;
 pub mod turtle;
 pub mod variants;
 
+use crate::mobs::ai::brain::BrainFamily;
 use crate::mobs::ai::effect::Effect;
 use crate::mobs::ai::goals::move_to_block::MoveToBlock;
 use crate::mobs::ai::hooks::{Hooks, Tag};
@@ -212,6 +213,45 @@ pub trait Species: Send + Sync + Sized + 'static {
     /// by default `Animal.breed`.
     fn breed(&self, a: &Animal<Self>, t: &mut Turn, _breeding: Option<Tag>, partner: &Seen) {
         a.breed(t, partner);
+    }
+
+    /// `brain/0`: a brain animal's brain (an axolotl's); None: goals.
+    fn brain(&self) -> Option<&dyn BrainFamily> {
+        None
+    }
+
+    /// `look_control/1`: its own look control (true: it ran).
+    fn look_control(&self, _a: &Animal<Self>, _t: &mut Turn) -> bool {
+        false
+    }
+
+    /// `hit/2`: what its `doHurtTarget` adds to a melee hit.
+    fn hit(&self, _a: &Animal<Self>, _t: &mut Turn, _target: &Seen) {}
+
+    /// `max_air/0` and whether it keeps its own air (`air/2`): None, a
+    /// land animal's.
+    fn max_air(&self) -> Option<i32> {
+        None
+    }
+
+    /// `air/2`: its air from its supply and wetness.
+    fn air(&self, _supply: i32, _wet: bool) -> Option<(i32, f64)> {
+        None
+    }
+
+    /// `wet?/1`: None, in water.
+    fn wet(&self, _a: &Animal<Self>, _t: &Turn) -> Option<bool> {
+        None
+    }
+
+    /// `hidden?/1`: hidden from enemies.
+    fn hidden(&self, _body: &Body) -> bool {
+        false
+    }
+
+    /// `before_hurt/2`: its part before a hurt lands.
+    fn before_hurt(&self, _a: &Animal<Self>, _body: &Body, _hit: &Hit) -> Option<Body> {
+        None
     }
 }
 
@@ -558,9 +598,33 @@ impl<S: Species> Hooks for Animal<S> {
     fn block(&self, t: &mut Turn, tag: Tag, cell: [i32; 3], goal: &mut MoveToBlock) -> bool {
         self.species.block(self, t, tag, cell, goal)
     }
+
+    fn brain(&self) -> Option<&dyn BrainFamily> {
+        self.species.brain()
+    }
+
+    fn look_control(&self, t: &mut Turn) -> bool {
+        self.species.look_control(self, t)
+    }
+
+    fn hit(&self, t: &mut Turn, target: &Seen) {
+        self.species.hit(self, t, target);
+    }
 }
 
 impl<S: Species> Family for Animal<S> {
+    fn max_air(&self) -> i32 {
+        self.species.max_air().unwrap_or(300)
+    }
+
+    fn own_air(&self) -> bool {
+        self.species.max_air().is_some()
+    }
+
+    fn before_hurt(&self, body: &Body, hit: &Hit) -> Option<Body> {
+        self.species.before_hurt(self, body, hit)
+    }
+
     fn data(&self, _type_id: u16) -> FamilyData {
         FamilyData::new(self.data_fields()).unwrap_or_else(FamilyData::empty)
     }
@@ -708,6 +772,18 @@ impl<S: Species> Kind for Animal<S> {
 
     fn fresh_data(&self, _type_id: u16) -> Vec<(Atom, Value)> {
         self.data_fields()
+    }
+
+    fn air(&self, supply: i32, wet: bool) -> Option<(i32, f64)> {
+        self.species.air(supply, wet)
+    }
+
+    fn wet(&self, t: &Turn) -> bool {
+        self.species.wet(self, t).unwrap_or_else(|| t.in_water())
+    }
+
+    fn hidden(&self, body: &Body) -> bool {
+        self.species.hidden(body)
     }
 }
 
