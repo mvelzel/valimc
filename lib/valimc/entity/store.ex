@@ -521,8 +521,11 @@ defmodule Valimc.Entity.Store do
   chunk) is not the one they rested on.
   """
   def wake_stale(state, border, publication) do
-    {ids, spatial} = Spatial.stale(state.spatial, border, publication)
-    Enum.reduce(ids, %{state | spatial: spatial}, &wake(&2, &1))
+    case Spatial.stale(state.spatial, border, publication) do
+      # Nothing to wake leaves the very store (most ticks).
+      {[], spatial} when spatial === state.spatial -> state
+      {ids, spatial} -> Enum.reduce(ids, %{state | spatial: spatial}, &wake(&2, &1))
+    end
   end
 
   @doc "Whether the store holds resting items whose age runs (checkpoints save it)."

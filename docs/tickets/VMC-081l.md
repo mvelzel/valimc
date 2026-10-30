@@ -159,6 +159,10 @@ no tuple; the call still decodes the list.
 
 ## Checks
 
+A wake check with nothing to wake leaves the store the same term: the
+rest, item simulation, activity, merge and tick suites (16 tests);
+`check_vanilla.py --changed` through `heavy.py` (39 of 39).
+
 Sensed items and hoppers: the hopper, villager, mob brain, mob travel,
 native mob section, hostile, redstone, rest and item simulation suites;
 `check_vanilla.py --changed` through `heavy.py` (14 of 14 for the final

@@ -170,6 +170,10 @@ defmodule Valimc.Entity.Spatial do
   gives it by chunk) is not the one they rested on. The index forgets those
   chunks and takes `border`.
   """
+  def stale(%{resting: resting, border: border} = index, border, _publication)
+      when map_size(resting) == 0,
+      do: {[], index}
+
   def stale(%{resting: resting} = index, border, _publication)
       when map_size(resting) == 0,
       do: {[], %{index | border: border}}
@@ -182,7 +186,9 @@ defmodule Valimc.Entity.Spatial do
           else: {MapSet.to_list(ids) ++ acc, Map.delete(deps, chunk)}
       end)
 
-    {Enum.filter(Enum.uniq(ids), &is_map_key(index.resting, &1)), %{index | deps: deps}}
+    if ids == [],
+      do: {[], index},
+      else: {Enum.filter(Enum.uniq(ids), &is_map_key(index.resting, &1)), %{index | deps: deps}}
   end
 
   def stale(index, border, _publication),
