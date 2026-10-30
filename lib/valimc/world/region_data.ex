@@ -394,7 +394,7 @@ defmodule Valimc.World.RegionData do
       if state.entities.simulate and not planning?(state),
         do:
           Store.age_chunks(
-            state.entities.store,
+            wake_resting(state),
             ready,
             elem(Valimc.World.Dimension.bounds(state.dimension), 0),
             state.game_tick
@@ -445,6 +445,50 @@ defmodule Valimc.World.RegionData do
         do: %{state | entities: %{state.entities | age_debt: owed}},
         else: state
     end
+  end
+
+  # Resting items wake when their tick may change something again: a chunk
+  # it reads was published anew, or the world border changed (VMC-081l).
+  # Changes published during this tick before the items phase wake them for
+  # it, as every tick's steps read the publications as they are.
+  defp wake_resting(state) do
+    Store.wake_stale(
+      state.entities.store,
+      Valimc.World.Clock.border_snapshot(),
+      &chunk_publication(state, &1)
+    )
+  end
+
+  defp chunk_publication(state, chunk) do
+    case :ets.lookup(state.publication, {:chunk, chunk}) do
+      [{_, handle}] -> handle
+      [] -> nil
+    end
+  end
+
+  # The items of a phase's local steps that `Store.advance/4` left unchanged
+  # rest (VMC-081l): their next tick, over the same publications and border,
+  # is the same as this one, but for their age. An item rests only where
+  # what its tick reads (its cell two blocks around) is in this section's
+  # chunks, with no pickup delay (or an unlimited one), no portal cooldown
+  # and not burning, so only its age moves while it rests.
+  defp rest_unchanged(state, store, batch, handles) do
+    Enum.zip(batch, handles)
+    |> Enum.reduce(store, fn {step, {_, id, revision}}, acc ->
+      with true <- revision == step.revision,
+           %{kind: :item, motion: motion, entity: %{x: x, z: z}} = entry <- acc.entries[id],
+           true <- motion.pickup_delay in [0, 32_767] and motion.portal_cooldown == 0,
+           true <- entry[:on_fire] != true and motion.fire_ticks <= 0,
+           chunks =
+             Enum.uniq(for dx <- [-2, 2], dz <- [-2, 2], do: Grid.chunk_key(x + dx, z + dz)),
+           true <- Enum.all?(chunks, &(Grid.region_key(&1) == state.key)),
+           deps = Enum.map(chunks, &{&1, chunk_publication(state, &1)}),
+           true <- Enum.all?(deps, fn {_, handle} -> handle not in [nil, :absent] end) do
+        Store.rest(acc, id, deps, state.game_tick)
+      else
+        _ -> acc
+      end
+    end)
   end
 
   def cooking_tick(%{cooking: runtime} = state, now) do
@@ -1487,7 +1531,7 @@ defmodule Valimc.World.RegionData do
           Store.mark_simulated(state.entities.store, Enum.map(steps, & &1.id), state.game_tick)
         )
 
-      {:noreply, state} = commit_simulated_items(state, steps)
+      {:noreply, state} = commit_simulated_items(state, steps, true)
       state
     end
   end
@@ -8808,7 +8852,7 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  defp commit_simulated_items(state, steps) do
+  defp commit_simulated_items(state, steps, rest \\ false) do
     steps =
       Enum.flat_map(steps, fn step ->
         case state.entities.store.entries[step.id] do
@@ -8855,8 +8899,12 @@ defmodule Valimc.World.RegionData do
 
         Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
           case Store.advance(acc.entities.store, acc.key, acc.epoch, batch) do
-            {:ok, items, _} -> %{acc | entities: %{acc.entities | store: items}}
-            {:error, _} -> acc
+            {:ok, items, handles} ->
+              items = if rest, do: rest_unchanged(acc, items, batch, handles), else: items
+              %{acc | entities: %{acc.entities | store: items}}
+
+            {:error, _} ->
+              acc
           end
         end)
       end

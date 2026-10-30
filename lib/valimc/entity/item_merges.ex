@@ -7,7 +7,9 @@ defmodule Valimc.Entity.ItemMerges do
   @doc "Discover at most32 disjoint owned pairs off the owner; input is already bounded to256 items."
   def candidates(items) do
     items.entries
-    |> Enum.filter(fn {_, entry} -> entry.kind == :item and ItemMerge.eligible?(input(entry)) end)
+    |> Enum.filter(fn {_, entry} ->
+      entry.kind == :item and ItemMerge.eligible?(input(items, entry))
+    end)
     |> Enum.sort_by(fn {_, entry} -> entry.entity.uuid end)
     |> Enum.group_by(fn {_, entry} -> Valimc.Protocol.ItemStack.identity_key(entry.stack) end)
     |> Map.values()
@@ -68,7 +70,7 @@ defmodule Valimc.Entity.ItemMerges do
     with %{kind: :item, revision: ^ar} = left <- items.entries[a],
          %{kind: :item, revision: ^br} = right <- items.entries[b],
          true <- ItemMerge.near?(point(left), point(right)),
-         {:ok, decision} <- ItemMerge.pair(input(left), input(right)) do
+         {:ok, decision} <- ItemMerge.pair(input(items, left), input(items, right)) do
       {rid, recipient, did, donor} =
         if decision.recipient == :a, do: {a, left, b, right}, else: {b, right, a, left}
 
@@ -117,7 +119,7 @@ defmodule Valimc.Entity.ItemMerges do
          %{kind: :item} = entry <- items.entries[id],
          true <- ItemMerge.near?(point(entry), {x, y, z}),
          {:ok, %{recipient: :b, donor_stack: nil} = decision} <-
-           ItemMerge.pair(input, input(entry)),
+           ItemMerge.pair(input, input(items, entry)),
          {:ok, next, {^epoch, ^id, revision}} <-
            Store.replace(items, epoch, id, revision, decision.stack),
          {:ok, next, _} <-
@@ -143,13 +145,17 @@ defmodule Valimc.Entity.ItemMerges do
 
   # Persisted item records currently have no exclusive pickup target. Targeted
   # lifecycle support must retain that authority before entering this planner.
-  defp input(entry),
-    do: %{
+  # A resting item's counters as of now (VMC-081l).
+  defp input(items, entry) do
+    entry = Store.settled(items, entry)
+
+    %{
       stack: entry.stack,
       motion: Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity}),
       target: nil,
       alive: true
     }
+  end
 
   defp point(entry), do: {entry.entity.x, entry.entity.y, entry.entity.z}
 end

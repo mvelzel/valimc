@@ -18,11 +18,21 @@ defmodule Valimc.Entity.Store do
   changed, never a walk over the store. Changes to what no record holds (an
   entry's tick stamps, a mob's idle time, the on-fire flag) and native mobs,
   whose records are their section's (`NativeMobs.cut/2`), stay out of it.
+
+  An item whose tick changes nothing but its counters rests (VMC-081l):
+  its owner stops stepping and ageing it (`rest/3`) until something it
+  depends on changes. Its age then runs on its chunk's clock (`clocks`:
+  the ticks each chunk aged while it held resting items): the entry keeps
+  its counters as of the clock it rested at (`rest`), and `settled/2` gives
+  them as of now. Only its age moves meanwhile: an item rests with no
+  pickup delay or an unlimited one and no portal cooldown. Every store path
+  that changes or reads it for a change settles it (`current/4`), and every
+  view change wakes it (`Spatial.put/4`).
   """
   alias Valimc.Data.Grid
   alias Valimc.Entity.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemData, ItemStack, ItemTypes}
-  alias Valimc.Entity.{Body, ExperienceOrbs, Ids, NativeBody, NativeMobs, View}
+  alias Valimc.Entity.{Body, ExperienceOrbs, Ids, NativeBody, NativeMobs, Spatial, View}
   alias Valimc.Native
 
   # The handoff ledger: the last outgoing sequence, the one outgoing intent and
@@ -41,7 +51,9 @@ defmodule Valimc.Entity.Store do
             ledger: @ledger,
             deaths: [],
             native: nil,
-            dirty: %{}
+            dirty: %{},
+            clocks: %{},
+            aged_at: %{}
 
   @max_steps 32
   @bodies [:mob, :object]
@@ -112,7 +124,7 @@ defmodule Valimc.Entity.Store do
              uuids: Enum.into(added, current.uuids, fn {id, e} -> {e.entity.uuid, id} end),
              spatial:
                Enum.reduce(added, current.spatial, fn {id, _}, index ->
-                 Valimc.Entity.Spatial.put(index, id, nil, proposed.views[id])
+                 Spatial.put(index, id, nil, proposed.views[id])
                end),
              views: Map.merge(current.views, Map.take(proposed.views, Map.keys(added)))
          }}
@@ -124,6 +136,8 @@ defmodule Valimc.Entity.Store do
   away (`merge_orbs/3`); removal waits for the owner's durable commit.
   """
   def age(state, ticks \\ 1, minimum_y \\ Grid.min_y(), game_tick \\ nil) do
+    state = Enum.reduce(Map.keys(state.spatial.resting), state, &wake(&2, &1))
+
     ages = for {id, entry} <- state.entries, not native_entry?(entry), into: %{}, do: {id, ticks}
     {state, expired} = age_selected(state, ages, minimum_y, game_tick)
 
@@ -141,11 +155,17 @@ defmodule Valimc.Entity.Store do
   def age_chunks(state, chunk_ticks, minimum_y, game_tick) do
     # Every mob is native (VMC-081d) and ages in its section, in one call:
     # only the other kinds' memberships are walked (VMC-081j).
+    # Resting items age on their chunk's clock (VMC-081l): only the awake
+    # ones are walked.
     memberships =
       for {chunk, ticks} <- chunk_ticks,
           is_integer(ticks) and ticks > 0,
           kind <- [:object, :item, :orb],
-          ids = Map.get(state.spatial.chunks, {chunk, kind}),
+          ids =
+            if(kind == :item,
+              do: Map.get(state.spatial.awake, chunk),
+              else: Map.get(state.spatial.chunks, {chunk, kind})
+            ),
           ids != nil,
           do: {ids, ticks}
 
@@ -160,6 +180,7 @@ defmodule Valimc.Entity.Store do
       if count * 2 >= map_size(entries) do
         for {id, entry} <- entries,
             not native_entry?(entry),
+            not Spatial.resting?(state.spatial, id),
             ticks = Map.get(chunk_ticks, Grid.chunk_key(entry.entity.x, entry.entity.z)),
             is_integer(ticks) and ticks > 0,
             into: %{},
@@ -173,6 +194,8 @@ defmodule Valimc.Entity.Store do
       end
 
     {state, expired} = age_selected(state, ages, minimum_y, game_tick)
+    {state, resting} = age_resting(state, chunk_ticks, game_tick)
+    expired = resting ++ expired
 
     budget =
       if state.native == nil,
@@ -419,7 +442,130 @@ defmodule Valimc.Entity.Store do
 
   @doc "Every entity's persistent record, by uuid (network ids are the VM's, never stored)."
   def records(state),
-    do: state.entries |> Enum.map(fn {_, entry} -> record(entry) end) |> Enum.sort_by(& &1.uuid)
+    do:
+      state.entries
+      |> Enum.map(fn {_, entry} -> record(settled(state, entry)) end)
+      |> Enum.sort_by(& &1.uuid)
+
+  ## Resting items (VMC-081l)
+
+  @doc """
+  Item `id`, whose last tick changed nothing but its counters, rests: its
+  owner neither steps nor ages it until it wakes. `deps` are the chunks its
+  tick reads, each with the publication it read (`[{chunk, publication}]`).
+  Its age runs on its chunk's clock from here, which has aged for
+  `game_tick` already; its record stays as it is.
+  """
+  def rest(state, id, deps, game_tick \\ nil) do
+    case state.entries[id] do
+      %{kind: :item, motion: %ItemMotionState{} = motion, entity: e} = entry
+      when not is_map_key(entry, :rest) ->
+        chunk = Grid.chunk_key(e.x, e.z)
+        clock = Map.get(state.clocks, chunk, 0)
+        due = if motion.age == -32_768, do: nil, else: clock + 6000 - motion.age
+
+        %{
+          state
+          | entries: Map.put(state.entries, id, Map.put(entry, :rest, clock)),
+            clocks: Map.put(state.clocks, chunk, clock),
+            aged_at: Map.put_new(state.aged_at, chunk, game_tick),
+            spatial: Spatial.rest(state.spatial, id, chunk, due, deps)
+        }
+
+      _ ->
+        state
+    end
+  end
+
+  @doc """
+  `entry` with its counters as of now: a resting item's age advanced by
+  the ticks its chunk aged since it rested, no longer resting. Any other
+  entry as it is.
+  """
+  def settled(state, %{rest: base, entity: e, motion: motion} = entry) do
+    entry = Map.delete(entry, :rest)
+
+    case Map.get(state.clocks, Grid.chunk_key(e.x, e.z), base) - base do
+      ticks when ticks > 0 -> %{entry | motion: ItemMotionState.advance(motion, ticks)}
+      _ -> entry
+    end
+  end
+
+  def settled(_state, entry), do: entry
+
+  @doc "Item `id` wakes: settled (`settled/2`), stepped and aged again."
+  def wake(state, id) do
+    case state.entries[id] do
+      %{rest: _} = entry ->
+        settled = settled(state, entry)
+
+        dirty =
+          if settled.motion == entry.motion, do: state.dirty, else: dirty(state.dirty, settled)
+
+        %{
+          state
+          | entries: Map.put(state.entries, id, settled),
+            dirty: dirty,
+            spatial: Spatial.wake(state.spatial, id)
+        }
+
+      _ ->
+        %{state | spatial: Spatial.wake(state.spatial, id)}
+    end
+  end
+
+  @doc """
+  Wake the resting items whose tick might no longer change nothing: every
+  one when the world border is not `border` (the border they rest under),
+  else those reading a chunk whose publication (`publication` gives it by
+  chunk) is not the one they rested on.
+  """
+  def wake_stale(state, border, publication) do
+    {ids, spatial} = Spatial.stale(state.spatial, border, publication)
+    Enum.reduce(ids, %{state | spatial: spatial}, &wake(&2, &1))
+  end
+
+  @doc "Whether the store holds resting items whose age runs (checkpoints save it)."
+  def ageing_at_rest?(state), do: map_size(state.spatial.due) > 0
+
+  # The chunk clocks of `chunk_ticks` advance, once a game tick as every
+  # entity ages (`aged_at`), and the resting items whose age reaches 6000
+  # expire.
+  defp age_resting(%{clocks: clocks} = state, _chunk_ticks, _game_tick)
+       when map_size(clocks) == 0,
+       do: {state, []}
+
+  defp age_resting(state, chunk_ticks, game_tick) do
+    Enum.reduce(chunk_ticks, {state, []}, fn
+      {chunk, ticks}, {acc, expired} when is_integer(ticks) and ticks > 0 ->
+        case acc.clocks do
+          %{^chunk => _}
+          when game_tick != nil and :erlang.map_get(chunk, acc.aged_at) == game_tick ->
+            {acc, expired}
+
+          %{^chunk => clock} ->
+            acc = %{
+              acc
+              | clocks: Map.put(acc.clocks, chunk, clock + ticks),
+                aged_at: Map.put(acc.aged_at, chunk, game_tick)
+            }
+
+            gone =
+              for id <- Spatial.due(acc.spatial, chunk, clock + ticks),
+                  %{rest: _} = entry <- [acc.entries[id]],
+                  settled(acc, entry).motion.age >= 6000,
+                  do: {acc.epoch, id, entry.revision}
+
+            {acc, gone ++ expired}
+
+          _ ->
+            {acc, expired}
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
 
   ## Native mobs (VMC-081d)
 
@@ -461,7 +607,7 @@ defmodule Valimc.Entity.Store do
       | entries: Map.put(state.entries, id, entry),
         dirty: dirty(state.dirty, entry),
         uuids: Map.put(state.uuids, uuid, id),
-        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+        spatial: Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
     }
   end
@@ -676,7 +822,7 @@ defmodule Valimc.Entity.Store do
 
         spatial =
           if chunk != old.chunk or row.type in @solid_mobs,
-            do: Valimc.Entity.Spatial.put(spatial, id, old, view),
+            do: Spatial.put(spatial, id, old, view),
             else: spatial
 
         moves(rest, Map.put(entries, id, entry), Map.put(views, id, view), spatial)
@@ -988,7 +1134,7 @@ defmodule Valimc.Entity.Store do
          | entries: Map.put(state.entries, id, entry),
            dirty: dirty(state.dirty, entry),
            uuids: Map.put(state.uuids, uuid, id),
-           spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+           spatial: Spatial.put(state.spatial, id, state.views[id], view),
            views: Map.put(state.views, id, view)
        }, {state.epoch, id, 1}}
     end
@@ -1029,7 +1175,7 @@ defmodule Valimc.Entity.Store do
        | entries: Map.put(state.entries, id, entry),
          dirty: dirty(state.dirty, entry),
          uuids: Map.put(state.uuids, uuid, id),
-         spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+         spatial: Spatial.put(state.spatial, id, state.views[id], view),
          views: Map.put(state.views, id, view)
      }, {state.epoch, id, 1}}
   end
@@ -1141,7 +1287,7 @@ defmodule Valimc.Entity.Store do
            state
            | entries: Map.put(state.entries, id, entry),
              dirty: dirty(state.dirty, entry),
-             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+             spatial: Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, id}
       end
@@ -1182,7 +1328,7 @@ defmodule Valimc.Entity.Store do
           state
           | entries: Map.put(state.entries, id, entry),
             dirty: dirty(state.dirty, entry),
-            spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+            spatial: Spatial.put(state.spatial, id, state.views[id], view),
             views: Map.put(state.views, id, view)
         }
 
@@ -1204,7 +1350,7 @@ defmodule Valimc.Entity.Store do
          | entries: Map.delete(state.entries, id),
            dirty: dirty(state.dirty, entry),
            uuids: Map.delete(state.uuids, entry.entity.uuid),
-           spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], nil),
+           spatial: Spatial.put(state.spatial, id, state.views[id], nil),
            views: Map.delete(state.views, id)
        }}
     end
@@ -1307,7 +1453,7 @@ defmodule Valimc.Entity.Store do
            state
            | entries: Map.put(state.entries, id, entry),
              dirty: dirty(state.dirty, entry),
-             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+             spatial: Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
       end
@@ -1325,6 +1471,18 @@ defmodule Valimc.Entity.Store do
     with {:ok, entry} <- current_item(state, state.epoch, id, revision),
          true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
          true <- Grid.region_key(Grid.chunk_key(x, z)) == key do
+      # A resting item's step was made from its entry as it rested: its
+      # counters are its settled ones (VMC-081l).
+      motion =
+        if is_map_key(state.entries[id], :rest),
+          do: %{
+            motion
+            | age: entry.motion.age,
+              pickup_delay: entry.motion.pickup_delay,
+              portal_cooldown: entry.motion.portal_cooldown
+          },
+          else: motion
+
       entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
       old = state.views[id]
       on_fire = on_fire(step, entry)
@@ -1380,7 +1538,7 @@ defmodule Valimc.Entity.Store do
            state
            | entries: Map.put(state.entries, id, entry),
              dirty: dirty(state.dirty, entry),
-             spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+             spatial: Spatial.put(state.spatial, id, state.views[id], view),
              views: Map.put(state.views, id, view)
          }, {state.epoch, id, revision + 1}}
       end
@@ -1696,25 +1854,25 @@ defmodule Valimc.Entity.Store do
       state
       | entries: Map.put(state.entries, id, entry),
         dirty: dirty(state.dirty, entry),
-        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+        spatial: Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
     }
   end
 
   @doc "Live authoritative entities of a kind in selected chunks."
   def in_chunks(state, chunks, kind),
-    do: Valimc.Entity.Spatial.in_chunks(state.spatial, state.entries, chunks, kind)
+    do: Spatial.in_chunks(state.spatial, state.entries, chunks, kind)
 
   @doc "How many entities of `kind` the chunk index holds in `chunks`."
   def count_in_chunks(state, chunks, kind),
-    do: Valimc.Entity.Spatial.count_in_chunks(state.spatial, chunks, kind)
+    do: Spatial.count_in_chunks(state.spatial, chunks, kind)
 
   @doc "Solid entity colliders intersecting an area, with their live entries."
   def colliders(state, area),
-    do: Valimc.Entity.Spatial.colliders(state.spatial, state.entries, area)
+    do: Spatial.colliders(state.spatial, state.entries, area)
 
   @doc "Whether this owner's store contains a body of `type`."
-  def has_type?(state, type), do: Valimc.Entity.Spatial.has_type?(state.spatial, type)
+  def has_type?(state, type), do: Spatial.has_type?(state.spatial, type)
 
   # A body's view: what every view has, the pairing packets as its metadata
   # (kept while what they show is unchanged), its type and rotation, its body
@@ -1761,7 +1919,7 @@ defmodule Valimc.Entity.Store do
       epoch != state.epoch -> Valimc.Data.Error.retry(:stale_owner)
       not Map.has_key?(state.entries, id) -> {:error, :missing_item}
       state.entries[id].revision != revision -> {:error, :stale_item}
-      true -> {:ok, state.entries[id]}
+      true -> {:ok, settled(state, state.entries[id])}
     end
   end
 
@@ -1818,7 +1976,7 @@ defmodule Valimc.Entity.Store do
       | entries: Map.put(state.entries, id, entry),
         dirty: dirty(state.dirty, entry),
         uuids: Map.put(state.uuids, uuid, id),
-        spatial: Valimc.Entity.Spatial.put(state.spatial, id, state.views[id], view),
+        spatial: Spatial.put(state.spatial, id, state.views[id], view),
         views: Map.put(state.views, id, view)
     }
 

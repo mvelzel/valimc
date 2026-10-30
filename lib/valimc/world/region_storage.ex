@@ -655,8 +655,12 @@ defmodule Valimc.World.RegionStorage do
         compared: compared,
         motion_waiting: (storage.motion_waiting and not full) or :motion in waits,
         motion_at: if(full, do: now + @motion_ms, else: storage.motion_at),
+        # Resting items' ages run without a record changing (VMC-081l): a
+        # checkpoint saves them as it saves any other counter.
         counters_since:
-          if(:counters in waits and storage.counters_since == nil,
+          if(
+            (:counters in waits or Store.ageing_at_rest?(parts.items)) and
+              storage.counters_since == nil,
             do: now,
             else: storage.counters_since
           )
@@ -687,7 +691,11 @@ defmodule Valimc.World.RegionStorage do
               if Store.native_entry?(entry),
                 do: {changes, Map.delete(written, key)},
                 else:
-                  {Map.put(changes, key, {Map.get(written, key), Store.record(entry)}), written}
+                  {Map.put(
+                     changes,
+                     key,
+                     {Map.get(written, key), Store.record(Store.settled(store, entry))}
+                   ), written}
           end
 
         _ ->
@@ -736,7 +744,7 @@ defmodule Valimc.World.RegionStorage do
       for {_, entry} <- parts.items.entries,
           not Store.native_entry?(entry),
           into: %{},
-          do: {{:entity, entry.entity.uuid}, Store.record(entry)}
+          do: {{:entity, entry.entity.uuid}, Store.record(Store.settled(parts.items, entry))}
 
     check(
       %{
@@ -826,13 +834,14 @@ defmodule Valimc.World.RegionStorage do
 
   # Each stored part as keyed maps of its entries, each with how an entry
   # becomes `{record key, record}`.
-  defp fields(:items, %Store{entries: entries, ledger: ledger}),
+  defp fields(:items, %Store{entries: entries, ledger: ledger} = store),
     do: [
       {entries,
        fn
          # A native mob's record is its section's (`NativeMobs.cut/2`).
          _id, %{native: ref} = entry when ref != nil -> {{:entity, entry.entity.uuid}, :native}
-         _id, entry -> {{:entity, entry.entity.uuid}, Store.record(entry)}
+         # A resting item's age as of now (VMC-081l).
+         _id, entry -> {{:entity, entry.entity.uuid}, Store.record(Store.settled(store, entry))}
        end}
       | fields(:ledger, ledger)
     ]

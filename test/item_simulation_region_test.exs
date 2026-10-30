@@ -99,10 +99,48 @@ defmodule Valimc.ItemSimulationRegionTest do
       Enum.all?(state(ctx).entities.store.entries, fn {_, e} -> e.entity.y < 67.8 end)
     end)
 
-    entries = Map.values(state(ctx).entities.store.entries)
+    store = state(ctx).entities.store
+    entries = Enum.map(Map.values(store.entries), &Valimc.Entity.Store.settled(store, &1))
     assert length(entries) == 256
     assert length(Enum.uniq(Enum.map(entries, & &1.motion.age))) == 1
     assert Enum.all?(entries, &(&1.motion.age >= 3))
+  end
+
+  @tag count: 4
+  test "items at rest are neither stepped nor aged until a chunk they read changes", ctx do
+    alias Valimc.Entity.{Spatial, Store}
+    resting = fn -> map_size(state(ctx).entities.store.spatial.resting) end
+    wait(ctx, fn -> resting.() == 4 end)
+    before = state(ctx).entities.store
+    step(ctx, 20)
+    store = state(ctx).entities.store
+
+    # Twenty ticks later nothing of them was rebuilt, and their age ran.
+    assert store.entries == before.entries and store.views == before.views
+    assert Spatial.awake(store.spatial, Map.keys(store.clocks)) == []
+
+    for {id, entry} <- store.entries,
+        do:
+          assert(
+            Store.settled(store, entry).motion.age ==
+              Store.settled(before, before.entries[id]).motion.age + 20
+          )
+
+    # Its checkpoint saves the age it has now.
+    assert :ok = Region.flush(elem(ctx.owner, 0))
+    saved = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
+
+    for record <- saved.records,
+        {_, entry} = Enum.find(store.entries, fn {_, e} -> e.entity.uuid == record.uuid end),
+        do: assert(record.motion.age == Store.settled(store, entry).motion.age)
+
+    # The block under one goes: the items reading its chunk wake and it falls.
+    {id, entry} = Enum.min_by(store.entries, fn {_, e} -> e.entity.x end)
+    %{x: x, y: y, z: z} = entry.entity
+    :ok = Valimc.TestBlocks.set({floor(x), floor(y) - 1, floor(z)}, 0)
+    step(ctx, 1)
+    refute Spatial.resting?(state(ctx).entities.store.spatial, id)
+    wait(ctx, fn -> state(ctx).entities.store.entries[id].entity.y < y - 0.5 end)
   end
 
   @tag edge: true, motion: %ItemMotionState{no_gravity: true}

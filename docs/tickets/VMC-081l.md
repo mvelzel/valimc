@@ -48,7 +48,70 @@ Per section tick, for every item in a simulated chunk:
   block bodies phase the simulated chunks' objects (in id order, as a small
   store's map walk gave them), never every entity of the section.
 
+## Resting items
+
+An item whose tick leaves it as it was, but for its counters, rests: its
+owner neither steps nor ages it until something its tick reads changes.
+
+- **When.** After the items phase commits its steps, an item that
+  `Store.advance/4` left unchanged (its place, velocity, ground and water
+  flags, health, fire ticks and on-fire flag the very terms it had) rests,
+  if what its tick reads (its cell two blocks around, which covers the
+  kernel's scan, its supporting block and its contacts) lies in the
+  section's own chunks, it has no pickup delay or an unlimited one, no
+  portal cooldown, and does not burn. The kernel step is a pure function of
+  the item's physical state, the published chunks it reads and the world
+  border, and burning of its fire state, its contacts and (only when
+  burning) rain: with those the same, its next tick is this one again, so
+  only its age moves. A velocity still decaying is a change: such an item
+  stays awake until the decay stops at its floating-point fixed point.
+- **Its age on a chunk clock.** Each chunk holding resting items keeps a
+  clock, the ticks it aged (owed ticks after a planning pause included,
+  once a game tick as every entity ages). A resting entry keeps its
+  counters as of the clock it rested at; `Store.settled/2` gives them as of
+  now. Every store path that changes or hands out an item settles it
+  (`current/4`: steps, replacements, removals, withdrawals), a step made
+  from the entry as it rested (a piston's or an explosion's push) keeps its
+  settled counters, merges read settled inputs, and records (frames, the
+  baseline, checkpoints, `Store.records/1`) are settled. A store holding
+  resting items with a running age counts as counters moving, so a
+  checkpoint saves their age within the same five minutes as any other
+  counter.
+- **Expiry.** A resting item's despawn is a deadline: the spatial index
+  keeps, per chunk, the clock at which each one's age reaches 6000, and the
+  clock's advance takes the due ones, which expire in the tick every-tick
+  ageing would expire them.
+- **Waking.** The spatial index keeps, per chunk a resting item reads, the
+  publication it read (the chunk's snapshot handle in the section's table)
+  and the world border. At the start of each items phase (before ageing,
+  so a change published earlier is read by this tick's steps as every
+  tick's are) a chunk published anew wakes the items reading it, and a
+  border change wakes all. Any view change of an item wakes it
+  (`Spatial.put/4`), so a store path that does not know about resting can
+  only leave an item awake, never asleep while it changes.
+
+Per tick, a resting item had: a membership visit, a counter advance with a
+new revision, a rebuilt view and a journal entry, an `aged_tick` stamp, a
+kernel input with its fire immunity, a kernel step, burning, a
+`simulated_tick` stamp and a step compared against its entry. Now it has
+none; the section's resting work per tick is one table lookup per chunk
+its resting items read and one clock advance per chunk holding them.
+`item_rest_test.exs` checks records, views and expiry against every-tick
+ageing over chunks out of simulation, owed ticks, a repeated game tick and
+a wake partway; `item_simulation_region_test.exs` checks, in a running
+section, that resting items' entries and views stay the same terms over
+twenty ticks while their age runs, that a checkpoint saves that age, and
+that removing the block under one wakes it and it falls.
+
 ## Checks
+
+Resting items: the rest, item, merge, spatial, membership, bodies,
+explosion, hopper, despawn, portal, void, handoff, checkpoint, journal,
+storage, tick, activity, orb, redstone, piston, fluid, mining, villager,
+import, group, lifecycle, replication and view suites (114 tests) and the
+pickup, item, explosion and portal socket suites (6);
+`check_vanilla.py --changed` through `heavy.py` (40 of 40, the item,
+mob, storage and `tcp` stages among them).
 
 Round one (merging, selection): the item, spatial, membership, bodies,
 explosion, hopper, despawn, portal, void, handoff, checkpoint, tick,
