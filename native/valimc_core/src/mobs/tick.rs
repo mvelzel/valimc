@@ -816,7 +816,7 @@ fn crack(
     out.events.push(Event::Other(Value::Tuple(vec![
         Value::atom("sound_at"),
         Value::Int(id as i64),
-        Value::Binary(b"blocks".to_vec()),
+        Value::Binary(b"block".to_vec()),
         Value::vec3(at),
         Value::Float(f(0.7)),
         Value::Float(pitch),

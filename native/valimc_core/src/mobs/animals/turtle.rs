@@ -545,7 +545,7 @@ impl LayEgg {
         if let Some(id) = t.level.facts.sounds.id("minecraft:entity.turtle.lay_egg") {
             t.effect(Effect::SoundBlock(Value::Tuple(vec![
                 Value::Int(id as i64),
-                Value::Binary(b"blocks".to_vec()),
+                Value::Binary(b"block".to_vec()),
                 Value::Float(f(0.3)),
                 Value::Float(pitch),
                 Value::Int(seed),

@@ -95,6 +95,28 @@ defmodule Valimc.MobTravelRegionTest do
     assert Valimc.TestBlocks.get(cell) == Valimc.Data.Blocks.default_state("dirt")
   end
 
+  # The M3 gate's second owner crash: the crack's sound named source
+  # "blocks", which the protocol does not know (vanilla's is "block").
+  test "a cow standing on turtle eggs cracks them and its owner lives on", ctx do
+    {x, z} = ctx.at
+    cell = {floor(x), 64, floor(z)}
+    eggs = Valimc.Data.Blocks.default_state("turtle_egg")
+    Valimc.TestBlocks.set(cell, eggs)
+    {:ok, cow} = Body.new("minecraft:cow")
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(cow, <<1::128>>, {x, 65.0, z})])
+    {pid, _} = ctx.owner
+
+    Valimc.TestWait.until(
+      fn ->
+        step(ctx, 20)
+        Valimc.TestBlocks.get(cell) != eggs
+      end,
+      30_000
+    )
+
+    assert Process.alive?(pid)
+  end
+
   test "two overlapping zombies push each other apart", ctx do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x, 64.0, z})

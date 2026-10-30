@@ -123,7 +123,7 @@ impl RemoveBlock {
             sound_at(
                 t,
                 "minecraft:entity.turtle.egg_break",
-                "blocks",
+                "block",
                 [cx as f64 + 0.5, cy as f64 + 0.5, cz as f64 + 0.5],
                 f(0.7),
                 pitch,
