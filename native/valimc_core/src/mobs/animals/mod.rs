@@ -467,7 +467,7 @@ impl<S: Species> Hooks for Animal<S> {
 }
 
 impl<S: Species> Family for Animal<S> {
-    fn data(&self) -> FamilyData {
+    fn data(&self, _type_id: u16) -> FamilyData {
         FamilyData::new(self.data_fields()).unwrap_or_else(FamilyData::empty)
     }
 
@@ -581,7 +581,7 @@ impl<S: Species> Kind for Animal<S> {
         self.species.use_item(self, i)
     }
 
-    fn fresh_data(&self) -> Vec<(Atom, Value)> {
+    fn fresh_data(&self, _type_id: u16) -> Vec<(Atom, Value)> {
         self.data_fields()
     }
 }

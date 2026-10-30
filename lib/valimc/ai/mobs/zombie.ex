@@ -485,9 +485,10 @@ defmodule Valimc.AI.Mobs.Zombie do
     end
   end
 
+  # `setHealth(getMaxHealth())`: the maximum follows the leader's bonus.
   defp full_health(%Self{mob: mob, type: type} = self) do
     max = Float32.round(Mob.value(type, mob, "minecraft:max_health"))
-    health = %{mob.living.health | value: max}
+    health = %{mob.living.health | maximum: max, value: max}
     %{self | mob: %{mob | living: %{mob.living | health: health}}}
   end
 

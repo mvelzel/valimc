@@ -136,8 +136,9 @@ pub enum Event {
 /// where it acts on them). Every hook defaults to what the Elixir does for a
 /// family without it.
 pub trait Family: Sync {
-    /// `data/1`: a fresh body's own data.
-    fn data(&self) -> FamilyData {
+    /// `data/1`: a fresh body's own data, of type `type_id` (a family's
+    /// types may differ: a zombie villager's villager data).
+    fn data(&self, _type_id: u16) -> FamilyData {
         FamilyData::empty()
     }
 

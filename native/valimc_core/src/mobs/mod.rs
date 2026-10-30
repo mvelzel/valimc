@@ -7,6 +7,7 @@ pub mod facts;
 pub mod kinds;
 pub mod level;
 pub mod model;
+pub mod monsters;
 pub mod mth;
 pub mod random;
 pub mod record;

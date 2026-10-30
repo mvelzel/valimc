@@ -23,10 +23,10 @@ use crate::mobs::ai::mind::Own;
 use crate::mobs::ai::navigation::NavKind;
 use crate::mobs::ai::turn::Turn;
 use crate::mobs::ai::Opaque;
-use crate::mobs::combat::{DefaultFamily, Families, Family};
+use crate::mobs::combat::{DefaultFamily, Families, Family, Rules};
 use crate::mobs::facts::ai::GoalFact;
 use crate::mobs::facts::MobFacts;
-use crate::mobs::model::{Body, MindState, NativeMob, TravelKind};
+use crate::mobs::model::{Body, FamilyData, Mind, MindState, Mob, NativeMob, TravelKind};
 use crate::mobs::sensing::SensedItem;
 use crate::mobs::term::{Atom, Value};
 use crate::physics::mob::Ticked;
@@ -291,6 +291,32 @@ pub trait Kind: Hooks + Family {
         false
     }
 
+    // ## Conversions
+
+    /// `baby?/1`: a baby by its family's own flag, which a conversion keeps.
+    fn baby(&self, _body: &Body) -> bool {
+        false
+    }
+
+    /// `set_baby/2` (`setBaby`): its flag and what comes with it.
+    fn set_baby(&self, _mob: &mut Mob, _data: &mut FamilyData, _baby: bool) {}
+
+    /// `after_conversion/3`: its step after a mob converted into it, at the
+    /// local difficulty's `special` multiplier (a zombie's attributes, from
+    /// the new mob's own random).
+    fn after_conversion(&self, _facts: &MobFacts, _body: &mut Body, _special: f64) {}
+
+    /// `split/2`: the mobs a dead one becomes as it is removed, `(body,
+    /// position)` (a cube's halves), from its own random.
+    fn split(
+        &self,
+        _rules: &Rules,
+        _body: &mut Body,
+        _position: [f64; 3],
+    ) -> Vec<(Body, [f64; 3])> {
+        Vec::new()
+    }
+
     // ## Gear
 
     /// `wants?/2`: whether it picks item `item` up (`wantsToPickUp`).
@@ -329,9 +355,9 @@ pub trait Kind: Hooks + Family {
         Outcome::Pass
     }
 
-    /// Its own data a record of a fresh body holds, as `(key, value)` (the
-    /// family's `data/1`, without draws).
-    fn fresh_data(&self) -> Vec<(Atom, Value)> {
+    /// Its own data a record of a fresh body of type `type_id` holds, as
+    /// `(key, value)` (the family's `data/1`, without draws).
+    fn fresh_data(&self, _type_id: u16) -> Vec<(Atom, Value)> {
         Vec::new()
     }
 }
@@ -364,7 +390,9 @@ fn facts_shape(list: &[GoalFact]) -> Vec<(i32, &str, u8)> {
 impl Registry {
     /// Every ported family (`Valimc.AI.Mobs`' `@families` that moved).
     pub fn new(facts: &MobFacts) -> Result<Registry, String> {
-        Registry::of(facts, crate::mobs::animals::kinds(facts)?)
+        let mut kinds = crate::mobs::animals::kinds(facts)?;
+        kinds.extend(crate::mobs::monsters::kinds(facts)?);
+        Registry::of(facts, kinds)
     }
 
     /// A registry of `kinds`, each type's goals checked against vanilla's
@@ -436,6 +464,68 @@ pub fn interact(i: &mut Interaction, kind: &dyn Kind, player: Option<&leads::Pla
         }
     }
     kind.interact(i)
+}
+
+/// `Conversion.convert/4` (`Mob.convertTo` with `ConversionParams.single`):
+/// the body `body` becomes as type `to` with `uuid`, at the local
+/// difficulty's `special` multiplier: a fresh one of its new type with a
+/// fresh mind of `uuid` that keeps its rotations, motion, equipment and drop
+/// chances, effects, absorption, hurt time, the player that hurt it, loot
+/// pickup, handedness, persistence, AI flag and name; a baby stays one
+/// (`convertCommon`); then its new family's step after a conversion. None
+/// for a type that is not a mob.
+pub fn convert(
+    rules: &Rules,
+    kinds: &Registry,
+    body: &Body,
+    uuid: &crate::mobs::sensing::Uuid,
+    to: u16,
+    special: f64,
+) -> Option<Body> {
+    let facts = rules.facts;
+    let ty = crate::mobs::living::mob::Type::of(facts, facts.entities.name(to)?)?;
+    let mut new = crate::mobs::living::body::fresh(rules, ty);
+    let old = &body.mob;
+    let fresh = &mut new.mob;
+    fresh.equipment = old.equipment.clone();
+    fresh.drop_chances = old.drop_chances.clone();
+    fresh.motion.fall_distance = old.motion.fall_distance;
+    fresh.player_memory = old.player_memory;
+    fresh.hurt_by_player = old.hurt_by_player;
+    fresh.living.effects = old.living.effects.clone();
+    fresh.living.absorption = old.living.absorption;
+    fresh.living.health.hurt_ticks = old.living.health.hurt_ticks;
+    fresh.can_pick_up_loot = old.can_pick_up_loot;
+    fresh.left_handed = old.left_handed;
+    fresh.no_ai = old.no_ai;
+    fresh.persistent = old.persistent;
+    fresh.ai = Some(Mind {
+        random: crate::mobs::random::LegacyRandom::from_uuid(uuid),
+        memories: None,
+        state: None,
+    });
+    new.yaw = body.yaw;
+    new.pitch = body.pitch;
+    new.head_yaw = body.head_yaw;
+    new.velocity = body.velocity;
+    new.on_ground = body.on_ground;
+    new.no_gravity = body.no_gravity;
+    new.custom_name = body.custom_name.clone();
+    new.portal_cooldown = body.portal_cooldown;
+    let from = facts
+        .entities
+        .id(&body.entity_type)
+        .and_then(|id| kinds.kind(id));
+    let into = kinds.kind(to);
+    if from.is_some_and(|k| k.baby(body)) {
+        if let Some(into) = into {
+            into.set_baby(&mut new.mob, &mut new.data, true);
+        }
+    }
+    if let Some(into) = into {
+        into.after_conversion(facts, &mut new, special);
+    }
+    Some(new)
 }
 
 /// `Mobs.selectors/1`: a fresh mind's goal and target selectors, and

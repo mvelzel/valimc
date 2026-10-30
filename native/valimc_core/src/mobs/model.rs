@@ -197,6 +197,36 @@ impl Attributes {
         };
         &mut self.0[i].1
     }
+
+    /// `Map.delete(attributes, id)`.
+    pub fn remove(&mut self, id: &str) {
+        if let Ok(i) = self
+            .0
+            .binary_search_by(|(k, _)| k.as_bytes().cmp(id.as_bytes()))
+        {
+            self.0.remove(i);
+        }
+    }
+
+    /// The modifier `id` of attribute `name` removed and, with `add`
+    /// (`{amount, operation}`), added again after the rest; an override
+    /// left without a base or modifiers goes (the Elixir's attribute
+    /// toggles: a baby's speed, an enderman's attacking or a witch's
+    /// drinking speed).
+    pub fn toggle(&mut self, name: &str, id: &str, add: Option<(Number, i32)>) {
+        let entry = self.entry(name);
+        entry.modifiers.retain(|m| m.id != id);
+        if let Some((amount, operation)) = add {
+            entry.modifiers.push(Modifier {
+                id: id.to_owned(),
+                amount,
+                operation,
+            });
+        }
+        if entry.base.is_none() && entry.modifiers.is_empty() {
+            self.remove(name);
+        }
+    }
 }
 
 /// One attribute's override.

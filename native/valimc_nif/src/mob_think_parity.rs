@@ -32,11 +32,13 @@ use valimc_core::mobs::term::Value;
 
 mod atoms {
     rustler::atoms! {
-        nil, love, feed, hurt, sound, sound_at, event, eat_block, dirt, destroy, offspring,
+        nil, love, feed, hurt, fire, sound, sound_at, event, eat_block, dirt, destroy, offspring,
         bred, orb, lay, lead, knot_free, make_knot, raid_carrot, other, living, player,
         mob, item, keep, fill, wear, pass, consume, done, animal, sound_block,
         jump_ticks, jump_duration, was_on_ground, jump_delay, can_jump, move_to, wait,
-        jumping, strafe, pickup, drop, swing, attack, alert
+        jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
+        level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
+        throw_trident, touch, take_block, place_carried, remove_block
     }
 }
 
@@ -87,6 +89,16 @@ struct SceneT<'a> {
     /// Each tick's player positions and movements (none: they stand).
     moves: Vec<Vec<(V3, V3)>>,
     level_seed: u64,
+    /// Sensed-only mobs (types not native yet), after the mobs in id order.
+    statues: Vec<(i32, Term<'a>)>,
+    /// Whether the sun and each family's part after the move run.
+    post: bool,
+    monsters_burn: bool,
+    halloween: bool,
+    /// Per tick, the indices of the mobs whose move bumped into a wall.
+    collide: Vec<Vec<usize>>,
+    /// The loot registry spawn enchanting rolls in.
+    loot: Option<ResourceArc<crate::loot::LootRegistry>>,
 }
 
 fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
@@ -210,6 +222,74 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
         }
         Effect::Drop(stack) => (atoms::drop(), mob_term::encode(env, stack)?).encode(env),
         Effect::Living(_) => (atoms::living(),).encode(env),
+        Effect::AttackExtra(r, extras) => (
+            atoms::attack_extra(),
+            reference(env, r),
+            mob_term::encode(env, extras)?,
+        )
+            .encode(env),
+        Effect::Convert(to) => {
+            let facts = crate::mob_facts::facts()?;
+            (atoms::convert(), facts.entities.name(*to).unwrap_or("")).encode(env)
+        }
+        Effect::LevelEvent {
+            cell: c,
+            kind,
+            data,
+        } => (atoms::level_event(), cell(*c), *kind, *data).encode(env),
+        Effect::Spawn { type_id, options } => {
+            let facts = crate::mob_facts::facts()?;
+            (
+                atoms::spawn(),
+                facts.entities.name(*type_id).unwrap_or(""),
+                mob_term::encode(env, options)?,
+            )
+                .encode(env)
+        }
+        Effect::SpawnBody(body) => (atoms::spawn_body(), mob_term::encode(env, body)?).encode(env),
+        Effect::Jockey(uuid) => (atoms::jockey(), crate::binary(env, uuid)).encode(env),
+        Effect::Shoot(shot) => {
+            let mut map = map_new(env);
+            for (k, v) in [
+                ("target", reference(env, &shot.target)),
+                (
+                    "at",
+                    (shot.at[0], shot.at[1], shot.at[2], shot.at[3]).encode(env),
+                ),
+                ("from", v3(shot.from).encode(env)),
+                ("power", shot.power.encode(env)),
+                ("pitch", shot.pitch.encode(env)),
+            ] {
+                map = map.map_put(rustler::Atom::from_str(env, k)?, v)?;
+            }
+            (atoms::shoot(), map).encode(env)
+        }
+        Effect::Explode(v) => (atoms::explode(), mob_term::encode(env, v)?).encode(env),
+        Effect::ThrowPotion(v) => (atoms::throw_potion(), mob_term::encode(env, v)?).encode(env),
+        Effect::ThrowTrident(v) => (atoms::throw_trident(), mob_term::encode(env, v)?).encode(env),
+        Effect::Touch {
+            target,
+            amount,
+            sound,
+        } => (
+            atoms::touch(),
+            reference(env, target),
+            *amount,
+            mob_term::encode(env, sound)?,
+        )
+            .encode(env),
+        Effect::TakeBlock(v) => {
+            let v = mob_term::encode(env, v)?;
+            let items = rustler::types::tuple::get_tuple(v)?;
+            let mut all = vec![atoms::take_block().encode(env)];
+            all.extend(items);
+            rustler::types::tuple::make_tuple(env, &all)
+        }
+        Effect::PlaceCarried { cell: c, state } => {
+            (atoms::place_carried(), cell(*c), *state).encode(env)
+        }
+        Effect::RemoveBlock(c) => (atoms::remove_block(), cell(*c)).encode(env),
+        Effect::Discard => (atoms::discard(),).encode(env),
         _ => (atoms::other(),).encode(env),
     })
 }
@@ -288,6 +368,55 @@ fn mind<'a>(env: Env<'a>, mob: &NativeMob) -> NifResult<Term<'a>> {
     ))
 }
 
+/// What `MobTicks` runs after the settle that a scene can (the harness's
+/// `post/4`): the sun (`Daylight.tick`) and the family's part after the
+/// move, its move as the record's fluids left it (`collided`: it bumped
+/// into a wall).
+fn post(
+    rules: &Rules,
+    kinds: &kinds::Registry,
+    mob: &mut NativeMob,
+    level: &mut valimc_core::mobs::level::Level,
+    collided: bool,
+) -> Vec<Effect> {
+    let position = mob.position;
+    valimc_core::mobs::vitals::daylight(rules, mob, position, level);
+    mob.body.mob.motion.horizontal_collision = collided;
+    let motion = &mob.body.mob.motion;
+    let ticked = valimc_core::physics::mob::Ticked {
+        mob: valimc_core::physics::mob::Mob {
+            horizontal_collision: collided,
+            ..Default::default()
+        },
+        water: motion.water > 0.0,
+        lava: motion.lava > 0.0,
+        eye_water: motion.eye_water,
+        eye_state: motion.eye.state as u16,
+        eye_after: (motion.eye.water, motion.eye.state as u16),
+        pre_swim: None,
+        step: false,
+        on_block: None,
+        landing: None,
+        landing_pos: None,
+        touched: Default::default(),
+        climbing: false,
+        powder_snow: motion.powder_snow,
+        depths: Default::default(),
+        swim: None,
+        support: 0,
+        splash: None,
+    };
+    let Some(kind) = rules
+        .facts
+        .entities
+        .id(&mob.body.entity_type)
+        .and_then(|id| kinds.kind(id))
+    else {
+        return Vec::new();
+    };
+    kind.after_move(mob, &ticked)
+}
+
 /// `{ticks: [{records, minds, effects, level seed}]}` of `scene` over the
 /// region's store.
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -314,20 +443,35 @@ fn mob_parity_think<'a>(
         ids.push(*id);
         mobs.push(mob);
     }
+    let mut statues = Vec::new();
+    for (id, record) in &scene.statues {
+        let value = mob_term::decode(*record)?;
+        let mob = record::restore(&value, &record_facts.0).map_err(|_| bad())?;
+        statues.push((*id, mob));
+    }
     let mut players = scene
         .players
         .iter()
         .map(player_of)
         .collect::<NifResult<Vec<_>>>()?;
     let difficulty = difficulty(scene.difficulty)?;
+    // The level borrows the registry for as long as any level lives: a
+    // parity run keeps its handle (the Elixir's is a persistent term too).
+    let loot: Option<&'static valimc_core::loot::Loot> = scene
+        .loot
+        .as_ref()
+        .map(|r| &**Box::leak(Box::new(r.loot.clone())));
     let mut out = Vec::new();
     over_region(&region, zoom_seed, |level| {
         level.difficulty = difficulty;
         level.bright = scene.bright;
+        level.monsters_burn = scene.monsters_burn;
+        level.halloween = scene.halloween;
         level.day = scene.day;
         level.rules.mob_griefing = scene.rules.mob_griefing;
         level.rules.mob_drops = scene.rules.mob_drops;
         level.rules.entity_drops = scene.rules.entity_drops;
+        level.loot = loot;
         level.knots = scene
             .knots
             .iter()
@@ -350,6 +494,8 @@ fn mob_parity_think<'a>(
                         valimc_core::mobs::animals::feed_love(mob, None);
                     } else if what == atoms::feed() {
                         valimc_core::mobs::animals::feed_baby(mob);
+                    } else if what == atoms::fire() {
+                        mob.body.mob.living.fire_ticks = 160;
                     } else if what == atoms::hurt() {
                         let facts = crate::mob_facts::facts()?;
                         let source = facts
@@ -364,13 +510,20 @@ fn mob_parity_think<'a>(
                     }
                 }
             }
+            let others: Vec<_> = statues
+                .iter()
+                .filter_map(|(id, m)| think::sensed(&ctx, *id, m))
+                .enumerate()
+                .map(|(k, row)| (mobs.len() + k, row))
+                .collect();
+            let collide = scene.collide.get(tick as usize);
             let mut ai = SectionAi::begin(
                 ctx,
                 level,
                 players.clone(),
                 vec![],
                 ids.iter().copied().zip(mobs.iter_mut()),
-                vec![],
+                others,
             );
             let mut made = Vec::new();
             for i in 0..mobs.len() {
@@ -393,8 +546,12 @@ fn mob_parity_think<'a>(
                     }
                 }
                 let settled = ai.settle(&mut mobs[i], id, [x, z], Moves::default(), None);
-                ai.moved(&mobs[i]);
                 effects.extend(settled);
+                if scene.post {
+                    let collided = collide.is_some_and(|c| c.contains(&i));
+                    effects.extend(post(rules, kinds, &mut mobs[i], ai.level, collided));
+                }
+                ai.moved(&mobs[i]);
                 made.push(effects);
             }
             drop(ai);
@@ -585,4 +742,31 @@ fn mob_parity_interact<'a>(
         }
     };
     Ok((outcome, mob_term::encode(env, &record::record(&mob))?).encode(env))
+}
+
+/// `Conversion.convert/4` of a mob of a record into type `to` with `uuid` at
+/// the `special` multiplier: the new mob's record where the old one stood.
+#[rustler::nif]
+fn mob_parity_convert<'a>(
+    env: Env<'a>,
+    record_facts: ResourceArc<MobRecordFacts>,
+    record: Term<'a>,
+    new_uuid: Binary<'a>,
+    to: String,
+    special: f64,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let kinds = crate::mob_facts::kinds()?;
+    let value = mob_term::decode(record)?;
+    let mob = record::restore(&value, &record_facts.0).map_err(|_| bad())?;
+    let uuid = uuid(&new_uuid)?;
+    let to = rules.facts.entities.id(&to).ok_or(bad())?;
+    let body = kinds::convert(rules, kinds, &mob.body, &uuid, to, special).ok_or(bad())?;
+    let converted = NativeMob {
+        uuid,
+        position: mob.position,
+        hops: 0,
+        body,
+    };
+    mob_term::encode(env, &record::record(&converted))
 }

@@ -13,7 +13,7 @@ mod atoms {
 // ---- Container loot tables (VMC-072a) ----
 
 pub struct LootRegistry {
-    loot: std::sync::Arc<valimc_core::loot::Loot>,
+    pub(crate) loot: std::sync::Arc<valimc_core::loot::Loot>,
 }
 
 #[rustler::resource_impl]

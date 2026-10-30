@@ -12,387 +12,24 @@ defmodule Valimc.NativeMobAnimalTest do
   """
   use ExUnit.Case, async: true
 
+  import Valimc.NativeMobScene
+
   alias Valimc.AI
-  alias Valimc.AI.{Mind, Selector, Self, World}
-  alias Valimc.Data.{EffectTypes, EntityTypes}
-  alias Valimc.Entity.{Animal, Body, Mob, Store}
+  alias Valimc.Entity.{Animal, Body}
   alias Valimc.Entity.Animals.Interaction
-  alias Valimc.Living.Attributes
   alias Valimc.Native
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  alias Valimc.Worldgen.Generator
-
-  @seed 20_261_029
-  @zoom_seed -4_172_144_997_902_289_642
-  @chunks for cx <- 0..2, cz <- 0..2, do: {cx, cz}
 
   setup_all do
-    Valimc.AI.NativeFacts.install!()
-    Valimc.Entity.NativeLiving.install!()
-    Valimc.AI.Paths.install!()
-    images = Valimc.World.Blocks.lit_images(Generator.columns({:vanilla, @seed}, @chunks), true)
-    size = Valimc.Data.Grid.region_size()
-    absent = for cx <- 0..(size - 1), cz <- 0..(size - 1), {cx, cz} not in @chunks, do: {cx, cz}
-    {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, images, MapSet.new(absent))
-    handles = Valimc.World.Blocks.snapshots(blocks, for(c <- @chunks, do: {c, nil}), 1)
-    view = {:rows, Enum.reject(handles, &is_nil/1), Valimc.Protocol.Data.block("air")}
-
-    types =
-      for name <- EntityTypes.names(), EntityTypes.living?(name) do
-        {:ok, body} = Body.generated(name, nil, false)
-        {name, true, Mob.base(name, %{}, "minecraft:max_health") * 1.0, Map.keys(body.data)}
-      end
-
-    {:ok, facts} =
-      Native.mob_record_facts(%{
-        effect_count: EffectTypes.count(),
-        absorption_effect: EffectTypes.id("absorption"),
-        max_absorption: Attributes.max_absorption() * 1.0,
-        types: types
-      })
-
-    %{blocks: blocks, view: view, facts: facts}
+    setup()
   end
 
   test "the farm animals are native, their goals vanilla's" do
     assert {:ok, types} = Native.mob_kinds()
 
-    assert types ==
-             ~w(minecraft:chicken minecraft:cow minecraft:mooshroom minecraft:pig minecraft:rabbit minecraft:sheep)
-  end
-
-  ## The Elixir side
-
-  defp world(blocks, view, players, time, scene) do
-    read = fn {x, y, z} ->
-      case Native.get_blocks(blocks.ref, <<x::32-signed, y::32-signed, z::32-signed>>) do
-        {:ok, <<state::16>>} -> state
-        _ -> nil
-      end
-    end
-
-    %World{
-      read: read,
-      light: &Valimc.World.Blocks.light(blocks, &1),
-      biome: &Valimc.World.Blocks.biome(blocks, @zoom_seed, &1),
-      search: fn request ->
-        [result] = Valimc.AI.Paths.find(view, [request])
-        result
-      end,
-      players: players,
-      time: time,
-      day: scene.day,
-      difficulty: scene.difficulty,
-      bright: scene.bright,
-      mob_griefing: scene.rules.mob_griefing,
-      mob_drops: scene.rules.mob_drops,
-      entity_drops: scene.rules.entity_drops,
-      knots: Map.new(scene.knots, fn {x, y, z, id} -> {{x, y, z}, id} end)
-    }
-  end
-
-  defp sensed_player(p) do
-    {x, y, z} = p.position
-
-    %{
-      kind: :player,
-      uuid: p.uuid,
-      id: p.id,
-      x: x,
-      y: y,
-      z: z,
-      yaw: p.yaw,
-      pitch: p.pitch,
-      eye: Valimc.Data.Float32.round(1.62),
-      width: Valimc.Data.Float32.round(0.6),
-      height: Valimc.Data.Float32.round(1.8),
-      mode: p.mode,
-      invulnerable: p.mode == :creative,
-      alive: true,
-      crouching: false,
-      swimming: false,
-      invisible: false,
-      armor_cover: 0.0,
-      movement: p.movement,
-      velocity: {0.0, 0.0, 0.0},
-      health: 20.0,
-      effects: MapSet.new(),
-      equipment: if(p.mainhand, do: %{mainhand: p.mainhand}, else: %{})
-    }
-  end
-
-  defp entry_record(id, entry),
-    do:
-      Store.record(%{
-        kind: :mob,
-        entity: Map.put(entry.entity, :entity_id, id),
-        body: entry.body,
-        hops: 0
-      })
-
-  # One tick of the section as the native parity runs it.
-  defp tick(entries, world, scene, tick) do
-    entries = act(entries, scene, tick)
-    {mobs, world, ctx} = AI.prepare(entries, world)
-    old = Map.new(mobs)
-
-    {results, {ctx, world, made}} =
-      mobs
-      |> Enum.with_index()
-      |> Enum.map_reduce({ctx, world, []}, fn {{id, entry}, i}, {ctx, world, made} ->
-        {{^id, body, {x, y, z}, effects}, ctx, world} =
-          AI.think_mob(ctx, i, {id, entry}, world)
-
-        {nx, nz} =
-          case body.mob.motion.control do
-            {:move_to, {tx, _, tz}, _} ->
-              {dx, dz} = {tx - x, tz - z}
-              l = :math.sqrt(dx * dx + dz * dz)
-
-              if l > 0.0 do
-                s = min(l, scene.step)
-                {x + dx / l * s, z + dz / l * s}
-              else
-                {x, z}
-              end
-
-            _ ->
-              {x, z}
-          end
-
-        {body, {px, py, pz}, settled, world} =
-          AI.settle({id, old[id]}, body, {nx, y, nz}, world)
-
-        entry = %{entry | body: body, entity: %{entry.entity | x: px, y: py, z: pz}}
-        world = AI.resense_entry(world, id, entry)
-        {{id, entry}, {ctx, world, made ++ [effects ++ settled]}}
-      end)
-
-    bodies = AI.finish(ctx, Enum.map(results, fn {id, e} -> {id, e.body} end), mobs)
-
-    entries =
-      Enum.zip_with(results, bodies, fn {id, e}, {id, body} -> {id, %{e | body: body}} end)
-
-    {entries, world, made}
-  end
-
-  defp act(entries, scene, tick) do
-    Enum.reduce(scene.acts, entries, fn
-      {^tick, i, what}, entries ->
-        {id, e} = Enum.at(entries, i)
-
-        body =
-          case what do
-            :love ->
-              elem(Animal.fall_in_love(e.body, nil), 0)
-
-            :feed ->
-              Animal.feed_baby(e.body)
-
-            :hurt ->
-              [p | _] = scene.players
-
-              put_in(e.body.mob.ai, AI.hurt(e.body.mob.ai, {:player, p.uuid}, :player_attack)).body
-          end
-
-        List.replace_at(entries, i, {id, %{e | body: body}})
-
-      _, entries ->
-        entries
-    end)
-  end
-
-  defp run(blocks, view, scene, entries) do
-    {ticks, _} =
-      Enum.map_reduce(0..(scene.ticks - 1), {entries, scene.level_seed}, fn t, {entries, level} ->
-        players =
-          case Enum.at(scene.moves, t) do
-            nil ->
-              scene.players
-
-            moved ->
-              Enum.zip_with(scene.players, moved, fn p, {at, movement} ->
-                %{p | position: at, movement: movement}
-              end)
-          end
-
-        world =
-          blocks
-          |> world(view, Enum.map(players, &sensed_player/1), scene.time + t, scene)
-          |> Map.put(:random, level)
-
-        {entries, world, made} = tick(entries, world, scene, t)
-
-        records = for {id, e} <- entries, do: entry_record(id, e)
-        minds = for {_, e} <- entries, do: mind(e.body)
-        effects = for list <- made, do: Enum.map(list, &effect/1)
-        {{records, minds, effects, world.random}, {entries, world.random}}
-      end)
-
-    ticks
-  end
-
-  defp mind(%Body{mob: %Mob{ai: %Mind{} = m} = mob}) do
-    look = m.look && {m.look.x, m.look.y, m.look.z, m.look.y_max, m.look.x_max, m.look.cooldown}
-
-    path =
-      case m.navigation do
-        %{path: %{nodes: nodes, index: index}, speed: speed} ->
-          {index, Tuple.to_list(nodes), speed}
-
-        _ ->
-          nil
-      end
-
-    running = for module <- Selector.running(%Self{mind: m}, :goals), do: inspect(module)
-    disabled = if :move in m.disabled, do: 1, else: 0
-
-    {m.tick, m.no_action, m.ambient, running, m.target, look, m.body_yaw, path, m.own,
-     m.forced_age_timer, m.age_lock_timer, disabled, m.wet, mob.motion.control}
-  end
-
-  defp mind(_body), do: nil
-
-  defp sound_id(id) when is_integer(id), do: id
-  defp sound_id(name), do: Animal.sound_id(name)
-
-  defp effect({:sound, id, source, volume, pitch, _seed}), do: {:sound, id, source, volume, pitch}
-
-  defp effect({:sound_at, id, _source, at, volume, pitch}),
-    do: {:sound_at, sound_id(id), at, volume, pitch}
-
-  defp effect({:offspring, type, data, at}),
-    do: {:offspring, type, Map.delete(data, :egg_time), at}
-
-  defp effect({kind, _} = e)
-       when kind in [:event, :bred, :lay, :lead, :knot_free, :make_knot, :raid_carrot, :attack],
-       do: e
-
-  defp effect({:eat_block, _, _} = e), do: e
-  defp effect({:orb, _, _} = e), do: e
-  defp effect({:alert, _, _} = e), do: e
-  defp effect({:swing, _}), do: {:swing}
-  defp effect(_), do: {:other}
-
-  defp compare(%{blocks: blocks, view: view, facts: facts}, scene, entries) do
-    records = for {id, e} <- entries, do: {id, entry_record(id, e)}
-
-    # Both sides start from what the records keep.
-    entries =
-      for {id, e} <- entries do
-        {:ok, body} = Body.restore(entry_record(id, e))
-        {id, %{e | body: body}}
-      end
-
-    expected = run(blocks, view, scene, entries)
-    native = Native.mob_parity_think(blocks.ref, @zoom_seed, facts, %{scene | mobs: records})
-    assert length(native) == scene.ticks
-
-    for {{e, n}, t} <- Enum.with_index(Enum.zip(expected, native)) do
-      {er, em, ee, el} = e
-      {nr, nm, ne, nl} = n
-
-      for {{a, b}, i} <- Enum.with_index(Enum.zip(em, nm)),
-          do: assert({t, i, :mind, b} == {t, i, :mind, a})
-
-      for {{a, b}, i} <- Enum.with_index(Enum.zip(ee, ne)),
-          do: assert({t, i, :effects, b} == {t, i, :effects, a})
-
-      for {{a, b}, i} <- Enum.with_index(Enum.zip(er, nr)),
-          do: assert({t, i, :record, b} == {t, i, :record, a})
-
-      assert {t, :level, nl} == {t, :level, el}
-    end
-
-    expected
-  end
-
-  ## Scenes
-
-  defp uuid(n), do: <<n::64, n * 7919::64>>
-
-  defp surface(blocks, x, z) do
-    world = %World{read: &read(blocks, &1)}
-    World.motion_blocking(world, x, z)
-  end
-
-  defp read(blocks, {x, y, z}) do
-    case Native.get_blocks(blocks.ref, <<x::32-signed, y::32-signed, z::32-signed>>) do
-      {:ok, <<state::16>>} -> state
-      _ -> nil
-    end
-  end
-
-  # Land columns: the block below the surface is no fluid.
-  defp land(blocks, count, rand) do
-    world = %World{read: &read(blocks, &1)}
-
-    Stream.unfold(rand, fn rand ->
-      {x, rand} = :rand.uniform_s(24, rand)
-      {z, rand} = :rand.uniform_s(24, rand)
-      {{x + 11, z + 11}, rand}
-    end)
-    |> Stream.map(fn {x, z} -> {x, surface(blocks, x, z), z} end)
-    |> Stream.filter(fn {x, y, z} -> World.fluid(world, {x, y - 1, z}) == :empty end)
-    |> Enum.take(count)
-  end
-
-  defp animal(n, type, {x, y, z}, opts \\ []) do
-    {:ok, body} = Body.new(type)
-    data = Map.merge(body.data, Map.new(Keyword.get(opts, :data, [])))
-    data = Map.put(data, :age, Keyword.get(opts, :age, 0))
-    yaw = Keyword.get(opts, :yaw, 15.0 * n)
-    body = %{body | data: data, yaw: yaw, head_yaw: yaw, on_ground: true}
-    body = %{body | mob: %{body.mob | no_ai: Keyword.get(opts, :no_ai, false)}}
-
-    body =
-      case Keyword.get(opts, :leash) do
-        nil ->
-          body
-
-        holder ->
-          put_in(body.mob.leash, %{holder: holder, id: nil, momentum: 0.0, restored: false})
-      end
-
-    body =
-      case Keyword.get(opts, :finalize) do
-        nil -> body
-        reason -> put_in(body.mob.finalize, reason)
-      end
-
-    {x, y, z} = {x + 0.5 + 0.1 * rem(n, 3), y * 1.0, z + 0.5}
-    {n, %{entity: %{uuid: uuid(n), x: x, y: y, z: z}, body: body, revision: 1}}
-  end
-
-  defp player(n, {x, y, z}, opts \\ []) do
-    %{
-      uuid: uuid(1000 + n),
-      id: 1000 + n,
-      position: {x + 0.3, y * 1.0, z + 0.7},
-      yaw: 12.5,
-      pitch: -3.0,
-      mode: Keyword.get(opts, :mode, :survival),
-      mainhand: Keyword.get(opts, :mainhand),
-      movement: {0.0, 0.0, 0.0}
-    }
-  end
-
-  defp scene(players, opts) do
-    %{
-      mobs: [],
-      players: players,
-      time: Keyword.get(opts, :time, 6000),
-      day: Keyword.get(opts, :day, 6000),
-      ticks: Keyword.get(opts, :ticks, 200),
-      step: Keyword.get(opts, :step, 0.2),
-      difficulty: :normal,
-      bright: true,
-      rules: %{mob_griefing: true, mob_drops: true, entity_drops: true},
-      knots: Keyword.get(opts, :knots, []),
-      acts: Keyword.get(opts, :acts, []),
-      moves: Keyword.get(opts, :moves, []),
-      level_seed: AI.Random.new(Keyword.get(opts, :level, 7))
-    }
+    for type <-
+          ~w(minecraft:chicken minecraft:cow minecraft:mooshroom minecraft:pig minecraft:rabbit minecraft:sheep),
+        do: assert(type in types)
   end
 
   @types ~w(minecraft:cow minecraft:pig minecraft:sheep minecraft:chicken minecraft:mooshroom minecraft:rabbit)
@@ -404,7 +41,7 @@ defmodule Valimc.NativeMobAnimalTest do
 
     entries =
       for {{spot, type}, n} <- Enum.with_index(Enum.zip(rest, Stream.cycle(@types)), 1) do
-        animal(n, type, spot,
+        mob(n, type, spot,
           age: if(rem(n, 4) == 0, do: -24_000, else: 0),
           no_ai: n == 5
         )
@@ -422,13 +59,13 @@ defmodule Valimc.NativeMobAnimalTest do
 
     entries =
       for {type, k} <- Enum.with_index(@types), side <- [0, 1] do
-        animal(1 + 2 * k + side, type, {x + side, y, z + 2 * k},
+        mob(1 + 2 * k + side, type, {x + side, y, z + 2 * k},
           finalize: :natural,
           data: if(type == "minecraft:sheep", do: [color: 4 + side], else: [])
         )
       end
 
-    baby = animal(30, "minecraft:cow", {x + 1, y, z + 1}, age: -1200)
+    baby = mob(30, "minecraft:cow", {x + 1, y, z + 1}, age: -1200)
     entries = entries ++ [baby]
     acts = for(i <- 0..11, do: {2, i, :love}) ++ [{5, 12, :feed}, {6, 12, :feed}]
     observed = compare(ctx, scene([], ticks: 160, acts: acts, level: 11), entries)
@@ -440,7 +77,7 @@ defmodule Valimc.NativeMobAnimalTest do
   test "rabbits hop, flee players and panic", ctx do
     spots = land(ctx.blocks, 6, :rand.seed_s(:exsss, 93))
     {[here], rest} = Enum.split(spots, 1)
-    entries = for {spot, n} <- Enum.with_index(rest, 1), do: animal(n, "minecraft:rabbit", spot)
+    entries = for {spot, n} <- Enum.with_index(rest, 1), do: mob(n, "minecraft:rabbit", spot)
     acts = for i <- 0..4, do: {20 + 10 * i, i, :hurt}
 
     observed =
@@ -462,7 +99,7 @@ defmodule Valimc.NativeMobAnimalTest do
     entries =
       for {spot, n} <- Enum.with_index(rest, 1) do
         type = if n <= 9, do: "minecraft:sheep", else: Enum.at(@types, n - 10)
-        animal(n, type, spot, age: if(rem(n, 2) == 0, do: -24_000, else: 0))
+        mob(n, type, spot, age: if(rem(n, 2) == 0, do: -24_000, else: 0))
       end
 
     acts = for i <- 9..12, do: {30, i, :hurt}
@@ -480,9 +117,9 @@ defmodule Valimc.NativeMobAnimalTest do
     knot = {elem(b, 0), elem(b, 1) + 1, elem(b, 2)}
 
     entries = [
-      animal(1, "minecraft:cow", {ax + 2, ay, az}, leash: {:player, holder.uuid}),
-      animal(2, "minecraft:pig", b, leash: {:knot, knot}),
-      animal(3, "minecraft:sheep", {ax - 2, ay, az}, leash: {:player, holder.uuid})
+      mob(1, "minecraft:cow", {ax + 2, ay, az}, leash: {:player, holder.uuid}),
+      mob(2, "minecraft:pig", b, leash: {:knot, knot}),
+      mob(3, "minecraft:sheep", {ax - 2, ay, az}, leash: {:player, holder.uuid})
     ]
 
     # The holder walks away along x, faster and faster, until the leads break.

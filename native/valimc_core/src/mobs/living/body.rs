@@ -21,7 +21,7 @@ pub fn fresh(rules: &Rules, ty: Type) -> Body {
         velocity: [0.0; 3],
         on_ground: false,
         no_gravity: false,
-        data: family.data(),
+        data: family.data(ty.id),
         mob: mob::fresh(rules.living, rules.facts, ty, family),
         custom_name: None,
         preserved: None,
